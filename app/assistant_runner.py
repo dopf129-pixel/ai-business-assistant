@@ -7,7 +7,8 @@ from config import (
     TAX_MODE,
     TAX_RATE,
     MINIMUM_TAX_RATE,
-    ADVERTISING_COST
+    ADVERTISING_COST,
+    ANALYSIS_PERIOD
 )
 
 from database import (
@@ -66,14 +67,16 @@ class AssistantRunner:
         self.profit_dashboard = ProfitDashboardService()
 
         self.store_analytics_service = (
-            StoreAnalyticsService(
-                tax_mode=TAX_MODE,
-                tax_rate=TAX_RATE,
-                minimum_tax_rate=MINIMUM_TAX_RATE,
-                advertising_cost=ADVERTISING_COST,
-                analysis_date=self.finance_date
-            )
-        )
+    StoreAnalyticsService(
+        tax_mode=TAX_MODE,
+        tax_rate=TAX_RATE,
+        minimum_tax_rate=MINIMUM_TAX_RATE,
+        advertising_cost=ADVERTISING_COST,
+        period_code=ANALYSIS_PERIOD,
+        date_to=self.finance_date,
+        finance_service=self.finance_service
+    )
+)
 
         self.health_history = HealthHistoryService()
 

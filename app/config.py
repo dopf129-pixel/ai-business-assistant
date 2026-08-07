@@ -11,14 +11,17 @@ PROJECT_NAME = os.getenv(
     "Ozon AI Assistant"
 )
 
+
 VERSION = os.getenv(
     "VERSION",
     "0.0.1"
 )
 
+
 OZON_CLIENT_ID = os.getenv(
     "OZON_CLIENT_ID"
 )
+
 
 OZON_API_KEY = os.getenv(
     "OZON_API_KEY"
@@ -55,6 +58,7 @@ def get_float_env(
 ):
 
     try:
+
         return float(
             os.getenv(
                 name,
@@ -66,6 +70,7 @@ def get_float_env(
         TypeError,
         ValueError
     ):
+
         return float(
             default
         )
@@ -76,16 +81,29 @@ TAX_RATE = get_float_env(
     0
 )
 
+
 MINIMUM_TAX_RATE = get_float_env(
     "MINIMUM_TAX_RATE",
     1
 )
 
 
-# Расходы на рекламу за анализируемый период.
+# Период анализа бизнеса:
 #
-# Пока задаются вручную через .env.
-# Позже источник можно заменить на Ozon Ads API.
+# TODAY - сегодня
+# 7D    - последние 7 дней
+# 28D   - последние 28 дней
+# 56D   - последние 56 дней
+# 90D   - последние 90 дней
+# ALL   - всё время
+
+ANALYSIS_PERIOD = os.getenv(
+    "ANALYSIS_PERIOD",
+    "TODAY"
+).upper()
+
+
+# Рекламные расходы
 
 ADVERTISING_COST = get_float_env(
     "ADVERTISING_COST",
