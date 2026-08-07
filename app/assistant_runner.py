@@ -44,6 +44,10 @@ from services.store_period_summary_service import (
     StorePeriodSummaryService
 )
 
+from services.store_period_summary_formatter import (
+    StorePeriodSummaryFormatter
+)
+
 from services.store_period_runner_service import (
     StorePeriodRunnerService
 )
@@ -102,6 +106,9 @@ class AssistantRunner:
             )
         )
 
+        self.store_period_summary_formatter = (
+            StorePeriodSummaryFormatter()
+        )
         self.health_history = HealthHistoryService()
 
         self.orchestrator = AIOrchestratorService()
@@ -821,8 +828,21 @@ class AssistantRunner:
     )
 
         result["period_summary"] = (
-        period_summary
+            period_summary
     )
+
+        period_text = (
+            self.store_period_summary_formatter
+            .format(
+                period_summary
+            )
+        )
+
+        print()
+
+        print(
+            period_text
+        )
 
         (
             self.store_analytics_service
