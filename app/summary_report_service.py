@@ -68,25 +68,18 @@ class SummaryReportService:
         predictions,
         stock_forecast,
         kpi,
-        finance=None
+        finance=None,
+        profit=None
     ):
 
         finance = finance or {}
+        profit = profit or {}
 
         lines = []
 
-        lines.append(
-            "========================="
-        )
-
-        lines.append(
-            "Ozon AI Summary"
-        )
-
-        lines.append(
-            "========================="
-        )
-
+        lines.append("=========================")
+        lines.append("Ozon AI Summary")
+        lines.append("=========================")
         lines.append("")
 
         lines.append(
@@ -304,6 +297,67 @@ class SummaryReportService:
         lines.append("")
 
         lines.append(
+            "Экономика товара:"
+        )
+
+        if profit.get("error"):
+
+            lines.append(
+                "Расчёт прибыли недоступен: "
+                f'{profit.get("message", "Неизвестная ошибка")}'
+            )
+
+        elif profit:
+
+            lines.append(
+                "Продаж: "
+                f'{profit.get("sales_count", 0)}'
+            )
+
+            lines.append(
+                "Себестоимость 1 шт.: "
+                f'{self.format_money(profit.get("cost_price", 0))}'
+            )
+
+            lines.append(
+                "Себестоимость проданных товаров: "
+                f'{self.format_money(profit.get("total_cost", 0))}'
+            )
+
+            lines.append(
+                "Чистое начисление Ozon: "
+                f'{self.format_money(profit.get("net_accrual", 0))}'
+            )
+
+            lines.append(
+                "Валовая прибыль: "
+                f'{self.format_money(profit.get("gross_profit", 0))}'
+            )
+
+            lines.append(
+                "Прибыль на 1 шт.: "
+                f'{self.format_money(profit.get("profit_per_unit", 0))}'
+            )
+
+            margin_percent = profit.get(
+                "margin_percent",
+                0
+            )
+
+            lines.append(
+                "Маржинальность: "
+                f"{float(margin_percent):.2f}%"
+            )
+
+        else:
+
+            lines.append(
+                "Данные о прибыли не переданы"
+            )
+
+        lines.append("")
+
+        lines.append(
             "AI-прогноз:"
         )
 
@@ -339,10 +393,10 @@ class SummaryReportService:
         lines.append("")
 
         lines.append(
-            "Примечание: чистое начисление Ozon "
-            "не является чистой прибылью бизнеса. "
-            "Для расчёта прибыли необходимо учесть "
-            "себестоимость товара и внешние расходы."
+            "Примечание: валовая прибыль рассчитана "
+            "после расходов Ozon и себестоимости товара, "
+            "но до налогов, рекламы и других "
+            "бизнес-расходов."
         )
 
         lines.append("")
@@ -368,7 +422,8 @@ class SummaryReportService:
         predictions,
         stock_forecast,
         kpi,
-        finance=None
+        finance=None,
+        profit=None
     ):
 
         report = self.build_report(
@@ -380,7 +435,8 @@ class SummaryReportService:
             predictions=predictions,
             stock_forecast=stock_forecast,
             kpi=kpi,
-            finance=finance
+            finance=finance,
+            profit=profit
         )
 
         safe_offer_id = str(

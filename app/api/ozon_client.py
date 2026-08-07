@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 from config import (
@@ -27,7 +29,8 @@ class OzonClient:
         self,
         endpoint,
         data,
-        timeout=20
+        timeout=20,
+        max_attempts=3
     ):
 
         if not self.client_id or not self.api_key:
@@ -39,56 +42,169 @@ class OzonClient:
 
         url = self.base_url + endpoint
 
-        try:
-
-            response = requests.post(
-                url,
-                headers=self.get_headers(),
-                json=data,
-                timeout=timeout
-            )
-
-            response.raise_for_status()
-
-            return response.json()
-
-        except requests.exceptions.Timeout:
-
-            return {
-                "error": True,
-                "message": (
-                    "Ozon API: превышено время ожидания"
-                )
-            }
-
-        except requests.exceptions.HTTPError as error:
-
-            message = str(error)
+        for attempt in range(
+            1,
+            max_attempts + 1
+        ):
 
             try:
 
-                response_data = response.json()
-
-                message = response_data.get(
-                    "message",
-                    message
+                response = requests.post(
+                    url,
+                    headers=self.get_headers(),
+                    json=data,
+                    timeout=timeout
                 )
 
-            except ValueError:
-                pass
+                if response.status_code == 429:
 
-            return {
-                "error": True,
-                "status_code": response.status_code,
-                "message": message
-            }
+                    if attempt >= max_attempts:
 
-        except requests.exceptions.RequestException as error:
+                        return {
+                            "error": True,
+                            "status_code": 429,
+                            "message": (
+                                "Ozon API: превышен лимит запросов. "
+                                "Все попытки исчерпаны."
+                            )
+                        }
 
-            return {
-                "error": True,
-                "message": str(error)
-            }
+                    retry_after = (
+                        response.headers.get(
+                            "Retry-After"
+                        )
+                    )
+
+                    try:
+
+                        wait_seconds = float(
+                            retry_after
+                        )
+
+                    except (
+                        TypeError,
+                        ValueError
+                    ):
+
+                        wait_seconds = (
+                            2 ** attempt
+                        )
+
+                    print(
+                        "Ozon API: достигнут лимит запросов."
+                    )
+
+                    print(
+                        "Повтор через",
+                        wait_seconds,
+                        "сек."
+                    )
+
+                    time.sleep(
+                        wait_seconds
+                    )
+
+                    continue
+
+                response.raise_for_status()
+
+                return response.json()
+
+            except requests.exceptions.Timeout:
+
+                if attempt >= max_attempts:
+
+                    return {
+                        "error": True,
+                        "message": (
+                            "Ozon API: превышено "
+                            "время ожидания"
+                        )
+                    }
+
+                wait_seconds = (
+                    2 ** attempt
+                )
+
+                print(
+                    "Ozon API: таймаут."
+                )
+
+                print(
+                    "Повтор через",
+                    wait_seconds,
+                    "сек."
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+            except requests.exceptions.HTTPError as error:
+
+                message = str(
+                    error
+                )
+
+                try:
+
+                    response_data = (
+                        response.json()
+                    )
+
+                    message = (
+                        response_data.get(
+                            "message",
+                            message
+                        )
+                    )
+
+                except ValueError:
+                    pass
+
+                return {
+                    "error": True,
+                    "status_code": (
+                        response.status_code
+                    ),
+                    "message": message
+                }
+
+            except requests.exceptions.RequestException as error:
+
+                if attempt >= max_attempts:
+
+                    return {
+                        "error": True,
+                        "message": str(
+                            error
+                        )
+                    }
+
+                wait_seconds = (
+                    2 ** attempt
+                )
+
+                print(
+                    "Ozon API: ошибка соединения."
+                )
+
+                print(
+                    "Повтор через",
+                    wait_seconds,
+                    "сек."
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+        return {
+            "error": True,
+            "message": (
+                "Ozon API: запрос не выполнен"
+            )
+        }
 
     def test_connection(self):
 
@@ -113,7 +229,9 @@ class OzonClient:
             "/v3/product/list",
             {
                 "filter": {},
-                "limit": int(limit)
+                "limit": int(
+                    limit
+                )
             }
         )
 
@@ -125,7 +243,9 @@ class OzonClient:
         return self._post(
             "/v3/product/info",
             {
-                "product_id": int(product_id)
+                "product_id": int(
+                    product_id
+                )
             }
         )
 
@@ -139,7 +259,9 @@ class OzonClient:
             {
                 "filter": {
                     "product_id": [
-                        str(product_id)
+                        str(
+                            product_id
+                        )
                     ]
                 },
                 "limit": 100
@@ -154,9 +276,12 @@ class OzonClient:
         return self._post(
             "/v1/finance/accrual/by-day",
             {
-                "date": str(accrual_date)
+                "date": str(
+                    accrual_date
+                )
             },
-            timeout=30
+            timeout=30,
+            max_attempts=3
         )
 
     def get_accrual_types(self):
@@ -164,5 +289,6 @@ class OzonClient:
         return self._post(
             "/v1/finance/accrual/types",
             {},
-            timeout=30
+            timeout=30,
+            max_attempts=3
         )

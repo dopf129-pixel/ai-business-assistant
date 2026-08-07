@@ -14,9 +14,25 @@ from database import (
 
 from services.product_service import ProductService
 from services.metrics_service import MetricsService
+
 from services.finance_service import FinanceService
 from services.finance_dashboard_service import (
     FinanceDashboardService
+)
+
+from services.cost_service import ProductCostService
+
+from services.profit_service import ProfitService
+from services.profit_dashboard_service import (
+    ProfitDashboardService
+)
+
+from services.store_profit_service import (
+    StoreProfitService
+)
+
+from services.store_profit_dashboard_service import (
+    StoreProfitDashboardService
 )
 
 from health_history_service import HealthHistoryService
@@ -289,6 +305,16 @@ def start():
     finance_service = FinanceService()
     finance_dashboard = FinanceDashboardService()
 
+    cost_service = ProductCostService()
+
+    profit_service = ProfitService()
+    profit_dashboard = ProfitDashboardService()
+
+    store_profit_service = StoreProfitService()
+    store_profit_dashboard = (
+        StoreProfitDashboardService()
+    )
+
     health_history = HealthHistoryService()
 
     orchestrator = AIOrchestratorService()
@@ -301,6 +327,8 @@ def start():
     summary_report_service = SummaryReportService()
 
     finance_date = date.today().isoformat()
+
+    store_profits = []
 
     count = product_service.update_products()
 
@@ -440,6 +468,35 @@ def start():
             finance
         )
 
+        cost = cost_service.get_cost(
+            product_id
+        )
+
+        if cost:
+
+            profit = profit_service.calculate(
+                finance,
+                cost[3]
+            )
+
+        else:
+
+            profit = {
+                "error": True,
+                "message": (
+                    "Себестоимость товара "
+                    "не задана"
+                )
+            }
+
+        profit_dashboard.print_dashboard(
+            profit
+        )
+
+        store_profits.append(
+            profit
+        )
+
         print_decisions(decisions)
 
         created = action_service.create_actions(
@@ -493,17 +550,20 @@ def start():
 
             print("Изменений нет")
 
-        summary_path = summary_report_service.save_report(
-    product_id=product_id,
-    offer_id=metrics.get("offer_id"),
-    health=health,
-    risk=risk,
-    memory_analysis=memory_analysis,
-    predictions=predictions,
-    stock_forecast=stock_forecast,
-    kpi=kpi,
-    finance=finance
-)
+        summary_path = (
+            summary_report_service.save_report(
+                product_id=product_id,
+                offer_id=metrics.get("offer_id"),
+                health=health,
+                risk=risk,
+                memory_analysis=memory_analysis,
+                predictions=predictions,
+                stock_forecast=stock_forecast,
+                kpi=kpi,
+                finance=finance,
+                profit=profit
+            )
+        )
 
         print()
         print("Краткий отчёт сохранён:")
@@ -511,6 +571,21 @@ def start():
 
         print()
         print("Отчёт завершён")
+
+    print()
+    print("================================")
+    print("Итог по магазину")
+    print("================================")
+
+    store_result = (
+        store_profit_service.calculate(
+            store_profits
+        )
+    )
+
+    store_profit_dashboard.print_dashboard(
+        store_result
+    )
 
 
 if __name__ == "__main__":
