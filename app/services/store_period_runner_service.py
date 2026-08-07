@@ -9,10 +9,10 @@ from services.store_period_report_service import (
 
 
 class StorePeriodRunnerService:
-
     def __init__(
         self,
-        report_service=None
+        report_service=None,
+        profit_service=None
     ):
 
         self.period_service = (
@@ -21,7 +21,20 @@ class StorePeriodRunnerService:
 
         self.report_service = (
             report_service
-            or StorePeriodReportService()
+            or StorePeriodReportService(
+                profit_service=profit_service
+            )
+        )
+
+        self.period_service = (
+            AnalysisPeriodService()
+        )
+
+        self.report_service = (
+            report_service
+            or StorePeriodReportService(
+    profit_service=profit_service
+)
         )
 
 

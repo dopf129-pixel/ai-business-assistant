@@ -36,6 +36,14 @@ from services.store_analytics_service import (
     StoreAnalyticsService
 )
 
+from services.store_period_runner_service import (
+    StorePeriodRunnerService
+)
+
+from services.store_period_runner_service import (
+    StorePeriodRunnerService
+)
+
 from health_history_service import HealthHistoryService
 
 from action_service import ActionService
@@ -75,6 +83,12 @@ class AssistantRunner:
         period_code=ANALYSIS_PERIOD,
         date_to=self.finance_date,
         finance_service=self.finance_service
+    )
+)
+
+        self.store_period_runner_service = (
+    StorePeriodRunnerService(
+        profit_service=self.profit_service
     )
 )
 
