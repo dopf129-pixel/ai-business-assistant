@@ -40,6 +40,10 @@ from services.store_period_runner_service import (
     StorePeriodRunnerService
 )
 
+from services.store_period_summary_service import (
+    StorePeriodSummaryService
+)
+
 from services.store_period_runner_service import (
     StorePeriodRunnerService
 )
@@ -91,6 +95,12 @@ class AssistantRunner:
         profit_service=self.profit_service
     )
 )
+
+        self.store_period_summary_service = (
+            StorePeriodSummaryService(
+                period_runner=self.store_period_runner_service
+            )
+        )
 
         self.health_history = HealthHistoryService()
 
@@ -800,6 +810,19 @@ class AssistantRunner:
                 self.store_profits
             )
         )
+
+        period_summary = (
+        self.store_period_summary_service
+        .build(
+            period_code=ANALYSIS_PERIOD,
+            date_to=self.finance_date,
+            products=self.store_profits
+        )
+    )
+
+        result["period_summary"] = (
+        period_summary
+    )
 
         (
             self.store_analytics_service
