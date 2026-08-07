@@ -50,11 +50,14 @@ class BusinessAnalyticsService:
         minimum_tax_rate,
         advertising_cost,
         analysis_date=None,
+        date_from=None,
+        date_to=None,
         expense_repository=None
     ):
 
         self.tax_mode = tax_mode
         self.tax_rate = tax_rate
+
         self.minimum_tax_rate = (
             minimum_tax_rate
         )
@@ -63,9 +66,33 @@ class BusinessAnalyticsService:
             advertising_cost
         )
 
-        self.analysis_date = (
-            analysis_date
-        )
+        # Обратная совместимость:
+        # если передана старая analysis_date,
+        # считаем её периодом из одного дня.
+
+        if analysis_date:
+
+            self.date_from = str(
+                analysis_date
+            )
+
+            self.date_to = str(
+                analysis_date
+            )
+
+        else:
+
+            self.date_from = (
+                str(date_from)
+                if date_from
+                else None
+            )
+
+            self.date_to = (
+                str(date_to)
+                if date_to
+                else None
+            )
 
         self.store_profit_service = (
             StoreProfitService()
@@ -112,11 +139,28 @@ class BusinessAnalyticsService:
             BusinessProfitDashboardService()
         )
 
+    def get_period_info(
+        self
+    ):
+
+        return {
+            "date_from": self.date_from,
+            "date_to": self.date_to
+        }
+
     def load_expenses(
         self
     ):
 
-        if not self.analysis_date:
+        # Если период вообще не передан,
+        # ничего из реальной базы не читаем.
+        #
+        # Это важно для изолированных тестов.
+
+        if (
+            not self.date_from
+            and not self.date_to
+        ):
 
             return {
                 "error": False,
@@ -127,12 +171,61 @@ class BusinessAnalyticsService:
 
         try:
 
-            rows = (
-                self.expense_repository
-                .get_expenses_by_date(
-                    self.analysis_date
+            # Один день
+
+            if (
+                self.date_from
+                and self.date_to
+                and self.date_from
+                == self.date_to
+            ):
+
+                rows = (
+                    self.expense_repository
+                    .get_expenses_by_date(
+                        self.date_to
+                    )
                 )
-            )
+
+            # Обычный диапазон:
+            # 7 / 28 / 56 / 90 дней
+
+            elif (
+                self.date_from
+                and self.date_to
+            ):
+
+                rows = (
+                    self.expense_repository
+                    .get_expenses_by_period(
+                        self.date_from,
+                        self.date_to
+                    )
+                )
+
+            # "За всё время" до date_to.
+            #
+            # ISO-даты в базе имеют формат
+            # YYYY-MM-DD, поэтому начало
+            # можно безопасно задать очень
+            # ранней датой.
+
+            elif (
+                not self.date_from
+                and self.date_to
+            ):
+
+                rows = (
+                    self.expense_repository
+                    .get_expenses_by_period(
+                        "0001-01-01",
+                        self.date_to
+                    )
+                )
+
+            else:
+
+                rows = []
 
         except Exception as error:
 
@@ -219,13 +312,18 @@ class BusinessAnalyticsService:
             )
         )
 
-        if advertising.get("error"):
+        if advertising.get(
+            "error"
+        ):
 
             return {
                 "error": True,
                 "message": advertising.get(
                     "message",
                     "Ошибка рекламных расходов"
+                ),
+                "period": (
+                    self.get_period_info()
                 ),
                 "store_profit": store_profit,
                 "tax": tax,
@@ -236,13 +334,18 @@ class BusinessAnalyticsService:
             self.load_expenses()
         )
 
-        if expenses.get("error"):
+        if expenses.get(
+            "error"
+        ):
 
             return {
                 "error": True,
                 "message": expenses.get(
                     "message",
                     "Ошибка прочих расходов"
+                ),
+                "period": (
+                    self.get_period_info()
                 ),
                 "store_profit": store_profit,
                 "tax": tax,
@@ -272,6 +375,9 @@ class BusinessAnalyticsService:
 
         return {
             "error": False,
+            "period": (
+                self.get_period_info()
+            ),
             "store_profit": store_profit,
             "tax": tax,
             "advertising": advertising,
