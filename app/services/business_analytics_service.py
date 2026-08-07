@@ -7,6 +7,7 @@ from services.store_profit_dashboard_service import (
 )
 
 from services.tax_service import TaxService
+
 from services.tax_dashboard_service import (
     TaxDashboardService
 )
@@ -17,6 +18,18 @@ from services.advertising_service import (
 
 from services.advertising_dashboard_service import (
     AdvertisingDashboardService
+)
+
+from services.expense_repository import (
+    ExpenseRepository
+)
+
+from services.expense_service import (
+    ExpenseService
+)
+
+from services.expense_dashboard_service import (
+    ExpenseDashboardService
 )
 
 from services.business_profit_service import (
@@ -35,13 +48,24 @@ class BusinessAnalyticsService:
         tax_mode,
         tax_rate,
         minimum_tax_rate,
-        advertising_cost
+        advertising_cost,
+        analysis_date=None,
+        expense_repository=None
     ):
 
         self.tax_mode = tax_mode
         self.tax_rate = tax_rate
-        self.minimum_tax_rate = minimum_tax_rate
-        self.advertising_cost = advertising_cost
+        self.minimum_tax_rate = (
+            minimum_tax_rate
+        )
+
+        self.advertising_cost = (
+            advertising_cost
+        )
+
+        self.analysis_date = (
+            analysis_date
+        )
 
         self.store_profit_service = (
             StoreProfitService()
@@ -51,8 +75,13 @@ class BusinessAnalyticsService:
             StoreProfitDashboardService()
         )
 
-        self.tax_service = TaxService()
-        self.tax_dashboard = TaxDashboardService()
+        self.tax_service = (
+            TaxService()
+        )
+
+        self.tax_dashboard = (
+            TaxDashboardService()
+        )
 
         self.advertising_service = (
             AdvertisingService()
@@ -62,12 +91,86 @@ class BusinessAnalyticsService:
             AdvertisingDashboardService()
         )
 
+        self.expense_repository = (
+            expense_repository
+            or ExpenseRepository()
+        )
+
+        self.expense_service = (
+            ExpenseService()
+        )
+
+        self.expense_dashboard = (
+            ExpenseDashboardService()
+        )
+
         self.business_profit_service = (
             BusinessProfitService()
         )
 
         self.business_profit_dashboard = (
             BusinessProfitDashboardService()
+        )
+
+    def load_expenses(
+        self
+    ):
+
+        if not self.analysis_date:
+
+            return {
+                "error": False,
+                "expenses_count": 0,
+                "expenses": [],
+                "other_expenses": 0.0
+            }
+
+        try:
+
+            rows = (
+                self.expense_repository
+                .get_expenses_by_date(
+                    self.analysis_date
+                )
+            )
+
+        except Exception as error:
+
+            return {
+                "error": True,
+                "message": (
+                    "Не удалось получить "
+                    "прочие расходы: "
+                    f"{error}"
+                )
+            }
+
+        expenses = []
+
+        for row in rows:
+
+            expenses.append(
+                {
+                    "name": row.get(
+                        "category",
+                        "Без названия"
+                    ),
+                    "amount": row.get(
+                        "amount",
+                        0
+                    ),
+                    "description": row.get(
+                        "description",
+                        ""
+                    )
+                }
+            )
+
+        return (
+            self.expense_service
+            .calculate(
+                expenses
+            )
         )
 
     def calculate(
@@ -85,21 +188,27 @@ class BusinessAnalyticsService:
         configured_rate = None
 
         if self.tax_rate > 0:
-            configured_rate = self.tax_rate
 
-        tax = self.tax_service.calculate(
-            mode=self.tax_mode,
-            revenue=store_profit.get(
-                "gross_sales",
-                0
-            ),
-            gross_profit=store_profit.get(
-                "gross_profit",
-                0
-            ),
-            tax_rate=configured_rate,
-            minimum_tax_rate=(
-                self.minimum_tax_rate
+            configured_rate = (
+                self.tax_rate
+            )
+
+        tax = (
+            self.tax_service
+            .calculate(
+                mode=self.tax_mode,
+                revenue=store_profit.get(
+                    "gross_sales",
+                    0
+                ),
+                gross_profit=store_profit.get(
+                    "gross_profit",
+                    0
+                ),
+                tax_rate=configured_rate,
+                minimum_tax_rate=(
+                    self.minimum_tax_rate
+                )
             )
         )
 
@@ -123,6 +232,24 @@ class BusinessAnalyticsService:
                 "advertising": advertising
             }
 
+        expenses = (
+            self.load_expenses()
+        )
+
+        if expenses.get("error"):
+
+            return {
+                "error": True,
+                "message": expenses.get(
+                    "message",
+                    "Ошибка прочих расходов"
+                ),
+                "store_profit": store_profit,
+                "tax": tax,
+                "advertising": advertising,
+                "expenses": expenses
+            }
+
         business_profit = (
             self.business_profit_service
             .calculate(
@@ -131,6 +258,12 @@ class BusinessAnalyticsService:
                 advertising_cost=(
                     advertising.get(
                         "advertising_cost",
+                        0
+                    )
+                ),
+                other_expenses=(
+                    expenses.get(
+                        "other_expenses",
                         0
                     )
                 )
@@ -142,6 +275,7 @@ class BusinessAnalyticsService:
             "store_profit": store_profit,
             "tax": tax,
             "advertising": advertising,
+            "expenses": expenses,
             "business_profit": business_profit
         }
 
@@ -165,6 +299,11 @@ class BusinessAnalyticsService:
             {}
         )
 
+        expenses = result.get(
+            "expenses",
+            {}
+        )
+
         business_profit = result.get(
             "business_profit",
             {}
@@ -180,6 +319,10 @@ class BusinessAnalyticsService:
 
         self.advertising_dashboard.print_dashboard(
             advertising
+        )
+
+        self.expense_dashboard.print_dashboard(
+            expenses
         )
 
         self.business_profit_dashboard.print_dashboard(

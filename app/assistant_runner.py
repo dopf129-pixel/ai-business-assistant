@@ -31,8 +31,8 @@ from services.profit_dashboard_service import (
     ProfitDashboardService
 )
 
-from services.business_analytics_service import (
-    BusinessAnalyticsService
+from services.store_analytics_service import (
+    StoreAnalyticsService
 )
 
 from health_history_service import HealthHistoryService
@@ -55,6 +55,8 @@ class AssistantRunner:
         self.product_service = ProductService()
         self.metrics_service = MetricsService()
 
+        self.finance_date = date.today().isoformat()
+
         self.finance_service = FinanceService()
         self.finance_dashboard = FinanceDashboardService()
 
@@ -63,12 +65,13 @@ class AssistantRunner:
         self.profit_service = ProfitService()
         self.profit_dashboard = ProfitDashboardService()
 
-        self.business_analytics_service = (
-            BusinessAnalyticsService(
+        self.store_analytics_service = (
+            StoreAnalyticsService(
                 tax_mode=TAX_MODE,
                 tax_rate=TAX_RATE,
                 minimum_tax_rate=MINIMUM_TAX_RATE,
-                advertising_cost=ADVERTISING_COST
+                advertising_cost=ADVERTISING_COST,
+                analysis_date=self.finance_date
             )
         )
 
@@ -82,8 +85,6 @@ class AssistantRunner:
 
         self.change_log = ChangeLogService()
         self.summary_report_service = SummaryReportService()
-
-        self.finance_date = date.today().isoformat()
 
         self.store_profits = []
 
@@ -777,14 +778,14 @@ class AssistantRunner:
         )
 
         result = (
-            self.business_analytics_service
-            .calculate(
+            self.store_analytics_service
+            .analyze(
                 self.store_profits
             )
         )
 
         (
-            self.business_analytics_service
+            self.store_analytics_service
             .print_dashboards(
                 result
             )
