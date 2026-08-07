@@ -66,7 +66,6 @@ def get_float_env(
         TypeError,
         ValueError
     ):
-
         return float(
             default
         )
@@ -80,4 +79,15 @@ TAX_RATE = get_float_env(
 MINIMUM_TAX_RATE = get_float_env(
     "MINIMUM_TAX_RATE",
     1
+)
+
+
+# Расходы на рекламу за анализируемый период.
+#
+# Пока задаются вручную через .env.
+# Позже источник можно заменить на Ozon Ads API.
+
+ADVERTISING_COST = get_float_env(
+    "ADVERTISING_COST",
+    0
 )

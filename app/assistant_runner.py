@@ -6,7 +6,8 @@ from config import (
     SELLING_MODEL,
     TAX_MODE,
     TAX_RATE,
-    MINIMUM_TAX_RATE
+    MINIMUM_TAX_RATE,
+    ADVERTISING_COST
 )
 
 from database import (
@@ -30,25 +31,8 @@ from services.profit_dashboard_service import (
     ProfitDashboardService
 )
 
-from services.store_profit_service import (
-    StoreProfitService
-)
-
-from services.store_profit_dashboard_service import (
-    StoreProfitDashboardService
-)
-
-from services.tax_service import TaxService
-from services.tax_dashboard_service import (
-    TaxDashboardService
-)
-
-from services.business_profit_service import (
-    BusinessProfitService
-)
-
-from services.business_profit_dashboard_service import (
-    BusinessProfitDashboardService
+from services.business_analytics_service import (
+    BusinessAnalyticsService
 )
 
 from health_history_service import HealthHistoryService
@@ -79,20 +63,13 @@ class AssistantRunner:
         self.profit_service = ProfitService()
         self.profit_dashboard = ProfitDashboardService()
 
-        self.store_profit_service = StoreProfitService()
-        self.store_profit_dashboard = (
-            StoreProfitDashboardService()
-        )
-
-        self.tax_service = TaxService()
-        self.tax_dashboard = TaxDashboardService()
-
-        self.business_profit_service = (
-            BusinessProfitService()
-        )
-
-        self.business_profit_dashboard = (
-            BusinessProfitDashboardService()
+        self.business_analytics_service = (
+            BusinessAnalyticsService(
+                tax_mode=TAX_MODE,
+                tax_rate=TAX_RATE,
+                minimum_tax_rate=MINIMUM_TAX_RATE,
+                advertising_cost=ADVERTISING_COST
+            )
         )
 
         self.health_history = HealthHistoryService()
@@ -784,42 +761,6 @@ class AssistantRunner:
             "Отчёт завершён"
         )
 
-    def calculate_store_tax(
-        self,
-        store_result
-    ):
-
-        if not store_result:
-
-            return {
-                "error": True,
-                "message": (
-                    "Нет данных для "
-                    "расчёта налога"
-                )
-            }
-
-        configured_rate = None
-
-        if TAX_RATE > 0:
-            configured_rate = TAX_RATE
-
-        return self.tax_service.calculate(
-            mode=TAX_MODE,
-            revenue=store_result.get(
-                "gross_sales",
-                0
-            ),
-            gross_profit=store_result.get(
-                "gross_profit",
-                0
-            ),
-            tax_rate=configured_rate,
-            minimum_tax_rate=(
-                MINIMUM_TAX_RATE
-            )
-        )
-
     def print_store_summary(
         self
     ):
@@ -835,47 +776,21 @@ class AssistantRunner:
             "================================"
         )
 
-        store_result = (
-            self.store_profit_service
+        result = (
+            self.business_analytics_service
             .calculate(
                 self.store_profits
             )
         )
 
         (
-            self.store_profit_dashboard
-            .print_dashboard(
-                store_result
+            self.business_analytics_service
+            .print_dashboards(
+                result
             )
         )
 
-        tax_result = (
-            self.calculate_store_tax(
-                store_result
-            )
-        )
-
-        self.tax_dashboard.print_dashboard(
-            tax_result
-        )
-
-        business_profit = (
-            self.business_profit_service
-            .calculate(
-                store_profit=store_result,
-                tax=tax_result
-            )
-        )
-
-        self.business_profit_dashboard.print_dashboard(
-            business_profit
-        )
-
-        return {
-            "store_profit": store_result,
-            "tax": tax_result,
-            "business_profit": business_profit
-        }
+        return result
 
     def run(self):
 
