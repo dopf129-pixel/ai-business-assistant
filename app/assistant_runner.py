@@ -3,7 +3,10 @@ from datetime import date
 from config import (
     PROJECT_NAME,
     VERSION,
-    SELLING_MODEL
+    SELLING_MODEL,
+    TAX_MODE,
+    TAX_RATE,
+    MINIMUM_TAX_RATE
 )
 
 from database import (
@@ -35,6 +38,19 @@ from services.store_profit_dashboard_service import (
     StoreProfitDashboardService
 )
 
+from services.tax_service import TaxService
+from services.tax_dashboard_service import (
+    TaxDashboardService
+)
+
+from services.business_profit_service import (
+    BusinessProfitService
+)
+
+from services.business_profit_dashboard_service import (
+    BusinessProfitDashboardService
+)
+
 from health_history_service import HealthHistoryService
 
 from action_service import ActionService
@@ -56,52 +72,41 @@ class AssistantRunner:
         self.metrics_service = MetricsService()
 
         self.finance_service = FinanceService()
-        self.finance_dashboard = (
-            FinanceDashboardService()
-        )
+        self.finance_dashboard = FinanceDashboardService()
 
         self.cost_service = ProductCostService()
 
         self.profit_service = ProfitService()
-        self.profit_dashboard = (
-            ProfitDashboardService()
-        )
+        self.profit_dashboard = ProfitDashboardService()
 
-        self.store_profit_service = (
-            StoreProfitService()
-        )
-
+        self.store_profit_service = StoreProfitService()
         self.store_profit_dashboard = (
             StoreProfitDashboardService()
         )
 
-        self.health_history = (
-            HealthHistoryService()
+        self.tax_service = TaxService()
+        self.tax_dashboard = TaxDashboardService()
+
+        self.business_profit_service = (
+            BusinessProfitService()
         )
 
-        self.orchestrator = (
-            AIOrchestratorService()
+        self.business_profit_dashboard = (
+            BusinessProfitDashboardService()
         )
+
+        self.health_history = HealthHistoryService()
+
+        self.orchestrator = AIOrchestratorService()
 
         self.action_service = ActionService()
-
-        self.action_dashboard = (
-            ActionDashboardService()
-        )
-
-        self.action_automation = (
-            ActionAutomationService()
-        )
+        self.action_dashboard = ActionDashboardService()
+        self.action_automation = ActionAutomationService()
 
         self.change_log = ChangeLogService()
+        self.summary_report_service = SummaryReportService()
 
-        self.summary_report_service = (
-            SummaryReportService()
-        )
-
-        self.finance_date = (
-            date.today().isoformat()
-        )
+        self.finance_date = date.today().isoformat()
 
         self.store_profits = []
 
@@ -111,7 +116,6 @@ class AssistantRunner:
     ):
 
         try:
-
             return (
                 f"{int(value):,}"
                 .replace(",", " ")
@@ -121,7 +125,6 @@ class AssistantRunner:
             TypeError,
             ValueError
         ):
-
             return "0"
 
     def print_header(self):
@@ -129,10 +132,12 @@ class AssistantRunner:
         print("======================")
         print(PROJECT_NAME)
         print("Версия:", VERSION)
+
         print(
             "Модель продаж:",
             SELLING_MODEL
         )
+
         print("======================")
         print("Ассистент запущен!")
 
@@ -145,11 +150,8 @@ class AssistantRunner:
         print("Статус:")
 
         if metrics.get("archived"):
-
             print("❌ Товар в архиве")
-
         else:
-
             print("✅ Товар активен")
 
         print()
@@ -163,13 +165,10 @@ class AssistantRunner:
             if metrics.get(
                 "has_fbo_stocks"
             ):
-
                 print(
                     "✅ FBO остатки есть"
                 )
-
             else:
-
                 print(
                     "⚠️ Нет FBO остатков"
                 )
@@ -179,11 +178,8 @@ class AssistantRunner:
             ):
 
                 print(
-                    "Ошибка получения "
-                    "остатков:",
-                    metrics[
-                        "stocks_error"
-                    ]
+                    "Ошибка получения остатков:",
+                    metrics["stocks_error"]
                 )
 
             else:
@@ -229,13 +225,10 @@ class AssistantRunner:
             if metrics.get(
                 "has_fbs_stocks"
             ):
-
                 print(
                     "✅ FBS остатки есть"
                 )
-
             else:
-
                 print(
                     "⚠️ Нет FBS остатков"
                 )
@@ -266,7 +259,6 @@ class AssistantRunner:
             print("Причины:")
 
             for reason in reasons:
-
                 print(
                     "-",
                     reason
@@ -299,7 +291,6 @@ class AssistantRunner:
             print("Причины:")
 
             for reason in reasons:
-
                 print(
                     "-",
                     reason
@@ -324,14 +315,17 @@ class AssistantRunner:
         for row in history[:5]:
 
             print()
+
             print(
                 "Баллы:",
                 row[0]
             )
+
             print(
                 "Статус:",
                 row[1]
             )
+
             print(
                 "Дата:",
                 row[2]
@@ -379,15 +373,11 @@ class AssistantRunner:
 
         print(
             "Записей проанализировано:",
-            memory_analysis[
-                "records"
-            ]
+            memory_analysis["records"]
         )
 
         print(
-            memory_analysis[
-                "summary"
-            ]
+            memory_analysis["summary"]
         )
 
     def print_predictions(
@@ -412,23 +402,17 @@ class AssistantRunner:
 
             print(
                 "Уровень:",
-                prediction[
-                    "level"
-                ]
+                prediction["level"]
             )
 
             print(
                 "Прогноз:",
-                prediction[
-                    "title"
-                ]
+                prediction["title"]
             )
 
             print(
                 "Описание:",
-                prediction[
-                    "message"
-                ]
+                prediction["message"]
             )
 
     def print_decisions(
@@ -453,30 +437,22 @@ class AssistantRunner:
 
             print(
                 "Приоритет:",
-                decision[
-                    "priority"
-                ]
+                decision["priority"]
             )
 
             print(
                 "Действие:",
-                decision[
-                    "action"
-                ]
+                decision["action"]
             )
 
             print(
                 "Причина:",
-                decision[
-                    "reason"
-                ]
+                decision["reason"]
             )
 
             print(
                 "Влияние:",
-                decision[
-                    "impact"
-                ]
+                decision["impact"]
             )
 
     def process_product(
@@ -498,17 +474,14 @@ class AssistantRunner:
             print()
 
             print(
-                "Не удалось получить "
-                "метрики:",
+                "Не удалось получить метрики:",
                 metrics_result
             )
 
             return
 
         metrics = (
-            metrics_result[
-                "metrics"
-            ]
+            metrics_result["metrics"]
         )
 
         save_metric(
@@ -519,9 +492,7 @@ class AssistantRunner:
         print(
             "================================"
         )
-        print(
-            "Ozon AI Report"
-        )
+        print("Ozon AI Report")
         print(
             "================================"
         )
@@ -557,29 +528,21 @@ class AssistantRunner:
         trend = analysis["trend"]
 
         memory_analysis = (
-            analysis[
-                "memory_analysis"
-            ]
+            analysis["memory_analysis"]
         )
 
         stock_forecast = (
-            analysis[
-                "stock_forecast"
-            ]
+            analysis["stock_forecast"]
         )
 
         predictions = (
-            analysis[
-                "predictions"
-            ]
+            analysis["predictions"]
         )
 
         kpi = analysis["kpi"]
 
         decisions = (
-            analysis[
-                "decisions"
-            ]
+            analysis["decisions"]
         )
 
         save_risk(
@@ -654,8 +617,7 @@ class AssistantRunner:
                 "error": True,
                 "message": (
                     "SKU товара не найден. "
-                    "Финансовый отчёт "
-                    "не построен."
+                    "Финансовый отчёт не построен."
                 )
             }
 
@@ -776,7 +738,6 @@ class AssistantRunner:
         if changes:
 
             for change in changes[:5]:
-
                 print(
                     change
                 )
@@ -823,6 +784,42 @@ class AssistantRunner:
             "Отчёт завершён"
         )
 
+    def calculate_store_tax(
+        self,
+        store_result
+    ):
+
+        if not store_result:
+
+            return {
+                "error": True,
+                "message": (
+                    "Нет данных для "
+                    "расчёта налога"
+                )
+            }
+
+        configured_rate = None
+
+        if TAX_RATE > 0:
+            configured_rate = TAX_RATE
+
+        return self.tax_service.calculate(
+            mode=TAX_MODE,
+            revenue=store_result.get(
+                "gross_sales",
+                0
+            ),
+            gross_profit=store_result.get(
+                "gross_profit",
+                0
+            ),
+            tax_rate=configured_rate,
+            minimum_tax_rate=(
+                MINIMUM_TAX_RATE
+            )
+        )
+
     def print_store_summary(
         self
     ):
@@ -852,7 +849,37 @@ class AssistantRunner:
             )
         )
 
+        tax_result = (
+            self.calculate_store_tax(
+                store_result
+            )
+        )
+
+        self.tax_dashboard.print_dashboard(
+            tax_result
+        )
+
+        business_profit = (
+            self.business_profit_service
+            .calculate(
+                store_profit=store_result,
+                tax=tax_result
+            )
+        )
+
+        self.business_profit_dashboard.print_dashboard(
+            business_profit
+        )
+
+        return {
+            "store_profit": store_result,
+            "tax": tax_result,
+            "business_profit": business_profit
+        }
+
     def run(self):
+
+        self.store_profits = []
 
         self.print_header()
 
