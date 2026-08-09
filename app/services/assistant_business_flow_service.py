@@ -16,23 +16,50 @@ class AssistantBusinessFlowService:
         )
 
 
+
     def process(
         self,
         text,
-        report
+        report,
+        context=None
     ):
+
 
         intent = (
             self.intent_service
             .detect(
-                text
+                text,
+                context
             )
         )
+
 
 
         if intent["error"]:
 
             return intent
+
+
+
+        if (
+            intent.get("command")
+            ==
+            "continue"
+        ):
+
+
+            return {
+                "error": False,
+                "intent": intent,
+                "plan": [],
+                "count": 0,
+                "continued_task":
+                    intent.get(
+                        "task",
+                        ""
+                    )
+            }
+
 
 
         result = (
@@ -41,6 +68,7 @@ class AssistantBusinessFlowService:
                 report
             )
         )
+
 
 
         return {

@@ -11,19 +11,24 @@ class AssistantOrchestratorBusinessService:
         )
 
 
+
     def handle(
         self,
         text,
-        report
+        report,
+        context=None
     ):
+
 
         result = (
             self.business_flow_service
             .process(
                 text,
-                report
+                report,
+                context
             )
         )
+
 
 
         if result["error"]:
@@ -31,9 +36,34 @@ class AssistantOrchestratorBusinessService:
             return result
 
 
+
+        if (
+            result.get("intent", {})
+            .get("command")
+            ==
+            "continue"
+        ):
+
+
+            return {
+                "error": False,
+                "message":
+                    "Продолжаем работу",
+                "task":
+                    result.get(
+                        "continued_task",
+                        ""
+                    )
+            }
+
+
+
         return {
             "error": False,
-            "message": "Бизнес-план создан",
-            "actions": result["plan"],
-            "count": result["count"]
+            "message":
+                "Бизнес-план создан",
+            "actions":
+                result["plan"],
+            "count":
+                result["count"]
         }

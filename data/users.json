@@ -10,9 +10,9 @@
             "Сообщение: запомни город Москва"
         ],
         "context": {
-            "last_message": "",
+            "last_message": "Продолжи работу",
             "last_action": "",
-            "current_task": "Проверка контекста"
+            "current_task": "Создать план продаж"
         }
     }
 }

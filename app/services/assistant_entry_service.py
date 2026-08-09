@@ -11,10 +11,13 @@ class AssistantEntryService:
         )
 
 
+
     def handle(
         self,
-        text
+        text,
+        context=None
     ):
+
 
         report = {
             "sales_down": True,
@@ -22,10 +25,12 @@ class AssistantEntryService:
         }
 
 
+
         return (
             self.main_flow_service
             .process(
                 text,
-                report
+                report,
+                context
             )
         )

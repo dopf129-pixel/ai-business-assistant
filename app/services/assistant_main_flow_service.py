@@ -16,24 +16,30 @@ class AssistantMainFlowService:
         )
 
 
+
     def process(
         self,
         text,
-        report
+        report,
+        context=None
     ):
+
 
         result = (
             self.business_service
             .handle(
                 text,
-                report
+                report,
+                context
             )
         )
+
 
 
         if result["error"]:
 
             return result
+
 
 
         if self.response_service:
@@ -44,6 +50,7 @@ class AssistantMainFlowService:
                     result
                 )
             )
+
 
 
         return {

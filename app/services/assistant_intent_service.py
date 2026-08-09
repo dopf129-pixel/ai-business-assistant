@@ -3,13 +3,16 @@ class AssistantIntentService:
 
     def detect(
         self,
-        text
+        text,
+        context=None
     ):
+
 
         text = (
             text.lower()
             .strip()
         )
+
 
 
         if (
@@ -29,12 +32,15 @@ class AssistantIntentService:
             }
 
 
+
         if (
             "задач" in text
             or
             "действ" in text
             or
             "сделать" in text
+            or
+            "план" in text
         ):
 
             return {
@@ -42,6 +48,57 @@ class AssistantIntentService:
                 "intent": "actions",
                 "command": "actions"
             }
+
+
+
+        if (
+            "продолж" in text
+            or
+            "дальше" in text
+            or
+            "далее" in text
+        ):
+
+
+            current_task = ""
+
+
+
+            if context:
+
+
+                if "context" in context:
+
+                    current_task = (
+                        context["context"]
+                        .get(
+                            "current_task",
+                            ""
+                        )
+                    )
+
+
+                else:
+
+                    current_task = (
+                        context
+                        .get(
+                            "current_task",
+                            ""
+                        )
+                    )
+
+
+
+            if current_task:
+
+                return {
+                    "error": False,
+                    "intent": "continue",
+                    "command": "continue",
+                    "task": current_task
+                }
+
 
 
         return {

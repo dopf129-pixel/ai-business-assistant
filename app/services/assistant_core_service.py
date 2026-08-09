@@ -38,11 +38,11 @@ class AssistantCoreService:
 
 
 
+        # 1. Сначала получаем старый контекст
         if (
             self.user_context_service
             and user_id is not None
         ):
-
 
             context = (
                 self.user_context_service
@@ -53,27 +53,10 @@ class AssistantCoreService:
 
 
 
-            self.user_context_service.update(
-                user_id,
-                "last_message",
-                text
-            )
-
-
-
-            self.user_context_service.update(
-                user_id,
-                "current_task",
-                text
-            )
-
-
-
         elif (
             self.request_context_service
             and user_id is not None
         ):
-
 
             context = (
                 self.request_context_service
@@ -85,32 +68,39 @@ class AssistantCoreService:
 
 
 
+        # 2. Передаем старый контекст в ядро
         result = (
             self.orchestrator_service
             .process(
-                text
+                text,
+                context
             )
         )
+
+
+
+        # 3. Только после обработки обновляем последнее сообщение
+        if (
+            self.user_context_service
+            and user_id is not None
+        ):
+
+            self.user_context_service.update(
+                user_id,
+                "last_message",
+                text
+            )
+
+
+
+        # current_task НЕ меняем автоматически
+        # иначе "Продолжи работу" затирает старую задачу
 
 
 
         if context:
 
             result["context"] = context
-
-
-
-        if (
-            self.memory_service
-            and user_id is not None
-        ):
-
-            result["memory"] = (
-                self.memory_service
-                .get_memory(
-                    user_id
-                )
-            )
 
 
 

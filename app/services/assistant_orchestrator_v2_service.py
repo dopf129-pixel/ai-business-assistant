@@ -11,14 +11,18 @@ class AssistantOrchestratorV2Service:
         )
 
 
+
     def process(
         self,
-        text
+        text,
+        context=None
     ):
+
 
         return (
             self.entry_service
             .handle(
-                text
+                text,
+                context
             )
         )
