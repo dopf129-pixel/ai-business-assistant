@@ -2,10 +2,26 @@ class AssistantMemoryService:
 
 
     def __init__(
-        self
+        self,
+        storage_service=None
     ):
 
-        self.context = {}
+        self.storage_service = (
+            storage_service
+        )
+
+
+        if self.storage_service:
+
+            self.context = (
+                self.storage_service
+                .load()
+            )
+
+        else:
+
+            self.context = {}
+
 
 
     def save(
@@ -17,10 +33,18 @@ class AssistantMemoryService:
         self.context[key] = value
 
 
+        if self.storage_service:
+
+            self.storage_service.save(
+                self.context
+            )
+
+
         return {
             "error": False,
             "saved": True
         }
+
 
 
     def get(
@@ -42,11 +66,19 @@ class AssistantMemoryService:
         }
 
 
+
     def clear(
         self
     ):
 
         self.context = {}
+
+
+        if self.storage_service:
+
+            self.storage_service.save(
+                self.context
+            )
 
 
         return {
