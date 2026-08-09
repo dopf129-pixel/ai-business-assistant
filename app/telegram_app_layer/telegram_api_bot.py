@@ -35,6 +35,11 @@ from telegram_app_layer.telegram_response_formatter import (
 )
 
 
+from telegram_app_layer.telegram_action_formatter import (
+    TelegramActionFormatter
+)
+
+
 
 runner = (
     create_telegram_assistant()
@@ -43,6 +48,11 @@ runner = (
 
 formatter = (
     TelegramResponseFormatter()
+)
+
+
+action_formatter = (
+    TelegramActionFormatter()
 )
 
 
@@ -80,6 +90,36 @@ def build_keyboard(
 
     return InlineKeyboardMarkup(
         rows
+    )
+
+
+
+def format_response(
+    result
+):
+
+
+    if not result:
+
+        return "Нет ответа"
+
+
+
+    if result.get("actions"):
+
+        return (
+            action_formatter
+            .format(
+                result
+            )
+        )
+
+
+    return (
+        formatter
+        .format(
+            result
+        )
     )
 
 
@@ -139,7 +179,7 @@ async def message_handler(
 
 
     response = (
-        formatter.format(
+        format_response(
             result
         )
     )
@@ -184,7 +224,7 @@ async def callback_handler(
 
 
     response = (
-        formatter.format(
+        format_response(
             result
         )
     )
