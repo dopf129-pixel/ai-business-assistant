@@ -17,6 +17,22 @@ class StoreReportManager:
         products
     ):
 
+        if not period_code:
+
+            return {
+                "error": True,
+                "message": "Не указан период анализа"
+            }
+
+
+        if products is None:
+
+            return {
+                "error": True,
+                "message": "Не переданы товары"
+            }
+
+
         return (
             self.orchestrator
             .build(
