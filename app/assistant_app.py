@@ -66,6 +66,14 @@ from services.assistant_response_builder_service import (
     AssistantResponseBuilderService
 )
 
+from services.assistant_user_memory_service import (
+    AssistantUserMemoryService
+)
+
+from services.assistant_user_memory_storage_service import (
+    AssistantUserMemoryStorageService
+)
+
 from services.action_history_service import (
     ActionHistoryService
 )
@@ -84,9 +92,11 @@ def create_assistant():
             priority_service=(
                 AssistantPriorityService()
             ),
+
             action_generator_service=(
                 AssistantActionGeneratorService()
             ),
+
             execution_service=(
                 AssistantActionExecutionService(
                     history
@@ -101,9 +111,11 @@ def create_assistant():
             recommendation_service=(
                 AssistantRecommendationService()
             ),
+
             planning_service=(
                 AssistantPlanningService()
             ),
+
             executor_service=executor
         )
     )
@@ -114,21 +126,23 @@ def create_assistant():
             intent_service=(
                 AssistantIntentService()
             ),
+
             planner_service=planner
         )
     )
 
 
-    business = (
+    business_service = (
         AssistantOrchestratorBusinessService(
             business_flow_service=business_flow
         )
     )
 
 
-    main = (
+    main_flow = (
         AssistantMainFlowService(
-            business_service=business,
+            business_service=business_service,
+
             response_service=(
                 AssistantResponseBuilderService()
             )
@@ -138,7 +152,7 @@ def create_assistant():
 
     entry = (
         AssistantEntryService(
-            main_flow_service=main
+            main_flow_service=main_flow
         )
     )
 
@@ -150,9 +164,18 @@ def create_assistant():
     )
 
 
+    memory = (
+        AssistantUserMemoryService(
+            AssistantUserMemoryStorageService()
+        )
+    )
+
+
     return (
         AssistantCoreService(
-            orchestrator_service=orchestrator
+            orchestrator_service=orchestrator,
+
+            memory_service=memory
         )
     )
 
