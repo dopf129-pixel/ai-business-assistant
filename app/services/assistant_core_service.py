@@ -6,7 +6,8 @@ class AssistantCoreService:
         orchestrator_service,
         memory_service=None,
         request_context_service=None,
-        user_context_service=None
+        user_context_service=None,
+        task_context_service=None
     ):
 
         self.orchestrator_service = (
@@ -25,6 +26,10 @@ class AssistantCoreService:
             user_context_service
         )
 
+        self.task_context_service = (
+            task_context_service
+        )
+
 
 
     def ask(
@@ -38,7 +43,6 @@ class AssistantCoreService:
 
 
 
-        # 1. Сначала получаем старый контекст
         if (
             self.user_context_service
             and user_id is not None
@@ -68,7 +72,6 @@ class AssistantCoreService:
 
 
 
-        # 2. Передаем старый контекст в ядро
         result = (
             self.orchestrator_service
             .process(
@@ -79,7 +82,24 @@ class AssistantCoreService:
 
 
 
-        # 3. Только после обработки обновляем последнее сообщение
+        if (
+            self.task_context_service
+            and user_id is not None
+        ):
+
+            self.task_context_service.update_task(
+                user_id,
+                text
+            )
+
+
+
+        if context:
+
+            result["context"] = context
+
+
+
         if (
             self.user_context_service
             and user_id is not None
@@ -90,17 +110,6 @@ class AssistantCoreService:
                 "last_message",
                 text
             )
-
-
-
-        # current_task НЕ меняем автоматически
-        # иначе "Продолжи работу" затирает старую задачу
-
-
-
-        if context:
-
-            result["context"] = context
 
 
 
