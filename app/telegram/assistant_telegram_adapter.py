@@ -9,7 +9,9 @@ class AssistantTelegramAdapter:
         user_profile_service=None
     ):
 
-        self.assistant = assistant
+        self.assistant = (
+            assistant
+        )
 
         self.keyboard_service = (
             keyboard_service
@@ -29,6 +31,7 @@ class AssistantTelegramAdapter:
         self,
         user_id=None
     ):
+
 
         if (
             self.user_profile_service
@@ -60,6 +63,7 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
+
         if (
             self.user_profile_service
             and user_id is not None
@@ -86,6 +90,7 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
+
         if (
             self.user_profile_service
             and user_id is not None
@@ -96,9 +101,22 @@ class AssistantTelegramAdapter:
             )
 
 
-        return (
-            self.button_handler
-            .handle(
-                callback
+        try:
+
+            return (
+                self.button_handler
+                .handle(
+                    callback,
+                    user_id
+                )
             )
-        )
+
+
+        except TypeError:
+
+            return (
+                self.button_handler
+                .handle(
+                    callback
+                )
+            )

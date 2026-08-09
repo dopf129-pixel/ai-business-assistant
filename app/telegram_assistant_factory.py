@@ -13,6 +13,11 @@ from services.assistant_button_handler_service import (
 )
 
 
+from services.assistant_telegram_memory_service import (
+    AssistantTelegramMemoryService
+)
+
+
 from telegram.assistant_telegram_adapter import (
     AssistantTelegramAdapter
 )
@@ -47,6 +52,13 @@ def create_telegram_assistant():
     )
 
 
+    telegram_memory = (
+        AssistantTelegramMemoryService(
+            profiles
+        )
+    )
+
+
     keyboard = (
         AssistantKeyboardService()
     )
@@ -54,7 +66,8 @@ def create_telegram_assistant():
 
     button_handler = (
         AssistantButtonHandlerService(
-            assistant
+            assistant,
+            telegram_memory
         )
     )
 
@@ -76,8 +89,21 @@ def create_telegram_assistant():
     )
 
 
-    return (
+    runner = (
         TelegramRunner(
             bot_service
         )
     )
+
+
+    runner.memory_service = (
+        telegram_memory
+    )
+
+
+    runner.profiles = (
+        profiles
+    )
+
+
+    return runner
