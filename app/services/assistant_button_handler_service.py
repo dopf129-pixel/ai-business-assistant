@@ -4,7 +4,8 @@ class AssistantButtonHandlerService:
     def __init__(
         self,
         assistant,
-        memory_service=None
+        memory_service=None,
+        history_service=None
     ):
 
         self.assistant = (
@@ -13,6 +14,10 @@ class AssistantButtonHandlerService:
 
         self.memory_service = (
             memory_service
+        )
+
+        self.history_service = (
+            history_service
         )
 
 
@@ -26,7 +31,8 @@ class AssistantButtonHandlerService:
 
         if button_id == "analyze":
 
-            return (
+
+            result = (
                 self.assistant
                 .ask(
                     "Что нужно сделать с продажами?",
@@ -35,10 +41,25 @@ class AssistantButtonHandlerService:
             )
 
 
+            if (
+                self.history_service
+                and user_id
+            ):
+
+                self.history_service.add(
+                    user_id,
+                    "Выполнен анализ"
+                )
+
+
+            return result
+
+
 
         if button_id == "plan":
 
-            return (
+
+            result = (
                 self.assistant
                 .ask(
                     "Создай план действий",
@@ -47,12 +68,40 @@ class AssistantButtonHandlerService:
             )
 
 
+            if (
+                self.history_service
+                and user_id
+            ):
+
+                self.history_service.add(
+                    user_id,
+                    "Создан план действий"
+                )
+
+
+            return result
+
+
 
         if button_id == "history":
 
+
+            if (
+                self.history_service
+                and user_id
+            ):
+
+                return (
+                    self.history_service
+                    .get(
+                        user_id
+                    )
+                )
+
+
             return {
                 "error": False,
-                "command": "history"
+                "history": []
             }
 
 
@@ -60,7 +109,10 @@ class AssistantButtonHandlerService:
         if button_id == "memory":
 
 
-            if self.memory_service:
+            if (
+                self.memory_service
+                and user_id
+            ):
 
                 return (
                     self.memory_service
@@ -72,7 +124,7 @@ class AssistantButtonHandlerService:
 
             return {
                 "error": False,
-                "command": "memory"
+                "memory": {}
             }
 
 

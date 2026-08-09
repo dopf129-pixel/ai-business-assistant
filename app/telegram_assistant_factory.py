@@ -23,6 +23,11 @@ from services.assistant_memory_command_service import (
 )
 
 
+from services.assistant_history_service import (
+    AssistantHistoryService
+)
+
+
 from telegram_app_layer.assistant_telegram_adapter import (
     AssistantTelegramAdapter
 )
@@ -76,6 +81,11 @@ def create_telegram_assistant():
     )
 
 
+    history_service = (
+        AssistantHistoryService()
+    )
+
+
     keyboard = (
         AssistantKeyboardService()
     )
@@ -84,7 +94,8 @@ def create_telegram_assistant():
     button_handler = (
         AssistantButtonHandlerService(
             assistant,
-            telegram_memory
+            telegram_memory,
+            history_service
         )
     )
 
@@ -134,6 +145,11 @@ def create_telegram_assistant():
 
     runner.profiles = (
         profiles
+    )
+
+
+    runner.history_service = (
+        history_service
     )
 
 

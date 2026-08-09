@@ -40,6 +40,16 @@ from telegram_app_layer.telegram_action_formatter import (
 )
 
 
+from telegram_app_layer.telegram_plan_formatter import (
+    TelegramPlanFormatter
+)
+
+
+from telegram_app_layer.telegram_history_formatter import (
+    TelegramHistoryFormatter
+)
+
+
 
 runner = (
     create_telegram_assistant()
@@ -53,6 +63,16 @@ formatter = (
 
 action_formatter = (
     TelegramActionFormatter()
+)
+
+
+plan_formatter = (
+    TelegramPlanFormatter()
+)
+
+
+history_formatter = (
+    TelegramHistoryFormatter()
 )
 
 
@@ -105,6 +125,28 @@ def format_response(
 
 
 
+    if result.get("history") is not None:
+
+        return (
+            history_formatter
+            .format(
+                result
+            )
+        )
+
+
+
+    if result.get("plan"):
+
+        return (
+            plan_formatter
+            .format(
+                result
+            )
+        )
+
+
+
     if result.get("actions"):
 
         return (
@@ -113,6 +155,7 @@ def format_response(
                 result
             )
         )
+
 
 
     return (
@@ -262,12 +305,14 @@ def main():
     )
 
 
+
     application.add_handler(
         CommandHandler(
             "start",
             start
         )
     )
+
 
 
     application.add_handler(
@@ -278,6 +323,7 @@ def main():
     )
 
 
+
     application.add_handler(
         CallbackQueryHandler(
             callback_handler
@@ -285,9 +331,11 @@ def main():
     )
 
 
+
     print(
         "Telegram API bot started"
     )
+
 
 
     application.run_polling()
