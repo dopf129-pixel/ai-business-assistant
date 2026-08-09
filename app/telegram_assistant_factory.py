@@ -23,6 +23,11 @@ from services.assistant_memory_command_service import (
 )
 
 
+from services.assistant_user_storage_service import (
+    AssistantUserStorageService
+)
+
+
 from services.assistant_history_service import (
     AssistantHistoryService
 )
@@ -62,14 +67,14 @@ def create_telegram_assistant():
     )
 
 
-    profiles = (
-        system["profiles"]
+    storage_service = (
+        AssistantUserStorageService()
     )
 
 
     telegram_memory = (
         AssistantTelegramMemoryService(
-            profiles
+            storage_service
         )
     )
 
@@ -82,7 +87,9 @@ def create_telegram_assistant():
 
 
     history_service = (
-        AssistantHistoryService()
+        AssistantHistoryService(
+            storage_service
+        )
     )
 
 
@@ -105,7 +112,7 @@ def create_telegram_assistant():
             assistant,
             keyboard,
             button_handler,
-            profiles,
+            storage_service,
             memory_commands
         )
     )
@@ -143,13 +150,18 @@ def create_telegram_assistant():
     )
 
 
-    runner.profiles = (
-        profiles
+    runner.history_service = (
+        history_service
     )
 
 
-    runner.history_service = (
-        history_service
+    runner.storage_service = (
+        storage_service
+    )
+
+
+    runner.profiles = (
+        storage_service
     )
 
 

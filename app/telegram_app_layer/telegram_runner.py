@@ -6,9 +6,7 @@ class TelegramRunner:
         bot_service
     ):
 
-        self.bot_service = (
-            bot_service
-        )
+        self.bot_service = bot_service
 
         self.history_service = None
 
@@ -28,14 +26,12 @@ class TelegramRunner:
                 )
             )
 
-
         except TypeError:
 
             result = (
                 self.bot_service
                 .on_start()
             )
-
 
 
         if (
@@ -47,7 +43,6 @@ class TelegramRunner:
                 user_id,
                 "Запущен ассистент"
             )
-
 
 
         return result
@@ -83,7 +78,7 @@ class TelegramRunner:
 
         try:
 
-            result = (
+            return (
                 self.bot_service
                 .on_message(
                     user_id,
@@ -94,16 +89,12 @@ class TelegramRunner:
 
         except TypeError:
 
-            result = (
+            return (
                 self.bot_service
                 .on_message(
                     text
                 )
             )
-
-
-
-        return result
 
 
 
@@ -121,13 +112,9 @@ class TelegramRunner:
 
 
 
-        # Не записываем технические кнопки
-        # истории и памяти
-
         if (
             self.history_service
             and user_id
-            and callback
             and callback not in [
                 "history",
                 "memory"
@@ -143,7 +130,7 @@ class TelegramRunner:
 
         try:
 
-            result = (
+            return (
                 self.bot_service
                 .on_callback(
                     user_id,
@@ -154,13 +141,9 @@ class TelegramRunner:
 
         except TypeError:
 
-            result = (
+            return (
                 self.bot_service
                 .on_callback(
                     callback
                 )
             )
-
-
-
-        return result

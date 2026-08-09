@@ -3,13 +3,12 @@ class AssistantTelegramMemoryService:
 
     def __init__(
         self,
-        profiles,
-        file_path="data/profiles.json"
+        storage_service
     ):
 
-        self.profiles = profiles
-
-        self.file_path = file_path
+        self.storage_service = (
+            storage_service
+        )
 
 
 
@@ -20,18 +19,14 @@ class AssistantTelegramMemoryService:
         value
     ):
 
-
-        result = (
-            self.profiles
+        return (
+            self.storage_service
             .save_memory(
                 user_id,
                 key,
                 value
             )
         )
-
-
-        return result
 
 
 
@@ -41,23 +36,12 @@ class AssistantTelegramMemoryService:
     ):
 
 
-        user = (
-            self.profiles
-            .get_user(
+        return (
+            self.storage_service
+            .get_memory(
                 user_id
             )
         )
-
-
-        return {
-            "error": False,
-            "memory":
-                user["user"]
-                .get(
-                    "memory",
-                    {}
-                )
-        }
 
 
 
@@ -68,14 +52,17 @@ class AssistantTelegramMemoryService:
 
 
         user = (
-            self.profiles
+            self.storage_service
             .get_user(
                 user_id
             )
         )
 
 
-        user["user"]["memory"] = {}
+        user["memory"] = {}
+
+
+        self.storage_service.save()
 
 
         return {
