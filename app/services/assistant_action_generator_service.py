@@ -11,13 +11,20 @@ class AssistantActionGeneratorService:
 
         for item in recommendations:
 
+            title = (
+                item.get(
+                    "message"
+                )
+                or
+                item.get(
+                    "action"
+                )
+            )
+
+
             actions.append(
                 {
-                    "title": (
-                        item.get(
-                            "message"
-                        )
-                    ),
+                    "title": title,
                     "type": (
                         item.get(
                             "type"
