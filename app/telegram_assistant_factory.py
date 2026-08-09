@@ -23,22 +23,22 @@ from services.assistant_memory_command_service import (
 )
 
 
-from telegram.assistant_telegram_adapter import (
+from telegram_app_layer.assistant_telegram_adapter import (
     AssistantTelegramAdapter
 )
 
 
-from telegram.telegram_command_service import (
+from telegram_app_layer.telegram_command_service import (
     TelegramCommandService
 )
 
 
-from telegram.telegram_bot_service import (
+from telegram_app_layer.telegram_bot_service import (
     TelegramBotService
 )
 
 
-from telegram.telegram_runner import (
+from telegram_app_layer.telegram_runner import (
     TelegramRunner
 )
 
@@ -121,9 +121,6 @@ def create_telegram_assistant():
         )
     )
 
-
-    # доступ для тестов
-    # и дальнейшего Telegram API слоя
 
     runner.memory_service = (
         telegram_memory
