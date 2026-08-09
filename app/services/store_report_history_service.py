@@ -1,10 +1,24 @@
 class StoreReportHistoryService:
 
     def __init__(
-        self
+        self,
+        storage_service=None
     ):
 
-        self.reports = []
+        self.storage_service = (
+            storage_service
+        )
+
+        if self.storage_service:
+
+            self.reports = (
+                self.storage_service
+                .load()
+            )
+
+        else:
+
+            self.reports = []
 
 
     def save_report(
@@ -15,6 +29,14 @@ class StoreReportHistoryService:
         self.reports.append(
             report
         )
+
+
+        if self.storage_service:
+
+            self.storage_service.save(
+                self.reports
+            )
+
 
         return {
             "error": False,
