@@ -30,7 +30,10 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if self.user_profile_service:
+        if (
+            self.user_profile_service
+            and user_id is not None
+        ):
 
             self.user_profile_service.create_user(
                 user_id
@@ -57,7 +60,10 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if self.user_profile_service:
+        if (
+            self.user_profile_service
+            and user_id is not None
+        ):
 
             self.user_profile_service.create_user(
                 user_id
@@ -67,7 +73,8 @@ class AssistantTelegramAdapter:
         return (
             self.assistant
             .ask(
-                text
+                text,
+                user_id
             )
         )
 
@@ -79,7 +86,10 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if self.user_profile_service:
+        if (
+            self.user_profile_service
+            and user_id is not None
+        ):
 
             self.user_profile_service.create_user(
                 user_id
