@@ -1,4 +1,7 @@
 from assistant_app import create_assistant
+from services.assistant_session_service import (
+    AssistantSessionService
+)
 
 
 def main():
@@ -6,8 +9,19 @@ def main():
     assistant = create_assistant()
 
 
+    session = (
+        AssistantSessionService(
+            assistant
+        )
+    )
+
+
     print(
         "AI Assistant запущен"
+    )
+
+    print(
+        "Введите 'history' для истории"
     )
 
     print(
@@ -27,8 +41,34 @@ def main():
             break
 
 
+        if text.lower() == "history":
+
+            history = (
+                session.get_history()
+            )
+
+            print(
+                "\nИстория:"
+            )
+
+
+            for item in history["history"]:
+
+                print(
+                    "Вы:",
+                    item["user"]
+                )
+
+                print(
+                    "Ассистент:",
+                    item["assistant"]["message"]
+                )
+
+            continue
+
+
         result = (
-            assistant.ask(
+            session.ask(
                 text
             )
         )
