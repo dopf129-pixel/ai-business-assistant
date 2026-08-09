@@ -3,10 +3,17 @@ class TelegramBotService:
 
     def __init__(
         self,
-        adapter
+        adapter,
+        command_service=None
     ):
 
-        self.adapter = adapter
+        self.adapter = (
+            adapter
+        )
+
+        self.command_service = (
+            command_service
+        )
 
 
 
@@ -39,10 +46,31 @@ class TelegramBotService:
         text=None
     ):
 
+
         if text is None:
 
             text = user_id
             user_id = None
+
+
+
+        if (
+            self.command_service
+        ):
+
+            command_result = (
+                self.command_service
+                .handle(
+                    user_id,
+                    text
+                )
+            )
+
+
+            if command_result:
+
+                return command_result
+
 
 
         try:
@@ -71,6 +99,7 @@ class TelegramBotService:
         user_id,
         callback=None
     ):
+
 
         if callback is None:
 

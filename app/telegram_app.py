@@ -17,30 +17,69 @@ if __name__ == "__main__":
     )
 
 
-    user_1 = 1001
+    user_id = 1001
+
 
 
     print(
-        "\nUSER MESSAGE"
+        "\nSTART"
     )
-
 
     print(
         bot.receive_message(
-            user_1,
+            user_id,
+            "/start"
+        )
+    )
+
+
+
+    print(
+        "\nHELP"
+    )
+
+    print(
+        bot.receive_message(
+            user_id,
+            "/help"
+        )
+    )
+
+
+
+    print(
+        "\nMEMORY BEFORE"
+    )
+
+    print(
+        bot.receive_message(
+            user_id,
+            "/memory"
+        )
+    )
+
+
+
+    print(
+        "\nSAVE MEMORY"
+    )
+
+    print(
+        bot.receive_message(
+            user_id,
             "запомни имя Алекс"
         )
     )
 
 
+
     print(
-        "\nMEMORY BUTTON"
+        "\nMEMORY AFTER"
     )
 
-
     print(
-        bot.receive_callback(
-            user_1,
-            "memory"
+        bot.receive_message(
+            user_id,
+            "/memory"
         )
     )
