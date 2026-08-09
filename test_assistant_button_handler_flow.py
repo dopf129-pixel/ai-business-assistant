@@ -60,7 +60,7 @@ class TestAssistantButtonHandlerFlow(
 
         self.assertEqual(
             result["request"],
-            "Проведи анализ"
+            "Что нужно сделать с продажами?"
         )
 
 
@@ -95,5 +95,96 @@ class TestAssistantButtonHandlerFlow(
 
 
 
+    def test_history_button(
+        self
+    ):
+
+        service = (
+            AssistantButtonHandlerService(
+                FakeAssistant()
+            )
+        )
+
+
+        result = (
+            service.handle(
+                "history"
+            )
+        )
+
+
+        self.assertFalse(
+            result["error"]
+        )
+
+
+        self.assertEqual(
+            result["command"],
+            "history"
+        )
+
+
+
+    def test_memory_button(
+        self
+    ):
+
+        service = (
+            AssistantButtonHandlerService(
+                FakeAssistant()
+            )
+        )
+
+
+        result = (
+            service.handle(
+                "memory"
+            )
+        )
+
+
+        self.assertFalse(
+            result["error"]
+        )
+
+
+        self.assertEqual(
+            result["command"],
+            "memory"
+        )
+
+
+
+    def test_unknown_button(
+        self
+    ):
+
+        service = (
+            AssistantButtonHandlerService(
+                FakeAssistant()
+            )
+        )
+
+
+        result = (
+            service.handle(
+                "unknown"
+            )
+        )
+
+
+        self.assertTrue(
+            result["error"]
+        )
+
+
+        self.assertEqual(
+            result["message"],
+            "Кнопка неизвестна"
+        )
+
+
+
 if __name__ == "__main__":
+
     unittest.main()
