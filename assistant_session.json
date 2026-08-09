@@ -1,0 +1,44 @@
+[
+  {
+    "user": "Вы: что нужно сделать?",
+    "assistant": {
+      "error": false,
+      "message": "Создано действий: 2",
+      "actions": [
+        {
+          "title": "Проверить причины падения продаж",
+          "type": "sales",
+          "status": "NEW",
+          "priority": "HIGH"
+        },
+        {
+          "title": "Проверить остатки товара",
+          "type": "stock",
+          "status": "NEW",
+          "priority": "HIGH"
+        }
+      ]
+    }
+  },
+  {
+    "user": "",
+    "assistant": {
+      "error": true,
+      "message": "Не удалось определить намерение"
+    }
+  },
+  {
+    "user": "Вы: history",
+    "assistant": {
+      "error": true,
+      "message": "Не удалось определить намерение"
+    }
+  },
+  {
+    "user": "git add .",
+    "assistant": {
+      "error": true,
+      "message": "Не удалось определить намерение"
+    }
+  }
+]

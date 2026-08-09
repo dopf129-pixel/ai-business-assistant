@@ -1,17 +1,28 @@
 from assistant_app import create_assistant
+
+
 from services.assistant_session_service import (
     AssistantSessionService
 )
 
 
+from services.assistant_session_storage_service import (
+    AssistantSessionStorageService
+)
+
+
+
 def main():
 
-    assistant = create_assistant()
+    assistant = (
+        create_assistant()
+    )
 
 
     session = (
         AssistantSessionService(
-            assistant
+            assistant,
+            AssistantSessionStorageService()
         )
     )
 
@@ -41,11 +52,13 @@ def main():
             break
 
 
+
         if text.lower() == "history":
 
             history = (
                 session.get_history()
             )
+
 
             print(
                 "\nИстория:"
@@ -55,16 +68,36 @@ def main():
             for item in history["history"]:
 
                 print(
-                    "Вы:",
+                    "\nВы:",
                     item["user"]
                 )
+
 
                 print(
                     "Ассистент:",
                     item["assistant"]["message"]
                 )
 
+
+                if (
+                    "actions"
+                    in item["assistant"]
+                ):
+
+                    for action in (
+                        item["assistant"]["actions"]
+                    ):
+
+                        print(
+                            "-",
+                            action["title"],
+                            "|",
+                            action["priority"]
+                        )
+
+
             continue
+
 
 
         result = (
@@ -82,6 +115,7 @@ def main():
             )
 
             continue
+
 
 
         print(
