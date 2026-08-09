@@ -6,7 +6,11 @@ class TelegramRunner:
         bot_service
     ):
 
-        self.bot_service = bot_service
+        self.bot_service = (
+            bot_service
+        )
+
+        self.history_service = None
 
 
 
@@ -17,19 +21,36 @@ class TelegramRunner:
 
         try:
 
-            return (
+            result = (
                 self.bot_service
                 .on_start(
                     user_id
                 )
             )
 
+
         except TypeError:
 
-            return (
+            result = (
                 self.bot_service
                 .on_start()
             )
+
+
+
+        if (
+            self.history_service
+            and user_id
+        ):
+
+            self.history_service.add(
+                user_id,
+                "Запущен ассистент"
+            )
+
+
+
+        return result
 
 
 
@@ -39,15 +60,30 @@ class TelegramRunner:
         text=None
     ):
 
+
         if text is None:
 
             text = user_id
             user_id = None
 
 
+
+        if (
+            self.history_service
+            and user_id
+            and text
+        ):
+
+            self.history_service.add(
+                user_id,
+                f"Сообщение: {text}"
+            )
+
+
+
         try:
 
-            return (
+            result = (
                 self.bot_service
                 .on_message(
                     user_id,
@@ -55,14 +91,19 @@ class TelegramRunner:
                 )
             )
 
+
         except TypeError:
 
-            return (
+            result = (
                 self.bot_service
                 .on_message(
                     text
                 )
             )
+
+
+
+        return result
 
 
 
@@ -72,15 +113,37 @@ class TelegramRunner:
         callback=None
     ):
 
+
         if callback is None:
 
             callback = user_id
             user_id = None
 
 
+
+        # Не записываем технические кнопки
+        # истории и памяти
+
+        if (
+            self.history_service
+            and user_id
+            and callback
+            and callback not in [
+                "history",
+                "memory"
+            ]
+        ):
+
+            self.history_service.add(
+                user_id,
+                f"Нажата кнопка: {callback}"
+            )
+
+
+
         try:
 
-            return (
+            result = (
                 self.bot_service
                 .on_callback(
                     user_id,
@@ -88,11 +151,16 @@ class TelegramRunner:
                 )
             )
 
+
         except TypeError:
 
-            return (
+            result = (
                 self.bot_service
                 .on_callback(
                     callback
                 )
             )
+
+
+
+        return result
