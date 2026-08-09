@@ -1,9 +1,10 @@
 from assistant_app import create_assistant
 
 
-from services.assistant_menu_service import (
-    AssistantMenuService
+from services.assistant_keyboard_service import (
+    AssistantKeyboardService
 )
+
 
 from services.assistant_button_handler_service import (
     AssistantButtonHandlerService
@@ -18,8 +19,8 @@ def main():
     )
 
 
-    menu = (
-        AssistantMenuService()
+    keyboard = (
+        AssistantKeyboardService()
     )
 
 
@@ -37,8 +38,9 @@ def main():
 
     while True:
 
-        menu_result = (
-            menu.get_menu()
+        menu = (
+            keyboard
+            .build_main_keyboard()
         )
 
 
@@ -48,12 +50,12 @@ def main():
 
 
         for index, button in enumerate(
-            menu_result["buttons"],
+            menu["buttons"],
             start=1
         ):
 
             print(
-                f"{index}. {button['title']}"
+                f"{index}. {button['text']}"
             )
 
 
@@ -74,14 +76,11 @@ def main():
 
         try:
 
-            index = (
-                int(choice) - 1
-            )
-
-            button_id = (
-                menu_result["buttons"]
-                [index]
-                ["id"]
+            button = (
+                menu["buttons"]
+                [
+                    int(choice) - 1
+                ]
             )
 
 
@@ -97,7 +96,7 @@ def main():
 
         result = (
             buttons.handle(
-                button_id
+                button["callback"]
             )
         )
 
@@ -122,6 +121,27 @@ def main():
             print(
                 result["message"]
             )
+
+
+        elif "actions" in result:
+
+            print(
+                result.get(
+                    "message",
+                    "Готово"
+                )
+            )
+
+
+            for action in result["actions"]:
+
+                print(
+                    "-",
+                    action["title"],
+                    "|",
+                    action["priority"]
+                )
+
 
         else:
 
