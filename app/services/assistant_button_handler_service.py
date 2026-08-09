@@ -6,7 +6,9 @@ class AssistantButtonHandlerService:
         assistant
     ):
 
-        self.assistant = assistant
+        self.assistant = (
+            assistant
+        )
 
 
 
@@ -21,7 +23,7 @@ class AssistantButtonHandlerService:
             return (
                 self.assistant
                 .ask(
-                    "Проведи анализ"
+                    "Что нужно сделать с продажами?"
                 )
             )
 
