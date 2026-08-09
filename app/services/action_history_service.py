@@ -75,6 +75,46 @@ class ActionHistoryService:
         }
 
 
+    def update_action(
+        self,
+        index,
+        action
+    ):
+
+        if (
+            index < 0
+            or
+            index >= len(
+                self.actions
+            )
+        ):
+
+            return {
+                "error": True,
+                "message": "Действие не найдено"
+            }
+
+
+        self.actions[index] = (
+            action
+        )
+
+
+        if self.storage_service:
+
+            self.storage_service.save(
+                self.actions
+            )
+
+
+        return {
+            "error": False,
+            "action": (
+                self.actions[index]
+            )
+        }
+
+
     def list_actions(
         self
     ):
