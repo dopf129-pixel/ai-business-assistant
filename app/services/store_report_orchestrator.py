@@ -51,20 +51,47 @@ class StoreReportOrchestrator:
             }
 
 
-        insights = (
-            self.insight_service
-            .analyze(
-                summary
+        try:
+
+            insights = (
+                self.insight_service
+                .analyze(
+                    summary
+                )
             )
-        )
+
+        except Exception as error:
+
+            return {
+                "error": True,
+                "message": (
+                    "Ошибка анализа инсайтов: "
+                    + str(error)
+                ),
+                "period_summary": summary
+            }
 
 
-        text = (
-            self.formatter
-            .format(
-                summary
+        try:
+
+            text = (
+                self.formatter
+                .format(
+                    summary
+                )
             )
-        )
+
+        except Exception as error:
+
+            return {
+                "error": True,
+                "message": (
+                    "Ошибка форматирования отчёта: "
+                    + str(error)
+                ),
+                "period_summary": summary,
+                "period_insights": insights
+            }
 
 
         return {
