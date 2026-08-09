@@ -1,10 +1,25 @@
 class ActionHistoryService:
 
     def __init__(
-        self
+        self,
+        storage_service=None
     ):
 
-        self.actions = []
+        self.storage_service = (
+            storage_service
+        )
+
+
+        if self.storage_service:
+
+            self.actions = (
+                self.storage_service
+                .load()
+            )
+
+        else:
+
+            self.actions = []
 
 
     def save_action(
@@ -15,6 +30,14 @@ class ActionHistoryService:
         self.actions.append(
             action
         )
+
+
+        if self.storage_service:
+
+            self.storage_service.save(
+                self.actions
+            )
+
 
         return {
             "error": False,
