@@ -28,6 +28,11 @@ from services.assistant_user_storage_service import (
 )
 
 
+from services.assistant_user_context_service import (
+    AssistantUserContextService
+)
+
+
 from services.assistant_history_service import (
     AssistantHistoryService
 )
@@ -69,6 +74,13 @@ def create_telegram_assistant():
 
     storage_service = (
         AssistantUserStorageService()
+    )
+
+
+    context_service = (
+        AssistantUserContextService(
+            storage_service
+        )
     )
 
 
@@ -157,6 +169,11 @@ def create_telegram_assistant():
 
     runner.storage_service = (
         storage_service
+    )
+
+
+    runner.context_service = (
+        context_service
     )
 
 

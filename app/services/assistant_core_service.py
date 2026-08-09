@@ -5,7 +5,8 @@ class AssistantCoreService:
         self,
         orchestrator_service,
         memory_service=None,
-        request_context_service=None
+        request_context_service=None,
+        user_context_service=None
     ):
 
         self.orchestrator_service = (
@@ -20,6 +21,10 @@ class AssistantCoreService:
             request_context_service
         )
 
+        self.user_context_service = (
+            user_context_service
+        )
+
 
 
     def ask(
@@ -32,10 +37,43 @@ class AssistantCoreService:
         context = None
 
 
+
         if (
+            self.user_context_service
+            and user_id is not None
+        ):
+
+
+            context = (
+                self.user_context_service
+                .get_context(
+                    user_id
+                )
+            )
+
+
+
+            self.user_context_service.update(
+                user_id,
+                "last_message",
+                text
+            )
+
+
+
+            self.user_context_service.update(
+                user_id,
+                "current_task",
+                text
+            )
+
+
+
+        elif (
             self.request_context_service
             and user_id is not None
         ):
+
 
             context = (
                 self.request_context_service
@@ -46,6 +84,7 @@ class AssistantCoreService:
             )
 
 
+
         result = (
             self.orchestrator_service
             .process(
@@ -54,17 +93,25 @@ class AssistantCoreService:
         )
 
 
+
         if context:
 
             result["context"] = context
 
 
-        elif self.memory_service:
+
+        if (
+            self.memory_service
+            and user_id is not None
+        ):
 
             result["memory"] = (
                 self.memory_service
-                .all()
+                .get_memory(
+                    user_id
+                )
             )
+
 
 
         return result

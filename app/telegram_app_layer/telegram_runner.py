@@ -10,12 +10,15 @@ class TelegramRunner:
 
         self.history_service = None
 
+        self.context_service = None
+
 
 
     def start(
         self,
         user_id=None
     ):
+
 
         try:
 
@@ -34,6 +37,7 @@ class TelegramRunner:
             )
 
 
+
         if (
             self.history_service
             and user_id
@@ -42,6 +46,19 @@ class TelegramRunner:
             self.history_service.add(
                 user_id,
                 "Запущен ассистент"
+            )
+
+
+
+        if (
+            self.context_service
+            and user_id
+        ):
+
+            self.context_service.update(
+                user_id,
+                "last_action",
+                "start"
             )
 
 
@@ -72,6 +89,28 @@ class TelegramRunner:
             self.history_service.add(
                 user_id,
                 f"Сообщение: {text}"
+            )
+
+
+
+        if (
+            self.context_service
+            and user_id
+            and text
+        ):
+
+            self.context_service.update(
+                user_id,
+                "last_message",
+                text
+            )
+
+
+
+            self.context_service.update(
+                user_id,
+                "current_task",
+                text
             )
 
 
@@ -124,6 +163,19 @@ class TelegramRunner:
             self.history_service.add(
                 user_id,
                 f"Нажата кнопка: {callback}"
+            )
+
+
+
+        if (
+            self.context_service
+            and user_id
+        ):
+
+            self.context_service.update(
+                user_id,
+                "last_action",
+                callback
             )
 
 
