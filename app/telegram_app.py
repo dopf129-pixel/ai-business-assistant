@@ -19,78 +19,28 @@ if __name__ == "__main__":
 
     user_1 = 1001
 
-    user_2 = 2002
-
-
 
     print(
-        "\nSAVE MEMORY"
-    )
-
-
-    bot.memory_service.remember(
-        user_1,
-        "имя",
-        "Алекс"
-    )
-
-
-    bot.memory_service.remember(
-        user_2,
-        "имя",
-        "Мария"
-    )
-
-
-
-    print(
-        "\nUSER 1001 PROFILE"
+        "\nUSER MESSAGE"
     )
 
 
     print(
-        bot.profiles.get_user(
-            user_1
+        bot.receive_message(
+            user_1,
+            "запомни имя Алекс"
         )
     )
 
 
-
     print(
-        "\nUSER 2002 PROFILE"
-    )
-
-
-    print(
-        bot.profiles.get_user(
-            user_2
-        )
-    )
-
-
-
-    print(
-        "\nUSER 1001 MEMORY BUTTON"
+        "\nMEMORY BUTTON"
     )
 
 
     print(
         bot.receive_callback(
             user_1,
-            "memory"
-        )
-    )
-
-
-
-    print(
-        "\nUSER 2002 MEMORY BUTTON"
-    )
-
-
-    print(
-        bot.receive_callback(
-            user_2,
             "memory"
         )
     )

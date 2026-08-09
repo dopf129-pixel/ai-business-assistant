@@ -11,26 +11,40 @@ class AssistantMemoryCommandService:
         )
 
 
+
     def handle(
         self,
+        user_id,
         text
     ):
 
 
-        parts = (
-            text.split()
+        text = (
+            text.strip()
         )
 
 
-        if len(parts) >= 3:
+        prefix = (
+            "запомни "
+        )
 
-            if parts[0].lower() == "запомни":
 
-                key = parts[1]
+        if text.lower().startswith(
+            prefix
+        ):
 
-                value = (
-                    " ".join(
-                        parts[2:]
+
+            data = (
+                text[len(prefix):]
+            )
+
+
+            if "=" in data:
+
+                key, value = (
+                    data.split(
+                        "=",
+                        1
                     )
                 )
 
@@ -38,20 +52,31 @@ class AssistantMemoryCommandService:
                 return (
                     self.memory_service
                     .remember(
-                        key,
-                        value
+                        user_id,
+                        key.strip(),
+                        value.strip()
                     )
                 )
 
 
-        if text.lower() == "кто я":
+            if " " in data:
 
-            return (
-                self.memory_service
-                .get(
-                    "имя"
+                key, value = (
+                    data.split(
+                        " ",
+                        1
+                    )
                 )
-            )
+
+
+                return (
+                    self.memory_service
+                    .remember(
+                        user_id,
+                        key.strip(),
+                        value.strip()
+                    )
+                )
 
 
         return {

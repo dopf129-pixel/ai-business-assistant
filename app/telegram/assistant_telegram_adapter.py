@@ -6,7 +6,8 @@ class AssistantTelegramAdapter:
         assistant,
         keyboard_service,
         button_handler,
-        user_profile_service=None
+        user_profile_service=None,
+        memory_command_service=None
     ):
 
         self.assistant = (
@@ -23,6 +24,10 @@ class AssistantTelegramAdapter:
 
         self.user_profile_service = (
             user_profile_service
+        )
+
+        self.memory_command_service = (
+            memory_command_service
         )
 
 
@@ -44,15 +49,12 @@ class AssistantTelegramAdapter:
 
 
         return {
-            "text": (
-                "Привет! Я AI Assistant. "
-                "Выберите действие:"
-            ),
+            "text":
+                "Привет! Я AI Assistant. Выберите действие:",
 
-            "keyboard": (
+            "keyboard":
                 self.keyboard_service
                 .build_main_keyboard()
-            )
         }
 
 
@@ -72,6 +74,28 @@ class AssistantTelegramAdapter:
             self.user_profile_service.create_user(
                 user_id
             )
+
+
+        if (
+            self.memory_command_service
+        ):
+
+            memory_result = (
+                self.memory_command_service
+                .handle(
+                    user_id,
+                    text
+                )
+            )
+
+
+            if not memory_result["error"]:
+
+                return {
+                    "error": False,
+                    "message":
+                        "Запомнил 👍"
+                }
 
 
         return (
@@ -110,7 +134,6 @@ class AssistantTelegramAdapter:
                     user_id
                 )
             )
-
 
         except TypeError:
 

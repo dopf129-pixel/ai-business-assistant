@@ -18,6 +18,11 @@ from services.assistant_telegram_memory_service import (
 )
 
 
+from services.assistant_memory_command_service import (
+    AssistantMemoryCommandService
+)
+
+
 from telegram.assistant_telegram_adapter import (
     AssistantTelegramAdapter
 )
@@ -59,6 +64,13 @@ def create_telegram_assistant():
     )
 
 
+    memory_commands = (
+        AssistantMemoryCommandService(
+            telegram_memory
+        )
+    )
+
+
     keyboard = (
         AssistantKeyboardService()
     )
@@ -77,7 +89,8 @@ def create_telegram_assistant():
             assistant,
             keyboard,
             button_handler,
-            profiles
+            profiles,
+            memory_commands
         )
     )
 
@@ -96,8 +109,16 @@ def create_telegram_assistant():
     )
 
 
+    # оставляем доступ для тестов
+    # и будущего Telegram API слоя
+
     runner.memory_service = (
         telegram_memory
+    )
+
+
+    runner.memory_commands = (
+        memory_commands
     )
 
 
