@@ -57,9 +57,14 @@ from services.assistant_action_execution_service import (
     AssistantActionExecutionService
 )
 
+from services.assistant_response_builder_service import (
+    AssistantResponseBuilderService
+)
+
 from services.action_history_service import (
     ActionHistoryService
 )
+
 
 
 class TestAssistantEntryFlow(
@@ -67,7 +72,7 @@ class TestAssistantEntryFlow(
 ):
 
 
-    def test_user_entry_to_action_plan(
+    def test_user_entry_to_response(
         self
     ):
 
@@ -116,7 +121,7 @@ class TestAssistantEntryFlow(
         )
 
 
-        business = (
+        business_service = (
             AssistantOrchestratorBusinessService(
                 business_flow_service=business_flow
             )
@@ -125,7 +130,10 @@ class TestAssistantEntryFlow(
 
         main = (
             AssistantMainFlowService(
-                business_service=business
+                business_service=business_service,
+                response_service=(
+                    AssistantResponseBuilderService()
+                )
             )
         )
 
@@ -150,9 +158,24 @@ class TestAssistantEntryFlow(
 
 
         self.assertEqual(
-            result["response"]["count"],
+            result["message"],
+            "Создано действий: 2"
+        )
+
+
+        self.assertEqual(
+            len(
+                result["actions"]
+            ),
             2
         )
+
+
+        self.assertEqual(
+            result["actions"][0]["priority"],
+            "HIGH"
+        )
+
 
 
 if __name__ == "__main__":
