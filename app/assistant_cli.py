@@ -11,11 +11,40 @@ from services.assistant_session_storage_service import (
 )
 
 
+from services.assistant_user_memory_service import (
+    AssistantUserMemoryService
+)
+
+
+from services.assistant_user_memory_storage_service import (
+    AssistantUserMemoryStorageService
+)
+
+
+from services.assistant_memory_command_service import (
+    AssistantMemoryCommandService
+)
+
+
 
 def main():
 
     assistant = (
         create_assistant()
+    )
+
+
+    memory = (
+        AssistantUserMemoryService(
+            AssistantUserMemoryStorageService()
+        )
+    )
+
+
+    memory_commands = (
+        AssistantMemoryCommandService(
+            memory
+        )
     )
 
 
@@ -32,11 +61,23 @@ def main():
     )
 
     print(
-        "Введите 'history' для истории"
+        "Команды:"
     )
 
     print(
-        "Введите 'exit' для выхода"
+        "history - история"
+    )
+
+    print(
+        "exit - выход"
+    )
+
+    print(
+        "запомни ключ значение - сохранить память"
+    )
+
+    print(
+        "кто я - получить имя"
     )
 
 
@@ -68,35 +109,53 @@ def main():
             for item in history["history"]:
 
                 print(
-                    "\nВы:",
+                    "Вы:",
                     item["user"]
                 )
-
 
                 print(
                     "Ассистент:",
                     item["assistant"]["message"]
                 )
 
-
-                if (
-                    "actions"
-                    in item["assistant"]
-                ):
-
-                    for action in (
-                        item["assistant"]["actions"]
-                    ):
-
-                        print(
-                            "-",
-                            action["title"],
-                            "|",
-                            action["priority"]
-                        )
-
-
             continue
+
+
+
+        memory_result = (
+            memory_commands.handle(
+                text
+            )
+        )
+
+
+        if not memory_result["error"]:
+
+            if "saved" in memory_result:
+
+                print(
+                    "\nАссистент:"
+                )
+
+                print(
+                    "Запомнил"
+                )
+
+                continue
+
+
+
+            if "value" in memory_result:
+
+                print(
+                    "\nАссистент:"
+                )
+
+                print(
+                    memory_result["value"]
+                )
+
+                continue
 
 
 

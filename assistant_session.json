@@ -40,5 +40,31 @@
       "error": true,
       "message": "Не удалось определить намерение"
     }
+  },
+  {
+    "user": "rnj z",
+    "assistant": {
+      "error": true,
+      "message": "Не удалось определить намерение",
+      "memory": {
+        "error": false,
+        "memory": {
+          "имя": "Алекс"
+        }
+      }
+    }
+  },
+  {
+    "user": "git add .",
+    "assistant": {
+      "error": true,
+      "message": "Не удалось определить намерение",
+      "memory": {
+        "error": false,
+        "memory": {
+          "имя": "Алекс"
+        }
+      }
+    }
   }
 ]
