@@ -6,48 +6,93 @@ class TelegramRunner:
         bot_service
     ):
 
-        self.bot_service = (
-            bot_service
-        )
+        self.bot_service = bot_service
 
 
 
     def start(
-        self
+        self,
+        user_id=None
     ):
 
-        response = (
-            self.bot_service
-            .on_start()
-        )
+        try:
 
+            return (
+                self.bot_service
+                .on_start(
+                    user_id
+                )
+            )
 
-        return response
+        except TypeError:
+
+            return (
+                self.bot_service
+                .on_start()
+            )
 
 
 
     def receive_message(
         self,
-        text
+        user_id,
+        text=None
     ):
 
-        return (
-            self.bot_service
-            .on_message(
-                text
+        if text is None:
+
+            text = user_id
+            user_id = None
+
+
+        try:
+
+            return (
+                self.bot_service
+                .on_message(
+                    user_id,
+                    text
+                )
             )
-        )
+
+        except TypeError:
+
+            return (
+                self.bot_service
+                .on_message(
+                    text
+                )
+            )
 
 
 
     def receive_callback(
         self,
-        callback
+        user_id,
+        callback=None
     ):
 
-        return (
-            self.bot_service
-            .on_callback(
-                callback
+        if callback is None:
+
+            callback = user_id
+            user_id = None
+
+
+        try:
+
+            return (
+                self.bot_service
+                .on_callback(
+                    user_id,
+                    callback
+                )
             )
-        )
+
+        except TypeError:
+
+            return (
+                self.bot_service
+                .on_callback(
+                    callback
+                )
+            )

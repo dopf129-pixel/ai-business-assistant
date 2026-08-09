@@ -11,6 +11,11 @@ from services.assistant_button_handler_service import (
 )
 
 
+from services.assistant_user_profile_service import (
+    AssistantUserProfileService
+)
+
+
 from telegram.assistant_telegram_adapter import (
     AssistantTelegramAdapter
 )
@@ -46,11 +51,17 @@ def create_telegram_bot():
     )
 
 
+    profiles = (
+        AssistantUserProfileService()
+    )
+
+
     adapter = (
         AssistantTelegramAdapter(
             assistant,
             keyboard,
-            button_handler
+            button_handler,
+            profiles
         )
     )
 
@@ -77,25 +88,51 @@ if __name__ == "__main__":
     )
 
 
+    user_1 = 1001
+
+    user_2 = 2002
+
+
     print(
         "Telegram Assistant ready"
     )
 
 
     print(
-        bot.start()
+        "\nUSER 1001"
+    )
+
+
+    print(
+        bot.start(
+            user_1
+        )
     )
 
 
     print(
         bot.receive_message(
+            user_1,
             "Что нужно сделать?"
         )
     )
 
 
     print(
-        bot.receive_callback(
-            "analyze"
+        "\nUSER 2002"
+    )
+
+
+    print(
+        bot.start(
+            user_2
+        )
+    )
+
+
+    print(
+        bot.receive_message(
+            user_2,
+            "Что нужно сделать?"
         )
     )

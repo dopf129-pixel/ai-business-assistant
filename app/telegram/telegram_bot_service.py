@@ -6,45 +6,93 @@ class TelegramBotService:
         adapter
     ):
 
-        self.adapter = (
-            adapter
-        )
+        self.adapter = adapter
 
 
 
     def on_start(
-        self
+        self,
+        user_id=None
     ):
 
-        return (
-            self.adapter
-            .get_start_response()
-        )
+        try:
+
+            return (
+                self.adapter
+                .get_start_response(
+                    user_id
+                )
+            )
+
+        except TypeError:
+
+            return (
+                self.adapter
+                .get_start_response()
+            )
 
 
 
     def on_message(
         self,
-        text
+        user_id,
+        text=None
     ):
 
-        return (
-            self.adapter
-            .handle_text(
-                text
+        if text is None:
+
+            text = user_id
+            user_id = None
+
+
+        try:
+
+            return (
+                self.adapter
+                .handle_text(
+                    text,
+                    user_id
+                )
             )
-        )
+
+        except TypeError:
+
+            return (
+                self.adapter
+                .handle_text(
+                    text
+                )
+            )
 
 
 
     def on_callback(
         self,
-        callback
+        user_id,
+        callback=None
     ):
 
-        return (
-            self.adapter
-            .handle_button(
-                callback
+        if callback is None:
+
+            callback = user_id
+            user_id = None
+
+
+        try:
+
+            return (
+                self.adapter
+                .handle_button(
+                    callback,
+                    user_id
+                )
             )
-        )
+
+        except TypeError:
+
+            return (
+                self.adapter
+                .handle_button(
+                    callback
+                )
+            )

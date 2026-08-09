@@ -5,7 +5,8 @@ class AssistantTelegramAdapter:
         self,
         assistant,
         keyboard_service,
-        button_handler
+        button_handler,
+        user_profile_service=None
     ):
 
         self.assistant = assistant
@@ -18,11 +19,23 @@ class AssistantTelegramAdapter:
             button_handler
         )
 
+        self.user_profile_service = (
+            user_profile_service
+        )
+
 
 
     def get_start_response(
-        self
+        self,
+        user_id=None
     ):
+
+        if self.user_profile_service:
+
+            self.user_profile_service.create_user(
+                user_id
+            )
+
 
         return {
             "text": (
@@ -40,8 +53,16 @@ class AssistantTelegramAdapter:
 
     def handle_text(
         self,
-        text
+        text,
+        user_id=None
     ):
+
+        if self.user_profile_service:
+
+            self.user_profile_service.create_user(
+                user_id
+            )
+
 
         return (
             self.assistant
@@ -54,8 +75,16 @@ class AssistantTelegramAdapter:
 
     def handle_button(
         self,
-        callback
+        callback,
+        user_id=None
     ):
+
+        if self.user_profile_service:
+
+            self.user_profile_service.create_user(
+                user_id
+            )
+
 
         return (
             self.button_handler
