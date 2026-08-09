@@ -37,6 +37,20 @@ class StoreReportOrchestrator:
         )
 
 
+        if summary.get(
+            "error"
+        ):
+
+            return {
+                "error": True,
+                "message": summary.get(
+                    "message",
+                    "Не удалось построить отчёт"
+                ),
+                "period_summary": summary
+            }
+
+
         insights = (
             self.insight_service
             .analyze(
