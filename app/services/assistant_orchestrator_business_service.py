@@ -86,6 +86,8 @@ class AssistantOrchestratorBusinessService:
 
 
 
+            current_action = None
+
             next_action = None
 
 
@@ -95,16 +97,17 @@ class AssistantOrchestratorBusinessService:
                 and user_id
             ):
 
-                next_result = (
+
+                current_result = (
                     self.task_service
-                    .get_next_action(
+                    .get_current_action(
                         user_id
                     )
                 )
 
 
-                next_action = (
-                    next_result
+                current_action = (
+                    current_result
                     .get(
                         "action"
                     )
@@ -112,7 +115,43 @@ class AssistantOrchestratorBusinessService:
 
 
 
-            if next_action:
+                if not current_action:
+
+
+                    next_result = (
+                        self.task_service
+                        .get_next_action(
+                            user_id
+                        )
+                    )
+
+
+                    next_action = (
+                        next_result
+                        .get(
+                            "action"
+                        )
+                    )
+
+
+
+            action = (
+                current_action
+                or
+                next_action
+            )
+
+
+
+            if action:
+
+
+                status = (
+                    action.get(
+                        "status",
+                        "NEW"
+                    )
+                )
 
 
                 return {
@@ -127,16 +166,19 @@ class AssistantOrchestratorBusinessService:
 
                     "next_step":
                         (
-                            "Следующий шаг: "
+                            "Текущий шаг: "
                             +
-                            next_action.get(
+                            action.get(
                                 "title",
                                 ""
                             )
                         ),
 
+                    "status":
+                        status,
+
                     "action":
-                        next_action
+                        action
                 }
 
 
@@ -152,9 +194,7 @@ class AssistantOrchestratorBusinessService:
                     task,
 
                 "next_step":
-                    (
-                        "Все действия выполнены"
-                    )
+                    "Все действия выполнены"
             }
 
 
