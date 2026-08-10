@@ -3,11 +3,16 @@ class AssistantOrchestratorBusinessService:
 
     def __init__(
         self,
-        business_flow_service
+        business_flow_service,
+        task_service=None
     ):
 
         self.business_flow_service = (
             business_flow_service
+        )
+
+        self.task_service = (
+            task_service
         )
 
 
@@ -69,7 +74,6 @@ class AssistantOrchestratorBusinessService:
                         )
                     )
 
-
                 else:
 
                     task = (
@@ -82,7 +86,62 @@ class AssistantOrchestratorBusinessService:
 
 
 
+            next_action = None
+
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+                next_result = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+                next_action = (
+                    next_result
+                    .get(
+                        "action"
+                    )
+                )
+
+
+
+            if next_action:
+
+
+                return {
+
+                    "error": False,
+
+                    "message":
+                        "Продолжаем работу",
+
+                    "task":
+                        task,
+
+                    "next_step":
+                        (
+                            "Следующий шаг: "
+                            +
+                            next_action.get(
+                                "title",
+                                ""
+                            )
+                        ),
+
+                    "action":
+                        next_action
+                }
+
+
+
             return {
+
                 "error": False,
 
                 "message":
@@ -92,7 +151,9 @@ class AssistantOrchestratorBusinessService:
                     task,
 
                 "next_step":
-                    f"Следующий шаг по задаче: {task}"
+                    (
+                        f"Следующий шаг по задаче: {task}"
+                    )
                     if task
                     else
                     "Задача не определена"
@@ -103,6 +164,7 @@ class AssistantOrchestratorBusinessService:
 
 
         return {
+
             "error": False,
 
             "message":

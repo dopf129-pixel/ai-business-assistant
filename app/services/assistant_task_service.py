@@ -25,20 +25,32 @@ class AssistantTaskService:
         self
     ):
 
-
-        if os.path.exists(
+        if not os.path.exists(
             self.file_path
         ):
+
+            self.tasks = {}
+
+            return
+
+
+        try:
 
             with open(
                 self.file_path,
                 "r",
                 encoding="utf-8"
-            ) as f:
+            ) as file:
 
-                self.tasks = json.load(
-                    f
+                self.tasks = (
+                    json.load(
+                        file
+                    )
                 )
+
+        except Exception:
+
+            self.tasks = {}
 
 
 
@@ -46,24 +58,29 @@ class AssistantTaskService:
         self
     ):
 
-
-        os.makedirs(
+        folder = (
             os.path.dirname(
                 self.file_path
-            ),
-            exist_ok=True
+            )
         )
+
+
+        if folder and not os.path.exists(folder):
+
+            os.makedirs(
+                folder
+            )
 
 
         with open(
             self.file_path,
             "w",
             encoding="utf-8"
-        ) as f:
+        ) as file:
 
             json.dump(
                 self.tasks,
-                f,
+                file,
                 ensure_ascii=False,
                 indent=4
             )
@@ -73,17 +90,20 @@ class AssistantTaskService:
     def create_task(
         self,
         user_id,
-        title,
+        task,
         actions
     ):
 
 
-        self.tasks[str(user_id)] = {
+        self.tasks[
+            str(user_id)
+        ] = {
 
-            "task": title,
+            "task":
+                task,
 
-            "actions": actions
-
+            "actions":
+                actions
         }
 
 
@@ -91,7 +111,9 @@ class AssistantTaskService:
 
 
         return {
+
             "error": False,
+
             "saved": True
         }
 
@@ -111,17 +133,12 @@ class AssistantTaskService:
         )
 
 
-        if not task:
-
-            return {
-                "error": False,
-                "task": None
-            }
-
-
         return {
+
             "error": False,
-            "task": task
+
+            "task":
+                task
         }
 
 
@@ -129,59 +146,6 @@ class AssistantTaskService:
     def get_next_action(
         self,
         user_id
-    ):
-
-
-        result = (
-            self.get_task(
-                user_id
-            )
-        )
-
-
-        task = (
-            result.get(
-                "task"
-            )
-        )
-
-
-        if not task:
-
-            return {
-                "error": False,
-                "action": None
-            }
-
-
-
-        for action in task["actions"]:
-
-
-            if (
-                action.get("status")
-                ==
-                "NEW"
-            ):
-
-                return {
-                    "error": False,
-                    "action": action
-                }
-
-
-
-        return {
-            "error": False,
-            "action": None
-        }
-
-
-
-    def complete_action(
-        self,
-        user_id,
-        title
     ):
 
 
@@ -196,25 +160,103 @@ class AssistantTaskService:
         if not task:
 
             return {
-                "error": True,
-                "message": "Задача не найдена"
+
+                "error": False,
+
+                "action": None
             }
 
 
 
-        for action in task["actions"]:
+        for action in task.get(
+            "actions",
+            []
+        ):
 
 
-            if action.get("title") == title:
+            if (
+                action.get(
+                    "status"
+                )
+                ==
+                "NEW"
+            ):
 
-                action["status"] = "DONE"
+                return {
 
+                    "error": False,
 
+                    "action":
+                        action
+                }
 
-        self.save()
 
 
         return {
+
             "error": False,
-            "updated": True
+
+            "action": None
+        }
+
+
+
+    def update_action_status(
+        self,
+        user_id,
+        title,
+        status
+    ):
+
+
+        task = (
+            self.tasks
+            .get(
+                str(user_id)
+            )
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Задача не найдена"
+            }
+
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "title"
+            ) == title:
+
+                action["status"] = status
+
+                self.save()
+
+
+                return {
+
+                    "error": False,
+
+                    "updated": True
+                }
+
+
+
+        return {
+
+            "error": True,
+
+            "message":
+                "Действие не найдено"
         }
