@@ -16,7 +16,8 @@ class AssistantOrchestratorBusinessService:
         self,
         text,
         report,
-        context=None
+        context=None,
+        user_id=None
     ):
 
 
@@ -25,7 +26,8 @@ class AssistantOrchestratorBusinessService:
             .process(
                 text,
                 report,
-                context
+                context,
+                user_id
             )
         )
 

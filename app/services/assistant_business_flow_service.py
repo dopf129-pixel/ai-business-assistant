@@ -21,7 +21,8 @@ class AssistantBusinessFlowService:
         self,
         text,
         report,
-        context=None
+        context=None,
+        user_id=None
     ):
 
 
@@ -50,9 +51,13 @@ class AssistantBusinessFlowService:
 
             return {
                 "error": False,
+
                 "intent": intent,
+
                 "plan": [],
+
                 "count": 0,
+
                 "continued_task":
                     intent.get(
                         "task",
@@ -65,7 +70,8 @@ class AssistantBusinessFlowService:
         result = (
             self.planner_service
             .build_plan(
-                report
+                report,
+                user_id
             )
         )
 
@@ -73,7 +79,12 @@ class AssistantBusinessFlowService:
 
         return {
             "error": False,
+
             "intent": intent,
-            "plan": result["actions"],
-            "count": result["count"]
+
+            "plan":
+                result["actions"],
+
+            "count":
+                result["count"]
         }

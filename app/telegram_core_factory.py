@@ -78,6 +78,10 @@ from services.assistant_task_context_service import (
     AssistantTaskContextService
 )
 
+from services.assistant_task_service import (
+    AssistantTaskService
+)
+
 
 
 def create_telegram_core():
@@ -88,9 +92,15 @@ def create_telegram_core():
     )
 
 
+    task_service = (
+        AssistantTaskService()
+    )
+
+
 
     executor = (
         AssistantActionPlanExecutorService(
+
             priority_service=(
                 AssistantPriorityService()
             ),
@@ -111,6 +121,7 @@ def create_telegram_core():
 
     planner = (
         AssistantBusinessPlannerService(
+
             recommendation_service=(
                 AssistantRecommendationService()
             ),
@@ -119,7 +130,9 @@ def create_telegram_core():
                 AssistantPlanningService()
             ),
 
-            executor_service=executor
+            executor_service=executor,
+
+            task_service=task_service
         )
     )
 
@@ -127,6 +140,7 @@ def create_telegram_core():
 
     business_flow = (
         AssistantBusinessFlowService(
+
             intent_service=(
                 AssistantIntentService()
             ),
@@ -147,6 +161,7 @@ def create_telegram_core():
 
     main_flow = (
         AssistantMainFlowService(
+
             business_service=business,
 
             response_service=(
@@ -205,6 +220,7 @@ def create_telegram_core():
 
     core = (
         AssistantCoreService(
+
             orchestrator_service=orchestrator,
 
             request_context_service=request_context,
@@ -218,6 +234,7 @@ def create_telegram_core():
 
 
     return {
+
         "core": core,
 
         "profiles": storage,
@@ -226,5 +243,7 @@ def create_telegram_core():
 
         "context": user_context,
 
-        "task_context": task_context
+        "task_context": task_context,
+
+        "task_service": task_service
     }

@@ -21,7 +21,8 @@ class AssistantMainFlowService:
         self,
         text,
         report,
-        context=None
+        context=None,
+        user_id=None
     ):
 
 
@@ -30,7 +31,8 @@ class AssistantMainFlowService:
             .handle(
                 text,
                 report,
-                context
+                context,
+                user_id
             )
         )
 

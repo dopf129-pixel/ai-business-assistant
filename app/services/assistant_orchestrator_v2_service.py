@@ -15,7 +15,8 @@ class AssistantOrchestratorV2Service:
     def process(
         self,
         text,
-        context=None
+        context=None,
+        user_id=None
     ):
 
 
@@ -23,6 +24,7 @@ class AssistantOrchestratorV2Service:
             self.entry_service
             .handle(
                 text,
-                context
+                context,
+                user_id
             )
         )

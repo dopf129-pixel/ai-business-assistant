@@ -15,7 +15,8 @@ class AssistantEntryService:
     def handle(
         self,
         text,
-        context=None
+        context=None,
+        user_id=None
     ):
 
 
@@ -31,6 +32,7 @@ class AssistantEntryService:
             .process(
                 text,
                 report,
-                context
+                context,
+                user_id
             )
         )

@@ -5,7 +5,8 @@ class AssistantBusinessPlannerService:
         self,
         recommendation_service,
         planning_service,
-        executor_service
+        executor_service,
+        task_service=None
     ):
 
         self.recommendation_service = (
@@ -20,11 +21,18 @@ class AssistantBusinessPlannerService:
             executor_service
         )
 
+        self.task_service = (
+            task_service
+        )
+
+
 
     def build_plan(
         self,
-        report
+        report,
+        user_id=None
     ):
+
 
         recommendations = (
             self.recommendation_service
@@ -37,6 +45,7 @@ class AssistantBusinessPlannerService:
         if recommendations["error"]:
 
             return recommendations
+
 
 
         plan = (
@@ -52,6 +61,7 @@ class AssistantBusinessPlannerService:
             return plan
 
 
+
         result = (
             self.executor_service
             .execute_plan(
@@ -60,15 +70,38 @@ class AssistantBusinessPlannerService:
         )
 
 
-        return {
-            "error": False,
-            "recommendations": (
-                recommendations["recommendations"]
-            ),
-            "actions": (
-                result["actions"]
-            ),
-            "count": (
-                result["count"]
+
+        actions = (
+            result["actions"]
+        )
+
+
+
+        if (
+            self.task_service
+            and user_id
+        ):
+
+            self.task_service.create_task(
+                user_id,
+
+                "Создание плана действий",
+
+                actions
             )
+
+
+
+        return {
+
+            "error": False,
+
+            "recommendations":
+                recommendations["recommendations"],
+
+            "actions":
+                actions,
+
+            "count":
+                result["count"]
         }

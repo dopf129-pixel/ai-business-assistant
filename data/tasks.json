@@ -1,0 +1,19 @@
+{
+    "505204945": {
+        "task": "Создание плана действий",
+        "actions": [
+            {
+                "title": "Проверить причины падения продаж",
+                "type": "sales",
+                "status": "NEW",
+                "priority": "HIGH"
+            },
+            {
+                "title": "Проверить остатки товара",
+                "type": "stock",
+                "status": "NEW",
+                "priority": "HIGH"
+            }
+        ]
+    }
+}

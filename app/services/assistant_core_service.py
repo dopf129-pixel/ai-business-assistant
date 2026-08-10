@@ -76,7 +76,8 @@ class AssistantCoreService:
             self.orchestrator_service
             .process(
                 text,
-                context
+                context,
+                user_id
             )
         )
 
