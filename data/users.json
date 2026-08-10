@@ -19,7 +19,7 @@
             "Выполнен анализ"
         ],
         "context": {
-            "last_message": "да",
+            "last_message": "статус задачи",
             "last_action": "analyze",
             "current_task": "Создание плана действий"
         }

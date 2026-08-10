@@ -128,6 +128,27 @@ class AssistantOrchestratorBusinessService:
 
 
 
+        if command == "task_status":
+
+
+            return {
+
+                "error": False,
+
+                "task_status":
+                    result.get(
+                        "task_status",
+                        {}
+                    ),
+
+                "message":
+                    "Статус задачи"
+            }
+
+
+
+
+
         if command == "continue":
 
 

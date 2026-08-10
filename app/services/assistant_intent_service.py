@@ -66,6 +66,32 @@ class AssistantIntentService:
 
 
         if (
+            "статус" in text
+            or
+            "прогресс" in text
+            or
+            "состояние задачи" in text
+            or
+            "что по задаче" in text
+            or
+            "покажи задачу" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "task_status",
+
+                "command":
+                    "task_status"
+            }
+
+
+
+        if (
             "отчёт" in text
             or
             "отчет" in text

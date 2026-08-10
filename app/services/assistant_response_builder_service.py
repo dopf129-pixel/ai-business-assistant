@@ -7,6 +7,119 @@ class AssistantResponseBuilderService:
     ):
 
 
+        task_status = (
+            result.get(
+                "task_status"
+            )
+        )
+
+
+        if task_status:
+
+
+            text = ""
+
+
+            task = (
+                task_status.get(
+                    "task"
+                )
+            )
+
+
+            if task:
+
+                text += (
+                    "Задача: "
+                    +
+                    task
+                )
+
+
+
+            progress = (
+                task_status.get(
+                    "progress",
+                    {}
+                )
+            )
+
+
+            text += (
+                "\n\nПрогресс: "
+                +
+                str(
+                    progress.get(
+                        "done",
+                        0
+                    )
+                )
+                +
+                "/"
+                +
+                str(
+                    progress.get(
+                        "total",
+                        0
+                    )
+                )
+            )
+
+
+
+            actions = (
+                task_status.get(
+                    "actions",
+                    []
+                )
+            )
+
+
+            if actions:
+
+
+                text += (
+                    "\n\n"
+                )
+
+
+                for action in actions:
+
+
+                    text += (
+
+                        action.get(
+                            "icon",
+                            ""
+                        )
+                        +
+                        " "
+                        +
+                        action.get(
+                            "title",
+                            ""
+                        )
+                        +
+                        "\n"
+
+                    )
+
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text.strip()
+            }
+
+
+
+
+
+
+
         message = (
             result.get(
                 "message"
@@ -103,7 +216,6 @@ class AssistantResponseBuilderService:
 
                         for item in details:
 
-
                             text += (
                                 "\n• "
                                 +
@@ -195,6 +307,7 @@ class AssistantResponseBuilderService:
 
 
 
+
         if (
             message
             ==
@@ -255,6 +368,7 @@ class AssistantResponseBuilderService:
                     )
 
 
+
             elif next_step:
 
 
@@ -281,13 +395,13 @@ class AssistantResponseBuilderService:
 
 
 
+
         count = (
             result.get(
                 "count",
                 0
             )
         )
-
 
 
         if count == 0:
