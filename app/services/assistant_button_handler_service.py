@@ -5,7 +5,8 @@ class AssistantButtonHandlerService:
         self,
         assistant,
         memory_service=None,
-        history_service=None
+        history_service=None,
+        task_context_service=None
     ):
 
         self.assistant = (
@@ -20,6 +21,37 @@ class AssistantButtonHandlerService:
             history_service
         )
 
+        self.task_context_service = (
+            task_context_service
+        )
+
+
+
+    def prepare_context(
+        self,
+        user_id,
+        action,
+        task
+    ):
+
+
+        if (
+            self.task_context_service
+            and user_id
+        ):
+
+            self.task_context_service.user_context_service.update(
+                user_id,
+                "last_action",
+                action
+            )
+
+
+            self.task_context_service.update_task(
+                user_id,
+                task
+            )
+
 
 
     def handle(
@@ -29,7 +61,15 @@ class AssistantButtonHandlerService:
     ):
 
 
+
         if button_id == "analyze":
+
+
+            self.prepare_context(
+                user_id,
+                "analyze",
+                "Анализ продаж"
+            )
 
 
             result = (
@@ -39,6 +79,7 @@ class AssistantButtonHandlerService:
                     user_id
                 )
             )
+
 
 
             if (
@@ -56,7 +97,16 @@ class AssistantButtonHandlerService:
 
 
 
+
+
         if button_id == "plan":
+
+
+            self.prepare_context(
+                user_id,
+                "plan",
+                "Создание плана действий"
+            )
 
 
             result = (
@@ -66,6 +116,7 @@ class AssistantButtonHandlerService:
                     user_id
                 )
             )
+
 
 
             if (
@@ -80,6 +131,8 @@ class AssistantButtonHandlerService:
 
 
             return result
+
+
 
 
 
@@ -106,6 +159,8 @@ class AssistantButtonHandlerService:
 
 
 
+
+
         if button_id == "memory":
 
 
@@ -126,6 +181,8 @@ class AssistantButtonHandlerService:
                 "error": False,
                 "memory": {}
             }
+
+
 
 
 

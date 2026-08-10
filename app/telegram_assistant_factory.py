@@ -23,16 +23,6 @@ from services.assistant_memory_command_service import (
 )
 
 
-from services.assistant_user_storage_service import (
-    AssistantUserStorageService
-)
-
-
-from services.assistant_user_context_service import (
-    AssistantUserContextService
-)
-
-
 from services.assistant_history_service import (
     AssistantHistoryService
 )
@@ -72,16 +62,21 @@ def create_telegram_assistant():
     )
 
 
+
     storage_service = (
-        AssistantUserStorageService()
+        system["storage"]
     )
 
 
     context_service = (
-        AssistantUserContextService(
-            storage_service
-        )
+        system["context"]
     )
+
+
+    task_context_service = (
+        system["task_context"]
+    )
+
 
 
     telegram_memory = (
@@ -91,11 +86,13 @@ def create_telegram_assistant():
     )
 
 
+
     memory_commands = (
         AssistantMemoryCommandService(
             telegram_memory
         )
     )
+
 
 
     history_service = (
@@ -105,18 +102,22 @@ def create_telegram_assistant():
     )
 
 
+
     keyboard = (
         AssistantKeyboardService()
     )
+
 
 
     button_handler = (
         AssistantButtonHandlerService(
             assistant,
             telegram_memory,
-            history_service
+            history_service,
+            task_context_service
         )
     )
+
 
 
     adapter = (
@@ -130,11 +131,13 @@ def create_telegram_assistant():
     )
 
 
+
     command_service = (
         TelegramCommandService(
             adapter
         )
     )
+
 
 
     bot_service = (
@@ -145,11 +148,13 @@ def create_telegram_assistant():
     )
 
 
+
     runner = (
         TelegramRunner(
             bot_service
         )
     )
+
 
 
     runner.memory_service = (
@@ -174,6 +179,16 @@ def create_telegram_assistant():
 
     runner.context_service = (
         context_service
+    )
+
+
+    runner.task_context_service = (
+        task_context_service
+    )
+
+
+    runner.button_handler = (
+        button_handler
     )
 
 

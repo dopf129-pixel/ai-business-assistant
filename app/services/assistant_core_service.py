@@ -83,24 +83,6 @@ class AssistantCoreService:
 
 
         if (
-            self.task_context_service
-            and user_id is not None
-        ):
-
-            self.task_context_service.update_task(
-                user_id,
-                text
-            )
-
-
-
-        if context:
-
-            result["context"] = context
-
-
-
-        if (
             self.user_context_service
             and user_id is not None
         ):
@@ -110,6 +92,20 @@ class AssistantCoreService:
                 "last_message",
                 text
             )
+
+
+            context = (
+                self.user_context_service
+                .get_context(
+                    user_id
+                )
+            )
+
+
+
+        if context:
+
+            result["context"] = context
 
 
 
