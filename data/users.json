@@ -19,9 +19,9 @@
             "Выполнен анализ"
         ],
         "context": {
-            "last_message": "Что нужно сделать с продажами?",
+            "last_message": "Продолжи работу",
             "last_action": "analyze",
-            "current_task": "Анализ продаж"
+            "current_task": "Создание плана действий"
         }
     }
 }

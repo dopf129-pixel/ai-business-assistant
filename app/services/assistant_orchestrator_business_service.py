@@ -45,25 +45,70 @@ class AssistantOrchestratorBusinessService:
         ):
 
 
+            task = (
+                result.get(
+                    "continued_task",
+                    ""
+                )
+            )
+
+
+
+            if not task and context:
+
+
+                if "context" in context:
+
+                    task = (
+                        context["context"]
+                        .get(
+                            "current_task",
+                            ""
+                        )
+                    )
+
+
+                else:
+
+                    task = (
+                        context
+                        .get(
+                            "current_task",
+                            ""
+                        )
+                    )
+
+
+
             return {
                 "error": False,
+
                 "message":
                     "Продолжаем работу",
+
                 "task":
-                    result.get(
-                        "continued_task",
-                        ""
-                    )
+                    task,
+
+                "next_step":
+                    f"Следующий шаг по задаче: {task}"
+                    if task
+                    else
+                    "Задача не определена"
             }
+
+
 
 
 
         return {
             "error": False,
+
             "message":
                 "Бизнес-план создан",
+
             "actions":
                 result["plan"],
+
             "count":
                 result["count"]
         }

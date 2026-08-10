@@ -6,6 +6,36 @@ class AssistantResponseBuilderService:
         result
     ):
 
+
+        if (
+            result.get("message")
+            ==
+            "Продолжаем работу"
+        ):
+
+
+            return {
+                "error": False,
+
+                "message":
+                    "Продолжаем работу",
+
+                "task":
+                    result.get(
+                        "task",
+                        ""
+                    ),
+
+                "next_step":
+                    result.get(
+                        "next_step",
+                        ""
+                    )
+            }
+
+
+
+
         count = (
             result.get(
                 "count",
@@ -14,25 +44,28 @@ class AssistantResponseBuilderService:
         )
 
 
+
         if count == 0:
+
 
             return {
                 "error": False,
-                "message": (
+
+                "message":
                     "Проблем не найдено"
-                )
             }
+
 
 
         return {
             "error": False,
-            "message": (
-                f"Создано действий: {count}"
-            ),
-            "actions": (
+
+            "message":
+                f"Создано действий: {count}",
+
+            "actions":
                 result.get(
                     "actions",
                     []
                 )
-            )
         }
