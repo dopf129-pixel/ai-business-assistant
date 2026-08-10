@@ -95,7 +95,8 @@ class AssistantActionExecutionService:
 
 
         action = (
-            current.get(
+            current
+            .get(
                 "action"
             )
         )
@@ -143,13 +144,20 @@ class AssistantActionExecutionService:
         )
 
 
+
         if start["error"]:
 
             return start
 
 
 
-        execution_result = None
+        execution_result = {
+
+            "error": False,
+
+            "message":
+                "Действие выполнено"
+        }
 
 
 
@@ -168,18 +176,6 @@ class AssistantActionExecutionService:
             if execution_result["error"]:
 
                 return execution_result
-
-
-
-        else:
-
-            execution_result = {
-
-                "error": False,
-
-                "message":
-                    "Действие выполнено без роутера"
-            }
 
 
 
@@ -202,7 +198,8 @@ class AssistantActionExecutionService:
             self.task_service
             .complete_action(
                 user_id,
-                action["title"]
+                action["title"],
+                execution_result
             )
         )
 
@@ -216,11 +213,11 @@ class AssistantActionExecutionService:
                 "Действие выполнено",
 
             "action":
-                action,
+                complete.get(
+                    "action",
+                    action
+                ),
 
             "execution":
-                execution_result,
-
-            "completed":
-                complete
+                execution_result
         }

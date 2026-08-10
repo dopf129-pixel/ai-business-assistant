@@ -25,6 +25,7 @@ class AssistantTaskService:
         self
     ):
 
+
         if not os.path.exists(
             self.file_path
         ):
@@ -32,6 +33,7 @@ class AssistantTaskService:
             self.tasks = {}
 
             return
+
 
 
         try:
@@ -48,6 +50,7 @@ class AssistantTaskService:
                     )
                 )
 
+
         except Exception:
 
             self.tasks = {}
@@ -57,6 +60,7 @@ class AssistantTaskService:
     def save(
         self
     ):
+
 
         folder = (
             os.path.dirname(
@@ -72,11 +76,13 @@ class AssistantTaskService:
             )
 
 
+
         with open(
             self.file_path,
             "w",
             encoding="utf-8"
         ) as file:
+
 
             json.dump(
                 self.tasks,
@@ -107,7 +113,9 @@ class AssistantTaskService:
         }
 
 
+
         self.save()
+
 
 
         return {
@@ -178,6 +186,7 @@ class AssistantTaskService:
                 "status"
             ) == "NEW":
 
+
                 return {
 
                     "error": False,
@@ -232,6 +241,7 @@ class AssistantTaskService:
                 "status"
             ) == "IN_PROGRESS":
 
+
                 return {
 
                     "error": False,
@@ -271,7 +281,8 @@ class AssistantTaskService:
     def complete_action(
         self,
         user_id,
-        title
+        title,
+        result=None
     ):
 
 
@@ -279,7 +290,8 @@ class AssistantTaskService:
             self.update_action_status(
                 user_id,
                 title,
-                "DONE"
+                "DONE",
+                result
             )
         )
 
@@ -289,7 +301,8 @@ class AssistantTaskService:
         self,
         user_id,
         title,
-        status
+        status,
+        result=None
     ):
 
 
@@ -323,9 +336,20 @@ class AssistantTaskService:
                 "title"
             ) == title:
 
+
+
                 action["status"] = status
 
+
+
+                if result is not None:
+
+                    action["result"] = result
+
+
+
                 self.save()
+
 
 
                 return {

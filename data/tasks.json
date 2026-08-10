@@ -6,12 +6,23 @@
                 "title": "Проверить причины падения продаж",
                 "type": "sales",
                 "status": "DONE",
-                "priority": "HIGH"
+                "priority": "HIGH",
+                "result": {
+                    "error": false,
+                    "result": {
+                        "type": "sales",
+                        "message": "Анализ продаж выполнен",
+                        "details": [
+                            "Проверено падение продаж",
+                            "Найдены возможные причины"
+                        ]
+                    }
+                }
             },
             {
                 "title": "Проверить остатки товара",
                 "type": "stock",
-                "status": "DONE",
+                "status": "NEW",
                 "priority": "HIGH"
             }
         ]
