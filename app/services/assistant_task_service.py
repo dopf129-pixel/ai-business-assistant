@@ -11,9 +11,7 @@ class AssistantTaskService:
         file_path="data/tasks.json"
     ):
 
-        self.file_path = (
-            file_path
-        )
+        self.file_path = file_path
 
         self.tasks = {}
 
@@ -44,11 +42,7 @@ class AssistantTaskService:
                 encoding="utf-8"
             ) as file:
 
-                self.tasks = (
-                    json.load(
-                        file
-                    )
-                )
+                self.tasks = json.load(file)
 
 
         except Exception:
@@ -62,18 +56,14 @@ class AssistantTaskService:
     ):
 
 
-        folder = (
-            os.path.dirname(
-                self.file_path
-            )
+        folder = os.path.dirname(
+            self.file_path
         )
 
 
         if folder and not os.path.exists(folder):
 
-            os.makedirs(
-                folder
-            )
+            os.makedirs(folder)
 
 
 
@@ -101,21 +91,15 @@ class AssistantTaskService:
     ):
 
 
-        self.tasks[
-            str(user_id)
-        ] = {
+        self.tasks[str(user_id)] = {
 
-            "task":
-                task,
+            "task": task,
 
-            "actions":
-                actions
+            "actions": actions
         }
 
 
-
         self.save()
-
 
 
         return {
@@ -133,20 +117,14 @@ class AssistantTaskService:
     ):
 
 
-        task = (
-            self.tasks
-            .get(
-                str(user_id)
-            )
-        )
-
-
         return {
 
             "error": False,
 
             "task":
-                task
+                self.tasks.get(
+                    str(user_id)
+                )
         }
 
 
@@ -157,11 +135,8 @@ class AssistantTaskService:
     ):
 
 
-        task = (
-            self.tasks
-            .get(
-                str(user_id)
-            )
+        task = self.tasks.get(
+            str(user_id)
         )
 
 
@@ -191,8 +166,7 @@ class AssistantTaskService:
 
                     "error": False,
 
-                    "action":
-                        action
+                    "action": action
                 }
 
 
@@ -212,11 +186,8 @@ class AssistantTaskService:
     ):
 
 
-        task = (
-            self.tasks
-            .get(
-                str(user_id)
-            )
+        task = self.tasks.get(
+            str(user_id)
         )
 
 
@@ -246,8 +217,7 @@ class AssistantTaskService:
 
                     "error": False,
 
-                    "action":
-                        action
+                    "action": action
                 }
 
 
@@ -261,6 +231,56 @@ class AssistantTaskService:
 
 
 
+    def get_last_completed_action(
+        self,
+        user_id
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "action": None
+            }
+
+
+
+        completed = None
+
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "status"
+            ) == "DONE":
+
+                completed = action
+
+
+
+        return {
+
+            "error": False,
+
+            "action":
+                completed
+        }
+
+
+
     def start_action(
         self,
         user_id,
@@ -268,12 +288,10 @@ class AssistantTaskService:
     ):
 
 
-        return (
-            self.update_action_status(
-                user_id,
-                title,
-                "IN_PROGRESS"
-            )
+        return self.update_action_status(
+            user_id,
+            title,
+            "IN_PROGRESS"
         )
 
 
@@ -286,13 +304,11 @@ class AssistantTaskService:
     ):
 
 
-        return (
-            self.update_action_status(
-                user_id,
-                title,
-                "DONE",
-                result
-            )
+        return self.update_action_status(
+            user_id,
+            title,
+            "DONE",
+            result
         )
 
 
@@ -306,11 +322,8 @@ class AssistantTaskService:
     ):
 
 
-        task = (
-            self.tasks
-            .get(
-                str(user_id)
-            )
+        task = self.tasks.get(
+            str(user_id)
         )
 
 
@@ -337,9 +350,7 @@ class AssistantTaskService:
             ) == title:
 
 
-
                 action["status"] = status
-
 
 
                 if result is not None:
@@ -347,9 +358,7 @@ class AssistantTaskService:
                     action["result"] = result
 
 
-
                 self.save()
-
 
 
                 return {
@@ -358,8 +367,7 @@ class AssistantTaskService:
 
                     "updated": True,
 
-                    "action":
-                        action
+                    "action": action
                 }
 
 

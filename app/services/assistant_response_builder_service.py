@@ -11,21 +11,45 @@ class AssistantResponseBuilderService:
             result.get(
                 "message"
             )
-            ==
-            "Действие выполнено"
         ):
 
 
             return {
 
-                "error": False,
+                "error":
+                    result.get(
+                        "error",
+                        False
+                    ),
 
                 "message":
-                    "Действие выполнено",
+                    result.get(
+                        "message"
+                    ),
+
+                "task":
+                    result.get(
+                        "task"
+                    ),
+
+                "next_step":
+                    result.get(
+                        "next_step"
+                    ),
 
                 "action":
                     result.get(
                         "action"
+                    ),
+
+                "last_completed":
+                    result.get(
+                        "last_completed"
+                    ),
+
+                "result":
+                    result.get(
+                        "result"
                     )
             }
 
@@ -41,6 +65,7 @@ class AssistantResponseBuilderService:
 
 
         if count == 0:
+
 
             return {
 

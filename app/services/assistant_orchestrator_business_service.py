@@ -78,7 +78,7 @@ class AssistantOrchestratorBusinessService:
                 "message":
                     execution.get(
                         "message",
-                        "Выполнение завершено"
+                        "Действие выполнено"
                     ),
 
                 "action":
@@ -116,7 +116,6 @@ class AssistantOrchestratorBusinessService:
                         )
                     )
 
-
                 else:
 
                     task = (
@@ -129,8 +128,7 @@ class AssistantOrchestratorBusinessService:
 
 
 
-            current_action = None
-
+            last_action = None
             next_action = None
 
 
@@ -141,16 +139,16 @@ class AssistantOrchestratorBusinessService:
             ):
 
 
-                current_result = (
+                last_result = (
                     self.task_service
-                    .get_current_action(
+                    .get_last_completed_action(
                         user_id
                     )
                 )
 
 
-                current_action = (
-                    current_result
+                last_action = (
+                    last_result
                     .get(
                         "action"
                     )
@@ -158,70 +156,24 @@ class AssistantOrchestratorBusinessService:
 
 
 
-                if not current_action:
-
-
-                    next_result = (
-                        self.task_service
-                        .get_next_action(
-                            user_id
-                        )
+                next_result = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
                     )
+                )
 
 
-                    next_action = (
-                        next_result
-                        .get(
-                            "action"
-                        )
+                next_action = (
+                    next_result
+                    .get(
+                        "action"
                     )
+                )
 
 
 
-            action = (
-                current_action
-                or
-                next_action
-            )
-
-
-
-            if action:
-
-
-                return {
-
-                    "error": False,
-
-                    "message":
-                        "Продолжаем работу",
-
-                    "task":
-                        task,
-
-                    "next_step":
-                        (
-                            "Текущий шаг: "
-                            +
-                            action.get(
-                                "title",
-                                ""
-                            )
-                        ),
-
-                    "status":
-                        action.get(
-                            "status",
-                            "NEW"
-                        ),
-
-                    "action":
-                        action
-                }
-
-
-
-            return {
+            response = {
 
                 "error": False,
 
@@ -229,11 +181,52 @@ class AssistantOrchestratorBusinessService:
                     "Продолжаем работу",
 
                 "task":
-                    task,
-
-                "next_step":
-                    "Все действия выполнены"
+                    task
             }
+
+
+
+            if last_action:
+
+
+                response["last_completed"] = (
+                    last_action
+                )
+
+
+                response["result"] = (
+                    last_action
+                    .get(
+                        "result"
+                    )
+                )
+
+
+
+            if next_action:
+
+
+                response["next_step"] = {
+
+                    "title":
+                        next_action.get(
+                            "title"
+                        ),
+
+                    "action":
+                        next_action
+                }
+
+
+            else:
+
+                response["next_step"] = (
+                    "Все действия выполнены"
+                )
+
+
+
+            return response
 
 
 
