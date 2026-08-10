@@ -99,6 +99,15 @@ def create_telegram_core():
 
 
 
+    action_execution = (
+        AssistantActionExecutionService(
+            history,
+            task_service
+        )
+    )
+
+
+
     executor = (
         AssistantActionPlanExecutorService(
 
@@ -111,9 +120,7 @@ def create_telegram_core():
             ),
 
             execution_service=(
-                AssistantActionExecutionService(
-                    history
-                )
+                action_execution
             )
         )
     )
