@@ -42,6 +42,18 @@ from services.assistant_action_execution_service import (
     AssistantActionExecutionService
 )
 
+from services.assistant_action_router_service import (
+    AssistantActionRouterService
+)
+
+from services.assistant_sales_executor_service import (
+    AssistantSalesExecutorService
+)
+
+from services.assistant_stock_executor_service import (
+    AssistantStockExecutorService
+)
+
 from services.assistant_priority_service import (
     AssistantPriorityService
 )
@@ -99,10 +111,30 @@ def create_telegram_core():
 
 
 
+    action_router = (
+        AssistantActionRouterService(
+
+            executors={
+
+                "sales":
+                    AssistantSalesExecutorService(),
+
+                "stock":
+                    AssistantStockExecutorService()
+            }
+        )
+    )
+
+
+
     action_execution = (
         AssistantActionExecutionService(
+
             history,
-            task_service
+
+            task_service,
+
+            action_router
         )
     )
 
@@ -248,17 +280,27 @@ def create_telegram_core():
 
     return {
 
-        "core": core,
+        "core":
+            core,
 
-        "profiles": storage,
+        "profiles":
+            storage,
 
-        "storage": storage,
+        "storage":
+            storage,
 
-        "context": user_context,
+        "context":
+            user_context,
 
-        "task_context": task_context,
+        "task_context":
+            task_context,
 
-        "task_service": task_service,
+        "task_service":
+            task_service,
 
-        "execution_service": action_execution
+        "execution_service":
+            action_execution,
+
+        "action_router":
+            action_router
     }

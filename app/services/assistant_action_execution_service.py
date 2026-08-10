@@ -4,7 +4,8 @@ class AssistantActionExecutionService:
     def __init__(
         self,
         history_service,
-        task_service=None
+        task_service=None,
+        action_router=None
     ):
 
         self.history_service = (
@@ -13,6 +14,10 @@ class AssistantActionExecutionService:
 
         self.task_service = (
             task_service
+        )
+
+        self.action_router = (
+            action_router
         )
 
 
@@ -133,7 +138,6 @@ class AssistantActionExecutionService:
             self.task_service
             .start_action(
                 user_id,
-
                 action["title"]
             )
         )
@@ -142,6 +146,40 @@ class AssistantActionExecutionService:
         if start["error"]:
 
             return start
+
+
+
+        execution_result = None
+
+
+
+        if self.action_router:
+
+
+            execution_result = (
+                self.action_router
+                .execute(
+                    action
+                )
+            )
+
+
+
+            if execution_result["error"]:
+
+                return execution_result
+
+
+
+        else:
+
+            execution_result = {
+
+                "error": False,
+
+                "message":
+                    "Действие выполнено без роутера"
+            }
 
 
 
@@ -164,7 +202,6 @@ class AssistantActionExecutionService:
             self.task_service
             .complete_action(
                 user_id,
-
                 action["title"]
             )
         )
@@ -180,6 +217,9 @@ class AssistantActionExecutionService:
 
             "action":
                 action,
+
+            "execution":
+                execution_result,
 
             "completed":
                 complete
