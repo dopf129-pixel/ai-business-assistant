@@ -16,6 +16,32 @@ class AssistantIntentService:
 
 
         if (
+            "да" == text
+            or
+            "давай" == text
+            or
+            "подтверждаю" in text
+            or
+            "выполняй" in text
+            or
+            "запускай" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "confirm_execute",
+
+                "command":
+                    "confirm_execute"
+            }
+
+
+
+        if (
             "выполни" in text
             or
             "выполнить" in text
@@ -24,6 +50,7 @@ class AssistantIntentService:
             or
             "запусти" in text
         ):
+
 
             return {
 
@@ -48,6 +75,7 @@ class AssistantIntentService:
             "продажи" in text
         ):
 
+
             return {
 
                 "error": False,
@@ -70,6 +98,7 @@ class AssistantIntentService:
             or
             "план" in text
         ):
+
 
             return {
 
@@ -102,6 +131,7 @@ class AssistantIntentService:
 
                 if "context" in context:
 
+
                     current_task = (
                         context["context"]
                         .get(
@@ -112,6 +142,7 @@ class AssistantIntentService:
 
 
                 else:
+
 
                     current_task = (
                         context
@@ -124,6 +155,7 @@ class AssistantIntentService:
 
 
             if current_task:
+
 
                 return {
 

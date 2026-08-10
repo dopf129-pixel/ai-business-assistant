@@ -52,10 +52,18 @@ class AssistantBusinessFlowService:
 
 
 
+        command = (
+            intent.get(
+                "command"
+            )
+        )
+
+
+
         if (
-            intent.get("command")
-            ==
-            "execute"
+            command == "execute"
+            or
+            command == "confirm_execute"
         ):
 
 
@@ -100,11 +108,46 @@ class AssistantBusinessFlowService:
 
 
 
-        if (
-            intent.get("command")
-            ==
-            "continue"
-        ):
+
+
+        if command == "continue":
+
+
+            next_action = None
+
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                next_result = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+                next_action = (
+                    next_result
+                    .get(
+                        "action"
+                    )
+                )
+
+
+
+                if next_action:
+
+
+                    self.task_service.set_pending_action(
+                        user_id,
+                        next_action
+                    )
+
 
 
             return {
@@ -124,8 +167,13 @@ class AssistantBusinessFlowService:
                     intent.get(
                         "task",
                         ""
-                    )
+                    ),
+
+                "next_action":
+                    next_action
             }
+
+
 
 
 

@@ -23,7 +23,6 @@ class AssistantTaskService:
         self
     ):
 
-
         if not os.path.exists(
             self.file_path
         ):
@@ -31,7 +30,6 @@ class AssistantTaskService:
             self.tasks = {}
 
             return
-
 
 
         try:
@@ -42,7 +40,9 @@ class AssistantTaskService:
                 encoding="utf-8"
             ) as file:
 
-                self.tasks = json.load(file)
+                self.tasks = json.load(
+                    file
+                )
 
 
         except Exception:
@@ -55,7 +55,6 @@ class AssistantTaskService:
         self
     ):
 
-
         folder = os.path.dirname(
             self.file_path
         )
@@ -63,8 +62,9 @@ class AssistantTaskService:
 
         if folder and not os.path.exists(folder):
 
-            os.makedirs(folder)
-
+            os.makedirs(
+                folder
+            )
 
 
         with open(
@@ -72,7 +72,6 @@ class AssistantTaskService:
             "w",
             encoding="utf-8"
         ) as file:
-
 
             json.dump(
                 self.tasks,
@@ -90,12 +89,13 @@ class AssistantTaskService:
         actions
     ):
 
-
         self.tasks[str(user_id)] = {
 
             "task": task,
 
-            "actions": actions
+            "actions": actions,
+
+            "pending_action": None
         }
 
 
@@ -116,7 +116,6 @@ class AssistantTaskService:
         user_id
     ):
 
-
         return {
 
             "error": False,
@@ -133,7 +132,6 @@ class AssistantTaskService:
         self,
         user_id
     ):
-
 
         task = self.tasks.get(
             str(user_id)
@@ -156,11 +154,9 @@ class AssistantTaskService:
             []
         ):
 
-
             if action.get(
                 "status"
             ) == "NEW":
-
 
                 return {
 
@@ -180,11 +176,47 @@ class AssistantTaskService:
 
 
 
-    def get_current_action(
+    def set_pending_action(
+        self,
+        user_id,
+        action
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Задача не найдена"
+            }
+
+
+        task["pending_action"] = action
+
+
+        self.save()
+
+
+        return {
+
+            "error": False,
+
+            "action": action
+        }
+
+
+
+    def get_pending_action(
         self,
         user_id
     ):
-
 
         task = self.tasks.get(
             str(user_id)
@@ -201,17 +233,70 @@ class AssistantTaskService:
             }
 
 
+        return {
+
+            "error": False,
+
+            "action":
+                task.get(
+                    "pending_action"
+                )
+        }
+
+
+
+    def clear_pending_action(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if task:
+
+            task["pending_action"] = None
+
+            self.save()
+
+
+        return {
+
+            "error": False
+        }
+
+
+
+    def get_current_action(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "action": None
+            }
+
 
         for action in task.get(
             "actions",
             []
         ):
 
-
             if action.get(
                 "status"
             ) == "IN_PROGRESS":
-
 
                 return {
 
@@ -236,7 +321,6 @@ class AssistantTaskService:
         user_id
     ):
 
-
         task = self.tasks.get(
             str(user_id)
         )
@@ -252,16 +336,13 @@ class AssistantTaskService:
             }
 
 
-
         completed = None
-
 
 
         for action in task.get(
             "actions",
             []
         ):
-
 
             if action.get(
                 "status"
@@ -275,8 +356,7 @@ class AssistantTaskService:
 
             "error": False,
 
-            "action":
-                completed
+            "action": completed
         }
 
 
@@ -286,7 +366,6 @@ class AssistantTaskService:
         user_id,
         title
     ):
-
 
         return self.update_action_status(
             user_id,
@@ -302,7 +381,6 @@ class AssistantTaskService:
         title,
         result=None
     ):
-
 
         return self.update_action_status(
             user_id,
@@ -320,7 +398,6 @@ class AssistantTaskService:
         status,
         result=None
     ):
-
 
         task = self.tasks.get(
             str(user_id)
@@ -344,7 +421,6 @@ class AssistantTaskService:
             []
         ):
 
-
             if action.get(
                 "title"
             ) == title:
@@ -356,6 +432,7 @@ class AssistantTaskService:
                 if result is not None:
 
                     action["result"] = result
+
 
 
                 self.save()

@@ -27,7 +27,6 @@ class AssistantActionExecutionService:
         actions
     ):
 
-
         saved = []
 
 
@@ -42,7 +41,9 @@ class AssistantActionExecutionService:
             )
 
 
-            if not result["error"]:
+            if not result.get(
+                "error"
+            ):
 
                 saved.append(
                     action
@@ -58,9 +59,7 @@ class AssistantActionExecutionService:
                 saved,
 
             "count":
-                len(
-                    saved
-                )
+                len(saved)
         }
 
 
@@ -86,16 +85,20 @@ class AssistantActionExecutionService:
 
 
 
-        current = (
+        action = None
+
+
+
+        pending = (
             self.task_service
-            .get_current_action(
+            .get_pending_action(
                 user_id
             )
         )
 
 
         action = (
-            current
+            pending
             .get(
                 "action"
             )
@@ -106,7 +109,27 @@ class AssistantActionExecutionService:
         if not action:
 
 
-            next_action = (
+            current = (
+                self.task_service
+                .get_current_action(
+                    user_id
+                )
+            )
+
+
+            action = (
+                current
+                .get(
+                    "action"
+                )
+            )
+
+
+
+        if not action:
+
+
+            next_result = (
                 self.task_service
                 .get_next_action(
                     user_id
@@ -115,7 +138,7 @@ class AssistantActionExecutionService:
 
 
             action = (
-                next_action
+                next_result
                 .get(
                     "action"
                 )
@@ -135,6 +158,12 @@ class AssistantActionExecutionService:
 
 
 
+        self.task_service.clear_pending_action(
+            user_id
+        )
+
+
+
         start = (
             self.task_service
             .start_action(
@@ -145,7 +174,9 @@ class AssistantActionExecutionService:
 
 
 
-        if start["error"]:
+        if start.get(
+            "error"
+        ):
 
             return start
 
@@ -172,8 +203,9 @@ class AssistantActionExecutionService:
             )
 
 
-
-            if execution_result["error"]:
+            if execution_result.get(
+                "error"
+            ):
 
                 return execution_result
 
@@ -187,8 +219,9 @@ class AssistantActionExecutionService:
         )
 
 
-
-        if history_result["error"]:
+        if history_result.get(
+            "error"
+        ):
 
             return history_result
 
@@ -202,6 +235,41 @@ class AssistantActionExecutionService:
                 execution_result
             )
         )
+
+
+
+        if complete.get(
+            "error"
+        ):
+
+            return complete
+
+
+
+        next_result = (
+            self.task_service
+            .get_next_action(
+                user_id
+            )
+        )
+
+
+        next_action = (
+            next_result
+            .get(
+                "action"
+            )
+        )
+
+
+
+        if next_action:
+
+
+            self.task_service.set_pending_action(
+                user_id,
+                next_action
+            )
 
 
 
@@ -219,5 +287,8 @@ class AssistantActionExecutionService:
                 ),
 
             "execution":
-                execution_result
+                execution_result,
+
+            "next_action":
+                next_action
         }

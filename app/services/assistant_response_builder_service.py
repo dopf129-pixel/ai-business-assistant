@@ -15,86 +15,65 @@ class AssistantResponseBuilderService:
 
 
 
-        if (
-            message
-            ==
-            "Продолжаем работу"
-        ):
+        execution = (
+            result.get(
+                "execution"
+            )
+        )
+
+
+
+        if execution:
+
+
+            action = (
+                execution.get(
+                    "action"
+                )
+            )
 
 
             text = (
-                "Продолжаем работу"
-            )
-
-
-
-            task = (
-                result.get(
-                    "task"
+                execution.get(
+                    "message",
+                    "Действие выполнено"
                 )
             )
 
 
-
-            if task:
-
-                text += (
-                    "\n\nЗадача: "
-                    +
-                    task
-                )
-
-
-
-            last_completed = (
-                result.get(
-                    "last_completed"
-                )
-            )
-
-
-
-            if last_completed:
+            if action:
 
 
                 text += (
-                    "\n\nПоследний выполненный шаг:\n"
+                    "\n\n"
                     +
-                    last_completed.get(
+                    action.get(
                         "title",
                         ""
                     )
                 )
 
 
-
-                execution_result = (
-                    last_completed
-                    .get(
+                action_result = (
+                    action.get(
                         "result",
                         {}
                     )
                 )
 
 
+                if "result" in action_result:
 
-                if (
-                    "result"
-                    in execution_result
-                ):
-
-                    execution_result = (
-                        execution_result["result"]
+                    action_result = (
+                        action_result["result"]
                     )
 
 
-
-                if execution_result:
+                if action_result:
 
 
                     result_message = (
-                        execution_result
-                        .get(
+                        action_result.get(
                             "message"
                         )
                     )
@@ -109,10 +88,8 @@ class AssistantResponseBuilderService:
                         )
 
 
-
                     details = (
-                        execution_result
-                        .get(
+                        action_result.get(
                             "details",
                             []
                         )
@@ -137,12 +114,56 @@ class AssistantResponseBuilderService:
 
 
 
+            return {
+
+                "error": False,
+
+                "message":
+                    text,
+
+                "action":
+                    action
+            }
+
+
+
+
+
+        if (
+            message
+            ==
+            "Продолжаем работу"
+        ):
+
+
+            text = (
+                "Продолжаем работу"
+            )
+
+
+            task = (
+                result.get(
+                    "task"
+                )
+            )
+
+
+            if task:
+
+
+                text += (
+                    "\n\nЗадача: "
+                    +
+                    task
+                )
+
+
+
             next_step = (
                 result.get(
                     "next_step"
                 )
             )
-
 
 
             if isinstance(
@@ -152,8 +173,7 @@ class AssistantResponseBuilderService:
 
 
                 title = (
-                    next_step
-                    .get(
+                    next_step.get(
                         "title",
                         ""
                     )
@@ -167,7 +187,6 @@ class AssistantResponseBuilderService:
                         +
                         title
                     )
-
 
 
             elif next_step:
@@ -189,55 +208,6 @@ class AssistantResponseBuilderService:
 
                 "message":
                     text
-            }
-
-
-
-
-
-        if (
-            message
-            ==
-            "Действие выполнено"
-        ):
-
-
-            action = (
-                result.get(
-                    "action"
-                )
-            )
-
-
-
-            text = (
-                "Действие выполнено"
-            )
-
-
-            if action:
-
-
-                text += (
-                    "\n\n"
-                    +
-                    action.get(
-                        "title",
-                        ""
-                    )
-                )
-
-
-
-            return {
-
-                "error": False,
-
-                "message":
-                    text,
-
-                "action":
-                    action
             }
 
 

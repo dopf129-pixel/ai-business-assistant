@@ -22,9 +22,21 @@
             {
                 "title": "Проверить остатки товара",
                 "type": "stock",
-                "status": "NEW",
-                "priority": "HIGH"
+                "status": "DONE",
+                "priority": "HIGH",
+                "result": {
+                    "error": false,
+                    "result": {
+                        "type": "stock",
+                        "message": "Проверка остатков выполнена",
+                        "details": [
+                            "Проверены остатки товара",
+                            "Найдены позиции для контроля"
+                        ]
+                    }
+                }
             }
-        ]
+        ],
+        "pending_action": null
     }
 }
