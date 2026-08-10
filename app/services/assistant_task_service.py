@@ -174,13 +174,9 @@ class AssistantTaskService:
         ):
 
 
-            if (
-                action.get(
-                    "status"
-                )
-                ==
-                "NEW"
-            ):
+            if action.get(
+                "status"
+            ) == "NEW":
 
                 return {
 
@@ -198,6 +194,94 @@ class AssistantTaskService:
 
             "action": None
         }
+
+
+
+    def get_current_action(
+        self,
+        user_id
+    ):
+
+
+        task = (
+            self.tasks
+            .get(
+                str(user_id)
+            )
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "action": None
+            }
+
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "status"
+            ) == "IN_PROGRESS":
+
+                return {
+
+                    "error": False,
+
+                    "action":
+                        action
+                }
+
+
+
+        return {
+
+            "error": False,
+
+            "action": None
+        }
+
+
+
+    def start_action(
+        self,
+        user_id,
+        title
+    ):
+
+
+        return (
+            self.update_action_status(
+                user_id,
+                title,
+                "IN_PROGRESS"
+            )
+        )
+
+
+
+    def complete_action(
+        self,
+        user_id,
+        title
+    ):
+
+
+        return (
+            self.update_action_status(
+                user_id,
+                title,
+                "DONE"
+            )
+        )
 
 
 
@@ -248,7 +332,10 @@ class AssistantTaskService:
 
                     "error": False,
 
-                    "updated": True
+                    "updated": True,
+
+                    "action":
+                        action
                 }
 
 

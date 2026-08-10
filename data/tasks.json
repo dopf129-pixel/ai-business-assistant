@@ -5,7 +5,7 @@
             {
                 "title": "Проверить причины падения продаж",
                 "type": "sales",
-                "status": "NEW",
+                "status": "IN_PROGRESS",
                 "priority": "HIGH"
             },
             {
