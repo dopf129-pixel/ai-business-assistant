@@ -16,6 +16,29 @@ class AssistantIntentService:
 
 
         if (
+            "выполни" in text
+            or
+            "выполнить" in text
+            or
+            "сделай" in text
+            or
+            "запусти" in text
+        ):
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "execute",
+
+                "command":
+                    "execute"
+            }
+
+
+
+        if (
             "отчёт" in text
             or
             "отчет" in text
@@ -26,9 +49,14 @@ class AssistantIntentService:
         ):
 
             return {
+
                 "error": False,
-                "intent": "report",
-                "command": "report"
+
+                "intent":
+                    "report",
+
+                "command":
+                    "report"
             }
 
 
@@ -44,9 +72,14 @@ class AssistantIntentService:
         ):
 
             return {
+
                 "error": False,
-                "intent": "actions",
-                "command": "actions"
+
+                "intent":
+                    "actions",
+
+                "command":
+                    "actions"
             }
 
 
@@ -93,15 +126,25 @@ class AssistantIntentService:
             if current_task:
 
                 return {
+
                     "error": False,
-                    "intent": "continue",
-                    "command": "continue",
-                    "task": current_task
+
+                    "intent":
+                        "continue",
+
+                    "command":
+                        "continue",
+
+                    "task":
+                        current_task
                 }
 
 
 
         return {
+
             "error": True,
-            "message": "Не удалось определить намерение"
+
+            "message":
+                "Не удалось определить намерение"
         }

@@ -4,7 +4,9 @@ class AssistantBusinessFlowService:
     def __init__(
         self,
         intent_service,
-        planner_service
+        planner_service,
+        task_service=None,
+        execution_service=None
     ):
 
         self.intent_service = (
@@ -13,6 +15,14 @@ class AssistantBusinessFlowService:
 
         self.planner_service = (
             planner_service
+        )
+
+        self.task_service = (
+            task_service
+        )
+
+        self.execution_service = (
+            execution_service
         )
 
 
@@ -45,18 +55,70 @@ class AssistantBusinessFlowService:
         if (
             intent.get("command")
             ==
+            "execute"
+        ):
+
+
+            if (
+                self.execution_service
+                and user_id
+            ):
+
+
+                result = (
+                    self.execution_service
+                    .execute_current_action(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        result.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "execution":
+                        result
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Сервис выполнения не подключён"
+            }
+
+
+
+        if (
+            intent.get("command")
+            ==
             "continue"
         ):
 
 
             return {
+
                 "error": False,
 
-                "intent": intent,
+                "intent":
+                    intent,
 
-                "plan": [],
+                "plan":
+                    [],
 
-                "count": 0,
+                "count":
+                    0,
 
                 "continued_task":
                     intent.get(
@@ -78,9 +140,11 @@ class AssistantBusinessFlowService:
 
 
         return {
+
             "error": False,
 
-            "intent": intent,
+            "intent":
+                intent,
 
             "plan":
                 result["actions"],

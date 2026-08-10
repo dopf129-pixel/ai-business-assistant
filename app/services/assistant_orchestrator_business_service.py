@@ -44,12 +44,54 @@ class AssistantOrchestratorBusinessService:
 
 
 
-        if (
-            result.get("intent", {})
-            .get("command")
-            ==
-            "continue"
-        ):
+        command = (
+            result.get(
+                "intent",
+                {}
+            )
+            .get(
+                "command"
+            )
+        )
+
+
+
+        if command == "execute":
+
+
+            execution = (
+                result.get(
+                    "execution",
+                    {}
+                )
+            )
+
+
+            return {
+
+                "error":
+                    execution.get(
+                        "error",
+                        False
+                    ),
+
+                "message":
+                    execution.get(
+                        "message",
+                        "Выполнение завершено"
+                    ),
+
+                "action":
+                    execution.get(
+                        "action"
+                    )
+            }
+
+
+
+
+
+        if command == "continue":
 
 
             task = (
@@ -73,6 +115,7 @@ class AssistantOrchestratorBusinessService:
                             ""
                         )
                     )
+
 
                 else:
 
@@ -146,14 +189,6 @@ class AssistantOrchestratorBusinessService:
             if action:
 
 
-                status = (
-                    action.get(
-                        "status",
-                        "NEW"
-                    )
-                )
-
-
                 return {
 
                     "error": False,
@@ -175,7 +210,10 @@ class AssistantOrchestratorBusinessService:
                         ),
 
                     "status":
-                        status,
+                        action.get(
+                            "status",
+                            "NEW"
+                        ),
 
                     "action":
                         action
@@ -209,8 +247,14 @@ class AssistantOrchestratorBusinessService:
                 "Бизнес-план создан",
 
             "actions":
-                result["plan"],
+                result.get(
+                    "plan",
+                    []
+                ),
 
             "count":
-                result["count"]
+                result.get(
+                    "count",
+                    0
+                )
         }

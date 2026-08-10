@@ -8,31 +8,26 @@ class AssistantResponseBuilderService:
 
 
         if (
-            result.get("message")
+            result.get(
+                "message"
+            )
             ==
-            "Продолжаем работу"
+            "Действие выполнено"
         ):
 
 
             return {
+
                 "error": False,
 
                 "message":
-                    "Продолжаем работу",
+                    "Действие выполнено",
 
-                "task":
+                "action":
                     result.get(
-                        "task",
-                        ""
-                    ),
-
-                "next_step":
-                    result.get(
-                        "next_step",
-                        ""
+                        "action"
                     )
             }
-
 
 
 
@@ -47,8 +42,8 @@ class AssistantResponseBuilderService:
 
         if count == 0:
 
-
             return {
+
                 "error": False,
 
                 "message":
@@ -58,6 +53,7 @@ class AssistantResponseBuilderService:
 
 
         return {
+
             "error": False,
 
             "message":

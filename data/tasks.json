@@ -11,7 +11,7 @@
             {
                 "title": "Проверить остатки товара",
                 "type": "stock",
-                "status": "NEW",
+                "status": "DONE",
                 "priority": "HIGH"
             }
         ]

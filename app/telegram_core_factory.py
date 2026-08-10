@@ -153,7 +153,9 @@ def create_telegram_core():
                 AssistantIntentService()
             ),
 
-            planner_service=planner
+            planner_service=planner,
+
+            execution_service=action_execution
         )
     )
 
@@ -256,5 +258,7 @@ def create_telegram_core():
 
         "task_context": task_context,
 
-        "task_service": task_service
+        "task_service": task_service,
+
+        "execution_service": action_execution
     }
