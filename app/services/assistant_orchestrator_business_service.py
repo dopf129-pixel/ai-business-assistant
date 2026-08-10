@@ -102,6 +102,7 @@ class AssistantOrchestratorBusinessService:
                     )
                 )
 
+
                 next_action = (
                     next_result
                     .get(
@@ -152,11 +153,8 @@ class AssistantOrchestratorBusinessService:
 
                 "next_step":
                     (
-                        f"Следующий шаг по задаче: {task}"
+                        "Все действия выполнены"
                     )
-                    if task
-                    else
-                    "Задача не определена"
             }
 
 

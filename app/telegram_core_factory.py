@@ -92,6 +92,7 @@ def create_telegram_core():
     )
 
 
+
     task_service = (
         AssistantTaskService()
     )
@@ -153,7 +154,10 @@ def create_telegram_core():
 
     business = (
         AssistantOrchestratorBusinessService(
-            business_flow_service=business_flow
+
+            business_flow_service=business_flow,
+
+            task_service=task_service
         )
     )
 
