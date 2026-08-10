@@ -271,68 +271,6 @@ class AssistantTaskService:
 
 
 
-    def is_task_completed(
-        self,
-        user_id
-    ):
-
-        task = self.tasks.get(
-            str(user_id)
-        )
-
-
-        if not task:
-
-            return {
-
-                "error": False,
-
-                "completed": False
-            }
-
-
-
-        actions = task.get(
-            "actions",
-            []
-        )
-
-
-        if not actions:
-
-            return {
-
-                "error": False,
-
-                "completed": False
-            }
-
-
-
-        for action in actions:
-
-            if action.get(
-                "status"
-            ) != "DONE":
-
-                return {
-
-                    "error": False,
-
-                    "completed": False
-                }
-
-
-
-        return {
-
-            "error": False,
-
-            "completed": True
-        }
-
-
-
     def get_task_progress(
         self,
         user_id
@@ -388,6 +326,140 @@ class AssistantTaskService:
 
 
 
+    def is_task_completed(
+        self,
+        user_id
+    ):
+
+        progress = (
+            self.get_task_progress(
+                user_id
+            )
+        )
+
+
+        return {
+
+            "error": False,
+
+            "completed":
+                progress["total"] > 0
+                and
+                progress["done"]
+                ==
+                progress["total"]
+        }
+
+
+
+    def get_task_status(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "task": None
+            }
+
+
+
+        progress = (
+            self.get_task_progress(
+                user_id
+            )
+        )
+
+
+        actions = []
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            status = (
+                action.get(
+                    "status",
+                    "NEW"
+                )
+            )
+
+
+            if status == "DONE":
+
+                icon = "✅"
+
+
+            elif status == "IN_PROGRESS":
+
+                icon = "🔄"
+
+
+            else:
+
+                icon = "⏳"
+
+
+
+            actions.append(
+
+                {
+
+                    "title":
+                        action.get(
+                            "title",
+                            ""
+                        ),
+
+                    "status":
+                        status,
+
+                    "icon":
+                        icon
+                }
+
+            )
+
+
+
+        return {
+
+            "error": False,
+
+            "task":
+                task.get(
+                    "task"
+                ),
+
+            "progress":
+                {
+
+                    "done":
+                        progress["done"],
+
+                    "total":
+                        progress["total"]
+
+                },
+
+            "actions":
+                actions
+        }
+
+
+
     def get_current_action(
         self,
         user_id
@@ -431,51 +503,6 @@ class AssistantTaskService:
             "error": False,
 
             "action": None
-        }
-
-
-
-    def get_last_completed_action(
-        self,
-        user_id
-    ):
-
-        task = self.tasks.get(
-            str(user_id)
-        )
-
-
-        if not task:
-
-            return {
-
-                "error": False,
-
-                "action": None
-            }
-
-
-        completed = None
-
-
-        for action in task.get(
-            "actions",
-            []
-        ):
-
-            if action.get(
-                "status"
-            ) == "DONE":
-
-                completed = action
-
-
-
-        return {
-
-            "error": False,
-
-            "action": completed
         }
 
 
@@ -539,6 +566,7 @@ class AssistantTaskService:
             "actions",
             []
         ):
+
 
             if action.get(
                 "title"
