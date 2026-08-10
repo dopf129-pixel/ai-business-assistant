@@ -15,29 +15,22 @@ class AssistantResponseBuilderService:
 
 
 
-        execution = (
-            result.get(
-                "execution"
-            )
-        )
-
-
-
-        if execution:
+        if (
+            message
+            ==
+            "Действие выполнено"
+        ):
 
 
             action = (
-                execution.get(
+                result.get(
                     "action"
                 )
             )
 
 
             text = (
-                execution.get(
-                    "message",
-                    "Действие выполнено"
-                )
+                "Действие выполнено"
             )
 
 
@@ -62,11 +55,15 @@ class AssistantResponseBuilderService:
                 )
 
 
-                if "result" in action_result:
+                if (
+                    "result"
+                    in action_result
+                ):
 
                     action_result = (
                         action_result["result"]
                     )
+
 
 
                 if action_result:
@@ -106,11 +103,79 @@ class AssistantResponseBuilderService:
 
                         for item in details:
 
+
                             text += (
                                 "\n• "
                                 +
                                 item
                             )
+
+
+
+            next_action = (
+                result.get(
+                    "next_action"
+                )
+            )
+
+
+            if next_action:
+
+
+                text += (
+                    "\n\nСледующий шаг:\n"
+                    +
+                    next_action.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+
+            completed = (
+                result.get(
+                    "completed",
+                    False
+                )
+            )
+
+
+            if completed:
+
+
+                progress = (
+                    result.get(
+                        "progress",
+                        {}
+                    )
+                )
+
+
+                text += (
+                    "\n\n✅ Задача выполнена"
+                )
+
+
+                text += (
+                    "\n\nВыполнено: "
+                    +
+                    str(
+                        progress.get(
+                            "done",
+                            0
+                        )
+                    )
+                    +
+                    "/"
+                    +
+                    str(
+                        progress.get(
+                            "total",
+                            0
+                        )
+                    )
+                )
 
 
 
@@ -124,6 +189,7 @@ class AssistantResponseBuilderService:
                 "action":
                     action
             }
+
 
 
 
@@ -209,6 +275,7 @@ class AssistantResponseBuilderService:
                 "message":
                     text
             }
+
 
 
 

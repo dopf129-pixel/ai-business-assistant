@@ -60,7 +60,9 @@ class AssistantTaskService:
         )
 
 
-        if folder and not os.path.exists(folder):
+        if folder and not os.path.exists(
+            folder
+        ):
 
             os.makedirs(
                 folder
@@ -265,6 +267,123 @@ class AssistantTaskService:
         return {
 
             "error": False
+        }
+
+
+
+    def is_task_completed(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "completed": False
+            }
+
+
+
+        actions = task.get(
+            "actions",
+            []
+        )
+
+
+        if not actions:
+
+            return {
+
+                "error": False,
+
+                "completed": False
+            }
+
+
+
+        for action in actions:
+
+            if action.get(
+                "status"
+            ) != "DONE":
+
+                return {
+
+                    "error": False,
+
+                    "completed": False
+                }
+
+
+
+        return {
+
+            "error": False,
+
+            "completed": True
+        }
+
+
+
+    def get_task_progress(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "done": 0,
+
+                "total": 0
+            }
+
+
+
+        actions = task.get(
+            "actions",
+            []
+        )
+
+
+        done = 0
+
+
+        for action in actions:
+
+            if action.get(
+                "status"
+            ) == "DONE":
+
+                done += 1
+
+
+
+        return {
+
+            "error": False,
+
+            "done": done,
+
+            "total": len(
+                actions
+            )
         }
 
 

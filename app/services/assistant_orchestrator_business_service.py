@@ -66,7 +66,54 @@ class AssistantOrchestratorBusinessService:
         if command == "confirm_execute":
 
 
-            return result
+            execution = (
+                result.get(
+                    "execution",
+                    {}
+                )
+            )
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    execution.get(
+                        "message",
+                        "Действие выполнено"
+                    ),
+
+                "action":
+                    execution.get(
+                        "action"
+                    ),
+
+                "execution":
+                    execution.get(
+                        "execution"
+                    ),
+
+                "next_action":
+                    execution.get(
+                        "next_action"
+                    ),
+
+                "completed":
+                    execution.get(
+                        "completed",
+                        False
+                    ),
+
+                "progress":
+                    execution.get(
+                        "progress",
+                        {
+                            "done": 0,
+                            "total": 0
+                        }
+                    )
+            }
 
 
 
@@ -92,11 +139,11 @@ class AssistantOrchestratorBusinessService:
             )
 
 
-
             if not task and context:
 
 
                 if "context" in context:
+
 
                     task = (
                         context["context"]
@@ -106,7 +153,9 @@ class AssistantOrchestratorBusinessService:
                         )
                     )
 
+
                 else:
+
 
                     task = (
                         context

@@ -32,7 +32,6 @@ class AssistantActionExecutionService:
 
         for action in actions:
 
-
             result = (
                 self.history_service
                 .save_action(
@@ -48,7 +47,6 @@ class AssistantActionExecutionService:
                 saved.append(
                     action
                 )
-
 
 
         return {
@@ -108,14 +106,12 @@ class AssistantActionExecutionService:
 
         if not action:
 
-
             current = (
                 self.task_service
                 .get_current_action(
                     user_id
                 )
             )
-
 
             action = (
                 current
@@ -128,14 +124,12 @@ class AssistantActionExecutionService:
 
         if not action:
 
-
             next_result = (
                 self.task_service
                 .get_next_action(
                     user_id
                 )
             )
-
 
             action = (
                 next_result
@@ -171,7 +165,6 @@ class AssistantActionExecutionService:
                 action["title"]
             )
         )
-
 
 
         if start.get(
@@ -237,7 +230,6 @@ class AssistantActionExecutionService:
         )
 
 
-
         if complete.get(
             "error"
         ):
@@ -265,11 +257,27 @@ class AssistantActionExecutionService:
 
         if next_action:
 
-
             self.task_service.set_pending_action(
                 user_id,
                 next_action
             )
+
+
+
+        completed = (
+            self.task_service
+            .is_task_completed(
+                user_id
+            )
+        )
+
+
+        progress = (
+            self.task_service
+            .get_task_progress(
+                user_id
+            )
+        )
 
 
 
@@ -290,5 +298,27 @@ class AssistantActionExecutionService:
                 execution_result,
 
             "next_action":
-                next_action
+                next_action,
+
+            "completed":
+                completed.get(
+                    "completed",
+                    False
+                ),
+
+            "progress":
+                {
+
+                    "done":
+                        progress.get(
+                            "done",
+                            0
+                        ),
+
+                    "total":
+                        progress.get(
+                            "total",
+                            0
+                        )
+                }
         }

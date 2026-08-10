@@ -93,7 +93,50 @@ class AssistantBusinessFlowService:
                         intent,
 
                     "execution":
-                        result
+                        {
+
+                            "error":
+                                result.get(
+                                    "error",
+                                    False
+                                ),
+
+                            "message":
+                                result.get(
+                                    "message",
+                                    "Действие выполнено"
+                                ),
+
+                            "action":
+                                result.get(
+                                    "action"
+                                ),
+
+                            "execution":
+                                result.get(
+                                    "execution"
+                                ),
+
+                            "next_action":
+                                result.get(
+                                    "next_action"
+                                ),
+
+                            "completed":
+                                result.get(
+                                    "completed",
+                                    False
+                                ),
+
+                            "progress":
+                                result.get(
+                                    "progress",
+                                    {
+                                        "done": 0,
+                                        "total": 0
+                                    }
+                                )
+                        }
                 }
 
 
@@ -105,6 +148,7 @@ class AssistantBusinessFlowService:
                 "message":
                     "Сервис выполнения не подключён"
             }
+
 
 
 
