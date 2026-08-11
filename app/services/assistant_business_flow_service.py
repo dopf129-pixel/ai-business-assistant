@@ -191,6 +191,47 @@ class AssistantBusinessFlowService:
 
 
 
+        if command == "task_history":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                history = (
+                    self.task_service
+                    .get_task_history(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        history.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "task_history":
+                        history
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+            }
         if command == "continue":
 
 

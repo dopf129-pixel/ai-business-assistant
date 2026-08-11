@@ -7,6 +7,112 @@ class AssistantResponseBuilderService:
     ):
 
 
+        task_history = (
+            result.get(
+                "task_history"
+            )
+        )
+
+
+        if task_history:
+
+
+            text = ""
+
+
+            task = (
+                task_history.get(
+                    "task"
+                )
+            )
+
+
+            if task:
+
+                text += (
+                    "История задачи: "
+                    +
+                    task
+                )
+
+
+
+            history = (
+                task_history.get(
+                    "history",
+                    []
+                )
+            )
+
+
+            if history:
+
+
+                text += (
+                    "\n\n"
+                )
+
+
+                for item in history:
+
+
+                    text += (
+
+                        "✅ "
+                        +
+                        item.get(
+                            "title",
+                            ""
+                        )
+                        +
+                        "\n"
+
+                    )
+
+
+                    result_data = (
+                        item.get(
+                            "result",
+                            {}
+                        )
+                    )
+
+
+                    if result_data:
+
+
+                        message = (
+                            result_data.get(
+                                "message"
+                            )
+                        )
+
+
+                        if message:
+
+                            text += (
+
+                                message
+                                +
+                                "\n"
+
+                            )
+
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text.strip()
+            }
+
+
+
+
+
+
         task_status = (
             result.get(
                 "task_status"
@@ -113,13 +219,6 @@ class AssistantResponseBuilderService:
                 "message":
                     text.strip()
             }
-
-
-
-
-
-
-
         message = (
             result.get(
                 "message"
@@ -168,10 +267,7 @@ class AssistantResponseBuilderService:
                 )
 
 
-                if (
-                    "result"
-                    in action_result
-                ):
+                if "result" in action_result:
 
                     action_result = (
                         action_result["result"]
@@ -402,6 +498,7 @@ class AssistantResponseBuilderService:
                 0
             )
         )
+
 
 
         if count == 0:

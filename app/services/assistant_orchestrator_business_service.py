@@ -119,10 +119,15 @@ class AssistantOrchestratorBusinessService:
 
 
 
+
+
         if command == "execute":
 
 
             return result
+
+
+
 
 
 
@@ -149,6 +154,25 @@ class AssistantOrchestratorBusinessService:
 
 
 
+
+
+
+        if command == "task_history":
+
+
+            return {
+
+                "error": False,
+
+                "task_history":
+                    result.get(
+                        "task_history",
+                        {}
+                    ),
+
+                "message":
+                    "История задачи"
+            }
         if command == "continue":
 
 
@@ -203,6 +227,9 @@ class AssistantOrchestratorBusinessService:
                         "next_action"
                     )
             }
+
+
+
 
 
 

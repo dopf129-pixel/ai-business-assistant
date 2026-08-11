@@ -41,6 +41,8 @@ class AssistantIntentService:
 
 
 
+
+
         if (
             "выполни" in text
             or
@@ -62,6 +64,8 @@ class AssistantIntentService:
                 "command":
                     "execute"
             }
+
+
 
 
 
@@ -91,6 +95,36 @@ class AssistantIntentService:
 
 
 
+
+
+        if (
+            "история" in text
+            or
+            "покажи историю" in text
+            or
+            "что было сделано" in text
+            or
+            "что уже сделано" in text
+            or
+            "что выполнил" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "task_history",
+
+                "command":
+                    "task_history"
+            }
+
+
+
+
+
         if (
             "отчёт" in text
             or
@@ -115,6 +149,8 @@ class AssistantIntentService:
 
 
 
+
+
         if (
             "задач" in text
             or
@@ -136,6 +172,8 @@ class AssistantIntentService:
                 "command":
                     "actions"
             }
+
+
 
 
 
@@ -196,6 +234,8 @@ class AssistantIntentService:
                     "task":
                         current_task
                 }
+
+
 
 
 
