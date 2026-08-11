@@ -23,6 +23,7 @@ class AssistantTaskService:
         self
     ):
 
+
         if not os.path.exists(
             self.file_path
         ):
@@ -32,7 +33,9 @@ class AssistantTaskService:
             return
 
 
+
         try:
+
 
             with open(
                 self.file_path,
@@ -40,14 +43,19 @@ class AssistantTaskService:
                 encoding="utf-8"
             ) as file:
 
+
                 self.tasks = json.load(
                     file
                 )
 
 
+
         except Exception:
 
+
             self.tasks = {}
+
+
 
 
 
@@ -55,18 +63,25 @@ class AssistantTaskService:
         self
     ):
 
+
         folder = os.path.dirname(
             self.file_path
         )
 
 
-        if folder and not os.path.exists(
+        if (
             folder
+            and
+            not os.path.exists(
+                folder
+            )
         ):
+
 
             os.makedirs(
                 folder
             )
+
 
 
         with open(
@@ -74,6 +89,7 @@ class AssistantTaskService:
             "w",
             encoding="utf-8"
         ) as file:
+
 
             json.dump(
                 self.tasks,
@@ -84,6 +100,10 @@ class AssistantTaskService:
 
 
 
+
+
+
+
     def create_task(
         self,
         user_id,
@@ -91,25 +111,50 @@ class AssistantTaskService:
         actions
     ):
 
+
         self.tasks[str(user_id)] = {
 
-            "task": task,
 
-            "actions": actions,
+            "task":
 
-            "pending_action": None
+                task,
+
+
+            "actions":
+
+                actions,
+
+
+            "pending_action":
+
+                None
+
         }
+
 
 
         self.save()
 
 
+
         return {
 
-            "error": False,
 
-            "saved": True
+            "error":
+
+                False,
+
+
+            "saved":
+
+                True
+
         }
+
+
+
+
+
 
 
 
@@ -118,15 +163,27 @@ class AssistantTaskService:
         user_id
     ):
 
+
         return {
 
-            "error": False,
+
+            "error":
+
+                False,
+
 
             "task":
+
                 self.tasks.get(
                     str(user_id)
                 )
+
         }
+
+
+
+
+
 
 
 
@@ -135,19 +192,31 @@ class AssistantTaskService:
         user_id
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": False,
 
-                "action": None
+                "error":
+
+                    False,
+
+
+                "action":
+
+                    None
+
             }
+
+
 
 
 
@@ -156,25 +225,51 @@ class AssistantTaskService:
             []
         ):
 
+
+
             if action.get(
                 "status"
             ) == "NEW":
 
+
+
                 return {
 
-                    "error": False,
 
-                    "action": action
+                    "error":
+
+                        False,
+
+
+                    "action":
+
+                        action
+
                 }
+
+
+
 
 
 
         return {
 
-            "error": False,
 
-            "action": None
+            "error":
+
+                False,
+
+
+            "action":
+
+                None
+
         }
+
+
+
+
+
 
 
 
@@ -184,20 +279,31 @@ class AssistantTaskService:
         action
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": True,
+
+                "error":
+
+                    True,
+
 
                 "message":
+
                     "Задача не найдена"
+
             }
+
+
 
 
         task["pending_action"] = action
@@ -206,12 +312,25 @@ class AssistantTaskService:
         self.save()
 
 
+
         return {
 
-            "error": False,
 
-            "action": action
+            "error":
+
+                False,
+
+
+            "action":
+
+                action
+
         }
+
+
+
+
+
 
 
 
@@ -220,30 +339,54 @@ class AssistantTaskService:
         user_id
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": False,
 
-                "action": None
+                "error":
+
+                    False,
+
+
+                "action":
+
+                    None
+
             }
+
+
+
 
 
         return {
 
-            "error": False,
+
+            "error":
+
+                False,
+
 
             "action":
+
                 task.get(
                     "pending_action"
                 )
+
         }
+
+
+
+
+
 
 
 
@@ -252,103 +395,122 @@ class AssistantTaskService:
         user_id
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if task:
 
+
             task["pending_action"] = None
+
 
             self.save()
 
 
+
         return {
 
-            "error": False
+
+            "error":
+
+                False
+
         }
-
-
-
     def get_task_progress(
         self,
         user_id
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": False,
 
-                "done": 0,
+                "error":
 
-                "total": 0
+                    False,
+
+
+                "done":
+
+                    0,
+
+
+                "total":
+
+                    0
+
             }
 
 
 
-        actions = task.get(
-            "actions",
-            []
-        )
 
 
         done = 0
 
 
-        for action in actions:
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
 
             if action.get(
                 "status"
-            ) == "DONE":
+            ) in (
+                "DONE",
+                "SKIPPED"
+            ):
+
 
                 done += 1
 
 
 
-        return {
-
-            "error": False,
-
-            "done": done,
-
-            "total": len(
-                actions
-            )
-        }
-
-
-
-    def is_task_completed(
-        self,
-        user_id
-    ):
-
-        progress = (
-            self.get_task_progress(
-                user_id
-            )
-        )
 
 
         return {
 
-            "error": False,
 
-            "completed":
-                progress["total"] > 0
-                and
-                progress["done"]
-                ==
-                progress["total"]
+            "error":
+
+                False,
+
+
+            "done":
+
+                done,
+
+
+            "total":
+
+                len(
+                    task.get(
+                        "actions",
+                        []
+                    )
+                )
+
         }
+
+
+
+
+
 
 
 
@@ -357,36 +519,49 @@ class AssistantTaskService:
         user_id
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": False,
 
-                "task": None
+                "error":
+
+                    False,
+
+
+                "task":
+
+                    None
+
             }
 
 
 
-        progress = (
-            self.get_task_progress(
-                user_id
-            )
+
+
+        progress = self.get_task_progress(
+            user_id
         )
 
 
+
         actions = []
+
 
 
         for action in task.get(
             "actions",
             []
         ):
+
 
 
             status = action.get(
@@ -395,91 +570,145 @@ class AssistantTaskService:
             )
 
 
+
             if status == "DONE":
+
 
                 icon = "✅"
 
 
+
             elif status == "IN_PROGRESS":
+
 
                 icon = "🔄"
 
 
+
+            elif status == "SKIPPED":
+
+
+                icon = "⏭️"
+
+
+
             else:
+
 
                 icon = "⏳"
 
 
 
-            actions.append(
 
-                {
 
-                    "title":
-                        action.get(
-                            "title",
-                            ""
-                        ),
+            actions.append({
 
-                    "status":
-                        status,
 
-                    "icon":
-                        icon
-                }
+                "title":
 
-            )
+                    action.get(
+                        "title",
+                        ""
+                    ),
+
+
+                "status":
+
+                    status,
+
+
+                "icon":
+
+                    icon
+
+            })
+
+
+
 
 
         return {
 
-            "error": False,
+
+            "error":
+
+                False,
+
 
             "task":
+
                 task.get(
                     "task"
                 ),
 
+
             "progress":
+
                 {
 
+
                     "done":
+
                         progress["done"],
 
+
                     "total":
+
                         progress["total"]
 
                 },
 
+
             "actions":
+
                 actions
+
         }
 
 
-    def get_task_history(
+
+
+
+
+
+
+    def skip_action(
         self,
-        user_id
+        user_id,
+        title=None,
+        reason=None
     ):
+
 
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": False,
 
-                "task": None,
+                "error":
 
-                "history": []
+                    True,
+
+
+                "message":
+
+                    "Задача не найдена"
+
             }
 
 
 
-        history = []
+
+
+        target = None
+
 
 
         for action in task.get(
@@ -488,144 +717,96 @@ class AssistantTaskService:
         ):
 
 
-            if action.get(
+
+            if title:
+
+
+                if action.get(
+                    "title"
+                ) == title:
+
+
+                    target = action
+
+                    break
+
+
+
+            elif action.get(
                 "status"
-            ) == "DONE":
+            ) == "NEW":
 
 
-                result = (
-                    action.get(
-                        "result",
-                        {}
-                    )
-                )
+                target = action
 
-
-                if "result" in result:
-
-                    result = (
-                        result["result"]
-                    )
-
-
-
-                history.append(
-
-                    {
-
-                        "title":
-                            action.get(
-                                "title",
-                                ""
-                            ),
-
-                        "status":
-                            action.get(
-                                "status",
-                                ""
-                            ),
-
-                        "result":
-                            result
-
-                    }
-
-                )
-
-
-
-        return {
-
-            "error": False,
-
-            "task":
-                task.get(
-                    "task"
-                ),
-
-            "history":
-                history
-        }
+                break
 
 
 
 
-    def get_current_action(
-        self,
-        user_id
-    ):
 
-        task = self.tasks.get(
-            str(user_id)
-        )
+        if not target:
 
-
-        if not task:
 
             return {
 
-                "error": False,
 
-                "action": None
+                "error":
+
+                    True,
+
+
+                "message":
+
+                    "Действие не найдено"
+
             }
 
 
-        for action in task.get(
-            "actions",
-            []
-        ):
 
-            if action.get(
-                "status"
-            ) == "IN_PROGRESS":
 
-                return {
 
-                    "error": False,
+        target["status"] = "SKIPPED"
 
-                    "action": action
-                }
+
+
+        target["result"] = {
+
+
+            "message":
+
+                "Шаг пропущен",
+
+
+            "reason":
+
+                reason
+
+        }
+
+
+
+        self.save()
 
 
 
         return {
 
-            "error": False,
 
-            "action": None
+            "error":
+
+                False,
+
+
+            "action":
+
+                target
+
         }
 
 
 
 
-    def start_action(
-        self,
-        user_id,
-        title
-    ):
-
-        return self.update_action_status(
-            user_id,
-            title,
-            "IN_PROGRESS"
-        )
-
-
-
-
-    def complete_action(
-        self,
-        user_id,
-        title,
-        result=None
-    ):
-
-        return self.update_action_status(
-            user_id,
-            title,
-            "DONE",
-            result
-        )
 
 
 
@@ -638,20 +819,31 @@ class AssistantTaskService:
         result=None
     ):
 
+
         task = self.tasks.get(
             str(user_id)
         )
 
 
+
         if not task:
+
 
             return {
 
-                "error": True,
+
+                "error":
+
+                    True,
+
 
                 "message":
+
                     "Задача не найдена"
+
             }
+
+
 
 
 
@@ -661,38 +853,106 @@ class AssistantTaskService:
         ):
 
 
+
             if action.get(
                 "title"
             ) == title:
 
 
+
                 action["status"] = status
+
 
 
                 if result is not None:
 
+
                     action["result"] = result
+
+
 
 
 
                 self.save()
 
 
+
                 return {
 
-                    "error": False,
 
-                    "updated": True,
+                    "error":
 
-                    "action": action
+                        False,
+
+
+                    "updated":
+
+                        True,
+
+
+                    "action":
+
+                        action
+
                 }
+
+
+
 
 
 
         return {
 
-            "error": True,
+
+            "error":
+
+                True,
+
 
             "message":
+
                 "Действие не найдено"
+
         }
+
+
+
+
+
+
+
+
+    def start_action(
+        self,
+        user_id,
+        title
+    ):
+
+
+        return self.update_action_status(
+            user_id,
+            title,
+            "IN_PROGRESS"
+        )
+
+
+
+
+
+
+
+
+    def complete_action(
+        self,
+        user_id,
+        title,
+        result=None
+    ):
+
+
+        return self.update_action_status(
+            user_id,
+            title,
+            "DONE",
+            result
+        )

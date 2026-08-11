@@ -44,6 +44,32 @@ class AssistantIntentService:
 
 
         if (
+            "пропусти" in text
+            or
+            "пропустить" in text
+            or
+            "не делать" in text
+            or
+            "пропусти этот шаг" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "skip_action",
+
+                "command":
+                    "skip_action"
+            }
+
+
+
+
+
+        if (
             "выполни" in text
             or
             "выполнить" in text
@@ -114,11 +140,6 @@ class AssistantIntentService:
                 "command":
                     "task_history"
             }
-
-
-
-
-
         if (
             "что дальше" in text
             or
@@ -138,6 +159,12 @@ class AssistantIntentService:
                 "command":
                     "task_next"
             }
+
+
+
+
+
+
         if (
             "статус" in text
             or
@@ -161,6 +188,7 @@ class AssistantIntentService:
                 "command":
                     "task_status"
             }
+
 
 
 
@@ -192,6 +220,7 @@ class AssistantIntentService:
 
 
 
+
         if (
             "задач" in text
             or
@@ -218,6 +247,7 @@ class AssistantIntentService:
 
 
 
+
         if (
             "продолж" in text
             or
@@ -226,7 +256,6 @@ class AssistantIntentService:
 
 
             current_task = ""
-
 
 
             if context:
@@ -273,6 +302,7 @@ class AssistantIntentService:
                     "task":
                         current_task
                 }
+
 
 
 

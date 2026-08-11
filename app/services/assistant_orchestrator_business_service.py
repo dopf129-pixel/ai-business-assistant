@@ -12,13 +12,11 @@ class AssistantOrchestratorBusinessService:
             business_flow_service
         )
 
-        self.task_service = (
-            task_service
-        )
+        self.task_service = task_service
 
-        self.execution_service = (
-            execution_service
-        )
+        self.execution_service = execution_service
+
+
 
 
 
@@ -63,6 +61,8 @@ class AssistantOrchestratorBusinessService:
 
 
 
+
+
         if command == "confirm_execute":
 
 
@@ -74,38 +74,54 @@ class AssistantOrchestratorBusinessService:
             )
 
 
+
             return {
 
-                "error": False,
+
+                "error":
+
+                    False,
+
 
                 "message":
+
                     execution.get(
                         "message",
                         "Действие выполнено"
                     ),
 
+
                 "action":
+
                     execution.get(
                         "action"
                     ),
 
+
                 "execution":
+
                     execution.get(
                         "execution"
                     ),
 
+
                 "next_action":
+
                     execution.get(
                         "next_action"
                     ),
 
+
                 "completed":
+
                     execution.get(
                         "completed",
                         False
                     ),
 
+
                 "progress":
+
                     execution.get(
                         "progress",
                         {
@@ -113,6 +129,7 @@ class AssistantOrchestratorBusinessService:
                             "total": 0
                         }
                     )
+
             }
 
 
@@ -130,22 +147,32 @@ class AssistantOrchestratorBusinessService:
 
 
 
+
         if command == "task_status":
 
 
             return {
 
-                "error": False,
+
+                "error":
+
+                    False,
+
 
                 "task_status":
+
                     result.get(
                         "task_status",
                         {}
                     ),
 
+
                 "message":
+
                     "Статус задачи"
+
             }
+
 
 
 
@@ -157,39 +184,56 @@ class AssistantOrchestratorBusinessService:
 
             return {
 
-                "error": False,
+
+                "error":
+
+                    False,
+
 
                 "task_history":
+
                     result.get(
                         "task_history",
                         {}
                     ),
 
+
                 "message":
+
                     "История задачи"
+
             }
+
+
+
+
+
+
+
         if command == "task_details":
 
 
             return {
 
-                "error": False,
+
+                "error":
+
+                    False,
+
 
                 "task_details":
+
                     result.get(
                         "task_details",
                         {}
                     ),
 
+
                 "message":
+
                     "Детали задачи"
+
             }
-
-
-
-
-
-
         if command == "task_next":
 
 
@@ -203,16 +247,66 @@ class AssistantOrchestratorBusinessService:
 
             return {
 
-                "error": False,
+                "error":
+
+                    False,
+
 
                 "message":
+
                     "Следующий шаг",
 
+
                 "next_action":
+
                     next_data.get(
                         "action"
                     )
+
             }
+
+
+
+
+
+
+
+
+        if command == "skip_action":
+
+
+            return {
+
+
+                "error":
+
+                    False,
+
+
+                "message":
+
+                    result.get(
+                        "message",
+                        "Шаг пропущен"
+                    ),
+
+
+                "action":
+
+                    result.get(
+                        "action"
+                    ),
+
+
+                "next_action":
+
+                    result.get(
+                        "next_action"
+                    )
+
+            }
+
+
 
 
 
@@ -261,19 +355,31 @@ class AssistantOrchestratorBusinessService:
 
             return {
 
-                "error": False,
+
+                "error":
+
+                    False,
+
 
                 "message":
+
                     "Продолжаем работу",
 
+
                 "task":
+
                     task,
 
+
                 "next_step":
+
                     result.get(
                         "next_action"
                     )
+
             }
+
+
 
 
 
@@ -282,20 +388,30 @@ class AssistantOrchestratorBusinessService:
 
         return {
 
-            "error": False,
+
+            "error":
+
+                False,
+
 
             "message":
+
                 "Бизнес-план создан",
 
+
             "actions":
+
                 result.get(
                     "plan",
                     []
                 ),
 
+
             "count":
+
                 result.get(
                     "count",
                     0
                 )
+
         }

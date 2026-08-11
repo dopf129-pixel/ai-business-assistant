@@ -19,6 +19,7 @@ class AssistantBusinessFlowService:
 
 
 
+
     def process(
         self,
         text,
@@ -49,6 +50,8 @@ class AssistantBusinessFlowService:
                 "command"
             )
         )
+
+
 
 
 
@@ -146,6 +149,7 @@ class AssistantBusinessFlowService:
 
 
 
+
         if command == "task_status":
 
 
@@ -180,6 +184,8 @@ class AssistantBusinessFlowService:
 
 
 
+
+
             return {
 
                 "error": True,
@@ -187,6 +193,7 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
+
 
 
 
@@ -224,6 +231,7 @@ class AssistantBusinessFlowService:
                     "task_history":
                         history
                 }
+
 
 
 
@@ -281,6 +289,8 @@ class AssistantBusinessFlowService:
 
 
 
+
+
         if command == "task_next":
 
 
@@ -322,6 +332,102 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
+
+
+
+
+
+
+
+
+        if command == "skip_action":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                next_action = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+                action = (
+                    next_action.get(
+                        "action"
+                    )
+                )
+
+
+
+                if not action:
+
+
+                    return {
+
+                        "error": False,
+
+                        "intent":
+                            intent,
+
+                        "message":
+                            "Нет доступного шага для пропуска"
+                    }
+
+
+
+                skipped = (
+                    self.task_service
+                    .skip_action(
+                        user_id,
+                        action.get(
+                            "title"
+                        )
+                    )
+                )
+
+
+
+                next_after_skip = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+
+                return {
+
+                    "error":
+                        skipped.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "message":
+                        "Шаг пропущен",
+
+                    "action":
+                        skipped.get(
+                            "action"
+                        ),
+
+                    "next_action":
+                        next_after_skip.get(
+                            "action"
+                        )
+                }
+
+
 
 
 
@@ -390,6 +496,7 @@ class AssistantBusinessFlowService:
                 "next_action":
                     next_action
             }
+
 
 
 

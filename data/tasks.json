@@ -5,8 +5,12 @@
             {
                 "title": "Проверить причины падения продаж",
                 "type": "sales",
-                "status": "NEW",
-                "priority": "HIGH"
+                "status": "SKIPPED",
+                "priority": "HIGH",
+                "result": {
+                    "message": "Шаг пропущен",
+                    "reason": null
+                }
             },
             {
                 "title": "Проверить остатки товара",

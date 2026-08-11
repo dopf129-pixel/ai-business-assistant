@@ -18,6 +18,74 @@ class AssistantResponseBuilderService:
         if (
             message
             ==
+            "Шаг пропущен"
+        ):
+
+
+            action = (
+                result.get(
+                    "action"
+                )
+            )
+
+
+            next_action = (
+                result.get(
+                    "next_action"
+                )
+            )
+
+
+            text = (
+                "Шаг пропущен"
+            )
+
+
+            if action:
+
+
+                text += (
+                    "\n\n"
+                    +
+                    action.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+
+            if next_action:
+
+
+                text += (
+                    "\n\nСледующий шаг:\n"
+                    +
+                    next_action.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text
+            }
+
+
+
+
+
+
+
+        if (
+            message
+            ==
             "Следующий шаг"
         ):
 
@@ -37,22 +105,14 @@ class AssistantResponseBuilderService:
             if next_action:
 
 
-                title = (
+                text += (
+                    "\n\n"
+                    +
                     next_action.get(
                         "title",
                         ""
                     )
                 )
-
-
-                if title:
-
-
-                    text += (
-                        "\n\n"
-                        +
-                        title
-                    )
 
 
 
@@ -63,6 +123,7 @@ class AssistantResponseBuilderService:
                 "message":
                     text
             }
+
 
 
 
@@ -121,7 +182,7 @@ class AssistantResponseBuilderService:
                 )
 
 
-                result_data = (
+                item_result = (
                     item.get(
                         "result",
                         {}
@@ -129,38 +190,38 @@ class AssistantResponseBuilderService:
                 )
 
 
-                if "result" in result_data:
+                if "result" in item_result:
 
 
-                    result_data = (
-                        result_data["result"]
+                    item_result = (
+                        item_result["result"]
                     )
 
 
 
-                if result_data:
+                if item_result:
 
 
-                    message = (
-                        result_data.get(
+                    item_message = (
+                        item_result.get(
                             "message"
                         )
                     )
 
 
-                    if message:
+                    if item_message:
 
 
                         text += (
                             "\n\nРезультат:\n"
                             +
-                            message
+                            item_message
                         )
 
 
 
                     details = (
-                        result_data.get(
+                        item_result.get(
                             "details",
                             []
                         )
@@ -244,7 +305,6 @@ class AssistantResponseBuilderService:
 
 
                     text += (
-
                         "✅ "
                         +
                         item.get(
@@ -253,11 +313,10 @@ class AssistantResponseBuilderService:
                         )
                         +
                         "\n"
-
                     )
 
 
-                    result_data = (
+                    item_result = (
                         item.get(
                             "result",
                             {}
@@ -265,30 +324,30 @@ class AssistantResponseBuilderService:
                     )
 
 
-                    if "result" in result_data:
+                    if "result" in item_result:
 
 
-                        result_data = (
-                            result_data["result"]
+                        item_result = (
+                            item_result["result"]
                         )
 
 
 
-                    if result_data:
+                    if item_result:
 
 
-                        message_text = (
-                            result_data.get(
+                        item_message = (
+                            item_result.get(
                                 "message"
                             )
                         )
 
 
-                        if message_text:
+                        if item_message:
 
 
                             text += (
-                                message_text
+                                item_message
                                 +
                                 "\n"
                             )
@@ -390,7 +449,6 @@ class AssistantResponseBuilderService:
 
 
                     text += (
-
                         action.get(
                             "icon",
                             ""
@@ -404,7 +462,6 @@ class AssistantResponseBuilderService:
                         )
                         +
                         "\n"
-
                     )
 
 
@@ -416,6 +473,7 @@ class AssistantResponseBuilderService:
                 "message":
                     text.strip()
             }
+
 
 
 
@@ -454,7 +512,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             return {
 
                 "error": False,
@@ -465,6 +522,7 @@ class AssistantResponseBuilderService:
                 "action":
                     action
             }
+
 
 
 
@@ -540,6 +598,7 @@ class AssistantResponseBuilderService:
                 "message":
                     text
             }
+
 
 
 
