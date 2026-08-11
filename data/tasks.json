@@ -5,36 +5,14 @@
             {
                 "title": "Проверить причины падения продаж",
                 "type": "sales",
-                "status": "DONE",
-                "priority": "HIGH",
-                "result": {
-                    "error": false,
-                    "result": {
-                        "type": "sales",
-                        "message": "Анализ продаж выполнен",
-                        "details": [
-                            "Проверено падение продаж",
-                            "Найдены возможные причины"
-                        ]
-                    }
-                }
+                "status": "NEW",
+                "priority": "HIGH"
             },
             {
                 "title": "Проверить остатки товара",
                 "type": "stock",
-                "status": "DONE",
-                "priority": "HIGH",
-                "result": {
-                    "error": false,
-                    "result": {
-                        "type": "stock",
-                        "message": "Проверка остатков выполнена",
-                        "details": [
-                            "Проверены остатки товара",
-                            "Найдены позиции для контроля"
-                        ]
-                    }
-                }
+                "status": "NEW",
+                "priority": "HIGH"
             }
         ],
         "pending_action": null

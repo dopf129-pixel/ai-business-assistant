@@ -168,12 +168,6 @@ class AssistantOrchestratorBusinessService:
                 "message":
                     "История задачи"
             }
-
-
-
-
-
-
         if command == "task_details":
 
 
@@ -190,6 +184,41 @@ class AssistantOrchestratorBusinessService:
                 "message":
                     "Детали задачи"
             }
+
+
+
+
+
+
+        if command == "task_next":
+
+
+            next_data = (
+                result.get(
+                    "task_next",
+                    {}
+                )
+            )
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    "Следующий шаг",
+
+                "next_action":
+                    next_data.get(
+                        "action"
+                    )
+            }
+
+
+
+
+
+
         if command == "continue":
 
 
@@ -245,8 +274,6 @@ class AssistantOrchestratorBusinessService:
                         "next_action"
                     )
             }
-
-
 
 
 

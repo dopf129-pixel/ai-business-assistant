@@ -7,6 +7,68 @@ class AssistantResponseBuilderService:
     ):
 
 
+        message = (
+            result.get(
+                "message"
+            )
+        )
+
+
+
+        if (
+            message
+            ==
+            "Следующий шаг"
+        ):
+
+
+            next_action = (
+                result.get(
+                    "next_action"
+                )
+            )
+
+
+            text = (
+                "Следующий шаг"
+            )
+
+
+            if next_action:
+
+
+                title = (
+                    next_action.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+                if title:
+
+
+                    text += (
+                        "\n\n"
+                        +
+                        title
+                    )
+
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text
+            }
+
+
+
+
+
+
         task_details = (
             result.get(
                 "task_details"
@@ -131,13 +193,6 @@ class AssistantResponseBuilderService:
                 "message":
                     text.strip()
             }
-
-
-
-
-
-
-
         task_history = (
             result.get(
                 "task_history"
@@ -222,18 +277,18 @@ class AssistantResponseBuilderService:
                     if result_data:
 
 
-                        message = (
+                        message_text = (
                             result_data.get(
                                 "message"
                             )
                         )
 
 
-                        if message:
+                        if message_text:
 
 
                             text += (
-                                message
+                                message_text
                                 +
                                 "\n"
                             )
@@ -267,7 +322,6 @@ class AssistantResponseBuilderService:
             text = ""
 
 
-
             task = (
                 task_status.get(
                     "task"
@@ -283,6 +337,9 @@ class AssistantResponseBuilderService:
                     +
                     task
                 )
+
+
+
             progress = (
                 task_status.get(
                     "progress",
@@ -365,15 +422,6 @@ class AssistantResponseBuilderService:
 
 
 
-
-        message = (
-            result.get(
-                "message"
-            )
-        )
-
-
-
         if (
             message
             ==
@@ -406,137 +454,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-                action_result = (
-                    action.get(
-                        "result",
-                        {}
-                    )
-                )
-
-
-                if "result" in action_result:
-
-
-                    action_result = (
-                        action_result["result"]
-                    )
-
-
-
-                if action_result:
-
-
-                    result_message = (
-                        action_result.get(
-                            "message"
-                        )
-                    )
-
-
-                    if result_message:
-
-
-                        text += (
-                            "\n\nРезультат:\n"
-                            +
-                            result_message
-                        )
-
-
-
-                    details = (
-                        action_result.get(
-                            "details",
-                            []
-                        )
-                    )
-
-
-                    if details:
-
-
-                        text += (
-                            "\n\nДетали:"
-                        )
-
-
-                        for item in details:
-
-
-                            text += (
-                                "\n• "
-                                +
-                                item
-                            )
-
-
-
-            next_action = (
-                result.get(
-                    "next_action"
-                )
-            )
-
-
-            if next_action:
-
-
-                text += (
-                    "\n\nСледующий шаг:\n"
-                    +
-                    next_action.get(
-                        "title",
-                        ""
-                    )
-                )
-
-
-
-            completed = (
-                result.get(
-                    "completed",
-                    False
-                )
-            )
-
-
-            if completed:
-
-
-                progress = (
-                    result.get(
-                        "progress",
-                        {}
-                    )
-                )
-
-
-                text += (
-                    "\n\n✅ Задача выполнена"
-                )
-
-
-                text += (
-                    "\n\nВыполнено: "
-                    +
-                    str(
-                        progress.get(
-                            "done",
-                            0
-                        )
-                    )
-                    +
-                    "/"
-                    +
-                    str(
-                        progress.get(
-                            "total",
-                            0
-                        )
-                    )
-                )
-
-
 
             return {
 
@@ -548,7 +465,6 @@ class AssistantResponseBuilderService:
                 "action":
                     action
             }
-
 
 
 
@@ -616,18 +532,6 @@ class AssistantResponseBuilderService:
                     )
 
 
-            elif next_step:
-
-
-                text += (
-                    "\n\nСледующий шаг:\n"
-                    +
-                    str(
-                        next_step
-                    )
-                )
-
-
 
             return {
 
@@ -642,14 +546,12 @@ class AssistantResponseBuilderService:
 
 
 
-
         count = (
             result.get(
                 "count",
                 0
             )
         )
-
 
 
         if count == 0:

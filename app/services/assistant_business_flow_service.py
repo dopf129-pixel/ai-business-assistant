@@ -9,21 +9,13 @@ class AssistantBusinessFlowService:
         execution_service=None
     ):
 
-        self.intent_service = (
-            intent_service
-        )
+        self.intent_service = intent_service
 
-        self.planner_service = (
-            planner_service
-        )
+        self.planner_service = planner_service
 
-        self.task_service = (
-            task_service
-        )
+        self.task_service = task_service
 
-        self.execution_service = (
-            execution_service
-        )
+        self.execution_service = execution_service
 
 
 
@@ -289,6 +281,52 @@ class AssistantBusinessFlowService:
 
 
 
+        if command == "task_next":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                next_result = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        next_result.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "task_next":
+                        next_result
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+            }
+
+
+
+
+
 
         if command == "continue":
 
@@ -377,8 +415,14 @@ class AssistantBusinessFlowService:
                 intent,
 
             "plan":
-                result["actions"],
+                result.get(
+                    "actions",
+                    []
+                ),
 
             "count":
-                result["count"]
+                result.get(
+                    "count",
+                    0
+                )
         }

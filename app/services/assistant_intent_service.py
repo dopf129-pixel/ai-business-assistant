@@ -43,7 +43,6 @@ class AssistantIntentService:
 
 
 
-
         if (
             "выполни" in text
             or
@@ -65,7 +64,6 @@ class AssistantIntentService:
                 "command":
                     "execute"
             }
-
 
 
 
@@ -97,7 +95,6 @@ class AssistantIntentService:
 
 
 
-
         if (
             "истори" in text
             or
@@ -122,7 +119,25 @@ class AssistantIntentService:
 
 
 
+        if (
+            "что дальше" in text
+            or
+            "следующий шаг" in text
+            or
+            "что делать дальше" in text
+        ):
 
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "task_next",
+
+                "command":
+                    "task_next"
+            }
         if (
             "статус" in text
             or
@@ -151,7 +166,6 @@ class AssistantIntentService:
 
 
 
-
         if (
             "отчёт" in text
             or
@@ -173,6 +187,11 @@ class AssistantIntentService:
                 "command":
                     "report"
             }
+
+
+
+
+
         if (
             "задач" in text
             or
@@ -199,11 +218,8 @@ class AssistantIntentService:
 
 
 
-
         if (
             "продолж" in text
-            or
-            "дальше" in text
             or
             "далее" in text
         ):
@@ -257,7 +273,6 @@ class AssistantIntentService:
                     "task":
                         current_task
                 }
-
 
 
 
