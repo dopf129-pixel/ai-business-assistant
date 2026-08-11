@@ -43,6 +43,7 @@ class AssistantIntentService:
 
 
 
+
         if (
             "выполни" in text
             or
@@ -64,6 +65,59 @@ class AssistantIntentService:
                 "command":
                     "execute"
             }
+
+
+
+
+
+
+        if (
+            "детал" in text
+            or
+            "подробност" in text
+            or
+            "что получилось" in text
+            or
+            "результат" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "task_details",
+
+                "command":
+                    "task_details"
+            }
+
+
+
+
+
+
+        if (
+            "истори" in text
+            or
+            "что было сделано" in text
+            or
+            "покажи выполненное" in text
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "intent":
+                    "task_history",
+
+                "command":
+                    "task_history"
+            }
+
 
 
 
@@ -97,33 +151,6 @@ class AssistantIntentService:
 
 
 
-        if (
-            "история" in text
-            or
-            "покажи историю" in text
-            or
-            "что было сделано" in text
-            or
-            "что уже сделано" in text
-            or
-            "что выполнил" in text
-        ):
-
-
-            return {
-
-                "error": False,
-
-                "intent":
-                    "task_history",
-
-                "command":
-                    "task_history"
-            }
-
-
-
-
 
         if (
             "отчёт" in text
@@ -146,11 +173,6 @@ class AssistantIntentService:
                 "command":
                     "report"
             }
-
-
-
-
-
         if (
             "задач" in text
             or
@@ -172,6 +194,7 @@ class AssistantIntentService:
                 "command":
                     "actions"
             }
+
 
 
 
@@ -234,6 +257,7 @@ class AssistantIntentService:
                     "task":
                         current_task
                 }
+
 
 
 

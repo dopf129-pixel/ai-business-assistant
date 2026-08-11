@@ -9,13 +9,21 @@ class AssistantBusinessFlowService:
         execution_service=None
     ):
 
-        self.intent_service = intent_service
+        self.intent_service = (
+            intent_service
+        )
 
-        self.planner_service = planner_service
+        self.planner_service = (
+            planner_service
+        )
 
-        self.task_service = task_service
+        self.task_service = (
+            task_service
+        )
 
-        self.execution_service = execution_service
+        self.execution_service = (
+            execution_service
+        )
 
 
 
@@ -145,6 +153,7 @@ class AssistantBusinessFlowService:
 
 
 
+
         if command == "task_status":
 
 
@@ -191,6 +200,7 @@ class AssistantBusinessFlowService:
 
 
 
+
         if command == "task_history":
 
 
@@ -232,6 +242,54 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
+        if command == "task_details":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                details = (
+                    self.task_service
+                    .get_task_history(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        details.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "task_details":
+                        details
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+            }
+
+
+
+
+
+
+
         if command == "continue":
 
 
@@ -294,6 +352,8 @@ class AssistantBusinessFlowService:
                 "next_action":
                     next_action
             }
+
+
 
 
 

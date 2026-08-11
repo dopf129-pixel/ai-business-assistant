@@ -7,6 +7,137 @@ class AssistantResponseBuilderService:
     ):
 
 
+        task_details = (
+            result.get(
+                "task_details"
+            )
+        )
+
+
+        if task_details:
+
+
+            text = ""
+
+
+            task = (
+                task_details.get(
+                    "task"
+                )
+            )
+
+
+            if task:
+
+
+                text += (
+                    "Детали задачи: "
+                    +
+                    task
+                )
+
+
+
+            history = (
+                task_details.get(
+                    "history",
+                    []
+                )
+            )
+
+
+            for item in history:
+
+
+                text += (
+                    "\n\n"
+                    +
+                    item.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+                result_data = (
+                    item.get(
+                        "result",
+                        {}
+                    )
+                )
+
+
+                if "result" in result_data:
+
+
+                    result_data = (
+                        result_data["result"]
+                    )
+
+
+
+                if result_data:
+
+
+                    message = (
+                        result_data.get(
+                            "message"
+                        )
+                    )
+
+
+                    if message:
+
+
+                        text += (
+                            "\n\nРезультат:\n"
+                            +
+                            message
+                        )
+
+
+
+                    details = (
+                        result_data.get(
+                            "details",
+                            []
+                        )
+                    )
+
+
+                    if details:
+
+
+                        text += (
+                            "\n\nПодробности:"
+                        )
+
+
+                        for detail in details:
+
+
+                            text += (
+                                "\n• "
+                                +
+                                detail
+                            )
+
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text.strip()
+            }
+
+
+
+
+
+
+
         task_history = (
             result.get(
                 "task_history"
@@ -28,6 +159,7 @@ class AssistantResponseBuilderService:
 
 
             if task:
+
 
                 text += (
                     "История задачи: "
@@ -78,6 +210,15 @@ class AssistantResponseBuilderService:
                     )
 
 
+                    if "result" in result_data:
+
+
+                        result_data = (
+                            result_data["result"]
+                        )
+
+
+
                     if result_data:
 
 
@@ -90,12 +231,11 @@ class AssistantResponseBuilderService:
 
                         if message:
 
-                            text += (
 
+                            text += (
                                 message
                                 +
                                 "\n"
-
                             )
 
 
@@ -107,6 +247,7 @@ class AssistantResponseBuilderService:
                 "message":
                     text.strip()
             }
+
 
 
 
@@ -126,6 +267,7 @@ class AssistantResponseBuilderService:
             text = ""
 
 
+
             task = (
                 task_status.get(
                     "task"
@@ -135,14 +277,12 @@ class AssistantResponseBuilderService:
 
             if task:
 
+
                 text += (
                     "Задача: "
                     +
                     task
                 )
-
-
-
             progress = (
                 task_status.get(
                     "progress",
@@ -219,6 +359,13 @@ class AssistantResponseBuilderService:
                 "message":
                     text.strip()
             }
+
+
+
+
+
+
+
         message = (
             result.get(
                 "message"
@@ -269,6 +416,7 @@ class AssistantResponseBuilderService:
 
                 if "result" in action_result:
 
+
                     action_result = (
                         action_result["result"]
                     )
@@ -287,11 +435,13 @@ class AssistantResponseBuilderService:
 
                     if result_message:
 
+
                         text += (
                             "\n\nРезультат:\n"
                             +
                             result_message
                         )
+
 
 
                     details = (
@@ -311,6 +461,7 @@ class AssistantResponseBuilderService:
 
 
                         for item in details:
+
 
                             text += (
                                 "\n• "
@@ -457,12 +608,12 @@ class AssistantResponseBuilderService:
 
                 if title:
 
+
                     text += (
                         "\n\nСледующий шаг:\n"
                         +
                         title
                     )
-
 
 
             elif next_step:
