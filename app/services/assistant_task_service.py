@@ -389,11 +389,9 @@ class AssistantTaskService:
         ):
 
 
-            status = (
-                action.get(
-                    "status",
-                    "NEW"
-                )
+            status = action.get(
+                "status",
+                "NEW"
             )
 
 
@@ -433,7 +431,6 @@ class AssistantTaskService:
             )
 
 
-
         return {
 
             "error": False,
@@ -457,6 +454,99 @@ class AssistantTaskService:
             "actions":
                 actions
         }
+
+
+    def get_task_history(
+        self,
+        user_id
+    ):
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": False,
+
+                "task": None,
+
+                "history": []
+            }
+
+
+
+        history = []
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "status"
+            ) == "DONE":
+
+
+                result = (
+                    action.get(
+                        "result",
+                        {}
+                    )
+                )
+
+
+                if "result" in result:
+
+                    result = (
+                        result["result"]
+                    )
+
+
+
+                history.append(
+
+                    {
+
+                        "title":
+                            action.get(
+                                "title",
+                                ""
+                            ),
+
+                        "status":
+                            action.get(
+                                "status",
+                                ""
+                            ),
+
+                        "result":
+                            result
+
+                    }
+
+                )
+
+
+
+        return {
+
+            "error": False,
+
+            "task":
+                task.get(
+                    "task"
+                ),
+
+            "history":
+                history
+        }
+
 
 
 
@@ -507,6 +597,7 @@ class AssistantTaskService:
 
 
 
+
     def start_action(
         self,
         user_id,
@@ -518,6 +609,7 @@ class AssistantTaskService:
             title,
             "IN_PROGRESS"
         )
+
 
 
 
@@ -534,6 +626,7 @@ class AssistantTaskService:
             "DONE",
             result
         )
+
 
 
 
