@@ -50,6 +50,71 @@ Result:
 
 
 
+# Project Direction
+
+
+## Main Product
+
+
+AI Business Assistant
+
+
+
+Цель проекта:
+
+
+Создание автономного бизнес-ассистента,
+который помогает управлять бизнес-процессами,
+анализировать данные,
+создавать планы и выполнять действия.
+
+
+
+## Internal Development System
+
+
+AI Development Agent
+
+
+
+Назначение:
+
+
+AI Development Agent является внутренним инструментом,
+который ускоряет создание и развитие AI Business Assistant.
+
+
+
+Основные задачи:
+
+
+- уменьшение ручных действий при разработке
+- поддержание Project Brain
+- контроль документационного drift
+- автоматизация тестирования
+- ускорение внесения изменений
+
+
+
+Архитектурная связь:
+
+
+AI Development Agent
+
+↓
+
+Development Workflow
+
+↓
+
+AI Business Assistant
+
+
+
+---
+
+
+
 # Completed Features
 
 
@@ -163,37 +228,6 @@ Result:
 
 
 
-Tests:
-
-
-test_action_execution_failure.py
-
-
-test_history_failure.py
-
-
-test_retry_execution.py
-
-
-test_retry_history.py
-
-
-test_retry_policy.py
-
-
-test_retry_policy_integration.py
-
-
-test_retry_limit.py
-
-
-test_retry_limit_integration.py
-
-
-test_retry_blocked_history.py
-
-
-
 Result:
 
 
@@ -233,43 +267,6 @@ Result:
 
 
 [x] Plan correction
-
-
-
-Tests:
-
-
-test_multi_level_dependencies.py
-
-
-test_dependency_chain_validation.py
-
-
-test_dependency_validation.py
-
-
-test_dependency_cycle.py
-
-
-test_auto_replanning.py
-
-
-test_replanning_service.py
-
-
-test_replanning_integration.py
-
-
-test_replanning_execution_flow.py
-
-
-test_replanning_updates_task.py
-
-
-test_automatic_replanning_engine.py
-
-
-test_plan_correction.py
 
 
 
@@ -318,46 +315,6 @@ Result:
 
 
 [x] Memory compatibility stabilization
-
-
-
-Tests:
-
-
-test_feedback_loop.py
-
-
-test_feedback_auto_record.py
-
-
-test_feedback_execution_hook.py
-
-
-test_feedback_memory_integration.py
-
-
-test_feedback_to_memory_flow.py
-
-
-test_memory_service.py
-
-
-test_memory_integration.py
-
-
-test_memory_planning_integration.py
-
-
-test_memory_driven_planning.py
-
-
-test_memory_context_in_plan.py
-
-
-test_memory_guided_actions.py
-
-
-test_full_memory_agent_loop.py
 
 
 
@@ -427,6 +384,10 @@ Result:
 
 
 
+---
+
+
+
 # Current Architecture Level
 
 
@@ -441,11 +402,15 @@ Smart Planning
 
 +
 
-Autonomous Agent Foundation
+Autonomous Business Assistant Foundation
 
 +
 
-AI Development Infrastructure
+AI Development Agent Infrastructure
+
+
+
+---
 
 
 
@@ -456,6 +421,10 @@ NEXT:
 
 
 Long-running tasks
+
+
+
+---
 
 
 
@@ -472,7 +441,8 @@ Phase 3 - Autonomous Agent
 Current Goal:
 
 
-Развить агента от системы накопления опыта
+Развить AI Business Assistant
+от системы накопления опыта
 к системе долгосрочного автономного выполнения задач.
 
 
@@ -518,6 +488,10 @@ Next planned changes:
 
 
 5. Добавить тесты long-running tasks
+
+
+
+---
 
 
 
@@ -575,55 +549,28 @@ Next planned changes:
 
 ## Phase 1
 
+
 Executor Reliability
 
 
-[x] FAILED action state
-
-
-[x] Executor error handling
-
-
-[x] Error history
-
-
-[x] Retry execution
-
-
-[x] Retry execution history
-
-
-[x] Retry policy
-
-
-[x] Retry limit
-
-
-[x] Retry blocked history
+[x] Completed
 
 
 
 ## Phase 2
 
+
 Smart Planning
 
 
-[x] Multi-level dependencies
-
-
-[x] Dependency validation
-
-
-[x] Automatic replanning
-
-
-[x] Plan correction
+[x] Completed
 
 
 
 ## Phase 3
 
-Autonomous Agent
+
+Autonomous Business Assistant
 
 
 [x] Feedback loop
@@ -641,7 +588,19 @@ Autonomous Agent
 
 ## Phase 4
 
-AI Development Automation
+
+Development Autopilot Layer
+
+
+Цель:
+
+
+Минимизировать ручное участие разработчика
+при создании и улучшении AI Business Assistant.
+
+
+
+Tasks:
 
 
 [x] Project scanner
@@ -653,10 +612,23 @@ AI Development Automation
 [x] Test analyzer
 
 
-[ ] Git automation
+[ ] Documentation drift detection
+
+
+[ ] Change impact analysis
+
+
+[ ] Automated development workflow
+
+
+[ ] Git checkpoint assistant
 
 
 [ ] Vector memory
+
+
+
+---
 
 
 
@@ -673,7 +645,19 @@ Tests:
 Architecture:
 
 
-Task Orchestration Engine + Smart Planning + Autonomous Agent Foundation + AI Development Infrastructure
+Task Orchestration Engine
+
++
+
+Smart Planning
+
++
+
+Autonomous Business Assistant Foundation
+
++
+
+AI Development Agent Infrastructure
 
 
 

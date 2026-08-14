@@ -192,7 +192,14 @@ Tasks:
 
 # Phase 4
 
-AI Development Automation
+Development Autopilot Layer
+
+
+Цель:
+
+
+Минимизировать ручное участие разработчика
+при создании и улучшении AI Business Assistant.
 
 
 Tasks:
@@ -207,7 +214,16 @@ Tasks:
 [x] Test analyzer
 
 
-[ ] Git automation
+[ ] Documentation drift detection
+
+
+[ ] Change impact analysis
+
+
+[ ] Automated development workflow
+
+
+[ ] Git checkpoint assistant
 
 
 [ ] Vector memory

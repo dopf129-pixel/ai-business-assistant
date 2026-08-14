@@ -6,6 +6,68 @@
 ---
 
 
+## Strategic Update
+
+
+### AI Development Agent Purpose Clarification
+
+
+Определена роль AI Development Agent в архитектуре проекта.
+
+
+
+Главный продукт:
+
+
+AI Business Assistant
+
+
+
+AI Development Agent:
+
+
+Используется как внутренний инструмент,
+ускоряющий создание и развитие AI Business Assistant.
+
+
+
+Добавлено:
+
+
+- разделение основного продукта и внутренних инструментов разработки
+- уточнение архитектурной роли AI Development Agent
+- обновление направления Roadmap
+- фиксация нового принципа развития проекта
+
+
+
+Архитектура:
+
+
+AI Development Agent
+
+↓
+
+Development Workflow
+
+↓
+
+AI Business Assistant
+
+
+
+Результат:
+
+
+AI Development Agent рассматривается
+как механизм уменьшения ручных действий
+при создании основного продукта.
+
+
+
+---
+
+
 ## Stabilization Checkpoint
 
 
@@ -13,6 +75,7 @@
 
 
 После интеграции Memory Loop выполнена стабилизация взаимодействия сервисов.
+
 
 
 Исправлено:
@@ -23,6 +86,7 @@
 - сохранение priority при генерации действий
 - сохранение context.reason
 - сохранение полного Action schema
+
 
 
 Архитектурный контракт:
@@ -333,7 +397,19 @@ Tests:
 Architecture Level:
 
 
-Task Orchestration Engine + Smart Planning + Autonomous Agent Foundation + AI Development Infrastructure
+Task Orchestration Engine
+
++
+
+Smart Planning
+
++
+
+Autonomous Business Assistant Foundation
+
++
+
+AI Development Agent Infrastructure
 
 
 
@@ -349,6 +425,7 @@ Completed:
 - Memory System
 - Memory Agent Loop
 - Action Contract Stabilization
+- AI Development Agent role clarification
 
 
 

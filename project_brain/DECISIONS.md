@@ -260,3 +260,82 @@ Decision:
 
 
 Implemented
+
+
+---
+
+
+## Decision 008
+
+
+Date:
+
+2026-08-14
+
+
+Topic:
+
+AI Development Agent purpose
+
+
+Decision:
+
+
+AI Development Agent является внутренним инструментом
+ускорения разработки AI Business Assistant.
+
+
+Главный продукт проекта:
+
+
+AI Business Assistant
+
+
+AI Development Agent используется для:
+
+
+- уменьшения ручных действий при разработке
+- ускорения создания новых возможностей
+- автоматизации тестирования
+- поддержания Project Brain
+- контроля документационного drift
+
+
+
+Причина:
+
+
+Основная ценность проекта заключается в создании
+AI Business Assistant для управления бизнесом.
+
+
+Автоматизация разработки необходима для ускорения
+создания и улучшения основного продукта.
+
+
+
+Архитектура:
+
+
+AI Development Agent
+
+↓
+
+Project Brain
+
+↓
+
+Development Workflow
+
+↓
+
+AI Business Assistant
+
+
+
+Статус:
+
+
+Implemented
+
+
