@@ -2,6 +2,11 @@ import json
 import os
 
 
+from core.task_states import TaskStatus
+from core.task_state_machine import TaskStateMachine
+
+
+
 
 class AssistantTaskService:
 
@@ -36,22 +41,18 @@ class AssistantTaskService:
 
         try:
 
-
             with open(
                 self.file_path,
                 "r",
                 encoding="utf-8"
             ) as file:
 
-
                 self.tasks = json.load(
                     file
                 )
 
 
-
         except Exception:
-
 
             self.tasks = {}
 
@@ -77,7 +78,6 @@ class AssistantTaskService:
             )
         ):
 
-
             os.makedirs(
                 folder
             )
@@ -102,8 +102,6 @@ class AssistantTaskService:
 
 
 
-
-
     def create_task(
         self,
         user_id,
@@ -115,19 +113,17 @@ class AssistantTaskService:
         self.tasks[str(user_id)] = {
 
 
-            "task":
-
-                task,
+            "task": task,
 
 
-            "actions":
-
-                actions,
+            "status": TaskStatus.ACTIVE,
 
 
-            "pending_action":
+            "actions": actions,
 
-                None
+
+            "pending_action": None
+
 
         }
 
@@ -140,19 +136,13 @@ class AssistantTaskService:
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "saved":
+            "saved": True
 
-                True
 
         }
-
-
-
 
 
 
@@ -167,16 +157,13 @@ class AssistantTaskService:
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "task":
+            "task": self.tasks.get(
+                str(user_id)
+            )
 
-                self.tasks.get(
-                    str(user_id)
-                )
 
         }
 
@@ -184,10 +171,87 @@ class AssistantTaskService:
 
 
 
+    def change_task_status(
+        self,
+        user_id,
+        new_status
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача не найдена"
+
+
+            }
 
 
 
-    def get_next_action(
+        current_status = task.get(
+            "status",
+            TaskStatus.ACTIVE
+        )
+
+
+
+        if not TaskStateMachine.can_transition(
+            current_status,
+            new_status
+        ):
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message":
+                    (
+                        "Недопустимый переход: "
+                        +
+                        current_status
+                        +
+                        " -> "
+                        +
+                        new_status
+                    )
+
+
+            }
+
+
+
+        task["status"] = new_status
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "status": new_status
+
+
+        }
+    def cancel_task(
         self,
         user_id
     ):
@@ -198,25 +262,120 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
+                "error": True,
 
+
+                "message": "Задача не найдена"
+
+
+            }
+
+
+
+        status_result = self.change_task_status(
+            user_id,
+            TaskStatus.CANCELLED
+        )
+
+
+        if status_result.get(
+            "error"
+        ):
+
+
+            return status_result
+
+
+
+        task["pending_action"] = None
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "cancelled": True,
+
+
+            "task": task.get(
+                "task"
+            )
+
+
+        }
+
+
+
+
+
+    def get_current_action(
+        self,
+        user_id
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+            return {
+
+                "error":
                     False,
 
-
                 "action":
-
                     None
 
             }
 
 
+        if task.get(
+            "status"
+        ) == TaskStatus.CANCELLED:
+
+
+            return {
+
+                "error":
+                    False,
+
+                "action":
+                    None
+
+            }
+
+
+        pending = task.get(
+            "pending_action"
+        )
+
+
+        if pending:
+
+            return {
+
+                "error":
+                    False,
+
+                "action":
+                    pending
+
+            }
 
 
 
@@ -226,48 +385,177 @@ class AssistantTaskService:
         ):
 
 
-
             if action.get(
                 "status"
-            ) == "NEW":
+            ) != "NEW":
+
+                continue
 
 
 
-                return {
+            dependencies = (
+                action.get(
+                    "depends_on",
+                    []
+                )
+            )
 
 
-                    "error":
-
-                        False,
-
-
-                    "action":
-
-                        action
-
-                }
+            can_execute = True
 
 
 
+            for dependency in dependencies:
+
+
+                dependency_done = False
+
+
+                for completed_action in task.get(
+                    "actions",
+                    []
+                ):
+
+
+                    if (
+                        completed_action.get(
+                            "title"
+                        )
+                        ==
+                        dependency
+
+                        and
+
+                        completed_action.get(
+                            "status"
+                        )
+                        ==
+                        "DONE"
+                    ):
+
+                        dependency_done = True
+
+
+
+                if not dependency_done:
+
+                    can_execute = False
+
+
+
+            if not can_execute:
+
+                continue
+
+
+
+            condition = (
+                action.get(
+                    "condition"
+                )
+            )
+
+
+            if condition:
+
+
+                contains = (
+                    condition.get(
+                        "contains"
+                    )
+                )
+
+
+                if contains:
+
+
+                    allowed = False
+
+
+                    for completed_action in task.get(
+                        "actions",
+                        []
+                    ):
+
+
+                        result = (
+                            completed_action.get(
+                                "result",
+                                {}
+                            )
+                        )
+
+
+                        if isinstance(
+                            result,
+                            dict
+                        ):
+
+
+                            message = (
+                                result.get(
+                                    "message",
+                                    ""
+                                )
+                            )
+
+
+                            if contains in message:
+
+                                allowed = True
+
+
+
+                    if not allowed:
+
+
+                        action["status"] = "SKIPPED"
+
+
+                        action["skip_reason"] = (
+                            "Условие не выполнено"
+                        )
+
+
+                        self.save()
+
+
+                        continue
+
+
+
+            return {
+
+                "error":
+                    False,
+
+                "action":
+                    action
+
+            }
 
 
 
         return {
 
-
             "error":
-
                 False,
 
-
             "action":
-
                 None
 
         }
 
 
+    def get_next_action(
+        self,
+        user_id
+    ):
 
+
+        return self.get_current_action(
+            user_id
+        )
 
 
 
@@ -285,24 +573,19 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
-
-                    True,
+                "error": True,
 
 
-                "message":
+                "message": "Задача не найдена"
 
-                    "Задача не найдена"
 
             }
-
 
 
 
@@ -316,19 +599,13 @@ class AssistantTaskService:
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "action":
+            "action": action
 
-                action
 
         }
-
-
-
 
 
 
@@ -345,46 +622,34 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
-
-                    False,
+                "error": False,
 
 
-                "action":
+                "action": None
 
-                    None
 
             }
-
-
 
 
 
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "action":
+            "action": task.get(
+                "pending_action"
+            )
 
-                task.get(
-                    "pending_action"
-                )
 
         }
-
-
-
 
 
 
@@ -401,7 +666,6 @@ class AssistantTaskService:
         )
 
 
-
         if task:
 
 
@@ -415,11 +679,419 @@ class AssistantTaskService:
         return {
 
 
-            "error":
+            "error": False
 
-                False
 
         }
+    def resolve_action(
+        self,
+        task,
+        action
+    ):
+
+
+        if isinstance(
+            action,
+            dict
+        ):
+
+            return action
+
+
+
+        if isinstance(
+            action,
+            str
+        ):
+
+
+            for item in task.get(
+                "actions",
+                []
+            ):
+
+
+                if item.get(
+                    "title"
+                ) == action:
+
+
+                    return item
+
+
+
+        return None
+
+
+
+
+
+    def start_action(
+        self,
+        user_id,
+        action
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача не найдена"
+
+
+            }
+
+
+
+        if task.get(
+            "status"
+        ) == TaskStatus.CANCELLED:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача отменена"
+
+
+            }
+
+
+
+        action = self.resolve_action(
+            task,
+            action
+        )
+
+
+
+        if not action:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Действие не найдено"
+
+
+            }
+
+
+
+        action["status"] = "IN_PROGRESS"
+
+
+
+        task["pending_action"] = action
+
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "action": action
+
+
+        }
+
+
+
+
+
+    def complete_action(
+        self,
+        user_id,
+        action,
+        result=None
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача не найдена"
+
+
+            }
+
+
+
+        if task.get(
+            "status"
+        ) == TaskStatus.CANCELLED:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача отменена"
+
+
+            }
+
+
+
+        action = self.resolve_action(
+            task,
+            action
+        )
+
+
+
+        if not action:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Действие не найдено"
+
+
+            }
+
+
+
+        action["status"] = "DONE"
+
+
+
+        if result is not None:
+
+
+            action["result"] = result
+
+
+
+        task["pending_action"] = None
+
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "action": action
+
+
+        }
+
+
+
+
+
+    def skip_action(
+        self,
+        user_id,
+        action
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача не найдена"
+
+
+            }
+
+
+
+        if task.get(
+            "status"
+        ) == TaskStatus.CANCELLED:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача отменена"
+
+
+            }
+
+
+
+        action = self.resolve_action(
+            task,
+            action
+        )
+
+
+
+        if not action:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Действие не найдено"
+
+
+            }
+
+
+
+        action["status"] = "SKIPPED"
+
+
+
+        task["pending_action"] = None
+
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "action": action
+
+
+        }
+    def update_action_status(
+        self,
+        user_id,
+        action,
+        status
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        if not task:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Задача не найдена"
+
+
+            }
+
+
+
+        action = self.resolve_action(
+            task,
+            action
+        )
+
+
+
+        if not action:
+
+
+            return {
+
+
+                "error": True,
+
+
+                "message": "Действие не найдено"
+
+
+            }
+
+
+
+        action["status"] = status
+
+
+
+        self.save()
+
+
+
+        return {
+
+
+            "error": False,
+
+
+            "action": action
+
+
+        }
+
+
+
+
+
     def get_task_progress(
         self,
         user_id
@@ -431,30 +1103,22 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
-
-                    False,
+                "error": False,
 
 
-                "done":
-
-                    0,
+                "done": 0,
 
 
-                "total":
+                "total": 0
 
-                    0
 
             }
-
-
 
 
 
@@ -466,7 +1130,6 @@ class AssistantTaskService:
             "actions",
             []
         ):
-
 
 
             if action.get(
@@ -481,34 +1144,57 @@ class AssistantTaskService:
 
 
 
-
-
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "done":
-
-                done,
+            "done": done,
 
 
-            "total":
-
-                len(
-                    task.get(
-                        "actions",
-                        []
-                    )
+            "total": len(
+                task.get(
+                    "actions",
+                    []
                 )
+            )
+
 
         }
 
 
 
+
+
+    def is_task_completed(
+        self,
+        user_id
+    ):
+
+
+        progress = self.get_task_progress(
+            user_id
+        )
+
+
+        return {
+
+
+            "error": False,
+
+
+            "completed":
+                (
+                    progress["total"] > 0
+                    and
+                    progress["done"]
+                    ==
+                    progress["total"]
+                )
+
+
+        }
 
 
 
@@ -525,25 +1211,19 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
-
-                    False,
+                "error": False,
 
 
-                "task":
+                "task": None
 
-                    None
 
             }
-
-
 
 
 
@@ -563,7 +1243,6 @@ class AssistantTaskService:
         ):
 
 
-
             status = action.get(
                 "status",
                 "NEW"
@@ -573,110 +1252,77 @@ class AssistantTaskService:
 
             if status == "DONE":
 
-
                 icon = "✅"
-
 
 
             elif status == "IN_PROGRESS":
 
-
                 icon = "🔄"
-
 
 
             elif status == "SKIPPED":
 
-
                 icon = "⏭️"
 
 
-
             else:
-
 
                 icon = "⏳"
 
 
 
-
-
             actions.append({
 
+                "title": action.get(
+                    "title",
+                    ""
+                ),
 
-                "title":
+                "status": status,
 
-                    action.get(
-                        "title",
-                        ""
-                    ),
-
-
-                "status":
-
-                    status,
-
-
-                "icon":
-
-                    icon
+                "icon": icon
 
             })
 
 
 
-
-
         return {
 
 
-            "error":
-
-                False,
+            "error": False,
 
 
-            "task":
-
-                task.get(
-                    "task"
-                ),
+            "task": task.get(
+                "task"
+            ),
 
 
-            "progress":
-
-                {
-
-
-                    "done":
-
-                        progress["done"],
+            "status": task.get(
+                "status",
+                TaskStatus.ACTIVE
+            ),
 
 
-                    "total":
-
-                        progress["total"]
-
-                },
+            "progress": {
 
 
-            "actions":
+                "done": progress["done"],
 
-                actions
+
+                "total": progress["total"]
+
+
+            },
+
+
+            "actions": actions
+
 
         }
 
-
-
-
-
-
-
-
-    def skip_action(
+    def get_task_history(
         self,
-        user_id,
-        title=None,
-        reason=None
+        user_id
     ):
 
 
@@ -685,29 +1331,26 @@ class AssistantTaskService:
         )
 
 
-
         if not task:
 
 
             return {
 
 
-                "error":
-
-                    True,
+                "error": False,
 
 
-                "message":
+                "task": None,
 
-                    "Задача не найдена"
+
+                "history": []
+
 
             }
 
 
 
-
-
-        target = None
+        history = []
 
 
 
@@ -715,244 +1358,271 @@ class AssistantTaskService:
             "actions",
             []
         ):
-
-
-
-            if title:
-
-
-                if action.get(
-                    "title"
-                ) == title:
-
-
-                    target = action
-
-                    break
-
-
-
-            elif action.get(
-                "status"
-            ) == "NEW":
-
-
-                target = action
-
-                break
-
-
-
-
-
-        if not target:
-
-
-            return {
-
-
-                "error":
-
-                    True,
-
-
-                "message":
-
-                    "Действие не найдено"
-
-            }
-
-
-
-
-
-        target["status"] = "SKIPPED"
-
-
-
-        target["result"] = {
-
-
-            "message":
-
-                "Шаг пропущен",
-
-
-            "reason":
-
-                reason
-
-        }
-
-
-
-        self.save()
-
-
-
-        return {
-
-
-            "error":
-
-                False,
-
-
-            "action":
-
-                target
-
-        }
-
-
-
-
-
-
-
-
-    def update_action_status(
-        self,
-        user_id,
-        title,
-        status,
-        result=None
-    ):
-
-
-        task = self.tasks.get(
-            str(user_id)
-        )
-
-
-
-        if not task:
-
-
-            return {
-
-
-                "error":
-
-                    True,
-
-
-                "message":
-
-                    "Задача не найдена"
-
-            }
-
-
-
-
-
-        for action in task.get(
-            "actions",
-            []
-        ):
-
 
 
             if action.get(
-                "title"
-            ) == title:
+                "status"
+            ) in (
+                "DONE",
+                "SKIPPED"
+            ):
+
+
+                history.append({
+
+                    "title":
+                        action.get(
+                            "title",
+                            ""
+                        ),
+
+                    "status":
+                        action.get(
+                            "status"
+                        ),
+
+                    "message":
+                        (
+                            action.get(
+                                "skip_reason",
+                                "Условие не выполнено"
+                            )
+                            if
+                            action.get(
+                                "status"
+                            )
+                            ==
+                            "SKIPPED"
+                            else
+                            "Действие выполнено"
+                        ),
+
+    "result":
+        action.get(
+            "result"
+        )
+})
 
 
 
-                action["status"] = status
+        return {
+
+
+            "error": False,
+
+
+            "task": task.get(
+                "task"
+            ),
+
+
+            "history": history
+
+
+        }
 
 
 
-                if result is not None:
 
 
-                    action["result"] = result
+    def pause_task(
+        self,
+        user_id
+    ):
+
+
+        return self.change_task_status(
+            user_id,
+            TaskStatus.PAUSED
+        )
 
 
 
 
 
-                self.save()
+    def resume_task(
+        self,
+        user_id
+    ):
 
+
+        return self.change_task_status(
+            user_id,
+            TaskStatus.ACTIVE
+        )
+
+
+
+
+
+    def has_active_task(
+        self,
+        user_id
+    ):
+
+
+        task = self.tasks.get(
+            str(user_id)
+        )
+
+
+        return {
+
+
+            "error": False,
+
+
+            "active":
+                (
+                    task is not None
+                    and
+                    task.get(
+                        "status"
+                    )
+                    !=
+                    TaskStatus.CANCELLED
+                )
+
+
+        }
+
+    def fail_action(
+        self,
+        user_id,
+        title,
+        error
+    ):
+
+
+        task = (
+            self.tasks
+            .get(
+                str(user_id)
+            )
+        )
+
+
+        if not task:
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Задача не найдена"
+
+            }
+
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if (
+                action.get(
+                    "title"
+                )
+                ==
+                title
+            ):
+
+
+                action["status"] = "FAILED"
+
+
+                action["error"] = error
 
 
                 return {
 
+                    "error": False,
 
-                    "error":
-
-                        False,
-
-
-                    "updated":
-
-                        True,
-
-
-                    "action":
-
-                        action
+                    "action": action
 
                 }
 
 
 
-
-
-
         return {
 
-
-            "error":
-
-                True,
-
+            "error": True,
 
             "message":
-
                 "Действие не найдено"
 
         }
 
 
-
-
-
-
-
-
-    def start_action(
+    def request_replan(
         self,
         user_id,
-        title
+        reason=None
     ):
 
 
-        return self.update_action_status(
-            user_id,
-            title,
-            "IN_PROGRESS"
+        task_result = (
+            self.get_task(
+                user_id
+            )
+        )
+
+
+        task = (
+            task_result.get(
+                "task"
+            )
+        )
+
+
+        if not task:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Task not found"
+
+            }
+
+
+
+        task["replan_requested"] = True
+
+
+        task["replan_reason"] = (
+            reason
+            or
+            "Execution failed"
         )
 
 
 
+        return {
+
+            "error":
+                False,
+
+            "replan_requested":
+                True,
+
+            "reason":
+                task["replan_reason"]
+
+        }
 
 
-
-
-
-    def complete_action(
+    def get_status(
         self,
-        user_id,
-        title,
-        result=None
+        user_id
     ):
 
 
-        return self.update_action_status(
-            user_id,
-            title,
-            "DONE",
-            result
+        return self.get_task_status(
+            user_id
         )

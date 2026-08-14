@@ -94,9 +94,51 @@ from services.assistant_stock_executor_service import (
     AssistantStockExecutorService
 )
 
+from services.assistant_marketing_executor_service import (
+    AssistantMarketingExecutorService
+)
+
+from services.retry_policy_service import (
+    RetryPolicyService
+)
+
+from services.assistant_replanning_service import (
+    AssistantReplanningService
+)
+
+from services.assistant_feedback_service import (
+    AssistantFeedbackService
+)
+
+from services.assistant_memory_service import (
+    AssistantMemoryService
+)
+
 
 
 def create_telegram_core():
+
+
+    retry_policy = (
+        RetryPolicyService()
+    )
+
+
+    replanning_service = (
+        AssistantReplanningService()
+    )
+
+
+    memory_service = (
+        AssistantMemoryService()
+    )
+
+
+    feedback_service = (
+        AssistantFeedbackService(
+            memory_service=memory_service
+        )
+    )
 
 
     history = (
@@ -104,11 +146,9 @@ def create_telegram_core():
     )
 
 
-
     task_service = (
         AssistantTaskService()
     )
-
 
 
     sales_executor = (
@@ -116,11 +156,14 @@ def create_telegram_core():
     )
 
 
-
     stock_executor = (
         AssistantStockExecutorService()
     )
 
+
+    marketing_executor = (
+        AssistantMarketingExecutorService()
+    )
 
 
     action_router = (
@@ -132,11 +175,14 @@ def create_telegram_core():
                     sales_executor,
 
                 "stock":
-                    stock_executor
+                    stock_executor,
+
+                "marketing":
+                    marketing_executor
+
             }
         )
     )
-
 
 
     execution_service = (
@@ -146,12 +192,18 @@ def create_telegram_core():
 
             task_service=task_service,
 
-            action_router=action_router
+            action_router=action_router,
+
+            action_runner_service=action_router,
+
+            retry_policy=retry_policy,
+
+            replanning_service=replanning_service,
+
+            feedback_service=feedback_service
+
         )
     )
-
-
-
     executor = (
         AssistantActionPlanExecutorService(
 
@@ -168,7 +220,6 @@ def create_telegram_core():
             )
         )
     )
-
 
 
     planner = (
@@ -193,7 +244,6 @@ def create_telegram_core():
     )
 
 
-
     business_flow = (
         AssistantBusinessFlowService(
 
@@ -216,7 +266,6 @@ def create_telegram_core():
     )
 
 
-
     business = (
         AssistantOrchestratorBusinessService(
 
@@ -235,7 +284,6 @@ def create_telegram_core():
     )
 
 
-
     main_flow = (
         AssistantMainFlowService(
 
@@ -250,13 +298,11 @@ def create_telegram_core():
     )
 
 
-
     entry = (
         AssistantEntryService(
             main_flow_service=main_flow
         )
     )
-
 
 
     orchestrator = (
@@ -266,11 +312,9 @@ def create_telegram_core():
     )
 
 
-
     storage = (
         AssistantUserStorageService()
     )
-
 
 
     user_context = (
@@ -280,7 +324,6 @@ def create_telegram_core():
     )
 
 
-
     task_context = (
         AssistantTaskContextService(
             user_context
@@ -288,13 +331,11 @@ def create_telegram_core():
     )
 
 
-
     request_context = (
         AssistantRequestContextService(
             user_context
         )
     )
-
 
 
     core = (
@@ -317,7 +358,6 @@ def create_telegram_core():
             )
         )
     )
-
 
 
     return {
@@ -344,5 +384,18 @@ def create_telegram_core():
             execution_service,
 
         "action_router":
-            action_router
+            action_router,
+
+        "retry_policy":
+            retry_policy,
+
+        "replanning_service":
+            replanning_service,
+
+        "feedback_service":
+            feedback_service,
+
+        "memory_service":
+            memory_service
+
     }

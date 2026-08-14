@@ -1,44 +1,59 @@
 class AssistantActionGeneratorService:
 
 
-    def generate(
+    def __init__(
         self,
-        recommendations
+        memory_service=None
     ):
 
-        actions = []
+        self.memory_service = (
+            memory_service
+        )
 
 
-        for item in recommendations:
 
-            title = (
-                item.get(
-                    "message"
-                )
-                or
-                item.get(
-                    "action"
+    def generate(
+        self,
+        request
+    ):
+
+
+        memory_context = []
+
+
+        if self.memory_service:
+
+
+            memory_context = (
+                self.memory_service
+                .recall(
+                    request
                 )
             )
 
 
-            actions.append(
-                {
-                    "title": title,
-                    "type": (
-                        item.get(
-                            "type"
-                        )
-                    ),
-                    "status": "NEW"
-                }
-            )
+
+        action = {
+
+            "title":
+                request,
+
+            "type":
+                "task"
+
+        }
+
 
 
         return {
-            "error": False,
-            "actions": actions,
-            "count": len(
-                actions
-            )
+
+            "error":
+                False,
+
+            "action":
+                action,
+
+            "memory":
+                memory_context
+
         }

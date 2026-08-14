@@ -1,22 +1,53 @@
 {
     "505204945": {
         "task": "Создание плана действий",
+        "status": "ACTIVE",
         "actions": [
             {
                 "title": "Проверить причины падения продаж",
                 "type": "sales",
-                "status": "SKIPPED",
-                "priority": "HIGH",
-                "result": {
-                    "message": "Шаг пропущен",
-                    "reason": null
-                }
-            },
-            {
-                "title": "Проверить остатки товара",
-                "type": "stock",
                 "status": "NEW",
                 "priority": "HIGH"
+            }
+        ],
+        "pending_action": null
+    },
+    "999": {
+        "task": "Ошибка выполнения",
+        "status": "ACTIVE",
+        "actions": [
+            {
+                "title": "Проверить продажи",
+                "type": "sales",
+                "status": "IN_PROGRESS"
+            }
+        ],
+        "pending_action": {
+            "title": "Проверить продажи",
+            "type": "sales",
+            "status": "IN_PROGRESS"
+        }
+    },
+    "1000": {
+        "task": "Feedback hook test",
+        "status": "ACTIVE",
+        "actions": [
+            {
+                "title": "Проверка продаж",
+                "type": "sales",
+                "status": "DONE",
+                "result": {
+                    "error": false,
+                    "result": {
+                        "type": "sales",
+                        "message": "Анализ продаж выполнен",
+                        "details": [
+                            "Проверено падение продаж",
+                            "Найдены возможные причины"
+                        ],
+                        "priority": "NORMAL"
+                    }
+                }
             }
         ],
         "pending_action": null

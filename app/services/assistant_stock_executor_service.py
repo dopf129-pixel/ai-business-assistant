@@ -7,21 +7,59 @@ class AssistantStockExecutorService:
     ):
 
 
+        context = (
+            action.get(
+                "context",
+                {}
+            )
+        )
+
+
+        reason = (
+            context.get(
+                "reason"
+            )
+        )
+
+
+        details = [
+            "Проверены остатки товара",
+            "Найдены позиции для контроля"
+        ]
+
+
+        if reason:
+
+
+            details.append(
+                "Причина анализа: "
+                +
+                reason
+            )
+
+
         return {
 
             "error": False,
 
             "result":
                 {
-                    "type": "stock",
+
+                    "type":
+                        "stock",
 
                     "message":
                         "Проверка остатков выполнена",
 
                     "details":
-                        [
-                            "Проверены остатки товара",
-                            "Найдены позиции для контроля"
-                        ]
+                        details,
+
+                    "priority":
+                        action.get(
+                            "priority",
+                            "NORMAL"
+                        )
+
                 }
+
         }

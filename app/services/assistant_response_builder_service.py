@@ -14,6 +14,125 @@ class AssistantResponseBuilderService:
         )
 
 
+        execution = (
+            result.get(
+                "execution"
+            )
+        )
+
+
+        if (
+            execution
+            and
+            execution.get(
+                "error"
+            )
+        ):
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    execution.get(
+                        "message",
+                        "Ошибка выполнения"
+                    ),
+
+                "execution":
+                    execution
+
+            }
+
+
+
+        if (
+            message
+            ==
+            "Задача поставлена на паузу"
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    "Задача поставлена на паузу",
+
+                "status":
+                    result.get(
+                        "status"
+                    )
+
+            }
+
+
+
+        if (
+            message
+            ==
+            "Задача возобновлена"
+        ):
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    "Задача возобновлена",
+
+                "status":
+                    result.get(
+                        "status"
+                    )
+
+            }
+
+
+
+        if (
+            message
+            ==
+            "Задача отменена"
+        ):
+
+
+            task = (
+                result.get(
+                    "cancelled_task",
+                    ""
+                )
+            )
+
+
+            text = (
+                "Задача отменена"
+            )
+
+
+            if task:
+
+
+                text += (
+                    "\n\n"
+                    +
+                    task
+                )
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text
+
+            }
+
+
 
         if (
             message
@@ -54,7 +173,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             if next_action:
 
 
@@ -68,18 +186,14 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             return {
 
                 "error": False,
 
                 "message":
                     text
+
             }
-
-
-
-
 
 
 
@@ -115,21 +229,14 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             return {
 
                 "error": False,
 
                 "message":
                     text
+
             }
-
-
-
-
-
-
-
         task_details = (
             result.get(
                 "task_details"
@@ -160,7 +267,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             history = (
                 task_details.get(
                     "history",
@@ -169,82 +275,75 @@ class AssistantResponseBuilderService:
             )
 
 
-            for item in history:
+            if history:
 
 
-                text += (
-                    "\n\n"
-                    +
-                    item.get(
-                        "title",
-                        ""
+                for item in history:
+
+
+                    text += (
+                        "\n\n"
+                        +
+                        item.get(
+                            "title",
+                            ""
+                        )
                     )
-                )
 
 
-                item_result = (
-                    item.get(
-                        "result",
-                        {}
-                    )
-                )
+                    if item.get(
+                        "message"
+                    ):
 
 
-                if "result" in item_result:
+                        text += (
+                            "\n"
+                            +
+                            item.get(
+                                "message"
+                            )
+                        )
 
 
                     item_result = (
-                        item_result["result"]
+                        item.get(
+                            "result"
+                        )
+                        or
+                        {}
                     )
 
 
-
-                if item_result:
-
-
-                    item_message = (
-                        item_result.get(
-                            "message"
-                        )
-                    )
+                    if (
+                        "result"
+                        in
+                        item_result
+                    ):
 
 
-                    if item_message:
-
-
-                        text += (
-                            "\n\nРезультат:\n"
-                            +
-                            item_message
+                        item_result = (
+                            item_result["result"]
                         )
 
 
-
-                    details = (
-                        item_result.get(
-                            "details",
-                            []
-                        )
-                    )
+                    if item_result:
 
 
-                    if details:
-
-
-                        text += (
-                            "\n\nПодробности:"
+                        item_message = (
+                            item_result.get(
+                                "message"
+                            )
                         )
 
 
-                        for detail in details:
+                        if item_message:
 
 
                             text += (
-                                "\n• "
+                                "\n"
                                 +
-                                detail
+                                item_message
                             )
-
 
 
             return {
@@ -253,7 +352,11 @@ class AssistantResponseBuilderService:
 
                 "message":
                     text.strip()
+
             }
+
+
+
         task_history = (
             result.get(
                 "task_history"
@@ -284,7 +387,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             history = (
                 task_history.get(
                     "history",
@@ -304,8 +406,27 @@ class AssistantResponseBuilderService:
                 for item in history:
 
 
+                    status = (
+                        item.get(
+                            "status"
+                        )
+                    )
+
+
+                    if status == "SKIPPED":
+
+                        icon = "⏭"
+
+                    else:
+
+                        icon = "✅"
+
+
+
                     text += (
-                        "✅ "
+                        icon
+                        +
+                        " "
                         +
                         item.get(
                             "title",
@@ -313,24 +434,49 @@ class AssistantResponseBuilderService:
                         )
                         +
                         "\n"
+                        +
+                        item.get(
+                            "message",
+                            "Действие выполнено"
+                        )
+                        +
+                        "\n"
                     )
+
+
+                    if item.get(
+                        "message"
+                    ):
+
+
+                        text += (
+                            item.get(
+                                "message"
+                            )
+                            +
+                            "\n"
+                        )
 
 
                     item_result = (
                         item.get(
-                            "result",
-                            {}
+                            "result"
                         )
+                        or
+                        {}
                     )
 
 
-                    if "result" in item_result:
+                    if (
+                        "result"
+                        in
+                        item_result
+                    ):
 
 
                         item_result = (
                             item_result["result"]
                         )
-
 
 
                     if item_result:
@@ -353,21 +499,14 @@ class AssistantResponseBuilderService:
                             )
 
 
-
             return {
 
                 "error": False,
 
                 "message":
                     text.strip()
+
             }
-
-
-
-
-
-
-
         task_status = (
             result.get(
                 "task_status"
@@ -398,7 +537,6 @@ class AssistantResponseBuilderService:
                 )
 
 
-
             progress = (
                 task_status.get(
                     "progress",
@@ -426,7 +564,6 @@ class AssistantResponseBuilderService:
                     )
                 )
             )
-
 
 
             actions = (
@@ -465,18 +602,14 @@ class AssistantResponseBuilderService:
                     )
 
 
-
             return {
 
                 "error": False,
 
                 "message":
                     text.strip()
+
             }
-
-
-
-
 
 
 
@@ -485,6 +618,102 @@ class AssistantResponseBuilderService:
             ==
             "Действие выполнено"
         ):
+
+
+            action = (
+                result.get(
+                    "action"
+                )
+            )
+
+
+            text = (
+                "Действие выполнено"
+            )
+
+
+            if action:
+
+
+                text += (
+                    "\n\n"
+                    +
+                    action.get(
+                        "title",
+                        ""
+                    )
+                )
+
+
+                action_result = (
+                    action.get(
+                        "result",
+                        {}
+                    )
+                )
+
+
+                if (
+                    "result"
+                    in
+                    action_result
+                ):
+
+
+                    action_result = (
+                        action_result["result"]
+                    )
+
+
+                if action_result:
+
+
+                    result_message = (
+                        action_result.get(
+                            "message"
+                        )
+                    )
+
+
+                    if result_message:
+
+
+                        text += (
+                            "\n\n"
+                            +
+                            result_message
+                        )
+
+
+                    details = (
+                        action_result.get(
+                            "details",
+                            []
+                        )
+                    )
+
+
+                    for detail in details:
+
+
+                        text += (
+                            "\n- "
+                            +
+                            detail
+                        )
+
+
+            return {
+
+                "error": False,
+
+                "message":
+                    text,
+
+                "action":
+                    action
+
+            }
 
 
             action = (
@@ -521,11 +750,8 @@ class AssistantResponseBuilderService:
 
                 "action":
                     action
+
             }
-
-
-
-
 
 
 
@@ -536,72 +762,25 @@ class AssistantResponseBuilderService:
         ):
 
 
-            text = (
-                "Продолжаем работу"
-            )
-
-
-            task = (
-                result.get(
-                    "task"
-                )
-            )
-
-
-            if task:
-
-
-                text += (
-                    "\n\nЗадача: "
-                    +
-                    task
-                )
-
-
-
-            next_step = (
-                result.get(
-                    "next_step"
-                )
-            )
-
-
-            if isinstance(
-                next_step,
-                dict
-            ):
-
-
-                title = (
-                    next_step.get(
-                        "title",
-                        ""
-                    )
-                )
-
-
-                if title:
-
-
-                    text += (
-                        "\n\nСледующий шаг:\n"
-                        +
-                        title
-                    )
-
-
-
             return {
 
                 "error": False,
 
                 "message":
-                    text
+                    message,
+
+                "task":
+                    result.get(
+                        "task",
+                        ""
+                    ),
+
+                "next_step":
+                    result.get(
+                        "next_step"
+                    )
+
             }
-
-
-
-
 
 
 
@@ -622,6 +801,7 @@ class AssistantResponseBuilderService:
 
                 "message":
                     "Проблем не найдено"
+
             }
 
 
@@ -638,4 +818,5 @@ class AssistantResponseBuilderService:
                     "actions",
                     []
                 )
+
         }

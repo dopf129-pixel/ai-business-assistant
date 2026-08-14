@@ -3,22 +3,29 @@ class AssistantActionExecutionService:
 
     def __init__(
         self,
-        history_service,
-        task_service=None,
-        action_router=None
+        task_service,
+        history_service=None,
+        action_router=None,
+        action_runner_service=None,
+        retry_policy=None,
+        replanning_service=None,
+        feedback_service=None
     ):
 
-        self.history_service = (
-            history_service
-        )
 
-        self.task_service = (
-            task_service
-        )
+        self.task_service = task_service
 
-        self.action_router = (
-            action_router
-        )
+        self.history_service = history_service
+
+        self.action_router = action_router
+
+        self.action_runner_service = action_runner_service
+
+        self.retry_policy = retry_policy
+
+        self.replanning_service = replanning_service
+
+        self.feedback_service = feedback_service
 
 
 
@@ -27,37 +34,117 @@ class AssistantActionExecutionService:
         actions
     ):
 
-        saved = []
+
+        executed = []
 
 
         for action in actions:
 
-            result = (
-                self.history_service
-                .save_action(
-                    action
+
+            try:
+
+
+                if self.action_runner_service:
+
+
+                    result = (
+                        self.action_runner_service
+                        .run(
+                            action
+                        )
+                    )
+
+
+                else:
+
+
+                    result = {
+
+                        "error":
+                            False,
+
+                        "result":
+                            {
+
+                                "type":
+                                    action.get(
+                                        "type"
+                                    ),
+
+                                "message":
+                                    "Действие выполнено"
+
+                            }
+
+                    }
+
+
+
+                executed.append(
+
+                    {
+
+                        "action":
+                            action,
+
+                        "result":
+                            result
+
+                    }
+
                 )
-            )
 
 
-            if not result.get(
-                "error"
-            ):
+            except Exception as error:
 
-                saved.append(
-                    action
+
+                executed.append(
+
+                    {
+
+                        "action":
+                            action,
+
+                        "result":
+                            {
+
+                                "error":
+                                    True,
+
+                                "result":
+                                    {
+
+                                        "status":
+                                            "FAILED",
+
+                                        "message":
+                                            str(
+                                                error
+                                            )
+
+                                    }
+
+                            }
+
+                    }
+
                 )
+
 
 
         return {
 
-            "error": False,
+            "error":
+                False,
 
             "executed":
-                saved,
+                executed,
 
             "count":
-                len(saved)
+                len(
+                    executed
+                )
+
         }
 
 
@@ -68,36 +155,77 @@ class AssistantActionExecutionService:
     ):
 
 
-        if (
-            not self.task_service
-            or not user_id
-        ):
+        task_result = (
+            self.task_service
+            .get_task(
+                user_id
+            )
+        )
+
+
+        task = (
+            task_result.get(
+                "task"
+            )
+        )
+
+
+        if not task:
+
 
             return {
 
-                "error": True,
+                "error":
+                    True,
 
                 "message":
-                    "Task service не подключён"
+                    "Задача не найдена"
+
+            }
+        if task.get(
+            "status"
+        ) == "CANCELLED":
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Задача отменена"
+
             }
 
 
 
-        action = None
+        if task.get(
+            "status"
+        ) == "PAUSED":
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Задача находится на паузе"
+
+            }
 
 
 
-        pending = (
+        current = (
             self.task_service
-            .get_pending_action(
+            .get_current_action(
                 user_id
             )
         )
 
 
         action = (
-            pending
-            .get(
+            current.get(
                 "action"
             )
         )
@@ -106,34 +234,17 @@ class AssistantActionExecutionService:
 
         if not action:
 
-            current = (
-                self.task_service
-                .get_current_action(
-                    user_id
-                )
-            )
 
-            action = (
-                current
-                .get(
-                    "action"
-                )
-            )
-
-
-
-        if not action:
-
-            next_result = (
+            next_action = (
                 self.task_service
                 .get_next_action(
                     user_id
                 )
             )
 
+
             action = (
-                next_result
-                .get(
+                next_action.get(
                     "action"
                 )
             )
@@ -142,99 +253,328 @@ class AssistantActionExecutionService:
 
         if not action:
 
+
             return {
 
-                "error": False,
+                "error":
+                    True,
 
                 "message":
-                    "Нет действий для выполнения"
+                    "Нет доступного действия"
+
             }
 
 
 
-        self.task_service.clear_pending_action(
-            user_id
-        )
+        if action.get(
+            "status"
+        ) != "NEW":
 
 
+            return {
 
-        start = (
-            self.task_service
-            .start_action(
-                user_id,
-                action["title"]
-            )
-        )
+                "error":
+                    False,
 
+                "message":
+                    "Действие уже обработано",
 
-        if start.get(
-            "error"
-        ):
-
-            return start
-
-
-
-        execution_result = {
-
-            "error": False,
-
-            "message":
-                "Действие выполнено"
-        }
-
-
-
-        if self.action_router:
-
-
-            execution_result = (
-                self.action_router
-                .execute(
+                "action":
                     action
+
+            }
+
+
+
+        self.task_service.start_action(
+
+            user_id,
+
+            action.get(
+                "title"
+            )
+
+        )
+
+
+
+        try:
+
+
+            if self.action_runner_service:
+
+
+                result = (
+                    self.action_runner_service
+                    .run(
+                        action
+                    )
                 )
+
+
+            else:
+
+
+                result = {
+
+                    "error":
+                        False,
+
+                    "result":
+                        {
+
+                            "type":
+                                action.get(
+                                    "type"
+                                ),
+
+                            "message":
+                                "Действие выполнено"
+
+                        }
+
+                }
+        except Exception as error:
+
+
+            error_text = str(
+                error
             )
 
 
-            if execution_result.get(
-                "error"
+            retry_allowed = False
+
+
+
+            if self.retry_policy:
+
+
+                retry_allowed = (
+                    self.retry_policy
+                    .should_retry(
+                        error_text
+                    )
+                )
+
+
+
+            if hasattr(
+                self.task_service,
+                "fail_action"
             ):
 
-                return execution_result
+
+                self.task_service.fail_action(
+
+                    user_id,
+
+                    action.get(
+                        "title"
+                    ),
+
+                    error_text
+
+                )
 
 
 
-        history_result = (
-            self.history_service
-            .save_action(
-                action
+            failed_action = action.copy()
+
+
+            failed_action["status"] = "FAILED"
+
+
+            failed_action["error"] = (
+                error_text
             )
-        )
 
 
-        if history_result.get(
-            "error"
-        ):
-
-            return history_result
+            failed_action["retry_allowed"] = (
+                retry_allowed
+            )
 
 
+            failed_action["attempt"] = 1
 
-        complete = (
+
+
+            if self.feedback_service:
+
+
+                try:
+
+
+                    self.feedback_service.record(
+
+                        {
+
+                            "action":
+                                action.get(
+                                    "title"
+                                ),
+
+                            "status":
+                                "FAILED",
+
+                            "error":
+                                error_text
+
+                        }
+
+                    )
+
+
+                except Exception:
+
+                    pass
+
+
+
+            if self.history_service:
+
+
+                try:
+
+
+                    self.history_service.save_action(
+
+                        {
+
+                            "action":
+                                failed_action,
+
+
+                            "status":
+                                "FAILED",
+
+
+                            "error":
+                                error_text,
+
+
+                            "attempt":
+                                1,
+
+
+                            "retry_allowed":
+                                retry_allowed,
+
+
+                            "event":
+                                "execution_failed"
+
+                        }
+
+                    )
+
+
+                except Exception:
+
+                    pass
+
+
+
+            return {
+
+                "error":
+                    False,
+
+                "message":
+                    "Действие завершилось ошибкой",
+
+                "action":
+                    failed_action
+
+            }
+
+
+
+        completed = (
             self.task_service
             .complete_action(
                 user_id,
-                action["title"],
-                execution_result
+
+                action.get(
+                    "title"
+                ),
+
+                result
             )
         )
-
-
-        if complete.get(
+        if completed.get(
             "error"
         ):
 
-            return complete
+
+            return completed
+
+
+
+        if self.feedback_service:
+
+
+            try:
+
+
+                self.feedback_service.record(
+
+                    {
+
+                        "action":
+                            action.get(
+                                "title"
+                            ),
+
+                        "status":
+                            "DONE",
+
+                        "result":
+                            result
+
+                    }
+
+                )
+
+
+            except Exception:
+
+                pass
+
+
+
+        if self.history_service:
+
+
+            try:
+
+
+                self.history_service.save_action(
+
+                    {
+
+                        "action":
+                            action,
+
+
+                        "status":
+                            "DONE",
+
+
+                        "result":
+                            result,
+
+
+                        "event":
+                            "execution_completed"
+
+                    }
+
+                )
+
+
+            except Exception:
+
+                pass
 
 
 
@@ -247,29 +587,11 @@ class AssistantActionExecutionService:
 
 
         next_action = (
-            next_result
-            .get(
+            next_result.get(
                 "action"
             )
         )
 
-
-
-        if next_action:
-
-            self.task_service.set_pending_action(
-                user_id,
-                next_action
-            )
-
-
-
-        completed = (
-            self.task_service
-            .is_task_completed(
-                user_id
-            )
-        )
 
 
         progress = (
@@ -281,44 +603,360 @@ class AssistantActionExecutionService:
 
 
 
+        completed_task = (
+
+            progress.get(
+                "total",
+                0
+            )
+            ==
+            progress.get(
+                "done",
+                0
+            )
+
+            and
+
+            progress.get(
+                "total",
+                0
+            )
+            >
+            0
+
+        )
+
+
+
         return {
 
-            "error": False,
+            "error":
+                False,
 
             "message":
                 "Действие выполнено",
 
             "action":
-                complete.get(
-                    "action",
-                    action
+                completed.get(
+                    "action"
                 ),
-
-            "execution":
-                execution_result,
 
             "next_action":
                 next_action,
 
             "completed":
-                completed.get(
-                    "completed",
-                    False
-                ),
+                completed_task,
 
             "progress":
+                progress
+
+        }
+
+
+
+    def retry_action(
+        self,
+        user_id
+    ):
+        task_result = (
+            self.task_service
+            .get_task(
+                user_id
+            )
+        )
+
+
+        task = (
+            task_result.get(
+                "task"
+            )
+        )
+
+
+        if not task:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Задача не найдена"
+
+            }
+
+
+
+        failed_action = None
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "status"
+            ) == "FAILED":
+
+
+                failed_action = action
+
+                break
+
+
+
+        if not failed_action:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Нет FAILED действия"
+
+            }
+
+
+
+        attempt = (
+            failed_action.get(
+                "attempt",
+                1
+            )
+        )
+
+
+
+        if self.retry_policy:
+
+
+            if not self.retry_policy.can_retry(
+                attempt
+            ):
+
+
+                if self.history_service:
+
+
+                    self.history_service.save_action(
+
+                        {
+
+                            "event":
+                                "retry_blocked",
+
+                            "reason":
+                                "maximum retry attempts reached",
+
+                            "attempt":
+                                attempt
+
+                        }
+
+                    )
+
+
+                return {
+
+                    "error":
+                        True,
+
+                    "message":
+                        "Повторное выполнение заблокировано"
+
+                }
+
+
+
+        failed_action["status"] = "NEW"
+
+
+        failed_action["attempt"] = (
+            attempt + 1
+        )
+
+
+        failed_action.pop(
+            "error",
+            None
+        )
+
+
+        failed_action.pop(
+            "retry_allowed",
+            None
+        )
+
+
+        return {
+
+            "error":
+                False,
+
+            "message":
+                "Действие подготовлено к повторному выполнению",
+
+            "action":
+                failed_action
+
+        }
+
+
+
+    def replan_failed_action(
+        self,
+        user_id
+    ):
+
+
+        if not self.replanning_service:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Replanning service unavailable"
+
+            }
+
+
+
+        task_result = (
+            self.task_service
+            .get_task(
+                user_id
+            )
+        )
+
+
+        task = (
+            task_result.get(
+                "task"
+            )
+        )
+
+
+        if not task:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "Task not found"
+
+            }
+
+
+
+        failed_action = None
+
+
+
+        for action in task.get(
+            "actions",
+            []
+        ):
+
+
+            if action.get(
+                "status"
+            ) == "FAILED":
+
+
+                failed_action = action
+
+                break
+
+
+
+        if not failed_action:
+
+
+            return {
+
+                "error":
+                    True,
+
+                "message":
+                    "FAILED action not found"
+
+            }
+
+
+
+        result = (
+            self.replanning_service
+            .replan(
+                failed_action
+            )
+        )
+
+
+        if result.get(
+            "error"
+        ):
+
+
+            return result
+
+
+
+        task["actions"] = (
+            result.get(
+                "plan",
+                []
+            )
+        )
+
+
+        task["replanned"] = True
+
+
+
+        if self.history_service:
+
+
+            self.history_service.save_action(
+
                 {
 
-                    "done":
-                        progress.get(
-                            "done",
-                            0
+                    "event":
+                        "replanned",
+
+                    "reason":
+                        failed_action.get(
+                            "error"
                         ),
 
-                    "total":
-                        progress.get(
-                            "total",
-                            0
-                        )
+                    "plan":
+                        task["actions"]
+
                 }
+
+            )
+
+
+
+        return {
+
+            "error":
+                False,
+
+            "message":
+                "Plan updated",
+
+            "plan":
+                task["actions"]
+
         }

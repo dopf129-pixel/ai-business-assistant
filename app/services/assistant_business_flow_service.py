@@ -20,6 +20,7 @@ class AssistantBusinessFlowService:
 
 
 
+
     def process(
         self,
         text,
@@ -41,6 +42,7 @@ class AssistantBusinessFlowService:
 
         if intent["error"]:
 
+
             return intent
 
 
@@ -50,6 +52,8 @@ class AssistantBusinessFlowService:
                 "command"
             )
         )
+
+
 
 
 
@@ -74,6 +78,7 @@ class AssistantBusinessFlowService:
                         user_id
                     )
                 )
+
 
 
                 return {
@@ -107,11 +112,6 @@ class AssistantBusinessFlowService:
                                     "action"
                                 ),
 
-                            "execution":
-                                result.get(
-                                    "execution"
-                                ),
-
                             "next_action":
                                 result.get(
                                     "next_action"
@@ -136,6 +136,7 @@ class AssistantBusinessFlowService:
 
 
 
+
             return {
 
                 "error": True,
@@ -150,6 +151,249 @@ class AssistantBusinessFlowService:
 
 
 
+        if command == "cancel_task":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                cancelled = (
+                    self.task_service
+                    .cancel_task(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        cancelled.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "message":
+                        "Задача отменена",
+
+                    "cancelled_task":
+                        cancelled.get(
+                            "task"
+                        )
+                }
+
+
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+            }
+
+
+
+
+
+
+
+
+
+
+        if command == "pause_task":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                paused = (
+                    self.task_service
+                    .pause_task(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        paused.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "message":
+                        "Задача поставлена на паузу",
+
+                    "status":
+                        paused.get(
+                            "status"
+                        )
+
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+
+            }
+
+
+
+
+        if command == "resume_task":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                resumed = (
+                    self.task_service
+                    .resume_task(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        resumed.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "message":
+                        "Задача возобновлена",
+
+                    "status":
+                        resumed.get(
+                            "status"
+                        )
+
+                }
+
+
+
+            return {
+
+                "error": True,
+
+                "message":
+                    "Task service не подключён"
+
+            }
+
+
+        if command == "skip_action":
+
+
+            if (
+                self.task_service
+                and user_id
+            ):
+
+
+                next_result = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+                action = (
+                    next_result.get(
+                        "action"
+                    )
+                )
+
+
+                if not action:
+
+
+                    return {
+
+                        "error": False,
+
+                        "intent":
+                            intent,
+
+                        "message":
+                            "Нет доступного шага для пропуска"
+                    }
+
+
+
+                skipped = (
+                    self.task_service
+                    .skip_action(
+                        user_id,
+                        action.get(
+                            "title"
+                        )
+                    )
+                )
+
+
+                next_action = (
+                    self.task_service
+                    .get_next_action(
+                        user_id
+                    )
+                )
+
+
+                return {
+
+                    "error":
+                        skipped.get(
+                            "error",
+                            False
+                        ),
+
+                    "intent":
+                        intent,
+
+                    "message":
+                        "Шаг пропущен",
+
+                    "action":
+                        skipped.get(
+                            "action"
+                        ),
+
+                    "next_action":
+                        next_action.get(
+                            "action"
+                        )
+                }
         if command == "task_status":
 
 
@@ -181,7 +425,6 @@ class AssistantBusinessFlowService:
                     "task_status":
                         status
                 }
-
 
 
 
@@ -242,6 +485,13 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
+
+
+
+
+
+
+
         if command == "task_details":
 
 
@@ -276,6 +526,7 @@ class AssistantBusinessFlowService:
 
 
 
+
             return {
 
                 "error": True,
@@ -283,7 +534,6 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
-
 
 
 
@@ -300,7 +550,7 @@ class AssistantBusinessFlowService:
             ):
 
 
-                next_result = (
+                next_action = (
                     self.task_service
                     .get_next_action(
                         user_id
@@ -311,7 +561,7 @@ class AssistantBusinessFlowService:
                 return {
 
                     "error":
-                        next_result.get(
+                        next_action.get(
                             "error",
                             False
                         ),
@@ -320,8 +570,10 @@ class AssistantBusinessFlowService:
                         intent,
 
                     "task_next":
-                        next_result
+                        next_action
                 }
+
+
 
 
 
@@ -332,101 +584,6 @@ class AssistantBusinessFlowService:
                 "message":
                     "Task service не подключён"
             }
-
-
-
-
-
-
-
-
-        if command == "skip_action":
-
-
-            if (
-                self.task_service
-                and user_id
-            ):
-
-
-                next_action = (
-                    self.task_service
-                    .get_next_action(
-                        user_id
-                    )
-                )
-
-
-                action = (
-                    next_action.get(
-                        "action"
-                    )
-                )
-
-
-
-                if not action:
-
-
-                    return {
-
-                        "error": False,
-
-                        "intent":
-                            intent,
-
-                        "message":
-                            "Нет доступного шага для пропуска"
-                    }
-
-
-
-                skipped = (
-                    self.task_service
-                    .skip_action(
-                        user_id,
-                        action.get(
-                            "title"
-                        )
-                    )
-                )
-
-
-
-                next_after_skip = (
-                    self.task_service
-                    .get_next_action(
-                        user_id
-                    )
-                )
-
-
-
-                return {
-
-                    "error":
-                        skipped.get(
-                            "error",
-                            False
-                        ),
-
-                    "intent":
-                        intent,
-
-                    "message":
-                        "Шаг пропущен",
-
-                    "action":
-                        skipped.get(
-                            "action"
-                        ),
-
-                    "next_action":
-                        next_after_skip.get(
-                            "action"
-                        )
-                }
-
 
 
 
@@ -456,8 +613,7 @@ class AssistantBusinessFlowService:
 
 
                 next_action = (
-                    next_result
-                    .get(
+                    next_result.get(
                         "action"
                     )
                 )
@@ -496,7 +652,6 @@ class AssistantBusinessFlowService:
                 "next_action":
                     next_action
             }
-
 
 
 

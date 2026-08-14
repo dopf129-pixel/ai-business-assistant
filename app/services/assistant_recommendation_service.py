@@ -6,6 +6,7 @@ class AssistantRecommendationService:
         report
     ):
 
+
         recommendations = []
 
 
@@ -15,12 +16,16 @@ class AssistantRecommendationService:
             )
         ):
 
+
             recommendations.append(
                 {
-                    "type": "sales",
-                    "message": (
-                        "Проверить причины падения продаж"
-                    )
+                    "type":
+                        "sales",
+
+                    "message":
+                        (
+                            "Проверить причины падения продаж"
+                        )
                 }
             )
 
@@ -31,12 +36,36 @@ class AssistantRecommendationService:
             )
         ):
 
+
             recommendations.append(
                 {
-                    "type": "stock",
-                    "message": (
-                        "Проверить остатки товара"
-                    )
+                    "type":
+                        "stock",
+
+                    "message":
+                        (
+                            "Проверить остатки товара"
+                        )
+                }
+            )
+
+
+        if (
+            report.get(
+                "marketing_problem"
+            )
+        ):
+
+
+            recommendations.append(
+                {
+                    "type":
+                        "marketing",
+
+                    "message":
+                        (
+                            "Проверить эффективность рекламных каналов"
+                        )
                 }
             )
 
@@ -45,20 +74,31 @@ class AssistantRecommendationService:
             recommendations
         ) == 0:
 
+
             recommendations.append(
                 {
-                    "type": "general",
-                    "message": (
-                        "Критичных проблем не найдено"
-                    )
+                    "type":
+                        "general",
+
+                    "message":
+                        (
+                            "Критичных проблем не найдено"
+                        )
                 }
             )
 
 
         return {
-            "error": False,
-            "recommendations": recommendations,
-            "count": len(
-                recommendations
-            )
+
+            "error":
+                False,
+
+            "recommendations":
+                recommendations,
+
+            "count":
+                len(
+                    recommendations
+                )
+
         }

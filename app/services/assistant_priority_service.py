@@ -6,6 +6,28 @@ class AssistantPriorityService:
         action
     ):
 
+
+        existing_priority = (
+            action.get(
+                "priority"
+            )
+        )
+
+
+        if existing_priority:
+
+
+            return {
+
+                "error":
+                    False,
+
+                "action":
+                    action
+
+            }
+
+
         action_type = (
             action.get(
                 "type"
@@ -18,18 +40,26 @@ class AssistantPriorityService:
 
         if action_type == "stock":
 
+
             priority = "HIGH"
 
 
         elif action_type == "sales":
 
+
             priority = "HIGH"
+
+
+        elif action_type == "marketing":
+
+
+            priority = "MEDIUM"
 
 
         elif action_type == "general":
 
-            priority = "LOW"
 
+            priority = "LOW"
 
 
         action["priority"] = (
@@ -38,6 +68,11 @@ class AssistantPriorityService:
 
 
         return {
-            "error": False,
-            "action": action
+
+            "error":
+                False,
+
+            "action":
+                action
+
         }

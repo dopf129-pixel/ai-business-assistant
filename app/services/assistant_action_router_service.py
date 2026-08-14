@@ -26,7 +26,6 @@ class AssistantActionRouterService:
         )
 
 
-
         executor = (
             self.executors
             .get(
@@ -35,8 +34,8 @@ class AssistantActionRouterService:
         )
 
 
-
         if not executor:
+
 
             return {
 
@@ -44,12 +43,25 @@ class AssistantActionRouterService:
 
                 "message":
                     f"Исполнитель для типа {action_type} не найден"
-            }
 
+            }
 
 
         return (
             executor.execute(
+                action
+            )
+        )
+
+
+
+    def run(
+        self,
+        action
+    ):
+
+        return (
+            self.execute(
                 action
             )
         )
