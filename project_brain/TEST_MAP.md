@@ -6,7 +6,37 @@
 
 Total:
 
-49 passed
+63 passed
+
+
+---
+
+
+# Stabilization Checkpoint
+
+
+Tests:
+
+
+- test_action_context.py
+
+
+Проверяет:
+
+
+- сохранение Action schema
+- сохранение priority
+- сохранение context
+- сохранение reason внутри context
+- совместимость Action Generator и Action Executor
+
+
+
+Result:
+
+
+63 passed
+
 
 
 ---
@@ -132,6 +162,7 @@ Tests:
 - context
 - зависимости
 - использование опыта при генерации действий
+- сохранение Action contract
 
 
 
@@ -449,10 +480,14 @@ Tests:
 
 1. иметь тест
 
+
 2. быть добавлен в эту карту
+
 
 3. обновить CURRENT_STATE.md
 
+
 4. обновить CHANGELOG.md при завершении этапа
+
 
 5. добавить архитектурное решение в DECISIONS.md при изменении структуры системы
