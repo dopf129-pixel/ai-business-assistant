@@ -217,6 +217,7 @@ Action Generation
 ---
 
 
+
 ## Decision 007
 
 
@@ -255,11 +256,11 @@ Decision:
 - DECISIONS.md
 
 
-
 Статус:
 
 
 Implemented
+
 
 
 ---
@@ -301,7 +302,6 @@ AI Development Agent используется для:
 - контроля документационного drift
 
 
-
 Причина:
 
 
@@ -311,7 +311,6 @@ AI Business Assistant для управления бизнесом.
 
 Автоматизация разработки необходима для ускорения
 создания и улучшения основного продукта.
-
 
 
 Архитектура:
@@ -332,10 +331,84 @@ Development Workflow
 AI Business Assistant
 
 
-
 Статус:
 
 
 Implemented
 
 
+
+---
+
+
+
+## Decision 009
+
+
+Date:
+
+2026-08-14
+
+
+Topic:
+
+Development Autopilot Direction
+
+
+Decision:
+
+
+AI Development Agent развивается как внутренний слой
+автоматизации разработки AI Business Assistant.
+
+
+Архитектура:
+
+
+AI Development Agent
+
+↓
+
+Development Workflow
+
+↓
+
+AI Business Assistant
+
+
+
+Причина:
+
+
+Создание AI Business Assistant требует большого количества
+повторяющихся действий разработки:
+
+
+- анализ изменений
+- обновление документации
+- запуск тестов
+- подготовка checkpoint
+
+
+AI Development Agent должен уменьшать ручное участие разработчика
+и ускорять развитие основного продукта.
+
+
+
+Результат:
+
+
+Добавлены в roadmap:
+
+
+- Change impact analysis
+- Documentation drift detection
+- Automated development workflow
+- Git checkpoint assistant
+
+
+
+Следующий этап:
+
+
+Development Autopilot v0.1
