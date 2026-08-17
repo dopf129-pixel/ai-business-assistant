@@ -412,3 +412,73 @@ AI Development Agent должен уменьшать ручное участие
 
 
 Development Autopilot v0.1
+
+
+
+---
+
+
+
+## Decision 010
+
+
+Date:
+
+2026-08-14
+
+
+Topic:
+
+Change Impact Analysis
+
+
+Decision:
+
+
+Перед изменением кода AI Development Agent
+обязан анализировать влияние изменения
+на архитектуру, тесты и документацию.
+
+
+Архитектура:
+
+
+File Change
+
+↓
+
+Impact Analyzer
+
+↓
+
+Affected Components
+
+↓
+
+Test Map
+
+↓
+
+Documentation Update
+
+
+
+Причина:
+
+
+Изменение одного сервиса может влиять
+на несколько слоёв системы.
+
+
+Анализ влияния должен уменьшить риск
+регрессий и потери архитектурного контекста.
+
+
+
+Результат:
+
+
+Создаётся первый компонент Development Autopilot:
+
+
+- Change Impact Analysis Service
