@@ -81,6 +81,35 @@ def test_create_report():
 
 
 
+def test_create_development_report():
+
+    agent = AssistantDevelopmentAgent()
+
+    result = agent.create_development_report(
+        "Add new feature",
+        {
+            "status": "started",
+        },
+        {
+            "status": "updated",
+        },
+        {
+            "status": "ready",
+        },
+    )
+
+    assert result["agent"] == "AssistantDevelopmentAgent"
+
+    assert result["status"] == "completed"
+
+    assert result["summary"]["workflow"]["status"] == "started"
+
+    assert result["summary"]["project_brain"]["status"] == "updated"
+
+    assert result["summary"]["checkpoint"]["status"] == "ready"
+
+
+
 def test_run_development_cycle():
 
     agent = AssistantDevelopmentAgent()
@@ -122,3 +151,7 @@ def test_run_development_cycle_with_tools():
     assert result["project_brain"]["status"] == "updated"
 
     assert result["checkpoint"]["status"] == "ready"
+
+    assert result["report"]["status"] == "completed"
+
+    assert result["report"]["summary"]["workflow"]["status"] == "started"
