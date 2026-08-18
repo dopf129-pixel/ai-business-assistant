@@ -562,3 +562,81 @@ CHANGELOG.md работает в режиме append only.
 
 
 AssistantDocumentationManager
+
+---
+
+## Decision 012
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Automated Development Workflow
+
+
+Decision:
+
+
+AI Development Agent получает слой
+автоматизации полного цикла разработки.
+
+
+Архитектура:
+
+
+Change Detection
+
+↓
+
+Change Impact Analysis
+
+↓
+
+Test Execution
+
+↓
+
+Documentation Update
+
+↓
+
+Git Checkpoint
+
+
+
+Причина:
+
+
+Развитие AI Business Assistant требует
+уменьшения ручных действий разработчика:
+
+
+- анализ изменений
+- запуск тестов
+- обновление Project Brain
+- подготовка checkpoint
+
+
+Development Autopilot должен объединять
+существующие инструменты в единый workflow.
+
+
+
+Результат:
+
+
+Создаётся основа:
+
+- Automated Development Workflow
+- автоматической проверки изменений
+- подготовки Git checkpoint
+
+
+Следующий этап:
+
+
+AssistantDevelopmentWorkflowService
