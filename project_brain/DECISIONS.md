@@ -720,3 +720,81 @@ Git операции должны выполняться
 
 
 AssistantGitCheckpointService
+
+---
+
+## Decision 014
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Development Autopilot Agent Integration
+
+
+Decision:
+
+
+AI Development Agent получает
+единый управляющий слой,
+который объединяет существующие
+Development Autopilot сервисы.
+
+
+Архитектура:
+
+
+User Task
+
+↓
+
+AssistantDevelopmentAgent
+
+↓
+
+Development Workflow
+
+↓
+
+Service Pipeline
+
+↓
+
+Development Report
+
+
+
+Причина:
+
+
+Текущие сервисы реализуют отдельные
+этапы разработки, но требуют
+единого координатора.
+
+
+Development Agent должен управлять
+полным циклом:
+
+
+- анализ изменения
+- проверка тестов
+- проверка документации
+- подготовка checkpoint
+
+
+
+Результат:
+
+
+Создаётся первый слой
+автономного Development Agent.
+
+
+Следующий этап:
+
+
+AssistantDevelopmentAgent
