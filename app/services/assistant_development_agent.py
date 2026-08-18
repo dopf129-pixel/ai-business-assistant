@@ -1,9 +1,12 @@
+from datetime import date
+
+
 class AssistantDevelopmentAgent:
     """
     Main coordinator for Development Autopilot.
 
-    Coordinates development workflow
-    and produces development reports.
+    Coordinates development workflow,
+    Project Brain updates and Git checkpoint preparation.
     """
 
     def __init__(
@@ -57,11 +60,10 @@ class AssistantDevelopmentAgent:
             "task": task,
             "status": "workflow_started",
             "steps": plan["steps"],
-            "actions": [],
         }
 
         if self.workflow:
-            result["workflow"] = self.execute_workflow()
+            result["workflow"] = self.execute_workflow(task)
         else:
             result["workflow"] = "not_connected"
 
@@ -79,30 +81,46 @@ class AssistantDevelopmentAgent:
 
         return result
 
-    def execute_workflow(self):
+
+    def execute_workflow(self, task):
         """
-        Executes workflow service.
+        Executes development workflow service.
         """
 
-        return {
-            "status": "executed",
-        }
+        return self.workflow.start_workflow(
+            task
+        )
+
 
     def update_project_brain(self, task):
         """
-        Executes Project Brain update.
+        Updates Project Brain documentation.
         """
+
+        self.brain_manager.add_changelog_entry(
+            "Automated Development Workflow",
+            f"""
+Development task processed by
+{self.name}.
+
+Task:
+
+{task}
+""",
+        )
 
         return {
             "status": "updated",
-            "task": task,
+            "date": str(date.today()),
         }
+
 
     def prepare_checkpoint(self):
         """
-        Executes Git checkpoint preparation.
+        Prepares Git checkpoint metadata.
         """
 
-        return {
-            "status": "prepared",
-        }
+        return self.checkpoint_service.prepare_checkpoint(
+            files=[],
+            message="Development workflow checkpoint",
+        )

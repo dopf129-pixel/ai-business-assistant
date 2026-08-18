@@ -4,15 +4,48 @@ from app.services.assistant_development_agent import (
 
 
 class MockWorkflow:
-    pass
+
+    def start_workflow(self, change):
+
+        return {
+            "change": change,
+            "status": "started",
+            "steps": [
+                "change_analysis",
+                "test_validation",
+                "documentation_validation",
+                "checkpoint_preparation",
+            ],
+        }
+
 
 
 class MockBrainManager:
-    pass
+
+    def add_changelog_entry(
+        self,
+        title,
+        description,
+    ):
+        return None
+
 
 
 class MockCheckpointService:
-    pass
+
+    def prepare_checkpoint(
+        self,
+        files,
+        message,
+    ):
+
+        return {
+            "status": "ready",
+            "files_changed": len(files),
+            "files": files,
+            "message": message,
+        }
+
 
 
 def test_create_development_plan():
@@ -84,8 +117,8 @@ def test_run_development_cycle_with_tools():
 
     assert result["status"] == "workflow_completed"
 
-    assert result["workflow"]["status"] == "executed"
+    assert result["workflow"]["status"] == "started"
 
     assert result["project_brain"]["status"] == "updated"
 
-    assert result["checkpoint"]["status"] == "prepared"
+    assert result["checkpoint"]["status"] == "ready"
