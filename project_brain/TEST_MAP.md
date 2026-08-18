@@ -472,6 +472,34 @@ Tests:
 ---
 
 
+# Development Autopilot
+
+
+Service:
+
+
+AssistantChangeImpactService
+
+
+Tests:
+
+
+- test_change_impact.py
+
+
+Проверяет:
+
+
+- анализ изменяемого файла
+- поиск затронутых сервисов
+- поиск связанных тестов
+- поиск связанной документации
+
+
+
+---
+
+
 # Development Rule
 
 

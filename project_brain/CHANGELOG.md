@@ -1,16 +1,89 @@
 # Changelog
 
+
 ## 2026-08-14
 
 ---
 
+
 ## Added
+
+
+### Change Impact Analysis Service
+
+
+Создан первый компонент Development Autopilot.
+
+
+
+Назначение:
+
+
+Анализировать влияние изменения файла
+на связанные сервисы, тесты и документацию.
+
+
+
+Добавлено:
+
+
+- AssistantChangeImpactService
+- test_change_impact.py
+- Change Impact Analysis в TEST_MAP.md
+- Change Impact Analysis в CURRENT_STATE.md
+
+
+
+Архитектура:
+
+
+File Change
+
+↓
+
+Impact Analyzer
+
+↓
+
+Affected Components
+
+↓
+
+Test Map
+
+↓
+
+Documentation Update
+
+
+
+Результат:
+
+
+64 passed
+
+
+
+Next:
+
+
+Documentation Drift Detection
+
+
+
+---
+
+
+
+## Added
+
 
 ### Development Autopilot Architecture Direction
 
 
 AI Development Agent закреплён как внутренний слой
 автоматизации разработки AI Business Assistant.
+
 
 
 Архитектурное решение:
@@ -25,9 +98,6 @@ Development Workflow
 ↓
 
 AI Business Assistant
-
-
-
 Добавлено:
 
 
@@ -55,7 +125,11 @@ Next:
 
 Development Autopilot v0.1
 
+
+
 ---
+
+
 
 ## Strategic Update
 
@@ -117,65 +191,15 @@ AI Development Agent рассматривается
 
 
 ---
-
-
-## Stabilization Checkpoint
-
-
-### Action Contract Compatibility
-
-
-После интеграции Memory Loop выполнена стабилизация взаимодействия сервисов.
-
-
-
-Исправлено:
-
-
-- восстановлена совместимость AssistantActionGeneratorService и AssistantActionPlanExecutorService
-- добавлена поддержка actions[] формата
-- сохранение priority при генерации действий
-- сохранение context.reason
-- сохранение полного Action schema
-
-
-
-Архитектурный контракт:
-
-
-Action Generator
-
-↓
-
-Action Schema
-
-↓
-
-Priority Resolver
-
-↓
-
-Execution Pipeline
-
-
-
-Результат:
-
-
-63 passed
-
-
-
----
-
-
 ## Added
 
 
 ### Autonomous Agent Memory Foundation
 
 
-Добавлена базовая инфраструктура автономного агента через обратную связь и накопление опыта.
+Добавлена базовая инфраструктура автономного агента
+через обратную связь и накопление опыта.
+
 
 
 Новые возможности:
@@ -188,6 +212,7 @@ Execution Pipeline
 - получение прошлого опыта
 - использование памяти при планировании
 - использование памяти при генерации действий
+
 
 
 Архитектурный цикл:
@@ -235,6 +260,7 @@ Planning improvement
 ---
 
 
+
 ## Completed
 
 
@@ -242,6 +268,7 @@ Planning improvement
 
 
 Завершён этап интеллектуального планирования.
+
 
 
 Добавлено:
@@ -259,6 +286,7 @@ Planning improvement
 ---
 
 
+
 ## Added
 
 
@@ -268,12 +296,14 @@ Planning improvement
 Добавлено управление разработкой через документацию проекта.
 
 
+
 Новые возможности:
 
 
 - автоматическое определение следующей задачи из ROADMAP.md
 - анализ текущего состояния проекта
 - генерация плана без жёстко заданной задачи в коде
+
 
 
 Результат:
@@ -286,6 +316,7 @@ Planning improvement
 ---
 
 
+
 ## Added
 
 
@@ -293,6 +324,7 @@ Planning improvement
 
 
 Добавлена поддержка условий выполнения действий.
+
 
 
 Возможности:
@@ -304,6 +336,7 @@ Planning improvement
 
 
 
+---
 ---
 
 
@@ -320,11 +353,13 @@ Planning improvement
 SKIPPED
 
 
+
 Используется когда:
 
 
 - условие действия не выполнено
 - выполнение невозможно по логике задачи
+
 
 
 Сохраняется:
@@ -441,7 +476,7 @@ SKIPPED:
 Tests:
 
 
-63 passed
+64 passed
 
 
 
@@ -477,6 +512,7 @@ Completed:
 - Memory Agent Loop
 - Action Contract Stabilization
 - AI Development Agent role clarification
+- Change Impact Analysis Service
 
 
 
@@ -485,3 +521,8 @@ Next:
 
 Development Autopilot v0.1
 
+
+Next task:
+
+
+Documentation Drift Detection

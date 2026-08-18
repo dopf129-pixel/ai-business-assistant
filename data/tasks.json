@@ -29,27 +29,19 @@
         }
     },
     "1000": {
-        "task": "Feedback hook test",
+        "task": "Retry policy integration",
         "status": "ACTIVE",
         "actions": [
             {
-                "title": "Проверка продаж",
+                "title": "Проверить продажи",
                 "type": "sales",
-                "status": "DONE",
-                "result": {
-                    "error": false,
-                    "result": {
-                        "type": "sales",
-                        "message": "Анализ продаж выполнен",
-                        "details": [
-                            "Проверено падение продаж",
-                            "Найдены возможные причины"
-                        ],
-                        "priority": "NORMAL"
-                    }
-                }
+                "status": "IN_PROGRESS"
             }
         ],
-        "pending_action": null
+        "pending_action": {
+            "title": "Проверить продажи",
+            "type": "sales",
+            "status": "IN_PROGRESS"
+        }
     }
 }
