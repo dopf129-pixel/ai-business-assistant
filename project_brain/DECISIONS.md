@@ -640,3 +640,83 @@ Development Autopilot должен объединять
 
 
 AssistantDevelopmentWorkflowService
+
+
+---
+
+## Decision 013
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Git Checkpoint Assistant
+
+
+Decision:
+
+
+AI Development Agent получает слой
+подготовки Git checkpoint в рамках
+Automated Development Workflow.
+
+
+Архитектура:
+
+
+Development Workflow
+
+↓
+
+Git Checkpoint Assistant
+
+↓
+
+Commit Preparation
+
+
+Причина:
+
+
+Завершение цикла разработки требует
+контролируемой фиксации изменений.
+
+
+Git Checkpoint Assistant должен:
+
+
+- анализировать состояние изменений
+- определять изменённые файлы
+- подготавливать commit message
+- подтверждать готовность checkpoint
+
+
+Правило:
+
+
+Git операции должны выполняться
+контролируемо и прозрачно.
+
+
+Автоматический commit без проверки
+состояния проекта запрещён.
+
+
+Результат:
+
+
+Создаётся основа для:
+
+- автоматической подготовки checkpoint
+- безопасной фиксации изменений
+- интеграции Git workflow в Development Autopilot
+
+
+Следующий этап:
+
+
+AssistantGitCheckpointService
