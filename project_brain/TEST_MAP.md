@@ -519,3 +519,31 @@ Tests:
 
 
 5. добавить архитектурное решение в DECISIONS.md при изменении структуры системы
+
+
+
+---
+
+
+# Development Autopilot
+
+
+Service:
+
+
+AssistantDocumentationManager
+
+
+Tests:
+
+
+- test_documentation_manager.py
+
+
+Проверяет:
+
+
+- безопасное добавление CHANGELOG записей
+- безопасное добавление DECISIONS записей
+- сохранение существующей истории
+- append-only правило документации
