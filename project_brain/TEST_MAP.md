@@ -547,3 +547,30 @@ Tests:
 - безопасное добавление DECISIONS записей
 - сохранение существующей истории
 - append-only правило документации
+
+
+---
+
+
+
+# Development Autopilot
+
+
+Service:
+
+
+AssistantDocumentationDriftService
+
+
+Tests:
+
+
+- test_documentation_drift.py
+
+
+Проверяет:
+
+
+- поиск сервисов без документации
+- контроль связи app/services и TEST_MAP.md
+- обнаружение простого documentation drift

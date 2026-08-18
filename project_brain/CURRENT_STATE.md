@@ -542,7 +542,7 @@ Completed:
 Next:
 
 
-Documentation Drift Detection
+Automated Development Workflow
 
 
 
@@ -667,7 +667,7 @@ Development Autopilot Layer
 [x] Change Impact Analysis
 
 
-[ ] Documentation Drift Detection
+[x] Documentation Drift Detection
 
 
 [ ] Automated development workflow

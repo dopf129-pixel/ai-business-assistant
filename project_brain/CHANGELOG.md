@@ -5,6 +5,51 @@
 
 ---
 
+## Added
+
+
+### Documentation Drift Detection
+
+
+Создан первый слой контроля
+соответствия кода и Project Brain.
+
+
+Добавлено:
+
+
+- AssistantDocumentationDriftService
+- test_documentation_drift.py
+- проверка связи services → TEST_MAP
+
+
+Архитектура:
+
+
+Code
+
+↓
+
+Drift Detector
+
+↓
+
+Project Brain Validation
+
+
+Результат:
+
+
+65 passed
+
+
+Next:
+
+
+Automated Development Workflow
+
+---
+
 
 ## Added
 
@@ -60,7 +105,7 @@ Documentation Update
 Результат:
 
 
-64 passed
+67 passed
 
 
 
