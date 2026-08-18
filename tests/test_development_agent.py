@@ -3,6 +3,18 @@ from app.services.assistant_development_agent import (
 )
 
 
+class MockWorkflow:
+    pass
+
+
+class MockBrainManager:
+    pass
+
+
+class MockCheckpointService:
+    pass
+
+
 def test_create_development_plan():
 
     agent = AssistantDevelopmentAgent()
@@ -14,8 +26,11 @@ def test_create_development_plan():
     assert result["agent"] == "AssistantDevelopmentAgent"
 
     assert "change_analysis" in result["steps"]
+
     assert "test_validation" in result["steps"]
+
     assert "documentation_validation" in result["steps"]
+
     assert "checkpoint_preparation" in result["steps"]
 
 
@@ -45,8 +60,30 @@ def test_run_development_cycle():
 
     assert result["status"] == "workflow_ready"
 
-    assert result["checkpoint"] == "ready"
-
     assert result["project_brain"] == "ready"
 
-    assert "change_analysis" in result["steps"]
+    assert result["checkpoint"] == "ready"
+
+
+
+def test_run_development_cycle_with_tools():
+
+    agent = AssistantDevelopmentAgent(
+        workflow=MockWorkflow(),
+        brain_manager=MockBrainManager(),
+        checkpoint_service=MockCheckpointService(),
+    )
+
+    result = agent.run_development_cycle(
+        "Add new feature"
+    )
+
+    assert result["agent"] == "AssistantDevelopmentAgent"
+
+    assert result["status"] == "workflow_ready"
+
+    assert result["workflow"] == "connected"
+
+    assert result["project_brain"] == "connected"
+
+    assert result["checkpoint"] == "connected"

@@ -6,8 +6,17 @@ class AssistantDevelopmentAgent:
     and produces development reports.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        workflow=None,
+        brain_manager=None,
+        checkpoint_service=None,
+    ):
         self.name = "AssistantDevelopmentAgent"
+
+        self.workflow = workflow
+        self.brain_manager = brain_manager
+        self.checkpoint_service = checkpoint_service
 
     def create_plan(self, task):
         """
@@ -38,23 +47,29 @@ class AssistantDevelopmentAgent:
 
     def run_development_cycle(self, task):
         """
-        Executes first Development Autopilot cycle.
-
-        Current version:
-        - creates workflow plan
-        - prepares execution state
-        - returns controlled workflow result
-
-        Does not modify files automatically.
+        Executes Development Autopilot cycle.
         """
 
         plan = self.create_plan(task)
 
-        return {
+        result = {
             "agent": self.name,
             "task": task,
             "status": "workflow_ready",
             "steps": plan["steps"],
-            "checkpoint": "ready",
-            "project_brain": "ready",
         }
+
+        if self.workflow:
+            result["workflow"] = "connected"
+
+        if self.brain_manager:
+            result["project_brain"] = "connected"
+        else:
+            result["project_brain"] = "ready"
+
+        if self.checkpoint_service:
+            result["checkpoint"] = "connected"
+        else:
+            result["checkpoint"] = "ready"
+
+        return result
