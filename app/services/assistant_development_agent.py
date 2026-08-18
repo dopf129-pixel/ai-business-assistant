@@ -7,8 +7,9 @@ class AssistantDevelopmentAgent:
 
     Coordinates development workflow,
     Project Brain updates,
-    Git checkpoint preparation
-    and development reporting.
+    Git checkpoint preparation,
+    development reporting
+    and decision making.
     """
 
     def __init__(
@@ -16,12 +17,14 @@ class AssistantDevelopmentAgent:
         workflow=None,
         brain_manager=None,
         checkpoint_service=None,
+        decision_service=None,
     ):
         self.name = "AssistantDevelopmentAgent"
 
         self.workflow = workflow
         self.brain_manager = brain_manager
         self.checkpoint_service = checkpoint_service
+        self.decision_service = decision_service
 
     def create_plan(self, task):
         """
@@ -85,6 +88,13 @@ class AssistantDevelopmentAgent:
             result["project_brain"],
             result["checkpoint"],
         )
+
+        if self.decision_service:
+            result["decision"] = self.decision_service.evaluate(
+                result["report"]
+            )
+        else:
+            result["decision"] = "not_connected"
 
         result["status"] = "workflow_completed"
 
