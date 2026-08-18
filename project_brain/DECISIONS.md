@@ -798,3 +798,89 @@ Development Agent должен управлять
 
 
 AssistantDevelopmentAgent
+
+---
+
+## Decision 015
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Agent Managed Project Brain Synchronization
+
+
+Decision:
+
+
+AI Development Agent получает отдельный слой
+управления Project Brain.
+
+
+Архитектура:
+
+
+AssistantDevelopmentAgent
+
+↓
+
+AssistantProjectBrainManager
+
+↓
+
+Project Brain
+
+
+↓
+
+- CHANGELOG.md
+- CURRENT_STATE.md
+- TEST_MAP.md
+- DECISIONS.md
+
+
+
+Причина:
+
+
+Ручное обновление документации ограничивает
+автономность Development Agent.
+
+
+Project Brain должен обновляться
+как часть автоматического development workflow.
+
+
+
+Правило:
+
+
+Критические архитектурные решения
+фиксируются через DECISIONS.md.
+
+
+Операционные изменения проекта
+могут обновляться автоматически
+через AssistantProjectBrainManager.
+
+
+
+Результат:
+
+
+Создаётся основа для:
+
+- автоматической синхронизации документации
+- уменьшения ручных действий разработчика
+- автономного развития Project Brain
+
+
+
+Следующий этап:
+
+
+AssistantProjectBrainManager
