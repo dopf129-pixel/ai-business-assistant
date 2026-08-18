@@ -884,3 +884,96 @@ Project Brain должен обновляться
 
 
 AssistantProjectBrainManager
+
+---
+
+## Decision 016
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Agent Workflow Execution Loop
+
+
+Decision:
+
+
+AI Development Agent получает
+исполняющий цикл workflow,
+который связывает существующие
+Development Autopilot сервисы.
+
+
+Архитектура:
+
+
+User Task
+
+↓
+
+AssistantDevelopmentAgent
+
+↓
+
+Development Workflow Execution
+
+↓
+
+Service Pipeline
+
+↓
+
+Development Report
+
+
+
+Причина:
+
+
+Наличие отдельных сервисов недостаточно
+для автономной разработки.
+
+
+Agent должен уметь координировать
+выполнение последовательности действий.
+
+
+
+Workflow включает:
+
+
+- анализ изменений
+- проверку состояния проекта
+- синхронизацию Project Brain
+- подготовку Git checkpoint
+
+
+
+Правило:
+
+
+Agent выполняет только
+контролируемые операции.
+
+
+Каждый этап workflow должен
+возвращать проверяемый результат.
+
+
+
+Результат:
+
+
+Создаётся первый исполнительный цикл
+Development Autopilot.
+
+
+Следующий этап:
+
+
+Agent Workflow Integration
