@@ -599,3 +599,29 @@ Tests:
 - создание последовательности шагов
 - контроль состояния workflow
 - завершение отдельных этапов
+
+---
+
+# Development Autopilot
+
+
+Service:
+
+
+AssistantGitCheckpointService
+
+
+Tests:
+
+
+- test_git_checkpoint.py
+
+
+Проверяет:
+
+
+- подготовку Git checkpoint
+- анализ изменённых файлов
+- создание checkpoint metadata
+- подготовку commit message
+- отсутствие автоматического commit

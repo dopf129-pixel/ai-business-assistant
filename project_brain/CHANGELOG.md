@@ -8,6 +8,60 @@
 ## Added
 
 
+### Git Checkpoint Assistant
+
+
+Создан слой подготовки Git checkpoint
+в составе Development Autopilot.
+
+
+Добавлено:
+
+
+- AssistantGitCheckpointService
+- test_git_checkpoint.py
+- анализ состояния изменений
+- подготовка commit metadata
+
+
+Архитектура:
+
+
+Development Workflow
+
+↓
+
+Git Checkpoint Assistant
+
+↓
+
+Commit Preparation
+
+
+Правило:
+
+
+Git операции не выполняются автоматически
+без проверки состояния проекта.
+
+
+Результат:
+
+
+71 passed
+
+
+Next:
+
+
+Development Autopilot v0.2
+
+
+---
+
+## Added
+
+
 ### Automated Development Workflow
 
 
