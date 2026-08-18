@@ -419,9 +419,6 @@ Development Autopilot v0.1
 
 
 
----
-
-
 ## Decision 010
 
 
@@ -485,3 +482,83 @@ Documentation Update
 
 
 - Change Impact Analysis Service
+
+
+
+---
+
+
+
+## Decision 011
+
+
+Date:
+
+2026-08-18
+
+
+Topic:
+
+Documentation Automation Layer
+
+
+Decision:
+
+
+AI Development Agent получает отдельный слой
+автоматизации управления документацией проекта.
+
+
+Архитектура:
+
+
+AI Development Agent
+
+↓
+
+Documentation Manager
+
+↓
+
+Project Brain
+
+
+Причина:
+
+
+Изменения в коде требуют синхронного обновления:
+
+- CURRENT_STATE.md
+- CHANGELOG.md
+- TEST_MAP.md
+- DECISIONS.md
+
+
+Ручное обновление документации приводит
+к риску documentation drift.
+
+
+Правило:
+
+
+CHANGELOG.md работает в режиме append only.
+
+
+Исторические записи не изменяются
+и не удаляются.
+
+
+Результат:
+
+
+Создаётся основа для:
+
+- автоматического обновления Project Brain
+- контроля документационного состояния
+- уменьшения ручного участия разработчика
+
+
+Следующий этап:
+
+
+AssistantDocumentationManager
