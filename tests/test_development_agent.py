@@ -58,11 +58,13 @@ def test_run_development_cycle():
 
     assert result["agent"] == "AssistantDevelopmentAgent"
 
-    assert result["status"] == "workflow_ready"
+    assert result["status"] == "workflow_completed"
 
-    assert result["project_brain"] == "ready"
+    assert result["workflow"] == "not_connected"
 
-    assert result["checkpoint"] == "ready"
+    assert result["project_brain"] == "not_connected"
+
+    assert result["checkpoint"] == "not_connected"
 
 
 
@@ -80,10 +82,10 @@ def test_run_development_cycle_with_tools():
 
     assert result["agent"] == "AssistantDevelopmentAgent"
 
-    assert result["status"] == "workflow_ready"
+    assert result["status"] == "workflow_completed"
 
-    assert result["workflow"] == "connected"
+    assert result["workflow"]["status"] == "executed"
 
-    assert result["project_brain"] == "connected"
+    assert result["project_brain"]["status"] == "updated"
 
-    assert result["checkpoint"] == "connected"
+    assert result["checkpoint"]["status"] == "prepared"
