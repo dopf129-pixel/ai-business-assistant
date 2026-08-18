@@ -625,3 +625,28 @@ Tests:
 - создание checkpoint metadata
 - подготовку commit message
 - отсутствие автоматического commit
+
+---
+
+# Development Autopilot
+
+
+Service:
+
+
+AssistantProjectBrainManager
+
+
+Tests:
+
+
+- test_project_brain_manager.py
+
+
+Проверяет:
+
+
+- безопасное добавление записей в Project Brain
+- сохранение существующей истории
+- append-only обновления документации
+- подготовку документационных изменений агентом
