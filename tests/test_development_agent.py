@@ -30,3 +30,23 @@ def test_create_report():
     )
 
     assert result["status"] == "completed"
+
+
+
+def test_run_development_cycle():
+
+    agent = AssistantDevelopmentAgent()
+
+    result = agent.run_development_cycle(
+        "Add new feature"
+    )
+
+    assert result["agent"] == "AssistantDevelopmentAgent"
+
+    assert result["status"] == "workflow_ready"
+
+    assert result["checkpoint"] == "ready"
+
+    assert result["project_brain"] == "ready"
+
+    assert "change_analysis" in result["steps"]
