@@ -8,6 +8,56 @@
 ## Added
 
 
+### Automated Development Workflow
+
+
+Создан первый слой оркестрации
+Development Autopilot.
+
+
+Добавлено:
+
+
+- AssistantDevelopmentWorkflowService
+- test_development_workflow.py
+- управление последовательностью development steps
+
+
+Архитектура:
+
+
+Change Impact Analysis
+
+↓
+
+Test Validation
+
+↓
+
+Documentation Validation
+
+↓
+
+Checkpoint Preparation
+
+
+Результат:
+
+
+69 passed
+
+
+Next:
+
+
+Git Checkpoint Assistant
+
+
+---
+
+## Added
+
+
 ### Documentation Drift Detection
 
 

@@ -574,3 +574,28 @@ Tests:
 - поиск сервисов без документации
 - контроль связи app/services и TEST_MAP.md
 - обнаружение простого documentation drift
+
+---
+
+# Development Autopilot
+
+
+Service:
+
+
+AssistantDevelopmentWorkflowService
+
+
+Tests:
+
+
+- test_development_workflow.py
+
+
+Проверяет:
+
+
+- запуск development workflow
+- создание последовательности шагов
+- контроль состояния workflow
+- завершение отдельных этапов
