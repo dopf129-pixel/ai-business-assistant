@@ -48,14 +48,7 @@ class MockCheckpointService:
 
 
 
-class MockDecisionService:
 
-    def evaluate(self, report):
-
-        return {
-            "decision": "complete",
-            "next_action": "checkpoint_ready",
-        }
 
 
 
@@ -139,7 +132,6 @@ def test_run_development_cycle():
 
     assert result["checkpoint"] == "not_connected"
 
-    assert result["decision"] == "not_connected"
 
 
 
@@ -149,7 +141,6 @@ def test_run_development_cycle_with_tools():
         workflow=MockWorkflow(),
         brain_manager=MockBrainManager(),
         checkpoint_service=MockCheckpointService(),
-        decision_service=MockDecisionService(),
     )
 
     result = agent.run_development_cycle(
@@ -170,6 +161,3 @@ def test_run_development_cycle_with_tools():
 
     assert result["report"]["summary"]["workflow"]["status"] == "started"
 
-    assert result["decision"]["decision"] == "complete"
-
-    assert result["decision"]["next_action"] == "checkpoint_ready"

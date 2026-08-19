@@ -3,13 +3,15 @@ from datetime import date
 
 class AssistantDevelopmentAgent:
     """
-    Main coordinator for Development Autopilot.
+    Development Assistant coordinator.
 
     Coordinates development workflow,
-    Project Brain updates,
-    Git checkpoint preparation,
-    development reporting
-    and decision making.
+    Project Brain synchronization,
+    Git checkpoint preparation
+    and development reporting.
+
+    This service supports GPT + GitHub
+    development workflow.
     """
 
     def __init__(
@@ -17,14 +19,12 @@ class AssistantDevelopmentAgent:
         workflow=None,
         brain_manager=None,
         checkpoint_service=None,
-        decision_service=None,
     ):
         self.name = "AssistantDevelopmentAgent"
 
         self.workflow = workflow
         self.brain_manager = brain_manager
         self.checkpoint_service = checkpoint_service
-        self.decision_service = decision_service
 
     def create_plan(self, task):
         """
@@ -44,7 +44,7 @@ class AssistantDevelopmentAgent:
 
     def create_report(self, task, status):
         """
-        Creates development report.
+        Creates simple development report.
         """
 
         return {
@@ -55,7 +55,11 @@ class AssistantDevelopmentAgent:
 
     def run_development_cycle(self, task):
         """
-        Executes Development Autopilot cycle.
+        Runs development support workflow.
+
+        Does not make autonomous decisions.
+        Prepares development information
+        for review.
         """
 
         plan = self.create_plan(task)
@@ -89,17 +93,9 @@ class AssistantDevelopmentAgent:
             result["checkpoint"],
         )
 
-        if self.decision_service:
-            result["decision"] = self.decision_service.evaluate(
-                result["report"]
-            )
-        else:
-            result["decision"] = "not_connected"
-
         result["status"] = "workflow_completed"
 
         return result
-
 
     def create_development_report(
         self,
@@ -123,16 +119,14 @@ class AssistantDevelopmentAgent:
             },
         }
 
-
     def execute_workflow(self, task):
         """
-        Executes development workflow service.
+        Executes workflow service.
         """
 
         return self.workflow.start_workflow(
             task
         )
-
 
     def update_project_brain(self, task):
         """
@@ -140,7 +134,7 @@ class AssistantDevelopmentAgent:
         """
 
         self.brain_manager.add_changelog_entry(
-            "Automated Development Workflow",
+            "Development Workflow Update",
             f"""
 Development task processed by
 {self.name}.
@@ -155,7 +149,6 @@ Task:
             "status": "updated",
             "date": str(date.today()),
         }
-
 
     def prepare_checkpoint(self):
         """
