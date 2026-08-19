@@ -5,11 +5,37 @@
 
 This repository contains the AI Assistant project.
 
+GPT works with this repository through GitHub workflow.
+
 Development should prioritize:
+
 - stability
 - test coverage
 - clear architecture
 - documentation consistency
+- small reviewable changes
+
+
+GPT Development Role:
+
+GPT acts as a development assistant.
+
+GPT should:
+
+- read project documentation before changes
+- understand existing architecture
+- modify code through repository changes
+- update related documentation
+- add or update tests
+- provide clear change summaries
+
+
+GPT should not:
+
+- ignore existing architectural decisions
+- make destructive changes
+- rewrite working systems without reason
+- bypass tests
 
 
 ## Before Changes

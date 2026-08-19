@@ -973,7 +973,85 @@ Agent выполняет только
 Development Autopilot.
 
 
-Следующий этап:
+Historical Next Step:
 
 
 Agent Workflow Integration
+
+
+Status:
+
+Superseded by Decision 017
+
+---
+
+## Decision 017
+
+
+Date:
+
+2026-08-19
+
+
+Topic:
+
+GPT GitHub Development Workflow
+
+
+Decision:
+
+Development Infrastructure
+переориентируется с автономного
+исполнения задач на поддержку
+разработки AI Assistant через
+GPT + GitHub workflow.
+
+
+Architecture:
+
+
+Developer
+
+↓
+
+GPT
+
+↓
+
+GitHub Repository
+
+↓
+
+Tests
+
+↓
+
+Project Brain Update
+
+↓
+
+Review
+
+
+Rules:
+
+- Project Brain является источником контекста проекта
+- GPT должен изучать документацию перед изменениями
+- Кодовые изменения должны сопровождаться тестами
+- Документация обновляется вместе с функционалом
+- Архитектурные решения фиксируются отдельно
+
+
+Reason:
+
+Использование внешнего GPT через GitHub
+позволяет ускорить разработку основного
+AI Assistant проекта без создания отдельного
+автономного разработчика.
+
+
+Result:
+
+Development Infrastructure становится
+инструментом ускорения разработки
+AI Assistant.

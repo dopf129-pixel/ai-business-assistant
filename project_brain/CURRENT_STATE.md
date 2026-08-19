@@ -460,7 +460,15 @@ Development Autopilot Preparation
 NEXT:
 
 
-Development Autopilot v0.1
+GPT Development Integration
+
+
+Planned:
+
+- GitHub based development workflow
+- GPT project context support
+- Automated documentation synchronization
+- Development verification pipeline
 
 
 
@@ -517,19 +525,28 @@ Completed goal:
 TASK:
 
 
-Phase 4 - Development Autopilot
+Phase 4 - Development Infrastructure
 
 
-Development Autopilot v0.1
-
+GPT Development Workflow
 
 
 Current Goal:
 
 
-Создать слой автоматизации разработки
-для уменьшения ручного участия разработчика
-при создании и улучшении AI Business Assistant.
+Создать инфраструктуру разработки,
+которая ускоряет развитие AI Business Assistant
+через GPT + GitHub workflow.
+
+
+Principles:
+
+
+- Project Brain является источником контекста проекта
+- GPT использует документацию проекта перед изменениями
+- Изменения проходят через GitHub workflow
+- Тесты являются обязательной проверкой
+- Документация обновляется вместе с кодом
 
 
 
