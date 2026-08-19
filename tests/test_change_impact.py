@@ -1,55 +1,35 @@
-import sys
-
-sys.path.insert(
-    0,
-    "app"
-)
-
-from services.assistant_change_impact_service import (
-    AssistantChangeImpactService
+from app.services.assistant_change_impact_service import (
+    AssistantChangeImpactService,
 )
 
 
+def test_analyze_service_change():
 
-def test_change_impact_detects_action_generator_dependencies():
+    service = AssistantChangeImpactService()
 
-
-    service = (
-        AssistantChangeImpactService()
+    result = service.analyze_change(
+        [
+            "app/services/user_service.py"
+        ]
     )
-
-
-    result = (
-        service
-        .analyze(
-            "assistant_action_generator_service.py"
-        )
-    )
-
 
     assert (
-        result["changed_file"]
-        ==
-        "assistant_action_generator_service.py"
+        "tests/test_user_service.py"
+        in result["tests_required"]
     )
-
 
     assert (
-        "AssistantActionPlanExecutorService"
-        in
-        result["affected_services"]
+        "project_brain/TEST_MAP.md"
+        in result["documentation_required"]
     )
 
 
-    assert (
-        "test_action_context.py"
-        in
-        result["affected_tests"]
+def test_analyze_empty_change():
+
+    service = AssistantChangeImpactService()
+
+    result = service.analyze_change(
+        []
     )
 
-
-    assert (
-        "TEST_MAP.md"
-        in
-        result["affected_docs"]
-    )
+    assert result["files"] == []
