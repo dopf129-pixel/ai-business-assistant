@@ -1090,3 +1090,59 @@ report → recommendation → planning → action flow.
 
 - 2 isolated Stock Intelligence Context Propagation tests passed
 - полный pytest не запускался: runtime не имеет network checkout репозитория
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Stock Intelligence Production Wiring v1
+
+
+StockIntelligenceService подключён в production composition root
+и передан в существующий AssistantStockExecutorService через constructor injection.
+
+
+Добавлено:
+
+
+- создание StockIntelligenceService в telegram_core_factory.py
+- constructor injection StockIntelligenceService в AssistantStockExecutorService
+- test_stock_intelligence_production_wiring.py
+- production wiring tests добавлены в TEST_MAP.md
+
+
+Архитектура:
+
+
+StockIntelligenceService
+
+↓
+
+AssistantStockExecutorService
+
+↓
+
+existing AssistantActionRouterService
+
+
+Ограничения этапа:
+
+
+- StockIntelligenceService не изменялся
+- его contract продолжает принимать prepared stock_data/sales_data через analyze()
+- Business Data Input не реализован
+- Ozon stock ingestion не реализован
+- новый stock repository не создавался
+- orchestration не изменялся
+
+
+Проверка:
+
+
+- production wiring test добавлен
+- полный pytest не запускался в текущей среде

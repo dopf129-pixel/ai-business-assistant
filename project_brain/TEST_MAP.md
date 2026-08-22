@@ -888,3 +888,37 @@ Tests:
 - сохранение stock context при генерации Action
 - отсутствие обратной мутации recommendation context при Action enrichment
 - отсутствие изменений Task Service, Action Execution, Router, Stock Executor и Stock Intelligence Service
+
+---
+
+# Stock Intelligence Production Wiring
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Services:
+
+
+- StockIntelligenceService
+- AssistantStockExecutorService
+
+
+Tests:
+
+
+- test_stock_intelligence_production_wiring.py
+
+
+Проверяет:
+
+
+- create_telegram_core() создаёт production Stock executor
+- constructor injection StockIntelligenceService в AssistantStockExecutorService
+- default reorder policy конфигурацию StockIntelligenceService
+- доступ production-wired Stock Executor через существующий Router
+- отсутствие изменений Task Service, Action Execution, Router, Planning и Action Generator
+- отсутствие преждевременного Business Data Input / Ozon stock ingestion
