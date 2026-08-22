@@ -858,3 +858,33 @@ Tests:
 - преобразование Stock Intelligence результата в details
 - обратную совместимость executor без injected service
 - отсутствие изменений Task Service, Action Execution, Router, Planning и Action Generator
+
+---
+
+# Stock Intelligence Context Propagation
+
+
+Services:
+
+
+- AssistantEntryService
+- AssistantRecommendationService
+- AssistantPlanningService
+- AssistantActionGeneratorService
+
+
+Tests:
+
+
+- test_stock_intelligence_context_propagation.py
+
+
+Проверяет:
+
+
+- перенос подготовленного stock_context из request context в report
+- передачу stock_context в stock recommendation
+- сохранение stock_data, sales_data и period_days при построении plan
+- сохранение stock context при генерации Action
+- отсутствие обратной мутации recommendation context при Action enrichment
+- отсутствие изменений Task Service, Action Execution, Router, Stock Executor и Stock Intelligence Service

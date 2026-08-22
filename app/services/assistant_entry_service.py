@@ -41,6 +41,22 @@ class AssistantEntryService:
         }
 
 
+        stock_context = dict(
+            (context or {}).get(
+                "stock_context"
+            )
+            or
+            {}
+        )
+
+
+        if stock_context:
+
+            report[
+                "stock_context"
+            ] = stock_context
+
+
         sales_report = (
             self._build_sales_report()
         )

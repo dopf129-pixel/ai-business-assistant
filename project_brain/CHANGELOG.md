@@ -1046,3 +1046,47 @@ AssistantStockExecutorService через constructor injection.
 
 - 3 isolated Stock Intelligence Integration tests passed
 - полный pytest не запускался: runtime не имеет network checkout репозитория
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Stock Intelligence Context Propagation v1
+
+
+Подготовленный stock_context проведён через существующий
+report → recommendation → planning → action flow.
+
+
+Добавлено:
+
+
+- перенос подготовленного stock_context из request context в report
+- stock_context в stock recommendation
+- сохранение stock_data, sales_data и period_days через generic planning context
+- test_stock_intelligence_context_propagation.py
+- проверка отсутствия обратной мутации recommendation context
+
+
+Совместимость:
+
+
+- новый orchestration слой не создавался
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- AssistantStockExecutorService не изменялся
+- StockIntelligenceService не изменялся
+- Production Wiring и Business Data Input не реализовывались
+
+
+Проверка:
+
+
+- 2 isolated Stock Intelligence Context Propagation tests passed
+- полный pytest не запускался: runtime не имеет network checkout репозитория
