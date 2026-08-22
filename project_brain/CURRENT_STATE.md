@@ -178,6 +178,9 @@ AI Business Assistant
 [x] Sales Intelligence Integration v1
 
 
+[x] Sales Intelligence Data Flow v1 - Context Propagation
+
+
 
 ---
 

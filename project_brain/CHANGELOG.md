@@ -810,3 +810,45 @@ AssistantSalesExecutorService через constructor injection.
 
 
 - 3 isolated Sales Intelligence Integration tests passed
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Sales Intelligence Data Flow v1 - Context Propagation
+
+
+Sales context проведён через существующий
+recommendation → planning → action flow.
+
+
+Добавлено:
+
+
+- sales_context в sales recommendation
+- сохранение context в AssistantPlanningService
+- сохранение profits и previous_result до Action Generator
+- test_sales_intelligence_context_propagation.py
+- запись тестов в TEST_MAP.md
+
+
+Совместимость:
+
+
+- новые orchestration сервисы не создавались
+- AssistantTaskService не изменялся
+- Executor pipeline не изменялся
+- AssistantBusinessPlannerService не изменялся
+- AssistantActionGeneratorService не изменялся
+- constructor injection архитектура сохранена
+
+
+Проверка:
+
+
+- 2 isolated Sales Intelligence Context Propagation checks passed

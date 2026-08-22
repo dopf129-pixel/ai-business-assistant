@@ -705,3 +705,31 @@ Tests:
 - преобразование metrics и insights в details
 - проброс ошибки Sales Intelligence
 - обратную совместимость executor без injected service
+
+---
+
+# Sales Intelligence Context Propagation
+
+
+Services:
+
+
+- AssistantRecommendationService
+- AssistantPlanningService
+- AssistantActionGeneratorService
+
+
+Tests:
+
+
+- test_sales_intelligence_context_propagation.py
+
+
+Проверяет:
+
+
+- перенос sales_context из report в sales recommendation
+- сохранение profits и previous_result при построении plan
+- сохранение sales context при генерации Action
+- отсутствие обратной мутации recommendation context при enrichment Action
+- отсутствие изменений Task Service и Executor pipeline

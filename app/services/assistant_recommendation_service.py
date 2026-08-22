@@ -25,6 +25,15 @@ class AssistantRecommendationService:
                     "message":
                         (
                             "Проверить причины падения продаж"
+                        ),
+
+                    "context":
+                        dict(
+                            report.get(
+                                "sales_context"
+                            )
+                            or
+                            {}
                         )
                 }
             )
