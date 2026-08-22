@@ -1001,3 +1001,48 @@ Hardcoded sales report в AssistantEntryService заменён на данные
 
 - 5 isolated Stock Intelligence domain tests passed
 - полный pytest не запущен: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Stock Intelligence Integration v1
+
+
+StockIntelligenceService подключён к существующему
+AssistantStockExecutorService через constructor injection.
+
+
+Добавлено:
+
+
+- optional DI-зависимость Stock Intelligence в Stock Executor
+- передача stock_data, sales_data и period_days из Action context
+- преобразование Stock Intelligence результата в существующий details contract
+- test_stock_intelligence_executor_integration.py
+- запись интеграционных тестов в TEST_MAP.md
+
+
+Совместимость:
+
+
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- AssistantPlanningService не изменялся
+- AssistantActionGeneratorService не изменялся
+- executor response contract сохранён
+- legacy behavior без injected service сохранён
+- Context Propagation, Production Wiring и Business Data Input не реализовывались
+
+
+Проверка:
+
+
+- 3 isolated Stock Intelligence Integration tests passed
+- полный pytest не запускался: runtime не имеет network checkout репозитория

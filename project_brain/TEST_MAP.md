@@ -829,3 +829,32 @@ Tests:
 - no sales case без деления на ноль
 - empty/missing data contract
 - отсутствие API clients, repositories и Action pipeline dependencies внутри domain service
+
+---
+
+# Stock Intelligence Integration
+
+
+Services:
+
+
+- StockIntelligenceService
+- AssistantStockExecutorService
+
+
+Tests:
+
+
+- test_stock_intelligence_executor_integration.py
+
+
+Проверяет:
+
+
+- constructor injection Stock Intelligence в Stock Executor
+- передачу stock_data, sales_data и period_days из Action context
+- вызов StockIntelligenceService через существующий Stock Executor
+- сохранение существующего executor response contract
+- преобразование Stock Intelligence результата в details
+- обратную совместимость executor без injected service
+- отсутствие изменений Task Service, Action Execution, Router, Planning и Action Generator
