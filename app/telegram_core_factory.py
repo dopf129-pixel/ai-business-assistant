@@ -118,6 +118,10 @@ from services.finance_service import (
     FinanceService
 )
 
+from services.metrics_service import (
+    MetricsService
+)
+
 from services.cost_service import (
     ProductCostService
 )
@@ -188,7 +192,8 @@ def create_telegram_core():
             tax_mode="NONE",
             tax_rate=0,
             minimum_tax_rate=0,
-            advertising_cost=0
+            advertising_cost=0,
+            finance_service=FinanceService()
         )
     )
 
@@ -391,6 +396,9 @@ def create_telegram_core():
             ),
             analytics_service=(
                 store_analytics
+            ),
+            metrics_service=(
+                MetricsService()
             )
         )
     )

@@ -1146,3 +1146,50 @@ existing AssistantActionRouterService
 
 - production wiring test добавлен
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Stock Intelligence Business Data Input v1
+
+
+Реальные stock и sales данные подключены к существующему Stock Intelligence workflow через AssistantEntryService.
+
+
+Добавлено:
+
+
+- optional constructor injection MetricsService в AssistantEntryService
+- получение FBO available stock через существующий MetricsService
+- получение sales_count за текущий период через StoreAnalyticsService.analyze_finance()
+- подключение FinanceService к существующему StoreAnalyticsService в production composition root
+- формирование report.stock_context с stock_data, sales_data и period_days
+- определение low_stock на основе покрытия текущего периода
+- безопасный fallback без stock recommendation при недоступных stock data
+- test_stock_intelligence_business_data_input.py
+- запись пользовательского data-input пути в TEST_MAP.md
+
+
+Совместимость:
+
+
+- новые сервисы, repositories и API clients не создавались
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- AssistantStockExecutorService не изменялся
+- StockIntelligenceService не изменялся
+- Action pipeline не изменялся
+
+
+Проверка:
+
+
+- isolated Stock Intelligence Business Data Input tests добавлены
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
