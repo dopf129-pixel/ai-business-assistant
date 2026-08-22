@@ -172,6 +172,9 @@ AI Business Assistant
 [x] History response formatting
 
 
+[x] Sales Intelligence Service foundation
+
+
 
 ---
 

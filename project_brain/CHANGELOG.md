@@ -722,3 +722,49 @@ Next task:
 
 
 Documentation Drift Detection
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Sales Intelligence Service Foundation
+
+
+Создан первый domain service для Sales Intelligence Workflow.
+
+
+Добавлено:
+
+
+- SalesIntelligenceService
+- constructor injection аналитического сервиса
+- нормализация ключевых sales metrics
+- поддержка comparison context
+- базовые insights для роста, снижения и стабильных продаж
+- test_sales_intelligence_service.py
+- запись в TEST_MAP.md
+
+
+Ограничения этапа:
+
+
+- существующие orchestration сервисы не изменялись
+- AssistantSalesExecutorService не подключался
+- Action/Executor pipeline не изменялся
+
+
+Проверка:
+
+
+- 3 isolated Sales Intelligence tests passed
+
+
+Next:
+
+
+Подключение Sales Intelligence Service к существующему Sales Executor отдельным этапом.

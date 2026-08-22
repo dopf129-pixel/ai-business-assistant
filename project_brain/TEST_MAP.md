@@ -650,3 +650,30 @@ Tests:
 - сохранение существующей истории
 - append-only обновления документации
 - подготовку документационных изменений агентом
+
+---
+
+# Sales Intelligence
+
+
+Service:
+
+
+SalesIntelligenceService
+
+
+Tests:
+
+
+- test_sales_intelligence_service.py
+
+
+Проверяет:
+
+
+- constructor injection аналитического сервиса
+- нормализацию sales metrics
+- передачу previous period context
+- формирование sales decline insight
+- безопасный проброс ошибки аналитического слоя
+- отсутствие зависимости от Action/Executor orchestration
