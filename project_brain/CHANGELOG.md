@@ -956,3 +956,48 @@ Hardcoded sales report в AssistantEntryService заменён на данные
 
 - пользовательский integration test добавлен
 - полный pytest и isolated pytest не запущены: среда не может разрешить github.com для checkout ветки
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Stock Intelligence Foundation v1
+
+
+Создан независимый domain service для базового анализа товарных остатков.
+
+
+Добавлено:
+
+
+- StockIntelligenceService
+- constructor-injected thresholds для reorder policy
+- расчёт current_stock, sales_velocity и days_of_stock
+- приоритеты CRITICAL/HIGH/MEDIUM/LOW
+- безопасные состояния NO_SALES и UNKNOWN
+- test_stock_intelligence_service.py с пятью domain scenarios
+- запись сервиса и тестов в TEST_MAP.md
+
+
+Ограничения этапа:
+
+
+- AssistantStockExecutorService не изменялся
+- AssistantEntryService не изменялся
+- AssistantRecommendationService не изменялся
+- Router не изменялся
+- Task/Action pipeline не изменялся
+- telegram_core_factory.py не изменялся
+- API clients и repositories внутри StockIntelligenceService не создаются
+
+
+Проверка:
+
+
+- 5 isolated Stock Intelligence domain tests passed
+- полный pytest не запущен: runtime не может разрешить github.com для checkout репозитория

@@ -801,3 +801,31 @@ Tests:
 - нормализацию существующего SQLite product tuple на data-input boundary
 - обратную совместимость AssistantEntryService без data dependencies
 - отсутствие изменений Task/Action/Executor pipeline
+
+---
+
+# Stock Intelligence Foundation
+
+
+Service:
+
+
+StockIntelligenceService
+
+
+Tests:
+
+
+- test_stock_intelligence_service.py
+
+
+Проверяет:
+
+
+- расчёт current_stock из подготовленных stock data
+- расчёт sales_velocity по sales_count и period_days
+- расчёт days_of_stock
+- классификацию CRITICAL/HIGH/MEDIUM/LOW reorder priority
+- no sales case без деления на ноль
+- empty/missing data contract
+- отсутствие API clients, repositories и Action pipeline dependencies внутри domain service
