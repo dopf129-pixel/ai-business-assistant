@@ -106,6 +106,26 @@ from services.store_analytics_service import (
     StoreAnalyticsService
 )
 
+from services.product_service import (
+    ProductService
+)
+
+from services.finance_service import (
+    FinanceService
+)
+
+from services.cost_service import (
+    ProductCostService
+)
+
+from services.profit_service import (
+    ProfitService
+)
+
+from services.store_period_profit_service import (
+    StorePeriodProfitService
+)
+
 from services.retry_policy_service import (
     RetryPolicyService
 )
@@ -329,9 +349,36 @@ def create_telegram_core():
     )
 
 
+    product_service = (
+        ProductService()
+    )
+
+
+    period_profit_service = (
+        StorePeriodProfitService(
+            finance_service=(
+                FinanceService()
+            ),
+            cost_service=(
+                ProductCostService()
+            ),
+            profit_service=(
+                ProfitService()
+            )
+        )
+    )
+
+
     entry = (
         AssistantEntryService(
-            main_flow_service=main_flow
+            main_flow_service=main_flow,
+            product_service=product_service,
+            period_profit_service=(
+                period_profit_service
+            ),
+            analytics_service=(
+                store_analytics
+            )
         )
     )
 

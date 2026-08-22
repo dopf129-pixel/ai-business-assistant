@@ -768,3 +768,36 @@ Tests:
 - доступ production-wired Sales Executor через существующий Router
 - выполнение sales action через production wiring
 - отсутствие изменений Task Service, Action Execution и Router
+
+---
+
+# Sales Intelligence Business Data Input
+
+
+Services:
+
+
+- AssistantEntryService
+- ProductService
+- StorePeriodProfitService
+- StoreAnalyticsService
+
+
+Tests:
+
+
+- test_sales_intelligence_business_data_input.py
+
+
+Проверяет:
+
+
+- пользовательский запрос начинается с AssistantEntryService
+- загрузку product data через injected ProductService
+- расчёт profits текущего и предыдущего периода через injected StorePeriodProfitService
+- формирование sales_down из реального period comparison contract
+- добавление profits и previous_result в report.sales_context
+- сохранение sales_context через recommendation → planning → action generation
+- нормализацию существующего SQLite product tuple на data-input boundary
+- обратную совместимость AssistantEntryService без data dependencies
+- отсутствие изменений Task/Action/Executor pipeline
