@@ -54,6 +54,15 @@ class AssistantRecommendationService:
                     "message":
                         (
                             "Проверить остатки товара"
+                        ),
+
+                    "context":
+                        dict(
+                            report.get(
+                                "stock_context"
+                            )
+                            or
+                            {}
                         )
                 }
             )
