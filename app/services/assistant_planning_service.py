@@ -76,6 +76,15 @@ class AssistantPlanningService:
                     "type":
                         item.get(
                             "type"
+                        ),
+
+                    "context":
+                        dict(
+                            item.get(
+                                "context"
+                            )
+                            or
+                            {}
                         )
 
                 }

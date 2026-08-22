@@ -98,6 +98,14 @@ from services.assistant_marketing_executor_service import (
     AssistantMarketingExecutorService
 )
 
+from services.sales_intelligence_service import (
+    SalesIntelligenceService
+)
+
+from services.store_analytics_service import (
+    StoreAnalyticsService
+)
+
 from services.retry_policy_service import (
     RetryPolicyService
 )
@@ -151,8 +159,31 @@ def create_telegram_core():
     )
 
 
+    store_analytics = (
+        StoreAnalyticsService(
+            tax_mode="NONE",
+            tax_rate=0,
+            minimum_tax_rate=0,
+            advertising_cost=0
+        )
+    )
+
+
+    sales_intelligence = (
+        SalesIntelligenceService(
+            analytics_service=(
+                store_analytics
+            )
+        )
+    )
+
+
     sales_executor = (
-        AssistantSalesExecutorService()
+        AssistantSalesExecutorService(
+            sales_intelligence_service=(
+                sales_intelligence
+            )
+        )
     )
 
 
