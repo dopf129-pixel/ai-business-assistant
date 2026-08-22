@@ -677,3 +677,31 @@ Tests:
 - формирование sales decline insight
 - безопасный проброс ошибки аналитического слоя
 - отсутствие зависимости от Action/Executor orchestration
+
+---
+
+# Sales Intelligence Integration
+
+
+Services:
+
+
+- SalesIntelligenceService
+- AssistantSalesExecutorService
+
+
+Tests:
+
+
+- test_sales_intelligence_executor_integration.py
+
+
+Проверяет:
+
+
+- constructor injection Sales Intelligence в Sales Executor
+- передачу profits и previous_result из Action context
+- сохранение существующего executor contract
+- преобразование metrics и insights в details
+- проброс ошибки Sales Intelligence
+- обратную совместимость executor без injected service

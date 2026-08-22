@@ -768,3 +768,45 @@ Next:
 
 
 Подключение Sales Intelligence Service к существующему Sales Executor отдельным этапом.
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Sales Intelligence Integration v1
+
+
+SalesIntelligenceService подключён к существующему
+AssistantSalesExecutorService через constructor injection.
+
+
+Добавлено:
+
+
+- DI-зависимость Sales Intelligence в Sales Executor
+- передача profits и previous_result из Action context
+- преобразование sales metrics и insights в существующий details contract
+- безопасный проброс ошибки domain service
+- test_sales_intelligence_executor_integration.py
+- запись интеграционных тестов в TEST_MAP.md
+
+
+Совместимость:
+
+
+- Task Service не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- executor response contract сохранён
+- legacy behavior без injected service сохранён
+
+
+Проверка:
+
+
+- 3 isolated Sales Intelligence Integration tests passed

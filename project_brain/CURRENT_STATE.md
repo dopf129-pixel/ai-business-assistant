@@ -175,6 +175,9 @@ AI Business Assistant
 [x] Sales Intelligence Service foundation
 
 
+[x] Sales Intelligence Integration v1
+
+
 
 ---
 
