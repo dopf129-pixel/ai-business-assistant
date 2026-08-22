@@ -102,6 +102,10 @@ from services.sales_intelligence_service import (
     SalesIntelligenceService
 )
 
+from services.stock_intelligence_service import (
+    StockIntelligenceService
+)
+
 from services.store_analytics_service import (
     StoreAnalyticsService
 )
@@ -207,8 +211,17 @@ def create_telegram_core():
     )
 
 
+    stock_intelligence = (
+        StockIntelligenceService()
+    )
+
+
     stock_executor = (
-        AssistantStockExecutorService()
+        AssistantStockExecutorService(
+            stock_intelligence_service=(
+                stock_intelligence
+            )
+        )
     )
 
 
