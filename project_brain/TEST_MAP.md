@@ -733,3 +733,38 @@ Tests:
 - сохранение sales context при генерации Action
 - отсутствие обратной мутации recommendation context при enrichment Action
 - отсутствие изменений Task Service и Executor pipeline
+
+---
+
+# Sales Intelligence Production Wiring
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Services:
+
+
+- StoreAnalyticsService
+- SalesIntelligenceService
+- AssistantSalesExecutorService
+
+
+Tests:
+
+
+- test_sales_intelligence_production_wiring.py
+
+
+Проверяет:
+
+
+- создание StoreAnalyticsService в production composition root
+- constructor injection analytics service в SalesIntelligenceService
+- constructor injection SalesIntelligenceService в AssistantSalesExecutorService
+- доступ production-wired Sales Executor через существующий Router
+- выполнение sales action через production wiring
+- отсутствие изменений Task Service, Action Execution и Router

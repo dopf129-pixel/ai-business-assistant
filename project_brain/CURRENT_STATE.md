@@ -181,6 +181,9 @@ AI Business Assistant
 [x] Sales Intelligence Data Flow v1 - Context Propagation
 
 
+[x] Sales Intelligence Production Wiring v1
+
+
 
 ---
 

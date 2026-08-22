@@ -852,3 +852,61 @@ recommendation → planning → action flow.
 
 
 - 2 isolated Sales Intelligence Context Propagation checks passed
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Sales Intelligence Production Wiring v1
+
+
+Sales Intelligence подключён в production composition root.
+
+
+Добавлено:
+
+
+- StoreAnalyticsService создаётся в telegram_core_factory.py
+- SalesIntelligenceService получает analytics service через constructor injection
+- AssistantSalesExecutorService получает SalesIntelligenceService через constructor injection
+- test_sales_intelligence_production_wiring.py
+- production wiring tests добавлены в TEST_MAP.md
+
+
+Архитектура:
+
+
+StoreAnalyticsService
+
+↓
+
+SalesIntelligenceService
+
+↓
+
+AssistantSalesExecutorService
+
+↓
+
+existing AssistantActionRouterService
+
+
+Совместимость:
+
+
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- новый orchestration слой не создавался
+
+
+Проверка:
+
+
+- production wiring integration tests добавлены
+- полный pytest в текущей среде не запускался
