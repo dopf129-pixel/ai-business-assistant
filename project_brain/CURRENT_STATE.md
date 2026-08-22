@@ -184,6 +184,9 @@ AI Business Assistant
 [x] Sales Intelligence Production Wiring v1
 
 
+[x] Sales Intelligence Business Data Input v1
+
+
 
 ---
 

@@ -910,3 +910,49 @@ existing AssistantActionRouterService
 
 - production wiring integration tests добавлены
 - полный pytest в текущей среде не запускался
+
+
+---
+
+## 2026-08-22
+
+
+## Added
+
+
+### Sales Intelligence Business Data Input v1
+
+
+Hardcoded sales report в AssistantEntryService заменён на данные,
+получаемые через существующий production data layer.
+
+
+Добавлено:
+
+
+- optional constructor injection ProductService, StorePeriodProfitService и StoreAnalyticsService в AssistantEntryService
+- загрузка products через существующий ProductService
+- расчёт profits текущего и предыдущего периода через StorePeriodProfitService
+- формирование previous_result через существующий StoreAnalyticsService
+- определение sales_down из сравнения выручки периодов
+- формирование report.sales_context с profits и previous_result
+- production wiring существующих Product/Finance/Cost/Profit services в telegram_core_factory.py
+- test_sales_intelligence_business_data_input.py
+- запись пользовательского data-input пути в TEST_MAP.md
+
+
+Совместимость:
+
+
+- новые сервисы не создавались
+- orchestration не изменялся
+- AssistantTaskService не изменялся
+- Action/Executor pipeline не изменялся
+- прежний hardcoded report сохраняется как fallback без injected data dependencies
+
+
+Проверка:
+
+
+- пользовательский integration test добавлен
+- полный pytest и isolated pytest не запущены: среда не может разрешить github.com для checkout ветки
