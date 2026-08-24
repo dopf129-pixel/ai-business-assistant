@@ -1169,3 +1169,39 @@ Tests:
 - поддержку нескольких SKU
 - сохранение существующего ProductProfitabilityProvider contract
 - отсутствие изменений Entry/Recommendation/Planning/Action/Executor workflow
+
+---
+
+# Product Unit Economics Query v1
+
+
+Services:
+
+
+- ProductUnitEconomicsQueryService
+- ProductService
+- StorePeriodProfitService
+- ProductUnitEconomicsProvider
+- TaxService
+
+
+Tests:
+
+
+- test_product_unit_economics_query.py
+
+
+Проверяет:
+
+
+- поиск SKU через существующий ProductService contract
+- выбор только запрошенного SKU для period-profit calculation
+- преобразование aggregate product economics в показатели на одну проданную единицу
+- unit_price, cost, marketplace_fees, tax, net_profit_per_unit и margin_percent
+- SKU_NOT_FOUND при отсутствии товара
+- безопасный unavailable contract при отсутствии finance/cost data или продаж
+- missing_fields без подстановки неизвестных расходов нулями
+- форматирование advertising, storage, returns и неизвестного tax как «—»
+- сохранение ProductProfitabilityProvider contract
+- отсутствие изменений Entry/Recommendation/Planning/Action/Executor workflow
+- отсутствие Cross-Domain логики и нового data layer

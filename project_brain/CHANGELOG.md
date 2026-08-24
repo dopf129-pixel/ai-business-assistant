@@ -1498,7 +1498,6 @@ prepared product-level finance metrics
 - domain/integration tests добавлены для product metrics, missing/incomplete data и contract preservation
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
 
-
 ---
 
 ## 2026-08-24
@@ -1565,4 +1564,80 @@ prepared SKU unit economics
 
 
 - 5 isolated Product Unit Economics tests passed
+- полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Product Unit Economics Query v1
+
+
+Добавлен узкий backend query boundary для получения unit economics конкретного SKU без нового workflow и без изменений Intelligence/Action pipeline.
+
+
+Добавлено:
+
+
+- ProductUnitEconomicsQueryService
+- поиск SKU через существующий ProductService contract
+- расчёт period profit только для выбранного SKU через существующий StorePeriodProfitService
+- переиспользование ProductUnitEconomicsProvider без дублирования finance/tax расчётов
+- преобразование aggregate SKU metrics в unit_price, cost, marketplace_fees, tax и net_profit_per_unit
+- missing_fields для advertising, storage, returns и недоступного tax
+- текстовый formatter для будущего Telegram UI с отображением неизвестных значений как «—»
+- test_product_unit_economics_query.py
+- запись query tests в TEST_MAP.md
+
+
+Архитектура:
+
+
+ProductService
+
+↓
+
+ProductUnitEconomicsQueryService
+
+↓
+
+StorePeriodProfitService
+
+↓
+
+ProductUnitEconomicsProvider
+
+↓
+
+prepared + formatted unit economics response
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- Sales/Stock/Finance Intelligence services не изменялись
+- ProductUnitEconomicsProvider contract не изменялся
+- новые repositories, API clients и orchestration layers не создавались
+- Cross-Domain Decisions не реализовывались
+- Telegram UI не добавлялся
+
+
+Ограничения:
+
+
+- advertising, storage и returns не имеют SKU attribution и показываются как «—»
+- production tax policy source отсутствует; query boundary не подключён к Telegram/core с hardcoded tax_mode="NONE", чтобы не показывать искусственный нулевой налог
+
+
+Проверка:
+
+
+- 8 isolated Product Unit Economics Query checks passed
 - полный pytest не запускался в текущей среде

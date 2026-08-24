@@ -223,6 +223,9 @@ AI Business Assistant
 [x] Product Unit Economics Foundation v1.1
 
 
+[x] Product Unit Economics Query v1
+
+
 
 ---
 
