@@ -43,16 +43,15 @@ def _price_response():
                 "product_id": 3921245627,
                 "offer_id": "hook-2",
                 "price": {
-                    "price": 95,
+                    "price": 76,
                     "marketing_seller_price": 95
                 },
-                "commissions": [
-                    {
-                        "sale_schema": "FBO",
-                        "percent": 14,
-                        "fbo_deliv_to_customer_amount": 19.32
-                    }
-                ]
+                "commissions": {
+                    "sales_percent_fbo": 14,
+                    "fbo_deliv_to_customer_amount": 19.32,
+                    "fbo_direct_flow_trans_min_amount": 31,
+                    "fbo_direct_flow_trans_max_amount": 46.5
+                }
             }
         ]
     }
@@ -74,10 +73,11 @@ def test_source_uses_current_seller_price_and_commission():
     assert result["seller_price"] == 95.0
     assert result["commission_rate"] == 14.0
     assert result["commission_amount"] == 13.3
-    assert result["logistics"] == 19.32
-    assert result["last_mile"] is None
+    assert result["logistics"] is None
+    assert result["last_mile"] == 19.32
     assert result["buyout_rate"] is None
-    assert "last_mile" in result["missing_data"]
+    assert "logistics" in result["missing_data"]
+    assert "last_mile" not in result["missing_data"]
     assert "buyout_rate" in result["missing_data"]
     assert ozon.calls == [
         {
@@ -88,23 +88,36 @@ def test_source_uses_current_seller_price_and_commission():
 
 
 def test_source_prefers_marketing_seller_price():
-    response = _price_response()
-    response["items"][0]["price"][
-        "price"
-    ] = 76
-    response["items"][0]["price"][
-        "marketing_seller_price"
-    ] = 95
-
     source = CurrentProductEconomicsSource(
         ozon_client=FakeOzonClient(
-            response
+            _price_response()
         )
     )
 
     result = source.get("hook-2")
 
     assert result["seller_price"] == 95.0
+
+
+def test_source_supports_legacy_commission_list_shape():
+    response = _price_response()
+    response["items"][0]["commissions"] = [
+        {
+            "sale_schema": "FBO",
+            "percent": 14,
+            "fbo_deliv_to_customer_amount": 19.32
+        }
+    ]
+
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(response)
+    )
+
+    result = source.get("hook-2")
+
+    assert result["commission_rate"] == 14.0
+    assert result["commission_amount"] == 13.3
+    assert result["last_mile"] == 19.32
 
 
 def test_source_calculates_recent_acquiring_average():
@@ -152,7 +165,7 @@ def test_source_keeps_unknown_values_as_none():
                         "product_id": 1,
                         "offer_id": "sku-1",
                         "price": {},
-                        "commissions": []
+                        "commissions": {}
                     }
                 ]
             }
@@ -164,6 +177,7 @@ def test_source_keeps_unknown_values_as_none():
     assert result["seller_price"] is None
     assert result["commission_amount"] is None
     assert result["logistics"] is None
+    assert result["last_mile"] is None
     assert result["acquiring_average"] is None
     assert result["buyout_rate"] is None
     assert "current_price" in result[
