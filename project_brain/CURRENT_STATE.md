@@ -205,6 +205,9 @@ AI Business Assistant
 [x] Finance Intelligence Foundation v1
 
 
+[x] Finance Intelligence Executor Integration v1
+
+
 
 ---
 

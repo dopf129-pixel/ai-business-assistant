@@ -982,3 +982,32 @@ Tests:
 - обнаружение роста расходов относительно предыдущего периода
 - безопасный contract при отсутствии данных
 - отсутствие dependencies на repositories, API clients и Action/Task/Executor pipeline
+
+---
+
+# Finance Intelligence Executor Integration
+
+
+Services:
+
+
+- FinanceIntelligenceService
+- AssistantFinanceExecutorService
+
+
+Tests:
+
+
+- test_finance_intelligence_executor_integration.py
+
+
+Проверяет:
+
+
+- constructor injection FinanceIntelligenceService в Finance Executor
+- передачу finance_data и previous_data из Action context
+- вызов FinanceIntelligenceService через Finance Executor
+- сохранение существующего executor response contract
+- преобразование finance metrics и insights в details
+- fallback без injected FinanceIntelligenceService
+- отсутствие изменений Task Service, Action Execution, Router, Planning, Sales и Stock workflow
