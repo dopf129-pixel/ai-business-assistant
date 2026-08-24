@@ -154,6 +154,10 @@ from services.store_period_profit_service import (
     StorePeriodProfitService
 )
 
+from services.tax_configuration_service import (
+    TaxConfigurationService
+)
+
 from services.retry_policy_service import (
     RetryPolicyService
 )
@@ -172,7 +176,9 @@ from services.assistant_memory_service import (
 
 
 
-def create_telegram_core():
+def create_telegram_core(
+    tax_configuration_service=None
+):
 
 
     retry_policy = (
@@ -207,11 +213,47 @@ def create_telegram_core():
     )
 
 
+    tax_configuration = (
+        tax_configuration_service
+        or TaxConfigurationService()
+    )
+
+
+    tax_configuration_result = (
+        tax_configuration.get_policy()
+    )
+
+
+    tax_policy = (
+        tax_configuration_result.get(
+            "policy"
+        )
+        if tax_configuration_result.get(
+            "configured"
+        )
+        else None
+    )
+
+
     store_analytics = (
         StoreAnalyticsService(
-            tax_mode="NONE",
-            tax_rate=0,
-            minimum_tax_rate=0,
+            tax_mode=(
+                tax_policy.get("mode")
+                if tax_policy
+                else None
+            ),
+            tax_rate=(
+                tax_policy.get("tax_rate")
+                if tax_policy
+                else 0
+            ),
+            minimum_tax_rate=(
+                tax_policy.get(
+                    "minimum_tax_rate"
+                )
+                if tax_policy
+                else 0
+            ),
             advertising_cost=0,
             finance_service=FinanceService()
         )
@@ -567,6 +609,9 @@ def create_telegram_core():
             feedback_service,
 
         "memory_service":
-            memory_service
+            memory_service,
+
+        "tax_configuration":
+            tax_configuration
 
     }

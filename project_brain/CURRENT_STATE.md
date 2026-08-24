@@ -226,6 +226,9 @@ AI Business Assistant
 [x] Product Unit Economics Query v1
 
 
+[x] Tax Configuration Foundation v1
+
+
 
 ---
 

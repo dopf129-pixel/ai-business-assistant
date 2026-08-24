@@ -41,19 +41,48 @@ class BusinessProfitService:
             )
         )
 
-        tax_amount = float(
-            tax.get(
-                "tax_amount",
-                0
-            )
-        )
-
         advertising_cost = float(
             advertising_cost or 0
         )
 
         other_expenses = float(
             other_expenses or 0
+        )
+
+        if (
+            tax.get("configured") is False
+            or tax.get("tax_amount") is None
+        ):
+
+            return {
+                "error": False,
+                "configured": False,
+                "gross_sales": round(
+                    gross_sales,
+                    2
+                ),
+                "gross_profit": round(
+                    gross_profit,
+                    2
+                ),
+                "tax_amount": None,
+                "advertising_cost": round(
+                    advertising_cost,
+                    2
+                ),
+                "other_expenses": round(
+                    other_expenses,
+                    2
+                ),
+                "business_profit": None,
+                "margin_percent": None
+            }
+
+        tax_amount = float(
+            tax.get(
+                "tax_amount",
+                0
+            )
         )
 
         business_profit = (
@@ -75,6 +104,7 @@ class BusinessProfitService:
 
         return {
             "error": False,
+            "configured": True,
             "gross_sales": round(
                 gross_sales,
                 2

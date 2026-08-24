@@ -1205,3 +1205,41 @@ Tests:
 - сохранение ProductProfitabilityProvider contract
 - отсутствие изменений Entry/Recommendation/Planning/Action/Executor workflow
 - отсутствие Cross-Domain логики и нового data layer
+
+---
+
+# Tax Configuration Foundation v1
+
+
+Services:
+
+
+- TaxConfigurationService
+- TaxService
+- ProductUnitEconomicsProvider
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Tests:
+
+
+- test_tax_configuration_foundation.py
+
+
+Проверяет:
+
+
+- сохранение и загрузку tax policy в data/tax_configuration.json
+- различие между отсутствующей конфигурацией и явным NONE
+- USN_INCOME с configurable tax_rate
+- USN_INCOME_MINUS_EXPENSES с minimum tax rate
+- явный NONE как сохранённую пользовательскую policy
+- безопасный unconfigured contract без скрытого tax=0
+- ProductUnitEconomicsProvider возвращает tax/net profit как None при неизвестной policy
+- production factory получает tax policy через DI вместо hardcoded tax_mode=NONE
+- сохранение sales, stock и finance executor mappings

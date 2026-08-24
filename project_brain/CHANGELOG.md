@@ -997,7 +997,6 @@ Hardcoded sales report в AssistantEntryService заменён на данные
 
 Проверка:
 
-
 - 5 isolated Stock Intelligence domain tests passed
 - полный pytest не запущен: runtime не может разрешить github.com для checkout репозитория
 
@@ -1641,3 +1640,79 @@ prepared + formatted unit economics response
 
 - 8 isolated Product Unit Economics Query checks passed
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Tax Configuration Foundation v1
+
+
+Добавлен явный источник налоговой политики для production wiring и будущего Product Unit Economics UI.
+
+
+Добавлено:
+
+
+- TaxConfigurationService
+- persistence tax policy в data/tax_configuration.json
+- supported modes USN_INCOME, USN_INCOME_MINUS_EXPENSES и NONE через существующий TaxService
+- различие между отсутствующей policy и явным NONE
+- optional DI TaxConfigurationService в create_telegram_core()
+- удалён скрытый hardcoded tax_mode="NONE" из production factory
+- test_tax_configuration_foundation.py
+- запись Tax Configuration tests в TEST_MAP.md
+
+
+Архитектура:
+
+
+Tax Configuration
+
+↓
+
+Tax Policy
+
+↓
+
+TaxService
+
+↓
+
+ProductUnitEconomicsProvider
+
+↓
+
+Product Unit Economics Query
+
+
+Безопасность данных:
+
+
+- отсутствие tax configuration возвращает configured=False и policy=None
+- NONE появляется только после явного save_policy(mode="NONE")
+- ProductUnitEconomicsProvider при unknown tax сохраняет tax/net_profit/profit_per_unit/margin_percent как None
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- ProductUnitEconomicsProvider contract не изменялся
+- Sales/Stock/Finance executor mappings сохранены
+- новые repositories, API clients, Intelligence services и workflows не создавались
+- Telegram UI и Cross-Domain Decisions не реализовывались
+
+
+Проверка:
+
+
+- 5 isolated Tax Configuration domain checks passed
+- production factory integration test добавлен
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

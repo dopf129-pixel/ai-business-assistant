@@ -17,7 +17,19 @@ class TaxService:
         minimum_tax_rate=1.0
     ):
 
-        mode = str(mode or "").upper()
+        if mode is None or str(mode).strip() == "":
+
+            return {
+                "error": False,
+                "configured": False,
+                "mode": None,
+                "mode_name": "Не настроен",
+                "tax_base": None,
+                "tax_rate": None,
+                "tax_amount": None
+            }
+
+        mode = str(mode).upper()
 
         revenue = float(
             revenue or 0
@@ -40,6 +52,7 @@ class TaxService:
 
             return {
                 "error": False,
+                "configured": True,
                 "mode": mode,
                 "mode_name": (
                     self.SUPPORTED_MODES[mode]
@@ -70,6 +83,7 @@ class TaxService:
 
             return {
                 "error": False,
+                "configured": True,
                 "mode": mode,
                 "mode_name": (
                     self.SUPPORTED_MODES[mode]
@@ -125,6 +139,7 @@ class TaxService:
 
             return {
                 "error": False,
+                "configured": True,
                 "mode": mode,
                 "mode_name": (
                     self.SUPPORTED_MODES[mode]
