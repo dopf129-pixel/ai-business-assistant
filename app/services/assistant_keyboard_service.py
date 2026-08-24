@@ -26,6 +26,31 @@ class AssistantKeyboardService:
                 {
                     "text": "🧠 Память",
                     "callback": "memory"
+                },
+                {
+                    "text": "💰 Юнит-экономика товаров",
+                    "callback": "unit_economics"
                 }
+            ]
+        }
+
+
+    def build_unit_economics_keyboard(
+        self,
+        skus
+    ):
+
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": str(sku),
+                    "callback": (
+                        "unit_economics:"
+                        + str(sku)
+                    )
+                }
+                for sku in (skus or [])
             ]
         }

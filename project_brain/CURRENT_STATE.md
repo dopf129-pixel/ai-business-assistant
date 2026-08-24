@@ -232,6 +232,9 @@ AI Business Assistant
 [x] Product Unit Economics Production Wiring v1
 
 
+[x] Product Unit Economics Telegram UI v1
+
+
 
 ---
 

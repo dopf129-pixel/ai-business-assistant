@@ -1197,7 +1197,6 @@ existing AssistantActionRouterService
 
 ## 2026-08-24
 
-
 ## Added
 
 
@@ -1788,3 +1787,79 @@ SKU Unit Economics
 
 - production wiring test добавлен
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Product Unit Economics Telegram UI v1
+
+
+Existing Product Unit Economics Query подключён к существующему Telegram callback boundary без новой бизнес-логики.
+
+
+Добавлено:
+
+
+- кнопка «💰 Юнит-экономика товаров» в AssistantKeyboardService
+- inline SKU selection keyboard с callback unit_economics:<sku>
+- обработка меню и выбора SKU в существующем AssistantButtonHandlerService
+- вызов production-wired ProductUnitEconomicsQueryService.query(sku)
+- использование существующего ProductUnitEconomicsQueryService.format_response()
+- передача unit_economics_query из telegram_core_factory через telegram_assistant_factory
+- поддержка inline keyboard в callback response telegram_api_bot.py
+- tests/test_product_unit_economics_telegram_ui.py
+- обновление существующего test_assistant_keyboard_flow.py
+
+
+Архитектура:
+
+
+Telegram UI
+
+↓
+
+AssistantButtonHandlerService
+
+↓
+
+ProductUnitEconomicsQueryService
+
+↓
+
+ProductUnitEconomicsProvider
+
+↓
+
+Formatted Unit Economics Response
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- Sales/Stock/Finance workflows не изменялись
+- ProductUnitEconomicsProvider и ProductUnitEconomicsQueryService contracts не изменялись
+- новые workflows, Intelligence services, repositories и API clients не создавались
+- Cross-Domain Decisions не реализовывались
+
+
+Отображение:
+
+
+- используется формулировка «Расчётная прибыль с 1 шт.»
+- advertising, storage и returns продолжают отображаться как «—»
+- неизвестный налог остаётся «—», а не 0
+
+
+Проверка:
+
+
+- isolated Telegram UI boundary scenarios passed
+- полный pytest не запускался в текущей среде

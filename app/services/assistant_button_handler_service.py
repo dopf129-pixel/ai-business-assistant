@@ -6,7 +6,9 @@ class AssistantButtonHandlerService:
         assistant,
         memory_service=None,
         history_service=None,
-        task_context_service=None
+        task_context_service=None,
+        keyboard_service=None,
+        unit_economics_query=None
     ):
 
         self.assistant = (
@@ -23,6 +25,14 @@ class AssistantButtonHandlerService:
 
         self.task_context_service = (
             task_context_service
+        )
+
+        self.keyboard_service = (
+            keyboard_service
+        )
+
+        self.unit_economics_query = (
+            unit_economics_query
         )
 
 
@@ -59,6 +69,30 @@ class AssistantButtonHandlerService:
         button_id,
         user_id=None
     ):
+
+
+
+        if button_id == "unit_economics":
+
+            return (
+                self._open_unit_economics_menu()
+            )
+
+
+        if button_id.startswith(
+            "unit_economics:"
+        ):
+
+            sku = button_id.split(
+                ":",
+                1
+            )[1]
+
+            return (
+                self._show_unit_economics(
+                    sku
+                )
+            )
 
 
 
@@ -190,3 +224,131 @@ class AssistantButtonHandlerService:
             "error": True,
             "message": "Кнопка неизвестна"
         }
+
+
+
+    def _open_unit_economics_menu(
+        self
+    ):
+
+        if (
+            not self.unit_economics_query
+            or not self.keyboard_service
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Юнит-экономика недоступна"
+                )
+            }
+
+
+        products = (
+            self.unit_economics_query
+            .product_service
+            .load_products()
+        )
+
+
+        skus = []
+
+
+        for product in (products or []):
+
+            sku = self._extract_sku(
+                product
+            )
+
+            if sku is not None:
+
+                skus.append(
+                    str(sku)
+                )
+
+
+        if not skus:
+
+            return {
+                "error": False,
+                "message": "Товары не найдены"
+            }
+
+
+        return {
+            "error": False,
+            "message": "Выберите товар:",
+            "keyboard": (
+                self.keyboard_service
+                .build_unit_economics_keyboard(
+                    skus
+                )
+            )
+        }
+
+
+
+    def _show_unit_economics(
+        self,
+        sku
+    ):
+
+        if not self.unit_economics_query:
+
+            return {
+                "error": True,
+                "message": (
+                    "Юнит-экономика недоступна"
+                )
+            }
+
+
+        result = (
+            self.unit_economics_query
+            .query(
+                sku
+            )
+        )
+
+
+        return {
+            "error": result.get(
+                "error",
+                False
+            ),
+            "message": (
+                self.unit_economics_query
+                .format_response(
+                    result
+                )
+            ),
+            "unit_economics": result
+        }
+
+
+
+    def _extract_sku(
+        self,
+        product
+    ):
+
+        if isinstance(
+            product,
+            dict
+        ):
+
+            return product.get(
+                "sku"
+            )
+
+
+        try:
+
+            return product[2]
+
+        except (
+            TypeError,
+            IndexError
+        ):
+
+            return None

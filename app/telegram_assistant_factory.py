@@ -78,6 +78,11 @@ def create_telegram_assistant():
     )
 
 
+    unit_economics_query = (
+        system["unit_economics_query"]
+    )
+
+
 
     telegram_memory = (
         AssistantTelegramMemoryService(
@@ -114,7 +119,11 @@ def create_telegram_assistant():
             assistant,
             telegram_memory,
             history_service,
-            task_context_service
+            task_context_service,
+            keyboard_service=keyboard,
+            unit_economics_query=(
+                unit_economics_query
+            )
         )
     )
 
@@ -189,6 +198,11 @@ def create_telegram_assistant():
 
     runner.button_handler = (
         button_handler
+    )
+
+
+    runner.unit_economics_query = (
+        unit_economics_query
     )
 
 

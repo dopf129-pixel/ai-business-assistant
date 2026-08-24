@@ -273,8 +273,14 @@ async def callback_handler(
     )
 
 
+    keyboard = build_keyboard(
+        result.get("keyboard")
+    )
+
+
     await query.message.reply_text(
-        response
+        response,
+        reply_markup=keyboard
     )
 
 
