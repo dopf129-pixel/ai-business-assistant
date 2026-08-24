@@ -1075,3 +1075,35 @@ Tests:
 - наличие finance executor в существующем Router registry
 - сохранение sales и stock executor mappings
 - отсутствие Finance Data Input и новых finance data dependencies
+
+---
+
+# Finance Intelligence Business Data Input
+
+
+Services:
+
+
+- AssistantEntryService
+- StorePeriodProfitService
+- FinanceAnalyticsService
+- ProfitService
+
+
+Tests:
+
+
+- test_finance_intelligence_business_data_input.py
+
+
+Проверяет:
+
+
+- использование existing current/previous period boundaries
+- получение реальных по contract period profits через StorePeriodProfitService
+- формирование finance_data и previous_data из gross_sales/gross_profit
+- расчёт expenses как revenue - profit и margin для каждого периода
+- сохранение finance_context в report
+- передачу finance_context через recommendation → planning → action.context
+- безопасное отсутствие finance recommendation при пустых finance data
+- отсутствие новых repositories, API clients и orchestration layers

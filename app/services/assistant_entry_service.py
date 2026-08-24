@@ -97,6 +97,13 @@ class AssistantEntryService:
 
         if sales_report:
 
+            if finance_context:
+
+                sales_report.pop(
+                    "finance_context",
+                    None
+                )
+
             report.update(
                 sales_report
             )
@@ -447,7 +454,7 @@ class AssistantEntryService:
         )
 
 
-        return {
+        result = {
             "sales_down": (
                 revenue_comparison.get(
                     "change_percent",
@@ -462,4 +469,113 @@ class AssistantEntryService:
                 ),
                 "previous_result": previous_result
             }
+        }
+
+
+        finance_data = (
+            self._build_finance_data(
+                current.get(
+                    "profits",
+                    []
+                )
+            )
+        )
+
+        previous_data = (
+            self._build_finance_data(
+                previous.get(
+                    "profits",
+                    []
+                )
+            )
+        )
+
+
+        if (
+            finance_data
+            and previous_data
+        ):
+
+            result[
+                "finance_context"
+            ] = {
+                "finance_data": finance_data,
+                "previous_data": previous_data
+            }
+
+
+        return result
+
+
+    def _build_finance_data(
+        self,
+        profits
+    ):
+
+
+        valid_profits = [
+            profit
+            for profit in (profits or [])
+            if not profit.get("error")
+        ]
+
+
+        if not valid_profits:
+
+            return None
+
+
+        revenue = sum(
+            float(
+                profit.get(
+                    "gross_sales",
+                    0
+                )
+                or 0
+            )
+            for profit in valid_profits
+        )
+
+        profit = sum(
+            float(
+                item.get(
+                    "gross_profit",
+                    0
+                )
+                or 0
+            )
+            for item in valid_profits
+        )
+
+        expenses = (
+            revenue
+            - profit
+        )
+
+        margin = (
+            profit
+            / revenue
+            * 100
+            if revenue
+            else 0
+        )
+
+
+        return {
+            "revenue": round(
+                revenue,
+                2
+            ),
+            "expenses": round(
+                expenses,
+                2
+            ),
+            "profit": round(
+                profit,
+                2
+            ),
+            "margin": round(
+                margin,
+                2
+            )
         }

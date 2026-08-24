@@ -1376,3 +1376,65 @@ Finance Intelligence подключён в production composition root чере�
 
 - production wiring test добавлен
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Business Data Input v1
+
+
+Реальные period-profit данные подключены к существующему Finance Intelligence workflow через AssistantEntryService.
+
+
+Добавлено:
+
+
+- формирование finance_context из уже рассчитанных current/previous StorePeriodProfitService profits
+- преобразование gross_sales и gross_profit в revenue, expenses, profit и margin
+- корректное использование отдельных current и previous date ranges
+- сохранение prepared finance_context как backward-compatible override
+- test_finance_intelligence_business_data_input.py
+- запись Finance Data Input flow в TEST_MAP.md
+
+
+Архитектура:
+
+
+StorePeriodProfitService
+
+↓
+
+AssistantEntryService
+
+↓
+
+finance_context
+
+↓
+
+existing recommendation → planning → action flow
+
+
+Ограничения этапа:
+
+
+- новые repositories, API clients и data services не создавались
+- FinanceIntelligenceService не изменялся
+- AssistantFinanceExecutorService не изменялся
+- Task/Action/Router/Planning pipeline не изменялся
+- Sales и Stock workflow не изменялись
+- tax/advertising/ExpenseRepository не используются в Finance v1 previous-period contract, чтобы не смешивать current-period BusinessAnalyticsService configuration с previous data
+- Cross-Domain Decisions и BusinessContextBuilder не реализовывались
+
+
+Проверка:
+
+
+- Finance Business Data Input integration tests добавлены
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

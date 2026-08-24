@@ -214,6 +214,9 @@ AI Business Assistant
 [x] Finance Intelligence Production Wiring v1
 
 
+[x] Finance Intelligence Business Data Input v1
+
+
 
 ---
 
