@@ -13,6 +13,13 @@ class ProductUnitEconomicsQueryService:
         "tax": "Налог"
     }
 
+    FEE_LABELS = {
+        "commission": "Комиссия",
+        "logistics": "Логистика",
+        "acquiring": "Эквайринг",
+        "other_fees": "Прочие удержания"
+    }
+
     def __init__(
         self,
         product_service,
@@ -93,6 +100,11 @@ class ProductUnitEconomicsQueryService:
         if tax is None:
             missing_fields.append("tax")
 
+        marketplace_fees = self._per_unit(
+            metric.get("marketplace_fees"),
+            units_sold
+        )
+
         return {
             "error": False,
             "available": True,
@@ -106,9 +118,13 @@ class ProductUnitEconomicsQueryService:
                 metric.get("product_cost"),
                 units_sold
             ),
-            "marketplace_fees": self._per_unit(
-                metric.get("marketplace_fees"),
-                units_sold
+            "marketplace_fees": marketplace_fees,
+            "fee_breakdown": (
+                self._per_unit_fee_breakdown(
+                    metric.get("fee_breakdown"),
+                    units_sold,
+                    marketplace_fees
+                )
             ),
             "tax": self._per_unit(
                 tax,
@@ -147,16 +163,46 @@ class ProductUnitEconomicsQueryService:
                 result.get("cost")
             ),
             "",
-            "Расходы маркетплейса:",
-            self._format_money(
-                result.get("marketplace_fees")
-            ),
-            "",
-            "Налог:",
-            self._format_money(
-                result.get("tax")
-            )
+            "Удержания Ozon:"
         ]
+
+        fee_breakdown = (
+            result.get("fee_breakdown")
+            or {}
+        )
+
+        for field in (
+            "commission",
+            "logistics",
+            "acquiring",
+            "other_fees"
+        ):
+            lines.extend(
+                [
+                    "",
+                    self.FEE_LABELS[field] + ":",
+                    self._format_money(
+                        fee_breakdown.get(field)
+                    )
+                ]
+            )
+
+        lines.extend(
+            [
+                "",
+                "----------------",
+                "",
+                "Всего удержания Ozon:",
+                self._format_money(
+                    result.get("marketplace_fees")
+                ),
+                "",
+                "Налог:",
+                self._format_money(
+                    result.get("tax")
+                )
+            ]
+        )
 
         for field in self.DEFAULT_MISSING_FIELDS:
             lines.extend(
@@ -250,6 +296,7 @@ class ProductUnitEconomicsQueryService:
             "unit_price": None,
             "cost": None,
             "marketplace_fees": None,
+            "fee_breakdown": None,
             "tax": None,
             "net_profit_per_unit": None,
             "margin_percent": None,
@@ -267,6 +314,54 @@ class ProductUnitEconomicsQueryService:
             float(value) / units_sold,
             2
         )
+
+    def _per_unit_fee_breakdown(
+        self,
+        breakdown,
+        units_sold,
+        marketplace_fees
+    ):
+        if not breakdown or units_sold <= 0:
+            return None
+
+        commission = self._per_unit(
+            breakdown.get("commission"),
+            units_sold
+        )
+        logistics = self._per_unit(
+            breakdown.get("logistics"),
+            units_sold
+        )
+        acquiring = self._per_unit(
+            breakdown.get("acquiring"),
+            units_sold
+        )
+
+        if any(
+            value is None
+            for value in (
+                commission,
+                logistics,
+                acquiring,
+                marketplace_fees
+            )
+        ):
+            return None
+
+        other_fees = round(
+            marketplace_fees
+            - commission
+            - logistics
+            - acquiring,
+            2
+        )
+
+        return {
+            "commission": commission,
+            "logistics": logistics,
+            "acquiring": acquiring,
+            "other_fees": other_fees
+        }
 
     def _build_note(self, missing_fields):
         if missing_fields:

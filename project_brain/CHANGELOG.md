@@ -1863,3 +1863,69 @@ Formatted Unit Economics Response
 
 - isolated Telegram UI boundary scenarios passed
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Marketplace Fees Breakdown v1
+
+
+Добавлена прозрачная детализация уже существующих SKU-level удержаний Ozon в Product Unit Economics без изменения формулы прибыли.
+
+
+Добавлено:
+
+
+- сохранение commission, logistics, acquiring, other_fees и raw fee_breakdown из FinanceAnalyticsService на StorePeriodProfitService boundary
+- fee_breakdown в ProductUnitEconomicsProvider при наличии исходных fee данных
+- per-unit breakdown в ProductUnitEconomicsQueryService
+- Telegram formatting «Удержания Ozon» с комиссиями, логистикой, эквайрингом и прочими удержаниями
+- reconciliation other_fees после округления, чтобы сумма breakdown совпадала с marketplace_fees
+- tests/test_marketplace_fees_breakdown.py
+- запись breakdown tests в TEST_MAP.md
+
+
+Формула не изменена:
+
+
+marketplace_fees = gross_sales - net_accrual
+
+net_profit = gross_profit - tax
+
+profit_per_unit = net_profit / units_sold
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- Sales/Stock/Finance workflows не изменялись
+- Telegram SKU selection workflow не изменялся
+- TaxConfigurationService не изменялся
+- новые repositories, API clients, workflows и Intelligence services не создавались
+- Cross-Domain Decisions не реализовывались
+
+
+Отображение:
+
+
+- комиссия Ozon
+- логистика
+- эквайринг
+- прочие SKU-level удержания
+- всего удержания Ozon остаётся прежним marketplace_fees
+- advertising, storage и returns остаются «—» без достоверной SKU attribution
+
+
+Проверка:
+
+
+- 5 isolated Marketplace Fees Breakdown tests passed
+- полный pytest не запускался в текущей среде

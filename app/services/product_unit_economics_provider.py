@@ -10,6 +10,13 @@ class ProductUnitEconomicsProvider:
         "gross_profit"
     )
 
+    FEE_FIELDS = (
+        "commission",
+        "logistics",
+        "acquiring",
+        "other_fees"
+    )
+
     def __init__(
         self,
         tax_service=None,
@@ -124,7 +131,36 @@ class ProductUnitEconomicsProvider:
                 }
             )
 
+            fee_breakdown = (
+                self._build_fee_breakdown(
+                    item
+                )
+            )
+
+            if fee_breakdown is not None:
+                metrics[-1][
+                    "fee_breakdown"
+                ] = fee_breakdown
+
         return metrics
+
+    def _build_fee_breakdown(
+        self,
+        item
+    ):
+        if any(
+            item.get(field) is None
+            for field in self.FEE_FIELDS
+        ):
+            return None
+
+        return {
+            field: round(
+                -float(item.get(field)),
+                2
+            )
+            for field in self.FEE_FIELDS
+        }
 
     def _calculate_tax(
         self,

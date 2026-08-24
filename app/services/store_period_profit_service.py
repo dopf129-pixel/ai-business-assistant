@@ -125,6 +125,29 @@ class StorePeriodProfitService:
             ] = sku
 
 
+            for field in (
+                "commission",
+                "logistics",
+                "acquiring",
+                "other_fees"
+            ):
+
+                profit[field] = (
+                    finance.get(field)
+                )
+
+
+            profit[
+                "fee_breakdown"
+            ] = dict(
+                finance.get(
+                    "fee_breakdown",
+                    {}
+                )
+                or {}
+            )
+
+
             profits.append(
                 profit
             )

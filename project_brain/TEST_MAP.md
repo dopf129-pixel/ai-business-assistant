@@ -1323,3 +1323,39 @@ Tests:
 - безопасный ответ при отсутствии товаров или SKU
 - сохранение существующих analyze/plan/history/memory callbacks
 - отсутствие изменений Sales/Stock/Finance и Action/Executor workflow
+
+---
+
+# Marketplace Fees Breakdown v1
+
+
+Services:
+
+
+- FinanceService
+- FinanceAnalyticsService
+- StorePeriodProfitService
+- ProductUnitEconomicsProvider
+- ProductUnitEconomicsQueryService
+
+
+Tests:
+
+
+- tests/test_marketplace_fees_breakdown.py
+- tests/test_product_unit_economics_telegram_ui.py
+
+
+Проверяет:
+
+
+- сохранение commission, logistics, acquiring, other_fees и raw fee_breakdown на period-profit boundary
+- передачу агрегированного fee_breakdown через ProductUnitEconomicsProvider без изменения marketplace_fees
+- преобразование Ozon signed fee amounts в положительные суммы удержаний
+- per-unit breakdown для commission, logistics, acquiring и other_fees
+- соответствие суммы breakdown существующему marketplace_fees после округления
+- неизменность net_profit и profit_per_unit
+- Telegram formatting с «Удержания Ozon» и детализацией четырёх категорий
+- advertising, storage и returns остаются неизвестными и отображаются как «—»
+- существующий Telegram SKU selection flow сохраняется
+- Sales/Stock/Finance и Action/Executor workflow не изменяются
