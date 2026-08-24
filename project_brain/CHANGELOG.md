@@ -1239,3 +1239,50 @@ existing AssistantActionRouterService
 
 - 4 isolated Finance Intelligence domain scenarios passed
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Executor Integration v1
+
+
+Добавлен минимальный Finance executor boundary и подключён FinanceIntelligenceService через constructor injection.
+
+
+Добавлено:
+
+
+- AssistantFinanceExecutorService
+- optional constructor injection FinanceIntelligenceService
+- передача finance_data и previous_data из Action context
+- преобразование finance metrics и insights в существующий executor response contract
+- fallback без injected FinanceIntelligenceService
+- test_finance_intelligence_executor_integration.py
+- запись integration tests в TEST_MAP.md
+
+
+Ограничения этапа:
+
+
+- AssistantEntryService не изменялся
+- finance_context не создавался
+- Finance Data Input не реализован
+- production wiring не добавлялся
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- AssistantPlanningService не изменялся
+- Sales и Stock workflow не изменялись
+
+
+Проверка:
+
+
+- 3 isolated Finance Executor Integration tests passed
+- полный pytest не запускался в текущей среде
