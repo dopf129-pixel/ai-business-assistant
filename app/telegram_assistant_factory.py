@@ -2,6 +2,10 @@ from telegram_core_factory import (
     create_telegram_core
 )
 
+from product_business_decision_factory import (
+    create_product_business_decision_query
+)
+
 
 from services.assistant_keyboard_service import (
     AssistantKeyboardService
@@ -83,6 +87,13 @@ def create_telegram_assistant():
     )
 
 
+    product_business_decision_query = (
+        create_product_business_decision_query(
+            core_components=system
+        )
+    )
+
+
 
     telegram_memory = (
         AssistantTelegramMemoryService(
@@ -123,6 +134,9 @@ def create_telegram_assistant():
             keyboard_service=keyboard,
             unit_economics_query=(
                 unit_economics_query
+            ),
+            product_business_decision_query=(
+                product_business_decision_query
             )
         )
     )
@@ -203,6 +217,11 @@ def create_telegram_assistant():
 
     runner.unit_economics_query = (
         unit_economics_query
+    )
+
+
+    runner.product_business_decision_query = (
+        product_business_decision_query
     )
 
 

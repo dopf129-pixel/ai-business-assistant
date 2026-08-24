@@ -30,6 +30,10 @@ class AssistantKeyboardService:
                 {
                     "text": "💰 Юнит-экономика товаров",
                     "callback": "unit_economics"
+                },
+                {
+                    "text": "🎯 Решения по товарам",
+                    "callback": "product_decisions"
                 }
             ]
         }
@@ -48,6 +52,27 @@ class AssistantKeyboardService:
                     "text": str(sku),
                     "callback": (
                         "unit_economics:"
+                        + str(sku)
+                    )
+                }
+                for sku in (skus or [])
+            ]
+        }
+
+
+    def build_product_decisions_keyboard(
+        self,
+        skus
+    ):
+
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": str(sku),
+                    "callback": (
+                        "product_decision:"
                         + str(sku)
                     )
                 }
