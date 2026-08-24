@@ -1497,3 +1497,72 @@ prepared product-level finance metrics
 
 - domain/integration tests добавлены для product metrics, missing/incomplete data и contract preservation
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Product Unit Economics Foundation v1.1
+
+
+Добавлен tax-aware SKU-level unit economics contract поверх уже существующих ProfitService результатов.
+
+
+Добавлено:
+
+
+- ProductUnitEconomicsProvider
+- marketplace_fees как разница gross_sales и net_accrual
+- product-level tax через существующий TaxService и injected tax policy
+- net_profit после налога
+- profit_per_unit после налога
+- margin_percent после налога
+- test_product_unit_economics.py
+- запись unit economics tests в TEST_MAP.md
+
+
+Архитектура:
+
+
+FinanceAnalyticsService + CostService + ProfitService
+
+↓
+
+StorePeriodProfitService
+
+↓
+
+ProductUnitEconomicsProvider + TaxService
+
+↓
+
+prepared SKU unit economics
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- ProductProfitabilityProvider contract не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- новые repositories, API clients и orchestration layers не создавались
+- Cross-Domain Decisions не реализовывались
+
+
+Ограничения:
+
+
+- advertising и общие расходы ExpenseRepository не распределяются по SKU
+- без injected tax policy tax и чистые показатели возвращаются как None, а не как искусственный ноль
+
+
+Проверка:
+
+
+- 5 isolated Product Unit Economics tests passed
+- полный pytest не запускался в текущей среде

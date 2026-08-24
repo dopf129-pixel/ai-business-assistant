@@ -220,6 +220,9 @@ AI Business Assistant
 [x] Product-Level Finance Metrics v1
 
 
+[x] Product Unit Economics Foundation v1.1
+
+
 
 ---
 
@@ -397,7 +400,6 @@ Next planned changes:
 
 
 5. Добавить тесты long-running tasks
-
 
 
 ---

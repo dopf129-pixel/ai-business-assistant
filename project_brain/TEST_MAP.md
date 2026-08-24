@@ -1136,3 +1136,36 @@ Tests:
 - пропуск неполных sales/cost records вместо формирования вводящих в заблуждение metrics
 - сохранение существующего FinanceContextProvider contract без product-level расширения
 - отсутствие новых repositories, API clients, workflow и Cross-Domain logic
+
+---
+
+# Product Unit Economics Foundation v1.1
+
+
+Services:
+
+
+- ProductUnitEconomicsProvider
+- TaxService
+- ProductProfitabilityProvider
+- ProfitService
+- StorePeriodProfitService
+
+
+Tests:
+
+
+- test_product_unit_economics.py
+
+
+Проверяет:
+
+
+- расчёт SKU-level marketplace fees из revenue и net_accrual
+- использование существующего TaxService для product-level tax
+- расчёт net_profit, profit_per_unit и margin_percent после налога
+- явный incomplete contract при отсутствии tax policy
+- безопасный пропуск SKU без cost data
+- поддержку нескольких SKU
+- сохранение существующего ProductProfitabilityProvider contract
+- отсутствие изменений Entry/Recommendation/Planning/Action/Executor workflow
