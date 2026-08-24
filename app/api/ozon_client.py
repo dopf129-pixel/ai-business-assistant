@@ -249,6 +249,32 @@ class OzonClient:
             }
         )
 
+    def get_product_prices(
+        self,
+        product_id=None,
+        offer_id=None
+    ):
+
+        filter_data = {}
+
+        if product_id is not None:
+            filter_data["product_id"] = [
+                str(product_id)
+            ]
+
+        if offer_id is not None:
+            filter_data["offer_id"] = [
+                str(offer_id)
+            ]
+
+        return self._post(
+            "/v5/product/info/prices",
+            {
+                "filter": filter_data,
+                "limit": 100
+            }
+        )
+
     def get_product_stocks(
         self,
         product_id
