@@ -1041,3 +1041,37 @@ Tests:
 - сохранение finance context при генерации Action
 - отсутствие обратной мутации исходного и recommendation context
 - отсутствие изменений Task Service, Action Execution, Router, Finance Executor и FinanceIntelligenceService
+
+---
+
+# Finance Intelligence Production Wiring
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Services:
+
+
+- FinanceIntelligenceService
+- AssistantFinanceExecutorService
+- AssistantActionRouterService
+
+
+Tests:
+
+
+- test_finance_intelligence_production_wiring.py
+
+
+Проверяет:
+
+
+- create_telegram_core() создаёт production Finance executor
+- constructor injection FinanceIntelligenceService в AssistantFinanceExecutorService
+- наличие finance executor в существующем Router registry
+- сохранение sales и stock executor mappings
+- отсутствие Finance Data Input и новых finance data dependencies

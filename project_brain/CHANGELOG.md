@@ -1332,3 +1332,47 @@ Prepared finance_context проведён через существующий re
 
 - context propagation tests добавлены
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Production Wiring v1
+
+
+Finance Intelligence подключён в production composition root через существующий Router registry.
+
+
+Добавлено:
+
+
+- создание FinanceIntelligenceService в telegram_core_factory.py
+- создание AssistantFinanceExecutorService через constructor injection
+- регистрация finance executor в существующем AssistantActionRouterService executor mapping
+- test_finance_intelligence_production_wiring.py
+- запись production wiring test в TEST_MAP.md
+
+
+Совместимость:
+
+
+- Finance Data Input не реализован
+- реальные FinanceService/ProfitService зависимости к Finance Intelligence не подключались
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantPlanningService не изменялся
+- AssistantActionGeneratorService не изменялся
+- Sales и Stock workflow сохранены
+- новый Router и orchestration layer не создавались
+
+
+Проверка:
+
+
+- production wiring test добавлен
+- полный pytest не запускался в текущей среде

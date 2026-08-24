@@ -211,6 +211,9 @@ AI Business Assistant
 [x] Finance Intelligence Context Propagation v1
 
 
+[x] Finance Intelligence Production Wiring v1
+
+
 
 ---
 
