@@ -1286,3 +1286,49 @@ existing AssistantActionRouterService
 
 - 3 isolated Finance Executor Integration tests passed
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Context Propagation v1
+
+
+Prepared finance_context проведён через существующий report → recommendation → planning → action flow.
+
+
+Добавлено:
+
+
+- перенос prepared finance_context из request context в AssistantEntryService report
+- finance recommendation с копией finance_context
+- сохранение finance_data и previous_data через существующий generic planning/action context
+- test_finance_intelligence_context_propagation.py
+- проверка отсутствия мутации исходного и recommendation context
+
+
+Совместимость:
+
+
+- реальные finance data не подключались
+- Finance Data Input не реализован
+- production wiring не добавлялся
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantActionRouterService не изменялся
+- AssistantFinanceExecutorService не изменялся
+- FinanceIntelligenceService не изменялся
+- Sales и Stock workflow не изменялись
+- новый orchestration/context builder/provider layer не создавался
+
+
+Проверка:
+
+
+- context propagation tests добавлены
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

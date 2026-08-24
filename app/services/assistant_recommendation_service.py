@@ -70,6 +70,35 @@ class AssistantRecommendationService:
 
         if (
             report.get(
+                "finance_context"
+            )
+        ):
+
+
+            recommendations.append(
+                {
+                    "type":
+                        "finance",
+
+                    "message":
+                        (
+                            "Проверить финансовые показатели"
+                        ),
+
+                    "context":
+                        dict(
+                            report.get(
+                                "finance_context"
+                            )
+                            or
+                            {}
+                        )
+                }
+            )
+
+
+        if (
+            report.get(
                 "marketing_problem"
             )
         ):

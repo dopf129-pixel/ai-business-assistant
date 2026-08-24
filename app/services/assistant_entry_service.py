@@ -46,6 +46,22 @@ class AssistantEntryService:
         }
 
 
+        finance_context = dict(
+            (context or {}).get(
+                "finance_context"
+            )
+            or
+            {}
+        )
+
+
+        if finance_context:
+
+            report[
+                "finance_context"
+            ] = finance_context
+
+
         stock_context = dict(
             (context or {}).get(
                 "stock_context"

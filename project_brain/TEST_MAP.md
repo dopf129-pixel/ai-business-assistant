@@ -1011,3 +1011,33 @@ Tests:
 - преобразование finance metrics и insights в details
 - fallback без injected FinanceIntelligenceService
 - отсутствие изменений Task Service, Action Execution, Router, Planning, Sales и Stock workflow
+
+---
+
+# Finance Intelligence Context Propagation
+
+
+Services:
+
+
+- AssistantEntryService
+- AssistantRecommendationService
+- AssistantPlanningService
+- AssistantActionGeneratorService
+
+
+Tests:
+
+
+- test_finance_intelligence_context_propagation.py
+
+
+Проверяет:
+
+
+- перенос prepared finance_context из request context в report
+- передачу finance_context в finance recommendation
+- сохранение finance_data и previous_data при построении plan
+- сохранение finance context при генерации Action
+- отсутствие обратной мутации исходного и recommendation context
+- отсутствие изменений Task Service, Action Execution, Router, Finance Executor и FinanceIntelligenceService
