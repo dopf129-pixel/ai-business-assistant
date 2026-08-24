@@ -1193,3 +1193,49 @@ existing AssistantActionRouterService
 
 - isolated Stock Intelligence Business Data Input tests добавлены
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Foundation v1
+
+
+Создан независимый domain service для базового финансового анализа.
+
+
+Добавлено:
+
+
+- FinanceIntelligenceService
+- нормализация revenue, expenses, profit и margin
+- вычисление profit и margin из подготовленных finance data
+- finance insights для прибыльности, падения прибыли и роста расходов
+- безопасный contract при отсутствии данных
+- test_finance_intelligence_service.py
+- запись Finance Intelligence Foundation в TEST_MAP.md
+
+
+Ограничения этапа:
+
+
+- AssistantEntryService не изменялся
+- Recommendation и Planning не изменялись
+- Action/Task/Executor pipeline не изменялся
+- Router не изменялся
+- Sales и Stock workflow не изменялись
+- production wiring не добавлялся
+- finance_context и Finance Data Input не создавались
+- repositories и API clients внутри FinanceIntelligenceService не создаются
+
+
+Проверка:
+
+
+- 4 isolated Finance Intelligence domain scenarios passed
+- полный pytest не запускался в текущей среде

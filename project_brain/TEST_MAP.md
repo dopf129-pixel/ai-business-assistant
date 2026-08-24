@@ -954,3 +954,31 @@ Tests:
 - сохранение stock_context до Action Generator
 - безопасный fallback без stock recommendation при недоступных stock data
 - отсутствие изменений Task Service, Action Execution, Router, Stock Executor и StockIntelligenceService
+
+---
+
+# Finance Intelligence Foundation
+
+
+Service:
+
+
+FinanceIntelligenceService
+
+
+Tests:
+
+
+- test_finance_intelligence_service.py
+
+
+Проверяет:
+
+
+- нормализацию revenue, expenses, profit и margin
+- вычисление profit и margin из подготовленных finance data
+- insight для положительной прибыли
+- обнаружение падения прибыли относительно предыдущего периода
+- обнаружение роста расходов относительно предыдущего периода
+- безопасный contract при отсутствии данных
+- отсутствие dependencies на repositories, API clients и Action/Task/Executor pipeline
