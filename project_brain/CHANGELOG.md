@@ -697,7 +697,6 @@ Development Autopilot Preparation
 
 Completed:
 
-
 - Conditional actions
 - SKIPPED state
 - History formatting
@@ -1437,4 +1436,64 @@ existing recommendation → planning → action flow
 
 
 - Finance Business Data Input integration tests добавлены
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Product-Level Finance Metrics v1
+
+
+Подготовлен отдельный product-level profitability contract для будущих Cross-Domain Business Decisions без изменения существующего Finance workflow.
+
+
+Добавлено:
+
+
+- ProductProfitabilityProvider
+- сохранение product_id и sku в существующих StorePeriodProfitService profit records
+- нормализация sales_count, revenue, cost, profit и margin из уже рассчитанных ProfitService результатов
+- test_product_level_finance_metrics.py
+- запись product-level metrics в TEST_MAP.md
+
+
+Архитектура:
+
+
+FinanceAnalyticsService + CostService + ProfitService
+
+↓
+
+StorePeriodProfitService
+
+↓
+
+ProductProfitabilityProvider
+
+↓
+
+prepared product-level finance metrics
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- FinanceContextProvider contract не изменялся
+- Sales/Stock/Finance Intelligence services не изменялись
+- Recommendation/Planning/Action/Executors не изменялись
+- новые repositories, API clients и orchestration layers не создавались
+- Cross-Domain Decisions не реализовывались
+
+
+Проверка:
+
+
+- domain/integration tests добавлены для product metrics, missing/incomplete data и contract preservation
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

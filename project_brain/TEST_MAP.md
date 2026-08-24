@@ -548,7 +548,6 @@ Tests:
 - сохранение существующей истории
 - append-only правило документации
 
-
 ---
 
 
@@ -1107,3 +1106,33 @@ Tests:
 - передачу finance_context через recommendation → planning → action.context
 - безопасное отсутствие finance recommendation при пустых finance data
 - отсутствие новых repositories, API clients и orchestration layers
+
+---
+
+# Product-Level Finance Metrics
+
+
+Services:
+
+
+- StorePeriodProfitService
+- ProfitService
+- ProductProfitabilityProvider
+- FinanceContextProvider
+
+
+Tests:
+
+
+- test_product_level_finance_metrics.py
+
+
+Проверяет:
+
+
+- сохранение product_id и sku на существующей period-profit data boundary
+- подготовку product-level sales_count, revenue, cost, profit и margin без повторного расчёта прибыли
+- безопасный пустой результат при отсутствии profits
+- пропуск неполных sales/cost records вместо формирования вводящих в заблуждение metrics
+- сохранение существующего FinanceContextProvider contract без product-level расширения
+- отсутствие новых repositories, API clients, workflow и Cross-Domain logic

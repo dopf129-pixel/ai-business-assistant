@@ -112,6 +112,19 @@ class StorePeriodProfitService:
                 continue
 
 
+            profit = dict(
+                profit
+            )
+
+            profit[
+                "product_id"
+            ] = product_id
+
+            profit[
+                "sku"
+            ] = sku
+
+
             profits.append(
                 profit
             )
