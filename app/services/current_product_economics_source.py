@@ -13,6 +13,7 @@ class CurrentProductEconomicsSource:
             product_id=product_id,
             offer_id=sku
         )
+
         if response.get("error"):
             return {
                 "error": True,
@@ -23,8 +24,11 @@ class CurrentProductEconomicsSource:
             }
 
         item = self._find_item(
-            response.get("items") or [], sku, product_id
+            response.get("items") or [],
+            sku,
+            product_id
         )
+
         if not item:
             return self._empty_result(sku, product_id)
 
@@ -36,16 +40,19 @@ class CurrentProductEconomicsSource:
             seller_price = self._number(price.get("price"))
 
         commission = self._fbo_commission(
-            item.get("commissions") or [], seller_price
+            item.get("commissions") or {},
+            seller_price
         )
         acquiring = self._acquiring_average(
-            sku, accrual_dates or []
+            sku,
+            accrual_dates or []
         )
+
         values = {
             "current_price": seller_price,
             "commission": commission["amount"],
             "logistics": commission["logistics"],
-            "last_mile": None,
+            "last_mile": commission["last_mile"],
             "acquiring": acquiring,
             "buyout_rate": None
         }
@@ -60,7 +67,7 @@ class CurrentProductEconomicsSource:
             "commission_rate": commission["rate"],
             "commission_amount": commission["amount"],
             "logistics": commission["logistics"],
-            "last_mile": None,
+            "last_mile": commission["last_mile"],
             "acquiring_average": acquiring,
             "buyout_rate": None,
             "buyout_sample_size": None,
@@ -86,13 +93,18 @@ class CurrentProductEconomicsSource:
             "buyout_sample_size": None,
             "as_of": self._now(),
             "missing_data": [
-                "current_price", "commission", "logistics",
-                "last_mile", "acquiring", "buyout_rate"
+                "current_price",
+                "commission",
+                "logistics",
+                "last_mile",
+                "acquiring",
+                "buyout_rate"
             ]
         }
 
     def _find_item(self, items, sku, product_id):
         target_product_id = self._text(product_id)
+
         for item in items:
             if str(item.get("offer_id")) != str(sku):
                 continue
@@ -103,45 +115,88 @@ class CurrentProductEconomicsSource:
             ):
                 continue
             return item
+
         return None
 
     def _fbo_commission(self, commissions, seller_price):
-        for item in commissions:
-            schema = str(item.get("sale_schema") or "").upper()
-            if schema and schema != "FBO":
-                continue
-            rate = self._number(item.get("percent"))
-            amount = (
-                round(seller_price * rate / 100, 2)
-                if seller_price is not None and rate is not None
-                else None
+        if isinstance(commissions, dict):
+            rate = self._number(
+                commissions.get("sales_percent_fbo")
+            )
+            last_mile = self._number(
+                commissions.get("fbo_deliv_to_customer_amount")
             )
             return {
                 "rate": rate,
-                "amount": amount,
-                "logistics": self._number(
-                    item.get("fbo_deliv_to_customer_amount")
-                )
+                "amount": self._commission_amount(
+                    seller_price,
+                    rate
+                ),
+                "logistics": None,
+                "last_mile": last_mile
             }
-        return {"rate": None, "amount": None, "logistics": None}
+
+        # Backward-compatible support for older mocked/legacy response shape.
+        if isinstance(commissions, list):
+            for item in commissions:
+                if not isinstance(item, dict):
+                    continue
+                schema = str(
+                    item.get("sale_schema") or ""
+                ).upper()
+                if schema and schema != "FBO":
+                    continue
+                rate = self._number(item.get("percent"))
+                return {
+                    "rate": rate,
+                    "amount": self._commission_amount(
+                        seller_price,
+                        rate
+                    ),
+                    "logistics": None,
+                    "last_mile": self._number(
+                        item.get("fbo_deliv_to_customer_amount")
+                    )
+                }
+
+        return {
+            "rate": None,
+            "amount": None,
+            "logistics": None,
+            "last_mile": None
+        }
+
+    def _commission_amount(self, seller_price, rate):
+        if seller_price is None or rate is None:
+            return None
+        return round(seller_price * rate / 100, 2)
 
     def _acquiring_average(self, sku, accrual_dates):
         if not self.finance_service or not accrual_dates:
             return None
+
         total = 0.0
-        sales = 0
+        sales_count = 0
+
         for accrual_date in accrual_dates:
             result = self.finance_service.get_daily_finance(
-                accrual_date, sku=sku
+                accrual_date,
+                sku=sku
             )
             if result.get("error"):
                 continue
-            count = int(result.get("sales_count") or 0)
-            if count <= 0:
+
+            day_sales = int(result.get("sales_count") or 0)
+            if day_sales <= 0:
                 continue
+
             total += abs(float(result.get("acquiring") or 0))
-            sales += count
-        return round(total / sales, 2) if sales else None
+            sales_count += day_sales
+
+        if sales_count <= 0:
+            return None
+
+        return round(total / sales_count, 2)
 
     def _number(self, value):
         if value in (None, ""):
