@@ -114,6 +114,18 @@ from services.finance_intelligence_service import (
     FinanceIntelligenceService
 )
 
+from services.sales_context_provider import (
+    SalesContextProvider
+)
+
+from services.stock_context_provider import (
+    StockContextProvider
+)
+
+from services.finance_context_provider import (
+    FinanceContextProvider
+)
+
 from services.store_analytics_service import (
     StoreAnalyticsService
 )
@@ -412,18 +424,53 @@ def create_telegram_core():
     )
 
 
-    entry = (
-        AssistantEntryService(
-            main_flow_service=main_flow,
+    metrics_service = (
+        MetricsService()
+    )
+
+
+    sales_context_provider = (
+        SalesContextProvider(
             product_service=product_service,
             period_profit_service=(
                 period_profit_service
             ),
             analytics_service=(
                 store_analytics
+            )
+        )
+    )
+
+
+    stock_context_provider = (
+        StockContextProvider(
+            product_service=product_service,
+            analytics_service=(
+                store_analytics
             ),
             metrics_service=(
-                MetricsService()
+                metrics_service
+            )
+        )
+    )
+
+
+    finance_context_provider = (
+        FinanceContextProvider()
+    )
+
+
+    entry = (
+        AssistantEntryService(
+            main_flow_service=main_flow,
+            sales_context_provider=(
+                sales_context_provider
+            ),
+            stock_context_provider=(
+                stock_context_provider
+            ),
+            finance_context_provider=(
+                finance_context_provider
             )
         )
     )
