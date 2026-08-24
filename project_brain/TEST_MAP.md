@@ -922,3 +922,35 @@ Tests:
 - доступ production-wired Stock Executor через существующий Router
 - отсутствие изменений Task Service, Action Execution, Router, Planning и Action Generator
 - отсутствие преждевременного Business Data Input / Ozon stock ingestion
+
+---
+
+# Stock Intelligence Business Data Input
+
+
+Services:
+
+
+- AssistantEntryService
+- ProductService
+- MetricsService
+- StoreAnalyticsService
+- FinanceService
+
+
+Tests:
+
+
+- test_stock_intelligence_business_data_input.py
+
+
+Проверяет:
+
+
+- получение FBO current stock через injected MetricsService
+- получение sales_count за текущий period через StoreAnalyticsService.analyze_finance()
+- формирование report.stock_context с stock_data, sales_data и period_days
+- передачу stock_context в stock recommendation
+- сохранение stock_context до Action Generator
+- безопасный fallback без stock recommendation при недоступных stock data
+- отсутствие изменений Task Service, Action Execution, Router, Stock Executor и StockIntelligenceService
