@@ -1716,3 +1716,75 @@ Product Unit Economics Query
 - 5 isolated Tax Configuration domain checks passed
 - production factory integration test добавлен
 - полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Product Unit Economics Production Wiring v1
+
+
+Product Unit Economics Query подключён к production composition root и получает явную налоговую policy через TaxConfigurationService.
+
+
+Добавлено:
+
+
+- production создание ProductUnitEconomicsProvider
+- production создание ProductUnitEconomicsQueryService
+- constructor injection TaxService и tax policy в ProductUnitEconomicsProvider
+- переиспользование существующих ProductService, StorePeriodProfitService и StoreAnalyticsService
+- unit_economics_query в результате create_telegram_core()
+- optional DI hooks для product/period/analytics dependencies без изменения вызова create_telegram_core()
+- test_product_unit_economics_production_wiring.py
+- запись production wiring tests в TEST_MAP.md
+
+
+Архитектура:
+
+
+TaxConfigurationService
+
+↓
+
+ProductUnitEconomicsProvider
+
+↓
+
+ProductUnitEconomicsQueryService
+
+↓
+
+SKU Unit Economics
+
+
+Безопасность данных:
+
+
+- USN_INCOME и USN_INCOME_MINUS_EXPENSES используют сохранённую policy
+- explicit NONE означает настоящий налог 0
+- при отсутствии tax configuration provider получает tax_mode=None
+- Query сохраняет tax/net_profit_per_unit/margin_percent как None и показывает неизвестный налог как «—»
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- Recommendation/Planning/Action/Executors не изменялись
+- Sales/Stock/Finance workflows не изменялись
+- ProductUnitEconomicsProvider и Query contracts не изменялись
+- новые repositories, API clients, workflows и Intelligence services не создавались
+- Telegram UI и Cross-Domain Decisions не реализовывались
+
+
+Проверка:
+
+
+- production wiring test добавлен
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

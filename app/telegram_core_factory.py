@@ -158,6 +158,18 @@ from services.tax_configuration_service import (
     TaxConfigurationService
 )
 
+from services.tax_service import (
+    TaxService
+)
+
+from services.product_unit_economics_provider import (
+    ProductUnitEconomicsProvider
+)
+
+from services.product_unit_economics_query_service import (
+    ProductUnitEconomicsQueryService
+)
+
 from services.retry_policy_service import (
     RetryPolicyService
 )
@@ -177,7 +189,10 @@ from services.assistant_memory_service import (
 
 
 def create_telegram_core(
-    tax_configuration_service=None
+    tax_configuration_service=None,
+    product_service=None,
+    period_profit_service=None,
+    analytics_service=None
 ):
 
 
@@ -236,7 +251,8 @@ def create_telegram_core(
 
 
     store_analytics = (
-        StoreAnalyticsService(
+        analytics_service
+        or StoreAnalyticsService(
             tax_mode=(
                 tax_policy.get("mode")
                 if tax_policy
@@ -447,12 +463,14 @@ def create_telegram_core(
 
 
     product_service = (
-        ProductService()
+        product_service
+        or ProductService()
     )
 
 
     period_profit_service = (
-        StorePeriodProfitService(
+        period_profit_service
+        or StorePeriodProfitService(
             finance_service=(
                 FinanceService()
             ),
@@ -461,6 +479,44 @@ def create_telegram_core(
             ),
             profit_service=(
                 ProfitService()
+            )
+        )
+    )
+
+
+    unit_economics_provider = (
+        ProductUnitEconomicsProvider(
+            tax_service=TaxService(),
+            tax_mode=(
+                tax_policy.get("mode")
+                if tax_policy
+                else None
+            ),
+            tax_rate=(
+                tax_policy.get("tax_rate")
+                if tax_policy
+                else None
+            ),
+            minimum_tax_rate=(
+                tax_policy.get(
+                    "minimum_tax_rate"
+                )
+                if tax_policy
+                else 1.0
+            )
+        )
+    )
+
+
+    unit_economics_query = (
+        ProductUnitEconomicsQueryService(
+            product_service=product_service,
+            period_profit_service=(
+                period_profit_service
+            ),
+            analytics_service=store_analytics,
+            unit_economics_provider=(
+                unit_economics_provider
             )
         )
     )
@@ -612,6 +668,9 @@ def create_telegram_core(
             memory_service,
 
         "tax_configuration":
-            tax_configuration
+            tax_configuration,
+
+        "unit_economics_query":
+            unit_economics_query
 
     }

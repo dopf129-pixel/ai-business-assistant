@@ -229,6 +229,9 @@ AI Business Assistant
 [x] Tax Configuration Foundation v1
 
 
+[x] Product Unit Economics Production Wiring v1
+
+
 
 ---
 

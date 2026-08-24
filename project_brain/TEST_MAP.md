@@ -1243,3 +1243,41 @@ Tests:
 - ProductUnitEconomicsProvider возвращает tax/net profit как None при неизвестной policy
 - production factory получает tax policy через DI вместо hardcoded tax_mode=NONE
 - сохранение sales, stock и finance executor mappings
+
+---
+
+# Product Unit Economics Production Wiring v1
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Services:
+
+
+- TaxConfigurationService
+- TaxService
+- ProductUnitEconomicsProvider
+- ProductUnitEconomicsQueryService
+
+
+Tests:
+
+
+- test_product_unit_economics_production_wiring.py
+
+
+Проверяет:
+
+
+- production factory создаёт ProductUnitEconomicsProvider и ProductUnitEconomicsQueryService
+- tax policy передаётся из TaxConfigurationService через constructor injection
+- запрос SKU использует USN_INCOME
+- запрос SKU использует USN_INCOME_MINUS_EXPENSES
+- explicit NONE сохраняет настоящий tax=0
+- отсутствие tax configuration сохраняет tax/net profit/margin как None
+- существующие sales, stock и finance executor mappings не изменяются
+- Telegram UI и Action/Executor workflow не затрагиваются
