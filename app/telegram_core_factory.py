@@ -98,12 +98,20 @@ from services.assistant_marketing_executor_service import (
     AssistantMarketingExecutorService
 )
 
+from services.assistant_finance_executor_service import (
+    AssistantFinanceExecutorService
+)
+
 from services.sales_intelligence_service import (
     SalesIntelligenceService
 )
 
 from services.stock_intelligence_service import (
     StockIntelligenceService
+)
+
+from services.finance_intelligence_service import (
+    FinanceIntelligenceService
 )
 
 from services.store_analytics_service import (
@@ -230,6 +238,20 @@ def create_telegram_core():
     )
 
 
+    finance_intelligence = (
+        FinanceIntelligenceService()
+    )
+
+
+    finance_executor = (
+        AssistantFinanceExecutorService(
+            finance_intelligence_service=(
+                finance_intelligence
+            )
+        )
+    )
+
+
     marketing_executor = (
         AssistantMarketingExecutorService()
     )
@@ -245,6 +267,9 @@ def create_telegram_core():
 
                 "stock":
                     stock_executor,
+
+                "finance":
+                    finance_executor,
 
                 "marketing":
                     marketing_executor

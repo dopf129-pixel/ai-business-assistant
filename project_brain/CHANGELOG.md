@@ -1286,3 +1286,47 @@ existing AssistantActionRouterService
 
 - 3 isolated Finance Executor Integration tests passed
 - полный pytest не запускался в текущей среде
+
+
+---
+
+## 2026-08-24
+
+
+## Added
+
+
+### Finance Intelligence Production Wiring v1
+
+
+Finance Intelligence подключён в production composition root через существующий Router registry.
+
+
+Добавлено:
+
+
+- создание FinanceIntelligenceService в telegram_core_factory.py
+- создание AssistantFinanceExecutorService через constructor injection
+- регистрация finance executor в существующем AssistantActionRouterService executor mapping
+- test_finance_intelligence_production_wiring.py
+- запись production wiring test в TEST_MAP.md
+
+
+Совместимость:
+
+
+- AssistantEntryService не изменялся
+- finance_context не создавался
+- Finance Data Input не реализован
+- AssistantTaskService не изменялся
+- AssistantActionExecutionService не изменялся
+- AssistantPlanningService не изменялся
+- Sales и Stock workflow сохранены
+- новые repositories, API clients, planner и Router не создавались
+
+
+Проверка:
+
+
+- production wiring test добавлен
+- полный pytest не запускался: runtime не может разрешить github.com для checkout репозитория

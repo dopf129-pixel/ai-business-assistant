@@ -1011,3 +1011,37 @@ Tests:
 - преобразование finance metrics и insights в details
 - fallback без injected FinanceIntelligenceService
 - отсутствие изменений Task Service, Action Execution, Router, Planning, Sales и Stock workflow
+
+---
+
+# Finance Intelligence Production Wiring
+
+
+Composition Root:
+
+
+- telegram_core_factory.py
+
+
+Services:
+
+
+- FinanceIntelligenceService
+- AssistantFinanceExecutorService
+- AssistantActionRouterService
+
+
+Tests:
+
+
+- test_finance_intelligence_production_wiring.py
+
+
+Проверяет:
+
+
+- create_telegram_core() создаёт Finance executor
+- constructor injection FinanceIntelligenceService в AssistantFinanceExecutorService
+- registration finance executor в существующем Router registry
+- сохранение существующих Sales и Stock executors
+- отсутствие изменений Task Service, Action Execution, Planning, Entry Service и data-input flow
