@@ -63,6 +63,8 @@ def _facts(**overrides):
         "product_id": "4108512640",
         "sku": "hook-2",
         "seller_price": 96.0,
+        "buyer_price": 90.0,
+        "ozon_discount_compensation": 6.0,
         "commission_rate": 14.0,
         "commission_amount": 13.44,
         "logistics": 19.32,
@@ -77,7 +79,11 @@ def _facts(**overrides):
     return data
 
 
-def _service(facts=None, tax_mode="USN_INCOME"):
+def _service(
+    facts=None,
+    tax_mode="USN_INCOME",
+    tax_base_policy="SELLER_PRICE",
+):
     source = FakeCurrentSource(
         facts or _facts()
     )
@@ -99,7 +105,8 @@ def _service(facts=None, tax_mode="USN_INCOME"):
         unit_economics_provider=provider,
         current_economics_source=source,
         cost_service=costs,
-        current_finance_days=2
+        current_finance_days=2,
+        current_tax_base_policy=tax_base_policy
     )
     return service, source, costs
 
@@ -206,3 +213,58 @@ def test_missing_current_product_cost_falls_back_to_catalog_id():
 
     assert result["cost"] == 21.0
     assert costs.calls == ["4108512640", "old-id"]
+
+
+def test_ozon_buyer_price_policy_uses_dynamic_tax_base():
+    service, _, _ = _service(
+        tax_base_policy="OZON_BUYER_PRICE"
+    )
+
+    result = service.query("hook-2")
+
+    assert result["unit_price"] == 96.0
+    assert result["buyer_price"] == 90.0
+    assert result["ozon_discount_compensation"] == 6.0
+    assert result["tax_base_policy"] == "OZON_BUYER_PRICE"
+    assert result["tax_base"] == 90.0
+    assert result["tax_rate"] == 6.0
+    assert result["tax"] == 5.4
+    assert result["tax_effective_percent"] == 5.62
+    assert result["net_profit_per_unit"] == 33.81
+    assert result["margin_percent"] == 35.22
+
+
+def test_ozon_buyer_price_policy_is_explicit_in_response():
+    service, _, _ = _service(
+        tax_base_policy="OZON_BUYER_PRICE"
+    )
+
+    response = service.format_response(
+        service.query("hook-2")
+    )
+
+    assert "Цена покупателя Ozon:\n90.00 ₽ — 93.8%" in response
+    assert "Компенсация скидки Ozon:\n6.00 ₽ — 6.2%" in response
+    assert "Налоговая база:\n90.00 ₽ — 93.8%" in response
+    assert "Ставка налога:\n6.00%" in response
+    assert "Налог:\n5.40 ₽ — 5.6%" in response
+    assert (
+        "Эффективный налог от цены продавца:\n5.62%"
+        in response
+    )
+
+
+def test_missing_ozon_buyer_price_keeps_tax_and_profit_unknown():
+    service, _, _ = _service(
+        facts=_facts(
+            buyer_price=None,
+            ozon_discount_compensation=None,
+        ),
+        tax_base_policy="OZON_BUYER_PRICE",
+    )
+
+    result = service.query("hook-2")
+
+    assert result["tax"] is None
+    assert result["net_profit_per_unit"] is None
+    assert "buyer_price" in result["missing_fields"]
