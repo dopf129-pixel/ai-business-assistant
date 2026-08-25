@@ -13,6 +13,10 @@ class ReturnsBuyoutFactsSource:
     CUSTOMER_CANCEL_REASON_PREFIX = "покупатель отменил заказ"
     DELIVERY_FAILURE_REASON_PREFIX = "не удалось доставить заказ"
 
+    POSTINGS_PAGE_SIZE = 1000
+    RETURNS_PAGE_SIZE = 500
+    MAX_PAGES = 10
+
     def __init__(self, ozon_client):
         self.ozon_client = ozon_client
 
@@ -25,12 +29,12 @@ class ReturnsBuyoutFactsSource:
                 "message": "SKU не указан",
             }
 
-        posting_response = self.ozon_client.get_fbo_postings(
+        postings, postings_complete, posting_error = self._load_postings(
             since=since,
             to=to,
         )
 
-        if not posting_response or posting_response.get("error"):
+        if posting_error:
             return {
                 "error": True,
                 "code": "FBO_POSTINGS_UNAVAILABLE",
@@ -38,18 +42,12 @@ class ReturnsBuyoutFactsSource:
                 "message": "FBO postings недоступны",
             }
 
-        returns_response = self.ozon_client.get_returns(
-            offer_id=target_sku,
-            return_schema="FBO",
-            limit=100,
-            last_id=0,
+        return_items, returns_available, returns_complete = self._load_returns(
+            target_sku=target_sku,
+            since=since,
+            to=to,
         )
 
-        returns_available = bool(
-            returns_response and not returns_response.get("error")
-        )
-
-        postings = self._extract_postings(posting_response)
         matched = []
 
         for posting in postings:
@@ -69,7 +67,7 @@ class ReturnsBuyoutFactsSource:
 
         return_events = []
         if returns_available:
-            for item in returns_response.get("returns") or []:
+            for item in return_items:
                 product = item.get("product") or {}
                 if not self._return_matches(product, target_sku):
                     continue
@@ -84,6 +82,7 @@ class ReturnsBuyoutFactsSource:
 
                 return_events.append(
                     {
+                        "return_id": item.get("id"),
                         "posting_number": item.get("posting_number"),
                         "type": item.get("type"),
                         "reason": reason or None,
@@ -104,30 +103,39 @@ class ReturnsBuyoutFactsSource:
             if item["status"] in self.DELIVERED_STATUSES
         )
 
-        customer_non_buyout_units = self._category_units(
+        customer_non_buyout_units = self._known_category_units(
             return_events,
             "customer_non_buyout",
-        ) if returns_available else None
-        customer_return_units = self._category_units(
+            returns_available,
+            returns_complete,
+        )
+        customer_return_units = self._known_category_units(
             return_events,
             "customer_return",
-        ) if returns_available else None
-        customer_cancelled_units = self._category_units(
+            returns_available,
+            returns_complete,
+        )
+        customer_cancelled_units = self._known_category_units(
             return_events,
             "customer_cancel",
-        ) if returns_available else None
-        delivery_failure_units = self._category_units(
+            returns_available,
+            returns_complete,
+        )
+        delivery_failure_units = self._known_category_units(
             return_events,
             "delivery_failure",
-        ) if returns_available else None
-        unknown_return_units = self._category_units(
+            returns_available,
+            returns_complete,
+        )
+        unknown_return_units = self._known_category_units(
             return_events,
             "unknown",
-        ) if returns_available else None
+            returns_available,
+            returns_complete,
+        )
 
-        known_cancel_units = None
         ambiguous_cancelled_units = cancelled_units
-        if returns_available:
+        if returns_available and returns_complete:
             known_cancel_units = sum(
                 value or 0
                 for value in (
@@ -156,15 +164,93 @@ class ReturnsBuyoutFactsSource:
             "customer_cancelled_units": customer_cancelled_units,
             "delivery_failure_units": delivery_failure_units,
             "unknown_return_units": unknown_return_units,
+            "postings_complete": postings_complete,
             "returns_available": returns_available,
+            "returns_complete": returns_complete,
             "postings": matched,
             "return_events": return_events,
-            "note": self._note(returns_available, ambiguous_cancelled_units),
+            "note": self._note(
+                returns_available,
+                returns_complete,
+                postings_complete,
+                ambiguous_cancelled_units,
+            ),
         }
 
+    def _load_postings(self, since, to):
+        all_postings = []
+        offset = 0
+
+        for _ in range(self.MAX_PAGES):
+            response = self.ozon_client.get_fbo_postings(
+                since=since,
+                to=to,
+                limit=self.POSTINGS_PAGE_SIZE,
+                offset=offset,
+                direction="DESC",
+            )
+
+            if not response or response.get("error"):
+                return [], False, True
+
+            page = self._extract_postings(response)
+            all_postings.extend(page)
+
+            if len(page) < self.POSTINGS_PAGE_SIZE:
+                return all_postings, True, False
+
+            offset += len(page)
+
+        return all_postings, False, False
+
+    def _load_returns(self, target_sku, since, to):
+        all_returns = []
+        last_id = 0
+
+        for page_number in range(self.MAX_PAGES):
+            response = self.ozon_client.get_returns(
+                offer_id=target_sku,
+                return_schema="FBO",
+                since=since,
+                to=to,
+                limit=self.RETURNS_PAGE_SIZE,
+                last_id=last_id,
+            )
+
+            if not response or response.get("error"):
+                if page_number == 0:
+                    return [], False, False
+                return all_returns, True, False
+
+            page = response.get("returns") or []
+            all_returns.extend(page)
+
+            if not response.get("has_next"):
+                return all_returns, True, True
+
+            if not page:
+                return all_returns, True, False
+
+            next_id = page[-1].get("id")
+            try:
+                next_id = int(next_id)
+            except (TypeError, ValueError):
+                return all_returns, True, False
+
+            if next_id == last_id:
+                return all_returns, True, False
+
+            last_id = next_id
+
+        return all_returns, True, False
+
     def _extract_postings(self, response):
-        result = response.get("result") or {}
-        return result.get("postings") or []
+        result = response.get("result") or []
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            return result.get("postings") or []
+        return []
 
     def _sku_quantity(self, posting, target_sku):
         quantity = 0
@@ -215,6 +301,17 @@ class ReturnsBuyoutFactsSource:
             return "delivery_failure"
         return "unknown"
 
+    def _known_category_units(
+        self,
+        events,
+        category,
+        returns_available,
+        returns_complete,
+    ):
+        if not returns_available or not returns_complete:
+            return None
+        return self._category_units(events, category)
+
     def _category_units(self, events, category):
         return sum(
             item["quantity"]
@@ -233,12 +330,22 @@ class ReturnsBuyoutFactsSource:
             or cancellation.get("cancellation_type")
         )
 
-    def _note(self, returns_available, ambiguous_cancelled_units):
+    def _note(
+        self,
+        returns_available,
+        returns_complete,
+        postings_complete,
+        ambiguous_cancelled_units,
+    ):
+        if not postings_complete:
+            return "FBO postings выборка неполная; метрики нельзя считать окончательными."
         if not returns_available:
             return (
                 "Returns API недоступен: cancelled FBO postings остаются "
                 "неоднозначными и не считаются невыкупами."
             )
+        if not returns_complete:
+            return "Returns API выборка неполная; невыкупы и возвраты оставлены неизвестными."
         if ambiguous_cancelled_units:
             return (
                 "Невыкупы и возвраты классифицированы по Returns API; часть "
