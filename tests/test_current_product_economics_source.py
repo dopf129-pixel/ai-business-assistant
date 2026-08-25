@@ -79,12 +79,13 @@ def test_source_uses_current_seller_price_and_commission():
     assert result["seller_price"] == 95.0
     assert result["commission_rate"] == 14.0
     assert result["commission_amount"] == 13.3
+    assert result["current_delivery_tariff"] == 19.32
     assert result["logistics"] is None
-    assert result["last_mile"] == 19.32
-    assert result["buyout_rate"] is None
+    assert result["last_mile"] is None
+    assert result["acquiring_average"] is None
     assert "logistics" in result["missing_data"]
-    assert "last_mile" not in result["missing_data"]
-    assert "buyout_rate" in result["missing_data"]
+    assert "last_mile" in result["missing_data"]
+    assert "acquiring" in result["missing_data"]
     assert ozon.calls == [
         {
             "product_id": "3921245627",
@@ -123,21 +124,29 @@ def test_source_supports_legacy_commission_list_shape():
 
     assert result["commission_rate"] == 14.0
     assert result["commission_amount"] == 13.3
-    assert result["last_mile"] == 19.32
+    assert result["current_delivery_tariff"] == 19.32
 
 
-def test_source_calculates_recent_acquiring_average():
+def test_source_calculates_recent_finance_averages():
     finance = FakeFinanceService(
         {
             "2026-08-23": {
                 "error": False,
                 "sales_count": 2,
-                "acquiring": -2.0
+                "acquiring": -2.0,
+                "fee_breakdown": {
+                    "Логистика": -38.64,
+                    "Доставка до места выдачи": -3.0
+                }
             },
             "2026-08-24": {
                 "error": False,
                 "sales_count": 3,
-                "acquiring": -4.0
+                "acquiring": -4.0,
+                "fee_breakdown": {
+                    "Логистика": -57.96,
+                    "Доставка до места выдачи": -6.0
+                }
             }
         }
     )
@@ -157,21 +166,23 @@ def test_source_calculates_recent_acquiring_average():
     )
 
     assert result["acquiring_average"] == 1.2
-    assert "acquiring" not in result[
-        "missing_data"
-    ]
+    assert result["logistics"] == 19.32
+    assert result["last_mile"] == 1.8
+    assert result["finance_sample_sales"] == 5
+    assert result["finance_sample_days"] == 2
+    assert result["missing_data"] == []
 
 
-def test_source_calculates_buyout_rate_from_last_completed_fbo_postings():
+def test_source_calculates_buyout_rate_as_diagnostic_only():
     postings = []
-    for index in range(45):
+    for _ in range(45):
         postings.append(
             {
                 "status": "delivered",
                 "products": [{"offer_id": "hook-2"}]
             }
         )
-    for index in range(5):
+    for _ in range(5):
         postings.append(
             {
                 "status": "cancelled",
@@ -206,7 +217,7 @@ def test_source_calculates_buyout_rate_from_last_completed_fbo_postings():
     assert "buyout_rate" not in result["missing_data"]
 
 
-def test_source_buyout_rate_ignores_other_sku_and_in_progress():
+def test_source_buyout_diagnostic_ignores_other_sku_and_in_progress():
     source = CurrentProductEconomicsSource(
         ozon_client=FakeOzonClient(
             _price_response(),
@@ -232,7 +243,7 @@ def test_source_buyout_rate_ignores_other_sku_and_in_progress():
     )
 
     assert result["buyout_rate"] is None
-    assert "buyout_rate" in result["missing_data"]
+    assert "buyout_rate" not in result["missing_data"]
 
 
 def test_source_keeps_unknown_values_as_none():
@@ -258,7 +269,6 @@ def test_source_keeps_unknown_values_as_none():
     assert result["logistics"] is None
     assert result["last_mile"] is None
     assert result["acquiring_average"] is None
-    assert result["buyout_rate"] is None
     assert "current_price" in result[
         "missing_data"
     ]
