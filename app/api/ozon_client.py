@@ -304,6 +304,32 @@ class OzonClient:
             }
         )
 
+    def get_returns(
+        self,
+        offer_id=None,
+        return_schema="FBO",
+        limit=100,
+        last_id=0
+    ):
+
+        filter_data = {
+            "return_schema": str(return_schema)
+        }
+
+        if offer_id is not None:
+            filter_data["offer_id"] = str(offer_id)
+
+        return self._post(
+            "/v1/returns/list",
+            {
+                "filter": filter_data,
+                "limit": int(limit),
+                "last_id": int(last_id)
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_product_stocks(
         self,
         product_id
