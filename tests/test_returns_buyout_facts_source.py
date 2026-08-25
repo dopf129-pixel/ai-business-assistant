@@ -288,6 +288,8 @@ def test_ambiguous_cancelled_is_matched_by_posting_number():
         "unmatched_postings": [],
         "unclassified_matched_posting_count": 0,
         "unclassified_matched_postings": [],
+        "fbo_reason_classified_posting_count": 0,
+        "fbo_reason_classified_postings": [],
     }
 
 
@@ -323,6 +325,30 @@ def test_unmatched_cancelled_posting_remains_ambiguous():
         "unclassified_matched_posting_count": 0,
         "unclassified_matched_postings": [],
     }
+
+
+def test_classifies_unmatched_posting_by_confirmed_fbo_reason_id():
+    response = _response()
+    cancelled = response["result"]["postings"][1]
+    cancelled.pop("cancellation")
+    cancelled["cancel_reason_id"] = 504
+    source = ReturnsBuyoutFactsSource(
+        FakeOzonClient(
+            response,
+            returns_response={"returns": [], "has_next": False},
+        )
+    )
+
+    result = source.get("hook-2", "2026-08-01", "2026-08-25")
+
+    assert result["customer_cancelled_units"] == 1
+    assert result["ambiguous_cancelled_units"] == 0
+    diagnostics = result["cancelled_diagnostics"]
+    assert diagnostics["fbo_reason_classified_posting_count"] == 1
+    classified = diagnostics["fbo_reason_classified_postings"][0]
+    assert classified["posting_number"] == "p-2"
+    assert classified["category"] == "customer_cancel"
+    assert classified["classification_source"] == "fbo_cancel_reason_id"
 
 
 def test_exposes_return_events_for_matched_but_unclassified_posting():
