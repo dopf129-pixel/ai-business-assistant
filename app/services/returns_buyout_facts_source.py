@@ -16,6 +16,8 @@ class ReturnsBuyoutFactsSource:
     CUSTOMER_CANCEL_REASON_PREFIX = "покупатель отменил заказ"
     DELIVERY_FAILURE_REASON_PREFIX = "не удалось доставить заказ"
     FBO_CANCEL_REASON_CATEGORIES = {
+        502: "customer_cancel",
+        503: "customer_cancel",
         504: "customer_cancel",
         710: "customer_cancel",
         506: "customer_cancel",
