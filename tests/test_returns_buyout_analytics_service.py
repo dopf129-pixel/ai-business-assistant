@@ -12,6 +12,8 @@ def _facts(**overrides):
         "ambiguous_cancelled_units": 10,
         "customer_non_buyout_units": None,
         "customer_return_units": None,
+        "postings_complete": True,
+        "returns_complete": True,
     }
     data.update(overrides)
     return data
@@ -56,6 +58,35 @@ def test_known_buyout_with_unknown_returns_stays_partially_complete():
     assert result["customer_return_units"] is None
     assert result["missing_data"] == ["customer_return_units"]
     assert result["complete"] is False
+
+
+def test_incomplete_postings_block_buyout_rate_even_with_known_returns():
+    result = ReturnsBuyoutAnalyticsService().analyze(
+        _facts(
+            delivered_units=45,
+            customer_non_buyout_units=5,
+            customer_return_units=2,
+            postings_complete=False,
+        )
+    )
+
+    assert result["buyout_rate"] is None
+    assert result["buyout_sample_size"] is None
+    assert "postings_incomplete" in result["missing_data"]
+
+
+def test_incomplete_returns_block_buyout_rate():
+    result = ReturnsBuyoutAnalyticsService().analyze(
+        _facts(
+            delivered_units=45,
+            customer_non_buyout_units=None,
+            customer_return_units=None,
+            returns_complete=False,
+        )
+    )
+
+    assert result["buyout_rate"] is None
+    assert "returns_incomplete" in result["missing_data"]
 
 
 def test_zero_sample_does_not_create_fake_percentage():
