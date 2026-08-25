@@ -153,6 +153,7 @@ class ReturnsBuyoutFactsSource:
             not in return_event_posting_numbers
         ]
 
+        classified_posting_numbers = set()
         ambiguous_cancelled_postings = list(cancelled_postings)
         if returns_available and returns_complete:
             classified_posting_numbers = {
@@ -174,6 +175,19 @@ class ReturnsBuyoutFactsSource:
         ambiguous_cancelled_units = sum(
             item["quantity"] for item in ambiguous_cancelled_postings
         )
+        unclassified_matched_postings = []
+        for posting in ambiguous_cancelled_postings:
+            posting_number = str(posting.get("posting_number") or "")
+            if posting_number not in return_event_posting_numbers:
+                continue
+
+            diagnostic = dict(posting)
+            diagnostic["return_events"] = [
+                item
+                for item in return_events
+                if str(item.get("posting_number") or "") == posting_number
+            ]
+            unclassified_matched_postings.append(diagnostic)
 
         return {
             "error": False,
@@ -191,6 +205,10 @@ class ReturnsBuyoutFactsSource:
                 "matched_posting_count": len(matched_cancelled_postings),
                 "unmatched_posting_count": len(unmatched_cancelled_postings),
                 "unmatched_postings": unmatched_cancelled_postings,
+                "unclassified_matched_posting_count": len(
+                    unclassified_matched_postings
+                ),
+                "unclassified_matched_postings": unclassified_matched_postings,
             },
             "customer_non_buyout_units": customer_non_buyout_units,
             "customer_return_units": customer_return_units,
