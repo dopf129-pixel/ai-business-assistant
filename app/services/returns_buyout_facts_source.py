@@ -92,11 +92,11 @@ class ReturnsBuyoutFactsSource:
                 )
 
         total_units = sum(item["quantity"] for item in matched)
-        cancelled_units = sum(
-            item["quantity"]
-            for item in matched
+        cancelled_postings = [
+            item for item in matched
             if item["status"] == self.CANCELLED_STATUS
-        )
+        ]
+        cancelled_units = sum(item["quantity"] for item in cancelled_postings)
         delivered_units = sum(
             item["quantity"]
             for item in matched
@@ -134,20 +134,27 @@ class ReturnsBuyoutFactsSource:
             returns_complete,
         )
 
-        ambiguous_cancelled_units = cancelled_units
+        ambiguous_cancelled_postings = list(cancelled_postings)
         if returns_available and returns_complete:
-            known_cancel_units = sum(
-                value or 0
-                for value in (
-                    customer_non_buyout_units,
-                    customer_cancelled_units,
-                    delivery_failure_units,
-                )
-            )
-            ambiguous_cancelled_units = max(
-                cancelled_units - known_cancel_units,
-                0,
-            )
+            classified_posting_numbers = {
+                str(item.get("posting_number") or "")
+                for item in return_events
+                if item.get("category") in {
+                    "customer_non_buyout",
+                    "customer_cancel",
+                    "delivery_failure",
+                }
+            }
+            ambiguous_cancelled_postings = [
+                item
+                for item in cancelled_postings
+                if str(item.get("posting_number") or "")
+                not in classified_posting_numbers
+            ]
+
+        ambiguous_cancelled_units = sum(
+            item["quantity"] for item in ambiguous_cancelled_postings
+        )
 
         return {
             "error": False,
@@ -159,6 +166,7 @@ class ReturnsBuyoutFactsSource:
             "delivered_units": delivered_units,
             "cancelled_units": cancelled_units,
             "ambiguous_cancelled_units": ambiguous_cancelled_units,
+            "ambiguous_cancelled_postings": ambiguous_cancelled_postings,
             "customer_non_buyout_units": customer_non_buyout_units,
             "customer_return_units": customer_return_units,
             "customer_cancelled_units": customer_cancelled_units,
