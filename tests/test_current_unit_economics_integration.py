@@ -135,9 +135,9 @@ def test_current_response_shows_rubles_and_percentages():
 
     assert "Актуальная цена продавца:\n96.00 ₽ — 100.0%" in response
     assert "Комиссия Ozon:\n13.44 ₽ — 14.0%" in response
-    assert "Логистика, среднее:\n19.32 ₽ — 20.1%" in response
-    assert "Последняя миля, среднее:\n1.76 ₽ — 1.8%" in response
-    assert "Эквайринг, среднее:\n1.27 ₽ — 1.3%" in response
+    assert "Логистика:\n19.32 ₽ — 20.1%" in response
+    assert "Последняя миля:\n1.76 ₽ — 1.8%" in response
+    assert "Эквайринг:\n1.27 ₽ — 1.3%" in response
     assert "Себестоимость:\n21.00 ₽ — 21.9%" in response
     assert "Налог:\n5.76 ₽ — 6.0%" in response
     assert "Расчётная прибыль с 1 шт:\n33.45 ₽ — 34.8%" in response
@@ -161,7 +161,7 @@ def test_missing_logistics_keeps_profit_unknown():
     assert "logistics" in result["missing_fields"]
 
     response = service.format_response(result)
-    assert "Логистика, среднее:\n—" in response
+    assert "Логистика:\n—" in response
     assert "Расчётная прибыль с 1 шт:\n—" in response
 
 
