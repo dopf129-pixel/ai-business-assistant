@@ -592,7 +592,12 @@ class AssistantButtonHandlerService:
         skus = []
 
         for product in (products or []):
-            sku = self._extract_sku(product)
+            sku = (
+                product.get("offer_id")
+                if isinstance(product, dict)
+                and product.get("offer_id") is not None
+                else self._extract_sku(product)
+            )
             if sku is not None:
                 skus.append(str(sku))
 
