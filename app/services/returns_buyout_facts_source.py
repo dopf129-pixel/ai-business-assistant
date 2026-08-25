@@ -9,7 +9,10 @@ class ReturnsBuyoutFactsSource:
     CANCELLED_STATUS = "cancelled"
     CLIENT_RETURN_TYPE = "clientreturn"
     CANCELLATION_TYPE = "cancellation"
-    NON_BUYOUT_REASON_PREFIX = "покупатель отказался при вручении"
+    NON_BUYOUT_REASON_PREFIXES = (
+        "покупатель отказался при вручении",
+        "покупатель не забрал заказ",
+    )
     CUSTOMER_CANCEL_REASON_PREFIX = "покупатель отменил заказ"
     DELIVERY_FAILURE_REASON_PREFIX = "не удалось доставить заказ"
 
@@ -337,7 +340,7 @@ class ReturnsBuyoutFactsSource:
             return "customer_return"
         if (
             event_type == self.CANCELLATION_TYPE
-            and normalized_reason.startswith(self.NON_BUYOUT_REASON_PREFIX)
+            and normalized_reason.startswith(self.NON_BUYOUT_REASON_PREFIXES)
         ):
             return "customer_non_buyout"
         if (
