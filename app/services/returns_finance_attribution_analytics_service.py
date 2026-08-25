@@ -80,6 +80,12 @@ class ReturnsFinanceAttributionAnalyticsService:
         net_average = self._number(
             item.get("observed_net_amount_average")
         )
+        fee_total = self._number(
+            item.get("observed_fee_amount_total")
+        )
+        fee_average = self._number(
+            item.get("observed_fee_amount_average")
+        )
 
         coverage = None
         if event_count > 0:
@@ -101,8 +107,8 @@ class ReturnsFinanceAttributionAnalyticsService:
             "observed_posting_count": observed_count,
             "observed_net_amount_total": net_total,
             "observed_net_amount_average": net_average,
-            "observed_cost_total": self._cost(net_total),
-            "observed_cost_average": self._cost(net_average),
+            "observed_cost_total": self._cost(fee_total),
+            "observed_cost_average": self._cost(fee_average),
             "fees": self._fees(item.get("fees")),
             "complete": (
                 not unmatched
