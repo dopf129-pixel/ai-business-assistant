@@ -37,6 +37,7 @@ def _facts(events, ambiguous=0):
         "postings_complete": True,
         "returns_complete": True,
         "ambiguous_cancelled_units": ambiguous,
+        "delivered_units": 4580,
         "postings": [
             {
                 "posting_number": "p-1",
@@ -148,6 +149,7 @@ def test_matches_finance_rows_and_keeps_observed_metrics_explicit():
     )
 
     assert result["error"] is False
+    assert result["delivered_units"] == 4580
     non_buyout = result["categories"]["customer_non_buyout"]
     assert non_buyout["event_posting_count"] == 2
     assert non_buyout["finance_matched_posting_count"] == 1
