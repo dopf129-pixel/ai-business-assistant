@@ -11,6 +11,11 @@ from product_business_decision_factory import (
 )
 
 
+from product_returns_finance_impact_factory import (
+    create_product_returns_finance_impact_query
+)
+
+
 from services.assistant_keyboard_service import (
     AssistantKeyboardService
 )
@@ -104,6 +109,14 @@ def create_telegram_assistant():
 
 
 
+    returns_finance_impact_query = (
+        create_product_returns_finance_impact_query(
+            core_components=system
+        )
+    )
+
+
+
     telegram_memory = (
         AssistantTelegramMemoryService(
             storage_service
@@ -146,6 +159,9 @@ def create_telegram_assistant():
             ),
             product_business_decision_query=(
                 product_business_decision_query
+            ),
+            returns_finance_impact_query=(
+                returns_finance_impact_query
             )
         )
     )
@@ -231,6 +247,11 @@ def create_telegram_assistant():
 
     runner.product_business_decision_query = (
         product_business_decision_query
+    )
+
+
+    runner.returns_finance_impact_query = (
+        returns_finance_impact_query
     )
 
 

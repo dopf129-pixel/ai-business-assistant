@@ -47,7 +47,8 @@ class AssistantButtonHandlerService:
         task_context_service=None,
         keyboard_service=None,
         unit_economics_query=None,
-        product_business_decision_query=None
+        product_business_decision_query=None,
+        returns_finance_impact_query=None
     ):
 
         self.assistant = (
@@ -76,6 +77,10 @@ class AssistantButtonHandlerService:
 
         self.product_business_decision_query = (
             product_business_decision_query
+        )
+
+        self.returns_finance_impact_query = (
+            returns_finance_impact_query
         )
 
 
@@ -108,6 +113,27 @@ class AssistantButtonHandlerService:
         button_id,
         user_id=None
     ):
+
+        if button_id == "returns_finance_impact":
+
+            return (
+                self._open_returns_finance_impact_menu()
+            )
+
+        if button_id.startswith(
+            "returns_finance_impact:"
+        ):
+
+            sku = button_id.split(
+                ":",
+                1
+            )[1]
+
+            return (
+                self._show_returns_finance_impact(
+                    sku
+                )
+            )
 
         if button_id == "product_decisions":
 
@@ -540,3 +566,171 @@ class AssistantButtonHandlerService:
         ):
 
             return None
+
+
+    def _open_returns_finance_impact_menu(
+        self
+    ):
+
+        if (
+            not self.returns_finance_impact_query
+            or not self.keyboard_service
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Расходы на возвраты недоступны"
+                )
+            }
+
+        products = (
+            self.returns_finance_impact_query
+            .product_service
+            .load_products()
+        )
+        skus = []
+
+        for product in (products or []):
+            sku = (
+                product.get("offer_id")
+                if isinstance(product, dict)
+                and product.get("offer_id") is not None
+                else self._extract_sku(product)
+            )
+            if sku is not None:
+                skus.append(str(sku))
+
+        if not skus:
+            return {
+                "error": False,
+                "message": "Товары не найдены"
+            }
+
+        return {
+            "error": False,
+            "message": "Выберите товар:",
+            "keyboard": (
+                self.keyboard_service
+                .build_returns_finance_impact_keyboard(
+                    skus
+                )
+            )
+        }
+
+
+    def _show_returns_finance_impact(
+        self,
+        sku
+    ):
+
+        if not self.returns_finance_impact_query:
+            return {
+                "error": True,
+                "message": (
+                    "Расходы на возвраты недоступны"
+                )
+            }
+
+        result = self.returns_finance_impact_query.query(sku)
+
+        return {
+            "error": result.get("error", False),
+            "message": (
+                self._format_returns_finance_impact(result)
+            ),
+            "returns_finance_impact": result
+        }
+
+
+    def _format_returns_finance_impact(
+        self,
+        result
+    ):
+
+        if result.get("error"):
+            return (
+                result.get("message")
+                or "Расходы на возвраты недоступны"
+            )
+
+        lines = [
+            "↩️ Расходы на возвраты",
+            "",
+            "SKU:",
+            str(result.get("requested_sku") or "—"),
+            "",
+            "Период:",
+            str(result.get("period_days") or "—")
+            + " полных дней",
+        ]
+
+        for key in (
+            "customer_non_buyout",
+            "customer_return",
+        ):
+            item = (
+                (result.get("categories") or {}).get(key)
+                or {}
+            )
+            lines.extend([
+                "",
+                str(item.get("label") or key) + ":",
+                "События: "
+                + str(item.get("event_posting_count", 0)),
+                "Сопоставлено: "
+                + str(item.get(
+                    "finance_matched_posting_count",
+                    0
+                )),
+                "Покрытие: "
+                + self._format_percent(
+                    item.get("finance_coverage_percent")
+                ),
+                "Наблюдаемые расходы: "
+                + self._format_money(
+                    item.get("observed_cost_total")
+                ),
+                "Среднее на сопоставленное событие: "
+                + self._format_money(
+                    item.get("observed_cost_average")
+                ),
+            ])
+
+        lines.extend([
+            "",
+            "Скорректированная прибыль:",
+            "—",
+        ])
+
+        if not result.get("complete"):
+            lines.extend([
+                "",
+                "⚠️ Данные неполные. Показаны только "
+                "наблюдаемые расходы; экстраполяция "
+                "и пересчёт прибыли не выполнялись.",
+            ])
+
+        return "\n".join(lines)
+
+
+    def _format_money(
+        self,
+        value
+    ):
+
+        if value is None:
+            return "—"
+
+        return f"{float(value):.2f} ₽"
+
+
+    def _format_percent(
+        self,
+        value
+    ):
+
+        if value is None:
+            return "—"
+
+        return f"{float(value):.2f}%"

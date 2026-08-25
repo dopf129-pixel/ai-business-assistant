@@ -34,6 +34,10 @@ class AssistantKeyboardService:
                 {
                     "text": "🎯 Решения по товарам",
                     "callback": "product_decisions"
+                },
+                {
+                    "text": "↩️ Расходы на возвраты",
+                    "callback": "returns_finance_impact"
                 }
             ]
         }
@@ -73,6 +77,27 @@ class AssistantKeyboardService:
                     "text": str(sku),
                     "callback": (
                         "product_decision:"
+                        + str(sku)
+                    )
+                }
+                for sku in (skus or [])
+            ]
+        }
+
+
+    def build_returns_finance_impact_keyboard(
+        self,
+        skus
+    ):
+
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": str(sku),
+                    "callback": (
+                        "returns_finance_impact:"
                         + str(sku)
                     )
                 }
