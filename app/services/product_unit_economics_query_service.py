@@ -18,6 +18,7 @@ class ProductUnitEconomicsQueryService:
 
     CURRENT_MISSING_LABELS = {
         "unit_price": "Актуальная цена продавца",
+        "buyer_price": "Цена покупателя Ozon",
         "cost": "Себестоимость",
         "commission_amount": "Комиссия Ozon",
         "logistics": "Логистика",
@@ -422,6 +423,19 @@ class ProductUnitEconomicsQueryService:
         note = result.get("note")
         if note:
             lines.extend(["", note])
+
+        if (
+            result.get("tax_base_policy")
+            == "OZON_BUYER_PRICE"
+        ):
+            lines.extend([
+                "",
+                (
+                    "Налог рассчитан по цене покупателя Ozon; "
+                    "компенсация скидки баллами в базу "
+                    "управленческого расчёта не включена."
+                ),
+            ])
 
         updated = self._format_as_of(
             result.get("as_of")
