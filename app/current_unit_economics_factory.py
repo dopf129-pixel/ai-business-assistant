@@ -1,4 +1,7 @@
 from api.ozon_client import OzonClient
+from product_returns_finance_impact_factory import (
+    create_product_returns_finance_impact_query
+)
 
 from services.cost_service import ProductCostService
 from services.current_product_economics_source import (
@@ -17,9 +20,18 @@ def create_current_unit_economics_query(
         "unit_economics_query"
     ]
 
+    ozon_client = OzonClient()
+
     current_source = CurrentProductEconomicsSource(
-        ozon_client=OzonClient(),
+        ozon_client=ozon_client,
         finance_service=FinanceService()
+    )
+
+    returns_finance_impact_query = (
+        create_product_returns_finance_impact_query(
+            core_components=core_components,
+            ozon_client=ozon_client
+        )
     )
 
     return ProductUnitEconomicsQueryService(
@@ -37,5 +49,8 @@ def create_current_unit_economics_query(
         ),
         current_economics_source=current_source,
         cost_service=ProductCostService(),
-        current_finance_days=2
+        current_finance_days=2,
+        returns_finance_impact_query=(
+            returns_finance_impact_query
+        )
     )
