@@ -123,9 +123,9 @@ def test_menu_lists_products_and_selects_impact_query():
     )
 
     assert menu["keyboard"]["buttons"] == [{
-        "text": "3921245627",
+        "text": "hook-2",
         "callback": (
-            "returns_finance_impact:3921245627"
+            "returns_finance_impact:hook-2"
         ),
     }]
     assert query.calls == ["hook-2"]
