@@ -10,6 +10,9 @@ from services.product_unit_economics_provider import (
 from services.product_unit_economics_query_service import (
     ProductUnitEconomicsQueryService
 )
+from services.product_returns_finance_impact_query_service import (
+    ProductReturnsFinanceImpactQueryService
+)
 
 
 class HistoricalQuery:
@@ -54,3 +57,11 @@ def test_current_query_is_wired_over_existing_core_contract():
     )
     assert query.cost_service is not None
     assert query.current_finance_days == 2
+    assert isinstance(
+        query.returns_finance_impact_query,
+        ProductReturnsFinanceImpactQueryService
+    )
+    assert (
+        query.returns_finance_impact_query.product_service
+        is historical.product_service
+    )
