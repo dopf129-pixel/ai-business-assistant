@@ -243,6 +243,8 @@ def test_ambiguous_cancelled_is_matched_by_posting_number():
         "matched_posting_count": 1,
         "unmatched_posting_count": 0,
         "unmatched_postings": [],
+        "unclassified_matched_posting_count": 0,
+        "unclassified_matched_postings": [],
     }
 
 
@@ -275,7 +277,45 @@ def test_unmatched_cancelled_posting_remains_ambiguous():
                 "cancellation_type": "client_initiated",
             }
         ],
+        "unclassified_matched_posting_count": 0,
+        "unclassified_matched_postings": [],
     }
+
+
+def test_exposes_return_events_for_matched_but_unclassified_posting():
+    returns_response = {
+        "returns": [
+            _return_item(
+                11,
+                "p-2",
+                "Cancellation",
+                "Другая причина Ozon",
+            )
+        ],
+        "has_next": False,
+    }
+    source = ReturnsBuyoutFactsSource(
+        FakeOzonClient(_response(), returns_response=returns_response)
+    )
+
+    result = source.get("hook-2", "2026-08-01", "2026-08-25")
+
+    diagnostics = result["cancelled_diagnostics"]
+    assert diagnostics["matched_posting_count"] == 1
+    assert diagnostics["unmatched_posting_count"] == 0
+    assert diagnostics["unclassified_matched_posting_count"] == 1
+    item = diagnostics["unclassified_matched_postings"][0]
+    assert item["posting_number"] == "p-2"
+    assert item["return_events"] == [
+        {
+            "return_id": "11",
+            "posting_number": "p-2",
+            "type": "Cancellation",
+            "reason": "Другая причина Ozon",
+            "quantity": 1,
+            "category": "unknown",
+        }
+    ]
 
 
 def test_returns_api_is_period_scoped_and_uses_max_page_size():
