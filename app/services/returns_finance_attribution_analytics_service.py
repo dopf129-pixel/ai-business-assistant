@@ -139,6 +139,8 @@ class ReturnsFinanceAttributionAnalyticsService:
     def _cost(self, net_amount):
         if net_amount is None:
             return None
+        if net_amount == 0:
+            return 0.0
         return round(-net_amount, 2)
 
     def _integer(self, value):
