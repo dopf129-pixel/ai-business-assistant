@@ -45,6 +45,9 @@ class ReturnsFinanceAttributionAnalyticsService:
             "finance_sku": source.get("finance_sku"),
             "since": source.get("since"),
             "to": source.get("to"),
+            "delivered_units": self._optional_integer(
+                source.get("delivered_units")
+            ),
             "categories": categories,
             "classification_complete": bool(
                 source.get("classification_complete")
@@ -148,6 +151,14 @@ class ReturnsFinanceAttributionAnalyticsService:
         if net_amount == 0:
             return 0.0
         return round(-net_amount, 2)
+
+    def _optional_integer(self, value):
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _integer(self, value):
         try:
