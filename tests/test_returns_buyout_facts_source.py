@@ -214,6 +214,29 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     ]
 
 
+def test_classifies_confirmed_uncollected_order_as_non_buyout():
+    returns_response = {
+        "returns": [
+            _return_item(
+                9,
+                "p-2",
+                "Cancellation",
+                "Покупатель не забрал заказ",
+            )
+        ],
+        "has_next": False,
+    }
+    source = ReturnsBuyoutFactsSource(
+        FakeOzonClient(_response(), returns_response=returns_response)
+    )
+
+    result = source.get("hook-2", "2026-08-01", "2026-08-25")
+
+    assert result["customer_non_buyout_units"] == 1
+    assert result["ambiguous_cancelled_units"] == 0
+    assert result["return_events"][0]["category"] == "customer_non_buyout"
+
+
 def test_ambiguous_cancelled_is_matched_by_posting_number():
     returns_response = {
         "returns": [
