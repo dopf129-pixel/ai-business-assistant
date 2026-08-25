@@ -4,6 +4,12 @@ from datetime import datetime, timezone
 class CurrentProductEconomicsSource:
     """Loads current Ozon commercial facts without calculating profit."""
 
+    LAST_MILE_LABELS = (
+        "Последняя миля",
+        "Доставка до места выдачи",
+        "Выдача товара"
+    )
+
     def __init__(self, ozon_client, finance_service=None):
         self.ozon_client = ozon_client
         self.finance_service = finance_service
@@ -51,7 +57,7 @@ class CurrentProductEconomicsSource:
             item.get("commissions") or {},
             seller_price
         )
-        acquiring = self._acquiring_average(
+        finance = self._finance_averages(
             sku,
             accrual_dates or []
         )
@@ -62,13 +68,16 @@ class CurrentProductEconomicsSource:
             sample_size=buyout_sample_size
         )
 
+        logistics = finance["logistics"]
+        last_mile = finance["last_mile"]
+        acquiring = finance["acquiring"]
+
         values = {
             "current_price": seller_price,
             "commission": commission["amount"],
-            "logistics": commission["logistics"],
-            "last_mile": commission["last_mile"],
-            "acquiring": acquiring,
-            "buyout_rate": buyout["rate"]
+            "logistics": logistics,
+            "last_mile": last_mile,
+            "acquiring": acquiring
         }
 
         return {
@@ -80,9 +89,14 @@ class CurrentProductEconomicsSource:
             "seller_price": seller_price,
             "commission_rate": commission["rate"],
             "commission_amount": commission["amount"],
-            "logistics": commission["logistics"],
-            "last_mile": commission["last_mile"],
+            "logistics": logistics,
+            "last_mile": last_mile,
             "acquiring_average": acquiring,
+            "current_delivery_tariff": commission[
+                "delivery_to_customer"
+            ],
+            "finance_sample_sales": finance["sales_count"],
+            "finance_sample_days": finance["days"],
             "buyout_rate": buyout["rate"],
             "buyout_sample_size": buyout["sample_size"],
             "buyout_delivered": buyout["delivered"],
@@ -110,6 +124,9 @@ class CurrentProductEconomicsSource:
             "logistics": None,
             "last_mile": None,
             "acquiring_average": None,
+            "current_delivery_tariff": None,
+            "finance_sample_sales": 0,
+            "finance_sample_days": 0,
             "buyout_rate": None,
             "buyout_sample_size": None,
             "buyout_delivered": None,
@@ -121,8 +138,7 @@ class CurrentProductEconomicsSource:
                 "commission",
                 "logistics",
                 "last_mile",
-                "acquiring",
-                "buyout_rate"
+                "acquiring"
             ]
         }
 
@@ -147,17 +163,15 @@ class CurrentProductEconomicsSource:
             rate = self._number(
                 commissions.get("sales_percent_fbo")
             )
-            last_mile = self._number(
-                commissions.get("fbo_deliv_to_customer_amount")
-            )
             return {
                 "rate": rate,
                 "amount": self._commission_amount(
                     seller_price,
                     rate
                 ),
-                "logistics": None,
-                "last_mile": last_mile
+                "delivery_to_customer": self._number(
+                    commissions.get("fbo_deliv_to_customer_amount")
+                )
             }
 
         if isinstance(commissions, list):
@@ -176,8 +190,7 @@ class CurrentProductEconomicsSource:
                         seller_price,
                         rate
                     ),
-                    "logistics": None,
-                    "last_mile": self._number(
+                    "delivery_to_customer": self._number(
                         item.get("fbo_deliv_to_customer_amount")
                     )
                 }
@@ -185,8 +198,7 @@ class CurrentProductEconomicsSource:
         return {
             "rate": None,
             "amount": None,
-            "logistics": None,
-            "last_mile": None
+            "delivery_to_customer": None
         }
 
     def _commission_amount(self, seller_price, rate):
@@ -194,12 +206,22 @@ class CurrentProductEconomicsSource:
             return None
         return round(seller_price * rate / 100, 2)
 
-    def _acquiring_average(self, sku, accrual_dates):
+    def _finance_averages(self, sku, accrual_dates):
+        empty = {
+            "acquiring": None,
+            "logistics": None,
+            "last_mile": None,
+            "sales_count": 0,
+            "days": 0
+        }
         if not self.finance_service or not accrual_dates:
-            return None
+            return empty
 
-        total = 0.0
+        acquiring_total = 0.0
+        logistics_total = 0.0
+        last_mile_total = 0.0
         sales_count = 0
+        days = 0
 
         for accrual_date in accrual_dates:
             result = self.finance_service.get_daily_finance(
@@ -213,13 +235,40 @@ class CurrentProductEconomicsSource:
             if day_sales <= 0:
                 continue
 
-            total += abs(float(result.get("acquiring") or 0))
+            days += 1
             sales_count += day_sales
+            acquiring_total += abs(
+                float(result.get("acquiring") or 0)
+            )
+
+            breakdown = result.get("fee_breakdown") or {}
+            logistics_total += abs(
+                float(breakdown.get("Логистика") or 0)
+            )
+            last_mile_total += sum(
+                abs(float(breakdown.get(label) or 0))
+                for label in self.LAST_MILE_LABELS
+            )
 
         if sales_count <= 0:
-            return None
+            return empty
 
-        return round(total / sales_count, 2)
+        return {
+            "acquiring": round(
+                acquiring_total / sales_count,
+                2
+            ),
+            "logistics": round(
+                logistics_total / sales_count,
+                2
+            ),
+            "last_mile": round(
+                last_mile_total / sales_count,
+                2
+            ),
+            "sales_count": sales_count,
+            "days": days
+        }
 
     def _buyout_rate(self, sku, since, to, sample_size):
         empty = {
