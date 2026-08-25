@@ -52,5 +52,8 @@ def create_current_unit_economics_query(
         current_finance_days=2,
         returns_finance_impact_query=(
             returns_finance_impact_query
+        ),
+        current_tax_base_policy=(
+            "OZON_BUYER_PRICE"
         )
     )
