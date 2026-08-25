@@ -304,6 +304,49 @@ class OzonClient:
             }
         )
 
+    def get_returns(
+        self,
+        offer_id=None,
+        return_schema="FBO",
+        since=None,
+        to=None,
+        limit=500,
+        last_id=0
+    ):
+
+        filter_data = {
+            "return_schema": str(return_schema)
+        }
+
+        if offer_id is not None:
+            filter_data["offer_id"] = str(offer_id)
+
+        if since is not None and to is not None:
+            filter_data["visual_status_change_moment"] = {
+                "time_from": str(since),
+                "time_to": str(to)
+            }
+
+        return self._post(
+            "/v1/returns/list",
+            {
+                "filter": filter_data,
+                "limit": int(limit),
+                "last_id": int(last_id)
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
+    def get_fbo_cancel_reasons(self):
+
+        return self._post(
+            "/v1/posting/fbo/cancel-reason/list",
+            {},
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_product_stocks(
         self,
         product_id
