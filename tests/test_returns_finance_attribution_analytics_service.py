@@ -47,6 +47,7 @@ def test_builds_observed_costs_without_extrapolation():
         "finance_sku": "42",
         "since": "2026-08-01",
         "to": "2026-08-25",
+        "delivered_units": 4580,
         "classification_complete": True,
         "finance_complete": False,
         "complete": False,
@@ -76,6 +77,7 @@ def test_builds_observed_costs_without_extrapolation():
     )
 
     assert result["error"] is False
+    assert result["delivered_units"] == 4580
     non_buyout = result["categories"]["customer_non_buyout"]
     assert non_buyout["finance_coverage_percent"] == 83.33
     assert non_buyout["observed_cost_total"] == 567.0
