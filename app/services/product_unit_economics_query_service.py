@@ -307,19 +307,19 @@ class ProductUnitEconomicsQueryService:
                 price
             ),
             "",
-            "Логистика, среднее:",
+            "Логистика:",
             self._format_money_with_share(
                 result.get("logistics"),
                 price
             ),
             "",
-            "Последняя миля, среднее:",
+            "Последняя миля:",
             self._format_money_with_share(
                 result.get("last_mile"),
                 price
             ),
             "",
-            "Эквайринг, среднее:",
+            "Эквайринг:",
             self._format_money_with_share(
                 result.get("acquiring"),
                 price
@@ -371,6 +371,17 @@ class ProductUnitEconomicsQueryService:
         note = result.get("note")
         if note:
             lines.extend(["", note])
+
+        updated = self._format_as_of(
+            result.get("as_of")
+        )
+        if updated:
+            lines.extend(
+                [
+                    "",
+                    f"Данные обновлены: {updated}"
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -533,12 +544,24 @@ class ProductUnitEconomicsQueryService:
         days = result.get("finance_sample_days")
         if sales and days:
             return (
-                "Логистика, последняя миля и эквайринг — "
-                f"средние по свежим начислениям: {sales} продаж, "
-                f"{days} дн."
+                "Основано на последних финансовых начислениях "
+                f"Ozon: {sales} продаж за {days} дн."
             )
 
         return "Расчёт по актуальной цене продавца."
+
+    def _format_as_of(self, value):
+        if not value:
+            return None
+
+        try:
+            parsed = datetime.fromisoformat(
+                str(value).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            return None
+
+        return parsed.strftime("%d.%m.%Y %H:%M UTC")
 
     def _format_money(self, value):
         if value is None:
