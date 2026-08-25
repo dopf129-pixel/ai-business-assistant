@@ -8,7 +8,15 @@ class CurrentProductEconomicsSource:
         self.ozon_client = ozon_client
         self.finance_service = finance_service
 
-    def get(self, sku, product_id=None, accrual_dates=None):
+    def get(
+        self,
+        sku,
+        product_id=None,
+        accrual_dates=None,
+        buyout_since=None,
+        buyout_to=None,
+        buyout_sample_size=50
+    ):
         response = self.ozon_client.get_product_prices(
             product_id=product_id,
             offer_id=sku
@@ -47,6 +55,12 @@ class CurrentProductEconomicsSource:
             sku,
             accrual_dates or []
         )
+        buyout = self._buyout_rate(
+            sku=sku,
+            since=buyout_since,
+            to=buyout_to,
+            sample_size=buyout_sample_size
+        )
 
         values = {
             "current_price": seller_price,
@@ -54,7 +68,7 @@ class CurrentProductEconomicsSource:
             "logistics": commission["logistics"],
             "last_mile": commission["last_mile"],
             "acquiring": acquiring,
-            "buyout_rate": None
+            "buyout_rate": buyout["rate"]
         }
 
         return {
@@ -69,8 +83,15 @@ class CurrentProductEconomicsSource:
             "logistics": commission["logistics"],
             "last_mile": commission["last_mile"],
             "acquiring_average": acquiring,
-            "buyout_rate": None,
-            "buyout_sample_size": None,
+            "buyout_rate": buyout["rate"],
+            "buyout_sample_size": buyout["sample_size"],
+            "buyout_delivered": buyout["delivered"],
+            "buyout_cancelled": buyout["cancelled"],
+            "buyout_basis": (
+                "last_completed_fbo_postings"
+                if buyout["rate"] is not None
+                else None
+            ),
             "as_of": self._now(),
             "missing_data": [
                 name for name, value in values.items()
@@ -91,6 +112,9 @@ class CurrentProductEconomicsSource:
             "acquiring_average": None,
             "buyout_rate": None,
             "buyout_sample_size": None,
+            "buyout_delivered": None,
+            "buyout_cancelled": None,
+            "buyout_basis": None,
             "as_of": self._now(),
             "missing_data": [
                 "current_price",
@@ -136,7 +160,6 @@ class CurrentProductEconomicsSource:
                 "last_mile": last_mile
             }
 
-        # Backward-compatible support for older mocked/legacy response shape.
         if isinstance(commissions, list):
             for item in commissions:
                 if not isinstance(item, dict):
@@ -197,6 +220,61 @@ class CurrentProductEconomicsSource:
             return None
 
         return round(total / sales_count, 2)
+
+    def _buyout_rate(self, sku, since, to, sample_size):
+        empty = {
+            "rate": None,
+            "sample_size": None,
+            "delivered": None,
+            "cancelled": None
+        }
+
+        if not since or not to:
+            return empty
+
+        result = self.ozon_client.get_fbo_postings(
+            since=since,
+            to=to,
+            limit=1000,
+            offset=0,
+            direction="DESC"
+        )
+        if result.get("error"):
+            return empty
+
+        completed = []
+        for posting in result.get("result") or []:
+            status = str(posting.get("status") or "").lower()
+            if status not in ("delivered", "cancelled"):
+                continue
+            if not self._posting_has_sku(posting, sku):
+                continue
+            completed.append(status)
+            if len(completed) >= int(sample_size):
+                break
+
+        if not completed:
+            return empty
+
+        delivered = completed.count("delivered")
+        cancelled = completed.count("cancelled")
+        total = len(completed)
+
+        return {
+            "rate": round(delivered / total * 100, 2),
+            "sample_size": total,
+            "delivered": delivered,
+            "cancelled": cancelled
+        }
+
+    def _posting_has_sku(self, posting, sku):
+        target = str(sku)
+        for product in posting.get("products") or []:
+            if str(product.get("offer_id")) == target:
+                return True
+            if str(product.get("sku")) == target:
+                return True
+        return False
 
     def _number(self, value):
         if value in (None, ""):
