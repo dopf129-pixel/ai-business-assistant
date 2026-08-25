@@ -10,6 +10,8 @@ def _category(
     total,
     average,
     unmatched=None,
+    fee_total=None,
+    fee_average=None,
 ):
     return {
         "event_posting_count": events,
@@ -22,6 +24,12 @@ def _category(
         "observed_posting_count": observed,
         "observed_net_amount_total": total,
         "observed_net_amount_average": average,
+        "observed_fee_amount_total": (
+            total if fee_total is None else fee_total
+        ),
+        "observed_fee_amount_average": (
+            average if fee_average is None else fee_average
+        ),
         "fees": {
             "59": {
                 "posting_count": observed,
@@ -87,6 +95,40 @@ def test_builds_observed_costs_without_extrapolation():
         "observed_cost_average": 10.0,
     }
     assert result["complete"] is False
+
+
+def test_derives_cost_from_fees_not_sale_reversal_net_effect():
+    facts = {
+        "error": False,
+        "classification_complete": True,
+        "finance_complete": True,
+        "complete": True,
+        "categories": {
+            "customer_non_buyout": _category(
+                events=1,
+                matched=1,
+                observed=1,
+                total=-100.0,
+                average=-100.0,
+                fee_total=-20.0,
+                fee_average=-20.0,
+            ),
+            "customer_return": _category(
+                events=0,
+                matched=0,
+                observed=0,
+                total=None,
+                average=None,
+            ),
+        },
+    }
+
+    result = ReturnsFinanceAttributionAnalyticsService().analyze(facts)
+
+    category = result["categories"]["customer_non_buyout"]
+    assert category["observed_net_amount_total"] == -100.0
+    assert category["observed_cost_total"] == 20.0
+    assert category["observed_cost_average"] == 20.0
 
 
 def test_preserves_positive_compensation_as_negative_cost():
