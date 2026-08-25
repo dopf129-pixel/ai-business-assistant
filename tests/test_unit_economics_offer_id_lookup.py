@@ -11,7 +11,8 @@ class FakeProductService:
 
 
 class FakeCurrentSource:
-    def get(self, sku, accrual_dates=None):
+    def get(self, **kwargs):
+        sku = kwargs["sku"]
         return {
             "error": False,
             "sku": sku,
