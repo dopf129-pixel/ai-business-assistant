@@ -120,6 +120,9 @@ class ReturnsFinanceAttributionFactsSource:
             "finance_sku": target_finance_sku,
             "since": str(since),
             "to": str(to),
+            "delivered_units": returns_facts.get(
+                "delivered_units"
+            ),
             "categories": categories,
             "classification_complete": classification_complete,
             "finance_complete": finance_complete,
