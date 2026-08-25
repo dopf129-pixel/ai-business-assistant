@@ -3,7 +3,6 @@ class ReturnsBuyoutFactsSource:
 
     DELIVERED_STATUSES = {
         "delivered",
-        "delivering",
     }
 
     CANCELLED_STATUS = "cancelled"
@@ -117,8 +116,23 @@ class ReturnsBuyoutFactsSource:
             if item["status"] in self.DELIVERED_STATUSES
         )
 
+        cancelled_posting_numbers = {
+            str(item.get("posting_number") or "")
+            for item in cancelled_postings
+            if item.get("posting_number")
+        }
+        cancelled_return_events = [
+            item
+            for item in return_events
+            if (
+                item.get("category") != "customer_return"
+                and str(item.get("posting_number") or "")
+                in cancelled_posting_numbers
+            )
+        ]
+
         customer_non_buyout_units = self._known_category_units(
-            return_events,
+            cancelled_return_events,
             "customer_non_buyout",
             returns_available,
             returns_complete,
@@ -130,19 +144,19 @@ class ReturnsBuyoutFactsSource:
             returns_complete,
         )
         customer_cancelled_units = self._known_category_units(
-            return_events,
+            cancelled_return_events,
             "customer_cancel",
             returns_available,
             returns_complete,
         )
         delivery_failure_units = self._known_category_units(
-            return_events,
+            cancelled_return_events,
             "delivery_failure",
             returns_available,
             returns_complete,
         )
         unknown_return_units = self._known_category_units(
-            return_events,
+            cancelled_return_events,
             "unknown",
             returns_available,
             returns_complete,
