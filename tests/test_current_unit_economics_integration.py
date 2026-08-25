@@ -140,14 +140,14 @@ def test_current_response_shows_rubles_and_percentages():
         service.query("hook-2")
     )
 
-    assert "Актуальная цена продавца:\n96.00 ₽ — 100.0%" in response
+    assert "Цена:\n96.00 ₽ — 100.0%" in response
     assert "Комиссия Ozon:\n13.44 ₽ — 14.0%" in response
     assert "Логистика:\n19.32 ₽ — 20.1%" in response
     assert "Последняя миля:\n1.76 ₽ — 1.8%" in response
     assert "Эквайринг:\n1.27 ₽ — 1.3%" in response
     assert "Себестоимость:\n21.00 ₽ — 21.9%" in response
     assert "Налог:\n5.76 ₽ — 6.0%" in response
-    assert "Расчётная прибыль с 1 шт:\n33.45 ₽ — 34.8%" in response
+    assert "Прибыль до учёта возвратов:\n33.45 ₽ — 34.8%" in response
     assert "Реклама" not in response
     assert "Хранение" not in response
 
@@ -243,20 +243,14 @@ def test_ozon_buyer_price_policy_is_explicit_in_response():
         service.query("hook-2")
     )
 
-    assert "Цена покупателя Ozon:\n90.00 ₽ — 93.8%" in response
-    assert "Компенсация скидки Ozon:\n6.00 ₽ — 6.2%" in response
-    assert "Налоговая база:\n90.00 ₽ — 93.8%" in response
-    assert "Ставка налога:\n6.00%" in response
+    assert "Цена:\n96.00 ₽ — 100.0%" in response
     assert "Налог:\n5.40 ₽ — 5.6%" in response
-    assert (
-        "Эффективный налог от цены продавца:\n5.62%"
-        in response
-    )
-    assert (
-        "компенсация скидки баллами в базу "
-        "управленческого расчёта не включена"
-        in response
-    )
+    assert "Цена покупателя Ozon:" not in response
+    assert "Компенсация скидки Ozon:" not in response
+    assert "Налоговая база:" not in response
+    assert "Ставка налога:" not in response
+    assert "Эффективный налог от цены продавца:" not in response
+    assert "управленческого расчёта" not in response
 
 
 def test_missing_ozon_buyer_price_keeps_tax_and_profit_unknown():
