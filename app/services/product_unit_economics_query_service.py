@@ -35,7 +35,8 @@ class ProductUnitEconomicsQueryService:
         current_economics_source=None,
         cost_service=None,
         current_finance_days=2,
-        returns_finance_impact_query=None
+        returns_finance_impact_query=None,
+        current_tax_base_policy="SELLER_PRICE"
     ):
         self.product_service = product_service
         self.period_profit_service = period_profit_service
@@ -53,6 +54,10 @@ class ProductUnitEconomicsQueryService:
         )
         self.returns_finance_impact_query = (
             returns_finance_impact_query
+        )
+        self.current_tax_base_policy = str(
+            current_tax_base_policy
+            or "SELLER_PRICE"
         )
 
     def query(self, sku):
@@ -123,8 +128,12 @@ class ProductUnitEconomicsQueryService:
             facts,
             product
         )
+        prepared_facts = dict(facts)
+        prepared_facts["tax_base_policy"] = (
+            self.current_tax_base_policy
+        )
         metric = self.unit_economics_provider.build_current(
-            facts,
+            prepared_facts,
             cost
         )
 
@@ -310,6 +319,18 @@ class ProductUnitEconomicsQueryService:
                 price
             ),
             "",
+            "Цена покупателя Ozon:",
+            self._format_money_with_share(
+                result.get("buyer_price"),
+                price
+            ),
+            "",
+            "Компенсация скидки Ozon:",
+            self._format_money_with_share(
+                result.get("ozon_discount_compensation"),
+                price
+            ),
+            "",
             "Комиссия Ozon:",
             self._format_money_with_share(
                 result.get("commission"),
@@ -340,10 +361,26 @@ class ProductUnitEconomicsQueryService:
                 price
             ),
             "",
+            "Налоговая база:",
+            self._format_money_with_share(
+                result.get("tax_base"),
+                price
+            ),
+            "",
+            "Ставка налога:",
+            self._format_percent(
+                result.get("tax_rate")
+            ),
+            "",
             "Налог:",
             self._format_money_with_share(
                 result.get("tax"),
                 price
+            ),
+            "",
+            "Эффективный налог от цены продавца:",
+            self._format_percent(
+                result.get("tax_effective_percent")
             ),
             "",
             "----------------",
