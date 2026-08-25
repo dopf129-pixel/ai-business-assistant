@@ -57,6 +57,10 @@ def test_current_query_is_wired_over_existing_core_contract():
     )
     assert query.cost_service is not None
     assert query.current_finance_days == 2
+    assert (
+        query.current_tax_base_policy
+        == "OZON_BUYER_PRICE"
+    )
     assert isinstance(
         query.returns_finance_impact_query,
         ProductReturnsFinanceImpactQueryService
