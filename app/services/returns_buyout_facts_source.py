@@ -62,6 +62,7 @@ class ReturnsBuyoutFactsSource:
                     "quantity": quantity,
                     "cancel_reason_id": self._cancel_reason_id(posting),
                     "cancel_reason": self._cancel_reason(posting),
+                    "cancellation_type": self._cancellation_type(posting),
                 }
             )
 
@@ -134,6 +135,24 @@ class ReturnsBuyoutFactsSource:
             returns_complete,
         )
 
+        return_event_posting_numbers = {
+            str(item.get("posting_number") or "")
+            for item in return_events
+            if item.get("posting_number")
+        }
+        matched_cancelled_postings = [
+            item
+            for item in cancelled_postings
+            if str(item.get("posting_number") or "")
+            in return_event_posting_numbers
+        ]
+        unmatched_cancelled_postings = [
+            item
+            for item in cancelled_postings
+            if str(item.get("posting_number") or "")
+            not in return_event_posting_numbers
+        ]
+
         ambiguous_cancelled_postings = list(cancelled_postings)
         if returns_available and returns_complete:
             classified_posting_numbers = {
@@ -167,6 +186,12 @@ class ReturnsBuyoutFactsSource:
             "cancelled_units": cancelled_units,
             "ambiguous_cancelled_units": ambiguous_cancelled_units,
             "ambiguous_cancelled_postings": ambiguous_cancelled_postings,
+            "cancelled_diagnostics": {
+                "cancelled_posting_count": len(cancelled_postings),
+                "matched_posting_count": len(matched_cancelled_postings),
+                "unmatched_posting_count": len(unmatched_cancelled_postings),
+                "unmatched_postings": unmatched_cancelled_postings,
+            },
             "customer_non_buyout_units": customer_non_buyout_units,
             "customer_return_units": customer_return_units,
             "customer_cancelled_units": customer_cancelled_units,
@@ -333,10 +358,11 @@ class ReturnsBuyoutFactsSource:
 
     def _cancel_reason(self, posting):
         cancellation = posting.get("cancellation") or {}
-        return (
-            cancellation.get("cancel_reason")
-            or cancellation.get("cancellation_type")
-        )
+        return cancellation.get("cancel_reason")
+
+    def _cancellation_type(self, posting):
+        cancellation = posting.get("cancellation") or {}
+        return cancellation.get("cancellation_type")
 
     def _note(
         self,
