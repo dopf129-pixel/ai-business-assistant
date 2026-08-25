@@ -34,7 +34,8 @@ class ProductUnitEconomicsQueryService:
         unit_economics_provider,
         current_economics_source=None,
         cost_service=None,
-        current_finance_days=2
+        current_finance_days=2,
+        returns_finance_impact_query=None
     ):
         self.product_service = product_service
         self.period_profit_service = period_profit_service
@@ -49,6 +50,9 @@ class ProductUnitEconomicsQueryService:
         self.current_finance_days = max(
             1,
             int(current_finance_days)
+        )
+        self.returns_finance_impact_query = (
+            returns_finance_impact_query
         )
 
     def query(self, sku):
@@ -72,14 +76,19 @@ class ProductUnitEconomicsQueryService:
             }
 
         if self.current_economics_source is not None:
-            return self._query_current(
+            result = self._query_current(
+                target_sku,
+                product
+            )
+        else:
+            result = self._query_historical(
                 target_sku,
                 product
             )
 
-        return self._query_historical(
+        return self._attach_returns_impact(
             target_sku,
-            product
+            result
         )
 
     def _query_current(self, sku, product):
@@ -351,6 +360,11 @@ class ProductUnitEconomicsQueryService:
             )
         ]
 
+        self._append_returns_impact(
+            lines,
+            result
+        )
+
         missing = result.get("missing_fields") or []
         if missing:
             labels = [
@@ -384,6 +398,136 @@ class ProductUnitEconomicsQueryService:
             )
 
         return "\n".join(lines)
+
+    def _attach_returns_impact(
+        self,
+        sku,
+        result
+    ):
+        if (
+            result.get("error")
+            or self.returns_finance_impact_query is None
+        ):
+            return result
+
+        impact = self.returns_finance_impact_query.query(sku)
+        output = dict(result)
+        output["returns_finance_impact"] = impact
+
+        if not isinstance(impact, dict) or impact.get("error"):
+            output["returns_finance_complete"] = False
+            output["returns_observed_cost_total"] = None
+            output["returns_observed_event_count"] = None
+            output["risk_adjusted_profit_per_unit"] = None
+            return output
+
+        categories = impact.get("categories") or {}
+        costs = []
+        event_count = 0
+
+        for key in (
+            "customer_non_buyout",
+            "customer_return",
+        ):
+            item = categories.get(key) or {}
+            value = item.get("observed_cost_total")
+            if value is not None:
+                costs.append(float(value))
+            event_count += int(
+                item.get("event_posting_count") or 0
+            )
+
+        output["returns_finance_complete"] = bool(
+            impact.get("complete")
+        )
+        output["returns_observed_cost_total"] = (
+            round(sum(costs), 2)
+            if costs
+            else None
+        )
+        output["returns_observed_event_count"] = event_count
+        output["risk_adjusted_profit_per_unit"] = None
+        return output
+
+
+    def _append_returns_impact(
+        self,
+        lines,
+        result
+    ):
+        impact = result.get("returns_finance_impact")
+        if not isinstance(impact, dict):
+            return
+
+        lines.extend([
+            "",
+            "----------------",
+            "",
+            "Возвраты и невыкупы за период:",
+        ])
+
+        if impact.get("error"):
+            lines.extend([
+                "Наблюдаемые расходы:",
+                "—",
+                "",
+                "Скорректированная прибыль с 1 шт:",
+                "—",
+                "",
+                "Данные расходов на возвраты недоступны.",
+            ])
+            return
+
+        categories = impact.get("categories") or {}
+        for key in (
+            "customer_non_buyout",
+            "customer_return",
+        ):
+            item = categories.get(key) or {}
+            lines.extend([
+                "",
+                str(item.get("label") or key) + ":",
+                "События: "
+                + str(item.get("event_posting_count") or 0),
+                "Покрытие: "
+                + self._format_percent(
+                    item.get("finance_coverage_percent")
+                ),
+                "Наблюдаемые расходы: "
+                + self._format_money(
+                    item.get("observed_cost_total")
+                ),
+                "Среднее на сопоставленное событие: "
+                + self._format_money(
+                    item.get("observed_cost_average")
+                ),
+            ])
+
+        lines.extend([
+            "",
+            "Всего наблюдаемых расходов:",
+            self._format_money(
+                result.get("returns_observed_cost_total")
+            ),
+            "",
+            "Скорректированная прибыль с 1 шт:",
+            "—",
+            "",
+            (
+                "Наблюдаемые расходы не распределены на "
+                "проданные единицы; прибыль не пересчитана."
+            ),
+        ])
+
+        if not impact.get("complete"):
+            lines.extend([
+                "",
+                (
+                    "⚠️ Финансовая атрибуция неполна; "
+                    "экстраполяция не выполнялась."
+                ),
+            ])
+
 
     def _find_product(self, sku):
         products = self.product_service.load_products()
