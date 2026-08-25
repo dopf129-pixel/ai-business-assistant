@@ -21,7 +21,8 @@ class CurrentProductEconomicsSource:
         accrual_dates=None,
         buyout_since=None,
         buyout_to=None,
-        buyout_sample_size=50
+        buyout_sample_size=50,
+        finance_sku=None
     ):
         response = self.ozon_client.get_product_prices(
             product_id=product_id,
@@ -58,7 +59,7 @@ class CurrentProductEconomicsSource:
             seller_price
         )
         finance = self._finance_averages(
-            sku,
+            finance_sku if finance_sku is not None else sku,
             accrual_dates or []
         )
         buyout = self._buyout_rate(
