@@ -156,12 +156,16 @@ def test_matches_finance_rows_and_keeps_observed_metrics_explicit():
     ]
     assert non_buyout["observed_net_amount_total"] == -18.0
     assert non_buyout["observed_net_amount_average"] == -18.0
+    assert non_buyout["observed_fee_amount_total"] == -18.0
+    assert non_buyout["observed_fee_amount_average"] == -18.0
     assert non_buyout["fees"]["32"]["observed_total"] == -10.0
     assert non_buyout["fees"]["59"]["observed_total"] == -8.0
 
     customer_return = result["categories"]["customer_return"]
     assert customer_return["event_posting_count"] == 1
     assert customer_return["observed_net_amount_total"] == -19.0
+    assert customer_return["observed_fee_amount_total"] == -8.0
+    assert customer_return["observed_fee_amount_average"] == -8.0
     assert customer_return["fees"]["1"]["observed_total"] == 1.0
     assert customer_return["fees"]["59"]["observed_total"] == -9.0
 
@@ -247,6 +251,7 @@ def test_marks_multi_product_accrual_as_non_attributable():
     ]
     assert category["observed_posting_count"] == 0
     assert category["observed_net_amount_total"] is None
+    assert category["observed_fee_amount_total"] is None
     assert "multi_product_accruals" in result["missing_data"]
 
 
