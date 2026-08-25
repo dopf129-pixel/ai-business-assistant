@@ -308,7 +308,9 @@ class OzonClient:
         self,
         offer_id=None,
         return_schema="FBO",
-        limit=100,
+        since=None,
+        to=None,
+        limit=500,
         last_id=0
     ):
 
@@ -318,6 +320,12 @@ class OzonClient:
 
         if offer_id is not None:
             filter_data["offer_id"] = str(offer_id)
+
+        if since is not None and to is not None:
+            filter_data["visual_status_change_moment"] = {
+                "time_from": str(since),
+                "time_to": str(to)
+            }
 
         return self._post(
             "/v1/returns/list",
