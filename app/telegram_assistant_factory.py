@@ -95,7 +95,10 @@ def create_telegram_assistant():
 
     product_business_decision_query = (
         create_product_business_decision_query(
-            core_components=system
+            core_components=system,
+            unit_economics_query=(
+                unit_economics_query
+            )
         )
     )
 
