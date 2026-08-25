@@ -184,6 +184,7 @@ class ReturnsFinanceAttributionFactsSource:
         unmatched = []
         non_attributable = []
         posting_amounts = {}
+        posting_fee_amounts = {}
         fee_totals = {}
         fee_postings = {}
 
@@ -211,9 +212,11 @@ class ReturnsFinanceAttributionFactsSource:
                 Decimal("0"),
             )
             posting_amounts[posting_number] = amount
+            posting_fee_amount = Decimal("0")
 
             for row in rows:
                 for fee in self._fees(row, finance_sku):
+                    posting_fee_amount += fee["amount"]
                     type_id = fee["type_id"]
                     fee_totals[type_id] = (
                         fee_totals.get(type_id, Decimal("0"))
@@ -222,6 +225,9 @@ class ReturnsFinanceAttributionFactsSource:
                     fee_postings.setdefault(type_id, set()).add(
                         posting_number
                     )
+            posting_fee_amounts[posting_number] = (
+                posting_fee_amount
+            )
 
         observed_count = len(posting_amounts)
         observed_total = (
@@ -232,6 +238,16 @@ class ReturnsFinanceAttributionFactsSource:
         observed_average = (
             observed_total / observed_count
             if observed_total is not None and observed_count
+            else None
+        )
+        observed_fee_total = (
+            sum(posting_fee_amounts.values(), Decimal("0"))
+            if posting_fee_amounts
+            else None
+        )
+        observed_fee_average = (
+            observed_fee_total / observed_count
+            if observed_fee_total is not None and observed_count
             else None
         )
 
@@ -252,6 +268,12 @@ class ReturnsFinanceAttributionFactsSource:
             ),
             "observed_net_amount_average": self._money(
                 observed_average
+            ),
+            "observed_fee_amount_total": self._money(
+                observed_fee_total
+            ),
+            "observed_fee_amount_average": self._money(
+                observed_fee_average
             ),
             "fees": {
                 str(type_id): {
