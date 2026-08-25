@@ -9,9 +9,12 @@ def _facts(**overrides):
         "to": "2026-08-25T00:00:00Z",
         "delivered_units": 40,
         "cancelled_units": 10,
-        "ambiguous_cancelled_units": 10,
+        "ambiguous_cancelled_units": 0,
         "customer_non_buyout_units": None,
         "customer_return_units": None,
+        "customer_cancelled_units": 0,
+        "delivery_failure_units": 0,
+        "unknown_return_units": 0,
         "postings_complete": True,
         "returns_complete": True,
     }
@@ -20,12 +23,15 @@ def _facts(**overrides):
 
 
 def test_ambiguous_cancellations_do_not_become_non_buyouts():
-    result = ReturnsBuyoutAnalyticsService().analyze(_facts())
+    result = ReturnsBuyoutAnalyticsService().analyze(
+        _facts(ambiguous_cancelled_units=10)
+    )
 
     assert result["customer_non_buyout_units"] is None
     assert result["buyout_rate"] is None
     assert result["buyout_sample_size"] is None
     assert "customer_non_buyout_units" in result["missing_data"]
+    assert "ambiguous_cancelled_units" in result["missing_data"]
     assert result["complete"] is False
 
 
@@ -39,9 +45,34 @@ def test_buyout_rate_is_calculated_only_from_known_customer_non_buyouts():
     )
 
     assert result["buyout_rate"] == 90.0
+    assert result["observed_buyout_rate"] == 90.0
     assert result["buyout_sample_size"] == 50
     assert result["missing_data"] == []
+    assert result["classification_complete"] is True
     assert result["complete"] is True
+
+
+def test_observed_buyout_rate_can_exist_while_classification_is_incomplete():
+    result = ReturnsBuyoutAnalyticsService().analyze(
+        _facts(
+            delivered_units=5107,
+            cancelled_units=253,
+            ambiguous_cancelled_units=69,
+            customer_non_buyout_units=85,
+            customer_return_units=2,
+            customer_cancelled_units=60,
+            delivery_failure_units=39,
+        )
+    )
+
+    assert result["observed_buyout_rate"] == 98.36
+    assert result["buyout_rate"] == 98.36
+    assert result["buyout_sample_size"] == 5192
+    assert result["customer_cancelled_units"] == 60
+    assert result["delivery_failure_units"] == 39
+    assert "ambiguous_cancelled_units" in result["missing_data"]
+    assert result["classification_complete"] is False
+    assert result["complete"] is False
 
 
 def test_known_buyout_with_unknown_returns_stays_partially_complete():
