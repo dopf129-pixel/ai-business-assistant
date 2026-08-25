@@ -21,6 +21,9 @@ class ReturnsBuyoutAnalyticsService:
         ambiguous_cancelled = self._number(source.get("ambiguous_cancelled_units"))
         customer_non_buyout = self._number(source.get("customer_non_buyout_units"))
         customer_returns = self._number(source.get("customer_return_units"))
+        customer_cancelled = self._number(source.get("customer_cancelled_units"))
+        delivery_failure = self._number(source.get("delivery_failure_units"))
+        unknown_returns = self._number(source.get("unknown_return_units"))
 
         postings_complete = source.get("postings_complete", True)
         returns_complete = source.get("returns_complete", True)
@@ -34,8 +37,10 @@ class ReturnsBuyoutAnalyticsService:
             missing_data.append("customer_non_buyout_units")
         if customer_returns is None:
             missing_data.append("customer_return_units")
+        if ambiguous_cancelled:
+            missing_data.append("ambiguous_cancelled_units")
 
-        buyout_rate = None
+        observed_buyout_rate = None
         buyout_sample_size = None
         if (
             postings_complete
@@ -46,7 +51,18 @@ class ReturnsBuyoutAnalyticsService:
             sample = delivered + customer_non_buyout
             buyout_sample_size = sample
             if sample > 0:
-                buyout_rate = round(delivered / sample * 100, 2)
+                observed_buyout_rate = round(delivered / sample * 100, 2)
+
+        classification_complete = not any(
+            item in missing_data
+            for item in (
+                "postings_incomplete",
+                "returns_incomplete",
+                "customer_non_buyout_units",
+                "customer_return_units",
+                "ambiguous_cancelled_units",
+            )
+        )
 
         return {
             "error": False,
@@ -58,10 +74,15 @@ class ReturnsBuyoutAnalyticsService:
             "ambiguous_cancelled_units": ambiguous_cancelled,
             "customer_non_buyout_units": customer_non_buyout,
             "customer_return_units": customer_returns,
-            "buyout_rate": buyout_rate,
+            "customer_cancelled_units": customer_cancelled,
+            "delivery_failure_units": delivery_failure,
+            "unknown_return_units": unknown_returns,
+            "observed_buyout_rate": observed_buyout_rate,
+            "buyout_rate": observed_buyout_rate,
             "buyout_sample_size": buyout_sample_size,
+            "classification_complete": classification_complete,
             "missing_data": missing_data,
-            "complete": not missing_data,
+            "complete": classification_complete,
             "note": self._note(missing_data, ambiguous_cancelled),
         }
 
@@ -79,12 +100,12 @@ class ReturnsBuyoutAnalyticsService:
         if "returns_incomplete" in missing_data:
             return "Процент выкупа не рассчитан: выборка Ozon Returns неполная."
         if "customer_non_buyout_units" in missing_data:
-            if ambiguous_cancelled:
-                return (
-                    "Процент выкупа не рассчитан: отменённые FBO postings "
-                    "пока нельзя достоверно считать невыкупами покупателя."
-                )
             return "Процент выкупа не рассчитан: нет достоверных данных о невыкупах."
+        if ambiguous_cancelled:
+            return (
+                "Наблюдаемый процент выкупа рассчитан по подтверждённым отказам "
+                "при вручении, но часть cancelled postings пока не классифицирована."
+            )
         if "customer_return_units" in missing_data:
             return "Процент выкупа доступен, но данные о возвратах пока неполные."
         return "Метрики выкупа и возвратов рассчитаны по подготовленным фактам."
