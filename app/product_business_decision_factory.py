@@ -17,7 +17,8 @@ from services.product_business_decision_query_service import (
 def create_product_business_decision_query(
     core_components=None,
     metrics_service=None,
-    stock_intelligence_service=None
+    stock_intelligence_service=None,
+    unit_economics_query=None
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -25,17 +26,18 @@ def create_product_business_decision_query(
     else:
         components = core_components
 
-    unit_economics_query = components.get(
-        "unit_economics_query"
+    economics_query = (
+        unit_economics_query
+        or components.get("unit_economics_query")
     )
 
-    if unit_economics_query is None:
+    if economics_query is None:
         raise RuntimeError(
             "Product Unit Economics production wiring is required"
         )
 
-    product_service = unit_economics_query.product_service
-    analytics_service = unit_economics_query.analytics_service
+    product_service = economics_query.product_service
+    analytics_service = economics_query.analytics_service
 
     prepared_source = ProductDecisionMetricsSource(
         product_service=product_service,
@@ -53,7 +55,7 @@ def create_product_business_decision_query(
         product_service=product_service,
         sales_metrics_source=prepared_source.sales,
         stock_metrics_source=prepared_source.stock,
-        unit_economics_query_service=unit_economics_query,
+        unit_economics_query_service=economics_query,
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService()
     )
