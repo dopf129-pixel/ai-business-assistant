@@ -378,14 +378,20 @@ class ProductUnitEconomicsQueryService:
             if normalized is None:
                 continue
 
-            if str(normalized.get("sku")) == sku:
+            if (
+                str(normalized.get("sku")) == sku
+                or str(normalized.get("offer_id")) == sku
+            ):
                 return normalized
 
         return None
 
     def _normalize_product(self, product):
         if isinstance(product, dict):
-            if product.get("sku") is None:
+            if (
+                product.get("sku") is None
+                and product.get("offer_id") is None
+            ):
                 return None
             return dict(product)
 
