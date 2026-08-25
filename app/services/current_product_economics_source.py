@@ -220,6 +220,9 @@ class CurrentProductEconomicsSource:
         acquiring_total = 0.0
         logistics_total = 0.0
         last_mile_total = 0.0
+        acquiring_seen = False
+        logistics_seen = False
+        last_mile_seen = False
         sales_count = 0
         days = 0
 
@@ -237,34 +240,46 @@ class CurrentProductEconomicsSource:
 
             days += 1
             sales_count += day_sales
-            acquiring_total += abs(
-                float(result.get("acquiring") or 0)
-            )
-
             breakdown = result.get("fee_breakdown") or {}
-            logistics_total += abs(
-                float(breakdown.get("Логистика") or 0)
-            )
-            last_mile_total += sum(
-                abs(float(breakdown.get(label) or 0))
-                for label in self.LAST_MILE_LABELS
-            )
+
+            if "Эквайринг" in breakdown:
+                acquiring_seen = True
+                acquiring_total += abs(
+                    float(breakdown.get("Эквайринг") or 0)
+                )
+
+            if "Логистика" in breakdown:
+                logistics_seen = True
+                logistics_total += abs(
+                    float(breakdown.get("Логистика") or 0)
+                )
+
+            for label in self.LAST_MILE_LABELS:
+                if label not in breakdown:
+                    continue
+                last_mile_seen = True
+                last_mile_total += abs(
+                    float(breakdown.get(label) or 0)
+                )
 
         if sales_count <= 0:
             return empty
 
         return {
-            "acquiring": round(
-                acquiring_total / sales_count,
-                2
+            "acquiring": (
+                round(acquiring_total / sales_count, 2)
+                if acquiring_seen
+                else None
             ),
-            "logistics": round(
-                logistics_total / sales_count,
-                2
+            "logistics": (
+                round(logistics_total / sales_count, 2)
+                if logistics_seen
+                else None
             ),
-            "last_mile": round(
-                last_mile_total / sales_count,
-                2
+            "last_mile": (
+                round(last_mile_total / sales_count, 2)
+                if last_mile_seen
+                else None
             ),
             "sales_count": sales_count,
             "days": days
