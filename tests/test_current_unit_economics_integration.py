@@ -252,6 +252,11 @@ def test_ozon_buyer_price_policy_is_explicit_in_response():
         "Эффективный налог от цены продавца:\n5.62%"
         in response
     )
+    assert (
+        "компенсация скидки баллами в базу "
+        "управленческого расчёта не включена"
+        in response
+    )
 
 
 def test_missing_ozon_buyer_price_keeps_tax_and_profit_unknown():
