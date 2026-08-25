@@ -187,6 +187,26 @@ def test_preserves_cancel_reason_as_fact_only_when_returns_api_unavailable():
     assert result["customer_non_buyout_units"] is None
 
 
+def test_preserves_top_level_fbo_cancellation_metadata():
+    response = _response()
+    cancelled = response["result"]["postings"][1]
+    cancelled.pop("cancellation")
+    cancelled["cancel_reason_id"] = 504
+    cancelled["cancel_reason"] = "top-level reason"
+    cancelled["cancellation_type"] = "top-level type"
+
+    result = ReturnsBuyoutFactsSource(FakeOzonClient(response)).get(
+        "hook-2",
+        "2026-08-01",
+        "2026-08-25",
+    )
+
+    item = result["ambiguous_cancelled_postings"][0]
+    assert item["cancel_reason_id"] == 504
+    assert item["cancel_reason"] == "top-level reason"
+    assert item["cancellation_type"] == "top-level type"
+
+
 def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     source = ReturnsBuyoutFactsSource(
         FakeOzonClient(
