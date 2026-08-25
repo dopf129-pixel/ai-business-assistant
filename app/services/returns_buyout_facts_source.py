@@ -15,6 +15,14 @@ class ReturnsBuyoutFactsSource:
     )
     CUSTOMER_CANCEL_REASON_PREFIX = "покупатель отменил заказ"
     DELIVERY_FAILURE_REASON_PREFIX = "не удалось доставить заказ"
+    FBO_CANCEL_REASON_CATEGORIES = {
+        504: "customer_cancel",
+        710: "customer_cancel",
+        506: "customer_cancel",
+        505: "customer_cancel",
+        695: "delivery_failure",
+        512: "delivery_failure",
+    }
 
     POSTINGS_PAGE_SIZE = 1000
     RETURNS_PAGE_SIZE = 500
@@ -155,6 +163,28 @@ class ReturnsBuyoutFactsSource:
             if str(item.get("posting_number") or "")
             not in return_event_posting_numbers
         ]
+        fbo_reason_classified_postings = []
+        if returns_available and returns_complete:
+            for posting in unmatched_cancelled_postings:
+                category = self._fbo_cancel_reason_category(
+                    posting.get("cancel_reason_id")
+                )
+                if category is None:
+                    continue
+
+                classified = dict(posting)
+                classified["category"] = category
+                classified["classification_source"] = "fbo_cancel_reason_id"
+                fbo_reason_classified_postings.append(classified)
+
+            customer_cancelled_units += self._category_units(
+                fbo_reason_classified_postings,
+                "customer_cancel",
+            )
+            delivery_failure_units += self._category_units(
+                fbo_reason_classified_postings,
+                "delivery_failure",
+            )
 
         classified_posting_numbers = set()
         ambiguous_cancelled_postings = list(cancelled_postings)
@@ -168,6 +198,10 @@ class ReturnsBuyoutFactsSource:
                     "delivery_failure",
                 }
             }
+            classified_posting_numbers.update(
+                str(item.get("posting_number") or "")
+                for item in fbo_reason_classified_postings
+            )
             ambiguous_cancelled_postings = [
                 item
                 for item in cancelled_postings
@@ -212,6 +246,10 @@ class ReturnsBuyoutFactsSource:
                     unclassified_matched_postings
                 ),
                 "unclassified_matched_postings": unclassified_matched_postings,
+                "fbo_reason_classified_posting_count": len(
+                    fbo_reason_classified_postings
+                ),
+                "fbo_reason_classified_postings": fbo_reason_classified_postings,
             },
             "customer_non_buyout_units": customer_non_buyout_units,
             "customer_return_units": customer_return_units,
@@ -354,6 +392,13 @@ class ReturnsBuyoutFactsSource:
         ):
             return "delivery_failure"
         return "unknown"
+
+    def _fbo_cancel_reason_category(self, reason_id):
+        try:
+            normalized_id = int(reason_id)
+        except (TypeError, ValueError):
+            return None
+        return self.FBO_CANCEL_REASON_CATEGORIES.get(normalized_id)
 
     def _known_category_units(
         self,
