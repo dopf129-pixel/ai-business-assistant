@@ -1323,3 +1323,45 @@ Tests:
 - безопасный ответ при отсутствии товаров или SKU
 - сохранение существующих analyze/plan/history/memory callbacks
 - отсутствие изменений Sales/Stock/Finance и Action/Executor workflow
+---
+
+# Current Unit Economics Integration / Polish
+
+Services:
+
+- CurrentProductEconomicsSource
+- ProductUnitEconomicsProvider
+- ProductUnitEconomicsQueryService
+- TaxConfigurationService
+
+Production wiring:
+
+- current_unit_economics_factory.py
+- telegram_assistant_factory.py
+
+Tests:
+
+- test_current_product_economics_source.py
+- test_current_unit_economics_finance_sku.py
+- test_current_unit_economics_integration.py
+- test_current_unit_economics_polish.py
+- test_current_unit_economics_production_wiring.py
+- test_unit_economics_offer_id_lookup.py
+
+Проверяет:
+
+- актуальную цену продавца из Ozon Price API
+- разделение offer_id и внутреннего Ozon SKU
+- получение свежих finance expenses
+- отдельные logistics / last mile / acquiring
+- отсутствие подстановки неизвестных данных нулём
+- расчёт налога по TaxConfigurationService
+- расчёт прибыли одной текущей единицы
+- отображение расходов в рублях и процентах от цены
+- production wiring в Telegram
+- сохранение старого historical contract
+- безопасный fallback
+
+Full suite result:
+
+217 passed
