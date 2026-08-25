@@ -13,10 +13,11 @@ class StubReturnsImpactQuery:
         return dict(self.result)
 
 
-def _impact(complete=False):
+def _impact(complete=False, delivered_units=None):
     return {
         "error": False,
         "complete": complete,
+        "delivered_units": delivered_units,
         "categories": {
             "customer_non_buyout": {
                 "label": "Невыкуп",
@@ -103,8 +104,11 @@ def test_current_card_shows_observed_cost_and_unknown_adjusted_profit():
     assert "экстраполяция не выполнялась" in response
 
 
-def test_complete_attribution_still_does_not_invent_per_unit_allocation():
-    service = _service(_impact(complete=True))
+def test_complete_attribution_allocates_cost_over_same_period_deliveries():
+    service = _service(_impact(
+        complete=True,
+        delivered_units=1000,
+    ))
     result = service._attach_returns_impact(
         "hook-2",
         _economics(),
@@ -113,13 +117,34 @@ def test_complete_attribution_still_does_not_invent_per_unit_allocation():
     response = service.format_response(result)
 
     assert result["returns_finance_complete"] is True
-    assert result["risk_adjusted_profit_per_unit"] is None
-    assert "Скорректированная прибыль с 1 шт:\n—" in response
-    assert (
-        "Наблюдаемые расходы не распределены "
-        "на проданные единицы"
-    ) in response
+    assert result["returns_delivered_units"] == 1000
+    assert result["returns_cost_per_delivered_unit"] == 4.78
+    assert result["risk_adjusted_profit_per_unit"] == 30.32
+    assert result["risk_adjusted_margin_percent"] == 31.58
+    assert "returns" not in result["missing_fields"]
+    assert "Расход на доставленную единицу:\n4.78 ₽" in response
+    assert "Скорректированная прибыль с 1 шт:\n30.32 ₽" in response
+    assert "Скорректированная маржа:\n31.58%" in response
     assert "экстраполяция не выполнялась" not in response
+
+
+def test_complete_attribution_without_denominator_keeps_adjustment_unknown():
+    service = _service(_impact(
+        complete=True,
+        delivered_units=None,
+    ))
+    result = service._attach_returns_impact(
+        "hook-2",
+        _economics(),
+    )
+
+    response = service.format_response(result)
+
+    assert result["returns_cost_per_delivered_unit"] is None
+    assert result["risk_adjusted_profit_per_unit"] is None
+    assert "returns" in result["missing_fields"]
+    assert "Скорректированная прибыль с 1 шт:\n—" in response
+    assert "не хватает полных данных" in response
 
 
 def test_unavailable_returns_data_keeps_unit_economics_available():
