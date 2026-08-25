@@ -22,7 +22,14 @@ class ReturnsBuyoutAnalyticsService:
         customer_non_buyout = self._number(source.get("customer_non_buyout_units"))
         customer_returns = self._number(source.get("customer_return_units"))
 
+        postings_complete = source.get("postings_complete", True)
+        returns_complete = source.get("returns_complete", True)
+
         missing_data = []
+        if not postings_complete:
+            missing_data.append("postings_incomplete")
+        if not returns_complete:
+            missing_data.append("returns_incomplete")
         if customer_non_buyout is None:
             missing_data.append("customer_non_buyout_units")
         if customer_returns is None:
@@ -30,7 +37,12 @@ class ReturnsBuyoutAnalyticsService:
 
         buyout_rate = None
         buyout_sample_size = None
-        if delivered is not None and customer_non_buyout is not None:
+        if (
+            postings_complete
+            and returns_complete
+            and delivered is not None
+            and customer_non_buyout is not None
+        ):
             sample = delivered + customer_non_buyout
             buyout_sample_size = sample
             if sample > 0:
@@ -62,6 +74,10 @@ class ReturnsBuyoutAnalyticsService:
             return None
 
     def _note(self, missing_data, ambiguous_cancelled):
+        if "postings_incomplete" in missing_data:
+            return "Процент выкупа не рассчитан: выборка FBO postings неполная."
+        if "returns_incomplete" in missing_data:
+            return "Процент выкупа не рассчитан: выборка Ozon Returns неполная."
         if "customer_non_buyout_units" in missing_data:
             if ambiguous_cancelled:
                 return (
