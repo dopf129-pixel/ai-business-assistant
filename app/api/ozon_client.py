@@ -275,6 +275,35 @@ class OzonClient:
             }
         )
 
+    def get_fbo_postings(
+        self,
+        since,
+        to,
+        limit=1000,
+        offset=0,
+        direction="DESC",
+        status=""
+    ):
+
+        return self._post(
+            "/v2/posting/fbo/list",
+            {
+                "dir": str(direction),
+                "filter": {
+                    "since": str(since),
+                    "status": str(status),
+                    "to": str(to)
+                },
+                "limit": int(limit),
+                "offset": int(offset),
+                "translit": False,
+                "with": {
+                    "analytics_data": False,
+                    "financial_data": False
+                }
+            }
+        )
+
     def get_product_stocks(
         self,
         product_id
