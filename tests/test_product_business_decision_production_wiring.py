@@ -210,3 +210,18 @@ def test_existing_unit_economics_query_object_is_reused():
         query.unit_economics_query_service
         is core["unit_economics_query"]
     )
+
+
+def test_explicit_current_unit_economics_query_overrides_core_query():
+    core = _core()
+    current_query = StubUnitEconomicsQuery()
+
+    query = create_product_business_decision_query(
+        core_components=core,
+        metrics_service=StubMetricsService(),
+        stock_intelligence_service=StockIntelligenceService(),
+        unit_economics_query=current_query,
+    )
+
+    assert query.unit_economics_query_service is current_query
+    assert query.unit_economics_query_service is not core["unit_economics_query"]
