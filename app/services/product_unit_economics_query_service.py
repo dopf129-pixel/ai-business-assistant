@@ -418,35 +418,93 @@ class ProductUnitEconomicsQueryService:
             output["returns_finance_complete"] = False
             output["returns_observed_cost_total"] = None
             output["returns_observed_event_count"] = None
+            output["returns_delivered_units"] = None
+            output["returns_cost_per_delivered_unit"] = None
             output["risk_adjusted_profit_per_unit"] = None
+            output["risk_adjusted_margin_percent"] = None
             return output
 
         categories = impact.get("categories") or {}
         costs = []
         event_count = 0
+        category_costs_known = True
 
         for key in (
             "customer_non_buyout",
             "customer_return",
         ):
             item = categories.get(key) or {}
-            value = item.get("observed_cost_total")
-            if value is not None:
-                costs.append(float(value))
-            event_count += int(
+            category_events = int(
                 item.get("event_posting_count") or 0
             )
+            value = item.get("observed_cost_total")
+            event_count += category_events
 
-        output["returns_finance_complete"] = bool(
-            impact.get("complete")
+            if value is not None:
+                costs.append(float(value))
+            elif category_events:
+                category_costs_known = False
+
+        delivered_units = self._positive_integer(
+            impact.get("delivered_units")
         )
-        output["returns_observed_cost_total"] = (
+        complete = bool(impact.get("complete"))
+        observed_total = (
             round(sum(costs), 2)
             if costs
-            else None
+            else (0.0 if complete and not event_count else None)
         )
+        base_profit = result.get("net_profit_per_unit")
+        allocation_ready = (
+            complete
+            and delivered_units is not None
+            and category_costs_known
+            and observed_total is not None
+            and base_profit is not None
+        )
+
+        cost_per_delivered = None
+        adjusted_profit = None
+        adjusted_margin = None
+
+        if allocation_ready:
+            cost_per_delivered = round(
+                observed_total / delivered_units,
+                2
+            )
+            adjusted_profit = round(
+                float(base_profit) - cost_per_delivered,
+                2
+            )
+            price = result.get("unit_price")
+            if price not in (None, 0):
+                adjusted_margin = round(
+                    adjusted_profit / float(price) * 100,
+                    2
+                )
+
+        output["returns_finance_complete"] = complete
+        output["returns_observed_cost_total"] = observed_total
         output["returns_observed_event_count"] = event_count
-        output["risk_adjusted_profit_per_unit"] = None
+        output["returns_delivered_units"] = delivered_units
+        output["returns_cost_per_delivered_unit"] = (
+            cost_per_delivered
+        )
+        output["risk_adjusted_profit_per_unit"] = (
+            adjusted_profit
+        )
+        output["risk_adjusted_margin_percent"] = (
+            adjusted_margin
+        )
+
+        if allocation_ready:
+            missing = list(output.get("missing_fields") or [])
+            output["missing_fields"] = [
+                field
+                for field in missing
+                if field != "returns"
+            ]
+
         return output
 
 
@@ -469,6 +527,9 @@ class ProductUnitEconomicsQueryService:
         if impact.get("error"):
             lines.extend([
                 "Наблюдаемые расходы:",
+                "—",
+                "",
+                "Расход на доставленную единицу:",
                 "—",
                 "",
                 "Скорректированная прибыль с 1 шт:",
@@ -510,14 +571,46 @@ class ProductUnitEconomicsQueryService:
                 result.get("returns_observed_cost_total")
             ),
             "",
-            "Скорректированная прибыль с 1 шт:",
-            "—",
-            "",
+            "Доставлено единиц за тот же период:",
             (
-                "Наблюдаемые расходы не распределены на "
-                "проданные единицы; прибыль не пересчитана."
+                str(result.get("returns_delivered_units"))
+                if result.get("returns_delivered_units") is not None
+                else "—"
+            ),
+            "",
+            "Расход на доставленную единицу:",
+            self._format_money(
+                result.get("returns_cost_per_delivered_unit")
+            ),
+            "",
+            "Скорректированная прибыль с 1 шт:",
+            self._format_money(
+                result.get("risk_adjusted_profit_per_unit")
+            ),
+            "",
+            "Скорректированная маржа:",
+            self._format_percent(
+                result.get("risk_adjusted_margin_percent")
             ),
         ])
+
+        if result.get("risk_adjusted_profit_per_unit") is not None:
+            lines.extend([
+                "",
+                (
+                    "Расходы распределены по подтверждённым "
+                    "доставленным единицам того же периода."
+                ),
+            ])
+        else:
+            lines.extend([
+                "",
+                (
+                    "Расходы не вычитались из прибыли: "
+                    "для безопасного распределения не хватает "
+                    "полных данных."
+                ),
+            ])
 
         if not impact.get("complete"):
             lines.extend([
@@ -527,6 +620,18 @@ class ProductUnitEconomicsQueryService:
                     "экстраполяция не выполнялась."
                 ),
             ])
+
+
+    def _positive_integer(
+        self,
+        value
+    ):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+
+        return number if number > 0 else None
 
 
     def _find_product(self, sku):
