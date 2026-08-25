@@ -212,6 +212,49 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     ]
 
 
+def test_ambiguous_cancelled_is_matched_by_posting_number():
+    returns_response = {
+        "returns": [
+            _return_item(
+                10,
+                "p-2",
+                "Cancellation",
+                "Покупатель отказался при вручении: товар не подошел",
+            )
+        ],
+        "has_next": False,
+    }
+    source = ReturnsBuyoutFactsSource(
+        FakeOzonClient(
+            _response(),
+            returns_response=returns_response,
+        )
+    )
+
+    result = source.get("hook-2", "2026-08-01", "2026-08-25")
+
+    assert result["customer_non_buyout_units"] == 1
+    assert result["ambiguous_cancelled_units"] == 0
+    assert result["ambiguous_cancelled_postings"] == []
+
+
+def test_unmatched_cancelled_posting_remains_ambiguous():
+    source = ReturnsBuyoutFactsSource(
+        FakeOzonClient(
+            _response(),
+            returns_response=_returns_response(),
+        )
+    )
+
+    result = source.get("hook-2", "2026-08-01", "2026-08-25")
+
+    assert result["ambiguous_cancelled_units"] == 1
+    assert [
+        item["posting_number"]
+        for item in result["ambiguous_cancelled_postings"]
+    ] == ["p-2"]
+
+
 def test_returns_api_is_period_scoped_and_uses_max_page_size():
     client = FakeOzonClient(
         _response(),
