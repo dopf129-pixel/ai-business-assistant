@@ -127,6 +127,37 @@ def test_preserves_positive_compensation_as_negative_cost():
     assert empty["observed_cost_total"] is None
 
 
+def test_normalizes_zero_net_amount_to_zero_cost():
+    facts = {
+        "error": False,
+        "classification_complete": True,
+        "finance_complete": True,
+        "complete": True,
+        "categories": {
+            "customer_non_buyout": _category(
+                events=1,
+                matched=1,
+                observed=1,
+                total=0.0,
+                average=0.0,
+            ),
+            "customer_return": _category(
+                events=0,
+                matched=0,
+                observed=0,
+                total=None,
+                average=None,
+            ),
+        },
+    }
+
+    result = ReturnsFinanceAttributionAnalyticsService().analyze(facts)
+
+    category = result["categories"]["customer_non_buyout"]
+    assert category["observed_cost_total"] == 0.0
+    assert category["observed_cost_average"] == 0.0
+
+
 def test_keeps_empty_category_unknown_instead_of_zero_cost():
     facts = {
         "error": False,
