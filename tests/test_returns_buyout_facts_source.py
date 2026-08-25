@@ -324,6 +324,8 @@ def test_unmatched_cancelled_posting_remains_ambiguous():
         ],
         "unclassified_matched_posting_count": 0,
         "unclassified_matched_postings": [],
+        "fbo_reason_classified_posting_count": 0,
+        "fbo_reason_classified_postings": [],
     }
 
 
