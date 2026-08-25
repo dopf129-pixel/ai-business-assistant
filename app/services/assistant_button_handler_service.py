@@ -1,6 +1,44 @@
 class AssistantButtonHandlerService:
 
 
+    DECISION_LABELS = {
+        "REPLENISH_HIGH_PRIORITY": "Высокий приоритет пополнения",
+        "REPLENISH_NORMAL": "Рекомендуется пополнение",
+        "WATCH_LOW_MARGIN": "Следить за низкой маржой",
+        "INVESTIGATE_LOW_PROFIT": "Проверить низкую прибыльность",
+        "HOLD_STOCK": "Удерживать текущий запас",
+        "INSUFFICIENT_DATA": "Недостаточно данных для решения"
+    }
+
+    REASON_LABELS = {
+        "DAYS_OF_STOCK_CRITICAL": "Остаток критически низкий",
+        "DAYS_OF_STOCK_LOW": "Остаток ниже комфортного уровня",
+        "HIGH_SALES_VELOCITY": "Высокая скорость продаж",
+        "SALES_DECLINING": "Продажи снижаются",
+        "POSITIVE_UNIT_PROFIT": "Прибыль с единицы положительная",
+        "LOW_UNIT_PROFIT": "Прибыль с единицы низкая",
+        "NEGATIVE_UNIT_PROFIT": "Прибыль с единицы отрицательная",
+        "LOW_MARGIN": "Маржа низкая",
+        "ECONOMICS_INCOMPLETE": "Юнит-экономика неполная",
+        "IDENTITY_MISMATCH": "Данные товара не совпадают между источниками"
+    }
+
+    MISSING_DATA_LABELS = {
+        "advertising": "Реклама",
+        "storage": "Хранение",
+        "returns": "Возвраты",
+        "tax": "Налог",
+        "sales_velocity": "Скорость продаж",
+        "sales_trend": "Тренд продаж",
+        "current_stock": "Текущий остаток",
+        "days_of_stock": "Дни запаса",
+        "stock_priority": "Приоритет остатка",
+        "profit_per_unit": "Прибыль с единицы",
+        "margin_percent": "Маржа",
+        "IDENTITY_MISMATCH": "Идентификатор товара"
+    }
+
+
     def __init__(
         self,
         assistant,
@@ -8,7 +46,8 @@ class AssistantButtonHandlerService:
         history_service=None,
         task_context_service=None,
         keyboard_service=None,
-        unit_economics_query=None
+        unit_economics_query=None,
+        product_business_decision_query=None
     ):
 
         self.assistant = (
@@ -35,6 +74,9 @@ class AssistantButtonHandlerService:
             unit_economics_query
         )
 
+        self.product_business_decision_query = (
+            product_business_decision_query
+        )
 
 
     def prepare_context(
@@ -43,7 +85,6 @@ class AssistantButtonHandlerService:
         action,
         task
     ):
-
 
         if (
             self.task_context_service
@@ -56,12 +97,10 @@ class AssistantButtonHandlerService:
                 action
             )
 
-
             self.task_context_service.update_task(
                 user_id,
                 task
             )
-
 
 
     def handle(
@@ -70,14 +109,32 @@ class AssistantButtonHandlerService:
         user_id=None
     ):
 
+        if button_id == "product_decisions":
 
+            return (
+                self._open_product_decisions_menu()
+            )
+
+        if button_id.startswith(
+            "product_decision:"
+        ):
+
+            sku = button_id.split(
+                ":",
+                1
+            )[1]
+
+            return (
+                self._show_product_decision(
+                    sku
+                )
+            )
 
         if button_id == "unit_economics":
 
             return (
                 self._open_unit_economics_menu()
             )
-
 
         if button_id.startswith(
             "unit_economics:"
@@ -94,17 +151,13 @@ class AssistantButtonHandlerService:
                 )
             )
 
-
-
         if button_id == "analyze":
-
 
             self.prepare_context(
                 user_id,
                 "analyze",
                 "Анализ продаж"
             )
-
 
             result = (
                 self.assistant
@@ -113,8 +166,6 @@ class AssistantButtonHandlerService:
                     user_id
                 )
             )
-
-
 
             if (
                 self.history_service
@@ -126,22 +177,15 @@ class AssistantButtonHandlerService:
                     "Выполнен анализ"
                 )
 
-
             return result
 
-
-
-
-
         if button_id == "plan":
-
 
             self.prepare_context(
                 user_id,
                 "plan",
                 "Создание плана действий"
             )
-
 
             result = (
                 self.assistant
@@ -150,8 +194,6 @@ class AssistantButtonHandlerService:
                     user_id
                 )
             )
-
-
 
             if (
                 self.history_service
@@ -163,15 +205,9 @@ class AssistantButtonHandlerService:
                     "Создан план действий"
                 )
 
-
             return result
 
-
-
-
-
         if button_id == "history":
-
 
             if (
                 self.history_service
@@ -185,18 +221,12 @@ class AssistantButtonHandlerService:
                     )
                 )
 
-
             return {
                 "error": False,
                 "history": []
             }
 
-
-
-
-
         if button_id == "memory":
-
 
             if (
                 self.memory_service
@@ -210,21 +240,189 @@ class AssistantButtonHandlerService:
                     )
                 )
 
-
             return {
                 "error": False,
                 "memory": {}
             }
-
-
-
-
 
         return {
             "error": True,
             "message": "Кнопка неизвестна"
         }
 
+
+    def _open_product_decisions_menu(
+        self
+    ):
+
+        if (
+            not self.product_business_decision_query
+            or not self.keyboard_service
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Решения по товарам недоступны"
+                )
+            }
+
+        products = (
+            self.product_business_decision_query
+            .product_service
+            .load_products()
+        )
+
+        skus = []
+
+        for product in (products or []):
+
+            sku = self._extract_sku(
+                product
+            )
+
+            if sku is not None:
+
+                skus.append(
+                    str(sku)
+                )
+
+        if not skus:
+
+            return {
+                "error": False,
+                "message": "Товары не найдены"
+            }
+
+        return {
+            "error": False,
+            "message": "Выберите товар:",
+            "keyboard": (
+                self.keyboard_service
+                .build_product_decisions_keyboard(
+                    skus
+                )
+            )
+        }
+
+
+    def _show_product_decision(
+        self,
+        sku
+    ):
+
+        if not self.product_business_decision_query:
+
+            return {
+                "error": True,
+                "message": (
+                    "Решения по товарам недоступны"
+                )
+            }
+
+        result = (
+            self.product_business_decision_query
+            .query(
+                sku
+            )
+        )
+
+        return {
+            "error": result.get(
+                "error",
+                False
+            ),
+            "message": self._format_product_decision(
+                result
+            ),
+            "decision": result
+        }
+
+
+    def _format_product_decision(
+        self,
+        result
+    ):
+
+        code = result.get("code")
+
+        if code == "SKU_NOT_FOUND":
+            return "Товар не найден"
+
+        if (
+            code == "INSUFFICIENT_DATA"
+            or result.get("decision_type")
+            == "INSUFFICIENT_DATA"
+        ):
+            return "Недостаточно данных для решения"
+
+        sku = result.get("sku") or "—"
+        decision_type = result.get("decision_type") or "—"
+        priority = result.get("priority") or "—"
+        confidence = result.get("confidence") or "—"
+
+        decision_label = self.DECISION_LABELS.get(
+            decision_type,
+            decision_type
+        )
+
+        lines = [
+            "🎯 Решение по товару",
+            "",
+            "SKU:",
+            str(sku),
+            "",
+            "Решение:",
+            decision_label,
+            "",
+            "Тип:",
+            decision_type,
+            "",
+            "Приоритет:",
+            priority,
+            "",
+            "Причины:"
+        ]
+
+        reasons = result.get("reasons") or []
+
+        if reasons:
+            for reason in reasons:
+                lines.append(
+                    "✓ "
+                    + self.REASON_LABELS.get(
+                        reason,
+                        str(reason)
+                    )
+                )
+        else:
+            lines.append("—")
+
+        lines.extend(
+            [
+                "",
+                "Уверенность:",
+                confidence,
+                "",
+                "Не учтено:"
+            ]
+        )
+
+        missing_data = result.get("missing_data") or []
+
+        if missing_data:
+            for item in missing_data:
+                lines.append(
+                    "— "
+                    + self.MISSING_DATA_LABELS.get(
+                        item,
+                        str(item)
+                    )
+                )
+        else:
+            lines.append("—")
+
+        return "\n".join(lines)
 
 
     def _open_unit_economics_menu(
@@ -243,16 +441,13 @@ class AssistantButtonHandlerService:
                 )
             }
 
-
         products = (
             self.unit_economics_query
             .product_service
             .load_products()
         )
 
-
         skus = []
-
 
         for product in (products or []):
 
@@ -266,14 +461,12 @@ class AssistantButtonHandlerService:
                     str(sku)
                 )
 
-
         if not skus:
 
             return {
                 "error": False,
                 "message": "Товары не найдены"
             }
-
 
         return {
             "error": False,
@@ -285,7 +478,6 @@ class AssistantButtonHandlerService:
                 )
             )
         }
-
 
 
     def _show_unit_economics(
@@ -302,14 +494,12 @@ class AssistantButtonHandlerService:
                 )
             }
 
-
         result = (
             self.unit_economics_query
             .query(
                 sku
             )
         )
-
 
         return {
             "error": result.get(
@@ -326,7 +516,6 @@ class AssistantButtonHandlerService:
         }
 
 
-
     def _extract_sku(
         self,
         product
@@ -340,7 +529,6 @@ class AssistantButtonHandlerService:
             return product.get(
                 "sku"
             )
-
 
         try:
 

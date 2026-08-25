@@ -748,3 +748,51 @@ Development Manager:
 
 
 Active
+---
+
+# Current Unit Economics Validation — 2026-08-25
+
+Completed:
+
+[x] Current seller price from Ozon Price API
+[x] offer_id / internal Ozon SKU separation
+[x] current commission calculation
+[x] fresh logistics from Ozon finance accruals
+[x] last mile separated from logistics
+[x] acquiring average from fresh finance accruals
+[x] product cost integration
+[x] explicit tax policy integration
+[x] USN Income 6% production configuration validated
+[x] rubles + percent-of-price presentation
+[x] Telegram production wiring
+[x] safe None handling for missing mandatory data
+
+Validated production example:
+
+SKU: hook-2
+
+Seller price: 96.00 RUB
+Commission: 13.44 RUB
+Logistics: 17.85 RUB
+Last mile: 1.55 RUB
+Acquiring: 1.30 RUB
+Product cost: 21.00 RUB
+Tax: 5.76 RUB
+Calculated profit per unit: 35.10 RUB
+Margin: 36.56%
+
+Finance sample:
+236 sales / 2 complete days
+
+Important limitation:
+
+Returns / buyout losses are not included yet because cancelled
+FBO postings cannot currently be reliably separated into
+pre-shipment cancellations and real customer non-buyouts.
+
+Full test suite:
+
+217 passed
+
+Next:
+Returns & Buyout Analytics v1

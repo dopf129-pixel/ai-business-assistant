@@ -1863,3 +1863,47 @@ Formatted Unit Economics Response
 
 - isolated Telegram UI boundary scenarios passed
 - полный pytest не запускался в текущей среде
+---
+
+## 2026-08-25
+
+### Current Unit Economics validated production path
+
+Unit Economics переведена с исторической средней цены
+на актуальную цену продавца из Ozon.
+
+Production path:
+
+Ozon current price
+→ current commission
+→ fresh finance accruals
+→ product cost
+→ configured tax policy
+→ ProductUnitEconomicsQueryService
+→ Telegram
+
+Добавлено:
+
+- корректное разделение offer_id и internal Ozon SKU;
+- актуальная seller price;
+- отдельные logistics, last mile и acquiring;
+- расходы в ₽ и % от текущей цены;
+- явная налоговая политика;
+- безопасное поведение при отсутствии данных;
+- дата актуальности финансовых данных.
+
+Validated SKU hook-2:
+
+- seller price: 96.00 ₽
+- calculated profit per unit: 35.10 ₽
+- margin: 36.56%
+
+Returns / non-buyout cost intentionally not included yet.
+
+Tests:
+
+217 passed
+
+Next:
+
+Returns & Buyout Analytics v1

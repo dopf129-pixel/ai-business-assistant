@@ -49,7 +49,7 @@ class TestAssistantKeyboardFlow(
             len(
                 result["buttons"]
             ),
-            5
+            6
         )
 
 
@@ -80,6 +80,12 @@ class TestAssistantKeyboardFlow(
         self.assertEqual(
             result["buttons"][4]["callback"],
             "unit_economics"
+        )
+
+
+        self.assertEqual(
+            result["buttons"][5]["callback"],
+            "product_decisions"
         )
 
 

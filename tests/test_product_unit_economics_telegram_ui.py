@@ -104,7 +104,8 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
         "plan",
         "history",
         "memory",
-        "unit_economics"
+        "unit_economics",
+        "product_decisions"
     ]
 
 
