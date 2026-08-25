@@ -5,9 +5,11 @@ from services.current_product_economics_source import (
 
 class FakeOzonClient:
 
-    def __init__(self, response):
+    def __init__(self, response, postings=None):
         self.response = response
+        self.postings = postings or {"result": []}
         self.calls = []
+        self.posting_calls = []
 
     def get_product_prices(
         self,
@@ -21,6 +23,10 @@ class FakeOzonClient:
             }
         )
         return self.response
+
+    def get_fbo_postings(self, **kwargs):
+        self.posting_calls.append(kwargs)
+        return self.postings
 
 
 class FakeFinanceService:
@@ -154,6 +160,79 @@ def test_source_calculates_recent_acquiring_average():
     assert "acquiring" not in result[
         "missing_data"
     ]
+
+
+def test_source_calculates_buyout_rate_from_last_completed_fbo_postings():
+    postings = []
+    for index in range(45):
+        postings.append(
+            {
+                "status": "delivered",
+                "products": [{"offer_id": "hook-2"}]
+            }
+        )
+    for index in range(5):
+        postings.append(
+            {
+                "status": "cancelled",
+                "products": [{"offer_id": "hook-2"}]
+            }
+        )
+    postings.append(
+        {
+            "status": "delivering",
+            "products": [{"offer_id": "hook-2"}]
+        }
+    )
+
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(
+            _price_response(),
+            {"result": postings}
+        )
+    )
+
+    result = source.get(
+        "hook-2",
+        buyout_since="2026-08-01T00:00:00Z",
+        buyout_to="2026-08-25T00:00:00Z"
+    )
+
+    assert result["buyout_rate"] == 90.0
+    assert result["buyout_sample_size"] == 50
+    assert result["buyout_delivered"] == 45
+    assert result["buyout_cancelled"] == 5
+    assert result["buyout_basis"] == "last_completed_fbo_postings"
+    assert "buyout_rate" not in result["missing_data"]
+
+
+def test_source_buyout_rate_ignores_other_sku_and_in_progress():
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(
+            _price_response(),
+            {
+                "result": [
+                    {
+                        "status": "delivered",
+                        "products": [{"offer_id": "other"}]
+                    },
+                    {
+                        "status": "delivering",
+                        "products": [{"offer_id": "hook-2"}]
+                    }
+                ]
+            }
+        )
+    )
+
+    result = source.get(
+        "hook-2",
+        buyout_since="2026-08-01T00:00:00Z",
+        buyout_to="2026-08-25T00:00:00Z"
+    )
+
+    assert result["buyout_rate"] is None
+    assert "buyout_rate" in result["missing_data"]
 
 
 def test_source_keeps_unknown_values_as_none():
