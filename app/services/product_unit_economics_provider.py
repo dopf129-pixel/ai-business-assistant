@@ -138,6 +138,26 @@ class ProductUnitEconomicsProvider:
         seller_price = self._number(
             facts.get("seller_price")
         )
+        buyer_price = self._number(
+            facts.get("buyer_price")
+        )
+        compensation = self._number(
+            facts.get("ozon_discount_compensation")
+        )
+        requested_tax_policy = str(
+            facts.get("tax_base_policy")
+            or "SELLER_PRICE"
+        )
+        tax_base_policy = "SELLER_PRICE"
+        tax_base = seller_price
+
+        if (
+            requested_tax_policy == "OZON_BUYER_PRICE"
+            and self.tax_mode == "USN_INCOME"
+        ):
+            tax_base_policy = "OZON_BUYER_PRICE"
+            tax_base = buyer_price
+
         cost = self._number(product_cost)
 
         values = {
@@ -148,6 +168,11 @@ class ProductUnitEconomicsProvider:
         missing_fields = []
         if seller_price is None:
             missing_fields.append("unit_price")
+        if (
+            tax_base_policy == "OZON_BUYER_PRICE"
+            and buyer_price is None
+        ):
+            missing_fields.append("buyer_price")
         if cost is None:
             missing_fields.append("cost")
         for field, value in values.items():
@@ -164,6 +189,7 @@ class ProductUnitEconomicsProvider:
         tax = None
         net_profit = None
         margin_percent = None
+        tax_effective_percent = None
 
         if not missing_fields:
             marketplace_fees = sum(
@@ -180,7 +206,7 @@ class ProductUnitEconomicsProvider:
                 - cost
             )
             tax = self._calculate_tax(
-                revenue=seller_price,
+                revenue=tax_base,
                 gross_profit=gross_profit
             )
             if tax is None:
@@ -189,6 +215,11 @@ class ProductUnitEconomicsProvider:
                 net_profit = gross_profit - tax
                 margin_percent = (
                     net_profit / seller_price * 100
+                    if seller_price > 0
+                    else None
+                )
+                tax_effective_percent = (
+                    tax / seller_price * 100
                     if seller_price > 0
                     else None
                 )
@@ -207,6 +238,16 @@ class ProductUnitEconomicsProvider:
                 else None
             ),
             "unit_price": self._round(seller_price),
+            "buyer_price": self._round(buyer_price),
+            "ozon_discount_compensation": self._round(
+                compensation
+            ),
+            "tax_base_policy": tax_base_policy,
+            "tax_base": self._round(tax_base),
+            "tax_rate": self._number(self.tax_rate),
+            "tax_effective_percent": self._round(
+                tax_effective_percent
+            ),
             "cost": self._round(cost),
             "commission": self._round(commission),
             "commission_rate": self._number(
