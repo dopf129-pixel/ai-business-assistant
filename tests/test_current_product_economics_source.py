@@ -77,6 +77,8 @@ def test_source_uses_current_seller_price_and_commission():
     )
 
     assert result["seller_price"] == 95.0
+    assert result["buyer_price"] == 76.0
+    assert result["ozon_discount_compensation"] == 19.0
     assert result["commission_rate"] == 14.0
     assert result["commission_amount"] == 13.3
     assert result["current_delivery_tariff"] == 19.32
@@ -265,6 +267,8 @@ def test_source_keeps_unknown_values_as_none():
     result = source.get("sku-1")
 
     assert result["seller_price"] is None
+    assert result["buyer_price"] is None
+    assert result["ozon_discount_compensation"] is None
     assert result["commission_amount"] is None
     assert result["logistics"] is None
     assert result["last_mile"] is None

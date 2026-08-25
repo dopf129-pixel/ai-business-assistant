@@ -54,6 +54,19 @@ class CurrentProductEconomicsSource:
         if seller_price is None:
             seller_price = self._number(price.get("price"))
 
+        buyer_price = self._number(
+            price.get("price")
+        )
+        ozon_discount_compensation = None
+        if (
+            seller_price is not None
+            and buyer_price is not None
+        ):
+            ozon_discount_compensation = round(
+                max(seller_price - buyer_price, 0.0),
+                2
+            )
+
         commission = self._fbo_commission(
             item.get("commissions") or {},
             seller_price
@@ -88,6 +101,10 @@ class CurrentProductEconomicsSource:
                 item.get("product_id") or product_id
             ),
             "seller_price": seller_price,
+            "buyer_price": buyer_price,
+            "ozon_discount_compensation": (
+                ozon_discount_compensation
+            ),
             "commission_rate": commission["rate"],
             "commission_amount": commission["amount"],
             "logistics": logistics,
@@ -120,6 +137,8 @@ class CurrentProductEconomicsSource:
             "sku": str(sku),
             "product_id": self._text(product_id),
             "seller_price": None,
+            "buyer_price": None,
+            "ozon_discount_compensation": None,
             "commission_rate": None,
             "commission_amount": None,
             "logistics": None,
