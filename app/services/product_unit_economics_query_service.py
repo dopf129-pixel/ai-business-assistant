@@ -83,8 +83,13 @@ class ProductUnitEconomicsQueryService:
         )
 
     def _query_current(self, sku, product):
+        offer_id = product.get("offer_id") or sku
+        finance_sku = product.get("sku")
+
         facts = self.current_economics_source.get(
-            sku=sku,
+            sku=str(offer_id),
+            product_id=product.get("product_id"),
+            finance_sku=finance_sku,
             accrual_dates=self._recent_complete_dates()
         )
 
