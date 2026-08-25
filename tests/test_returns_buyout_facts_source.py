@@ -2,13 +2,14 @@ from services.returns_buyout_facts_source import ReturnsBuyoutFactsSource
 
 
 class FakeOzonClient:
-    def __init__(self, response, returns_response=None):
+    def __init__(self, response, returns_response=None, returns_pages=None):
         self.response = response
         self.returns_response = (
             returns_response
             if returns_response is not None
             else {"error": True}
         )
+        self.returns_pages = list(returns_pages or [])
         self.calls = []
         self.return_calls = []
 
@@ -18,87 +19,105 @@ class FakeOzonClient:
 
     def get_returns(self, **kwargs):
         self.return_calls.append(dict(kwargs))
+        if self.returns_pages:
+            return self.returns_pages.pop(0)
         return self.returns_response
+
+
+def _posting_items():
+    return [
+        {
+            "posting_number": "p-1",
+            "status": "delivered",
+            "products": [
+                {
+                    "offer_id": "hook-2",
+                    "sku": 3921245627,
+                    "quantity": 2,
+                }
+            ],
+        },
+        {
+            "posting_number": "p-2",
+            "status": "cancelled",
+            "cancellation": {
+                "cancel_reason_id": 123,
+                "cancel_reason": "unknown reason",
+            },
+            "products": [
+                {
+                    "offer_id": "hook-2",
+                    "sku": 3921245627,
+                    "quantity": 1,
+                }
+            ],
+        },
+        {
+            "posting_number": "other",
+            "status": "delivered",
+            "products": [
+                {
+                    "offer_id": "other",
+                    "sku": 100,
+                    "quantity": 5,
+                }
+            ],
+        },
+    ]
 
 
 def _response():
     return {
         "result": {
-            "postings": [
-                {
-                    "posting_number": "p-1",
-                    "status": "delivered",
-                    "products": [
-                        {
-                            "offer_id": "hook-2",
-                            "sku": 3921245627,
-                            "quantity": 2,
-                        }
-                    ],
-                },
-                {
-                    "posting_number": "p-2",
-                    "status": "cancelled",
-                    "cancellation": {
-                        "cancel_reason_id": 123,
-                        "cancel_reason": "unknown reason",
-                    },
-                    "products": [
-                        {
-                            "offer_id": "hook-2",
-                            "sku": 3921245627,
-                            "quantity": 1,
-                        }
-                    ],
-                },
-                {
-                    "posting_number": "other",
-                    "status": "delivered",
-                    "products": [
-                        {
-                            "offer_id": "other",
-                            "sku": 100,
-                            "quantity": 5,
-                        }
-                    ],
-                },
-            ]
+            "postings": _posting_items()
         }
     }
 
 
-def _returns_response():
-    def item(posting, event_type, reason, quantity=1):
-        return {
-            "posting_number": posting,
-            "type": event_type,
-            "return_reason_name": reason,
-            "product": {
-                "offer_id": "hook-2",
-                "sku": 3921245627,
-                "quantity": quantity,
-            },
-        }
+def _real_response_shape():
+    return {
+        "result": _posting_items()
+    }
 
+
+def _return_item(item_id, posting, event_type, reason, quantity=1):
+    return {
+        "id": str(item_id),
+        "posting_number": posting,
+        "type": event_type,
+        "return_reason_name": reason,
+        "product": {
+            "offer_id": "hook-2",
+            "sku": 3921245627,
+            "quantity": quantity,
+        },
+    }
+
+
+def _returns_response():
     return {
         "returns": [
-            item(
+            _return_item(
+                1,
                 "r-1",
                 "Cancellation",
                 "Покупатель отказался при вручении: товар не подошел",
                 2,
             ),
-            item(
+            _return_item(
+                2,
                 "r-2",
                 "Cancellation",
                 "Покупатель отменил заказ: нашел дешевле",
             ),
-            item(
+            _return_item(
+                3,
                 "r-3",
                 "Cancellation",
                 "Не удалось доставить заказ",
             ),
-            item(
+            _return_item(
+                4,
                 "r-4",
                 "ClientReturn",
                 "Покупатель передумал",
@@ -127,7 +146,18 @@ def test_prepares_product_posting_counts_without_inventing_non_buyouts():
     assert result["customer_non_buyout_units"] is None
     assert result["customer_return_units"] is None
     assert result["returns_available"] is False
+    assert result["postings_complete"] is True
     assert len(result["postings"]) == 2
+
+
+def test_accepts_real_fbo_result_list_shape():
+    source = ReturnsBuyoutFactsSource(FakeOzonClient(_real_response_shape()))
+
+    result = source.get("hook-2", "2026-08-18", "2026-08-25")
+
+    assert result["posting_count"] == 2
+    assert result["delivered_units"] == 2
+    assert result["cancelled_units"] == 1
 
 
 def test_accepts_internal_ozon_sku_as_identifier():
@@ -166,6 +196,7 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     result = source.get("hook-2", "2026-08-01", "2026-08-25")
 
     assert result["returns_available"] is True
+    assert result["returns_complete"] is True
     assert result["customer_non_buyout_units"] == 2
     assert result["customer_return_units"] == 1
     assert result["customer_cancelled_units"] == 1
@@ -181,7 +212,7 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
     ]
 
 
-def test_returns_api_is_queried_by_offer_id_and_fbo_schema():
+def test_returns_api_is_period_scoped_and_uses_max_page_size():
     client = FakeOzonClient(
         _response(),
         returns_response=_returns_response(),
@@ -194,10 +225,52 @@ def test_returns_api_is_queried_by_offer_id_and_fbo_schema():
         {
             "offer_id": "hook-2",
             "return_schema": "FBO",
-            "limit": 100,
+            "since": "2026-08-01",
+            "to": "2026-08-25",
+            "limit": 500,
             "last_id": 0,
         }
     ]
+
+
+def test_returns_pagination_uses_last_return_id():
+    first = {
+        "returns": [
+            _return_item(
+                101,
+                "r-101",
+                "Cancellation",
+                "Покупатель отказался при вручении: товар не подошел",
+            )
+        ],
+        "has_next": True,
+    }
+    second = {
+        "returns": [
+            _return_item(
+                102,
+                "r-102",
+                "ClientReturn",
+                "Покупатель передумал",
+            )
+        ],
+        "has_next": False,
+    }
+    client = FakeOzonClient(
+        _response(),
+        returns_pages=[first, second],
+    )
+
+    result = ReturnsBuyoutFactsSource(client).get(
+        "hook-2",
+        "2026-08-01",
+        "2026-08-25",
+    )
+
+    assert result["returns_complete"] is True
+    assert result["customer_non_buyout_units"] == 1
+    assert result["customer_return_units"] == 1
+    assert [call["last_id"] for call in client.return_calls] == [0, 101]
 
 
 def test_returns_structured_error_when_postings_api_is_unavailable():
