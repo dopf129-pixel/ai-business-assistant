@@ -10,6 +10,13 @@ class ProductUnitEconomicsProvider:
         "gross_profit"
     )
 
+    CURRENT_EXPENSE_FIELDS = (
+        "commission_amount",
+        "logistics",
+        "last_mile",
+        "acquiring_average"
+    )
+
     def __init__(
         self,
         tax_service=None,
@@ -126,6 +133,110 @@ class ProductUnitEconomicsProvider:
 
         return metrics
 
+    def build_current(self, facts, product_cost):
+        facts = dict(facts or {})
+        seller_price = self._number(
+            facts.get("seller_price")
+        )
+        cost = self._number(product_cost)
+
+        values = {
+            field: self._number(facts.get(field))
+            for field in self.CURRENT_EXPENSE_FIELDS
+        }
+
+        missing_fields = []
+        if seller_price is None:
+            missing_fields.append("unit_price")
+        if cost is None:
+            missing_fields.append("cost")
+        for field, value in values.items():
+            if value is None:
+                missing_fields.append(field)
+
+        commission = values["commission_amount"]
+        logistics = values["logistics"]
+        last_mile = values["last_mile"]
+        acquiring = values["acquiring_average"]
+
+        marketplace_fees = None
+        gross_profit = None
+        tax = None
+        net_profit = None
+        margin_percent = None
+
+        if not missing_fields:
+            marketplace_fees = sum(
+                (
+                    commission,
+                    logistics,
+                    last_mile,
+                    acquiring
+                )
+            )
+            gross_profit = (
+                seller_price
+                - marketplace_fees
+                - cost
+            )
+            tax = self._calculate_tax(
+                revenue=seller_price,
+                gross_profit=gross_profit
+            )
+            if tax is None:
+                missing_fields.append("tax")
+            else:
+                net_profit = gross_profit - tax
+                margin_percent = (
+                    net_profit / seller_price * 100
+                    if seller_price > 0
+                    else None
+                )
+        elif not self.tax_service or not self.tax_mode:
+            missing_fields.append("tax")
+
+        return {
+            "product_id": (
+                str(facts.get("product_id"))
+                if facts.get("product_id") is not None
+                else None
+            ),
+            "sku": (
+                str(facts.get("sku"))
+                if facts.get("sku") is not None
+                else None
+            ),
+            "unit_price": self._round(seller_price),
+            "cost": self._round(cost),
+            "commission": self._round(commission),
+            "commission_rate": self._number(
+                facts.get("commission_rate")
+            ),
+            "logistics": self._round(logistics),
+            "last_mile": self._round(last_mile),
+            "acquiring": self._round(acquiring),
+            "marketplace_fees": self._round(
+                marketplace_fees
+            ),
+            "tax": self._round(tax),
+            "net_profit_per_unit": self._round(
+                net_profit
+            ),
+            "margin_percent": self._round(
+                margin_percent
+            ),
+            "missing_fields": list(dict.fromkeys(
+                missing_fields
+            )),
+            "as_of": facts.get("as_of"),
+            "finance_sample_sales": facts.get(
+                "finance_sample_sales"
+            ),
+            "finance_sample_days": facts.get(
+                "finance_sample_days"
+            )
+        }
+
     def _calculate_tax(
         self,
         revenue,
@@ -150,4 +261,19 @@ class ProductUnitEconomicsProvider:
         return float(
             result.get("tax_amount", 0)
             or 0
+        )
+
+    def _number(self, value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _round(self, value):
+        return (
+            round(value, 2)
+            if value is not None
+            else None
         )
