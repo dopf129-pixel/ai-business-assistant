@@ -123,6 +123,9 @@ def test_preserves_positive_compensation_as_negative_cost():
     assert category["observed_cost_total"] == -5.0
     assert result["complete"] is True
 
+    empty = result["categories"]["customer_return"]
+    assert empty["observed_cost_total"] is None
+
 
 def test_keeps_empty_category_unknown_instead_of_zero_cost():
     facts = {
