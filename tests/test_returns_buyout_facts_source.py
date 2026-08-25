@@ -43,6 +43,7 @@ def _posting_items():
             "cancellation": {
                 "cancel_reason_id": 123,
                 "cancel_reason": "unknown reason",
+                "cancellation_type": "client_initiated",
             },
             "products": [
                 {
@@ -182,6 +183,7 @@ def test_preserves_cancel_reason_as_fact_only_when_returns_api_unavailable():
     assert cancelled["status"] == "cancelled"
     assert cancelled["cancel_reason_id"] == 123
     assert cancelled["cancel_reason"] == "unknown reason"
+    assert cancelled["cancellation_type"] == "client_initiated"
     assert result["customer_non_buyout_units"] is None
 
 
@@ -236,6 +238,12 @@ def test_ambiguous_cancelled_is_matched_by_posting_number():
     assert result["customer_non_buyout_units"] == 1
     assert result["ambiguous_cancelled_units"] == 0
     assert result["ambiguous_cancelled_postings"] == []
+    assert result["cancelled_diagnostics"] == {
+        "cancelled_posting_count": 1,
+        "matched_posting_count": 1,
+        "unmatched_posting_count": 0,
+        "unmatched_postings": [],
+    }
 
 
 def test_unmatched_cancelled_posting_remains_ambiguous():
@@ -253,6 +261,21 @@ def test_unmatched_cancelled_posting_remains_ambiguous():
         item["posting_number"]
         for item in result["ambiguous_cancelled_postings"]
     ] == ["p-2"]
+    assert result["cancelled_diagnostics"] == {
+        "cancelled_posting_count": 1,
+        "matched_posting_count": 0,
+        "unmatched_posting_count": 1,
+        "unmatched_postings": [
+            {
+                "posting_number": "p-2",
+                "status": "cancelled",
+                "quantity": 1,
+                "cancel_reason_id": 123,
+                "cancel_reason": "unknown reason",
+                "cancellation_type": "client_initiated",
+            }
+        ],
+    }
 
 
 def test_returns_api_is_period_scoped_and_uses_max_page_size():
