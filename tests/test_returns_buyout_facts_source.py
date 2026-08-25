@@ -151,6 +151,17 @@ def test_prepares_product_posting_counts_without_inventing_non_buyouts():
     assert len(result["postings"]) == 2
 
 
+def test_does_not_count_delivering_as_delivered_sale():
+    response = _response()
+    response["result"]["postings"][0]["status"] = "delivering"
+    source = ReturnsBuyoutFactsSource(FakeOzonClient(response))
+
+    result = source.get("hook-2", "2026-08-18", "2026-08-25")
+
+    assert result["delivered_units"] == 0
+    assert result["total_units"] == 3
+
+
 def test_accepts_real_fbo_result_list_shape():
     source = ReturnsBuyoutFactsSource(FakeOzonClient(_real_response_shape()))
 
@@ -219,10 +230,10 @@ def test_classifies_real_ozon_returns_reasons_without_mixing_categories():
 
     assert result["returns_available"] is True
     assert result["returns_complete"] is True
-    assert result["customer_non_buyout_units"] == 2
+    assert result["customer_non_buyout_units"] == 0
     assert result["customer_return_units"] == 1
-    assert result["customer_cancelled_units"] == 1
-    assert result["delivery_failure_units"] == 1
+    assert result["customer_cancelled_units"] == 0
+    assert result["delivery_failure_units"] == 0
     assert result["unknown_return_units"] == 0
 
     categories = [item["category"] for item in result["return_events"]]
@@ -416,7 +427,7 @@ def test_returns_pagination_uses_last_return_id():
         "returns": [
             _return_item(
                 101,
-                "r-101",
+                "p-2",
                 "Cancellation",
                 "Покупатель отказался при вручении: товар не подошел",
             )
