@@ -133,8 +133,8 @@ def test_source_calculates_recent_finance_averages():
             "2026-08-23": {
                 "error": False,
                 "sales_count": 2,
-                "acquiring": -2.0,
                 "fee_breakdown": {
+                    "Эквайринг": -2.0,
                     "Логистика": -38.64,
                     "Доставка до места выдачи": -3.0
                 }
@@ -142,8 +142,8 @@ def test_source_calculates_recent_finance_averages():
             "2026-08-24": {
                 "error": False,
                 "sales_count": 3,
-                "acquiring": -4.0,
                 "fee_breakdown": {
+                    "Эквайринг": -4.0,
                     "Логистика": -57.96,
                     "Доставка до места выдачи": -6.0
                 }
