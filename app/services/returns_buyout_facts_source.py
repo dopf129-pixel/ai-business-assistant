@@ -375,15 +375,25 @@ class ReturnsBuyoutFactsSource:
 
     def _cancel_reason_id(self, posting):
         cancellation = posting.get("cancellation") or {}
-        return cancellation.get("cancel_reason_id")
+        return (
+            posting.get("cancel_reason_id")
+            if posting.get("cancel_reason_id") is not None
+            else cancellation.get("cancel_reason_id")
+        )
 
     def _cancel_reason(self, posting):
         cancellation = posting.get("cancellation") or {}
-        return cancellation.get("cancel_reason")
+        return (
+            posting.get("cancel_reason")
+            or cancellation.get("cancel_reason")
+        )
 
     def _cancellation_type(self, posting):
         cancellation = posting.get("cancellation") or {}
-        return cancellation.get("cancellation_type")
+        return (
+            posting.get("cancellation_type")
+            or cancellation.get("cancellation_type")
+        )
 
     def _note(
         self,
