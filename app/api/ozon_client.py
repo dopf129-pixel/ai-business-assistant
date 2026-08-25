@@ -338,6 +338,15 @@ class OzonClient:
             max_attempts=3
         )
 
+    def get_fbo_cancel_reasons(self):
+
+        return self._post(
+            "/v1/posting/fbo/cancel-reason/list",
+            {},
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_product_stocks(
         self,
         product_id
