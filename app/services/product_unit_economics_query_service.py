@@ -1,4 +1,6 @@
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 
 
 class ProductUnitEconomicsQueryService:
@@ -37,7 +39,10 @@ class ProductUnitEconomicsQueryService:
         cost_service=None,
         current_finance_days=2,
         returns_finance_impact_query=None,
-        current_tax_base_policy="SELLER_PRICE"
+        current_tax_base_policy="SELLER_PRICE",
+        cache_ttl_seconds=0,
+        cache_clock=None,
+        cache_timestamp_provider=None
     ):
         self.product_service = product_service
         self.period_profit_service = period_profit_service
@@ -60,6 +65,16 @@ class ProductUnitEconomicsQueryService:
             current_tax_base_policy
             or "SELLER_PRICE"
         )
+        self.cache_ttl_seconds = max(
+            0,
+            int(cache_ttl_seconds)
+        )
+        self.cache_clock = cache_clock or monotonic
+        self.cache_timestamp_provider = (
+            cache_timestamp_provider
+            or (lambda: datetime.now(timezone.utc))
+        )
+        self._query_cache = {}
 
     def query(self, sku):
         target_sku = str(sku or "").strip()
@@ -81,6 +96,27 @@ class ProductUnitEconomicsQueryService:
                 "message": "SKU не найден"
             }
 
+        cache_key = str(
+            product.get("offer_id")
+            or product.get("sku")
+            or target_sku
+        )
+        cached = self._query_cache.get(cache_key)
+        now = self.cache_clock()
+
+        if (
+            self.cache_ttl_seconds > 0
+            and cached is not None
+            and now - cached["stored_at"]
+            < self.cache_ttl_seconds
+        ):
+            return self._with_cache_metadata(
+                cached["result"],
+                status="hit",
+                age_seconds=now - cached["stored_at"],
+                cached_at=cached["cached_at"],
+            )
+
         if self.current_economics_source is not None:
             result = self._query_current(
                 target_sku,
@@ -92,10 +128,101 @@ class ProductUnitEconomicsQueryService:
                 product
             )
 
-        return self._attach_returns_impact(
+        result = self._attach_returns_impact(
             target_sku,
             result
         )
+
+        if self.cache_ttl_seconds <= 0:
+            return result
+
+        if self._is_cacheable_result(result):
+            stored = deepcopy(result)
+            cached_at = self._cache_timestamp()
+            self._query_cache[cache_key] = {
+                "stored_at": now,
+                "cached_at": cached_at,
+                "result": stored,
+            }
+            return self._with_cache_metadata(
+                stored,
+                status="miss",
+                age_seconds=0,
+                cached_at=cached_at,
+            )
+
+        if cached is not None:
+            fallback = self._with_cache_metadata(
+                cached["result"],
+                status="stale",
+                age_seconds=now - cached["stored_at"],
+                cached_at=cached["cached_at"],
+            )
+            impact = result.get(
+                "returns_finance_impact"
+            )
+            fallback["cache"]["refresh_error"] = (
+                result.get("code")
+                or (
+                    impact.get("code")
+                    if isinstance(impact, dict)
+                    else None
+                )
+                or "REFRESH_FAILED"
+            )
+            return fallback
+
+        return self._with_cache_metadata(
+            result,
+            status="miss",
+            age_seconds=0,
+        )
+
+    def _is_cacheable_result(
+        self,
+        result
+    ):
+        if not isinstance(result, dict) or result.get("error"):
+            return False
+
+        impact = result.get("returns_finance_impact")
+        if isinstance(impact, dict) and impact.get("error"):
+            return False
+
+        return True
+
+    def _with_cache_metadata(
+        self,
+        result,
+        status,
+        age_seconds,
+        cached_at=None
+    ):
+        output = deepcopy(result)
+        output["cache"] = {
+            "status": status,
+            "hit": status == "hit",
+            "stale": status == "stale",
+            "age_seconds": round(
+                max(0, float(age_seconds)),
+                2
+            ),
+            "ttl_seconds": self.cache_ttl_seconds,
+            "cached_at": (
+                cached_at
+                if cached_at is not None
+                else self._cache_timestamp()
+            ),
+        }
+        return output
+
+    def _cache_timestamp(self):
+        value = self.cache_timestamp_provider()
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc).isoformat()
+        return str(value)
 
     def _query_current(self, sku, product):
         offer_id = product.get("offer_id") or sku
