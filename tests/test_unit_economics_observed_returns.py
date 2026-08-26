@@ -36,7 +36,7 @@ def _impact(
     return {
         "error": False,
         "complete": complete,
-        "period_days": 90,
+        "period_days": 30,
         "classification_complete": classification_complete,
         "finance_complete": complete,
         "delivered_units": delivered_units,
@@ -138,7 +138,7 @@ def test_card_shows_only_estimated_profit_and_coverage_warning():
 
     assert "Возвраты и невыкупы:\n1.12 ₽ — 1.2%" in response
     assert "Оценочная прибыль с 1 шт:\n33.98 ₽ — 35.4%" in response
-    assert "за 90 полных дней" in response
+    assert "за 30 полных дней" in response
     assert "покрытие 91.11%" in response
     assert "Прибыль до учёта возвратов:" not in response
     assert "Расходы на возвраты с 1 шт:" not in response
