@@ -39,6 +39,13 @@ class StubDecisionQuery:
             ],
             "confidence": "HIGH",
             "missing_data": ["advertising", "storage", "returns"],
+            "sales_velocity": 4.0,
+            "sales_trend": "GROWING",
+            "current_stock": 8,
+            "days_of_stock": 2.0,
+            "stock_priority": "CRITICAL",
+            "decision_profit_per_unit": 35.10,
+            "decision_margin_percent": 36.56,
         }
         self.calls = []
 
@@ -106,6 +113,15 @@ def test_product_decision_callback_calls_query_and_formats_decision():
     assert "🎯 Решение по товару" in result["message"]
     assert "hook-2" in result["message"]
     assert "Высокий приоритет пополнения" in result["message"]
+    assert "Артикул:\nhook-2" in result["message"]
+    assert "Тип:" not in result["message"]
+    assert "Приоритет:\nВысокий" in result["message"]
+    assert "Скорость продаж: 4 шт./день" in result["message"]
+    assert "Остаток: 8 шт." in result["message"]
+    assert "Запас: 2 дн." in result["message"]
+    assert "Прибыль с 1 шт.: 35.10 ₽" in result["message"]
+    assert "Маржа: 36.56%" in result["message"]
+    assert "Уверенность:\nВысокая" in result["message"]
     assert "DAYS_OF_STOCK_CRITICAL" not in result["message"]
     assert "Остаток критически низкий" in result["message"]
     assert "Реклама" in result["message"]
@@ -178,11 +194,11 @@ def test_product_decision_card_shows_returns_aware_economics():
     result = handler.handle("product_decision:hook-2")
     message = result["message"]
 
-    assert "Прибыль в решении:\n33.98 ₽" in message
+    assert "Прибыль с 1 шт.: 33.98 ₽" in message
     assert (
         "Основа расчёта:\n"
         "С исторической оценкой возвратов"
     ) in message
-    assert "Возвраты и невыкупы:\n1.12 ₽" in message
-    assert "Финансовое покрытие:\n91.11%" in message
-    assert "Уверенность:\nMEDIUM" in message
+    assert "Возвраты и невыкупы: 1.12 ₽" in message
+    assert "Финансовое покрытие: 91.11%" in message
+    assert "Уверенность:\nСредняя" in message
