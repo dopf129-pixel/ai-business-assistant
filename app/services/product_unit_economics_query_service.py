@@ -114,6 +114,7 @@ class ProductUnitEconomicsQueryService:
                 cached["result"],
                 status="hit",
                 age_seconds=now - cached["stored_at"],
+                cached_at=cached["cached_at"],
             )
 
         if self.current_economics_source is not None:
@@ -137,14 +138,17 @@ class ProductUnitEconomicsQueryService:
 
         if not result.get("error"):
             stored = deepcopy(result)
+            cached_at = self._cache_timestamp()
             self._query_cache[cache_key] = {
                 "stored_at": now,
+                "cached_at": cached_at,
                 "result": stored,
             }
             return self._with_cache_metadata(
                 stored,
                 status="miss",
                 age_seconds=0,
+                cached_at=cached_at,
             )
 
         if cached is not None:
@@ -152,6 +156,7 @@ class ProductUnitEconomicsQueryService:
                 cached["result"],
                 status="stale",
                 age_seconds=now - cached["stored_at"],
+                cached_at=cached["cached_at"],
             )
             fallback["cache"]["refresh_error"] = (
                 result.get("code")
@@ -169,7 +174,8 @@ class ProductUnitEconomicsQueryService:
         self,
         result,
         status,
-        age_seconds
+        age_seconds,
+        cached_at=None
     ):
         output = deepcopy(result)
         output["cache"] = {
@@ -181,7 +187,11 @@ class ProductUnitEconomicsQueryService:
                 2
             ),
             "ttl_seconds": self.cache_ttl_seconds,
-            "cached_at": self._cache_timestamp(),
+            "cached_at": (
+                cached_at
+                if cached_at is not None
+                else self._cache_timestamp()
+            ),
         }
         return output
 
