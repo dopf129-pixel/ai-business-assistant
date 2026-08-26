@@ -31,7 +31,7 @@ def create_current_unit_economics_query(
         create_product_returns_finance_impact_query(
             core_components=core_components,
             ozon_client=ozon_client,
-            period_days=90
+            period_days=30
         )
     )
 
