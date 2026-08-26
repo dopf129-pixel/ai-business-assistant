@@ -37,6 +37,20 @@ class FakeCurrentSource:
         return dict(self.responses[index])
 
 
+class FakeReturnsImpactQuery:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def query(self, sku):
+        index = min(
+            self.calls,
+            len(self.responses) - 1,
+        )
+        self.calls += 1
+        return dict(self.responses[index])
+
+
 class FakeProvider:
     def build_current(self, facts, cost):
         price = facts.get("seller_price")
@@ -202,3 +216,36 @@ def test_zero_ttl_preserves_uncached_behavior():
     assert source.calls == 2
     assert "cache" not in first
     assert "cache" not in second
+
+
+def test_nested_returns_error_is_not_cached_as_fresh_data():
+    clock = FakeClock()
+    service, source = _service(
+        [_success(), _success()],
+        clock,
+    )
+    returns = FakeReturnsImpactQuery([
+        {
+            "error": False,
+            "complete": True,
+            "delivered_units": 100,
+            "categories": {},
+        },
+        {
+            "error": True,
+            "code": "RETURNS_UNAVAILABLE",
+        },
+    ])
+    service.returns_finance_impact_query = returns
+
+    service.query("hook-2")
+    clock.advance(11)
+    result = service.query("hook-2")
+
+    assert source.calls == 2
+    assert returns.calls == 2
+    assert result["cache"]["status"] == "stale"
+    assert (
+        result["cache"]["refresh_error"]
+        == "RETURNS_UNAVAILABLE"
+    )
