@@ -169,7 +169,7 @@ def test_missing_logistics_keeps_profit_unknown():
 
     response = service.format_response(result)
     assert "Логистика:\n—" in response
-    assert "Расчётная прибыль с 1 шт:\n—" in response
+    assert "Прибыль до учёта возвратов:\n—" in response
 
 
 def test_missing_tax_keeps_profit_unknown():
