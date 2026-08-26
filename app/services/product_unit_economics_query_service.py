@@ -482,8 +482,6 @@ class ProductUnitEconomicsQueryService:
                 result.get("tax"),
                 price
             ),
-            "",
-            "----------------",
         ]
 
         if isinstance(
@@ -496,6 +494,8 @@ class ProductUnitEconomicsQueryService:
             )
         else:
             lines.extend([
+                "",
+                "----------------",
                 "",
                 "Прибыль с 1 шт:",
                 self._format_money_with_share(
@@ -771,6 +771,8 @@ class ProductUnitEconomicsQueryService:
                 "Возвраты и невыкупы:",
                 "—",
                 "",
+                "----------------",
+                "",
                 "Оценочная прибыль с 1 шт:",
                 "—",
                 "",
@@ -795,6 +797,8 @@ class ProductUnitEconomicsQueryService:
                     price
                 ),
                 "",
+                "----------------",
+                "",
                 "Прибыль с 1 шт:",
                 self._format_money_with_share(
                     confirmed_profit,
@@ -815,6 +819,8 @@ class ProductUnitEconomicsQueryService:
                 ),
                 price
             ),
+            "",
+            "----------------",
             "",
             "Оценочная прибыль с 1 шт:",
             self._format_money_with_share(
