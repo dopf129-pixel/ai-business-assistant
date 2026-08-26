@@ -63,18 +63,23 @@ class ProductBusinessDecisionQueryService:
         )
 
         decision = self.decision_service.decide(prepared)
+        economics_context = self._economics_context(
+            economics_metrics
+        )
 
         if decision.get("decision_type") == self.CODE_INSUFFICIENT_DATA:
             return {
                 "error": False,
                 "code": self.CODE_INSUFFICIENT_DATA,
-                **decision
+                **decision,
+                **economics_context
             }
 
         return {
             "error": False,
             "code": None,
-            **decision
+            **decision,
+            **economics_context
         }
 
     def _extract_sku(self, request):
@@ -154,12 +159,70 @@ class ProductBusinessDecisionQueryService:
             or []
         )
 
+        impact = result.get("returns_finance_impact")
+        basis = None
+        reserve = None
+        coverage = None
+
+        if result.get("risk_adjusted_profit_per_unit") is not None:
+            profit = result.get("risk_adjusted_profit_per_unit")
+            margin = result.get("risk_adjusted_margin_percent")
+            reserve = result.get("returns_cost_per_delivered_unit")
+            basis = "CONFIRMED_RETURNS"
+        elif (
+            result.get("returns_estimate_available")
+            and result.get("estimated_profit_per_unit") is not None
+        ):
+            profit = result.get("estimated_profit_per_unit")
+            margin = result.get("estimated_margin_percent")
+            reserve = result.get("estimated_returns_cost_per_unit")
+            coverage = result.get(
+                "returns_estimate_coverage_percent"
+            )
+            basis = "ESTIMATED_RETURNS"
+        elif isinstance(impact, dict):
+            profit = None
+            margin = None
+            if "returns" not in missing_data:
+                missing_data.append("returns")
+            basis = "RETURNS_UNAVAILABLE"
+        else:
+            profit = result.get("net_profit_per_unit")
+            margin = result.get("margin_percent")
+
         return {
             "product_id": result.get("product_id", product_id),
             "sku": result.get("sku", sku),
-            "net_profit_per_unit": result.get("net_profit_per_unit"),
-            "margin_percent": result.get("margin_percent"),
+            "net_profit_per_unit": profit,
+            "margin_percent": margin,
+            "economics_basis": basis,
+            "returns_reserve_per_unit": reserve,
+            "returns_coverage_percent": coverage,
             "missing_data": missing_data
+        }
+
+    def _economics_context(self, economics):
+        if not isinstance(economics, dict):
+            return {}
+
+        basis = economics.get("economics_basis")
+        if basis is None:
+            return {}
+
+        return {
+            "economics_basis": basis,
+            "decision_profit_per_unit": economics.get(
+                "net_profit_per_unit"
+            ),
+            "decision_margin_percent": economics.get(
+                "margin_percent"
+            ),
+            "returns_reserve_per_unit": economics.get(
+                "returns_reserve_per_unit"
+            ),
+            "returns_coverage_percent": economics.get(
+                "returns_coverage_percent"
+            ),
         }
 
     def _error_result(self, code, sku, missing_data):
