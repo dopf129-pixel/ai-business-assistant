@@ -147,7 +147,7 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Эквайринг:\n1.27 ₽ — 1.3%" in response
     assert "Себестоимость:\n21.00 ₽ — 21.9%" in response
     assert "Налог:\n5.76 ₽ — 6.0%" in response
-    assert "Прибыль до учёта возвратов:\n33.45 ₽ — 34.8%" in response
+    assert "Прибыль с 1 шт:\n33.45 ₽ — 34.8%" in response
     assert "Реклама" not in response
     assert "Хранение" not in response
 
@@ -169,7 +169,7 @@ def test_missing_logistics_keeps_profit_unknown():
 
     response = service.format_response(result)
     assert "Логистика:\n—" in response
-    assert "Прибыль до учёта возвратов:\n—" in response
+    assert "Прибыль с 1 шт:\n—" in response
 
 
 def test_missing_tax_keeps_profit_unknown():
