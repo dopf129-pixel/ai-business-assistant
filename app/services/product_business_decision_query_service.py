@@ -66,12 +66,14 @@ class ProductBusinessDecisionQueryService:
         economics_context = self._economics_context(
             economics_metrics
         )
+        metrics_context = self._metrics_context(prepared)
 
         if decision.get("decision_type") == self.CODE_INSUFFICIENT_DATA:
             return {
                 "error": False,
                 "code": self.CODE_INSUFFICIENT_DATA,
                 **decision,
+                **metrics_context,
                 **economics_context
             }
 
@@ -79,6 +81,7 @@ class ProductBusinessDecisionQueryService:
             "error": False,
             "code": None,
             **decision,
+            **metrics_context,
             **economics_context
         }
 
@@ -199,6 +202,22 @@ class ProductBusinessDecisionQueryService:
             "returns_reserve_per_unit": reserve,
             "returns_coverage_percent": coverage,
             "missing_data": missing_data
+        }
+
+    def _metrics_context(self, prepared):
+        metrics = dict(prepared or {})
+        return {
+            "sales_velocity": metrics.get("sales_velocity"),
+            "sales_trend": metrics.get("sales_trend"),
+            "current_stock": metrics.get("current_stock"),
+            "days_of_stock": metrics.get("days_of_stock"),
+            "stock_priority": metrics.get("stock_priority"),
+            "decision_profit_per_unit": metrics.get(
+                "profit_per_unit"
+            ),
+            "decision_margin_percent": metrics.get(
+                "margin_percent"
+            ),
         }
 
     def _economics_context(self, economics):

@@ -120,6 +120,13 @@ def test_successful_query_returns_structured_business_decision():
         ],
         "confidence": "HIGH",
         "missing_data": [],
+        "sales_velocity": 4.0,
+        "sales_trend": "GROWING",
+        "current_stock": 8,
+        "days_of_stock": 2.0,
+        "stock_priority": "CRITICAL",
+        "decision_profit_per_unit": 510.0,
+        "decision_margin_percent": 34.0,
     }
 
 
@@ -322,3 +329,15 @@ def test_returns_impact_without_reliable_estimate_blocks_base_profit():
     assert result["economics_basis"] == "RETURNS_UNAVAILABLE"
     assert result["decision_profit_per_unit"] is None
     assert "profit_per_unit" in result["missing_data"]
+
+
+def test_query_exposes_metrics_used_by_decision_card():
+    result = _service().query("hook-2")
+
+    assert result["sales_velocity"] == 4.0
+    assert result["sales_trend"] == "GROWING"
+    assert result["current_stock"] == 8
+    assert result["days_of_stock"] == 2.0
+    assert result["stock_priority"] == "CRITICAL"
+    assert result["decision_profit_per_unit"] == 510.0
+    assert result["decision_margin_percent"] == 34.0
