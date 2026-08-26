@@ -314,21 +314,9 @@ class ProductUnitEconomicsQueryService:
         lines = [
             f"💰 Юнит-экономика — {sku}",
             "",
-            "Актуальная цена продавца:",
+            "Цена:",
             self._format_money_with_share(
                 price,
-                price
-            ),
-            "",
-            "Цена покупателя Ozon:",
-            self._format_money_with_share(
-                result.get("buyer_price"),
-                price
-            ),
-            "",
-            "Компенсация скидки Ozon:",
-            self._format_money_with_share(
-                result.get("ozon_discount_compensation"),
                 price
             ),
             "",
@@ -362,39 +350,18 @@ class ProductUnitEconomicsQueryService:
                 price
             ),
             "",
-            "Налоговая база:",
-            self._format_money_with_share(
-                result.get("tax_base"),
-                price
-            ),
-            "",
-            "Ставка налога:",
-            self._format_percent(
-                result.get("tax_rate")
-            ),
-            "",
             "Налог:",
             self._format_money_with_share(
                 result.get("tax"),
                 price
             ),
             "",
-            "Эффективный налог от цены продавца:",
-            self._format_percent(
-                result.get("tax_effective_percent")
-            ),
-            "",
             "----------------",
             "",
-            "Расчётная прибыль с 1 шт:",
+            "Прибыль до учёта возвратов:",
             self._format_money_with_share(
                 result.get("net_profit_per_unit"),
                 price
-            ),
-            "",
-            "Маржа:",
-            self._format_percent(
-                result.get("margin_percent")
             )
         ]
 
@@ -417,34 +384,6 @@ class ProductUnitEconomicsQueryService:
                     "",
                     "Не хватает данных:",
                     ", ".join(labels)
-                ]
-            )
-
-        note = result.get("note")
-        if note:
-            lines.extend(["", note])
-
-        if (
-            result.get("tax_base_policy")
-            == "OZON_BUYER_PRICE"
-        ):
-            lines.extend([
-                "",
-                (
-                    "Налог рассчитан по цене покупателя Ozon; "
-                    "компенсация скидки баллами в базу "
-                    "управленческого расчёта не включена."
-                ),
-            ])
-
-        updated = self._format_as_of(
-            result.get("as_of")
-        )
-        if updated:
-            lines.extend(
-                [
-                    "",
-                    f"Данные обновлены: {updated}"
                 ]
             )
 
@@ -572,105 +511,58 @@ class ProductUnitEconomicsQueryService:
             "",
             "----------------",
             "",
-            "Возвраты и невыкупы за период:",
-        ])
-
-        if impact.get("error"):
-            lines.extend([
-                "Наблюдаемые расходы:",
-                "—",
-                "",
-                "Расход на доставленную единицу:",
-                "—",
-                "",
-                "Скорректированная прибыль с 1 шт:",
-                "—",
-                "",
-                "Данные расходов на возвраты недоступны.",
-            ])
-            return
-
-        categories = impact.get("categories") or {}
-        for key in (
-            "customer_non_buyout",
-            "customer_return",
-        ):
-            item = categories.get(key) or {}
-            lines.extend([
-                "",
-                str(item.get("label") or key) + ":",
-                "События: "
-                + str(item.get("event_posting_count") or 0),
-                "Покрытие: "
-                + self._format_percent(
-                    item.get("finance_coverage_percent")
-                ),
-                "Наблюдаемые расходы: "
-                + self._format_money(
-                    item.get("observed_cost_total")
-                ),
-                "Среднее на сопоставленное событие: "
-                + self._format_money(
-                    item.get("observed_cost_average")
-                ),
-            ])
-
-        lines.extend([
-            "",
-            "Всего наблюдаемых расходов:",
-            self._format_money(
-                result.get("returns_observed_cost_total")
+            "Расходы на возвраты с 1 шт:",
+            self._format_money_with_share(
+                result.get("returns_cost_per_delivered_unit"),
+                result.get("unit_price")
             ),
             "",
-            "Доставлено единиц за тот же период:",
-            (
-                str(result.get("returns_delivered_units"))
-                if result.get("returns_delivered_units") is not None
-                else "—"
+            "Итоговая прибыль с 1 шт:",
+            self._format_money_with_share(
+                result.get("risk_adjusted_profit_per_unit"),
+                result.get("unit_price")
             ),
             "",
-            "Расход на доставленную единицу:",
-            self._format_money(
-                result.get("returns_cost_per_delivered_unit")
-            ),
-            "",
-            "Скорректированная прибыль с 1 шт:",
-            self._format_money(
-                result.get("risk_adjusted_profit_per_unit")
-            ),
-            "",
-            "Скорректированная маржа:",
+            "Итоговая маржа:",
             self._format_percent(
                 result.get("risk_adjusted_margin_percent")
             ),
         ])
 
-        if result.get("risk_adjusted_profit_per_unit") is not None:
+        if impact.get("error"):
             lines.extend([
                 "",
                 (
-                    "Расходы распределены по подтверждённым "
-                    "доставленным единицам того же периода."
+                    "⚠️ Расходы на возвраты недоступны; "
+                    "итоговая прибыль не рассчитана."
                 ),
             ])
-        else:
-            lines.extend([
-                "",
-                (
-                    "Расходы не вычитались из прибыли: "
-                    "для безопасного распределения не хватает "
-                    "полных данных."
-                ),
-            ])
+            return
 
-        if not impact.get("complete"):
-            lines.extend([
-                "",
-                (
-                    "⚠️ Финансовая атрибуция неполна; "
-                    "экстраполяция не выполнялась."
-                ),
-            ])
+        if impact.get("complete"):
+            return
+
+        non_buyout = (
+            (impact.get("categories") or {}).get(
+                "customer_non_buyout"
+            )
+            or {}
+        )
+        coverage = self._format_percent(
+            non_buyout.get("finance_coverage_percent")
+        )
+        message = "⚠️ Возвраты учтены не полностью."
+        if coverage != "—":
+            message += (
+                " Финансовое покрытие невыкупов — "
+                + coverage
+                + "."
+            )
+
+        lines.extend([
+            "",
+            message,
+        ])
 
 
     def _positive_integer(

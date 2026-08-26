@@ -96,12 +96,13 @@ def test_current_card_shows_observed_cost_and_unknown_adjusted_profit():
 
     response = service.format_response(result)
 
-    assert "Невыкуп:" in response
-    assert "Покрытие: 88.17%" in response
-    assert "Наблюдаемые расходы: 4668.60 ₽" in response
-    assert "Всего наблюдаемых расходов:\n4777.33 ₽" in response
-    assert "Скорректированная прибыль с 1 шт:\n—" in response
-    assert "экстраполяция не выполнялась" in response
+    assert "Расходы на возвраты с 1 шт:\n—" in response
+    assert "Итоговая прибыль с 1 шт:\n—" in response
+    assert "Итоговая маржа:\n—" in response
+    assert "Финансовое покрытие невыкупов — 88.17%" in response
+    assert "Невыкуп:" not in response
+    assert "Наблюдаемые расходы:" not in response
+    assert "Доставлено единиц" not in response
 
 
 def test_complete_attribution_allocates_cost_over_same_period_deliveries():
@@ -122,9 +123,9 @@ def test_complete_attribution_allocates_cost_over_same_period_deliveries():
     assert result["risk_adjusted_profit_per_unit"] == 30.32
     assert result["risk_adjusted_margin_percent"] == 31.58
     assert "returns" not in result["missing_fields"]
-    assert "Расход на доставленную единицу:\n4.78 ₽" in response
-    assert "Скорректированная прибыль с 1 шт:\n30.32 ₽" in response
-    assert "Скорректированная маржа:\n31.58%" in response
+    assert "Расходы на возвраты с 1 шт:\n4.78 ₽ — 5.0%" in response
+    assert "Итоговая прибыль с 1 шт:\n30.32 ₽ — 31.6%" in response
+    assert "Итоговая маржа:\n31.58%" in response
     assert "экстраполяция не выполнялась" not in response
 
 
@@ -143,8 +144,7 @@ def test_complete_attribution_without_denominator_keeps_adjustment_unknown():
     assert result["returns_cost_per_delivered_unit"] is None
     assert result["risk_adjusted_profit_per_unit"] is None
     assert "returns" in result["missing_fields"]
-    assert "Скорректированная прибыль с 1 шт:\n—" in response
-    assert "не хватает полных данных" in response
+    assert "Итоговая прибыль с 1 шт:\n—" in response
 
 
 def test_unavailable_returns_data_keeps_unit_economics_available():
@@ -163,5 +163,6 @@ def test_unavailable_returns_data_keeps_unit_economics_available():
     assert result["net_profit_per_unit"] == 35.10
     assert result["returns_observed_cost_total"] is None
     assert result["risk_adjusted_profit_per_unit"] is None
-    assert "Наблюдаемые расходы:\n—" in response
-    assert "Скорректированная прибыль с 1 шт:\n—" in response
+    assert "Расходы на возвраты с 1 шт:\n—" in response
+    assert "Итоговая прибыль с 1 шт:\n—" in response
+    assert "Расходы на возвраты недоступны" in response

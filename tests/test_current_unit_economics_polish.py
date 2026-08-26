@@ -41,8 +41,8 @@ def test_current_unit_economics_output_is_user_friendly():
     assert "Эквайринг:\n1.30 ₽ — 1.4%" in response
     assert "Логистика, среднее" not in response
     assert "Эквайринг, среднее" not in response
-    assert (
-        "Основано на последних финансовых начислениях "
-        "Ozon: 236 продаж за 2 дн."
-    ) in response
-    assert "Данные обновлены: 25.08.2026 08:02 UTC" in response
+    assert "Цена:\n96.00 ₽ — 100.0%" in response
+    assert "Прибыль до учёта возвратов:\n35.10 ₽ — 36.6%" in response
+    assert "Актуальная цена продавца" not in response
+    assert "Основано на последних финансовых начислениях" not in response
+    assert "Данные обновлены:" not in response
