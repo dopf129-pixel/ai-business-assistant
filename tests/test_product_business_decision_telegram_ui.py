@@ -150,3 +150,39 @@ def test_insufficient_data_returns_user_message():
     result = handler.handle("product_decision:hook-2")
 
     assert result["message"] == "Недостаточно данных для решения"
+
+
+def test_product_decision_card_shows_returns_aware_economics():
+    handler, _, _ = _handler(
+        {
+            "error": False,
+            "code": None,
+            "product_id": "101",
+            "sku": "hook-2",
+            "decision_type": "REPLENISH_HIGH_PRIORITY",
+            "priority": "CRITICAL",
+            "reasons": [
+                "DAYS_OF_STOCK_CRITICAL",
+                "POSITIVE_UNIT_PROFIT",
+            ],
+            "confidence": "MEDIUM",
+            "missing_data": ["returns"],
+            "economics_basis": "ESTIMATED_RETURNS",
+            "decision_profit_per_unit": 33.98,
+            "decision_margin_percent": 35.40,
+            "returns_reserve_per_unit": 1.12,
+            "returns_coverage_percent": 91.11,
+        }
+    )
+
+    result = handler.handle("product_decision:hook-2")
+    message = result["message"]
+
+    assert "Прибыль в решении:\n33.98 ₽" in message
+    assert (
+        "Основа расчёта:\n"
+        "С исторической оценкой возвратов"
+    ) in message
+    assert "Возвраты и невыкупы:\n1.12 ₽" in message
+    assert "Финансовое покрытие:\n91.11%" in message
+    assert "Уверенность:\nMEDIUM" in message

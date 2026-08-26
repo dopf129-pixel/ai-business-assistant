@@ -23,6 +23,12 @@ class AssistantButtonHandlerService:
         "IDENTITY_MISMATCH": "Данные товара не совпадают между источниками"
     }
 
+    ECONOMICS_BASIS_LABELS = {
+        "CONFIRMED_RETURNS": "С подтверждёнными расходами на возвраты",
+        "ESTIMATED_RETURNS": "С исторической оценкой возвратов",
+        "RETURNS_UNAVAILABLE": "Расходы на возвраты неизвестны"
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -406,9 +412,44 @@ class AssistantButtonHandlerService:
             "",
             "Приоритет:",
             priority,
+        ]
+
+        basis = result.get("economics_basis")
+        if basis is not None:
+            lines.extend([
+                "",
+                "Прибыль в решении:",
+                self._format_decision_money(
+                    result.get("decision_profit_per_unit")
+                ),
+                "",
+                "Основа расчёта:",
+                self.ECONOMICS_BASIS_LABELS.get(
+                    basis,
+                    str(basis)
+                ),
+            ])
+
+            reserve = result.get("returns_reserve_per_unit")
+            if reserve is not None:
+                lines.extend([
+                    "",
+                    "Возвраты и невыкупы:",
+                    self._format_decision_money(reserve),
+                ])
+
+            coverage = result.get("returns_coverage_percent")
+            if coverage is not None:
+                lines.extend([
+                    "",
+                    "Финансовое покрытие:",
+                    f"{float(coverage):.2f}%",
+                ])
+
+        lines.extend([
             "",
             "Причины:"
-        ]
+        ])
 
         reasons = result.get("reasons") or []
 
@@ -449,6 +490,15 @@ class AssistantButtonHandlerService:
             lines.append("—")
 
         return "\n".join(lines)
+
+
+    def _format_decision_money(
+        self,
+        value
+    ):
+        if value is None:
+            return "—"
+        return f"{float(value):.2f} ₽"
 
 
     def _open_unit_economics_menu(
