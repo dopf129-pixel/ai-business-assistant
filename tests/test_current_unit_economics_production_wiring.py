@@ -72,5 +72,5 @@ def test_current_query_is_wired_over_existing_core_contract():
     )
     assert (
         query.returns_finance_impact_query.period_days
-        == 90
+        == 30
     )
