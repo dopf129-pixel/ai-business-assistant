@@ -137,6 +137,11 @@ def test_card_shows_only_estimated_profit_and_coverage_warning():
     response = service.format_response(result)
 
     assert "Возвраты и невыкупы:\n1.12 ₽ — 1.2%" in response
+    assert (
+        response.index("Возвраты и невыкупы:")
+        < response.index("----------------")
+        < response.index("Оценочная прибыль с 1 шт:")
+    )
     assert "Оценочная прибыль с 1 шт:\n33.98 ₽ — 35.4%" in response
     assert "за 30 полных дней" in response
     assert "покрытие 91.11%" in response
