@@ -136,7 +136,7 @@ class ProductUnitEconomicsQueryService:
         if self.cache_ttl_seconds <= 0:
             return result
 
-        if not result.get("error"):
+        if self._is_cacheable_result(result):
             stored = deepcopy(result)
             cached_at = self._cache_timestamp()
             self._query_cache[cache_key] = {
@@ -158,8 +158,16 @@ class ProductUnitEconomicsQueryService:
                 age_seconds=now - cached["stored_at"],
                 cached_at=cached["cached_at"],
             )
+            impact = result.get(
+                "returns_finance_impact"
+            )
             fallback["cache"]["refresh_error"] = (
                 result.get("code")
+                or (
+                    impact.get("code")
+                    if isinstance(impact, dict)
+                    else None
+                )
                 or "REFRESH_FAILED"
             )
             return fallback
@@ -169,6 +177,19 @@ class ProductUnitEconomicsQueryService:
             status="miss",
             age_seconds=0,
         )
+
+    def _is_cacheable_result(
+        self,
+        result
+    ):
+        if not isinstance(result, dict) or result.get("error"):
+            return False
+
+        impact = result.get("returns_finance_impact")
+        if isinstance(impact, dict) and impact.get("error"):
+            return False
+
+        return True
 
     def _with_cache_metadata(
         self,
