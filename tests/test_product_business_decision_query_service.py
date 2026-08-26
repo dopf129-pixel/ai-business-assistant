@@ -257,3 +257,68 @@ def test_query_accepts_seller_offer_id_when_internal_sku_differs():
         service.unit_economics_query_service.calls
         == ["hook-2"]
     )
+
+
+def test_estimated_returns_profit_drives_decision_and_reduces_confidence():
+    service = _service(
+        economics=_economics(
+            net_profit_per_unit=20.0,
+            margin_percent=20.83,
+            returns_finance_impact={"error": False},
+            returns_estimate_available=True,
+            estimated_returns_cost_per_unit=25.0,
+            estimated_profit_per_unit=-5.0,
+            estimated_margin_percent=-5.21,
+            returns_estimate_coverage_percent=91.11,
+            missing_fields=["returns"],
+        )
+    )
+
+    result = service.query("hook-2")
+
+    assert result["decision_type"] == "INVESTIGATE_LOW_PROFIT"
+    assert result["confidence"] == "MEDIUM"
+    assert result["economics_basis"] == "ESTIMATED_RETURNS"
+    assert result["decision_profit_per_unit"] == -5.0
+    assert result["decision_margin_percent"] == -5.21
+    assert result["returns_reserve_per_unit"] == 25.0
+    assert result["returns_coverage_percent"] == 91.11
+
+
+def test_confirmed_returns_profit_drives_high_confidence_decision():
+    service = _service(
+        economics=_economics(
+            returns_finance_impact={"error": False},
+            risk_adjusted_profit_per_unit=15.0,
+            risk_adjusted_margin_percent=15.63,
+            returns_cost_per_delivered_unit=5.0,
+            missing_fields=[],
+        )
+    )
+
+    result = service.query("hook-2")
+
+    assert result["decision_type"] == "REPLENISH_HIGH_PRIORITY"
+    assert result["confidence"] == "HIGH"
+    assert result["economics_basis"] == "CONFIRMED_RETURNS"
+    assert result["decision_profit_per_unit"] == 15.0
+    assert result["returns_reserve_per_unit"] == 5.0
+
+
+def test_returns_impact_without_reliable_estimate_blocks_base_profit():
+    service = _service(
+        economics=_economics(
+            returns_finance_impact={"error": False},
+            returns_estimate_available=False,
+            estimated_profit_per_unit=None,
+            missing_fields=["returns"],
+        )
+    )
+
+    result = service.query("hook-2")
+
+    assert result["decision_type"] == "INSUFFICIENT_DATA"
+    assert result["confidence"] == "LOW"
+    assert result["economics_basis"] == "RETURNS_UNAVAILABLE"
+    assert result["decision_profit_per_unit"] is None
+    assert "profit_per_unit" in result["missing_data"]
