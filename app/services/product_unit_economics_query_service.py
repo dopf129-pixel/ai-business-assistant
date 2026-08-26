@@ -484,18 +484,25 @@ class ProductUnitEconomicsQueryService:
             ),
             "",
             "----------------",
-            "",
-            "Прибыль до учёта возвратов:",
-            self._format_money_with_share(
-                result.get("net_profit_per_unit"),
-                price
-            )
         ]
 
-        self._append_returns_impact(
-            lines,
-            result
-        )
+        if isinstance(
+            result.get("returns_finance_impact"),
+            dict
+        ):
+            self._append_returns_impact(
+                lines,
+                result
+            )
+        else:
+            lines.extend([
+                "",
+                "Прибыль с 1 шт:",
+                self._format_money_with_share(
+                    result.get("net_profit_per_unit"),
+                    price
+                ),
+            ])
 
         missing = result.get("missing_fields") or []
         if missing:
@@ -531,14 +538,24 @@ class ProductUnitEconomicsQueryService:
         output = dict(result)
         output["returns_finance_impact"] = impact
 
+        empty_fields = {
+            "returns_finance_complete": False,
+            "returns_observed_cost_total": None,
+            "returns_observed_event_count": None,
+            "returns_delivered_units": None,
+            "returns_cost_per_delivered_unit": None,
+            "risk_adjusted_profit_per_unit": None,
+            "risk_adjusted_margin_percent": None,
+            "returns_estimate_available": False,
+            "estimated_returns_cost_total": None,
+            "estimated_returns_cost_per_unit": None,
+            "estimated_profit_per_unit": None,
+            "estimated_margin_percent": None,
+            "returns_estimate_coverage_percent": None,
+        }
+
         if not isinstance(impact, dict) or impact.get("error"):
-            output["returns_finance_complete"] = False
-            output["returns_observed_cost_total"] = None
-            output["returns_observed_event_count"] = None
-            output["returns_delivered_units"] = None
-            output["returns_cost_per_delivered_unit"] = None
-            output["risk_adjusted_profit_per_unit"] = None
-            output["risk_adjusted_margin_percent"] = None
+            output.update(empty_fields)
             return output
 
         categories = impact.get("categories") or {}
@@ -593,13 +610,20 @@ class ProductUnitEconomicsQueryService:
                 float(base_profit) - cost_per_delivered,
                 2
             )
-            price = result.get("unit_price")
-            if price not in (None, 0):
-                adjusted_margin = round(
-                    adjusted_profit / float(price) * 100,
-                    2
-                )
+            adjusted_margin = self._profit_margin(
+                adjusted_profit,
+                result.get("unit_price")
+            )
 
+        estimate = self._estimate_returns_impact(
+            impact=impact,
+            categories=categories,
+            delivered_units=delivered_units,
+            base_profit=base_profit,
+            price=result.get("unit_price"),
+        )
+
+        output.update(empty_fields)
         output["returns_finance_complete"] = complete
         output["returns_observed_cost_total"] = observed_total
         output["returns_observed_event_count"] = event_count
@@ -613,6 +637,7 @@ class ProductUnitEconomicsQueryService:
         output["risk_adjusted_margin_percent"] = (
             adjusted_margin
         )
+        output.update(estimate)
 
         if allocation_ready:
             missing = list(output.get("missing_fields") or [])
@@ -625,70 +650,184 @@ class ProductUnitEconomicsQueryService:
         return output
 
 
+    def _estimate_returns_impact(
+        self,
+        impact,
+        categories,
+        delivered_units,
+        base_profit,
+        price
+    ):
+        empty = {
+            "returns_estimate_available": False,
+            "estimated_returns_cost_total": None,
+            "estimated_returns_cost_per_unit": None,
+            "estimated_profit_per_unit": None,
+            "estimated_margin_percent": None,
+            "returns_estimate_coverage_percent": None,
+        }
+        missing_data = set(impact.get("missing_data") or [])
+
+        if (
+            not impact.get("classification_complete")
+            or "finance_days_unavailable" in missing_data
+            or delivered_units is None
+            or base_profit is None
+        ):
+            return empty
+
+        estimated_total = 0.0
+        coverages = []
+        has_events = False
+
+        for key in (
+            "customer_non_buyout",
+            "customer_return",
+        ):
+            item = categories.get(key) or {}
+            events = int(
+                item.get("event_posting_count") or 0
+            )
+            if events <= 0:
+                continue
+
+            has_events = True
+            observed = int(
+                item.get("observed_posting_count") or 0
+            )
+            observed_total = item.get(
+                "observed_cost_total"
+            )
+            if observed <= 0 or observed_total is None:
+                return empty
+
+            coverage = observed / events * 100
+            if coverage < 80:
+                return empty
+            if observed < 30 and observed != events:
+                return empty
+
+            coverages.append(coverage)
+            estimated_total += (
+                float(observed_total)
+                / observed
+                * events
+            )
+
+        if not has_events:
+            estimated_total = 0.0
+
+        estimated_total = round(estimated_total, 2)
+        cost_per_unit = round(
+            estimated_total / delivered_units,
+            2
+        )
+        estimated_profit = round(
+            float(base_profit) - cost_per_unit,
+            2
+        )
+
+        return {
+            "returns_estimate_available": True,
+            "estimated_returns_cost_total": estimated_total,
+            "estimated_returns_cost_per_unit": cost_per_unit,
+            "estimated_profit_per_unit": estimated_profit,
+            "estimated_margin_percent": self._profit_margin(
+                estimated_profit,
+                price
+            ),
+            "returns_estimate_coverage_percent": (
+                round(min(coverages), 2)
+                if coverages
+                else 100.0
+            ),
+        }
+
+
+    def _profit_margin(
+        self,
+        profit,
+        price
+    ):
+        if profit is None or price in (None, 0):
+            return None
+
+        return round(
+            float(profit) / float(price) * 100,
+            2
+        )
+
+
     def _append_returns_impact(
         self,
         lines,
         result
     ):
         impact = result.get("returns_finance_impact")
-        if not isinstance(impact, dict):
-            return
-
-        lines.extend([
-            "",
-            "----------------",
-            "",
-            "Расходы на возвраты с 1 шт:",
-            self._format_money_with_share(
-                result.get("returns_cost_per_delivered_unit"),
-                result.get("unit_price")
-            ),
-            "",
-            "Итоговая прибыль с 1 шт:",
-            self._format_money_with_share(
-                result.get("risk_adjusted_profit_per_unit"),
-                result.get("unit_price")
-            ),
-            "",
-            "Итоговая маржа:",
-            self._format_percent(
-                result.get("risk_adjusted_margin_percent")
-            ),
-        ])
+        price = result.get("unit_price")
 
         if impact.get("error"):
             lines.extend([
                 "",
+                "Оценочная прибыль с 1 шт:",
+                "—",
+                "",
                 (
-                    "⚠️ Расходы на возвраты недоступны; "
-                    "итоговая прибыль не рассчитана."
+                    "⚠️ Данные возвратов недоступны; "
+                    "прибыль не рассчитана."
                 ),
             ])
             return
 
-        if impact.get("complete"):
+        confirmed_profit = result.get(
+            "risk_adjusted_profit_per_unit"
+        )
+        if confirmed_profit is not None:
+            lines.extend([
+                "",
+                "Прибыль с 1 шт:",
+                self._format_money_with_share(
+                    confirmed_profit,
+                    price
+                ),
+            ])
             return
 
-        non_buyout = (
-            (impact.get("categories") or {}).get(
-                "customer_non_buyout"
-            )
-            or {}
+        estimated_profit = result.get(
+            "estimated_profit_per_unit"
         )
-        coverage = self._format_percent(
-            non_buyout.get("finance_coverage_percent")
-        )
-        message = "⚠️ Возвраты учтены не полностью."
-        if coverage != "—":
-            message += (
-                " Финансовое покрытие невыкупов — "
-                + coverage
-                + "."
-            )
-
         lines.extend([
             "",
-            message,
+            "Оценочная прибыль с 1 шт:",
+            self._format_money_with_share(
+                estimated_profit,
+                price
+            ),
+        ])
+
+        if estimated_profit is None:
+            lines.extend([
+                "",
+                (
+                    "⚠️ Для надёжной оценки возвратов "
+                    "недостаточно данных."
+                ),
+            ])
+            return
+
+        coverage = self._format_percent(
+            result.get(
+                "returns_estimate_coverage_percent"
+            )
+        )
+        lines.extend([
+            "",
+            (
+                "⚠️ Оценка рассчитана по финансовой "
+                "выборке с покрытием "
+                + coverage
+                + "."
+            ),
         ])
 
 
