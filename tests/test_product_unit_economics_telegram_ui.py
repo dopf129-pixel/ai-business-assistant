@@ -113,8 +113,12 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
 def test_open_unit_economics_menu_lists_available_skus():
     handler, _ = _build_handler(
         products=[
-            {"product_id": 1, "sku": "hook-2"},
-            (2, "offer-3", "hook-3")
+            {
+                "product_id": 1,
+                "offer_id": "hook-2",
+                "sku": "3921245627"
+            },
+            (2, "offer-3", "3921245628")
         ]
     )
 
@@ -128,15 +132,19 @@ def test_open_unit_economics_menu_lists_available_skus():
             "callback": "unit_economics:hook-2"
         },
         {
-            "text": "hook-3",
-            "callback": "unit_economics:hook-3"
+            "text": "offer-3",
+            "callback": "unit_economics:offer-3"
         }
     ]
 
 
 def test_select_sku_calls_existing_query_and_displays_result():
     handler, query = _build_handler(
-        products=[{"product_id": 1, "sku": "hook-2"}]
+        products=[{
+            "product_id": 1,
+            "offer_id": "hook-2",
+            "sku": "3921245627"
+        }]
     )
 
     result = handler.handle(

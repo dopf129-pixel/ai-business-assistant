@@ -98,7 +98,10 @@ class ProductBusinessDecisionQueryService:
             if normalized is None:
                 continue
 
-            if str(normalized.get("sku")) == sku:
+            if sku in {
+                str(normalized.get("offer_id") or ""),
+                str(normalized.get("sku") or ""),
+            }:
                 return normalized
 
         return None

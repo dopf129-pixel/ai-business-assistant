@@ -154,7 +154,10 @@ class ProductDecisionMetricsSource:
     def _find_product(self, sku):
         for product in self.product_service.load_products() or []:
             normalized = self._normalize_product(product)
-            if normalized and str(normalized.get("sku")) == sku:
+            if normalized and sku in {
+                str(normalized.get("offer_id") or ""),
+                str(normalized.get("sku") or ""),
+            }:
                 return normalized
         return None
 

@@ -11,7 +11,8 @@ class StubProductService:
         return [
             {
                 "product_id": "101",
-                "sku": "hook-2",
+                "offer_id": "hook-2",
+                "sku": "3921245627",
             }
         ]
 

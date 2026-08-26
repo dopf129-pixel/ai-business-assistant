@@ -552,12 +552,17 @@ class AssistantButtonHandlerService:
             dict
         ):
 
-            return product.get(
-                "sku"
+            return (
+                product.get("offer_id")
+                if product.get("offer_id") is not None
+                else product.get("sku")
             )
 
         try:
 
+            offer_id = product[1]
+            if offer_id is not None:
+                return offer_id
             return product[2]
 
         except (
