@@ -10,6 +10,20 @@ class AssistantButtonHandlerService:
         "INSUFFICIENT_DATA": "Недостаточно данных для решения"
     }
 
+    PRIORITY_LABELS = {
+        "CRITICAL": "Критический",
+        "HIGH": "Высокий",
+        "NORMAL": "Обычный",
+        "LOW": "Низкий",
+        "NONE": "Нет"
+    }
+
+    CONFIDENCE_LABELS = {
+        "HIGH": "Высокая",
+        "MEDIUM": "Средняя",
+        "LOW": "Низкая"
+    }
+
     REASON_LABELS = {
         "DAYS_OF_STOCK_CRITICAL": "Остаток критически низкий",
         "DAYS_OF_STOCK_LOW": "Остаток ниже комфортного уровня",
@@ -375,7 +389,6 @@ class AssistantButtonHandlerService:
         self,
         result
     ):
-
         code = result.get("code")
 
         if code == "SKU_NOT_FOUND":
@@ -392,7 +405,6 @@ class AssistantButtonHandlerService:
         decision_type = result.get("decision_type") or "—"
         priority = result.get("priority") or "—"
         confidence = result.get("confidence") or "—"
-
         decision_label = self.DECISION_LABELS.get(
             decision_type,
             decision_type
@@ -401,27 +413,55 @@ class AssistantButtonHandlerService:
         lines = [
             "🎯 Решение по товару",
             "",
-            "SKU:",
+            "Артикул:",
             str(sku),
             "",
             "Решение:",
             decision_label,
             "",
-            "Тип:",
-            decision_type,
-            "",
             "Приоритет:",
-            priority,
+            self.PRIORITY_LABELS.get(priority, priority),
+            "",
+            "Показатели решения:",
+            (
+                "Скорость продаж: "
+                + self._format_decision_number(
+                    result.get("sales_velocity"),
+                    " шт./день"
+                )
+            ),
+            (
+                "Остаток: "
+                + self._format_decision_number(
+                    result.get("current_stock"),
+                    " шт."
+                )
+            ),
+            (
+                "Запас: "
+                + self._format_decision_number(
+                    result.get("days_of_stock"),
+                    " дн."
+                )
+            ),
+            (
+                "Прибыль с 1 шт.: "
+                + self._format_decision_money(
+                    result.get("decision_profit_per_unit")
+                )
+            ),
+            (
+                "Маржа: "
+                + self._format_decision_number(
+                    result.get("decision_margin_percent"),
+                    "%"
+                )
+            ),
         ]
 
         basis = result.get("economics_basis")
         if basis is not None:
             lines.extend([
-                "",
-                "Прибыль в решении:",
-                self._format_decision_money(
-                    result.get("decision_profit_per_unit")
-                ),
                 "",
                 "Основа расчёта:",
                 self.ECONOMICS_BASIS_LABELS.get(
@@ -432,27 +472,23 @@ class AssistantButtonHandlerService:
 
             reserve = result.get("returns_reserve_per_unit")
             if reserve is not None:
-                lines.extend([
-                    "",
-                    "Возвраты и невыкупы:",
-                    self._format_decision_money(reserve),
-                ])
+                lines.append(
+                    "Возвраты и невыкупы: "
+                    + self._format_decision_money(reserve)
+                )
 
             coverage = result.get("returns_coverage_percent")
             if coverage is not None:
-                lines.extend([
-                    "",
-                    "Финансовое покрытие:",
-                    f"{float(coverage):.2f}%",
-                ])
+                lines.append(
+                    "Финансовое покрытие: "
+                    + self._format_decision_number(
+                        coverage,
+                        "%"
+                    )
+                )
 
-        lines.extend([
-            "",
-            "Причины:"
-        ])
-
+        lines.extend(["", "Причины:"])
         reasons = result.get("reasons") or []
-
         if reasons:
             for reason in reasons:
                 lines.append(
@@ -465,19 +501,18 @@ class AssistantButtonHandlerService:
         else:
             lines.append("—")
 
-        lines.extend(
-            [
-                "",
-                "Уверенность:",
+        lines.extend([
+            "",
+            "Уверенность:",
+            self.CONFIDENCE_LABELS.get(
                 confidence,
-                "",
-                "Не учтено:"
-            ]
-        )
+                confidence
+            ),
+        ])
 
         missing_data = result.get("missing_data") or []
-
         if missing_data:
+            lines.extend(["", "Не учтено:"])
             for item in missing_data:
                 lines.append(
                     "— "
@@ -486,8 +521,6 @@ class AssistantButtonHandlerService:
                         str(item)
                     )
                 )
-        else:
-            lines.append("—")
 
         return "\n".join(lines)
 
@@ -499,6 +532,22 @@ class AssistantButtonHandlerService:
         if value is None:
             return "—"
         return f"{float(value):.2f} ₽"
+
+
+    def _format_decision_number(
+        self,
+        value,
+        suffix=""
+    ):
+        if value is None:
+            return "—"
+        number = float(value)
+        text = (
+            str(int(number))
+            if number.is_integer()
+            else f"{number:.2f}".rstrip("0").rstrip(".")
+        )
+        return text + suffix
 
 
     def _open_unit_economics_menu(
