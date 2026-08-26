@@ -55,5 +55,6 @@ def create_current_unit_economics_query(
         ),
         current_tax_base_policy=(
             "OZON_BUYER_PRICE"
-        )
+        ),
+        cache_ttl_seconds=600
     )
