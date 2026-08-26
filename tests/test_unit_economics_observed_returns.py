@@ -36,6 +36,7 @@ def _impact(
     return {
         "error": False,
         "complete": complete,
+        "period_days": 30,
         "classification_complete": classification_complete,
         "finance_complete": complete,
         "delivered_units": delivered_units,
@@ -135,8 +136,10 @@ def test_card_shows_only_estimated_profit_and_coverage_warning():
 
     response = service.format_response(result)
 
+    assert "Возвраты и невыкупы:\n1.12 ₽ — 1.2%" in response
     assert "Оценочная прибыль с 1 шт:\n33.98 ₽ — 35.4%" in response
-    assert "покрытием 91.11%" in response
+    assert "за 30 полных дней" in response
+    assert "покрытие 91.11%" in response
     assert "Прибыль до учёта возвратов:" not in response
     assert "Расходы на возвраты с 1 шт:" not in response
     assert "Итоговая оценочная маржа:" not in response
@@ -161,6 +164,7 @@ def test_complete_attribution_shows_confirmed_profit():
     assert result["risk_adjusted_profit_per_unit"] == 29.87
     assert result["risk_adjusted_margin_percent"] == 31.11
     assert "returns" not in result["missing_fields"]
+    assert "Возвраты и невыкупы:\n5.23 ₽ — 5.4%" in response
     assert "Прибыль с 1 шт:\n29.87 ₽ — 31.1%" in response
     assert "Оценочная прибыль" not in response
     assert "⚠️" not in response
@@ -179,6 +183,7 @@ def test_below_eighty_percent_coverage_keeps_estimate_unknown():
 
     assert result["returns_estimate_available"] is False
     assert result["estimated_profit_per_unit"] is None
+    assert "Возвраты и невыкупы:\n—" in response
     assert "Оценочная прибыль с 1 шт:\n—" in response
     assert "недостаточно данных" in response
 
@@ -203,7 +208,7 @@ def test_incomplete_small_sample_is_not_extrapolated():
     assert result["estimated_profit_per_unit"] is None
 
 
-def test_incomplete_classification_keeps_estimate_unknown():
+def test_historical_sample_ignores_unclassified_events():
     service = _service(_impact(
         classification_complete=False,
     ))
@@ -213,8 +218,9 @@ def test_incomplete_classification_keeps_estimate_unknown():
         _economics(),
     )
 
-    assert result["returns_estimate_available"] is False
-    assert result["estimated_profit_per_unit"] is None
+    assert result["returns_estimate_available"] is True
+    assert result["estimated_returns_cost_per_unit"] == 1.12
+    assert result["estimated_profit_per_unit"] == 33.98
 
 
 def test_unavailable_returns_keeps_profit_unknown():
@@ -232,5 +238,6 @@ def test_unavailable_returns_keeps_profit_unknown():
     assert result["error"] is False
     assert result["net_profit_per_unit"] == 35.10
     assert result["estimated_profit_per_unit"] is None
+    assert "Возвраты и невыкупы:\n—" in response
     assert "Оценочная прибыль с 1 шт:\n—" in response
     assert "Данные возвратов недоступны" in response

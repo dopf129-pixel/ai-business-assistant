@@ -669,8 +669,7 @@ class ProductUnitEconomicsQueryService:
         missing_data = set(impact.get("missing_data") or [])
 
         if (
-            not impact.get("classification_complete")
-            or "finance_days_unavailable" in missing_data
+            "finance_days_unavailable" in missing_data
             or delivered_units is None
             or base_profit is None
         ):
@@ -769,6 +768,9 @@ class ProductUnitEconomicsQueryService:
         if impact.get("error"):
             lines.extend([
                 "",
+                "Возвраты и невыкупы:",
+                "—",
+                "",
                 "Оценочная прибыль с 1 шт:",
                 "—",
                 "",
@@ -785,6 +787,14 @@ class ProductUnitEconomicsQueryService:
         if confirmed_profit is not None:
             lines.extend([
                 "",
+                "Возвраты и невыкупы:",
+                self._format_money_with_share(
+                    result.get(
+                        "returns_cost_per_delivered_unit"
+                    ),
+                    price
+                ),
+                "",
                 "Прибыль с 1 шт:",
                 self._format_money_with_share(
                     confirmed_profit,
@@ -797,6 +807,14 @@ class ProductUnitEconomicsQueryService:
             "estimated_profit_per_unit"
         )
         lines.extend([
+            "",
+            "Возвраты и невыкупы:",
+            self._format_money_with_share(
+                result.get(
+                    "estimated_returns_cost_per_unit"
+                ),
+                price
+            ),
             "",
             "Оценочная прибыль с 1 шт:",
             self._format_money_with_share(
@@ -820,11 +838,15 @@ class ProductUnitEconomicsQueryService:
                 "returns_estimate_coverage_percent"
             )
         )
+        period_days = int(
+            impact.get("period_days") or 90
+        )
         lines.extend([
             "",
             (
-                "⚠️ Оценка рассчитана по финансовой "
-                "выборке с покрытием "
+                "⚠️ Расчёт по исторической статистике "
+                f"за {period_days} полных дней; "
+                "финансовое покрытие "
                 + coverage
                 + "."
             ),

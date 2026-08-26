@@ -70,3 +70,7 @@ def test_current_query_is_wired_over_existing_core_contract():
         query.returns_finance_impact_query.product_service
         is historical.product_service
     )
+    assert (
+        query.returns_finance_impact_query.period_days
+        == 30
+    )
