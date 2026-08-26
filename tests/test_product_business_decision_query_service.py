@@ -236,3 +236,24 @@ def test_missing_sku_is_business_result_not_exception():
     assert result["code"] == "SKU_REQUIRED"
     assert result["decision_type"] == "INSUFFICIENT_DATA"
     assert result["missing_data"] == ["sku"]
+
+
+def test_query_accepts_seller_offer_id_when_internal_sku_differs():
+    service = _service(
+        products=[{
+            "product_id": "101",
+            "offer_id": "hook-2",
+            "sku": "3921245627",
+        }]
+    )
+
+    result = service.query("hook-2")
+
+    assert result["error"] is False
+    assert result["sku"] == "hook-2"
+    assert service.sales_metrics_source.calls == ["hook-2"]
+    assert service.stock_metrics_source.calls == ["hook-2"]
+    assert (
+        service.unit_economics_query_service.calls
+        == ["hook-2"]
+    )
