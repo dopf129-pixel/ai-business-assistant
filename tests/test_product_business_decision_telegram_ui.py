@@ -10,8 +10,16 @@ class StubAssistant:
 class StubProductService:
     def load_products(self):
         return [
-            {"product_id": "101", "sku": "hook-2"},
-            {"product_id": "102", "sku": "hook-3"},
+            {
+                "product_id": "101",
+                "offer_id": "hook-2",
+                "sku": "3921245627",
+            },
+            {
+                "product_id": "102",
+                "offer_id": "hook-3",
+                "sku": "3921245628",
+            },
         ]
 
 
