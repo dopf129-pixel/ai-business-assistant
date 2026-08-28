@@ -79,7 +79,12 @@ def test_summary_exposes_drafts_but_no_executions():
     summary = service.summary()
 
     assert summary["total"] == 1
-    assert summary["counts"] == {"DRAFT": 1, "DISMISSED": 0}
+    assert summary["counts"] == {
+        "DRAFT": 1,
+        "STALE": 0,
+        "DISMISSED": 0,
+        "ARCHIVED": 0,
+    }
     assert summary["executed_count"] == 0
     assert summary["drafts"][0]["sku"] == "hook-2"
 
@@ -111,3 +116,62 @@ def test_json_storage_recovers_task_drafts(tmp_path):
 
     assert restored.latest_for_sku("hook-2")["status"] == "DRAFT"
     assert not path.with_suffix(".json.tmp").exists()
+
+
+def test_reconcile_marks_previous_decision_draft_stale():
+    service = ProductActionTaskDraftService(clock=lambda: "now")
+    created = service.create_from_confirmation(_decision(), _proposal())
+
+    result = service.reconcile(
+        sku="hook-2",
+        current_proposal_type="REVIEW_MARGIN",
+        current_decision_recorded_at="new-decision-time",
+    )
+
+    assert result["stale_count"] == 1
+    assert result["executed"] is False
+    assert service.latest_for_sku("hook-2")["status"] == "STALE"
+    assert created["task_draft"]["status"] == "DRAFT"
+
+
+def test_reconcile_keeps_current_snapshot_draft_active():
+    service = ProductActionTaskDraftService(clock=lambda: "now")
+    service.create_from_confirmation(_decision(), _proposal())
+
+    result = service.reconcile(
+        sku="hook-2",
+        current_proposal_type="REVIEW_REPLENISHMENT",
+        current_decision_recorded_at="decision-time",
+    )
+
+    assert result["stale_count"] == 0
+    assert service.latest_for_sku("hook-2")["status"] == "DRAFT"
+
+
+def test_archive_is_idempotent_terminal_and_non_executable():
+    service = ProductActionTaskDraftService(clock=lambda: "now")
+    created = service.create_from_confirmation(_decision(), _proposal())
+    draft_id = created["task_draft"]["draft_id"]
+
+    archived = service.archive(draft_id)
+    repeated = service.archive(draft_id)
+    reconfirmed = service.create_from_confirmation(_decision(), _proposal())
+
+    assert archived["task_draft"]["status"] == "ARCHIVED"
+    assert repeated["saved"] is False
+    assert reconfirmed["task_draft"]["status"] == "ARCHIVED"
+    assert reconfirmed["saved"] is False
+    assert archived["executed"] is False
+
+
+def test_loaded_legacy_drafts_receive_review_identifier():
+    storage = MemoryStorage()
+    storage.records = [{
+        "draft_key": "hook-2|REVIEW_REPLENISHMENT|decision-time",
+        "sku": "hook-2",
+        "status": "DRAFT",
+    }]
+
+    service = ProductActionTaskDraftService(storage_service=storage)
+
+    assert service.latest_for_sku("hook-2")["draft_id"] == "d1"
