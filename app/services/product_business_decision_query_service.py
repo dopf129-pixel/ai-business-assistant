@@ -1,3 +1,7 @@
+from copy import deepcopy
+from time import monotonic
+
+
 class ProductBusinessDecisionQueryService:
 
     CODE_SKU_REQUIRED = "SKU_REQUIRED"
@@ -19,7 +23,9 @@ class ProductBusinessDecisionQueryService:
         stock_metrics_source,
         unit_economics_query_service,
         decision_input_provider,
-        decision_service
+        decision_service,
+        cache_ttl_seconds=600,
+        clock=None
     ):
         self.product_service = product_service
         self.sales_metrics_source = sales_metrics_source
@@ -27,6 +33,9 @@ class ProductBusinessDecisionQueryService:
         self.unit_economics_query_service = unit_economics_query_service
         self.decision_input_provider = decision_input_provider
         self.decision_service = decision_service
+        self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
+        self.clock = clock or monotonic
+        self._decision_cache = {}
 
     def query(self, request):
         sku = self._extract_sku(request)
@@ -38,6 +47,10 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
+        cached = self._cached_decision(sku)
+        if cached is not None:
+            return cached
+
         product = self._find_product(sku)
 
         if product is None:
@@ -47,7 +60,9 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
-        return self._query_product(sku, product)
+        result = self._query_product(sku, product)
+        self._store_decision(sku, result)
+        return deepcopy(result)
 
     def _query_product(self, sku, product):
         product_id = product.get("product_id")
@@ -114,7 +129,11 @@ class ProductBusinessDecisionQueryService:
                 continue
 
             seen_skus.add(sku)
-            decisions.append(self._query_product(sku, normalized))
+            decision = self._cached_decision(sku)
+            if decision is None:
+                decision = self._query_product(sku, normalized)
+                self._store_decision(sku, decision)
+            decisions.append(deepcopy(decision))
 
         decisions.sort(key=self._portfolio_sort_key)
 
@@ -148,6 +167,31 @@ class ProductBusinessDecisionQueryService:
             )
             counts[decision_type] = counts.get(decision_type, 0) + 1
         return counts
+
+    def _cached_decision(self, sku):
+        entry = self._decision_cache.get(str(sku))
+        if entry is None:
+            return None
+        if self.clock() >= entry["expires_at"]:
+            self._decision_cache.pop(str(sku), None)
+            return None
+        return deepcopy(entry["decision"])
+
+    def _store_decision(self, sku, decision):
+        if not self._is_cacheable_decision(decision):
+            return
+        self._decision_cache[str(sku)] = {
+            "expires_at": self.clock() + self.cache_ttl_seconds,
+            "decision": deepcopy(decision),
+        }
+
+    def _is_cacheable_decision(self, decision):
+        return (
+            isinstance(decision, dict)
+            and not decision.get("error")
+            and decision.get("decision_type")
+            != self.CODE_INSUFFICIENT_DATA
+        )
 
     def _extract_sku(self, request):
         if isinstance(request, dict):
