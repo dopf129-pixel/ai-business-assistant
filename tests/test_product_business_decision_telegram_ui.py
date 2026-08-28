@@ -348,6 +348,35 @@ class StubDecisionHistory:
         result["feedback"] = str(feedback).upper()
         return result
 
+    def learning_summary(self):
+        return {
+            "error": False,
+            "products_count": 2,
+            "decision_snapshots_count": 3,
+            "feedback_count": 2,
+            "feedback_counts": {
+                "USEFUL": 1,
+                "NOT_RELEVANT": 1,
+            },
+            "outcome_count": 1,
+            "outcome_counts": {
+                "PRIORITY_DECREASED": 1,
+                "PRIORITY_INCREASED": 0,
+                "DECISION_CHANGED": 0,
+            },
+        }
+
+    def history(self, sku, limit=None):
+        records = [{
+            "sku": sku,
+            "decision_type": "HOLD_STOCK",
+            "priority": "LOW",
+            "recorded_at": "2026-08-28T10:00:00+00:00",
+            "feedback": "USEFUL",
+            "outcome": "PRIORITY_DECREASED",
+        }]
+        return records[:limit] if limit is not None else records
+
 
 def test_product_decision_card_offers_manual_feedback_buttons():
     result = {
@@ -376,6 +405,7 @@ def test_product_decision_card_offers_manual_feedback_buttons():
     assert callbacks == [
         "product_decision_feedback:useful:hook-2",
         "product_decision_feedback:not_relevant:hook-2",
+        "product_decision_history:hook-2",
     ]
 
 
@@ -407,4 +437,45 @@ def test_product_decision_feedback_requires_recorded_history():
     assert response["error"] is True
     assert response["message"] == (
         "Сначала откройте актуальное решение по товару"
+    )
+
+
+def test_product_decisions_menu_links_to_learning_summary():
+    handler, _, _ = _handler(history_service=StubDecisionHistory())
+
+    response = handler.handle("product_decisions")
+    callbacks = [
+        item["callback"]
+        for item in response["keyboard"]["buttons"]
+    ]
+
+    assert "product_decision_learning_summary" in callbacks
+
+
+def test_learning_summary_callback_formats_observational_counts():
+    handler, _, _ = _handler(history_service=StubDecisionHistory())
+
+    response = handler.handle("product_decision_learning_summary")
+
+    assert response["error"] is False
+    assert "📚 Итоги обучения решений" in response["message"]
+    assert "Товаров в памяти: 2" in response["message"]
+    assert "👍 Полезно: 1" in response["message"]
+    assert "Срочность снизилась: 1" in response["message"]
+    assert "не доказательством причинности" in response["message"]
+
+
+def test_product_decision_history_callback_formats_latest_records():
+    handler, _, _ = _handler(history_service=StubDecisionHistory())
+
+    response = handler.handle("product_decision_history:hook-2")
+
+    assert response["error"] is False
+    assert "📚 История решений" in response["message"]
+    assert "Артикул: hook-2" in response["message"]
+    assert "Удерживать текущий запас" in response["message"]
+    assert "Приоритет: Низкий" in response["message"]
+    assert "Оценка: Полезно" in response["message"]
+    assert "Наблюдение: Срочность рекомендации снизилась" in (
+        response["message"]
     )
