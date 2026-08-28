@@ -68,7 +68,8 @@ class AssistantKeyboardService:
         self,
         items,
         page=1,
-        total_pages=1
+        total_pages=1,
+        include_learning_summary=False
     ):
         buttons = [
             {
@@ -88,6 +89,12 @@ class AssistantKeyboardService:
             }
             for item in (items or [])
         ]
+
+        if include_learning_summary:
+            buttons.append({
+                "text": "📚 Итоги обучения",
+                "callback": "product_decision_learning_summary",
+            })
 
         if page > 1:
             buttons.append({
@@ -123,6 +130,10 @@ class AssistantKeyboardService:
                     "callback": (
                         "product_decision_feedback:not_relevant:" + sku
                     ),
+                },
+                {
+                    "text": "📚 История решений",
+                    "callback": "product_decision_history:" + sku,
                 },
             ],
         }
