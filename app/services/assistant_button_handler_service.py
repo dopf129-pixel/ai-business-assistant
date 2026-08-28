@@ -89,6 +89,8 @@ class AssistantButtonHandlerService:
     ACTION_TASK_DRAFT_STATUS_LABELS = {
         "DRAFT": "Ожидает дальнейшей подготовки",
         "DISMISSED": "Отклонён",
+        "STALE": "Устарел после изменения решения",
+        "ARCHIVED": "Архивирован",
     }
 
     MISSING_DATA_LABELS = {
@@ -222,6 +224,10 @@ class AssistantButtonHandlerService:
 
         if button_id == "product_action_task_drafts":
             return self._show_product_action_task_drafts()
+
+        if button_id.startswith("product_task_draft:archive:"):
+            draft_id = button_id.split(":", 2)[2]
+            return self._archive_product_task_draft(draft_id)
 
         if button_id.startswith("product_decision_history:"):
             sku = button_id.split(":", 1)[1]
@@ -691,7 +697,9 @@ class AssistantButtonHandlerService:
             "📋 Черновики задач по товарам",
             "",
             "Ожидают подготовки: " + str(counts.get("DRAFT", 0)),
+            "Устарело: " + str(counts.get("STALE", 0)),
             "Отклонено: " + str(counts.get("DISMISSED", 0)),
+            "В архиве: " + str(counts.get("ARCHIVED", 0)),
             "Выполнено: 0",
         ]
         drafts = summary.get("drafts") or []
@@ -719,10 +727,42 @@ class AssistantButtonHandlerService:
             "",
             "Черновики не выполняют действий и не изменяют данные Ozon.",
         ])
-        return {
+        response = {
             "error": False,
             "message": "\n".join(lines),
             "summary": summary,
+            "executed": False,
+        }
+        if self.keyboard_service:
+            response["keyboard"] = (
+                self.keyboard_service.build_product_task_drafts_keyboard(
+                    drafts
+                )
+            )
+        return response
+
+    def _archive_product_task_draft(self, draft_id):
+        service = self._product_action_task_draft_service()
+        if service is None:
+            return {
+                "error": True,
+                "message": "Черновики задач недоступны",
+                "executed": False,
+            }
+        result = service.archive(draft_id)
+        if result.get("error"):
+            return {
+                "error": True,
+                "message": "Черновик задачи не найден",
+                "executed": False,
+            }
+        return {
+            "error": False,
+            "message": (
+                "Черновик архивирован. Выполнение не запускалось."
+            ),
+            "task_draft": result.get("task_draft"),
+            "saved": result.get("saved", False),
             "executed": False,
         }
 
