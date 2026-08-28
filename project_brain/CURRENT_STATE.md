@@ -993,3 +993,23 @@ Preserved:
 - lifecycle transitions never execute tasks;
 - archived drafts cannot be reopened implicitly;
 - no quantity, price, Ozon mutation, or Action Executor connection.
+
+---
+
+# Product Draft Review Queue Prioritization v1 — 2026-08-28
+
+Completed:
+
+[x] Separate ProductTaskDraftReviewQueueService
+[x] Deterministic review score and priority category
+[x] Explainable reason codes
+[x] DRAFT and STALE queue scope
+[x] Oldest-first stable tie breaker
+[x] Telegram priority counts, reasons, and icons
+[x] Production composition wiring
+
+Preserved:
+
+- queue priority does not alter product decisions;
+- priority is not persisted as learned truth;
+- no lifecycle mutation, task execution, or Ozon API call.
