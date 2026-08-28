@@ -7,7 +7,8 @@ from current_unit_economics_factory import (
 )
 
 from product_business_decision_factory import (
-    create_product_business_decision_query
+    create_product_business_decision_query,
+    create_product_decision_history
 )
 
 
@@ -103,6 +104,9 @@ def create_telegram_assistant():
             core_components=system,
             unit_economics_query=(
                 unit_economics_query
+            ),
+            decision_history_service=(
+                create_product_decision_history()
             )
         )
     )
