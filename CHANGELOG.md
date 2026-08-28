@@ -10,6 +10,14 @@
 - кнопки содержат артикул продавца и краткое действие;
 - правила решений и автоматическое выполнение действий не изменены.
 
+### Product Decisions v4 — cache and pagination
+
+- successful product decisions are cached for 10 minutes;
+- errors and insufficient-data decisions are never cached as fresh data;
+- cached results are protected from mutation by callers;
+- assortment overview is split into pages of eight products;
+- Telegram navigation preserves existing product callbacks.
+
 ---
 
 # Версия 0.1.0-dev
