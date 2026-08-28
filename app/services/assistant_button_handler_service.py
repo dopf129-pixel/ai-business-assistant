@@ -75,6 +75,17 @@ class AssistantButtonHandlerService:
         "MONITOR_ONLY": "Продолжить наблюдение за товаром"
     }
 
+    ACTION_PROPOSAL_ALIASES = {
+        "r": "REVIEW_REPLENISHMENT",
+        "e": "REVIEW_UNIT_ECONOMICS",
+        "m": "REVIEW_MARGIN",
+    }
+
+    ACTION_PROPOSAL_STATUS_LABELS = {
+        "CONFIRMED": "Подтверждён",
+        "DISMISSED": "Отклонён",
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -218,6 +229,19 @@ class AssistantButtonHandlerService:
             return self._record_product_decision_feedback(
                 feedback=parts[1],
                 sku=parts[2]
+            )
+
+        if button_id.startswith("product_proposal:"):
+            parts = button_id.split(":", 3)
+            if len(parts) != 4:
+                return {
+                    "error": True,
+                    "message": "Некорректное подтверждение шага",
+                }
+            return self._record_product_proposal_status(
+                choice=parts[1],
+                proposal_alias=parts[2],
+                sku=parts[3],
             )
 
         if button_id.startswith(
@@ -503,6 +527,7 @@ class AssistantButtonHandlerService:
                 sku
             )
         )
+        result = self._with_latest_proposal_status(result, sku)
 
         response = {
             "error": result.get(
@@ -522,10 +547,100 @@ class AssistantButtonHandlerService:
         ):
             response["keyboard"] = (
                 self.keyboard_service
-                .build_product_decision_feedback_keyboard(sku)
+                .build_product_decision_feedback_keyboard(
+                    sku,
+                    proposal=result.get("action_proposal"),
+                )
             )
 
         return response
+
+    def _with_latest_proposal_status(self, result, sku):
+        result = dict(result or {})
+        proposal = dict(result.get("action_proposal") or {})
+        history_service = getattr(
+            self.product_business_decision_query,
+            "decision_history_service",
+            None,
+        )
+        if history_service is None or not proposal.get("proposal_type"):
+            return result
+        try:
+            latest = history_service.latest(sku)
+        except (OSError, ValueError, TypeError):
+            return result
+        if (
+            latest
+            and latest.get("proposal_type") == proposal.get("proposal_type")
+        ):
+            proposal["proposal_status"] = latest.get("proposal_status")
+            result["action_proposal"] = proposal
+        return result
+
+    def _record_product_proposal_status(
+        self,
+        choice,
+        proposal_alias,
+        sku,
+    ):
+        confirmation_service = getattr(
+            self.product_business_decision_query,
+            "action_proposal_confirmation_service",
+            None,
+        )
+        if confirmation_service is None:
+            return {
+                "error": True,
+                "message": "Подтверждение шагов недоступно",
+            }
+
+        status = {
+            "yes": "CONFIRMED",
+            "no": "DISMISSED",
+        }.get(choice)
+        proposal_type = self.ACTION_PROPOSAL_ALIASES.get(proposal_alias)
+        if status is None or proposal_type is None:
+            return {
+                "error": True,
+                "message": "Некорректное подтверждение шага",
+            }
+
+        result = confirmation_service.decide(
+            sku=sku,
+            expected_proposal_type=proposal_type,
+            status=status,
+        )
+        if result.get("error"):
+            messages = {
+                "DECISION_HISTORY_NOT_FOUND": (
+                    "Сначала откройте актуальное решение по товару"
+                ),
+                "STALE_PROPOSAL": (
+                    "Предложенный шаг устарел. Откройте решение заново"
+                ),
+                "PROPOSAL_NOT_CONFIRMABLE": (
+                    "Этот шаг не требует подтверждения"
+                ),
+            }
+            return {
+                "error": True,
+                "message": messages.get(
+                    result.get("code"),
+                    "Не удалось сохранить статус шага",
+                ),
+                "executed": False,
+            }
+
+        verb = "подтверждён" if status == "CONFIRMED" else "отклонён"
+        return {
+            "error": False,
+            "message": (
+                "Шаг " + verb + " и сохранён. Выполнение не запускалось."
+            ),
+            "proposal_status": status,
+            "saved": result.get("saved", False),
+            "executed": False,
+        }
 
     def _record_product_decision_feedback(self, feedback, sku):
         history_service = getattr(
@@ -751,6 +866,16 @@ class AssistantButtonHandlerService:
             ])
             if proposal.get("requires_confirmation"):
                 lines.append("⚠️ Требует ручного подтверждения.")
+            proposal_status = proposal.get("proposal_status")
+            if proposal_status:
+                lines.extend([
+                    "",
+                    "Статус шага:",
+                    self.ACTION_PROPOSAL_STATUS_LABELS.get(
+                        proposal_status,
+                        str(proposal_status),
+                    ),
+                ])
 
         lines.extend([
             "",

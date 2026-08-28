@@ -11,6 +11,12 @@ class ProductDecisionHistoryService:
         FEEDBACK_USEFUL,
         FEEDBACK_NOT_RELEVANT,
     }
+    PROPOSAL_CONFIRMED = "CONFIRMED"
+    PROPOSAL_DISMISSED = "DISMISSED"
+    ALLOWED_PROPOSAL_STATUSES = {
+        PROPOSAL_CONFIRMED,
+        PROPOSAL_DISMISSED,
+    }
     OUTCOME_PRIORITY_DECREASED = "PRIORITY_DECREASED"
     OUTCOME_PRIORITY_INCREASED = "PRIORITY_INCREASED"
     OUTCOME_DECISION_CHANGED = "DECISION_CHANGED"
@@ -125,6 +131,59 @@ class ProductDecisionHistoryService:
             "saved": True,
         }
 
+    def record_proposal_status(self, sku, proposal_type, status):
+        sku = str(sku or "").strip()
+        proposal_type = str(proposal_type or "").strip().upper()
+        status = str(status or "").strip().upper()
+
+        if not proposal_type or status not in self.ALLOWED_PROPOSAL_STATUSES:
+            return {
+                "error": True,
+                "code": "INVALID_PROPOSAL_STATUS",
+                "sku": sku or None,
+                "proposal_type": proposal_type or None,
+                "proposal_status": None,
+                "saved": False,
+            }
+
+        index = self._latest_index(sku)
+        if index is None:
+            return {
+                "error": True,
+                "code": "DECISION_HISTORY_NOT_FOUND",
+                "sku": sku or None,
+                "proposal_type": proposal_type,
+                "proposal_status": None,
+                "saved": False,
+            }
+
+        record = self.records[index]
+        if (
+            record.get("proposal_type") == proposal_type
+            and record.get("proposal_status") == status
+        ):
+            return {
+                "error": False,
+                "code": None,
+                "sku": sku,
+                "proposal_type": proposal_type,
+                "proposal_status": status,
+                "saved": False,
+            }
+
+        record["proposal_type"] = proposal_type
+        record["proposal_status"] = status
+        record["proposal_status_at"] = str(self.clock())
+        self._save_records()
+        return {
+            "error": False,
+            "code": None,
+            "sku": sku,
+            "proposal_type": proposal_type,
+            "proposal_status": status,
+            "saved": True,
+        }
+
     def history(self, sku, limit=None):
         sku = str(sku)
         items = [
@@ -189,6 +248,9 @@ class ProductDecisionHistoryService:
             "recorded_at": recorded_at,
             "feedback": None,
             "feedback_at": None,
+            "proposal_type": None,
+            "proposal_status": None,
+            "proposal_status_at": None,
             "source_feedback": (
                 previous.get("feedback") if previous else None
             ),

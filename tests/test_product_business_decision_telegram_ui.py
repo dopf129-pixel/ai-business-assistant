@@ -52,6 +52,7 @@ class StubDecisionQuery:
         }
         self.calls = []
         self.decision_history_service = None
+        self.action_proposal_confirmation_service = None
 
     def query(self, sku):
         self.calls.append(sku)
@@ -91,10 +92,16 @@ class StubDecisionQuery:
         }
 
 
-def _handler(result=None, products=None, history_service=None):
+def _handler(
+    result=None,
+    products=None,
+    history_service=None,
+    confirmation_service=None,
+):
     keyboard = AssistantKeyboardService()
     query = StubDecisionQuery(result=result, products=products)
     query.decision_history_service = history_service
+    query.action_proposal_confirmation_service = confirmation_service
     handler = AssistantButtonHandlerService(
         assistant=StubAssistant(),
         keyboard_service=keyboard,
@@ -446,6 +453,26 @@ class StubDecisionHistory:
         }]
         return records[:limit] if limit is not None else records
 
+    def latest(self, sku):
+        records = self.history(sku, limit=1)
+        return records[0] if records else None
+
+
+class StubProposalConfirmation:
+    def __init__(self, result=None):
+        self.result = result or {
+            "error": False,
+            "code": None,
+            "proposal_status": "CONFIRMED",
+            "saved": True,
+            "executed": False,
+        }
+        self.calls = []
+
+    def decide(self, sku, expected_proposal_type, status):
+        self.calls.append((sku, expected_proposal_type, status))
+        return dict(self.result)
+
 
 def test_product_decision_card_offers_manual_feedback_buttons():
     result = {
@@ -548,3 +575,65 @@ def test_product_decision_history_callback_formats_latest_records():
     assert "Наблюдение: Срочность рекомендации снизилась" in (
         response["message"]
     )
+
+
+def test_actionable_proposal_card_offers_confirm_and_dismiss_buttons():
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "decision_type": "REPLENISH_NORMAL",
+        "priority": "HIGH",
+        "reasons": [],
+        "confidence": "HIGH",
+        "missing_data": [],
+        "decision_history_available": True,
+        "action_proposal": {
+            "available": True,
+            "proposal_type": "REVIEW_REPLENISHMENT",
+            "action_required": True,
+            "requires_confirmation": True,
+        },
+    }
+    handler, _, _ = _handler(
+        result=result,
+        history_service=StubDecisionHistory(),
+        confirmation_service=StubProposalConfirmation(),
+    )
+
+    response = handler.handle("product_decision:hook-2")
+    callbacks = [
+        item["callback"] for item in response["keyboard"]["buttons"]
+    ]
+
+    assert "product_proposal:yes:r:hook-2" in callbacks
+    assert "product_proposal:no:r:hook-2" in callbacks
+
+
+def test_proposal_confirmation_records_intent_but_never_executes():
+    confirmation = StubProposalConfirmation()
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    response = handler.handle("product_proposal:yes:r:hook-2")
+
+    assert confirmation.calls == [
+        ("hook-2", "REVIEW_REPLENISHMENT", "CONFIRMED")
+    ]
+    assert response["error"] is False
+    assert response["executed"] is False
+    assert "Выполнение не запускалось" in response["message"]
+
+
+def test_stale_proposal_confirmation_requires_reopening_decision():
+    confirmation = StubProposalConfirmation({
+        "error": True,
+        "code": "STALE_PROPOSAL",
+        "saved": False,
+        "executed": False,
+    })
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    response = handler.handle("product_proposal:no:m:hook-2")
+
+    assert response["error"] is True
+    assert response["executed"] is False
+    assert "устарел" in response["message"]

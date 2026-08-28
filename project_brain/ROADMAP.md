@@ -284,11 +284,10 @@ Current:
 
 [x] Autonomous Assistant v1 — Safe Action Proposals
 
+[x] Autonomous Assistant v2 — Confirmation Workflow
+
 
 Next:
 
 
-[ ] Autonomous Assistant v2 — Confirmation Workflow
-
-
-[ ] Autonomous Assistant
+[ ] Autonomous Assistant v3 — Confirmed Task Drafts

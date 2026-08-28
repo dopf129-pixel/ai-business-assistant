@@ -113,29 +113,49 @@ class AssistantKeyboardService:
             "buttons": buttons
         }
 
-    def build_product_decision_feedback_keyboard(self, sku):
+    def build_product_decision_feedback_keyboard(self, sku, proposal=None):
         sku = str(sku)
+        buttons = []
+        proposal = proposal or {}
+        aliases = {
+            "REVIEW_REPLENISHMENT": "r",
+            "REVIEW_UNIT_ECONOMICS": "e",
+            "REVIEW_MARGIN": "m",
+        }
+        alias = aliases.get(proposal.get("proposal_type"))
+        if proposal.get("action_required") and alias:
+            buttons.extend([
+                {
+                    "text": "✅ Подтвердить шаг",
+                    "callback": "product_proposal:yes:" + alias + ":" + sku,
+                },
+                {
+                    "text": "✖️ Отклонить шаг",
+                    "callback": "product_proposal:no:" + alias + ":" + sku,
+                },
+            ])
+        buttons.extend([
+            {
+                "text": "👍 Полезно",
+                "callback": (
+                    "product_decision_feedback:useful:" + sku
+                ),
+            },
+            {
+                "text": "👎 Неактуально",
+                "callback": (
+                    "product_decision_feedback:not_relevant:" + sku
+                ),
+            },
+            {
+                "text": "📚 История решений",
+                "callback": "product_decision_history:" + sku,
+            },
+        ])
         return {
             "error": False,
             "type": "inline_keyboard",
-            "buttons": [
-                {
-                    "text": "👍 Полезно",
-                    "callback": (
-                        "product_decision_feedback:useful:" + sku
-                    ),
-                },
-                {
-                    "text": "👎 Неактуально",
-                    "callback": (
-                        "product_decision_feedback:not_relevant:" + sku
-                    ),
-                },
-                {
-                    "text": "📚 История решений",
-                    "callback": "product_decision_history:" + sku,
-                },
-            ],
+            "buttons": buttons,
         }
 
 

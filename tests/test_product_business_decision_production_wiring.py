@@ -124,6 +124,23 @@ def test_production_factory_builds_business_decision_query():
     assert callable(query.stock_metrics_source)
 
 
+def test_production_factory_wires_storage_only_proposal_confirmation():
+    history = create_product_decision_history(
+        file_path="unused-product-decision-history.json"
+    )
+    query = create_product_business_decision_query(
+        core_components=_core(),
+        metrics_service=StubMetricsService(),
+        stock_intelligence_service=StockIntelligenceService(),
+        decision_history_service=history,
+    )
+
+    confirmation = query.action_proposal_confirmation_service
+    assert confirmation is not None
+    assert confirmation.history_service is history
+    assert confirmation.proposal_service is query.action_proposal_service
+
+
 def test_production_query_uses_real_prepared_stock_and_sales_path():
     query = create_product_business_decision_query(
         core_components=_core(),

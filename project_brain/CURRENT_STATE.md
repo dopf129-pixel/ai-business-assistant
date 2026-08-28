@@ -935,3 +935,22 @@ Preserved:
 - no price-change inference;
 - execution_allowed is always false;
 - Action/Executor workflow is not invoked.
+
+---
+
+# Product Action Proposal Confirmation v1 — 2026-08-28
+
+Completed:
+
+[x] Confirm or dismiss actionable proposal
+[x] Latest-decision stale proposal guard
+[x] Idempotent stored proposal status
+[x] Telegram confirmation controls and Russian status
+[x] Explicit executed=False response
+
+Preserved:
+
+- confirmation is stored intent, not execution permission;
+- monitoring-only has no confirmation buttons;
+- no quantity or price draft is inferred;
+- no external API mutation or Action Executor.

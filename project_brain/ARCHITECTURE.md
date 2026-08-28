@@ -668,3 +668,23 @@ Proposal rules:
 - operational review proposals require manual confirmation;
 - no quantity, price, or external mutation is inferred;
 - the proposal layer has no dependency on Action Executor.
+
+Confirmation flow:
+
+Telegram Confirm / Dismiss
+
+↓
+
+ProductActionProposalConfirmationService
+
+↓
+
+Latest Decision + Rebuilt Proposal Guard
+
+↓
+
+ProductDecisionHistoryService.record_proposal_status
+
+The stored status represents user intent only. The flow always returns
+executed=False, has no Action Executor dependency, and performs no external
+mutation.

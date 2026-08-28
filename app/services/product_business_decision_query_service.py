@@ -26,6 +26,7 @@ class ProductBusinessDecisionQueryService:
         decision_service,
         decision_history_service=None,
         action_proposal_service=None,
+        action_proposal_confirmation_service=None,
         cache_ttl_seconds=600,
         clock=None
     ):
@@ -37,6 +38,9 @@ class ProductBusinessDecisionQueryService:
         self.decision_service = decision_service
         self.decision_history_service = decision_history_service
         self.action_proposal_service = action_proposal_service
+        self.action_proposal_confirmation_service = (
+            action_proposal_confirmation_service
+        )
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
         self.clock = clock or monotonic
         self._decision_cache = {}
