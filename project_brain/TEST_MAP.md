@@ -1635,3 +1635,32 @@ Tests:
 - reconcile в decision query pipeline;
 - Telegram-сводку состояний и безопасную кнопку архива;
 - постоянный executed=False.
+
+---
+
+# Product Draft Review Queue Prioritization v1
+
+Services:
+
+- ProductTaskDraftReviewQueueService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Composition:
+
+- product_business_decision_factory.py
+
+Tests:
+
+- tests/test_product_task_draft_review_queue_service.py
+- tests/test_product_business_decision_production_wiring.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- порядок по актуальности, исходному приоритету и типу review;
+- исключение DISMISSED и ARCHIVED;
+- oldest-first tie breaker и ограничение выдачи;
+- counts по полной очереди до limit;
+- русские причины и иконки Telegram;
+- постоянный read-only и executed_count=0.
