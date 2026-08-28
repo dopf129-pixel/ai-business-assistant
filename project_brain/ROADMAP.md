@@ -292,8 +292,10 @@ Current:
 
 [x] Autonomous Assistant v5 — Review Queue Prioritization
 
+[x] Autonomous Assistant v6 — Draft Detail and Audit Trail
+
 
 Next:
 
 
-[ ] Autonomous Assistant v6 — Draft Detail and Audit Trail
+[ ] Autonomous Assistant v7 — Draft Readiness Checklist

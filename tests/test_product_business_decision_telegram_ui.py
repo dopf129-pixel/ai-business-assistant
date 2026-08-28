@@ -519,6 +519,30 @@ class StubTaskDrafts:
             "executed": False,
         }
 
+    def get(self, draft_id):
+        if draft_id != self.record["draft_id"]:
+            return {"error": True, "code": "TASK_DRAFT_NOT_FOUND"}
+        record = dict(self.record)
+        record.update({
+            "priority": "CRITICAL",
+            "profit_per_unit": 35.1,
+            "margin_percent": 36.5,
+            "created_at": "created-time",
+            "updated_at": "updated-time",
+        })
+        return {
+            "error": False,
+            "task_draft": record,
+            "audit_events": [{
+                "event_id": "e1",
+                "event_type": "CREATED",
+                "occurred_at": "created-time",
+                "executed": False,
+            }],
+            "legacy_history_unavailable": False,
+            "executed": False,
+        }
+
 
 def test_product_decision_card_offers_manual_feedback_buttons():
     result = {
@@ -737,7 +761,10 @@ def test_task_draft_summary_offers_safe_archive_action():
     ]
     archived = handler.handle("product_task_draft:archive:d1")
 
-    assert callbacks == ["product_task_draft:archive:d1"]
+    assert callbacks == [
+        "product_task_draft:view:d1",
+        "product_task_draft:archive:d1",
+    ]
     assert archived["error"] is False
     assert archived["executed"] is False
     assert "Выполнение не запускалось" in archived["message"]
@@ -779,3 +806,38 @@ def test_task_draft_summary_shows_prioritized_review_queue_reasons():
     assert "проверка пополнения" in response["message"]
     assert response["review_queue"]["executed_count"] == 0
     assert response["keyboard"]["buttons"][0]["text"].startswith("🔴")
+
+
+def test_task_draft_detail_shows_source_metrics_and_audit_trail():
+    confirmation = StubProposalConfirmation()
+    confirmation.task_draft_service = StubTaskDrafts()
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    response = handler.handle("product_task_draft:view:d1")
+
+    assert response["error"] is False
+    assert response["executed"] is False
+    assert "📋 Черновик задачи" in response["message"]
+    assert "Артикул: hook-2" in response["message"]
+    assert "Приоритет решения: Критический" in response["message"]
+    assert "Прибыль с 1 шт.: 35.10 ₽" in response["message"]
+    assert "Черновик создан" in response["message"]
+    assert "Исполнение: недоступно" in response["message"]
+    assert response["keyboard"]["buttons"] == [{
+        "text": "🗄 Архивировать черновик",
+        "callback": "product_task_draft:archive:d1",
+    }]
+
+
+def test_archived_task_draft_detail_has_no_lifecycle_controls():
+    confirmation = StubProposalConfirmation()
+    drafts = StubTaskDrafts()
+    drafts.record["status"] = "ARCHIVED"
+    confirmation.task_draft_service = drafts
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    response = handler.handle("product_task_draft:view:d1")
+
+    assert "Статус: Архивирован" in response["message"]
+    assert response["keyboard"]["buttons"] == []
+    assert response["executed"] is False

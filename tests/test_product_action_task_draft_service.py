@@ -54,6 +54,15 @@ def test_confirmation_creates_non_executable_task_draft_once():
     assert first["task_draft"]["executed"] is False
     assert len(service.list_drafts()) == 1
     assert storage.save_calls == 1
+    assert first["task_draft"]["events"] == [{
+        "event_id": "e1",
+        "event_type": "CREATED",
+        "from_status": None,
+        "to_status": "DRAFT",
+        "source": "CONFIRMATION",
+        "occurred_at": "draft-time",
+        "executed": False,
+    }]
 
 
 def test_dismissal_closes_matching_draft_without_execution():
@@ -162,6 +171,10 @@ def test_archive_is_idempotent_terminal_and_non_executable():
     assert reconfirmed["task_draft"]["status"] == "ARCHIVED"
     assert reconfirmed["saved"] is False
     assert archived["executed"] is False
+    assert [
+        event["event_type"]
+        for event in archived["task_draft"]["events"]
+    ] == ["CREATED", "ARCHIVED"]
 
 
 def test_loaded_legacy_drafts_receive_review_identifier():
@@ -175,3 +188,47 @@ def test_loaded_legacy_drafts_receive_review_identifier():
     service = ProductActionTaskDraftService(storage_service=storage)
 
     assert service.latest_for_sku("hook-2")["draft_id"] == "d1"
+    detail = service.get("d1")
+    assert detail["legacy_history_unavailable"] is True
+    assert detail["audit_events"] == []
+
+
+def test_audit_trail_records_real_transitions_without_idempotent_noise():
+    timestamps = iter(["created", "dismissed", "reopened", "stale"])
+    service = ProductActionTaskDraftService(clock=lambda: next(timestamps))
+    created = service.create_from_confirmation(_decision(), _proposal())
+    service.dismiss("hook-2", "REVIEW_REPLENISHMENT", "decision-time")
+    service.dismiss("hook-2", "REVIEW_REPLENISHMENT", "decision-time")
+    service.create_from_confirmation(_decision(), _proposal())
+    service.reconcile("hook-2", "REVIEW_MARGIN", "new-time")
+
+    detail = service.get(created["task_draft"]["draft_id"])
+    event_types = [
+        event["event_type"] for event in detail["audit_events"]
+    ]
+
+    assert event_types == [
+        "CREATED",
+        "DISMISSED",
+        "REOPENED",
+        "MARKED_STALE",
+    ]
+    assert all(event["executed"] is False for event in detail["audit_events"])
+    assert detail["legacy_history_unavailable"] is False
+
+
+def test_archived_draft_cannot_be_dismissed_or_reopened():
+    service = ProductActionTaskDraftService(clock=lambda: "now")
+    created = service.create_from_confirmation(_decision(), _proposal())
+    draft_id = created["task_draft"]["draft_id"]
+    service.archive(draft_id)
+
+    dismissed = service.dismiss(
+        "hook-2", "REVIEW_REPLENISHMENT", "decision-time"
+    )
+    reopened = service.create_from_confirmation(_decision(), _proposal())
+
+    assert dismissed["task_draft"]["status"] == "ARCHIVED"
+    assert dismissed["saved"] is False
+    assert reopened["task_draft"]["status"] == "ARCHIVED"
+    assert len(service.get(draft_id)["audit_events"]) == 2

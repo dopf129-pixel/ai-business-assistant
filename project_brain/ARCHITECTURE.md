@@ -740,3 +740,23 @@ Telegram Review Queue
 The queue excludes DISMISSED and ARCHIVED records. Scores are calculated on
 read and are not persisted, learned, or passed to an executor. Stable ties are
 ordered oldest first.
+
+Draft detail and audit flow:
+
+Review Queue Item
+
+↓
+
+ProductActionTaskDraftService.get
+
+↓
+
+Draft Source Context + Append-only Lifecycle Events
+
+↓
+
+Read-only Telegram Detail Card
+
+Audit events are written only with real lifecycle transitions. Idempotent
+commands add no event. Legacy records are returned with an explicit unavailable
+history marker instead of inferred events. Audit data never reaches an executor.

@@ -180,6 +180,10 @@ class AssistantKeyboardService:
                 "LOW": "⚪",
             }.get(draft.get("review_priority"), "⚪")
             buttons.append({
+                "text": icon + " Открыть " + str(draft.get("sku") or "—"),
+                "callback": "product_task_draft:view:" + draft_id,
+            })
+            buttons.append({
                 "text": (
                     icon
                     + " Архивировать "
@@ -187,6 +191,24 @@ class AssistantKeyboardService:
                 ),
                 "callback": "product_task_draft:archive:" + draft_id,
             })
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
+    def build_product_task_draft_detail_keyboard(self, draft):
+        draft = dict(draft or {})
+        if draft.get("status") == "ARCHIVED" or not draft.get("draft_id"):
+            buttons = []
+        else:
+            buttons = [{
+                "text": "🗄 Архивировать черновик",
+                "callback": (
+                    "product_task_draft:archive:"
+                    + str(draft.get("draft_id"))
+                ),
+            }]
         return {
             "error": False,
             "type": "inline_keyboard",

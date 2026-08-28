@@ -1664,3 +1664,29 @@ Tests:
 - counts по полной очереди до limit;
 - русские причины и иконки Telegram;
 - постоянный read-only и executed_count=0.
+
+---
+
+# Product Task Draft Detail and Audit v1
+
+Services:
+
+- ProductActionTaskDraftService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_action_task_draft_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- CREATED при создании черновика;
+- полный порядок реальных lifecycle events;
+- отсутствие событий от idempotent-команд;
+- терминальность ARCHIVED;
+- безопасное чтение legacy-записи без вымышленного аудита;
+- detail callback, source metrics и русские event labels;
+- отсутствие archive-кнопки у терминального черновика;
+- executed=False во всех audit/detail результатах.

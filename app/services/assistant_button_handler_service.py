@@ -113,6 +113,14 @@ class AssistantButtonHandlerService:
         "MARGIN_REVIEW": "проверка маржи",
     }
 
+    TASK_DRAFT_EVENT_LABELS = {
+        "CREATED": "Черновик создан",
+        "REOPENED": "Черновик открыт повторно",
+        "MARKED_STALE": "Черновик помечен устаревшим",
+        "DISMISSED": "Предложение отклонено",
+        "ARCHIVED": "Черновик архивирован",
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -248,6 +256,10 @@ class AssistantButtonHandlerService:
         if button_id.startswith("product_task_draft:archive:"):
             draft_id = button_id.split(":", 2)[2]
             return self._archive_product_task_draft(draft_id)
+
+        if button_id.startswith("product_task_draft:view:"):
+            draft_id = button_id.split(":", 2)[2]
+            return self._show_product_task_draft_detail(draft_id)
 
         if button_id.startswith("product_decision_history:"):
             sku = button_id.split(":", 1)[1]
@@ -828,6 +840,81 @@ class AssistantButtonHandlerService:
             "saved": result.get("saved", False),
             "executed": False,
         }
+
+    def _show_product_task_draft_detail(self, draft_id):
+        service = self._product_action_task_draft_service()
+        if service is None:
+            return {
+                "error": True,
+                "message": "Черновики задач недоступны",
+                "executed": False,
+            }
+        result = service.get(draft_id)
+        if result.get("error"):
+            return {
+                "error": True,
+                "message": "Черновик задачи не найден",
+                "executed": False,
+            }
+        draft = result.get("task_draft") or {}
+        lines = [
+            "📋 Черновик задачи",
+            "",
+            "Артикул: " + str(draft.get("sku") or "—"),
+            "Статус: " + self.ACTION_TASK_DRAFT_STATUS_LABELS.get(
+                draft.get("status"),
+                str(draft.get("status") or "—"),
+            ),
+            "Шаг: " + self.ACTION_PROPOSAL_LABELS.get(
+                draft.get("proposal_type"),
+                str(draft.get("proposal_type") or "—"),
+            ),
+            "Приоритет решения: " + self.PRIORITY_LABELS.get(
+                draft.get("priority"),
+                str(draft.get("priority") or "—"),
+            ),
+            "Прибыль с 1 шт.: " + self._format_decision_money(
+                draft.get("profit_per_unit")
+            ),
+            "Маржа: " + self._format_decision_number(
+                draft.get("margin_percent"), "%"
+            ),
+            "Создан: " + str(draft.get("created_at") or "—"),
+            "Обновлён: " + str(draft.get("updated_at") or "—"),
+            "",
+            "История изменений:",
+        ]
+        events = result.get("audit_events") or []
+        if not events:
+            lines.append("История до внедрения аудита недоступна.")
+        for event in events:
+            lines.append(
+                "• "
+                + str(event.get("occurred_at") or "—")
+                + " — "
+                + self.TASK_DRAFT_EVENT_LABELS.get(
+                    event.get("event_type"),
+                    str(event.get("event_type") or "—"),
+                )
+            )
+        lines.extend([
+            "",
+            "Исполнение: недоступно.",
+            "Черновик не изменяет данные Ozon.",
+        ])
+        response = {
+            "error": False,
+            "message": "\n".join(lines),
+            "task_draft": draft,
+            "audit_events": events,
+            "executed": False,
+        }
+        if self.keyboard_service:
+            response["keyboard"] = (
+                self.keyboard_service
+                .build_product_task_draft_detail_keyboard(draft)
+            )
+        return response
 
     def _record_product_decision_feedback(self, feedback, sku):
         history_service = getattr(

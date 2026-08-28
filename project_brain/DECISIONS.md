@@ -1377,3 +1377,46 @@ Reason:
 Status:
 
 Implemented
+
+---
+
+## Decision 026
+
+Date:
+
+2026-08-28
+
+Topic:
+
+Product Task Draft Detail and Audit Trail
+
+Decision:
+
+Каждый новый черновик хранит append-only журнал фактических lifecycle
+переходов и доступен через отдельную read-only карточку Telegram.
+
+Audited events:
+
+- CREATED;
+- REOPENED;
+- MARKED_STALE;
+- DISMISSED;
+- ARCHIVED.
+
+Rules:
+
+- событие добавляется только при реальном изменении состояния;
+- idempotent-команда не создаёт новое событие;
+- событие хранит источник, время, старый и новый статус;
+- старым записям не создаётся вымышленная история;
+- карточка показывает source metrics, но не рассчитывает новое решение;
+- каждое событие и detail-result сохраняют executed=False.
+
+Reason:
+
+До дальнейшего развития автономности пользователь должен иметь возможность
+проверить происхождение черновика и каждый переход его состояния.
+
+Status:
+
+Implemented
