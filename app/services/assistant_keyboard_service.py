@@ -66,7 +66,7 @@ class AssistantKeyboardService:
 
     def build_product_decisions_keyboard(
         self,
-        skus
+        items
     ):
 
         return {
@@ -74,13 +74,21 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": [
                 {
-                    "text": str(sku),
+                    "text": str(
+                        item.get("text")
+                        if isinstance(item, dict)
+                        else item
+                    ),
                     "callback": (
                         "product_decision:"
-                        + str(sku)
+                        + str(
+                            item.get("sku")
+                            if isinstance(item, dict)
+                            else item
+                        )
                     )
                 }
-                for sku in (skus or [])
+                for item in (items or [])
             ]
         }
 
