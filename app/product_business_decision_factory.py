@@ -18,6 +18,9 @@ from services.product_decision_history_service import (
 from services.product_decision_history_storage_service import (
     ProductDecisionHistoryStorageService
 )
+from services.product_decision_action_proposal_service import (
+    ProductDecisionActionProposalService
+)
 
 
 def create_product_decision_history(
@@ -35,7 +38,8 @@ def create_product_business_decision_query(
     metrics_service=None,
     stock_intelligence_service=None,
     unit_economics_query=None,
-    decision_history_service=None
+    decision_history_service=None,
+    action_proposal_service=None
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -75,5 +79,9 @@ def create_product_business_decision_query(
         unit_economics_query_service=economics_query,
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService(),
-        decision_history_service=decision_history_service
+        decision_history_service=decision_history_service,
+        action_proposal_service=(
+            action_proposal_service
+            or ProductDecisionActionProposalService()
+        )
     )
