@@ -194,6 +194,13 @@ class AssistantButtonHandlerService:
                 page = 1
             return self._open_product_decisions_menu(page=page)
 
+        if button_id == "product_decision_learning_summary":
+            return self._show_product_decision_learning_summary()
+
+        if button_id.startswith("product_decision_history:"):
+            sku = button_id.split(":", 1)[1]
+            return self._show_product_decision_history(sku)
+
         if button_id.startswith("product_decision_feedback:"):
             parts = button_id.split(":", 2)
             if len(parts) != 3:
@@ -403,7 +410,11 @@ class AssistantButtonHandlerService:
                 .build_product_decisions_keyboard(
                     items,
                     page=page,
-                    total_pages=total_pages
+                    total_pages=total_pages,
+                    include_learning_summary=(
+                        self._product_decision_history_service()
+                        is not None
+                    )
                 )
             ),
             "overview": overview
@@ -541,6 +552,117 @@ class AssistantButtonHandlerService:
             "message": "Оценка сохранена: " + label + ".",
             "feedback": result,
         }
+
+    def _show_product_decision_learning_summary(self):
+        history_service = self._product_decision_history_service()
+        if history_service is None:
+            return {
+                "error": True,
+                "message": "История решений недоступна"
+            }
+
+        summary = history_service.learning_summary()
+        feedback = summary.get("feedback_counts") or {}
+        outcomes = summary.get("outcome_counts") or {}
+        message = "\n".join([
+            "📚 Итоги обучения решений",
+            "",
+            "Товаров в памяти: "
+            + str(summary.get("products_count", 0)),
+            "Снимков решений: "
+            + str(summary.get("decision_snapshots_count", 0)),
+            "Оценок: " + str(summary.get("feedback_count", 0)),
+            "👍 Полезно: " + str(feedback.get("USEFUL", 0)),
+            "👎 Неактуально: "
+            + str(feedback.get("NOT_RELEVANT", 0)),
+            "",
+            "Наблюдений после оценок: "
+            + str(summary.get("outcome_count", 0)),
+            "Срочность снизилась: "
+            + str(outcomes.get("PRIORITY_DECREASED", 0)),
+            "Срочность выросла: "
+            + str(outcomes.get("PRIORITY_INCREASED", 0)),
+            "Решение изменилось без смены приоритета: "
+            + str(outcomes.get("DECISION_CHANGED", 0)),
+            "",
+            "Данные являются наблюдениями, а не доказательством причинности.",
+        ])
+        return {
+            "error": False,
+            "message": message,
+            "learning_summary": summary,
+        }
+
+    def _show_product_decision_history(self, sku):
+        history_service = self._product_decision_history_service()
+        if history_service is None:
+            return {
+                "error": True,
+                "message": "История решений недоступна"
+            }
+
+        records = history_service.history(sku, limit=5)
+        if not records:
+            return {
+                "error": False,
+                "message": "История решений по товару пока пуста",
+                "decision_history": [],
+            }
+
+        lines = [
+            "📚 История решений",
+            "",
+            "Артикул: " + str(sku),
+        ]
+        for index, record in enumerate(records, start=1):
+            decision_type = record.get("decision_type")
+            priority = record.get("priority")
+            recorded_at = str(record.get("recorded_at") or "—")
+            lines.extend([
+                "",
+                str(index) + ". " + recorded_at.split("T", 1)[0],
+                self.DECISION_LABELS.get(
+                    decision_type,
+                    str(decision_type or "—")
+                ),
+                "Приоритет: "
+                + self.PRIORITY_LABELS.get(
+                    priority,
+                    str(priority or "—")
+                ),
+            ])
+            feedback = record.get("feedback")
+            if feedback:
+                lines.append(
+                    "Оценка: "
+                    + (
+                        "Полезно"
+                        if feedback == "USEFUL"
+                        else "Неактуально"
+                    )
+                )
+            outcome = record.get("outcome")
+            if outcome:
+                lines.append(
+                    "Наблюдение: "
+                    + self.DECISION_OUTCOME_LABELS.get(
+                        outcome,
+                        str(outcome)
+                    )
+                )
+
+        return {
+            "error": False,
+            "message": "\n".join(lines),
+            "decision_history": records,
+        }
+
+    def _product_decision_history_service(self):
+        return getattr(
+            self.product_business_decision_query,
+            "decision_history_service",
+            None
+        )
 
 
     def _format_product_decision(

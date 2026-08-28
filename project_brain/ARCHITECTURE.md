@@ -632,3 +632,20 @@ Priority Decreased / Priority Increased / Decision Changed
 
 The correlation is observational. It must not be presented as proof that the
 recommendation or a user action caused the later change.
+
+Learning read model:
+
+ProductDecisionHistoryService.learning_summary
+
+↓
+
+Assortment Snapshot / Feedback / Outcome Counts
+
+ProductDecisionHistoryService.history
+
+↓
+
+Latest Five Product Decision Changes
+
+These read paths expose stored facts only. They do not calculate success rates,
+change recommendations, or trigger actions.

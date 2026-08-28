@@ -279,10 +279,13 @@ Current:
 [x] Memory / Learning v3 — Outcome Correlation
 
 
+[x] Memory / Learning v4 — Learning Summary
+
+
 Next:
 
 
-[ ] Memory / Learning v4 — Learning Summary
+[ ] Autonomous Assistant v1 — Safe Action Proposals
 
 
 [ ] Autonomous Assistant

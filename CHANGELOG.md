@@ -43,6 +43,14 @@
 - Telegram presents the result as an observation, not proven causation;
 - correlated outcomes remain read-only learning data.
 
+### Product Decision Learning Summary v1
+
+- added assortment-wide learning counts for snapshots, feedback, and outcomes;
+- added a Telegram learning-summary entry from the product decision overview;
+- added per-product access to the latest five decision changes;
+- history displays translated decisions, priorities, feedback, and observations;
+- summary deliberately avoids success-rate claims and causal conclusions.
+
 ---
 
 # Версия 0.1.0-dev

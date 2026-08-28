@@ -1494,3 +1494,27 @@ Tests:
 - отсутствие вывода без feedback;
 - сохранение source_feedback и outcome;
 - наблюдательную, не причинную формулировку Telegram.
+
+---
+
+# Product Decision Learning Summary v1
+
+Services:
+
+- ProductDecisionHistoryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_decision_history_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- агрегацию товаров, снимков, feedback и outcomes;
+- ссылку на итоги обучения из обзора ассортимента;
+- вывод фактических количеств без причинных выводов;
+- доступ к истории из карточки товара;
+- ограничение истории пятью последними снимками в UI;
+- перевод решений, приоритетов, feedback и наблюдений.
