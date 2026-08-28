@@ -688,3 +688,19 @@ ProductDecisionHistoryService.record_proposal_status
 The stored status represents user intent only. The flow always returns
 executed=False, has no Action Executor dependency, and performs no external
 mutation.
+
+Confirmed task draft flow:
+
+Confirmed Proposal + Latest Decision Snapshot
+
+↓
+
+ProductActionTaskDraftService
+
+↓
+
+Persistent Read-only Product Task Draft
+
+The draft key identifies one proposal for one decision snapshot. Drafts may be
+listed or dismissed, but they are not converted to AssistantTaskService tasks,
+do not enter Action Pipeline, and cannot reach an executor or external API.
