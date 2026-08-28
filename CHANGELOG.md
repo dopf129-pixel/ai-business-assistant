@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Product Draft Review Queue Prioritization v1
+
+- added a separate deterministic prioritizer for reviewable product drafts;
+- queue order considers draft freshness, source decision priority, and review
+  type;
+- closed and dismissed records are excluded from the review queue;
+- equal scores use oldest-first ordering to prevent starvation;
+- Telegram shows priority counts, Russian explanations, and priority icons;
+- prioritization remains read-only and never changes decision or draft state.
+
 ## 2026-08-28 — Product Task Draft Review Lifecycle v1
 
 - active drafts become stale when the current product decision snapshot or
