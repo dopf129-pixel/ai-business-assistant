@@ -504,6 +504,10 @@ class StubTaskDrafts:
             "executed_count": 0,
         }
 
+    def list_drafts(self, status=None, limit=None):
+        items = [dict(self.record)]
+        return items[:limit] if limit is not None else items
+
     def archive(self, draft_id):
         if draft_id != self.record["draft_id"]:
             return {"error": True, "code": "TASK_DRAFT_NOT_FOUND"}
@@ -737,3 +741,41 @@ def test_task_draft_summary_offers_safe_archive_action():
     assert archived["error"] is False
     assert archived["executed"] is False
     assert "Выполнение не запускалось" in archived["message"]
+
+
+def test_task_draft_summary_shows_prioritized_review_queue_reasons():
+    class StubReviewQueue:
+        def prioritize(self, drafts, limit=10):
+            item = dict(drafts[0])
+            item.update({
+                "review_priority": "URGENT",
+                "review_score": 155,
+                "review_reasons": [
+                    "CURRENT_DRAFT",
+                    "SOURCE_PRIORITY_CRITICAL",
+                    "REPLENISHMENT_REVIEW",
+                ],
+            })
+            return {
+                "error": False,
+                "total_reviewable": 1,
+                "priority_counts": {"URGENT": 1},
+                "items": [item],
+                "executed_count": 0,
+            }
+
+    confirmation = StubProposalConfirmation()
+    confirmation.task_draft_service = StubTaskDrafts()
+    handler, _, query = _handler(confirmation_service=confirmation)
+    query.task_draft_review_queue_service = StubReviewQueue()
+
+    response = handler.handle("product_action_task_drafts")
+
+    assert "hook-2 [Срочно]" in response["message"]
+    assert "Приоритет очереди:" in response["message"]
+    assert "Срочно: 1" in response["message"]
+    assert "решение актуально" in response["message"]
+    assert "критический приоритет товара" in response["message"]
+    assert "проверка пополнения" in response["message"]
+    assert response["review_queue"]["executed_count"] == 0
+    assert response["keyboard"]["buttons"][0]["text"].startswith("🔴")

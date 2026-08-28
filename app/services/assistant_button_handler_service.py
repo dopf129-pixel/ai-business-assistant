@@ -93,6 +93,26 @@ class AssistantButtonHandlerService:
         "ARCHIVED": "Архивирован",
     }
 
+    TASK_DRAFT_REVIEW_PRIORITY_LABELS = {
+        "URGENT": "Срочно",
+        "HIGH": "Высокий",
+        "NORMAL": "Обычный",
+        "LOW": "Низкий",
+    }
+
+    TASK_DRAFT_REVIEW_REASON_LABELS = {
+        "CURRENT_DRAFT": "решение актуально",
+        "STALE_DRAFT": "решение уже изменилось",
+        "SOURCE_PRIORITY_CRITICAL": "критический приоритет товара",
+        "SOURCE_PRIORITY_HIGH": "высокий приоритет товара",
+        "SOURCE_PRIORITY_NORMAL": "обычный приоритет товара",
+        "SOURCE_PRIORITY_LOW": "низкий приоритет товара",
+        "SOURCE_PRIORITY_NONE": "приоритет товара не задан",
+        "REPLENISHMENT_REVIEW": "проверка пополнения",
+        "UNIT_ECONOMICS_REVIEW": "проверка юнит-экономики",
+        "MARGIN_REVIEW": "проверка маржи",
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -702,16 +722,46 @@ class AssistantButtonHandlerService:
             "В архиве: " + str(counts.get("ARCHIVED", 0)),
             "Выполнено: 0",
         ]
-        drafts = summary.get("drafts") or []
+        review_queue_service = getattr(
+            self.product_business_decision_query,
+            "task_draft_review_queue_service",
+            None,
+        )
+        if review_queue_service is not None:
+            queue = review_queue_service.prioritize(
+                service.list_drafts(),
+                limit=10,
+            )
+            drafts = queue.get("items") or []
+        else:
+            queue = None
+            drafts = summary.get("drafts") or []
+        if queue is not None:
+            priority_counts = queue.get("priority_counts") or {}
+            lines.extend([
+                "",
+                "Приоритет очереди:",
+                "Срочно: " + str(priority_counts.get("URGENT", 0)),
+                "Высокий: " + str(priority_counts.get("HIGH", 0)),
+                "Обычный: " + str(priority_counts.get("NORMAL", 0)),
+                "Низкий: " + str(priority_counts.get("LOW", 0)),
+            ])
         if drafts:
-            lines.extend(["", "Последние черновики:"])
+            lines.extend(["", "Очередь проверки:"])
             for draft in drafts:
                 proposal_type = draft.get("proposal_type")
                 status = draft.get("status")
+                priority = draft.get("review_priority")
+                priority_label = self.TASK_DRAFT_REVIEW_PRIORITY_LABELS.get(
+                    priority,
+                    str(priority or "Без приоритета"),
+                )
                 lines.append(
                     "• "
                     + str(draft.get("sku") or "—")
-                    + " — "
+                    + " ["
+                    + priority_label
+                    + "] — "
                     + self.ACTION_PROPOSAL_LABELS.get(
                         proposal_type,
                         str(proposal_type or "—"),
@@ -723,6 +773,18 @@ class AssistantButtonHandlerService:
                     )
                     + ")"
                 )
+                review_reasons = draft.get("review_reasons") or []
+                if review_reasons:
+                    lines.append(
+                        "  Причины: "
+                        + ", ".join(
+                            self.TASK_DRAFT_REVIEW_REASON_LABELS.get(
+                                reason,
+                                str(reason),
+                            )
+                            for reason in review_reasons
+                        )
+                    )
         lines.extend([
             "",
             "Черновики не выполняют действий и не изменяют данные Ozon.",
@@ -731,6 +793,7 @@ class AssistantButtonHandlerService:
             "error": False,
             "message": "\n".join(lines),
             "summary": summary,
+            "review_queue": queue,
             "executed": False,
         }
         if self.keyboard_service:

@@ -290,8 +290,10 @@ Current:
 
 [x] Autonomous Assistant v4 — Task Draft Review Lifecycle
 
+[x] Autonomous Assistant v5 — Review Queue Prioritization
+
 
 Next:
 
 
-[ ] Autonomous Assistant v5 — Review Queue Prioritization
+[ ] Autonomous Assistant v6 — Draft Detail and Audit Trail

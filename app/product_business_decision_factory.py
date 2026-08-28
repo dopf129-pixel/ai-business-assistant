@@ -30,6 +30,9 @@ from services.product_action_task_draft_service import (
 from services.product_action_task_draft_storage_service import (
     ProductActionTaskDraftStorageService
 )
+from services.product_task_draft_review_queue_service import (
+    ProductTaskDraftReviewQueueService
+)
 
 
 def create_product_decision_history(
@@ -60,7 +63,8 @@ def create_product_business_decision_query(
     decision_history_service=None,
     action_proposal_service=None,
     action_proposal_confirmation_service=None,
-    action_task_draft_service=None
+    action_task_draft_service=None,
+    task_draft_review_queue_service=None
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -108,7 +112,7 @@ def create_product_business_decision_query(
             ),
         )
 
-    return ProductBusinessDecisionQueryService(
+    query = ProductBusinessDecisionQueryService(
         product_service=product_service,
         sales_metrics_source=prepared_source.sales,
         stock_metrics_source=prepared_source.stock,
@@ -119,3 +123,8 @@ def create_product_business_decision_query(
         action_proposal_service=proposal_service,
         action_proposal_confirmation_service=confirmation_service,
     )
+    query.task_draft_review_queue_service = (
+        task_draft_review_queue_service
+        or ProductTaskDraftReviewQueueService()
+    )
+    return query

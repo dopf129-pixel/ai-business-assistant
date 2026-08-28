@@ -173,8 +173,18 @@ class AssistantKeyboardService:
             draft_id = str(draft.get("draft_id") or "")
             if not draft_id:
                 continue
+            icon = {
+                "URGENT": "🔴",
+                "HIGH": "🟠",
+                "NORMAL": "🟡",
+                "LOW": "⚪",
+            }.get(draft.get("review_priority"), "⚪")
             buttons.append({
-                "text": "🗄 Архивировать " + str(draft.get("sku") or "—"),
+                "text": (
+                    icon
+                    + " Архивировать "
+                    + str(draft.get("sku") or "—")
+                ),
                 "callback": "product_task_draft:archive:" + draft_id,
             })
         return {
