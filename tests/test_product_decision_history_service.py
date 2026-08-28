@@ -146,3 +146,72 @@ def test_feedback_requires_valid_value_and_existing_decision():
 
     assert invalid["code"] == "INVALID_FEEDBACK"
     assert missing["code"] == "DECISION_HISTORY_NOT_FOUND"
+
+
+def test_next_decision_correlates_feedback_with_lower_priority():
+    service = ProductDecisionHistoryService(
+        storage_service=MemoryStorage(),
+        clock=lambda: "now",
+    )
+    service.record(_decision(priority="CRITICAL"))
+    service.record_feedback("hook-2", "USEFUL")
+
+    context = service.record(_decision(
+        decision_type="HOLD_STOCK",
+        priority="LOW",
+    ))
+
+    assert context["previous_feedback"] == "USEFUL"
+    assert context["decision_outcome"] == "PRIORITY_DECREASED"
+    latest = service.latest("hook-2")
+    assert latest["source_feedback"] == "USEFUL"
+    assert latest["outcome"] == "PRIORITY_DECREASED"
+
+
+def test_next_decision_detects_higher_or_equal_priority_outcomes():
+    service = ProductDecisionHistoryService(
+        storage_service=MemoryStorage(),
+        clock=lambda: "now",
+    )
+    service.record(_decision(
+        sku="growing-risk",
+        decision_type="HOLD_STOCK",
+        priority="LOW",
+    ))
+    service.record_feedback("growing-risk", "NOT_RELEVANT")
+    increased = service.record(_decision(
+        sku="growing-risk",
+        decision_type="REPLENISH_HIGH_PRIORITY",
+        priority="CRITICAL",
+    ))
+
+    service.record(_decision(
+        sku="same-priority",
+        decision_type="WATCH_LOW_MARGIN",
+        priority="NORMAL",
+    ))
+    service.record_feedback("same-priority", "USEFUL")
+    changed = service.record(_decision(
+        sku="same-priority",
+        decision_type="HOLD_STOCK",
+        priority="NORMAL",
+    ))
+
+    assert increased["decision_outcome"] == "PRIORITY_INCREASED"
+    assert changed["decision_outcome"] == "DECISION_CHANGED"
+
+
+def test_decision_change_without_feedback_has_no_inferred_outcome():
+    service = ProductDecisionHistoryService(
+        storage_service=MemoryStorage(),
+        clock=lambda: "now",
+    )
+    service.record(_decision())
+
+    context = service.record(_decision(
+        decision_type="HOLD_STOCK",
+        priority="LOW",
+    ))
+
+    assert context["previous_feedback"] is None
+    assert context["decision_outcome"] is None
