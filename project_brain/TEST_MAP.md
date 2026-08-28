@@ -1471,3 +1471,26 @@ Tests:
 - отказ при отсутствии истории решения;
 - Telegram-кнопки ручной оценки;
 - корректную обработку feedback callback.
+
+---
+
+# Product Decision Outcome Correlation v1
+
+Services:
+
+- ProductDecisionHistoryService
+- AssistantButtonHandlerService
+
+Tests:
+
+- tests/test_product_decision_history_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- связь feedback предыдущего снимка со следующим изменением;
+- распознавание снижения и роста срочности;
+- нейтральную смену решения при прежнем приоритете;
+- отсутствие вывода без feedback;
+- сохранение source_feedback и outcome;
+- наблюдательную, не причинную формулировку Telegram.

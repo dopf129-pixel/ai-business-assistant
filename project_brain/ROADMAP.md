@@ -276,10 +276,13 @@ Current:
 [x] Memory / Learning v2 — Manual Feedback Signals
 
 
+[x] Memory / Learning v3 — Outcome Correlation
+
+
 Next:
 
 
-[ ] Memory / Learning v3 — Outcome Correlation
+[ ] Memory / Learning v4 — Learning Summary
 
 
 [ ] Autonomous Assistant

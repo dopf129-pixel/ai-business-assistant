@@ -62,6 +62,12 @@ class AssistantButtonHandlerService:
         "RETURNS_UNAVAILABLE": "Расходы на возвраты неизвестны"
     }
 
+    DECISION_OUTCOME_LABELS = {
+        "PRIORITY_DECREASED": "Срочность рекомендации снизилась",
+        "PRIORITY_INCREASED": "Срочность рекомендации выросла",
+        "DECISION_CHANGED": "Рекомендация изменилась при том же приоритете"
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -587,6 +593,17 @@ class AssistantButtonHandlerService:
                     )
                     + " → "
                     + decision_label
+                ),
+            ])
+
+        outcome = result.get("decision_outcome")
+        if outcome:
+            lines.extend([
+                "",
+                "Наблюдение после прошлой оценки:",
+                self.DECISION_OUTCOME_LABELS.get(
+                    outcome,
+                    str(outcome)
                 ),
             ])
 
