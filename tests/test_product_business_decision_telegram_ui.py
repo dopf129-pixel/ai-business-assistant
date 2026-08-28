@@ -55,6 +55,25 @@ class StubDecisionQuery:
         result.setdefault("sku", sku)
         return result
 
+    def query_all(self):
+        decisions = []
+        for product in self.product_service.load_products():
+            sku = product.get("offer_id") or product.get("sku")
+            decision = dict(self.result)
+            decision["sku"] = sku
+            decisions.append(decision)
+        counts = {}
+        for decision in decisions:
+            decision_type = decision["decision_type"]
+            counts[decision_type] = counts.get(decision_type, 0) + 1
+        return {
+            "error": False,
+            "code": None,
+            "total": len(decisions),
+            "counts": counts,
+            "decisions": decisions,
+        }
+
 
 def _handler(result=None):
     keyboard = AssistantKeyboardService()
@@ -85,13 +104,16 @@ def test_main_keyboard_contains_product_decisions_and_preserves_existing_buttons
         assert callback in callbacks
 
 
-def test_product_decisions_menu_shows_sku_buttons():
+def test_product_decisions_menu_shows_ranked_decision_overview():
     handler, _, _ = _handler()
 
     result = handler.handle("product_decisions")
 
     assert result["error"] is False
-    assert result["message"] == "Выберите товар:"
+    assert "🎯 Решения по товарам" in result["message"]
+    assert "Всего товаров: 2" in result["message"]
+    assert "Срочно пополнить: 2" in result["message"]
+    assert "Товары отсортированы по срочности." in result["message"]
     callbacks = [
         item["callback"]
         for item in result["keyboard"]["buttons"]
@@ -99,6 +121,14 @@ def test_product_decisions_menu_shows_sku_buttons():
     assert callbacks == [
         "product_decision:hook-2",
         "product_decision:hook-3",
+    ]
+    labels = [
+        item["text"]
+        for item in result["keyboard"]["buttons"]
+    ]
+    assert labels == [
+        "🟠 hook-2 — Пополнить срочно",
+        "🟠 hook-3 — Пополнить срочно",
     ]
 
 
