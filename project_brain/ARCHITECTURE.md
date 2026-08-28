@@ -720,3 +720,23 @@ Keep DRAFT or mark previous DRAFT as STALE
 Telegram may archive DRAFT, STALE, or DISMISSED records. ARCHIVED is terminal.
 These are storage lifecycle transitions only: every path preserves
 execution_allowed=False and executed=False.
+
+Review queue read flow:
+
+DRAFT / STALE Records
+
+↓
+
+ProductTaskDraftReviewQueueService
+
+↓
+
+Score + Priority + Explainable Reasons
+
+↓
+
+Telegram Review Queue
+
+The queue excludes DISMISSED and ARCHIVED records. Scores are calculated on
+read and are not persisted, learned, or passed to an executor. Stable ties are
+ordered oldest first.
