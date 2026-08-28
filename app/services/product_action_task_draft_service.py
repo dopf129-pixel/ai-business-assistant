@@ -45,6 +45,8 @@ class ProductActionTaskDraftService:
             return self._result(self.records[index], saved=False)
 
         now = str(self.clock())
+        previous = self.records[index] if index is not None else None
+        previous_status = previous.get("status") if previous else None
         record = {
             "draft_key": draft_key,
             "draft_id": (
@@ -66,9 +68,18 @@ class ProductActionTaskDraftService:
                 else now
             ),
             "updated_at": now,
+            "events": list(previous.get("events") or []) if previous else [],
             "execution_allowed": False,
             "executed": False,
         }
+        self._append_event(
+            record,
+            event_type="CREATED" if previous is None else "REOPENED",
+            from_status=previous_status,
+            to_status=self.STATUS_DRAFT,
+            source="CONFIRMATION",
+            occurred_at=now,
+        )
         if index is None:
             self.records.append(record)
         else:
@@ -97,7 +108,16 @@ class ProductActionTaskDraftService:
             ):
                 continue
             record["status"] = self.STATUS_STALE
-            record["updated_at"] = str(self.clock())
+            occurred_at = str(self.clock())
+            record["updated_at"] = occurred_at
+            self._append_event(
+                record,
+                event_type="MARKED_STALE",
+                from_status=self.STATUS_DRAFT,
+                to_status=self.STATUS_STALE,
+                source="DECISION_RECONCILE",
+                occurred_at=occurred_at,
+            )
             changed.append(deepcopy(record))
         if changed:
             self._save_records()
@@ -122,8 +142,18 @@ class ProductActionTaskDraftService:
             self.STATUS_DISMISSED,
         }:
             return self._error("TASK_DRAFT_NOT_ARCHIVABLE", record.get("sku"))
+        previous_status = record.get("status")
+        occurred_at = str(self.clock())
         record["status"] = self.STATUS_ARCHIVED
-        record["updated_at"] = str(self.clock())
+        record["updated_at"] = occurred_at
+        self._append_event(
+            record,
+            event_type="ARCHIVED",
+            from_status=previous_status,
+            to_status=self.STATUS_ARCHIVED,
+            source="USER_REVIEW",
+            occurred_at=occurred_at,
+        )
         self._save_records()
         return self._result(record, saved=True)
 
@@ -144,10 +174,22 @@ class ProductActionTaskDraftService:
                 "execution_allowed": False,
             }
         record = self.records[index]
+        if record.get("status") == self.STATUS_ARCHIVED:
+            return self._result(record, saved=False)
         if record.get("status") == self.STATUS_DISMISSED:
             return self._result(record, saved=False)
+        previous_status = record.get("status")
+        occurred_at = str(self.clock())
         record["status"] = self.STATUS_DISMISSED
-        record["updated_at"] = str(self.clock())
+        record["updated_at"] = occurred_at
+        self._append_event(
+            record,
+            event_type="DISMISSED",
+            from_status=previous_status,
+            to_status=self.STATUS_DISMISSED,
+            source="PROPOSAL_REJECTION",
+            occurred_at=occurred_at,
+        )
         self._save_records()
         return self._result(record, saved=True)
 
@@ -157,6 +199,21 @@ class ProductActionTaskDraftService:
             if str(record.get("sku")) == sku:
                 return deepcopy(record)
         return None
+
+    def get(self, draft_id):
+        index = self._index_by_id(draft_id)
+        if index is None:
+            return self._error("TASK_DRAFT_NOT_FOUND", None)
+        record = deepcopy(self.records[index])
+        return {
+            "error": False,
+            "code": None,
+            "task_draft": record,
+            "audit_events": deepcopy(record.get("events") or []),
+            "legacy_history_unavailable": not bool(record.get("events")),
+            "executed": False,
+            "execution_allowed": False,
+        }
 
     def list_drafts(self, status=None, limit=None):
         items = [deepcopy(item) for item in reversed(self.records)]
@@ -186,6 +243,10 @@ class ProductActionTaskDraftService:
             "total": len(self.records),
             "counts": counts,
             "drafts": self.list_drafts(limit=10),
+            "audit_events_count": sum(
+                len(record.get("events") or [])
+                for record in self.records
+            ),
             "executed_count": 0,
         }
 
@@ -212,6 +273,26 @@ class ProductActionTaskDraftService:
             if value.startswith("d") and value[1:].isdigit():
                 maximum = max(maximum, int(value[1:]))
         return "d" + str(maximum + 1)
+
+    def _append_event(
+        self,
+        record,
+        event_type,
+        from_status,
+        to_status,
+        source,
+        occurred_at,
+    ):
+        events = record.setdefault("events", [])
+        events.append({
+            "event_id": "e" + str(len(events) + 1),
+            "event_type": event_type,
+            "from_status": from_status,
+            "to_status": to_status,
+            "source": source,
+            "occurred_at": str(occurred_at),
+            "executed": False,
+        })
 
     def _result(self, record, saved):
         return {
@@ -257,6 +338,13 @@ class ProductActionTaskDraftService:
             item["draft_id"] = "d" + str(next_number)
             used.add(item["draft_id"])
             next_number += 1
+        for item in normalized:
+            events = item.get("events")
+            item["events"] = (
+                [dict(event) for event in events if isinstance(event, dict)]
+                if isinstance(events, list)
+                else []
+            )
         return normalized
 
     def _save_records(self):
