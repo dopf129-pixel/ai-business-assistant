@@ -1414,3 +1414,36 @@ Tests:
 - отсутствие кэширования ошибок и недостаточных данных;
 - восемь товаров на странице Telegram;
 - переходы между страницами без изменения callback товара.
+
+---
+
+# Product Decision Memory v1
+
+Services:
+
+- ProductDecisionHistoryService
+- ProductDecisionHistoryStorageService
+- ProductBusinessDecisionQueryService
+
+Composition:
+
+- product_business_decision_factory.py
+- telegram_assistant_factory.py
+
+Tests:
+
+- tests/test_product_decision_history_service.py
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_telegram_ui.py
+- tests/test_product_business_decision_production_wiring.py
+
+Проверяет:
+
+- сохранение первой успешной базовой точки;
+- отсутствие дубликата неизменившегося решения;
+- фиксацию изменения типа решения или приоритета;
+- игнорирование ошибок и недостаточных данных;
+- ограничение истории на один артикул;
+- восстановление истории из JSON;
+- передачу истории через query cache;
+- понятный переход между решениями в Telegram.
