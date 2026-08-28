@@ -11,6 +11,16 @@ class ProductDecisionHistoryService:
         FEEDBACK_USEFUL,
         FEEDBACK_NOT_RELEVANT,
     }
+    OUTCOME_PRIORITY_DECREASED = "PRIORITY_DECREASED"
+    OUTCOME_PRIORITY_INCREASED = "PRIORITY_INCREASED"
+    OUTCOME_DECISION_CHANGED = "DECISION_CHANGED"
+    PRIORITY_RANK = {
+        "NONE": 0,
+        "LOW": 1,
+        "NORMAL": 2,
+        "HIGH": 3,
+        "CRITICAL": 4,
+    }
 
     def __init__(
         self,
@@ -36,7 +46,7 @@ class ProductDecisionHistoryService:
         ) != self._signature(decision)
 
         if previous is None or changed:
-            snapshot = self._snapshot(decision)
+            snapshot = self._snapshot(decision, previous=previous)
             self.records.append(snapshot)
             self._trim(sku)
             self._save_records()
@@ -52,6 +62,8 @@ class ProductDecisionHistoryService:
                 ),
                 "decision_recorded_at": snapshot["recorded_at"],
                 "decision_history_count": history_count,
+                "previous_feedback": snapshot.get("source_feedback"),
+                "decision_outcome": snapshot.get("outcome"),
             }
 
         return {
@@ -61,6 +73,8 @@ class ProductDecisionHistoryService:
             "previous_priority": None,
             "decision_recorded_at": previous.get("recorded_at"),
             "decision_history_count": len(self.history(sku)),
+            "previous_feedback": None,
+            "decision_outcome": None,
         }
 
     def latest(self, sku):
@@ -122,7 +136,9 @@ class ProductDecisionHistoryService:
             items = items[:max(0, int(limit))]
         return items
 
-    def _snapshot(self, decision):
+    def _snapshot(self, decision, previous=None):
+        recorded_at = str(self.clock())
+        outcome = self._outcome(previous, decision)
         return {
             "sku": str(decision.get("sku")),
             "product_id": decision.get("product_id"),
@@ -134,10 +150,33 @@ class ProductDecisionHistoryService:
             "profit_per_unit": decision.get("decision_profit_per_unit"),
             "margin_percent": decision.get("decision_margin_percent"),
             "economics_basis": decision.get("economics_basis"),
-            "recorded_at": str(self.clock()),
+            "recorded_at": recorded_at,
             "feedback": None,
             "feedback_at": None,
+            "source_feedback": (
+                previous.get("feedback") if previous else None
+            ),
+            "outcome": outcome,
+            "outcome_recorded_at": recorded_at if outcome else None,
         }
+
+    def _outcome(self, previous, current):
+        if previous is None or not previous.get("feedback"):
+            return None
+
+        previous_rank = self.PRIORITY_RANK.get(
+            str(previous.get("priority") or "NONE").upper()
+        )
+        current_rank = self.PRIORITY_RANK.get(
+            str(current.get("priority") or "NONE").upper()
+        )
+        if previous_rank is None or current_rank is None:
+            return self.OUTCOME_DECISION_CHANGED
+        if current_rank < previous_rank:
+            return self.OUTCOME_PRIORITY_DECREASED
+        if current_rank > previous_rank:
+            return self.OUTCOME_PRIORITY_INCREASED
+        return self.OUTCOME_DECISION_CHANGED
 
     def _latest_index(self, sku):
         if not sku:
@@ -193,4 +232,6 @@ class ProductDecisionHistoryService:
             "previous_priority": None,
             "decision_recorded_at": None,
             "decision_history_count": 0,
+            "previous_feedback": None,
+            "decision_outcome": None,
         }
