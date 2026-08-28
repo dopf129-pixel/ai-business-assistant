@@ -148,6 +148,44 @@ def test_feedback_requires_valid_value_and_existing_decision():
     assert missing["code"] == "DECISION_HISTORY_NOT_FOUND"
 
 
+def test_proposal_status_is_saved_on_latest_decision_and_is_idempotent():
+    storage = MemoryStorage()
+    timestamps = iter(["decision-time", "proposal-time"])
+    service = ProductDecisionHistoryService(
+        storage_service=storage,
+        clock=lambda: next(timestamps),
+    )
+    service.record(_decision())
+
+    saved = service.record_proposal_status(
+        "hook-2", "REVIEW_REPLENISHMENT", "confirmed"
+    )
+    repeated = service.record_proposal_status(
+        "hook-2", "REVIEW_REPLENISHMENT", "CONFIRMED"
+    )
+
+    assert saved["saved"] is True
+    assert repeated["saved"] is False
+    latest = service.latest("hook-2")
+    assert latest["proposal_type"] == "REVIEW_REPLENISHMENT"
+    assert latest["proposal_status"] == "CONFIRMED"
+    assert latest["proposal_status_at"] == "proposal-time"
+
+
+def test_proposal_status_requires_valid_value_and_existing_decision():
+    service = ProductDecisionHistoryService(storage_service=MemoryStorage())
+
+    invalid = service.record_proposal_status(
+        "hook-2", "REVIEW_MARGIN", "EXECUTED"
+    )
+    missing = service.record_proposal_status(
+        "hook-2", "REVIEW_MARGIN", "DISMISSED"
+    )
+
+    assert invalid["code"] == "INVALID_PROPOSAL_STATUS"
+    assert missing["code"] == "DECISION_HISTORY_NOT_FOUND"
+
+
 def test_next_decision_correlates_feedback_with_lower_priority():
     service = ProductDecisionHistoryService(
         storage_service=MemoryStorage(),
