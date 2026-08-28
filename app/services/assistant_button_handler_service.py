@@ -1,5 +1,7 @@
 class AssistantButtonHandlerService:
 
+    PRODUCT_DECISIONS_PAGE_SIZE = 8
+
 
     DECISION_LABELS = {
         "REPLENISH_HIGH_PRIORITY": "Высокий приоритет пополнения",
@@ -178,6 +180,14 @@ class AssistantButtonHandlerService:
                 self._open_product_decisions_menu()
             )
 
+        if button_id.startswith("product_decisions_page:"):
+            page_value = button_id.split(":", 1)[1]
+            try:
+                page = int(page_value)
+            except (TypeError, ValueError):
+                page = 1
+            return self._open_product_decisions_menu(page=page)
+
         if button_id.startswith(
             "product_decision:"
         ):
@@ -315,7 +325,8 @@ class AssistantButtonHandlerService:
 
 
     def _open_product_decisions_menu(
-        self
+        self,
+        page=1
     ):
 
         if (
@@ -343,31 +354,55 @@ class AssistantButtonHandlerService:
                 "message": "Товары не найдены"
             }
 
+        total_pages = max(
+            1,
+            (
+                len(decisions)
+                + self.PRODUCT_DECISIONS_PAGE_SIZE
+                - 1
+            ) // self.PRODUCT_DECISIONS_PAGE_SIZE
+        )
+        page = min(max(1, int(page)), total_pages)
+        start = (page - 1) * self.PRODUCT_DECISIONS_PAGE_SIZE
+        page_decisions = decisions[
+            start:start + self.PRODUCT_DECISIONS_PAGE_SIZE
+        ]
+
         items = [
             self._product_decision_keyboard_item(decision)
-            for decision in decisions
+            for decision in page_decisions
         ]
 
         return {
             "error": False,
             "message": self._format_product_decisions_overview(
-                overview
+                overview,
+                page=page,
+                total_pages=total_pages
             ),
             "keyboard": (
                 self.keyboard_service
                 .build_product_decisions_keyboard(
-                    items
+                    items,
+                    page=page,
+                    total_pages=total_pages
                 )
             ),
             "overview": overview
         }
 
-    def _format_product_decisions_overview(self, overview):
+    def _format_product_decisions_overview(
+        self,
+        overview,
+        page=1,
+        total_pages=1
+    ):
         counts = overview.get("counts") or {}
         return "\n".join([
             "🎯 Решения по товарам",
             "",
             "Всего товаров: " + str(overview.get("total", 0)),
+            "Страница: " + str(page) + " из " + str(total_pages),
             (
                 "Срочно пополнить: "
                 + str(counts.get("REPLENISH_HIGH_PRIORITY", 0))
