@@ -893,3 +893,23 @@ Preserved:
 - observations do not alter decision rules;
 - observations do not prove action causality;
 - no autonomous action execution.
+
+---
+
+# Product Decision Learning Summary v1 — 2026-08-28
+
+Completed:
+
+[x] Assortment-wide learning summary
+[x] Snapshot, feedback, and outcome counts
+[x] Product-level latest decision history
+[x] Russian decision and priority labels
+[x] Feedback and observation details in history
+[x] Telegram navigation from overview and product card
+
+Preserved:
+
+- no success-rate claim on limited data;
+- no causal claim;
+- no influence on decision rules;
+- no autonomous action execution.
