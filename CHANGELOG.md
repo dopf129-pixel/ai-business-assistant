@@ -27,6 +27,14 @@
 - Telegram cards explain transitions from the previous decision;
 - decision history remains observational and does not execute actions.
 
+### Product Decision Feedback v1
+
+- decision cards offer manual `Useful` and `Not relevant` feedback;
+- feedback is attached to the latest stored decision snapshot;
+- repeated feedback is idempotent;
+- invalid feedback and missing decision history are rejected safely;
+- feedback is stored as a learning signal but does not alter recommendations.
+
 ---
 
 # Версия 0.1.0-dev
