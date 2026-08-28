@@ -83,6 +83,7 @@ def _service(
     economics=None,
     cache_ttl_seconds=600,
     clock=None,
+    decision_history_service=None,
 ):
     return ProductBusinessDecisionQueryService(
         product_service=StubProductService(
@@ -101,6 +102,7 @@ def _service(
         ),
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService(),
+        decision_history_service=decision_history_service,
         cache_ttl_seconds=cache_ttl_seconds,
         clock=clock,
     )
@@ -467,3 +469,51 @@ def test_insufficient_decision_is_not_cached_as_fresh_data():
         "hook-2",
         "hook-2",
     ]
+
+
+def test_successful_decision_is_recorded_before_it_enters_cache():
+    class StubHistory:
+        def __init__(self):
+            self.calls = []
+
+        def record(self, decision):
+            self.calls.append(dict(decision))
+            return {
+                "decision_history_available": True,
+                "decision_changed": True,
+                "previous_decision_type": "HOLD_STOCK",
+            }
+
+    history = StubHistory()
+    service = _service(decision_history_service=history)
+
+    first = service.query("hook-2")
+    second = service.query("hook-2")
+
+    assert len(history.calls) == 1
+    assert first["decision_changed"] is True
+    assert second["previous_decision_type"] == "HOLD_STOCK"
+
+
+def test_insufficient_decision_does_not_reach_history_service():
+    class StubHistory:
+        def __init__(self):
+            self.calls = []
+
+        def record(self, decision):
+            self.calls.append(dict(decision))
+            return {}
+
+    history = StubHistory()
+    service = _service(
+        economics=_economics(
+            net_profit_per_unit=None,
+            margin_percent=None,
+            missing_fields=["tax"],
+        ),
+        decision_history_service=history,
+    )
+
+    service.query("hook-2")
+
+    assert history.calls == []

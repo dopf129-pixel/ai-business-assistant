@@ -561,3 +561,35 @@ Autonomous Agent Foundation
 +
 
 AI Development Infrastructure
+
+
+---
+
+
+# Product Decision Memory
+
+Flow:
+
+ProductBusinessDecisionQueryService
+
+↓
+
+ProductDecisionHistoryService
+
+↓
+
+ProductDecisionHistoryStorageService
+
+↓
+
+data/product_decision_history.json
+
+Responsibilities:
+
+- persist the first successful decision baseline;
+- persist only decision type or priority transitions;
+- expose previous decision context to Telegram;
+- retain a bounded history per seller article.
+
+The history is observational. It does not modify decision rules and does not
+trigger actions.

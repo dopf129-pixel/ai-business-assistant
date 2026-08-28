@@ -12,13 +12,30 @@ from services.product_business_decision_service import (
 from services.product_business_decision_query_service import (
     ProductBusinessDecisionQueryService
 )
+from services.product_decision_history_service import (
+    ProductDecisionHistoryService
+)
+from services.product_decision_history_storage_service import (
+    ProductDecisionHistoryStorageService
+)
+
+
+def create_product_decision_history(
+    file_path="data/product_decision_history.json"
+):
+    return ProductDecisionHistoryService(
+        storage_service=ProductDecisionHistoryStorageService(
+            file_path=file_path
+        )
+    )
 
 
 def create_product_business_decision_query(
     core_components=None,
     metrics_service=None,
     stock_intelligence_service=None,
-    unit_economics_query=None
+    unit_economics_query=None,
+    decision_history_service=None
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -57,5 +74,6 @@ def create_product_business_decision_query(
         stock_metrics_source=prepared_source.stock,
         unit_economics_query_service=economics_query,
         decision_input_provider=ProductDecisionInputProvider(),
-        decision_service=ProductBusinessDecisionService()
+        decision_service=ProductBusinessDecisionService(),
+        decision_history_service=decision_history_service
     )

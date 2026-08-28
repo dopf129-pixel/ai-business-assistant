@@ -514,6 +514,24 @@ class AssistantButtonHandlerService:
             "",
             "Приоритет:",
             self.PRIORITY_LABELS.get(priority, priority),
+        ]
+
+        if result.get("decision_changed"):
+            previous_type = result.get("previous_decision_type")
+            lines.extend([
+                "",
+                "Изменение решения:",
+                (
+                    self.DECISION_LABELS.get(
+                        previous_type,
+                        str(previous_type or "—")
+                    )
+                    + " → "
+                    + decision_label
+                ),
+            ])
+
+        lines.extend([
             "",
             "Показатели решения:",
             (
@@ -550,7 +568,7 @@ class AssistantButtonHandlerService:
                     "%"
                 )
             ),
-        ]
+        ])
 
         basis = result.get("economics_basis")
         if basis is not None:

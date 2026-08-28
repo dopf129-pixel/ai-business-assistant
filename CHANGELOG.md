@@ -18,6 +18,15 @@
 - assortment overview is split into pages of eight products;
 - Telegram navigation preserves existing product callbacks.
 
+### Product Decision Memory v1
+
+- added persistent history of successful product decisions;
+- identical repeated decisions do not create duplicate records;
+- decision type or priority changes create a new snapshot;
+- history keeps up to 50 changes per seller article;
+- Telegram cards explain transitions from the previous decision;
+- decision history remains observational and does not execute actions.
+
 ---
 
 # Версия 0.1.0-dev

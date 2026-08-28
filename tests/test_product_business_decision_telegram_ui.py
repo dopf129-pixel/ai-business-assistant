@@ -273,3 +273,30 @@ def test_product_decision_card_shows_returns_aware_economics():
     assert "Возвраты и невыкупы: 1.12 ₽" in message
     assert "Финансовое покрытие: 91.11%" in message
     assert "Уверенность:\nСредняя" in message
+
+
+def test_product_decision_card_shows_previous_decision_after_change():
+    handler, _, _ = _handler(
+        {
+            "error": False,
+            "code": None,
+            "product_id": "101",
+            "sku": "hook-2",
+            "decision_type": "INVESTIGATE_LOW_PROFIT",
+            "priority": "HIGH",
+            "reasons": ["NEGATIVE_UNIT_PROFIT"],
+            "confidence": "HIGH",
+            "missing_data": [],
+            "decision_changed": True,
+            "previous_decision_type": "REPLENISH_HIGH_PRIORITY",
+        }
+    )
+
+    message = handler.handle("product_decision:hook-2")["message"]
+
+    assert "Изменение решения:" in message
+    assert (
+        "Высокий приоритет пополнения → "
+        "Проверить низкую прибыльность"
+    ) in message
+    assert "REPLENISH_HIGH_PRIORITY" not in message

@@ -270,10 +270,13 @@ Current:
 [x] Recommendation Evolution v2 — Cache and Pagination
 
 
+[x] Memory / Learning v1 — Decision Change History
+
+
 Next:
 
 
-[ ] Memory / Learning
+[ ] Memory / Learning v2 — Outcome Signals
 
 
 [ ] Autonomous Assistant
