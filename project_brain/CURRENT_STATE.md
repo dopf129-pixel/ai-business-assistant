@@ -796,3 +796,22 @@ Full test suite:
 
 Next:
 Returns & Buyout Analytics v1
+
+---
+
+# Product Decisions v3 — 2026-08-28
+
+Completed:
+
+[x] Returns-aware product decisions
+[x] Russian decision card with source metrics
+[x] Assortment-wide decision overview
+[x] Priority ordering for product decisions
+[x] Decision summary counts in Telegram
+[x] Seller article plus action label on product buttons
+
+Preserved:
+
+- decision thresholds;
+- manual product drill-down;
+- no autonomous action execution.
