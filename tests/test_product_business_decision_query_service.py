@@ -88,6 +88,7 @@ def _service(
     clock=None,
     decision_history_service=None,
     action_proposal_service=None,
+    action_proposal_confirmation_service=None,
 ):
     return ProductBusinessDecisionQueryService(
         product_service=StubProductService(
@@ -108,6 +109,9 @@ def _service(
         decision_service=ProductBusinessDecisionService(),
         decision_history_service=decision_history_service,
         action_proposal_service=action_proposal_service,
+        action_proposal_confirmation_service=(
+            action_proposal_confirmation_service
+        ),
         cache_ttl_seconds=cache_ttl_seconds,
         clock=clock,
     )
