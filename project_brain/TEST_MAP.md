@@ -1390,3 +1390,27 @@ Tests:
 - подсчёт решений для Telegram-сводки;
 - кнопки с приоритетом, артикулом и действием;
 - совместимость существующих callbacks карточки товара.
+
+---
+
+# Product Decisions v4 — Cache and Pagination
+
+Services:
+
+- ProductBusinessDecisionQueryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- повторное использование успешного решения в течение 10 минут;
+- истечение TTL и повторный расчёт;
+- защиту кэша от внешней мутации;
+- отсутствие кэширования ошибок и недостаточных данных;
+- восемь товаров на странице Telegram;
+- переходы между страницами без изменения callback товара.
