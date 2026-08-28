@@ -24,6 +24,7 @@ class ProductBusinessDecisionQueryService:
         unit_economics_query_service,
         decision_input_provider,
         decision_service,
+        decision_history_service=None,
         cache_ttl_seconds=600,
         clock=None
     ):
@@ -33,6 +34,7 @@ class ProductBusinessDecisionQueryService:
         self.unit_economics_query_service = unit_economics_query_service
         self.decision_input_provider = decision_input_provider
         self.decision_service = decision_service
+        self.decision_history_service = decision_history_service
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
         self.clock = clock or monotonic
         self._decision_cache = {}
@@ -60,7 +62,9 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
-        result = self._query_product(sku, product)
+        result = self._with_decision_history(
+            self._query_product(sku, product)
+        )
         self._store_decision(sku, result)
         return deepcopy(result)
 
@@ -131,7 +135,9 @@ class ProductBusinessDecisionQueryService:
             seen_skus.add(sku)
             decision = self._cached_decision(sku)
             if decision is None:
-                decision = self._query_product(sku, normalized)
+                decision = self._with_decision_history(
+                    self._query_product(sku, normalized)
+                )
                 self._store_decision(sku, decision)
             decisions.append(deepcopy(decision))
 
@@ -192,6 +198,25 @@ class ProductBusinessDecisionQueryService:
             and decision.get("decision_type")
             != self.CODE_INSUFFICIENT_DATA
         )
+
+    def _with_decision_history(self, decision):
+        result = deepcopy(decision)
+        if (
+            self.decision_history_service is None
+            or result.get("error")
+            or result.get("decision_type")
+            == self.CODE_INSUFFICIENT_DATA
+        ):
+            return result
+        try:
+            context = self.decision_history_service.record(result)
+        except (OSError, ValueError, TypeError):
+            context = {
+                "decision_history_available": False,
+                "decision_changed": False,
+            }
+        result.update(context or {})
+        return result
 
     def _extract_sku(self, request):
         if isinstance(request, dict):
