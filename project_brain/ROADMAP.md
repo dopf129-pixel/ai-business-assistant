@@ -267,10 +267,10 @@ Current:
 [x] Recommendation Evolution v1 — Assortment Overview
 
 
+[x] Recommendation Evolution v2 — Cache and Pagination
+
+
 Next:
-
-
-[ ] Recommendation Evolution v2
 
 
 [ ] Memory / Learning

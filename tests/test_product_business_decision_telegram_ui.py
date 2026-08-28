@@ -8,8 +8,11 @@ class StubAssistant:
 
 
 class StubProductService:
+    def __init__(self, products=None):
+        self.products = products
+
     def load_products(self):
-        return [
+        return self.products or [
             {
                 "product_id": "101",
                 "offer_id": "hook-2",
@@ -24,8 +27,8 @@ class StubProductService:
 
 
 class StubDecisionQuery:
-    def __init__(self, result=None):
-        self.product_service = StubProductService()
+    def __init__(self, result=None, products=None):
+        self.product_service = StubProductService(products=products)
         self.result = result or {
             "error": False,
             "code": None,
@@ -75,9 +78,9 @@ class StubDecisionQuery:
         }
 
 
-def _handler(result=None):
+def _handler(result=None, products=None):
     keyboard = AssistantKeyboardService()
-    query = StubDecisionQuery(result=result)
+    query = StubDecisionQuery(result=result, products=products)
     handler = AssistantButtonHandlerService(
         assistant=StubAssistant(),
         keyboard_service=keyboard,
@@ -129,6 +132,44 @@ def test_product_decisions_menu_shows_ranked_decision_overview():
     assert labels == [
         "🟠 hook-2 — Пополнить срочно",
         "🟠 hook-3 — Пополнить срочно",
+    ]
+
+
+def test_product_decisions_menu_paginates_large_assortment():
+    products = [
+        {
+            "product_id": str(index),
+            "offer_id": f"item-{index}",
+            "sku": str(1000 + index),
+        }
+        for index in range(1, 11)
+    ]
+    handler, _, _ = _handler(products=products)
+
+    first = handler.handle("product_decisions")
+    first_callbacks = [
+        item["callback"]
+        for item in first["keyboard"]["buttons"]
+    ]
+
+    assert "Страница: 1 из 2" in first["message"]
+    assert first_callbacks[:8] == [
+        f"product_decision:item-{index}"
+        for index in range(1, 9)
+    ]
+    assert first_callbacks[-1] == "product_decisions_page:2"
+
+    second = handler.handle("product_decisions_page:2")
+    second_callbacks = [
+        item["callback"]
+        for item in second["keyboard"]["buttons"]
+    ]
+
+    assert "Страница: 2 из 2" in second["message"]
+    assert second_callbacks == [
+        "product_decision:item-9",
+        "product_decision:item-10",
+        "product_decisions_page:1",
     ]
 
 

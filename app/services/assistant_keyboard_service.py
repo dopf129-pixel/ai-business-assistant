@@ -66,30 +66,44 @@ class AssistantKeyboardService:
 
     def build_product_decisions_keyboard(
         self,
-        items
+        items,
+        page=1,
+        total_pages=1
     ):
+        buttons = [
+            {
+                "text": str(
+                    item.get("text")
+                    if isinstance(item, dict)
+                    else item
+                ),
+                "callback": (
+                    "product_decision:"
+                    + str(
+                        item.get("sku")
+                        if isinstance(item, dict)
+                        else item
+                    )
+                )
+            }
+            for item in (items or [])
+        ]
+
+        if page > 1:
+            buttons.append({
+                "text": "⬅️ Назад",
+                "callback": "product_decisions_page:" + str(page - 1),
+            })
+        if page < total_pages:
+            buttons.append({
+                "text": "Вперёд ➡️",
+                "callback": "product_decisions_page:" + str(page + 1),
+            })
 
         return {
             "error": False,
             "type": "inline_keyboard",
-            "buttons": [
-                {
-                    "text": str(
-                        item.get("text")
-                        if isinstance(item, dict)
-                        else item
-                    ),
-                    "callback": (
-                        "product_decision:"
-                        + str(
-                            item.get("sku")
-                            if isinstance(item, dict)
-                            else item
-                        )
-                    )
-                }
-                for item in (items or [])
-            ]
+            "buttons": buttons
         }
 
 

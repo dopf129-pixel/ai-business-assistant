@@ -815,3 +815,22 @@ Preserved:
 - decision thresholds;
 - manual product drill-down;
 - no autonomous action execution.
+
+---
+
+# Product Decisions v4 — 2026-08-28
+
+Completed:
+
+[x] 10-minute successful decision cache
+[x] Cache expiry and mutation protection
+[x] No caching of errors or insufficient decisions
+[x] Telegram assortment pagination
+[x] Eight products per page
+[x] Previous / next navigation callbacks
+
+Preserved:
+
+- existing decision rules and thresholds;
+- seller article callbacks;
+- no autonomous action execution.
