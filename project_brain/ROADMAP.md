@@ -273,10 +273,13 @@ Current:
 [x] Memory / Learning v1 — Decision Change History
 
 
+[x] Memory / Learning v2 — Manual Feedback Signals
+
+
 Next:
 
 
-[ ] Memory / Learning v2 — Outcome Signals
+[ ] Memory / Learning v3 — Outcome Correlation
 
 
 [ ] Autonomous Assistant
