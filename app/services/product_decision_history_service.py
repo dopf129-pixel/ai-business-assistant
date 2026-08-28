@@ -136,6 +136,42 @@ class ProductDecisionHistoryService:
             items = items[:max(0, int(limit))]
         return items
 
+    def learning_summary(self):
+        records = [
+            item for item in self.records if isinstance(item, dict)
+        ]
+        feedback_counts = {
+            self.FEEDBACK_USEFUL: 0,
+            self.FEEDBACK_NOT_RELEVANT: 0,
+        }
+        outcome_counts = {
+            self.OUTCOME_PRIORITY_DECREASED: 0,
+            self.OUTCOME_PRIORITY_INCREASED: 0,
+            self.OUTCOME_DECISION_CHANGED: 0,
+        }
+
+        for record in records:
+            feedback = record.get("feedback")
+            if feedback in feedback_counts:
+                feedback_counts[feedback] += 1
+            outcome = record.get("outcome")
+            if outcome in outcome_counts:
+                outcome_counts[outcome] += 1
+
+        return {
+            "error": False,
+            "products_count": len({
+                str(record.get("sku"))
+                for record in records
+                if record.get("sku") is not None
+            }),
+            "decision_snapshots_count": len(records),
+            "feedback_count": sum(feedback_counts.values()),
+            "feedback_counts": feedback_counts,
+            "outcome_count": sum(outcome_counts.values()),
+            "outcome_counts": outcome_counts,
+        }
+
     def _snapshot(self, decision, previous=None):
         recorded_at = str(self.clock())
         outcome = self._outcome(previous, decision)
