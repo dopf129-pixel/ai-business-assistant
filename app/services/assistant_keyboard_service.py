@@ -106,6 +106,27 @@ class AssistantKeyboardService:
             "buttons": buttons
         }
 
+    def build_product_decision_feedback_keyboard(self, sku):
+        sku = str(sku)
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "👍 Полезно",
+                    "callback": (
+                        "product_decision_feedback:useful:" + sku
+                    ),
+                },
+                {
+                    "text": "👎 Неактуально",
+                    "callback": (
+                        "product_decision_feedback:not_relevant:" + sku
+                    ),
+                },
+            ],
+        }
+
 
     def build_returns_finance_impact_keyboard(
         self,
