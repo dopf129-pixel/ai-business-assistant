@@ -341,3 +341,76 @@ def test_query_exposes_metrics_used_by_decision_card():
     assert result["stock_priority"] == "CRITICAL"
     assert result["decision_profit_per_unit"] == 510.0
     assert result["decision_margin_percent"] == 34.0
+
+
+def test_query_all_sorts_products_by_priority_and_counts_decisions():
+    service = _service(
+        products=[
+            {"product_id": "101", "offer_id": "slow", "sku": "1"},
+            {"product_id": "102", "offer_id": "urgent", "sku": "2"},
+            {"product_id": "103", "offer_id": "review", "sku": "3"},
+        ]
+    )
+    decisions = {
+        "slow": {
+            "sku": "slow",
+            "decision_type": "HOLD_STOCK",
+            "priority": "LOW",
+            "days_of_stock": 30,
+        },
+        "urgent": {
+            "sku": "urgent",
+            "decision_type": "REPLENISH_HIGH_PRIORITY",
+            "priority": "CRITICAL",
+            "days_of_stock": 2,
+        },
+        "review": {
+            "sku": "review",
+            "decision_type": "INVESTIGATE_LOW_PROFIT",
+            "priority": "HIGH",
+            "days_of_stock": 5,
+        },
+    }
+    service._query_product = lambda sku, product: dict(decisions[sku])
+
+    result = service.query_all()
+
+    assert result["error"] is False
+    assert result["total"] == 3
+    assert [item["sku"] for item in result["decisions"]] == [
+        "urgent",
+        "review",
+        "slow",
+    ]
+    assert result["counts"] == {
+        "REPLENISH_HIGH_PRIORITY": 1,
+        "INVESTIGATE_LOW_PROFIT": 1,
+        "HOLD_STOCK": 1,
+    }
+
+
+def test_query_all_uses_seller_offer_id_and_deduplicates_products():
+    service = _service(
+        products=[
+            {"product_id": "101", "offer_id": "hook-2", "sku": "1"},
+            {"product_id": "101", "offer_id": "hook-2", "sku": "1"},
+            {"product_id": "102", "offer_id": None, "sku": "internal-2"},
+        ]
+    )
+    calls = []
+
+    def query_product(sku, product):
+        calls.append(sku)
+        return {
+            "sku": sku,
+            "decision_type": "INSUFFICIENT_DATA",
+            "priority": "NONE",
+        }
+
+    service._query_product = query_product
+
+    result = service.query_all()
+
+    assert calls == ["hook-2", "internal-2"]
+    assert result["total"] == 2
+    assert result["counts"] == {"INSUFFICIENT_DATA": 2}
