@@ -855,3 +855,22 @@ Preserved:
 - task and user memory;
 - data/users.json;
 - no autonomous action execution.
+
+---
+
+# Product Decision Feedback v1 — 2026-08-28
+
+Completed:
+
+[x] Useful feedback signal
+[x] Not-relevant feedback signal
+[x] Feedback bound to the latest decision snapshot
+[x] Idempotent repeated feedback
+[x] Telegram feedback buttons
+[x] Safe missing-history and invalid-feedback responses
+
+Preserved:
+
+- feedback does not change decision rules;
+- feedback does not execute actions;
+- existing decision history retention remains unchanged.
