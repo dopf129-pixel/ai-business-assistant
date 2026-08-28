@@ -913,3 +913,25 @@ Preserved:
 - no causal claim;
 - no influence on decision rules;
 - no autonomous action execution.
+
+---
+
+# Safe Product Action Proposals v1 — 2026-08-28
+
+Completed:
+
+[x] ProductDecisionActionProposalService
+[x] Replenishment review proposal
+[x] Unit-economics review proposal
+[x] Margin review proposal
+[x] Monitoring-only proposal
+[x] Manual-confirmation boundary
+[x] Telegram next-step presentation
+[x] Assortment actionable-proposal count
+
+Preserved:
+
+- no replenishment quantity inference;
+- no price-change inference;
+- execution_allowed is always false;
+- Action/Executor workflow is not invoked.

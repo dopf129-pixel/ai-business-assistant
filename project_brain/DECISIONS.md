@@ -1184,3 +1184,38 @@ Reason:
 Status:
 
 Implemented
+
+---
+
+## Decision 021
+
+Date:
+
+2026-08-28
+
+Topic:
+
+Safe Product Action Proposals
+
+Decision:
+
+Следующий шаг по товарному решению формируется отдельным proposal-service и
+остаётся read-only до появления отдельного подтверждённого workflow.
+
+Rules:
+
+- все proposals имеют execution_allowed=False;
+- операционные проверки требуют ручного подтверждения;
+- monitoring-only не считается обязательным действием;
+- количество пополнения и изменение цены не рассчитываются без политики;
+- proposal-service не зависит от Action Executor;
+- Telegram отображает proposal, но не выполняет его.
+
+Reason:
+
+Ассистент должен давать конкретный следующий шаг, сохраняя границу между
+рекомендацией и изменением реального бизнеса.
+
+Status:
+
+Implemented

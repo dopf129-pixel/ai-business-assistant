@@ -119,6 +119,7 @@ def test_production_factory_builds_business_decision_query():
     assert query.unit_economics_query_service is not None
     assert query.decision_input_provider is not None
     assert query.decision_service is not None
+    assert query.action_proposal_service is not None
     assert callable(query.sales_metrics_source)
     assert callable(query.stock_metrics_source)
 
@@ -242,3 +243,19 @@ def test_factory_reuses_explicit_product_decision_history_service():
     )
 
     assert query.decision_history_service is history
+
+
+def test_production_query_exposes_non_executable_action_proposal():
+    query = create_product_business_decision_query(
+        core_components=_core(),
+        metrics_service=StubMetricsService(),
+        stock_intelligence_service=StockIntelligenceService(),
+    )
+
+    result = query.query("hook-2")
+
+    assert result["action_proposal"]["available"] is True
+    assert result["action_proposal"]["proposal_type"] == (
+        "REVIEW_REPLENISHMENT"
+    )
+    assert result["action_proposal"]["execution_allowed"] is False

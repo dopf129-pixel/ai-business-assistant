@@ -7,6 +7,9 @@ from app.services.product_business_decision_service import (
 from app.services.product_decision_input_provider import (
     ProductDecisionInputProvider,
 )
+from app.services.product_decision_action_proposal_service import (
+    ProductDecisionActionProposalService,
+)
 
 
 class StubProductService:
@@ -84,6 +87,7 @@ def _service(
     cache_ttl_seconds=600,
     clock=None,
     decision_history_service=None,
+    action_proposal_service=None,
 ):
     return ProductBusinessDecisionQueryService(
         product_service=StubProductService(
@@ -103,6 +107,7 @@ def _service(
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService(),
         decision_history_service=decision_history_service,
+        action_proposal_service=action_proposal_service,
         cache_ttl_seconds=cache_ttl_seconds,
         clock=clock,
     )
@@ -517,3 +522,31 @@ def test_insufficient_decision_does_not_reach_history_service():
     service.query("hook-2")
 
     assert history.calls == []
+
+
+def test_query_attaches_safe_action_proposal_before_caching():
+    service = _service(
+        action_proposal_service=ProductDecisionActionProposalService()
+    )
+
+    first = service.query("hook-2")
+    second = service.query("hook-2")
+
+    proposal = first["action_proposal"]
+    assert proposal["proposal_type"] == "REVIEW_REPLENISHMENT"
+    assert proposal["requires_confirmation"] is True
+    assert proposal["execution_allowed"] is False
+    assert second["action_proposal"] == proposal
+
+
+def test_query_all_counts_actionable_proposals():
+    service = _service(
+        action_proposal_service=ProductDecisionActionProposalService()
+    )
+
+    result = service.query_all()
+
+    assert result["actionable_proposals_count"] == 1
+    assert result["proposal_counts"] == {
+        "REVIEW_REPLENISHMENT": 1,
+    }

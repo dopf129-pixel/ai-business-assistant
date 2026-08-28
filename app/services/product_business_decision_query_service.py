@@ -25,6 +25,7 @@ class ProductBusinessDecisionQueryService:
         decision_input_provider,
         decision_service,
         decision_history_service=None,
+        action_proposal_service=None,
         cache_ttl_seconds=600,
         clock=None
     ):
@@ -35,6 +36,7 @@ class ProductBusinessDecisionQueryService:
         self.decision_input_provider = decision_input_provider
         self.decision_service = decision_service
         self.decision_history_service = decision_history_service
+        self.action_proposal_service = action_proposal_service
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
         self.clock = clock or monotonic
         self._decision_cache = {}
@@ -62,8 +64,10 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
-        result = self._with_decision_history(
-            self._query_product(sku, product)
+        result = self._with_action_proposal(
+            self._with_decision_history(
+                self._query_product(sku, product)
+            )
         )
         self._store_decision(sku, result)
         return deepcopy(result)
@@ -135,8 +139,10 @@ class ProductBusinessDecisionQueryService:
             seen_skus.add(sku)
             decision = self._cached_decision(sku)
             if decision is None:
-                decision = self._with_decision_history(
-                    self._query_product(sku, normalized)
+                decision = self._with_action_proposal(
+                    self._with_decision_history(
+                        self._query_product(sku, normalized)
+                    )
                 )
                 self._store_decision(sku, decision)
             decisions.append(deepcopy(decision))
@@ -148,6 +154,14 @@ class ProductBusinessDecisionQueryService:
             "code": None,
             "total": len(decisions),
             "counts": self._decision_counts(decisions),
+            "proposal_counts": self._proposal_counts(decisions),
+            "actionable_proposals_count": sum(
+                1
+                for decision in decisions
+                if (decision.get("action_proposal") or {}).get(
+                    "action_required"
+                )
+            ),
             "decisions": decisions,
         }
 
@@ -172,6 +186,17 @@ class ProductBusinessDecisionQueryService:
                 or self.CODE_INSUFFICIENT_DATA
             )
             counts[decision_type] = counts.get(decision_type, 0) + 1
+        return counts
+
+    def _proposal_counts(self, decisions):
+        counts = {}
+        for decision in decisions:
+            proposal_type = (decision.get("action_proposal") or {}).get(
+                "proposal_type"
+            )
+            if proposal_type is None:
+                continue
+            counts[proposal_type] = counts.get(proposal_type, 0) + 1
         return counts
 
     def _cached_decision(self, sku):
@@ -216,6 +241,15 @@ class ProductBusinessDecisionQueryService:
                 "decision_changed": False,
             }
         result.update(context or {})
+        return result
+
+    def _with_action_proposal(self, decision):
+        result = deepcopy(decision)
+        if self.action_proposal_service is None:
+            return result
+        result["action_proposal"] = (
+            self.action_proposal_service.propose(result)
+        )
         return result
 
     def _extract_sku(self, request):

@@ -68,6 +68,13 @@ class AssistantButtonHandlerService:
         "DECISION_CHANGED": "Рекомендация изменилась при том же приоритете"
     }
 
+    ACTION_PROPOSAL_LABELS = {
+        "REVIEW_REPLENISHMENT": "Проверить возможность пополнения",
+        "REVIEW_UNIT_ECONOMICS": "Проверить юнит-экономику и расходы",
+        "REVIEW_MARGIN": "Проверить цену, расходы и маржу",
+        "MONITOR_ONLY": "Продолжить наблюдение за товаром"
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -449,9 +456,11 @@ class AssistantButtonHandlerService:
                 + str(counts.get("WATCH_LOW_MARGIN", 0))
             ),
             (
-                "Недостаточно данных: "
+            "Недостаточно данных: "
                 + str(counts.get("INSUFFICIENT_DATA", 0))
             ),
+            "Предложений к ручной проверке: "
+            + str(overview.get("actionable_proposals_count", 0)),
             "",
             "Товары отсортированы по срочности.",
         ])
@@ -728,6 +737,20 @@ class AssistantButtonHandlerService:
                     str(outcome)
                 ),
             ])
+
+        proposal = result.get("action_proposal") or {}
+        if proposal.get("available"):
+            proposal_type = proposal.get("proposal_type")
+            lines.extend([
+                "",
+                "Следующий шаг:",
+                self.ACTION_PROPOSAL_LABELS.get(
+                    proposal_type,
+                    str(proposal_type)
+                ),
+            ])
+            if proposal.get("requires_confirmation"):
+                lines.append("⚠️ Требует ручного подтверждения.")
 
         lines.extend([
             "",

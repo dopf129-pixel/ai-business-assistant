@@ -649,3 +649,22 @@ Latest Five Product Decision Changes
 
 These read paths expose stored facts only. They do not calculate success rates,
 change recommendations, or trigger actions.
+
+Safe action proposal flow:
+
+Product Business Decision
+
+↓
+
+ProductDecisionActionProposalService
+
+↓
+
+Read-only Manual Proposal
+
+Proposal rules:
+
+- execution_allowed is always false;
+- operational review proposals require manual confirmation;
+- no quantity, price, or external mutation is inferred;
+- the proposal layer has no dependency on Action Executor.

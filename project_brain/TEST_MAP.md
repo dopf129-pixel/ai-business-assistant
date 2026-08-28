@@ -1518,3 +1518,34 @@ Tests:
 - доступ к истории из карточки товара;
 - ограничение истории пятью последними снимками в UI;
 - перевод решений, приоритетов, feedback и наблюдений.
+
+---
+
+# Safe Product Action Proposals v1
+
+Services:
+
+- ProductDecisionActionProposalService
+- ProductBusinessDecisionQueryService
+- AssistantButtonHandlerService
+
+Composition:
+
+- product_business_decision_factory.py
+
+Tests:
+
+- tests/test_product_decision_action_proposal_service.py
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_production_wiring.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- безопасное сопоставление каждого типа решения с proposal;
+- обязательное подтверждение для операционных проверок;
+- monitoring-only без обязательного действия;
+- постоянный execution_allowed=False;
+- сохранение proposal в query cache;
+- подсчёт предложений по ассортименту;
+- русское представление следующего шага без технических кодов.
