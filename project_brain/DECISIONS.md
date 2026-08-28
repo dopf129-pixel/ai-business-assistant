@@ -1055,3 +1055,51 @@ Result:
 Development Infrastructure становится
 инструментом ускорения разработки
 AI Assistant.
+
+---
+
+## Decision 018
+
+Date:
+
+2026-08-28
+
+Topic:
+
+Product Decision Memory
+
+Decision:
+
+История бизнес-решений по товарам хранится отдельно от технической
+`product_memory` и общей памяти задач.
+
+Architecture:
+
+ProductBusinessDecisionQueryService
+
+↓
+
+ProductDecisionHistoryService
+
+↓
+
+ProductDecisionHistoryStorageService
+
+Rules:
+
+- сохраняются только успешные решения;
+- первая запись является базовой точкой;
+- новая запись создаётся только при изменении типа решения или приоритета;
+- история ограничена 50 записями на артикул;
+- память не влияет на решение и не запускает действия;
+- путь хранилища передаётся через dependency injection.
+
+Reason:
+
+Развитие рекомендаций требует наблюдаемой истории изменений, но смешивание
+её с техническими метриками товара или task memory нарушило бы границы
+ответственности существующих компонентов.
+
+Status:
+
+Implemented
