@@ -1608,3 +1608,30 @@ Tests:
 - отсутствие выполнений и разрешения на выполнение;
 - Telegram-сводку и переход из меню решений;
 - production wiring отдельного draft-service.
+
+---
+
+# Product Task Draft Review Lifecycle v1
+
+Services:
+
+- ProductActionTaskDraftService
+- ProductBusinessDecisionQueryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_action_task_draft_service.py
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- устаревание черновика после изменения снимка или proposal;
+- сохранение актуального черновика при полном совпадении;
+- идемпотентный терминальный архив;
+- миграцию legacy-записей с назначением draft_id;
+- reconcile в decision query pipeline;
+- Telegram-сводку состояний и безопасную кнопку архива;
+- постоянный executed=False.

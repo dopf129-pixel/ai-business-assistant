@@ -6,6 +6,8 @@ class ProductActionTaskDraftService:
 
     STATUS_DRAFT = "DRAFT"
     STATUS_DISMISSED = "DISMISSED"
+    STATUS_STALE = "STALE"
+    STATUS_ARCHIVED = "ARCHIVED"
 
     def __init__(self, storage_service=None, clock=None):
         self.storage_service = storage_service
@@ -37,10 +39,19 @@ class ProductActionTaskDraftService:
             self.STATUS_DRAFT
         ):
             return self._result(self.records[index], saved=False)
+        if index is not None and self.records[index].get("status") == (
+            self.STATUS_ARCHIVED
+        ):
+            return self._result(self.records[index], saved=False)
 
         now = str(self.clock())
         record = {
             "draft_key": draft_key,
+            "draft_id": (
+                self.records[index].get("draft_id")
+                if index is not None
+                else self._next_draft_id()
+            ),
             "sku": sku,
             "proposal_type": proposal_type,
             "status": self.STATUS_DRAFT,
@@ -62,6 +73,57 @@ class ProductActionTaskDraftService:
             self.records.append(record)
         else:
             self.records[index] = record
+        self._save_records()
+        return self._result(record, saved=True)
+
+    def reconcile(
+        self,
+        sku,
+        current_proposal_type,
+        current_decision_recorded_at,
+    ):
+        sku = str(sku or "").strip()
+        current_key = self._draft_key(
+            sku,
+            str(current_proposal_type or "").strip().upper(),
+            str(current_decision_recorded_at or "").strip(),
+        )
+        changed = []
+        for record in self.records:
+            if (
+                str(record.get("sku")) != sku
+                or record.get("status") != self.STATUS_DRAFT
+                or record.get("draft_key") == current_key
+            ):
+                continue
+            record["status"] = self.STATUS_STALE
+            record["updated_at"] = str(self.clock())
+            changed.append(deepcopy(record))
+        if changed:
+            self._save_records()
+        return {
+            "error": False,
+            "stale_count": len(changed),
+            "stale_drafts": changed,
+            "executed": False,
+            "execution_allowed": False,
+        }
+
+    def archive(self, draft_id):
+        index = self._index_by_id(draft_id)
+        if index is None:
+            return self._error("TASK_DRAFT_NOT_FOUND", None)
+        record = self.records[index]
+        if record.get("status") == self.STATUS_ARCHIVED:
+            return self._result(record, saved=False)
+        if record.get("status") not in {
+            self.STATUS_DRAFT,
+            self.STATUS_STALE,
+            self.STATUS_DISMISSED,
+        }:
+            return self._error("TASK_DRAFT_NOT_ARCHIVABLE", record.get("sku"))
+        record["status"] = self.STATUS_ARCHIVED
+        record["updated_at"] = str(self.clock())
         self._save_records()
         return self._result(record, saved=True)
 
@@ -109,7 +171,12 @@ class ProductActionTaskDraftService:
         return items
 
     def summary(self):
-        counts = {self.STATUS_DRAFT: 0, self.STATUS_DISMISSED: 0}
+        counts = {
+            self.STATUS_DRAFT: 0,
+            self.STATUS_STALE: 0,
+            self.STATUS_DISMISSED: 0,
+            self.STATUS_ARCHIVED: 0,
+        }
         for record in self.records:
             status = record.get("status")
             if status in counts:
@@ -130,6 +197,21 @@ class ProductActionTaskDraftService:
             if record.get("draft_key") == key:
                 return index
         return None
+
+    def _index_by_id(self, draft_id):
+        draft_id = str(draft_id or "").strip()
+        for index, record in enumerate(self.records):
+            if str(record.get("draft_id")) == draft_id:
+                return index
+        return None
+
+    def _next_draft_id(self):
+        maximum = 0
+        for record in self.records:
+            value = str(record.get("draft_id") or "")
+            if value.startswith("d") and value[1:].isdigit():
+                maximum = max(maximum, int(value[1:]))
+        return "d" + str(maximum + 1)
 
     def _result(self, record, saved):
         return {
@@ -158,7 +240,24 @@ class ProductActionTaskDraftService:
         records = self.storage_service.load()
         if not isinstance(records, list):
             return []
-        return [dict(item) for item in records if isinstance(item, dict)]
+        normalized = [
+            dict(item) for item in records if isinstance(item, dict)
+        ]
+        used = {
+            str(item.get("draft_id"))
+            for item in normalized
+            if item.get("draft_id")
+        }
+        next_number = 1
+        for item in normalized:
+            if item.get("draft_id"):
+                continue
+            while "d" + str(next_number) in used:
+                next_number += 1
+            item["draft_id"] = "d" + str(next_number)
+            used.add(item["draft_id"])
+            next_number += 1
+        return normalized
 
     def _save_records(self):
         if self.storage_service is not None:

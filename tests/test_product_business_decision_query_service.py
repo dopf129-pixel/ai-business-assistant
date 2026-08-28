@@ -543,6 +543,42 @@ def test_query_attaches_safe_action_proposal_before_caching():
     assert second["action_proposal"] == proposal
 
 
+def test_query_reconciles_task_drafts_with_current_decision_snapshot():
+    class StubDraftLifecycle:
+        def __init__(self):
+            self.calls = []
+
+        def reconcile(
+            self,
+            sku,
+            current_proposal_type,
+            current_decision_recorded_at,
+        ):
+            self.calls.append((
+                sku,
+                current_proposal_type,
+                current_decision_recorded_at,
+            ))
+            return {
+                "error": False,
+                "stale_count": 1,
+                "executed": False,
+            }
+
+    drafts = StubDraftLifecycle()
+    service = _service(
+        action_proposal_service=ProductDecisionActionProposalService()
+    )
+    service.action_task_draft_service = drafts
+
+    result = service.query("hook-2")
+
+    assert drafts.calls[0][0] == "hook-2"
+    assert drafts.calls[0][1] == "REVIEW_REPLENISHMENT"
+    assert result["task_draft_lifecycle"]["stale_count"] == 1
+    assert result["task_draft_lifecycle"]["executed"] is False
+
+
 def test_query_all_counts_actionable_proposals():
     service = _service(
         action_proposal_service=ProductDecisionActionProposalService()

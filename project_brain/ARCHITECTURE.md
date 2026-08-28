@@ -704,3 +704,19 @@ Persistent Read-only Product Task Draft
 The draft key identifies one proposal for one decision snapshot. Drafts may be
 listed or dismissed, but they are not converted to AssistantTaskService tasks,
 do not enter Action Pipeline, and cannot reach an executor or external API.
+
+Draft review lifecycle:
+
+Current Decision Snapshot + Current Actionable Proposal
+
+↓
+
+ProductActionTaskDraftService.reconcile
+
+↓
+
+Keep DRAFT or mark previous DRAFT as STALE
+
+Telegram may archive DRAFT, STALE, or DISMISSED records. ARCHIVED is terminal.
+These are storage lifecycle transitions only: every path preserves
+execution_allowed=False and executed=False.

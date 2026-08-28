@@ -484,6 +484,7 @@ class StubProposalConfirmation:
 class StubTaskDrafts:
     def __init__(self):
         self.record = {
+            "draft_id": "d1",
             "sku": "hook-2",
             "proposal_type": "REVIEW_REPLENISHMENT",
             "status": "DRAFT",
@@ -501,6 +502,17 @@ class StubTaskDrafts:
             "counts": {"DRAFT": 1, "DISMISSED": 0},
             "drafts": [dict(self.record)],
             "executed_count": 0,
+        }
+
+    def archive(self, draft_id):
+        if draft_id != self.record["draft_id"]:
+            return {"error": True, "code": "TASK_DRAFT_NOT_FOUND"}
+        self.record["status"] = "ARCHIVED"
+        return {
+            "error": False,
+            "task_draft": dict(self.record),
+            "saved": True,
+            "executed": False,
         }
 
 
@@ -708,3 +720,20 @@ def test_task_draft_summary_is_available_from_decisions_menu():
     assert "Ожидают подготовки: 1" in summary["message"]
     assert "Выполнено: 0" in summary["message"]
     assert "не изменяют данные Ozon" in summary["message"]
+
+
+def test_task_draft_summary_offers_safe_archive_action():
+    confirmation = StubProposalConfirmation()
+    confirmation.task_draft_service = StubTaskDrafts()
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    summary = handler.handle("product_action_task_drafts")
+    callbacks = [
+        item["callback"] for item in summary["keyboard"]["buttons"]
+    ]
+    archived = handler.handle("product_task_draft:archive:d1")
+
+    assert callbacks == ["product_task_draft:archive:d1"]
+    assert archived["error"] is False
+    assert archived["executed"] is False
+    assert "Выполнение не запускалось" in archived["message"]
