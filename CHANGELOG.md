@@ -2,6 +2,17 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Product Action Proposal Confirmation v1
+
+- actionable product proposals can be confirmed or dismissed in Telegram;
+- status is attached to the latest decision snapshot and repeated input is
+  idempotent;
+- stale proposals are rejected against the latest stored decision;
+- every confirmation result explicitly keeps `executed=False` and
+  `execution_allowed=False`;
+- confirmation records intent only; no Action Executor or Ozon mutation is
+  connected.
+
 ## 2026-08-28 — Product Decisions v3
 
 - добавлен сводный обзор решений по ассортименту;
