@@ -874,3 +874,22 @@ Preserved:
 - feedback does not change decision rules;
 - feedback does not execute actions;
 - existing decision history retention remains unchanged.
+
+---
+
+# Product Decision Outcome Correlation v1 — 2026-08-28
+
+Completed:
+
+[x] Prior feedback linked to the next changed decision
+[x] Priority decrease observation
+[x] Priority increase observation
+[x] Same-priority decision change observation
+[x] No inference without explicit feedback
+[x] Non-causal Telegram wording
+
+Preserved:
+
+- observations do not alter decision rules;
+- observations do not prove action causality;
+- no autonomous action execution.
