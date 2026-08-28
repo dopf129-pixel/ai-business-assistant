@@ -188,6 +188,18 @@ class AssistantButtonHandlerService:
                 page = 1
             return self._open_product_decisions_menu(page=page)
 
+        if button_id.startswith("product_decision_feedback:"):
+            parts = button_id.split(":", 2)
+            if len(parts) != 3:
+                return {
+                    "error": True,
+                    "message": "Некорректная оценка решения"
+                }
+            return self._record_product_decision_feedback(
+                feedback=parts[1],
+                sku=parts[2]
+            )
+
         if button_id.startswith(
             "product_decision:"
         ):
@@ -466,7 +478,7 @@ class AssistantButtonHandlerService:
             )
         )
 
-        return {
+        response = {
             "error": result.get(
                 "error",
                 False
@@ -475,6 +487,53 @@ class AssistantButtonHandlerService:
                 result
             ),
             "decision": result
+        }
+
+        if (
+            not response["error"]
+            and result.get("decision_history_available")
+            and self.keyboard_service
+        ):
+            response["keyboard"] = (
+                self.keyboard_service
+                .build_product_decision_feedback_keyboard(sku)
+            )
+
+        return response
+
+    def _record_product_decision_feedback(self, feedback, sku):
+        history_service = getattr(
+            self.product_business_decision_query,
+            "decision_history_service",
+            None
+        )
+        if history_service is None:
+            return {
+                "error": True,
+                "message": "История решений недоступна"
+            }
+
+        result = history_service.record_feedback(sku, feedback)
+        if result.get("error"):
+            if result.get("code") == "DECISION_HISTORY_NOT_FOUND":
+                message = "Сначала откройте актуальное решение по товару"
+            else:
+                message = "Некорректная оценка решения"
+            return {
+                "error": True,
+                "message": message,
+                "feedback": result,
+            }
+
+        label = (
+            "решение полезно"
+            if result.get("feedback") == "USEFUL"
+            else "решение неактуально"
+        )
+        return {
+            "error": False,
+            "message": "Оценка сохранена: " + label + ".",
+            "feedback": result,
         }
 
 

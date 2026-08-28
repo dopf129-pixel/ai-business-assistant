@@ -111,3 +111,38 @@ def test_json_storage_persists_and_recovers_history(tmp_path):
         "REPLENISH_HIGH_PRIORITY"
     )
     assert not file_path.with_suffix(".json.tmp").exists()
+
+
+def test_feedback_is_attached_to_latest_decision_and_is_idempotent():
+    storage = MemoryStorage()
+    timestamps = iter(["decision-time", "feedback-time"])
+    service = ProductDecisionHistoryService(
+        storage_service=storage,
+        clock=lambda: next(timestamps),
+    )
+    service.record(_decision())
+
+    saved = service.record_feedback("hook-2", "useful")
+    repeated = service.record_feedback("hook-2", "USEFUL")
+
+    assert saved == {
+        "error": False,
+        "code": None,
+        "sku": "hook-2",
+        "feedback": "USEFUL",
+        "saved": True,
+    }
+    assert repeated["saved"] is False
+    assert service.latest("hook-2")["feedback"] == "USEFUL"
+    assert service.latest("hook-2")["feedback_at"] == "feedback-time"
+    assert storage.save_calls == 2
+
+
+def test_feedback_requires_valid_value_and_existing_decision():
+    service = ProductDecisionHistoryService(storage_service=MemoryStorage())
+
+    invalid = service.record_feedback("hook-2", "maybe")
+    missing = service.record_feedback("hook-2", "not_relevant")
+
+    assert invalid["code"] == "INVALID_FEEDBACK"
+    assert missing["code"] == "DECISION_HISTORY_NOT_FOUND"

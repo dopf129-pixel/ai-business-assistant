@@ -593,3 +593,27 @@ Responsibilities:
 
 The history is observational. It does not modify decision rules and does not
 trigger actions.
+
+Feedback flow:
+
+Telegram Decision Card
+
+↓
+
+AssistantButtonHandlerService
+
+↓
+
+ProductDecisionHistoryService.record_feedback
+
+↓
+
+Latest Decision Snapshot
+
+Allowed signals:
+
+- USEFUL
+- NOT_RELEVANT
+
+Feedback remains observational until a separate outcome-correlation stage is
+implemented and validated.
