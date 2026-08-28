@@ -81,6 +81,8 @@ def _service(
     sales=None,
     stock=None,
     economics=None,
+    cache_ttl_seconds=600,
+    clock=None,
 ):
     return ProductBusinessDecisionQueryService(
         product_service=StubProductService(
@@ -99,6 +101,8 @@ def _service(
         ),
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService(),
+        cache_ttl_seconds=cache_ttl_seconds,
+        clock=clock,
     )
 
 
@@ -414,3 +418,52 @@ def test_query_all_uses_seller_offer_id_and_deduplicates_products():
     assert calls == ["hook-2", "internal-2"]
     assert result["total"] == 2
     assert result["counts"] == {"INSUFFICIENT_DATA": 2}
+
+
+def test_successful_decision_is_cached_and_protected_from_mutation():
+    now = [100.0]
+    service = _service(clock=lambda: now[0])
+
+    first = service.query("hook-2")
+    first["reasons"].append("EXTERNAL_MUTATION")
+    second = service.query("hook-2")
+
+    assert service.sales_metrics_source.calls == ["hook-2"]
+    assert service.stock_metrics_source.calls == ["hook-2"]
+    assert service.unit_economics_query_service.calls == ["hook-2"]
+    assert "EXTERNAL_MUTATION" not in second["reasons"]
+
+
+def test_decision_cache_expires_after_configured_ttl():
+    now = [100.0]
+    service = _service(
+        cache_ttl_seconds=600,
+        clock=lambda: now[0],
+    )
+
+    service.query("hook-2")
+    now[0] = 701.0
+    service.query("hook-2")
+
+    assert service.unit_economics_query_service.calls == [
+        "hook-2",
+        "hook-2",
+    ]
+
+
+def test_insufficient_decision_is_not_cached_as_fresh_data():
+    service = _service(
+        economics=_economics(
+            net_profit_per_unit=None,
+            margin_percent=None,
+            missing_fields=["tax"],
+        )
+    )
+
+    service.query("hook-2")
+    service.query("hook-2")
+
+    assert service.unit_economics_query_service.calls == [
+        "hook-2",
+        "hook-2",
+    ]
