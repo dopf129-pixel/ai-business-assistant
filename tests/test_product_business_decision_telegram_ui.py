@@ -304,6 +304,32 @@ def test_product_decision_card_shows_previous_decision_after_change():
     assert "REPLENISH_HIGH_PRIORITY" not in message
 
 
+def test_product_decision_card_explains_correlated_outcome():
+    handler, _, _ = _handler(
+        {
+            "error": False,
+            "code": None,
+            "product_id": "101",
+            "sku": "hook-2",
+            "decision_type": "HOLD_STOCK",
+            "priority": "LOW",
+            "reasons": ["POSITIVE_UNIT_PROFIT"],
+            "confidence": "HIGH",
+            "missing_data": [],
+            "decision_changed": True,
+            "previous_decision_type": "REPLENISH_HIGH_PRIORITY",
+            "previous_feedback": "USEFUL",
+            "decision_outcome": "PRIORITY_DECREASED",
+        }
+    )
+
+    message = handler.handle("product_decision:hook-2")["message"]
+
+    assert "Наблюдение после прошлой оценки:" in message
+    assert "Срочность рекомендации снизилась" in message
+    assert "PRIORITY_DECREASED" not in message
+
+
 class StubDecisionHistory:
     def __init__(self, result=None):
         self.result = result or {
