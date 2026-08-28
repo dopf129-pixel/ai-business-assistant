@@ -1549,3 +1549,31 @@ Tests:
 - сохранение proposal в query cache;
 - подсчёт предложений по ассортименту;
 - русское представление следующего шага без технических кодов.
+
+---
+
+# Product Action Proposal Confirmation v1
+
+Services:
+
+- ProductActionProposalConfirmationService
+- ProductDecisionHistoryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_action_proposal_confirmation_service.py
+- tests/test_product_decision_history_service.py
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_production_wiring.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- сохранение подтверждения и отклонения как намерения;
+- идемпотентность повторного статуса;
+- отклонение устаревшего и monitoring-only proposal;
+- production wiring confirmation-service;
+- Telegram callbacks и явный executed=False;
+- отсутствие зависимости от Action Executor.
