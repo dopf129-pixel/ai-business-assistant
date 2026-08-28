@@ -4,6 +4,14 @@ class ProductBusinessDecisionQueryService:
     CODE_SKU_NOT_FOUND = "SKU_NOT_FOUND"
     CODE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 
+    PRIORITY_ORDER = {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "NORMAL": 2,
+        "LOW": 3,
+        "NONE": 4,
+    }
+
     def __init__(
         self,
         product_service,
@@ -39,6 +47,9 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
+        return self._query_product(sku, product)
+
+    def _query_product(self, sku, product):
         product_id = product.get("product_id")
 
         sales_metrics = self._query_prepared_source(
@@ -84,6 +95,59 @@ class ProductBusinessDecisionQueryService:
             **metrics_context,
             **economics_context
         }
+
+    def query_all(self):
+        decisions = []
+        seen_skus = set()
+
+        for product in self.product_service.load_products() or []:
+            normalized = self._normalize_product(product)
+            if normalized is None:
+                continue
+
+            sku = normalized.get("offer_id") or normalized.get("sku")
+            if sku is None:
+                continue
+
+            sku = str(sku).strip()
+            if not sku or sku in seen_skus:
+                continue
+
+            seen_skus.add(sku)
+            decisions.append(self._query_product(sku, normalized))
+
+        decisions.sort(key=self._portfolio_sort_key)
+
+        return {
+            "error": False,
+            "code": None,
+            "total": len(decisions),
+            "counts": self._decision_counts(decisions),
+            "decisions": decisions,
+        }
+
+    def _portfolio_sort_key(self, decision):
+        priority = str(decision.get("priority") or "NONE").upper()
+        days_of_stock = decision.get("days_of_stock")
+        try:
+            stock_key = float(days_of_stock)
+        except (TypeError, ValueError):
+            stock_key = float("inf")
+        return (
+            self.PRIORITY_ORDER.get(priority, 5),
+            stock_key,
+            str(decision.get("sku") or ""),
+        )
+
+    def _decision_counts(self, decisions):
+        counts = {}
+        for decision in decisions:
+            decision_type = str(
+                decision.get("decision_type")
+                or self.CODE_INSUFFICIENT_DATA
+            )
+            counts[decision_type] = counts.get(decision_type, 0) + 1
+        return counts
 
     def _extract_sku(self, request):
         if isinstance(request, dict):
