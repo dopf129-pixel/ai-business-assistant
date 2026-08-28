@@ -4,9 +4,15 @@ class ProductActionProposalConfirmationService:
     STATUS_DISMISSED = "DISMISSED"
     ALLOWED_STATUSES = {STATUS_CONFIRMED, STATUS_DISMISSED}
 
-    def __init__(self, history_service, proposal_service):
+    def __init__(
+        self,
+        history_service,
+        proposal_service,
+        task_draft_service=None,
+    ):
         self.history_service = history_service
         self.proposal_service = proposal_service
+        self.task_draft_service = task_draft_service
 
     def decide(self, sku, expected_proposal_type, status):
         sku = str(sku or "").strip()
@@ -39,11 +45,38 @@ class ProductActionProposalConfirmationService:
                 "executed": False,
                 "execution_allowed": False,
             }
-        return {
+        result = {
             **saved,
             "executed": False,
             "execution_allowed": False,
         }
+        result["task_draft"] = self._update_task_draft(
+            latest,
+            proposal,
+            normalized_status,
+        )
+        return result
+
+    def _update_task_draft(self, decision, proposal, status):
+        if self.task_draft_service is None:
+            return None
+        try:
+            if status == self.STATUS_CONFIRMED:
+                result = self.task_draft_service.create_from_confirmation(
+                    decision,
+                    proposal,
+                )
+            else:
+                result = self.task_draft_service.dismiss(
+                    sku=decision.get("sku"),
+                    proposal_type=proposal.get("proposal_type"),
+                    decision_recorded_at=decision.get("recorded_at"),
+                )
+        except (OSError, ValueError, TypeError):
+            return None
+        if result.get("error"):
+            return None
+        return result.get("task_draft")
 
     def _error(self, code, sku, expected, actual=None):
         return {
