@@ -1577,3 +1577,34 @@ Tests:
 - production wiring confirmation-service;
 - Telegram callbacks и явный executed=False;
 - отсутствие зависимости от Action Executor.
+
+---
+
+# Confirmed Product Task Drafts v1
+
+Services:
+
+- ProductActionTaskDraftService
+- ProductActionTaskDraftStorageService
+- ProductActionProposalConfirmationService
+- AssistantButtonHandlerService
+
+Composition:
+
+- product_business_decision_factory.py
+
+Tests:
+
+- tests/test_product_action_task_draft_service.py
+- tests/test_product_action_proposal_confirmation_service.py
+- tests/test_product_business_decision_production_wiring.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- создание одного черновика на снимок решения;
+- постоянное хранение и восстановление;
+- закрытие черновика после отклонения;
+- отсутствие выполнений и разрешения на выполнение;
+- Telegram-сводку и переход из меню решений;
+- production wiring отдельного draft-service.
