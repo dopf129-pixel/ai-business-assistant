@@ -73,9 +73,11 @@ class ProductBusinessDecisionQueryService:
                 missing_data=["sku"]
             )
 
-        result = self._with_action_proposal(
-            self._with_decision_history(
-                self._query_product(sku, product)
+        result = self._with_task_draft_lifecycle(
+            self._with_action_proposal(
+                self._with_decision_history(
+                    self._query_product(sku, product)
+                )
             )
         )
         self._store_decision(sku, result)
@@ -148,9 +150,11 @@ class ProductBusinessDecisionQueryService:
             seen_skus.add(sku)
             decision = self._cached_decision(sku)
             if decision is None:
-                decision = self._with_action_proposal(
-                    self._with_decision_history(
-                        self._query_product(sku, normalized)
+                decision = self._with_task_draft_lifecycle(
+                    self._with_action_proposal(
+                        self._with_decision_history(
+                            self._query_product(sku, normalized)
+                        )
                     )
                 )
                 self._store_decision(sku, decision)
@@ -259,6 +263,31 @@ class ProductBusinessDecisionQueryService:
         result["action_proposal"] = (
             self.action_proposal_service.propose(result)
         )
+        return result
+
+    def _with_task_draft_lifecycle(self, decision):
+        result = deepcopy(decision)
+        service = self.action_task_draft_service
+        if service is None or result.get("error"):
+            return result
+        proposal = result.get("action_proposal") or {}
+        current_proposal_type = (
+            proposal.get("proposal_type")
+            if proposal.get("action_required")
+            else None
+        )
+        try:
+            lifecycle = service.reconcile(
+                sku=result.get("sku"),
+                current_proposal_type=current_proposal_type,
+                current_decision_recorded_at=(
+                    result.get("decision_recorded_at")
+                ),
+            )
+        except (OSError, ValueError, TypeError):
+            lifecycle = None
+        if lifecycle:
+            result["task_draft_lifecycle"] = lifecycle
         return result
 
     def _extract_sku(self, request):
