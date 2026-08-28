@@ -51,6 +51,7 @@ class StubDecisionQuery:
             "decision_margin_percent": 36.56,
         }
         self.calls = []
+        self.decision_history_service = None
 
     def query(self, sku):
         self.calls.append(sku)
@@ -78,9 +79,10 @@ class StubDecisionQuery:
         }
 
 
-def _handler(result=None, products=None):
+def _handler(result=None, products=None, history_service=None):
     keyboard = AssistantKeyboardService()
     query = StubDecisionQuery(result=result, products=products)
+    query.decision_history_service = history_service
     handler = AssistantButtonHandlerService(
         assistant=StubAssistant(),
         keyboard_service=keyboard,
@@ -300,3 +302,83 @@ def test_product_decision_card_shows_previous_decision_after_change():
         "Проверить низкую прибыльность"
     ) in message
     assert "REPLENISH_HIGH_PRIORITY" not in message
+
+
+class StubDecisionHistory:
+    def __init__(self, result=None):
+        self.result = result or {
+            "error": False,
+            "code": None,
+            "sku": "hook-2",
+            "feedback": "USEFUL",
+            "saved": True,
+        }
+        self.calls = []
+
+    def record_feedback(self, sku, feedback):
+        self.calls.append((sku, feedback))
+        result = dict(self.result)
+        result["sku"] = sku
+        result["feedback"] = str(feedback).upper()
+        return result
+
+
+def test_product_decision_card_offers_manual_feedback_buttons():
+    result = {
+        "error": False,
+        "code": None,
+        "product_id": "101",
+        "sku": "hook-2",
+        "decision_type": "HOLD_STOCK",
+        "priority": "LOW",
+        "reasons": ["POSITIVE_UNIT_PROFIT"],
+        "confidence": "HIGH",
+        "missing_data": [],
+        "decision_history_available": True,
+    }
+    handler, _, _ = _handler(
+        result=result,
+        history_service=StubDecisionHistory(),
+    )
+
+    response = handler.handle("product_decision:hook-2")
+    callbacks = [
+        item["callback"]
+        for item in response["keyboard"]["buttons"]
+    ]
+
+    assert callbacks == [
+        "product_decision_feedback:useful:hook-2",
+        "product_decision_feedback:not_relevant:hook-2",
+    ]
+
+
+def test_product_decision_feedback_callback_records_signal():
+    history = StubDecisionHistory()
+    handler, _, _ = _handler(history_service=history)
+
+    response = handler.handle(
+        "product_decision_feedback:useful:hook-2"
+    )
+
+    assert history.calls == [("hook-2", "useful")]
+    assert response["error"] is False
+    assert response["message"] == "Оценка сохранена: решение полезно."
+
+
+def test_product_decision_feedback_requires_recorded_history():
+    history = StubDecisionHistory({
+        "error": True,
+        "code": "DECISION_HISTORY_NOT_FOUND",
+        "saved": False,
+    })
+    handler, _, _ = _handler(history_service=history)
+
+    response = handler.handle(
+        "product_decision_feedback:not_relevant:missing"
+    )
+
+    assert response["error"] is True
+    assert response["message"] == (
+        "Сначала откройте актуальное решение по товару"
+    )
