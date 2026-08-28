@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Product Task Draft Detail and Audit v1
+
+- review queue items open a dedicated draft detail card;
+- cards show source decision metrics, lifecycle state, timestamps, and the
+  explicit non-executable boundary;
+- new drafts keep append-only lifecycle events for real state transitions;
+- idempotent repeated commands do not create duplicate audit events;
+- legacy drafts remain readable and explicitly report unavailable old history;
+- archived drafts expose no further lifecycle controls.
+
 ## 2026-08-28 — Product Draft Review Queue Prioritization v1
 
 - added a separate deterministic prioritizer for reviewable product drafts;
