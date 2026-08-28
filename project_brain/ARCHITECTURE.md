@@ -615,5 +615,20 @@ Allowed signals:
 - USEFUL
 - NOT_RELEVANT
 
-Feedback remains observational until a separate outcome-correlation stage is
-implemented and validated.
+Feedback remains observational and participates only in the separate
+outcome-correlation stage described below.
+
+Outcome correlation flow:
+
+Previous Decision + Manual Feedback
+
+↓
+
+Next Changed Decision
+
+↓
+
+Priority Decreased / Priority Increased / Decision Changed
+
+The correlation is observational. It must not be presented as proof that the
+recommendation or a user action caused the later change.
