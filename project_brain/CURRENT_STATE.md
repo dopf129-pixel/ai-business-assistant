@@ -974,3 +974,22 @@ Preserved:
 - no replenishment quantity or price is inferred;
 - executed_count is always zero;
 - no existing Action Executor or Ozon mutation path is invoked.
+
+---
+
+# Product Task Draft Review Lifecycle v1 — 2026-08-28
+
+Completed:
+
+[x] Automatic stale detection against current decision snapshot
+[x] DRAFT / STALE / DISMISSED / ARCHIVED states
+[x] Compact identifiers for new and legacy drafts
+[x] Idempotent terminal archive action
+[x] Telegram lifecycle counts and archive controls
+[x] Current-card guard against old drafts
+
+Preserved:
+
+- lifecycle transitions never execute tasks;
+- archived drafts cannot be reopened implicitly;
+- no quantity, price, Ozon mutation, or Action Executor connection.
