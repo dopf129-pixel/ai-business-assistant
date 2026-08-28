@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Confirmed Product Task Drafts v1
+
+- confirmed actionable proposals create persistent product task drafts;
+- one draft is created per decision snapshot and repeated confirmation is
+  idempotent;
+- dismissing the proposal closes its matching draft;
+- Telegram exposes a draft summary and the draft state on product cards;
+- task drafts always keep `execution_allowed=False` and `executed=False`;
+- existing task executors and Ozon APIs are not connected.
+
 ## 2026-08-28 — Product Action Proposal Confirmation v1
 
 - actionable product proposals can be confirmed or dismissed in Telegram;
