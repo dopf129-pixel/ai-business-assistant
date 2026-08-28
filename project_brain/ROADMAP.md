@@ -255,19 +255,22 @@ Tasks:
 Current:
 
 
-[ ] Stock Intelligence Integration v1
+[x] Stock Intelligence Integration v1
+
+
+[x] Finance Intelligence
+
+
+[x] Cross-Domain Business Decisions
+
+
+[x] Recommendation Evolution v1 — Assortment Overview
 
 
 Next:
 
 
-[ ] Finance Intelligence
-
-
-[ ] Cross-Domain Business Decisions
-
-
-[ ] Recommendation Evolution
+[ ] Recommendation Evolution v2
 
 
 [ ] Memory / Learning

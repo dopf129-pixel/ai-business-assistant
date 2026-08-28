@@ -18,6 +18,23 @@ class AssistantButtonHandlerService:
         "NONE": "Нет"
     }
 
+    DECISION_BUTTON_LABELS = {
+        "REPLENISH_HIGH_PRIORITY": "Пополнить срочно",
+        "REPLENISH_NORMAL": "Пополнить",
+        "WATCH_LOW_MARGIN": "Низкая маржа",
+        "INVESTIGATE_LOW_PROFIT": "Проверить прибыль",
+        "HOLD_STOCK": "Наблюдать",
+        "INSUFFICIENT_DATA": "Нет данных"
+    }
+
+    DECISION_BUTTON_ICONS = {
+        "CRITICAL": "🔴",
+        "HIGH": "🟠",
+        "NORMAL": "🟡",
+        "LOW": "🟢",
+        "NONE": "⚪"
+    }
+
     CONFIDENCE_LABELS = {
         "HIGH": "Высокая",
         "MEDIUM": "Средняя",
@@ -313,42 +330,83 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        products = (
+        overview = (
             self.product_business_decision_query
-            .product_service
-            .load_products()
+            .query_all()
         )
+        decisions = overview.get("decisions") or []
 
-        skus = []
-
-        for product in (products or []):
-
-            sku = self._extract_sku(
-                product
-            )
-
-            if sku is not None:
-
-                skus.append(
-                    str(sku)
-                )
-
-        if not skus:
+        if not decisions:
 
             return {
                 "error": False,
                 "message": "Товары не найдены"
             }
 
+        items = [
+            self._product_decision_keyboard_item(decision)
+            for decision in decisions
+        ]
+
         return {
             "error": False,
-            "message": "Выберите товар:",
+            "message": self._format_product_decisions_overview(
+                overview
+            ),
             "keyboard": (
                 self.keyboard_service
                 .build_product_decisions_keyboard(
-                    skus
+                    items
                 )
-            )
+            ),
+            "overview": overview
+        }
+
+    def _format_product_decisions_overview(self, overview):
+        counts = overview.get("counts") or {}
+        return "\n".join([
+            "🎯 Решения по товарам",
+            "",
+            "Всего товаров: " + str(overview.get("total", 0)),
+            (
+                "Срочно пополнить: "
+                + str(counts.get("REPLENISH_HIGH_PRIORITY", 0))
+            ),
+            (
+                "Пополнить: "
+                + str(counts.get("REPLENISH_NORMAL", 0))
+            ),
+            (
+                "Проверить прибыль: "
+                + str(counts.get("INVESTIGATE_LOW_PROFIT", 0))
+            ),
+            (
+                "Низкая маржа: "
+                + str(counts.get("WATCH_LOW_MARGIN", 0))
+            ),
+            (
+                "Недостаточно данных: "
+                + str(counts.get("INSUFFICIENT_DATA", 0))
+            ),
+            "",
+            "Товары отсортированы по срочности.",
+        ])
+
+    def _product_decision_keyboard_item(self, decision):
+        sku = str(decision.get("sku") or "—")
+        priority = str(decision.get("priority") or "NONE").upper()
+        decision_type = str(
+            decision.get("decision_type")
+            or "INSUFFICIENT_DATA"
+        )
+        icon = self.DECISION_BUTTON_ICONS.get(priority, "⚪")
+        label = self.DECISION_BUTTON_LABELS.get(
+            decision_type,
+            "Открыть"
+        )
+        return {
+            "sku": sku,
+            "text": f"{icon} {sku} — {label}",
         }
 
 

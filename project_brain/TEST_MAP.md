@@ -1365,3 +1365,28 @@ Tests:
 Full suite result:
 
 217 passed
+
+---
+
+# Product Decisions v3 — Assortment Overview
+
+Services:
+
+- ProductBusinessDecisionQueryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_business_decision_query_service.py
+- tests/test_product_business_decision_telegram_ui.py
+- tests/test_product_business_decision_production_wiring.py
+
+Проверяет:
+
+- использование артикула продавца для сводного запроса;
+- устранение дубликатов товаров;
+- сортировку по приоритету, дням запаса и артикулу;
+- подсчёт решений для Telegram-сводки;
+- кнопки с приоритетом, артикулом и действием;
+- совместимость существующих callbacks карточки товара.
