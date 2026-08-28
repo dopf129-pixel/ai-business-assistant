@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Product Task Draft Review Lifecycle v1
+
+- active drafts become stale when the current product decision snapshot or
+  actionable proposal changes;
+- legacy stored drafts receive compact review identifiers;
+- active, stale, and dismissed drafts can be archived from Telegram;
+- archived drafts are terminal and repeated confirmation does not reopen them;
+- draft summaries distinguish active, stale, dismissed, and archived states;
+- lifecycle operations remain non-executable and do not call Ozon.
+
 ## 2026-08-28 — Confirmed Product Task Drafts v1
 
 - confirmed actionable proposals create persistent product task drafts;
