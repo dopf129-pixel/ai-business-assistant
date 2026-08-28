@@ -1,5 +1,6 @@
 from product_business_decision_factory import (
     create_product_business_decision_query,
+    create_product_decision_history,
 )
 from services.stock_intelligence_service import (
     StockIntelligenceService,
@@ -226,3 +227,18 @@ def test_explicit_current_unit_economics_query_overrides_core_query():
 
     assert query.unit_economics_query_service is current_query
     assert query.unit_economics_query_service is not core["unit_economics_query"]
+
+
+def test_factory_reuses_explicit_product_decision_history_service():
+    history = create_product_decision_history(
+        file_path="unused-product-decision-history.json"
+    )
+
+    query = create_product_business_decision_query(
+        core_components=_core(),
+        metrics_service=StubMetricsService(),
+        stock_intelligence_service=StockIntelligenceService(),
+        decision_history_service=history,
+    )
+
+    assert query.decision_history_service is history
