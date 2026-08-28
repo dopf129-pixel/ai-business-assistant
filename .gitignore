@@ -20,6 +20,10 @@ env/
 # Reports
 reports/
 
+# Runtime decision memory
+data/product_decision_history.json
+data/product_decision_history.json.tmp
+
 # IDE
 .vscode/
 .idea/
