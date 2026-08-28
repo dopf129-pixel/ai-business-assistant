@@ -51,6 +51,15 @@
 - history displays translated decisions, priorities, feedback, and observations;
 - summary deliberately avoids success-rate claims and causal conclusions.
 
+### Safe Product Action Proposals v1
+
+- added a separate proposal service for product decisions;
+- replenishment, unit-economics, and margin reviews require confirmation;
+- hold-stock decisions produce monitoring-only proposals;
+- every proposal explicitly prohibits automatic execution;
+- Telegram cards show the next manual step;
+- assortment overview counts proposals requiring manual review.
+
 ---
 
 # Версия 0.1.0-dev
