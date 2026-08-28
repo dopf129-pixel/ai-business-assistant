@@ -21,6 +21,9 @@ from services.product_decision_history_storage_service import (
 from services.product_decision_action_proposal_service import (
     ProductDecisionActionProposalService
 )
+from services.product_action_proposal_confirmation_service import (
+    ProductActionProposalConfirmationService
+)
 
 
 def create_product_decision_history(
@@ -39,7 +42,8 @@ def create_product_business_decision_query(
     stock_intelligence_service=None,
     unit_economics_query=None,
     decision_history_service=None,
-    action_proposal_service=None
+    action_proposal_service=None,
+    action_proposal_confirmation_service=None
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -72,6 +76,17 @@ def create_product_business_decision_query(
         )
     )
 
+    proposal_service = (
+        action_proposal_service
+        or ProductDecisionActionProposalService()
+    )
+    confirmation_service = action_proposal_confirmation_service
+    if confirmation_service is None and decision_history_service is not None:
+        confirmation_service = ProductActionProposalConfirmationService(
+            history_service=decision_history_service,
+            proposal_service=proposal_service,
+        )
+
     return ProductBusinessDecisionQueryService(
         product_service=product_service,
         sales_metrics_source=prepared_source.sales,
@@ -80,8 +95,6 @@ def create_product_business_decision_query(
         decision_input_provider=ProductDecisionInputProvider(),
         decision_service=ProductBusinessDecisionService(),
         decision_history_service=decision_history_service,
-        action_proposal_service=(
-            action_proposal_service
-            or ProductDecisionActionProposalService()
-        )
+        action_proposal_service=proposal_service,
+        action_proposal_confirmation_service=confirmation_service,
     )
