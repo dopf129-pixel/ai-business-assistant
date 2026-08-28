@@ -1447,3 +1447,27 @@ Tests:
 - восстановление истории из JSON;
 - передачу истории через query cache;
 - понятный переход между решениями в Telegram.
+
+---
+
+# Product Decision Feedback v1
+
+Services:
+
+- ProductDecisionHistoryService
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_decision_history_service.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- сохранение USEFUL и NOT_RELEVANT в последнем снимке;
+- идемпотентность повторной оценки;
+- отказ при неизвестном feedback;
+- отказ при отсутствии истории решения;
+- Telegram-кнопки ручной оценки;
+- корректную обработку feedback callback.
