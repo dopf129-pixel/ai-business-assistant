@@ -1013,3 +1013,23 @@ Preserved:
 - queue priority does not alter product decisions;
 - priority is not persisted as learned truth;
 - no lifecycle mutation, task execution, or Ozon API call.
+
+---
+
+# Product Task Draft Detail and Audit v1 — 2026-08-28
+
+Completed:
+
+[x] Dedicated Telegram draft detail card
+[x] Source proposal, priority, profit, and margin context
+[x] CREATED / REOPENED / MARKED_STALE / DISMISSED / ARCHIVED audit events
+[x] Event source, timestamp, and status transition
+[x] No duplicate events for idempotent commands
+[x] Honest legacy-history fallback
+[x] Terminal archived detail without action controls
+
+Preserved:
+
+- audit facts do not influence decisions or queue score;
+- old history is never inferred;
+- detail and audit paths cannot execute tasks or mutate Ozon.
