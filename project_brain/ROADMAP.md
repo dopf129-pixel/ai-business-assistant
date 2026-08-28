@@ -288,8 +288,10 @@ Current:
 
 [x] Autonomous Assistant v3 — Confirmed Task Drafts
 
+[x] Autonomous Assistant v4 — Task Draft Review Lifecycle
+
 
 Next:
 
 
-[ ] Autonomous Assistant v4 — Task Draft Review Lifecycle
+[ ] Autonomous Assistant v5 — Review Queue Prioritization
