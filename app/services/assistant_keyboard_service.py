@@ -165,6 +165,24 @@ class AssistantKeyboardService:
             "buttons": buttons,
         }
 
+    def build_product_task_drafts_keyboard(self, drafts):
+        buttons = []
+        for draft in drafts or []:
+            if draft.get("status") == "ARCHIVED":
+                continue
+            draft_id = str(draft.get("draft_id") or "")
+            if not draft_id:
+                continue
+            buttons.append({
+                "text": "🗄 Архивировать " + str(draft.get("sku") or "—"),
+                "callback": "product_task_draft:archive:" + draft_id,
+            })
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
 
     def build_returns_finance_impact_keyboard(
         self,
