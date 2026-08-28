@@ -86,6 +86,11 @@ class AssistantButtonHandlerService:
         "DISMISSED": "Отклонён",
     }
 
+    ACTION_TASK_DRAFT_STATUS_LABELS = {
+        "DRAFT": "Ожидает дальнейшей подготовки",
+        "DISMISSED": "Отклонён",
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -214,6 +219,9 @@ class AssistantButtonHandlerService:
 
         if button_id == "product_decision_learning_summary":
             return self._show_product_decision_learning_summary()
+
+        if button_id == "product_action_task_drafts":
+            return self._show_product_action_task_drafts()
 
         if button_id.startswith("product_decision_history:"):
             sku = button_id.split(":", 1)[1]
@@ -445,7 +453,11 @@ class AssistantButtonHandlerService:
                     include_learning_summary=(
                         self._product_decision_history_service()
                         is not None
-                    )
+                    ),
+                    include_task_drafts=(
+                        self._product_action_task_draft_service()
+                        is not None
+                    ),
                 )
             ),
             "overview": overview
@@ -575,6 +587,19 @@ class AssistantButtonHandlerService:
         ):
             proposal["proposal_status"] = latest.get("proposal_status")
             result["action_proposal"] = proposal
+        draft_service = self._product_action_task_draft_service()
+        if draft_service is not None:
+            try:
+                draft = draft_service.latest_for_sku(sku)
+            except (OSError, ValueError, TypeError):
+                draft = None
+            if (
+                draft
+                and draft.get("proposal_type") == proposal.get("proposal_type")
+                and draft.get("decision_recorded_at")
+                == result.get("decision_recorded_at")
+            ):
+                result["action_task_draft"] = draft
         return result
 
     def _record_product_proposal_status(
@@ -632,13 +657,72 @@ class AssistantButtonHandlerService:
             }
 
         verb = "подтверждён" if status == "CONFIRMED" else "отклонён"
+        task_draft = result.get("task_draft")
+        message = "Шаг " + verb + " и сохранён."
+        if status == "CONFIRMED" and task_draft:
+            message += " Создан безопасный черновик задачи."
+        message += " Выполнение не запускалось."
         return {
             "error": False,
-            "message": (
-                "Шаг " + verb + " и сохранён. Выполнение не запускалось."
-            ),
+            "message": message,
             "proposal_status": status,
+            "task_draft": task_draft,
             "saved": result.get("saved", False),
+            "executed": False,
+        }
+
+    def _product_action_task_draft_service(self):
+        return getattr(
+            self.product_business_decision_query,
+            "action_task_draft_service",
+            None,
+        )
+
+    def _show_product_action_task_drafts(self):
+        service = self._product_action_task_draft_service()
+        if service is None:
+            return {
+                "error": True,
+                "message": "Черновики задач недоступны",
+            }
+        summary = service.summary()
+        counts = summary.get("counts") or {}
+        lines = [
+            "📋 Черновики задач по товарам",
+            "",
+            "Ожидают подготовки: " + str(counts.get("DRAFT", 0)),
+            "Отклонено: " + str(counts.get("DISMISSED", 0)),
+            "Выполнено: 0",
+        ]
+        drafts = summary.get("drafts") or []
+        if drafts:
+            lines.extend(["", "Последние черновики:"])
+            for draft in drafts:
+                proposal_type = draft.get("proposal_type")
+                status = draft.get("status")
+                lines.append(
+                    "• "
+                    + str(draft.get("sku") or "—")
+                    + " — "
+                    + self.ACTION_PROPOSAL_LABELS.get(
+                        proposal_type,
+                        str(proposal_type or "—"),
+                    )
+                    + " ("
+                    + self.ACTION_TASK_DRAFT_STATUS_LABELS.get(
+                        status,
+                        str(status or "—"),
+                    )
+                    + ")"
+                )
+        lines.extend([
+            "",
+            "Черновики не выполняют действий и не изменяют данные Ozon.",
+        ])
+        return {
+            "error": False,
+            "message": "\n".join(lines),
+            "summary": summary,
             "executed": False,
         }
 
@@ -876,6 +960,18 @@ class AssistantButtonHandlerService:
                         str(proposal_status),
                     ),
                 ])
+
+        task_draft = result.get("action_task_draft") or {}
+        if task_draft:
+            draft_status = task_draft.get("status")
+            lines.extend([
+                "",
+                "Черновик задачи:",
+                self.ACTION_TASK_DRAFT_STATUS_LABELS.get(
+                    draft_status,
+                    str(draft_status or "—"),
+                ),
+            ])
 
         lines.extend([
             "",

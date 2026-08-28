@@ -7,9 +7,12 @@ from app.services.product_decision_action_proposal_service import (
 from app.services.product_decision_history_service import (
     ProductDecisionHistoryService,
 )
+from app.services.product_action_task_draft_service import (
+    ProductActionTaskDraftService,
+)
 
 
-def _service(decision_type="REPLENISH_NORMAL"):
+def _service(decision_type="REPLENISH_NORMAL", with_drafts=False):
     history = ProductDecisionHistoryService(clock=lambda: "now")
     history.record({
         "error": False,
@@ -21,6 +24,11 @@ def _service(decision_type="REPLENISH_NORMAL"):
     return ProductActionProposalConfirmationService(
         history_service=history,
         proposal_service=ProductDecisionActionProposalService(),
+        task_draft_service=(
+            ProductActionTaskDraftService(clock=lambda: "draft-time")
+            if with_drafts
+            else None
+        ),
     ), history
 
 
@@ -79,3 +87,19 @@ def test_confirmation_validates_status_and_decision_history():
 
     assert invalid["code"] == "INVALID_PROPOSAL_STATUS"
     assert missing["code"] == "DECISION_HISTORY_NOT_FOUND"
+
+
+def test_confirmation_creates_and_dismissal_closes_task_draft():
+    service, _ = _service(with_drafts=True)
+
+    confirmed = service.decide(
+        "hook-2", "REVIEW_REPLENISHMENT", "CONFIRMED"
+    )
+    dismissed = service.decide(
+        "hook-2", "REVIEW_REPLENISHMENT", "DISMISSED"
+    )
+
+    assert confirmed["task_draft"]["status"] == "DRAFT"
+    assert dismissed["task_draft"]["status"] == "DISMISSED"
+    assert confirmed["executed"] is False
+    assert dismissed["executed"] is False

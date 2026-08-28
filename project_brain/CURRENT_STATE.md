@@ -954,3 +954,23 @@ Preserved:
 - monitoring-only has no confirmation buttons;
 - no quantity or price draft is inferred;
 - no external API mutation or Action Executor.
+
+---
+
+# Confirmed Product Task Drafts v1 — 2026-08-28
+
+Completed:
+
+[x] Persistent ProductActionTaskDraftService
+[x] Idempotent draft per decision snapshot
+[x] Draft dismissal on proposal rejection
+[x] Draft summary in Telegram
+[x] Draft status on product card
+[x] Dedicated production storage and wiring
+
+Preserved:
+
+- drafts are not executable tasks;
+- no replenishment quantity or price is inferred;
+- executed_count is always zero;
+- no existing Action Executor or Ozon mutation path is invoked.

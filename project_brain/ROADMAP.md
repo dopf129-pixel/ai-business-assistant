@@ -286,8 +286,10 @@ Current:
 
 [x] Autonomous Assistant v2 — Confirmation Workflow
 
+[x] Autonomous Assistant v3 — Confirmed Task Drafts
+
 
 Next:
 
 
-[ ] Autonomous Assistant v3 — Confirmed Task Drafts
+[ ] Autonomous Assistant v4 — Task Draft Review Lifecycle

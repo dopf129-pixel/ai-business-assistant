@@ -139,6 +139,10 @@ def test_production_factory_wires_storage_only_proposal_confirmation():
     assert confirmation is not None
     assert confirmation.history_service is history
     assert confirmation.proposal_service is query.action_proposal_service
+    assert confirmation.task_draft_service is not None
+    assert query.action_task_draft_service is (
+        confirmation.task_draft_service
+    )
 
 
 def test_production_query_uses_real_prepared_stock_and_sales_path():

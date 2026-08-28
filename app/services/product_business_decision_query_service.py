@@ -41,6 +41,11 @@ class ProductBusinessDecisionQueryService:
         self.action_proposal_confirmation_service = (
             action_proposal_confirmation_service
         )
+        self.action_task_draft_service = getattr(
+            action_proposal_confirmation_service,
+            "task_draft_service",
+            None,
+        )
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
         self.clock = clock or monotonic
         self._decision_cache = {}

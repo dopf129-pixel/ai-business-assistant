@@ -53,6 +53,7 @@ class StubDecisionQuery:
         self.calls = []
         self.decision_history_service = None
         self.action_proposal_confirmation_service = None
+        self.action_task_draft_service = None
 
     def query(self, sku):
         self.calls.append(sku)
@@ -102,6 +103,11 @@ def _handler(
     query = StubDecisionQuery(result=result, products=products)
     query.decision_history_service = history_service
     query.action_proposal_confirmation_service = confirmation_service
+    query.action_task_draft_service = getattr(
+        confirmation_service,
+        "task_draft_service",
+        None,
+    )
     handler = AssistantButtonHandlerService(
         assistant=StubAssistant(),
         keyboard_service=keyboard,
@@ -468,10 +474,34 @@ class StubProposalConfirmation:
             "executed": False,
         }
         self.calls = []
+        self.task_draft_service = None
 
     def decide(self, sku, expected_proposal_type, status):
         self.calls.append((sku, expected_proposal_type, status))
         return dict(self.result)
+
+
+class StubTaskDrafts:
+    def __init__(self):
+        self.record = {
+            "sku": "hook-2",
+            "proposal_type": "REVIEW_REPLENISHMENT",
+            "status": "DRAFT",
+            "execution_allowed": False,
+            "executed": False,
+        }
+
+    def latest_for_sku(self, sku):
+        return dict(self.record) if sku == "hook-2" else None
+
+    def summary(self):
+        return {
+            "error": False,
+            "total": 1,
+            "counts": {"DRAFT": 1, "DISMISSED": 0},
+            "drafts": [dict(self.record)],
+            "executed_count": 0,
+        }
 
 
 def test_product_decision_card_offers_manual_feedback_buttons():
@@ -637,3 +667,44 @@ def test_stale_proposal_confirmation_requires_reopening_decision():
     assert response["error"] is True
     assert response["executed"] is False
     assert "устарел" in response["message"]
+
+
+def test_confirmation_response_explains_created_draft_and_no_execution():
+    confirmation = StubProposalConfirmation({
+        "error": False,
+        "code": None,
+        "proposal_status": "CONFIRMED",
+        "saved": True,
+        "executed": False,
+        "task_draft": {
+            "sku": "hook-2",
+            "status": "DRAFT",
+            "executed": False,
+        },
+    })
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    response = handler.handle("product_proposal:yes:r:hook-2")
+
+    assert "Создан безопасный черновик задачи" in response["message"]
+    assert "Выполнение не запускалось" in response["message"]
+    assert response["executed"] is False
+
+
+def test_task_draft_summary_is_available_from_decisions_menu():
+    confirmation = StubProposalConfirmation()
+    confirmation.task_draft_service = StubTaskDrafts()
+    handler, _, _ = _handler(confirmation_service=confirmation)
+
+    menu = handler.handle("product_decisions")
+    callbacks = [
+        item["callback"] for item in menu["keyboard"]["buttons"]
+    ]
+    summary = handler.handle("product_action_task_drafts")
+
+    assert "product_action_task_drafts" in callbacks
+    assert summary["error"] is False
+    assert summary["executed"] is False
+    assert "Ожидают подготовки: 1" in summary["message"]
+    assert "Выполнено: 0" in summary["message"]
+    assert "не изменяют данные Ozon" in summary["message"]
