@@ -834,3 +834,24 @@ Preserved:
 - existing decision rules and thresholds;
 - seller article callbacks;
 - no autonomous action execution.
+
+---
+
+# Product Decision Memory v1 — 2026-08-28
+
+Completed:
+
+[x] Persistent successful decision snapshots
+[x] Change-only history without repeated duplicates
+[x] Previous decision and priority context
+[x] Bounded retention per seller article
+[x] Atomic JSON persistence
+[x] Telegram decision transition explanation
+
+Preserved:
+
+- ProductBusinessDecisionService rules;
+- product_memory SQLite schema;
+- task and user memory;
+- data/users.json;
+- no autonomous action execution.
