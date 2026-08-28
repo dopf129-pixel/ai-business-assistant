@@ -215,3 +215,42 @@ def test_decision_change_without_feedback_has_no_inferred_outcome():
 
     assert context["previous_feedback"] is None
     assert context["decision_outcome"] is None
+
+
+def test_learning_summary_counts_products_feedback_and_outcomes():
+    service = ProductDecisionHistoryService(
+        storage_service=MemoryStorage(),
+        clock=lambda: "now",
+    )
+    service.record(_decision(sku="hook-2", priority="CRITICAL"))
+    service.record_feedback("hook-2", "USEFUL")
+    service.record(_decision(
+        sku="hook-2",
+        decision_type="HOLD_STOCK",
+        priority="LOW",
+    ))
+    service.record(_decision(
+        sku="hook-3",
+        decision_type="WATCH_LOW_MARGIN",
+        priority="NORMAL",
+    ))
+    service.record_feedback("hook-3", "NOT_RELEVANT")
+
+    summary = service.learning_summary()
+
+    assert summary == {
+        "error": False,
+        "products_count": 2,
+        "decision_snapshots_count": 3,
+        "feedback_count": 2,
+        "feedback_counts": {
+            "USEFUL": 1,
+            "NOT_RELEVANT": 1,
+        },
+        "outcome_count": 1,
+        "outcome_counts": {
+            "PRIORITY_DECREASED": 1,
+            "PRIORITY_INCREASED": 0,
+            "DECISION_CHANGED": 0,
+        },
+    }
