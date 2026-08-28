@@ -282,10 +282,13 @@ Current:
 [x] Memory / Learning v4 — Learning Summary
 
 
+[x] Autonomous Assistant v1 — Safe Action Proposals
+
+
 Next:
 
 
-[ ] Autonomous Assistant v1 — Safe Action Proposals
+[ ] Autonomous Assistant v2 — Confirmation Workflow
 
 
 [ ] Autonomous Assistant
