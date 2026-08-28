@@ -35,6 +35,14 @@
 - invalid feedback and missing decision history are rejected safely;
 - feedback is stored as a learning signal but does not alter recommendations.
 
+### Product Decision Outcome Correlation v1
+
+- the next changed decision is correlated with prior manual feedback;
+- lower urgency, higher urgency, and same-priority changes are distinguished;
+- no outcome is inferred when prior feedback is absent;
+- Telegram presents the result as an observation, not proven causation;
+- correlated outcomes remain read-only learning data.
+
 ---
 
 # Версия 0.1.0-dev
