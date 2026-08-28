@@ -67,14 +67,26 @@ class StubDecisionQuery:
             decision["sku"] = sku
             decisions.append(decision)
         counts = {}
+        proposal_counts = {}
+        actionable = 0
         for decision in decisions:
             decision_type = decision["decision_type"]
             counts[decision_type] = counts.get(decision_type, 0) + 1
+            proposal = decision.get("action_proposal") or {}
+            proposal_type = proposal.get("proposal_type")
+            if proposal_type:
+                proposal_counts[proposal_type] = (
+                    proposal_counts.get(proposal_type, 0) + 1
+                )
+            if proposal.get("action_required"):
+                actionable += 1
         return {
             "error": False,
             "code": None,
             "total": len(decisions),
             "counts": counts,
+            "proposal_counts": proposal_counts,
+            "actionable_proposals_count": actionable,
             "decisions": decisions,
         }
 
@@ -275,6 +287,63 @@ def test_product_decision_card_shows_returns_aware_economics():
     assert "Возвраты и невыкупы: 1.12 ₽" in message
     assert "Финансовое покрытие: 91.11%" in message
     assert "Уверенность:\nСредняя" in message
+
+
+def test_product_decision_card_shows_safe_manual_action_proposal():
+    handler, _, _ = _handler(
+        {
+            "error": False,
+            "code": None,
+            "product_id": "101",
+            "sku": "hook-2",
+            "decision_type": "REPLENISH_HIGH_PRIORITY",
+            "priority": "CRITICAL",
+            "reasons": ["DAYS_OF_STOCK_CRITICAL"],
+            "confidence": "HIGH",
+            "missing_data": [],
+            "action_proposal": {
+                "available": True,
+                "proposal_type": "REVIEW_REPLENISHMENT",
+                "action_required": True,
+                "requires_confirmation": True,
+                "execution_allowed": False,
+            },
+        }
+    )
+
+    message = handler.handle("product_decision:hook-2")["message"]
+
+    assert "Следующий шаг:" in message
+    assert "Проверить возможность пополнения" in message
+    assert "⚠️ Требует ручного подтверждения." in message
+    assert "REVIEW_REPLENISHMENT" not in message
+
+
+def test_product_decisions_overview_counts_manual_reviews():
+    handler, _, _ = _handler(
+        {
+            "error": False,
+            "code": None,
+            "product_id": "101",
+            "sku": "hook-2",
+            "decision_type": "REPLENISH_NORMAL",
+            "priority": "HIGH",
+            "reasons": ["DAYS_OF_STOCK_LOW"],
+            "confidence": "HIGH",
+            "missing_data": [],
+            "action_proposal": {
+                "available": True,
+                "proposal_type": "REVIEW_REPLENISHMENT",
+                "action_required": True,
+                "requires_confirmation": True,
+                "execution_allowed": False,
+            },
+        }
+    )
+
+    message = handler.handle("product_decisions")["message"]
+
+    assert "Предложений к ручной проверке: 2" in message
 
 
 def test_product_decision_card_shows_previous_decision_after_change():
