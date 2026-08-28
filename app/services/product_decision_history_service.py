@@ -5,6 +5,12 @@ from datetime import datetime, timezone
 class ProductDecisionHistoryService:
 
     CODE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    FEEDBACK_USEFUL = "USEFUL"
+    FEEDBACK_NOT_RELEVANT = "NOT_RELEVANT"
+    ALLOWED_FEEDBACK = {
+        FEEDBACK_USEFUL,
+        FEEDBACK_NOT_RELEVANT,
+    }
 
     def __init__(
         self,
@@ -61,6 +67,50 @@ class ProductDecisionHistoryService:
         items = self.history(sku, limit=1)
         return items[0] if items else None
 
+    def record_feedback(self, sku, feedback):
+        sku = str(sku or "").strip()
+        feedback = str(feedback or "").strip().upper()
+
+        if feedback not in self.ALLOWED_FEEDBACK:
+            return {
+                "error": True,
+                "code": "INVALID_FEEDBACK",
+                "sku": sku or None,
+                "feedback": None,
+                "saved": False,
+            }
+
+        index = self._latest_index(sku)
+        if index is None:
+            return {
+                "error": True,
+                "code": "DECISION_HISTORY_NOT_FOUND",
+                "sku": sku or None,
+                "feedback": None,
+                "saved": False,
+            }
+
+        record = self.records[index]
+        if record.get("feedback") == feedback:
+            return {
+                "error": False,
+                "code": None,
+                "sku": sku,
+                "feedback": feedback,
+                "saved": False,
+            }
+
+        record["feedback"] = feedback
+        record["feedback_at"] = str(self.clock())
+        self._save_records()
+        return {
+            "error": False,
+            "code": None,
+            "sku": sku,
+            "feedback": feedback,
+            "saved": True,
+        }
+
     def history(self, sku, limit=None):
         sku = str(sku)
         items = [
@@ -85,7 +135,17 @@ class ProductDecisionHistoryService:
             "margin_percent": decision.get("decision_margin_percent"),
             "economics_basis": decision.get("economics_basis"),
             "recorded_at": str(self.clock()),
+            "feedback": None,
+            "feedback_at": None,
         }
+
+    def _latest_index(self, sku):
+        if not sku:
+            return None
+        for index in range(len(self.records) - 1, -1, -1):
+            if str(self.records[index].get("sku")) == str(sku):
+                return index
+        return None
 
     def _signature(self, decision):
         return (
