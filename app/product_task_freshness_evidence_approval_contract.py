@@ -46,7 +46,7 @@ def build_freshness_evidence_approval_contract(
     if candidate_evidence != preview_evidence:
         return _blocked(source, candidate, "VALIDATED_EVIDENCE_MISMATCH")
 
-    approval_id = "evidence-approval:" + str(source.get("draft_id") or "unknown")
+    approval_id = "evidence-approval:" + str(source.get("draft_id"))
     return {
         "error": False,
         "approval_id": approval_id,
@@ -76,14 +76,30 @@ def build_freshness_evidence_approval_contract(
 def _identity_error(source, candidate, preview):
     draft_id = str(source.get("draft_id") or "").strip()
     sku = str(source.get("sku") or "").strip()
+    candidate_draft_id = str(candidate.get("draft_id") or "").strip()
+    candidate_sku = str(candidate.get("sku") or "").strip()
+    preview_draft_id = str(preview.get("draft_id") or "").strip()
+    preview_sku = str(preview.get("sku") or "").strip()
+    candidate_request_id = str(candidate.get("request_id") or "").strip()
+    preview_request_id = str(preview.get("request_id") or "").strip()
 
-    for item in (candidate, preview):
-        item_draft_id = str(item.get("draft_id") or "").strip()
-        item_sku = str(item.get("sku") or "").strip()
-        if draft_id and item_draft_id and item_draft_id != draft_id:
-            return "DRAFT_ID_MISMATCH"
-        if sku and item_sku and item_sku != sku:
-            return "SKU_MISMATCH"
+    if not all((
+        draft_id,
+        sku,
+        candidate_draft_id,
+        candidate_sku,
+        preview_draft_id,
+        preview_sku,
+        candidate_request_id,
+        preview_request_id,
+    )):
+        return "CONTEXT_IDENTITY_REQUIRED"
+    if candidate_draft_id != draft_id or preview_draft_id != draft_id:
+        return "DRAFT_ID_MISMATCH"
+    if candidate_sku != sku or preview_sku != sku:
+        return "SKU_MISMATCH"
+    if candidate_request_id != preview_request_id:
+        return "REQUEST_ID_MISMATCH"
     return None
 
 
