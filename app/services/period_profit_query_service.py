@@ -51,7 +51,7 @@ class PeriodProfitQueryService:
             if comparison.get("error"):
                 return comparison
 
-        response = build_period_profit_response(summary, comparison)
+        response = build_period_profit_response(summary, comparison, return_evidence)
         if response.get("error"):
             return response
 
