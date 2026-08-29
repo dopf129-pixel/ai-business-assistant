@@ -48,6 +48,7 @@ class PeriodProfitSummaryService:
             "returns_included": False,
             "advertising_included": False,
             "storage_included": False,
+            "fee_components_included": True,
             "profit_scope": "OZON_ACCRUALS_COST_AND_CONFIGURED_TAX_V1",
         }
 
@@ -67,6 +68,10 @@ class PeriodProfitSummaryService:
             values["units_sold"] += sales
             values["revenue"] += revenue
             values["net_accrual"] += net_accrual
+            values["commission"] += float(finance.get("commission") or 0)
+            values["logistics"] += float(finance.get("logistics") or 0)
+            values["acquiring"] += float(finance.get("acquiring") or 0)
+            values["other_fees"] += float(finance.get("other_fees") or 0)
             values["product_cost"] += product_cost
             values["tax"] += tax
             values["profit"] += profit
@@ -112,7 +117,18 @@ class PeriodProfitSummaryService:
 
     @staticmethod
     def _empty_totals():
-        return {"units_sold": 0, "revenue": 0.0, "net_accrual": 0.0, "product_cost": 0.0, "tax": 0.0, "profit": 0.0}
+        return {
+            "units_sold": 0,
+            "revenue": 0.0,
+            "net_accrual": 0.0,
+            "commission": 0.0,
+            "logistics": 0.0,
+            "acquiring": 0.0,
+            "other_fees": 0.0,
+            "product_cost": 0.0,
+            "tax": 0.0,
+            "profit": 0.0,
+        }
 
     @staticmethod
     def _error(code, message):
