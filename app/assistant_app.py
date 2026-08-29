@@ -25,8 +25,14 @@ from services.assistant_period_profit_runtime_service import (
 from services.assistant_period_profit_mapping_admin_runtime_service import (
     AssistantPeriodProfitMappingAdminRuntimeService
 )
+from services.assistant_period_profit_mapping_recovery_runtime_service import (
+    AssistantPeriodProfitMappingRecoveryRuntimeService
+)
 from services.period_profit_mapping_admin_service import (
     PeriodProfitMappingAdminService
+)
+from services.period_profit_mapping_recovery_service import (
+    PeriodProfitMappingRecoveryService
 )
 
 from services.assistant_core_service import (
@@ -203,6 +209,16 @@ def create_assistant():
         )
     )
 
+    mapping_recovery_runtime = (
+        AssistantPeriodProfitMappingRecoveryRuntimeService(
+            recovery_service=(
+                PeriodProfitMappingRecoveryService(
+                    mapping_registry
+                )
+            )
+        )
+    )
+
 
     entry = (
         AssistantEntryService(
@@ -215,6 +231,9 @@ def create_assistant():
             ),
             period_profit_mapping_admin_runtime_service=(
                 mapping_admin_runtime
+            ),
+            period_profit_mapping_recovery_runtime_service=(
+                mapping_recovery_runtime
             )
         )
     )

@@ -27,6 +27,7 @@ data/product_decision_history.json.tmp
 # Runtime period-profit mapping registry
 data/period_profit_mapping_registry.json
 data/period_profit_mapping_registry.json.tmp
+data/period_profit_mapping_registry.json.quarantine*
 
 # IDE
 .vscode/
