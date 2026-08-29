@@ -11,6 +11,7 @@ Validate a freshness evidence candidate against the existing `ProductTaskDraftFr
 `build_freshness_evidence_validation_preview(draft, evidence_candidate, freshness_service)`:
 
 - deep-copies the input draft and candidate;
+- blocks mismatched `draft_id` or `sku` contexts before applying evidence;
 - evaluates freshness before the candidate;
 - applies only whitelisted freshness evidence fields to the copy;
 - evaluates freshness after the hypothetical update with the existing freshness guard;
@@ -29,6 +30,15 @@ Only these fields can be applied to the preview copy:
 - `unit_economics_observed_at`.
 
 Unexpected candidate fields are ignored.
+
+## Identity safety
+
+When both sides provide identity fields, the preview requires them to match:
+
+- draft mismatch -> `EVIDENCE_CANDIDATE_DRAFT_MISMATCH`;
+- SKU mismatch -> `EVIDENCE_CANDIDATE_SKU_MISMATCH`.
+
+A mismatched candidate is blocked before any evidence is applied to the preview copy.
 
 ## Freshness semantics
 
@@ -68,4 +78,4 @@ No Ozon calls are performed by this contract.
 
 Focused tests: `tests/test_product_task_freshness_evidence_validation_preview.py`.
 
-Targeted assistant-side pytest: `6 passed in 0.05s`.
+Targeted assistant-side pytest after identity safety review: `7 passed in 0.06s`.
