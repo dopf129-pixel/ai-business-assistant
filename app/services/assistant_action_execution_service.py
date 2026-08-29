@@ -773,24 +773,77 @@ class AssistantActionExecutionService:
 
 
 
-        failed_action["status"] = "NEW"
-
-
-        failed_action["attempt"] = (
-            attempt + 1
-        )
-
-
-        failed_action.pop(
-            "error",
+        prepare_retry = getattr(
+            self.task_service,
+            "prepare_retry_action",
             None
         )
 
 
-        failed_action.pop(
-            "retry_allowed",
-            None
-        )
+        if callable(
+            prepare_retry
+        ):
+
+
+            prepared = prepare_retry(
+                user_id,
+                failed_action.get(
+                    "title"
+                ),
+                attempt + 1
+            )
+
+
+            if prepared.get(
+                "error"
+            ):
+
+
+                return prepared
+
+
+            failed_action = prepared.get(
+                "action"
+            )
+
+
+        else:
+
+
+            failed_action["status"] = "NEW"
+
+
+            failed_action["attempt"] = (
+                attempt + 1
+            )
+
+
+            failed_action.pop(
+                "error",
+                None
+            )
+
+
+            failed_action.pop(
+                "retry_allowed",
+                None
+            )
+
+
+            save = getattr(
+                self.task_service,
+                "save",
+                None
+            )
+
+
+            if callable(
+                save
+            ):
+
+
+                save()
+
 
 
         return {
@@ -912,7 +965,7 @@ class AssistantActionExecutionService:
 
 
 
-        task["actions"] = (
+        plan = (
             result.get(
                 "plan",
                 []
@@ -920,7 +973,66 @@ class AssistantActionExecutionService:
         )
 
 
-        task["replanned"] = True
+        apply_replan = getattr(
+            self.task_service,
+            "apply_replan",
+            None
+        )
+
+
+        if callable(
+            apply_replan
+        ):
+
+
+            applied = apply_replan(
+                user_id,
+                plan,
+                reason=failed_action.get(
+                    "error"
+                )
+            )
+
+
+            if applied.get(
+                "error"
+            ):
+
+
+                return applied
+
+
+            plan = applied.get(
+                "plan",
+                []
+            )
+
+
+        else:
+
+
+            task["actions"] = plan
+
+
+            task["replanned"] = True
+
+
+            task["pending_action"] = None
+
+
+            save = getattr(
+                self.task_service,
+                "save",
+                None
+            )
+
+
+            if callable(
+                save
+            ):
+
+
+                save()
 
 
 
@@ -940,7 +1052,7 @@ class AssistantActionExecutionService:
                         ),
 
                     "plan":
-                        task["actions"]
+                        plan
 
                 }
 
@@ -957,6 +1069,6 @@ class AssistantActionExecutionService:
                 "Plan updated",
 
             "plan":
-                task["actions"]
+                plan
 
         }

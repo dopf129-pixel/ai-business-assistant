@@ -1,5 +1,6 @@
 import json
 import os
+from copy import deepcopy
 
 
 from core.task_states import TaskStatus
@@ -47,8 +48,14 @@ class AssistantTaskService:
                 encoding="utf-8"
             ) as file:
 
-                self.tasks = json.load(
+                loaded = json.load(
                     file
+                )
+
+                self.tasks = (
+                    loaded
+                    if isinstance(loaded, dict)
+                    else {}
                 )
 
 
@@ -84,19 +91,49 @@ class AssistantTaskService:
 
 
 
-        with open(
-            self.file_path,
-            "w",
-            encoding="utf-8"
-        ) as file:
+        temporary_path = (
+            self.file_path
+            + ".tmp"
+        )
+
+        try:
+
+            with open(
+                temporary_path,
+                "w",
+                encoding="utf-8"
+            ) as file:
 
 
-            json.dump(
-                self.tasks,
-                file,
-                ensure_ascii=False,
-                indent=4
+                json.dump(
+                    self.tasks,
+                    file,
+                    ensure_ascii=False,
+                    indent=4
+                )
+
+                file.flush()
+
+                os.fsync(
+                    file.fileno()
+                )
+
+
+            os.replace(
+                temporary_path,
+                self.file_path
             )
+
+
+        finally:
+
+            if os.path.exists(
+                temporary_path
+            ):
+
+                os.remove(
+                    temporary_path
+                )
 
 
 
@@ -1536,6 +1573,31 @@ class AssistantTaskService:
                 action["error"] = error
 
 
+                pending = task.get(
+                    "pending_action"
+                )
+
+
+                if (
+                    isinstance(
+                        pending,
+                        dict
+                    )
+                    and
+                    pending.get(
+                        "title"
+                    )
+                    ==
+                    title
+                ):
+
+
+                    task["pending_action"] = None
+
+
+                self.save()
+
+
                 return {
 
                     "error": False,
@@ -1553,6 +1615,171 @@ class AssistantTaskService:
             "message":
                 "Действие не найдено"
 
+        }
+
+
+    def prepare_retry_action(
+        self,
+        user_id,
+        title,
+        attempt
+    ):
+
+
+        task = (
+            self.tasks
+            .get(
+                str(user_id)
+            )
+        )
+
+
+        if not task:
+
+            return {
+                "error": True,
+                "message": "Задача не найдена"
+            }
+
+
+        action = self.resolve_action(
+            task,
+            title
+        )
+
+
+        if (
+            not action
+            or
+            action.get(
+                "status"
+            )
+            !=
+            "FAILED"
+        ):
+
+            return {
+                "error": True,
+                "message": "FAILED действие не найдено"
+            }
+
+
+        try:
+
+            next_attempt = int(
+                attempt
+            )
+
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            return {
+                "error": True,
+                "message": "Invalid retry attempt"
+            }
+
+
+        if next_attempt < 1:
+
+            return {
+                "error": True,
+                "message": "Invalid retry attempt"
+            }
+
+
+        action["status"] = "NEW"
+
+
+        action["attempt"] = next_attempt
+
+
+        action.pop(
+            "error",
+            None
+        )
+
+
+        action.pop(
+            "retry_allowed",
+            None
+        )
+
+
+        task["pending_action"] = None
+
+
+        self.save()
+
+
+        return {
+            "error": False,
+            "action": action
+        }
+
+
+    def apply_replan(
+        self,
+        user_id,
+        actions,
+        reason=None
+    ):
+
+
+        task = (
+            self.tasks
+            .get(
+                str(user_id)
+            )
+        )
+
+
+        if not task:
+
+            return {
+                "error": True,
+                "message": "Task not found"
+            }
+
+
+        if not isinstance(
+            actions,
+            list
+        ):
+
+            return {
+                "error": True,
+                "message": "Invalid replanned actions"
+            }
+
+
+        task["actions"] = deepcopy(
+            actions
+        )
+
+
+        task["replanned"] = True
+
+
+        task["replan_requested"] = False
+
+
+        if reason is not None:
+
+            task["replan_reason"] = reason
+
+
+        task["pending_action"] = None
+
+
+        self.save()
+
+
+        return {
+            "error": False,
+            "plan": task["actions"]
         }
 
 
@@ -1600,6 +1827,9 @@ class AssistantTaskService:
             or
             "Execution failed"
         )
+
+
+        self.save()
 
 
 
