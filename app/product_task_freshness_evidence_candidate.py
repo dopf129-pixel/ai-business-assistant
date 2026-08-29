@@ -43,18 +43,20 @@ def build_freshness_evidence_candidate(refresh_result):
         if observed_value not in (None, ""):
             update[observed_field] = observed_value
 
+        source_evidence_present = source_field in update
         candidates.append({
             "component": component,
             "provider": item.get("provider"),
             "method": item.get("method"),
             "evidence": update,
-            "source_evidence_present": source_field in update,
+            "source_evidence_present": source_evidence_present,
             "observation_evidence_present": observed_field in update,
             "cache_metadata_ignored": bool(
                 isinstance(data.get("cache"), dict)
                 and data.get("cache", {}).get("cached_at")
             ),
-            "source_freshness_proven": source_field in update,
+            "source_freshness_proven": False,
+            "requires_freshness_guard_validation": source_evidence_present,
         })
 
     evidence_update = {}
@@ -79,7 +81,9 @@ def build_freshness_evidence_candidate(refresh_result):
         "evidence_update": evidence_update,
         "source_evidence_count": source_evidence_count,
         "observation_evidence_count": observation_evidence_count,
-        "source_freshness_proven": source_evidence_count > 0,
+        "source_evidence_candidate_present": source_evidence_count > 0,
+        "source_freshness_proven": False,
+        "requires_freshness_guard_validation": source_evidence_count > 0,
         "persistent": False,
         "product_decision_recomputed": False,
         "product_decision_mutated": False,
