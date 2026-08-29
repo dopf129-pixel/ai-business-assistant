@@ -24,10 +24,11 @@ The contract returns `APPROVAL_REQUIRED` only when all of the following are true
 - preview status is `PREVIEW_READY`;
 - `preview_only=True`;
 - `preview_freshness_validated=True`;
+- `preview_freshness_status` is exactly `FRESH`;
 - candidate evidence is non-empty;
 - whitelisted candidate evidence exactly matches the evidence that the preview validated.
 
-Any mismatch or missing identity returns `APPROVAL_BLOCKED`.
+Any mismatch, missing identity, stale/unknown preview status, or forged validation combination returns `APPROVAL_BLOCKED`.
 
 ## Approved evidence surface
 
@@ -71,4 +72,4 @@ A future explicit approval workflow may consume this contract, but it must remai
 
 Focused tests: `tests/test_product_task_freshness_evidence_approval_contract.py`.
 
-Targeted assistant-side pytest after identity safety review: `8 passed in 0.05s`.
+Targeted assistant-side pytest after identity and forged-preview safety review: `9 passed in 0.05s`.
