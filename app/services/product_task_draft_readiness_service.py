@@ -72,6 +72,10 @@ class ProductTaskDraftReadinessService:
             else None
         )
         freshness_coverage = self._freshness_coverage(source, freshness)
+        freshness_refresh_guidance = self._freshness_refresh_guidance(
+            freshness,
+            freshness_coverage,
+        )
         freshness_ready = (
             freshness is None or freshness.get("status") == "FRESH"
         )
@@ -109,6 +113,7 @@ class ProductTaskDraftReadinessService:
             "review_blockers": review_blockers,
             "freshness": freshness,
             "freshness_coverage": freshness_coverage,
+            "freshness_refresh_guidance": freshness_refresh_guidance,
             "execution_ready": False,
             "execution_blockers": execution_blockers,
             "executed": False,
@@ -126,6 +131,11 @@ class ProductTaskDraftReadinessService:
             "OBSERVED_ONLY": 0,
             "NO_EVIDENCE": 0,
         }
+        freshness_refresh_counts = {
+            "SOURCE_TIMESTAMP_REQUIRED": 0,
+            "VERIFY_SOURCE_TIMESTAMP": 0,
+            "REFRESH_SOURCE_DATA": 0,
+        }
         for draft in drafts or []:
             item = deepcopy(draft)
             readiness = self.evaluate(item)
@@ -138,12 +148,17 @@ class ProductTaskDraftReadinessService:
             for state, value in (coverage.get("counts") or {}).items():
                 if state in freshness_coverage_counts:
                     freshness_coverage_counts[state] += int(value or 0)
+            guidance = readiness.get("freshness_refresh_guidance") or {}
+            for action, value in (guidance.get("counts") or {}).items():
+                if action in freshness_refresh_counts:
+                    freshness_refresh_counts[action] += int(value or 0)
             items.append(item)
         return {
             "error": False,
             "counts": counts,
             "freshness_counts": freshness_counts,
             "freshness_coverage_counts": freshness_coverage_counts,
+            "freshness_refresh_counts": freshness_refresh_counts,
             "items": items,
             "execution_ready_count": 0,
             "executed_count": 0,
@@ -193,4 +208,50 @@ class ProductTaskDraftReadinessService:
             "source_proven_count": counts["SOURCE_PROVEN"],
             "observed_only_count": counts["OBSERVED_ONLY"],
             "no_evidence_count": counts["NO_EVIDENCE"],
+        }
+
+    def _freshness_refresh_guidance(self, freshness, coverage):
+        if not isinstance(freshness, dict) or not isinstance(coverage, dict):
+            return None
+
+        targets = []
+        counts = {
+            "SOURCE_TIMESTAMP_REQUIRED": 0,
+            "VERIFY_SOURCE_TIMESTAMP": 0,
+            "REFRESH_SOURCE_DATA": 0,
+        }
+        freshness_components = freshness.get("components") or {}
+        coverage_components = coverage.get("components") or {}
+
+        for component_name, component_freshness in freshness_components.items():
+            status = component_freshness.get("status")
+            if status == "FRESH":
+                continue
+
+            evidence_state = (
+                coverage_components.get(component_name) or {}
+            ).get("evidence_state")
+
+            if status == "STALE":
+                action = "REFRESH_SOURCE_DATA"
+            elif evidence_state == "SOURCE_PROVEN":
+                action = "VERIFY_SOURCE_TIMESTAMP"
+            else:
+                action = "SOURCE_TIMESTAMP_REQUIRED"
+
+            counts[action] += 1
+            targets.append({
+                "component": component_name,
+                "action": action,
+                "freshness_status": status,
+                "evidence_state": evidence_state,
+                "reasons": list(component_freshness.get("reasons") or []),
+            })
+
+        return {
+            "required": bool(targets),
+            "targets": targets,
+            "counts": counts,
+            "execution_ready": False,
+            "executed": False,
         }
