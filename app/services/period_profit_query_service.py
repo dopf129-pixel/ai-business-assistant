@@ -35,10 +35,6 @@ class PeriodProfitQueryService:
         if summary.get("error"):
             return summary
 
-        coverage = build_period_profit_coverage(summary)
-        if coverage.get("error"):
-            return coverage
-
         return_evidence = None
         if self.return_evidence_service is not None:
             return_evidence = self.return_evidence_service.load(
@@ -56,6 +52,10 @@ class PeriodProfitQueryService:
         return_financial_evidence["authorized_mapping_id"] = mapping.get("mapping_id") if mapping else None
         return_financial_evidence["authorized_mapping_applied"] = bool(mapping)
 
+        coverage = build_period_profit_coverage(summary, return_financial_evidence)
+        if coverage.get("error"):
+            return coverage
+
         comparison = None
         previous_summary = None
         if compare_previous:
@@ -69,7 +69,12 @@ class PeriodProfitQueryService:
             if comparison.get("error"):
                 return comparison
 
-        response = build_period_profit_response(summary, comparison, return_evidence)
+        response = build_period_profit_response(
+            summary,
+            comparison,
+            return_evidence,
+            return_financial_evidence,
+        )
         if response.get("error"):
             return response
 
