@@ -24,7 +24,7 @@ class PeriodProfitSummaryService:
             offer_id = product.get("offer_id") or sku
             if sku is None:
                 continue
-            cost = self._resolve_cost(offer_id, product)
+            cost = self._resolve_cost(product)
             if cost is None:
                 return self._error("PERIOD_PROFIT_COST_UNAVAILABLE", f"Не указана себестоимость для {offer_id}")
             row = self._calculate_product(start, end, str(sku), str(offer_id), cost)
@@ -75,16 +75,28 @@ class PeriodProfitSummaryService:
         rounded["margin_percent"] = round(rounded["profit"] / rounded["revenue"] * 100, 2) if rounded["revenue"] else 0.0
         return {"error": False, "sku": sku, "offer_id": offer_id, "cost_per_unit": round(cost, 2), **rounded}
 
-    def _resolve_cost(self, offer_id, product):
-        value = product.get("cost")
-        if value is not None:
-            return float(value)
+    def _resolve_cost(self, product):
+        for field in ("cost", "cost_price"):
+            value = product.get(field)
+            if value is not None:
+                return float(value)
+
         getter = getattr(self.cost_service, "get_cost", None)
         if getter is None:
             return None
-        result = getter(offer_id)
+
+        product_id = product.get("product_id")
+        if product_id is None:
+            return None
+
+        result = getter(product_id)
         if isinstance(result, dict):
-            result = result.get("cost")
+            value = result.get("cost_price")
+            if value is None:
+                value = result.get("cost")
+            return float(value) if value is not None else None
+        if isinstance(result, (tuple, list)) and len(result) > 3:
+            return float(result[3]) if result[3] is not None else None
         return float(result) if result is not None else None
 
     @staticmethod

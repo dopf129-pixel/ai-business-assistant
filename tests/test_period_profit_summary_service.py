@@ -8,7 +8,7 @@ class Finance:
 
 class Costs:
     def __init__(self, costs): self.costs = costs
-    def get_cost(self, sku): return self.costs.get(sku)
+    def get_cost(self, product_id): return self.costs.get(str(product_id))
 
 
 def test_calculates_period_profit_with_explicit_scope():
@@ -16,8 +16,9 @@ def test_calculates_period_profit_with_explicit_scope():
         ("2026-08-01", "100"): {"error": False, "sales_count": 2, "gross_sales": 200, "net_accrual": 150},
         ("2026-08-02", "100"): {"error": False, "sales_count": 1, "gross_sales": 100, "net_accrual": 75},
     })
-    result = PeriodProfitSummaryService(finance, Costs({"hook": 20}), tax_rate=0.06).calculate(
-        "2026-08-01", "2026-08-02", [{"sku": "100", "offer_id": "hook"}]
+    costs = Costs({"10": ("10", "100", "hook", 20.0, "RUB", None)})
+    result = PeriodProfitSummaryService(finance, costs, tax_rate=0.06).calculate(
+        "2026-08-01", "2026-08-02", [{"product_id": "10", "sku": "100", "offer_id": "hook"}]
     )
     assert result["status"] == "PERIOD_PROFIT_SUMMARY_READY"
     assert result["units_sold"] == 3
@@ -35,12 +36,26 @@ def test_aggregates_multiple_products():
         ("2026-08-01", "100"): {"error": False, "sales_count": 1, "gross_sales": 100, "net_accrual": 80},
         ("2026-08-01", "200"): {"error": False, "sales_count": 2, "gross_sales": 300, "net_accrual": 240},
     }
-    result = PeriodProfitSummaryService(Finance(rows), Costs({"a": 10, "b": 30})).calculate(
-        "2026-08-01", "2026-08-01", [{"sku": "100", "offer_id": "a"}, {"sku": "200", "offer_id": "b"}]
-    )
+    products = [
+        {"product_id": "10", "sku": "100", "offer_id": "a"},
+        {"product_id": "20", "sku": "200", "offer_id": "b"},
+    ]
+    costs = Costs({
+        "10": ("10", "100", "a", 10.0, "RUB", None),
+        "20": ("20", "200", "b", 30.0, "RUB", None),
+    })
+    result = PeriodProfitSummaryService(Finance(rows), costs).calculate("2026-08-01", "2026-08-01", products)
     assert result["product_count"] == 2
     assert result["revenue"] == 400
     assert result["profit"] == 226
+
+
+def test_direct_cost_field_is_supported():
+    finance = Finance({("2026-08-01", "100"): {"error": False, "sales_count": 1, "gross_sales": 100, "net_accrual": 80}})
+    result = PeriodProfitSummaryService(finance, Costs({})).calculate(
+        "2026-08-01", "2026-08-01", [{"sku": "100", "offer_id": "a", "cost": 10}]
+    )
+    assert result["profit"] == 64
 
 
 def test_invalid_period_blocks():
@@ -57,7 +72,8 @@ def test_missing_cost_blocks_instead_of_inventing_it():
 
 def test_finance_failure_blocks_whole_summary():
     finance = Finance({("2026-08-01", "100"): {"error": True}})
-    result = PeriodProfitSummaryService(finance, Costs({"a": 10})).calculate(
-        "2026-08-01", "2026-08-01", [{"sku": "100", "offer_id": "a"}]
+    costs = Costs({"10": ("10", "100", "a", 10.0, "RUB", None)})
+    result = PeriodProfitSummaryService(finance, costs).calculate(
+        "2026-08-01", "2026-08-01", [{"product_id": "10", "sku": "100", "offer_id": "a"}]
     )
     assert result["code"] == "PERIOD_PROFIT_FINANCE_UNAVAILABLE"
