@@ -67,4 +67,6 @@ This change does not:
 
 Focused regression tests: `tests/test_product_task_freshness_refresh_guidance.py`.
 
-Validation status: pending targeted local execution.
+Targeted local validation: `5 passed in 0.05s`.
+
+The assistant executed the focused suite in a minimal local checkout containing the exact changed readiness service, Telegram adapter, freshness-service dependency, and focused test file. Full repository regression was intentionally not rerun for this isolated additive block.
