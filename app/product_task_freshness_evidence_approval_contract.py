@@ -30,7 +30,10 @@ def build_freshness_evidence_approval_contract(
     if preview.get("preview_only") is not True:
         return _blocked(source, candidate, "VALIDATION_PREVIEW_NOT_READ_ONLY")
 
-    if preview.get("preview_freshness_validated") is not True:
+    if (
+        preview.get("preview_freshness_validated") is not True
+        or preview.get("preview_freshness_status") != "FRESH"
+    ):
         return _blocked(source, candidate, "FRESHNESS_NOT_VALIDATED")
 
     candidate_evidence = _allowed_evidence(
