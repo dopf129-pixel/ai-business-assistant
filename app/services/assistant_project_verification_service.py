@@ -1,3 +1,6 @@
+import re
+
+
 class AssistantProjectVerificationService:
     """
     Evaluates whether a test report verifies the exact current revision.
@@ -40,7 +43,33 @@ class AssistantProjectVerificationService:
                 baseline=self._baseline(report),
             )
 
-        expected_id = self._expected_report_id(report, report_sha)
+        counts = self._counts(report)
+        if counts is None:
+            return self._result(
+                current_sha=current,
+                status="TEST_REPORT_COUNTS_INVALID",
+                current_suite_verified=False,
+                current_suite_passed=False,
+                baseline=self._baseline(report),
+            )
+
+        passed_count, failed_count, total_count = counts
+        expected_status = "passed" if failed_count == 0 else "failed"
+        if report.get("status") != expected_status:
+            return self._result(
+                current_sha=current,
+                status="TEST_REPORT_STATUS_CONTRADICTORY",
+                current_suite_verified=False,
+                current_suite_passed=False,
+                baseline=self._baseline(report),
+            )
+
+        expected_id = self._expected_report_id(
+            report_sha,
+            passed_count,
+            failed_count,
+            total_count,
+        )
         report_id = report.get("test_report_id")
         if report_id != expected_id:
             return self._result(
@@ -52,10 +81,7 @@ class AssistantProjectVerificationService:
             )
 
         same_revision = report_sha == current
-        passed = (
-            report.get("status") == "passed"
-            and report.get("failed") == 0
-        )
+        passed = expected_status == "passed"
 
         if same_revision and passed:
             status = "CURRENT_VERIFIED"
@@ -119,20 +145,38 @@ class AssistantProjectVerificationService:
         ])
         return "\\n".join(lines)
 
-    def _expected_report_id(self, report, sha):
-        required = ("passed", "failed", "total")
-        if any(report.get(field) is None for field in required):
-            return None
+    def _expected_report_id(
+        self,
+        sha,
+        passed,
+        failed,
+        total,
+    ):
         return (
             "pytest:"
             + sha
             + ":"
-            + str(report.get("passed"))
+            + str(passed)
             + ":"
-            + str(report.get("failed"))
+            + str(failed)
             + ":"
-            + str(report.get("total"))
+            + str(total)
         )
+
+    def _counts(self, report):
+        try:
+            passed = int(report.get("passed"))
+            failed = int(report.get("failed"))
+            total = int(report.get("total"))
+        except (TypeError, ValueError):
+            return None
+
+        if min(passed, failed, total) < 0:
+            return None
+        if passed + failed != total:
+            return None
+
+        return passed, failed, total
 
     def _baseline(self, report):
         if not isinstance(report, dict):
@@ -179,4 +223,6 @@ class AssistantProjectVerificationService:
 
     def _sha(self, value):
         text = str(value or "").strip().lower()
-        return text or None
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", text):
+            return None
+        return text
