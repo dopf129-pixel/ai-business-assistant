@@ -7,9 +7,15 @@ class AssistantTelegramAdapter:
     }
 
     FRESHNESS_EVIDENCE_LABELS = {
-        "SOURCE_PROVEN": "источник подтверждён",
+        "SOURCE_PROVEN": "поле timestamp источника присутствует",
         "OBSERVED_ONLY": "есть только время наблюдения",
         "NO_EVIDENCE": "временных доказательств нет",
+    }
+
+    FRESHNESS_SOURCE_TIMESTAMP_LABELS = {
+        "VERIFIED": "timestamp источника проверен",
+        "UNVERIFIED": "timestamp источника требует проверки",
+        "ABSENT": "timestamp источника отсутствует",
     }
 
     FRESHNESS_COMPONENT_LABELS = {
@@ -224,6 +230,21 @@ class AssistantTelegramAdapter:
                 + str(coverage.get("NO_EVIDENCE", 0)),
             ])
 
+        source_timestamp_counts = summary.get(
+            "freshness_source_timestamp_counts"
+        ) or {}
+        if source_timestamp_counts:
+            lines.extend([
+                "",
+                "Проверка timestamp источника:",
+                "Проверен: "
+                + str(source_timestamp_counts.get("VERIFIED", 0)),
+                "Требует проверки: "
+                + str(source_timestamp_counts.get("UNVERIFIED", 0)),
+                "Отсутствует: "
+                + str(source_timestamp_counts.get("ABSENT", 0)),
+            ])
+
         refresh_counts = summary.get("freshness_refresh_counts") or {}
         if refresh_counts:
             lines.extend([
@@ -269,6 +290,16 @@ class AssistantTelegramAdapter:
                     evidence_state,
                     str(evidence_state),
                 )
+                source_timestamp_state = component.get(
+                    "source_timestamp_state"
+                )
+                if evidence_state == "SOURCE_PROVEN":
+                    evidence_label = (
+                        self.FRESHNESS_SOURCE_TIMESTAMP_LABELS.get(
+                            source_timestamp_state,
+                            evidence_label,
+                        )
+                    )
                 lines.append(
                     "• " + component_label + ": " + evidence_label
                 )
