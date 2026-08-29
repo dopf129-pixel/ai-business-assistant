@@ -2,6 +2,19 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-29 — Development Autopilot Vector Memory v1
+
+- added `AssistantVectorMemoryService` for similarity-based development context lookup;
+- default embeddings are deterministic and local with no network or paid API dependency;
+- added cosine-similarity search with result limits and minimum-similarity filtering;
+- supports constructor injection of a future richer embedding provider without changing the memory API;
+- stored and returned payloads are deep-copy isolated;
+- embedding dimension mismatches fail explicitly;
+- targeted vector-memory tests passed;
+- full repository suite intentionally not rerun for this isolated feature under the reduced full-suite cadence;
+- previous full regression checkpoint remains `392 passed` from the preceding Self-improvement Cycle stage;
+- no Product Decision execution, Action Executor connection, Ozon mutation, or business execution wiring was changed.
+
 ## 2026-08-29 — Self-improvement Cycle v1
 
 - closed the production learning loop from execution feedback into shared memory and back into subsequent planning and action generation;

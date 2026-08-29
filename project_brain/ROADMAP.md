@@ -244,7 +244,9 @@ Tasks:
 [x] Git checkpoint assistant
 
 
-[ ] Vector memory
+[x] Vector memory
+
+Project Brain appendix: `VECTOR_MEMORY.md`
 
 
 
