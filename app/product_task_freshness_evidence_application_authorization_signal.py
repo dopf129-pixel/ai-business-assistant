@@ -30,7 +30,7 @@ def build_freshness_evidence_application_authorization_signal(contract, decision
         "request_id": source["request_id"],
         "draft_id": source["draft_id"],
         "sku": source["sku"],
-        "status": "APPLICATION_AUTHORIZED" if granted else "APPLICATION_AUTHORIZATION_REJECTED",
+        "status": "APPLICATION_AUTHORIZATION_GRANTED" if granted else "APPLICATION_AUTHORIZATION_REJECTED",
         "decision": choice,
         "authorization_signal_ready": True,
         "authorization_granted": granted,
