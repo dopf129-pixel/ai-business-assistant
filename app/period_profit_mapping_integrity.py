@@ -7,7 +7,9 @@ SCOPES = {"RETURN", "ADVERTISING", "STORAGE"}
 
 def verify_period_profit_mapping_integrity(scope, mapping):
     normalized = str(scope or "").strip().upper()
-    source = dict(mapping or {})
+    if not isinstance(mapping, dict):
+        return _result(False, "PERIOD_PROFIT_MAPPING_INTEGRITY_PAYLOAD_INVALID")
+    source = dict(mapping)
     if normalized not in SCOPES:
         return _result(False, "PERIOD_PROFIT_MAPPING_INTEGRITY_SCOPE_INVALID")
 
@@ -15,8 +17,12 @@ def verify_period_profit_mapping_integrity(scope, mapping):
     for row in source.get("operations") or []:
         if not isinstance(row, dict) or row.get("type_id") is None or not row.get("name"):
             return _result(False, "PERIOD_PROFIT_MAPPING_INTEGRITY_OPERATIONS_INVALID")
+        try:
+            type_id = int(row.get("type_id"))
+        except (TypeError, ValueError):
+            return _result(False, "PERIOD_PROFIT_MAPPING_INTEGRITY_TYPE_ID_INVALID")
         operations.append({
-            "type_id": int(row.get("type_id")),
+            "type_id": type_id,
             "name": row.get("name"),
             "description": row.get("description"),
             "source": row.get("source"),
@@ -25,10 +31,19 @@ def verify_period_profit_mapping_integrity(scope, mapping):
     if not operations:
         return _result(False, "PERIOD_PROFIT_MAPPING_INTEGRITY_OPERATIONS_EMPTY")
 
+    expected_type_ids = [row["type_id"] for row in operations]
+    expected_names = [row["name"] for row in operations]
+    if list(source.get("type_ids") or []) != expected_type_ids:
+        return _result(False, "PERIOD_PROFIT_MAPPING_TYPE_IDS_MISMATCH")
+    if list(source.get("operation_names") or []) != expected_names:
+        return _result(False, "PERIOD_PROFIT_MAPPING_OPERATION_NAMES_MISMATCH")
+
     if normalized == "RETURN":
         canonical_payload = operations
         prefix = "return-financial-mapping:"
     else:
+        if source.get("scope") != normalized:
+            return _result(False, "PERIOD_PROFIT_MAPPING_SCOPE_MISMATCH")
         canonical_payload = {"scope": normalized, "operations": operations}
         prefix = f"period-profit-{normalized.lower()}-mapping:"
 
