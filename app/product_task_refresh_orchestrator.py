@@ -1,9 +1,10 @@
 from copy import deepcopy
 
 
-SAFE_PROVIDER_NAMES = {
-    "ProductDecisionMetricsSource",
-    "ProductUnitEconomicsQueryService",
+SAFE_PROVIDER_METHODS = {
+    ("ProductDecisionMetricsSource", "sales"),
+    ("ProductDecisionMetricsSource", "stock"),
+    ("ProductUnitEconomicsQueryService", "query"),
 }
 
 
@@ -42,13 +43,13 @@ def execute_read_only_refresh(capability_contract, providers):
 
     for target in targets:
         provider_name = target.get("provider")
-        method_name = target.get("method")
+        method_name = str(target.get("method") or "")
         component = target.get("component")
 
         if (
             target.get("supported") is not True
             or target.get("read_only") is not True
-            or provider_name not in SAFE_PROVIDER_NAMES
+            or (provider_name, method_name) not in SAFE_PROVIDER_METHODS
         ):
             errors.append({
                 "component": component,
@@ -57,7 +58,7 @@ def execute_read_only_refresh(capability_contract, providers):
             continue
 
         provider = provider_map.get(provider_name)
-        method = getattr(provider, str(method_name or ""), None)
+        method = getattr(provider, method_name, None)
         if provider is None or not callable(method):
             errors.append({
                 "component": component,
