@@ -1,3 +1,5 @@
+import hashlib
+import json
 from copy import deepcopy
 
 
@@ -43,8 +45,15 @@ def build_freshness_state_promotion(verification):
     if source.get("verified_evidence_count") != len(evidence):
         return _blocked("VERIFIED_EVIDENCE_COUNT_MISMATCH", source)
 
+    evidence_payload = json.dumps(
+        evidence,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    evidence_fingerprint = hashlib.sha256(evidence_payload).hexdigest()[:16]
     verification_fingerprint = ":".join(
-        [draft_id, sku, str(source.get("verified_evidence_count"))]
+        [draft_id, sku, evidence_fingerprint]
     )
     return {
         "error": False,
