@@ -9,6 +9,9 @@ sys.path.insert(
 from period_profit_factory import (
     create_period_profit_query
 )
+from period_profit_mapping_registry_factory import (
+    create_period_profit_mapping_registry
+)
 from return_financial_operation_review_factory import (
     create_return_financial_operation_review_report_service
 )
@@ -18,6 +21,12 @@ from services.assistant_return_operation_review_runtime_service import (
 )
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService
+)
+from services.assistant_period_profit_mapping_admin_runtime_service import (
+    AssistantPeriodProfitMappingAdminRuntimeService
+)
+from services.period_profit_mapping_admin_service import (
+    PeriodProfitMappingAdminService
 )
 
 from services.assistant_core_service import (
@@ -164,9 +173,15 @@ def create_assistant():
     )
 
 
+    mapping_registry = (
+        create_period_profit_mapping_registry()
+    )
+
     period_profit_runtime = (
         AssistantPeriodProfitRuntimeService(
-            query_service=create_period_profit_query()
+            query_service=create_period_profit_query(
+                mapping_registry=mapping_registry
+            )
         )
     )
 
@@ -174,6 +189,16 @@ def create_assistant():
         AssistantReturnOperationReviewRuntimeService(
             report_service=(
                 create_return_financial_operation_review_report_service()
+            )
+        )
+    )
+
+    mapping_admin_runtime = (
+        AssistantPeriodProfitMappingAdminRuntimeService(
+            admin_service=(
+                PeriodProfitMappingAdminService(
+                    mapping_registry
+                )
             )
         )
     )
@@ -187,6 +212,9 @@ def create_assistant():
             ),
             return_operation_review_runtime_service=(
                 return_operation_review_runtime
+            ),
+            period_profit_mapping_admin_runtime_service=(
+                mapping_admin_runtime
             )
         )
     )
