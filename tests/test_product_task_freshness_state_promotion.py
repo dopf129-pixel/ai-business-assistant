@@ -47,6 +47,16 @@ def test_verified_readback_promotes_source_freshness_without_mutation():
     assert source == before
 
 
+def test_promotion_id_changes_when_verified_evidence_changes():
+    first = build_freshness_state_promotion(_verification())
+    changed_evidence = deepcopy(_verification()["verified_evidence"])
+    changed_evidence["stock_source_recorded_at"] = "2026-08-29T13:02:00+00:00"
+    second = build_freshness_state_promotion(
+        _verification(verified_evidence=changed_evidence)
+    )
+    assert first["freshness_promotion_id"] != second["freshness_promotion_id"]
+
+
 def test_invalid_verification_status_is_blocked():
     result = build_freshness_state_promotion(_verification(status="OTHER"))
     assert result["code"] == "DURABLE_VERIFICATION_STATUS_INVALID"
