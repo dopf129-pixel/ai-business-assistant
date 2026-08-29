@@ -43,9 +43,11 @@ The existing `prepare_checkpoint` method is unchanged for backward compatibility
 
 ## v243 — Development decision gate
 
-If a development report explicitly carries verification metadata, `AssistantDevelopmentDecisionService` does not return `complete` unless the current suite is both verified and passed.
+For SHA-aware calls, `AssistantDevelopmentDecisionService` requires an injected canonical verification service and recomputes verification from `current_sha + test_report`.
 
-Reports without verification metadata retain legacy behavior.
+It does not trust a verification dictionary embedded in a development report.
+
+Legacy calls without `current_sha` retain the previous behavior.
 
 ## v244 — Agent propagation
 
@@ -56,14 +58,18 @@ Reports without verification metadata retain legacy behavior.
 
 When provided, they are propagated to verification-aware workflow/checkpoint services.
 
+The agent also requires its own canonical verification service for a SHA-aware cycle and computes the reference verification independently.
+
 ## v245 — Agent-level fail-closed report
 
 When a SHA-aware cycle is requested, the final development report is blocked unless:
 
-- workflow verification proves the exact current SHA passed;
-- checkpoint service returns a verified checkpoint with `checkpoint_ready=True`.
+- the agent's canonical verification proves the exact current SHA passed;
+- workflow verification matches that canonical result;
+- checkpoint verification matches that canonical result;
+- checkpoint service returns `checkpoint_ready=True`.
 
-Partial verification wiring does not silently downgrade to the legacy path.
+Partial or forged verification wiring does not silently downgrade to the legacy path.
 
 ## v246 — Backward compatibility
 
@@ -84,6 +90,8 @@ If a SHA-aware agent cycle is requested but its checkpoint service lacks `prepar
 and remains blocked.
 
 A verification-aware workflow without a verified checkpoint path also remains blocked.
+
+Legacy custom workflow/checkpoint implementations that cannot accept the SHA-aware contract are converted into blocked capability results instead of falling through to an unverified legacy checkpoint.
 
 ## Security / trust model
 
