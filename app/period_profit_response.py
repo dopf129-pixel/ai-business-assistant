@@ -6,6 +6,8 @@ def build_period_profit_response(
     comparison=None,
     return_evidence=None,
     return_financial_evidence=None,
+    advertising_financial_evidence=None,
+    storage_financial_evidence=None,
 ):
     source = deepcopy(dict(summary or {}))
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
@@ -20,8 +22,7 @@ def build_period_profit_response(
 
     if source.get("fee_components_included") is True:
         lines.extend([
-            "",
-            "Расшифровка удержаний Ozon:",
+            "", "Расшифровка удержаний Ozon:",
             f"• Комиссия: {_money_abs(source.get('commission'))}",
             f"• Логистика: {_money_abs(source.get('logistics'))}",
             f"• Эквайринг: {_money_abs(source.get('acquiring'))}",
@@ -45,14 +46,9 @@ def build_period_profit_response(
             lines.extend(["", "↩️ Ozon не вернул записей о возвратах за выбранный период."])
             lines.append("Это не доказывает отсутствие всех возвратных расходов.")
 
-    if (
-        isinstance(return_financial_evidence, dict)
-        and return_financial_evidence.get("status") == "PERIOD_PROFIT_RETURN_FINANCIAL_EVIDENCE_READY"
-        and return_financial_evidence.get("authorized_mapping_applied") is True
-    ):
+    if isinstance(return_financial_evidence, dict) and return_financial_evidence.get("status") == "PERIOD_PROFIT_RETURN_FINANCIAL_EVIDENCE_READY" and return_financial_evidence.get("authorized_mapping_applied") is True:
         lines.extend([
-            "",
-            "Подтверждённые возвратные финансовые операции:",
+            "", "Подтверждённые возвратные финансовые операции:",
             f"• Совпавших операций: {int(return_financial_evidence.get('matched_operation_count') or 0)}",
             f"• Сумма по mapping: {_money_abs(return_financial_evidence.get('matched_amount'))}",
         ])
@@ -60,6 +56,9 @@ def build_period_profit_response(
         if mapping_id:
             lines.append(f"• Mapping ID: {mapping_id}")
         lines.append("Эти операции уже входят в net_accrual и повторно из прибыли не вычитаются.")
+
+    _append_expense_evidence(lines, "📣 Подтверждённые операции рекламы", advertising_financial_evidence)
+    _append_expense_evidence(lines, "🏬 Подтверждённые операции хранения", storage_financial_evidence)
 
     if isinstance(comparison, dict) and comparison.get("status") == "PERIOD_PROFIT_COMPARISON_READY":
         direction = {"UP": "выросла", "DOWN": "снизилась", "UNCHANGED": "не изменилась"}.get(comparison.get("profit_direction"), "изменилась")
@@ -80,6 +79,21 @@ def build_period_profit_response(
         lines.append("Это операционная оценка в указанном составе, а не бухгалтерская чистая прибыль.")
 
     return {"error": False, "status": "PERIOD_PROFIT_RESPONSE_READY", "text": "\n".join(lines), "profit_scope": source.get("profit_scope")}
+
+
+def _append_expense_evidence(lines, title, evidence):
+    source = dict(evidence or {})
+    if source.get("status") != "PERIOD_PROFIT_EXPENSE_EVIDENCE_READY" or source.get("authorized_mapping_applied") is not True:
+        return
+    lines.extend([
+        "", title + ":",
+        f"• Совпавших операций: {int(source.get('matched_operation_count') or 0)}",
+        f"• Сумма по mapping: {_money_abs(source.get('matched_amount'))}",
+    ])
+    mapping_id = source.get("authorized_mapping_id")
+    if mapping_id:
+        lines.append(f"• Mapping ID: {mapping_id}")
+    lines.append("Эти расходы уже находятся внутри net_accrual и повторно не вычитаются.")
 
 
 def _money(value):
