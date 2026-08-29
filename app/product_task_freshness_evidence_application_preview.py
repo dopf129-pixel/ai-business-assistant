@@ -15,7 +15,7 @@ def build_freshness_evidence_application_preview(
     draft,
     eligibility,
     freshness_service,
-    readiness_service=None,
+    readiness_service,
 ):
     source = deepcopy(draft or {})
     eligible = deepcopy(eligibility or {})
@@ -57,6 +57,8 @@ def build_freshness_evidence_application_preview(
         return _blocked(source, eligible, "APPROVED_EVIDENCE_COUNT_MISMATCH")
     if freshness_service is None:
         return _blocked(source, eligible, "FRESHNESS_SERVICE_REQUIRED")
+    if readiness_service is None:
+        return _blocked(source, eligible, "READINESS_SERVICE_REQUIRED")
 
     preview = deepcopy(source)
     for field, value in evidence.items():
@@ -64,8 +66,8 @@ def build_freshness_evidence_application_preview(
 
     before_freshness = freshness_service.evaluate(source)
     after_freshness = freshness_service.evaluate(preview)
-    before_readiness = readiness_service.evaluate(source) if readiness_service else None
-    after_readiness = readiness_service.evaluate(preview) if readiness_service else None
+    before_readiness = readiness_service.evaluate(source)
+    after_readiness = readiness_service.evaluate(preview)
 
     return {
         "error": False,
@@ -112,6 +114,8 @@ def _context_error(source, eligible):
         return "DRAFT_ID_MISMATCH"
     if sku != eligible_sku:
         return "SKU_MISMATCH"
+    if request_id != "refresh:" + draft_id:
+        return "REQUEST_ID_MISMATCH"
     if approval_id != "evidence-approval:" + draft_id:
         return "APPROVAL_ID_MISMATCH"
     if signal_id != "evidence-signal:" + approval_id:
