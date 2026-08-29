@@ -2,6 +2,17 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-28 — Product Task Draft Readiness Checklist v1
+
+- added proposal-specific factual checks for manual draft review;
+- review readiness is separated from execution readiness;
+- missing facts are reported without inferred replacement values;
+- execution remains blocked by the disconnected workflow and explicit
+  proposal-specific policy gaps;
+- Telegram detail cards show missing data and execution blockers;
+- review queue summary shows review-ready and refresh-required counts while
+  executable count remains zero.
+
 ## 2026-08-28 — Product Task Draft Detail and Audit v1
 
 - review queue items open a dedicated draft detail card;
