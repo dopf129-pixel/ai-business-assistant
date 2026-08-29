@@ -59,6 +59,9 @@ class AssistantTaskService:
                 )
 
 
+                self._reconcile_loaded_tasks()
+
+
         except Exception:
 
             self.tasks = {}
@@ -137,6 +140,169 @@ class AssistantTaskService:
 
 
 
+
+
+    def _task_is_terminal(
+        self,
+        task
+    ):
+
+
+        return (
+            isinstance(
+                task,
+                dict
+            )
+            and
+            task.get(
+                "status"
+            )
+            in (
+                TaskStatus.DONE,
+                TaskStatus.SKIPPED,
+                TaskStatus.CANCELLED
+            )
+        )
+
+
+    def _terminal_task_error(
+        self,
+        task
+    ):
+
+
+        status = (
+            task.get(
+                "status"
+            )
+            if isinstance(
+                task,
+                dict
+            )
+            else None
+        )
+
+
+        if status == TaskStatus.DONE:
+
+            message = "Задача завершена"
+
+
+        elif status == TaskStatus.CANCELLED:
+
+            message = "Задача отменена"
+
+
+        else:
+
+            message = "Задача закрыта"
+
+
+        return {
+            "error": True,
+            "message": message,
+            "status": status
+        }
+
+
+    def _finalize_if_complete(
+        self,
+        task
+    ):
+
+
+        if not isinstance(
+            task,
+            dict
+        ):
+
+            return False
+
+
+        if task.get(
+            "status"
+        ) in (
+            TaskStatus.CANCELLED,
+            TaskStatus.SKIPPED
+        ):
+
+            return False
+
+
+        actions = task.get(
+            "actions",
+            []
+        )
+
+
+        if (
+            not isinstance(
+                actions,
+                list
+            )
+            or
+            not actions
+        ):
+
+            return False
+
+
+        if not all(
+            isinstance(
+                action,
+                dict
+            )
+            and
+            action.get(
+                "status"
+            )
+            in (
+                "DONE",
+                "SKIPPED"
+            )
+            for action in actions
+        ):
+
+            return False
+
+
+        changed = (
+            task.get(
+                "status"
+            )
+            !=
+            TaskStatus.DONE
+        )
+
+
+        task["status"] = TaskStatus.DONE
+
+
+        task["pending_action"] = None
+
+
+        return changed
+
+
+    def _reconcile_loaded_tasks(
+        self
+    ):
+
+
+        if not isinstance(
+            self.tasks,
+            dict
+        ):
+
+            return
+
+
+        for task in self.tasks.values():
+
+
+            self._finalize_if_complete(
+                task
+            )
 
 
     def create_task(
@@ -381,9 +547,9 @@ class AssistantTaskService:
             }
 
 
-        if task.get(
-            "status"
-        ) == TaskStatus.CANCELLED:
+        if self._task_is_terminal(
+            task
+        ):
 
 
             return {
@@ -551,6 +717,11 @@ class AssistantTaskService:
 
                         action["skip_reason"] = (
                             "Условие не выполнено"
+                        )
+
+
+                        self._finalize_if_complete(
+                            task
                         )
 
 
@@ -791,21 +962,14 @@ class AssistantTaskService:
 
 
 
-        if task.get(
-            "status"
-        ) == TaskStatus.CANCELLED:
+        if self._task_is_terminal(
+            task
+        ):
 
 
-            return {
-
-
-                "error": True,
-
-
-                "message": "Задача отменена"
-
-
-            }
+            return self._terminal_task_error(
+                task
+            )
 
 
 
@@ -888,21 +1052,14 @@ class AssistantTaskService:
 
 
 
-        if task.get(
-            "status"
-        ) == TaskStatus.CANCELLED:
+        if self._task_is_terminal(
+            task
+        ):
 
 
-            return {
-
-
-                "error": True,
-
-
-                "message": "Задача отменена"
-
-
-            }
+            return self._terminal_task_error(
+                task
+            )
 
 
 
@@ -941,6 +1098,11 @@ class AssistantTaskService:
 
 
         task["pending_action"] = None
+
+
+        self._finalize_if_complete(
+            task
+        )
 
 
 
@@ -991,21 +1153,14 @@ class AssistantTaskService:
 
 
 
-        if task.get(
-            "status"
-        ) == TaskStatus.CANCELLED:
+        if self._task_is_terminal(
+            task
+        ):
 
 
-            return {
-
-
-                "error": True,
-
-
-                "message": "Задача отменена"
-
-
-            }
+            return self._terminal_task_error(
+                task
+            )
 
 
 
@@ -1037,6 +1192,11 @@ class AssistantTaskService:
 
 
         task["pending_action"] = None
+
+
+        self._finalize_if_complete(
+            task
+        )
 
 
 
@@ -1083,6 +1243,16 @@ class AssistantTaskService:
 
 
 
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
+
+
         action = self.resolve_action(
             task,
             action
@@ -1108,6 +1278,11 @@ class AssistantTaskService:
 
         action["status"] = status
 
+
+
+        self._finalize_if_complete(
+            task
+        )
 
 
         self.save()
@@ -1516,8 +1691,12 @@ class AssistantTaskService:
                     task.get(
                         "status"
                     )
-                    !=
-                    TaskStatus.CANCELLED
+                    not in
+                    (
+                        TaskStatus.DONE,
+                        TaskStatus.SKIPPED,
+                        TaskStatus.CANCELLED
+                    )
                 )
 
 
@@ -1550,6 +1729,16 @@ class AssistantTaskService:
 
             }
 
+
+
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
 
 
         for action in task.get(
@@ -1640,6 +1829,16 @@ class AssistantTaskService:
                 "error": True,
                 "message": "Задача не найдена"
             }
+
+
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
 
 
         action = self.resolve_action(
@@ -1744,6 +1943,16 @@ class AssistantTaskService:
             }
 
 
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
+
+
         if not isinstance(
             actions,
             list
@@ -1817,6 +2026,16 @@ class AssistantTaskService:
 
             }
 
+
+
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
 
 
         task["replan_requested"] = True
