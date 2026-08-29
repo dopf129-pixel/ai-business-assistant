@@ -116,6 +116,30 @@ def test_cross_draft_or_cross_sku_context_is_blocked():
     assert wrong_sku["code"] == "SKU_MISMATCH"
 
 
+def test_missing_identity_is_blocked_instead_of_assumed_safe():
+    candidate = _candidate()
+    candidate.pop("sku")
+
+    result = build_freshness_evidence_approval_contract(
+        _draft(), candidate, _preview()
+    )
+
+    assert result["code"] == "CONTEXT_IDENTITY_REQUIRED"
+    assert result["approval_ready"] is False
+    assert result["application_allowed"] is False
+
+
+def test_request_id_must_match_preview():
+    result = build_freshness_evidence_approval_contract(
+        _draft(),
+        _candidate(),
+        _preview(request_id="refresh:d2"),
+    )
+
+    assert result["code"] == "REQUEST_ID_MISMATCH"
+    assert result["approval_granted"] is False
+
+
 def test_unexpected_candidate_fields_are_not_approved():
     candidate = _candidate(
         sales_source_recorded_at="2026-08-29T11:55:00+00:00",
