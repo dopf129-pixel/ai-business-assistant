@@ -7,9 +7,10 @@ from period_profit_coverage import build_period_profit_coverage
 class PeriodProfitQueryService:
     """Read-only orchestration for user-facing profit queries."""
 
-    def __init__(self, summary_service, product_provider):
+    def __init__(self, summary_service, product_provider, return_evidence_service=None):
         self.summary_service = summary_service
         self.product_provider = product_provider
+        self.return_evidence_service = return_evidence_service
 
     def query(self, period_code=None, date_from=None, date_to=None, compare_previous=False, today=None):
         request = build_period_profit_request(period_code=period_code, date_from=date_from, date_to=date_to, today=today)
@@ -27,6 +28,15 @@ class PeriodProfitQueryService:
         coverage = build_period_profit_coverage(summary)
         if coverage.get("error"):
             return coverage
+
+        return_evidence = None
+        if self.return_evidence_service is not None:
+            return_evidence = self.return_evidence_service.load(
+                request["date_from"],
+                request["date_to"],
+            )
+            if return_evidence.get("error"):
+                return return_evidence
 
         comparison = None
         previous_summary = None
@@ -51,6 +61,7 @@ class PeriodProfitQueryService:
             "request": request,
             "summary": summary,
             "coverage": coverage,
+            "return_evidence": return_evidence,
             "previous_summary": previous_summary,
             "comparison": comparison,
             "text": response["text"],
