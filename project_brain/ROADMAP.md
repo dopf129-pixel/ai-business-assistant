@@ -230,16 +230,16 @@ Tasks:
 [x] Test analyzer
 
 
-[ ] Change impact analysis
+[x] Change impact analysis
 
 
-[ ] Documentation drift detection
+[x] Documentation drift detection
 
 
-[ ] Automated development workflow
+[x] Automated development workflow
 
 
-[ ] Git checkpoint assistant
+[x] Git checkpoint assistant
 
 
 [ ] Vector memory
