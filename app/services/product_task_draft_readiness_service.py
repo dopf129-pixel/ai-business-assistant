@@ -33,6 +33,9 @@ class ProductTaskDraftReadinessService:
         ),
     }
 
+    def __init__(self, freshness_service=None):
+        self.freshness_service = freshness_service
+
     def evaluate(self, draft):
         source = deepcopy(draft or {})
         proposal_type = str(source.get("proposal_type") or "").upper()
@@ -49,10 +52,19 @@ class ProductTaskDraftReadinessService:
         ]
         lifecycle_current = source.get("status") == "DRAFT"
         proposal_supported = proposal_type in self.REVIEW_FIELDS
+        freshness = (
+            self.freshness_service.evaluate(source)
+            if self.freshness_service is not None
+            else None
+        )
+        freshness_ready = (
+            freshness is None or freshness.get("status") == "FRESH"
+        )
         review_ready = (
             lifecycle_current
             and proposal_supported
             and not missing_fields
+            and freshness_ready
         )
         review_blockers = []
         if not lifecycle_current:
@@ -61,6 +73,8 @@ class ProductTaskDraftReadinessService:
             review_blockers.append("PROPOSAL_NOT_SUPPORTED")
         if missing_fields:
             review_blockers.append("REQUIRED_DATA_MISSING")
+        if freshness is not None and not freshness_ready:
+            review_blockers.append("SOURCE_DATA_NOT_FRESH")
 
         execution_blockers = ["EXECUTION_WORKFLOW_NOT_CONNECTED"]
         execution_blockers.extend(
@@ -78,6 +92,7 @@ class ProductTaskDraftReadinessService:
             "required_checks": checks,
             "missing_fields": missing_fields,
             "review_blockers": review_blockers,
+            "freshness": freshness,
             "execution_ready": False,
             "execution_blockers": execution_blockers,
             "executed": False,
@@ -89,15 +104,20 @@ class ProductTaskDraftReadinessService:
             "READY_FOR_REVIEW": 0,
             "NEEDS_DATA_OR_REFRESH": 0,
         }
+        freshness_counts = {"FRESH": 0, "STALE": 0, "UNKNOWN": 0}
         for draft in drafts or []:
             item = deepcopy(draft)
             readiness = self.evaluate(item)
             item["readiness"] = readiness
             counts[readiness["review_status"]] += 1
+            freshness = readiness.get("freshness")
+            if freshness and freshness.get("status") in freshness_counts:
+                freshness_counts[freshness["status"]] += 1
             items.append(item)
         return {
             "error": False,
             "counts": counts,
+            "freshness_counts": freshness_counts,
             "items": items,
             "execution_ready_count": 0,
             "executed_count": 0,

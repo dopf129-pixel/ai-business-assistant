@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-29 — Product Task Draft Data Freshness Guards v1
+
+- added a separate read-only `ProductTaskDraftFreshnessService`;
+- freshness is reported as `FRESH`, `STALE`, or `UNKNOWN`;
+- persisted `decision_recorded_at` is used as the real decision-snapshot timestamp;
+- sales, stock, and unit-economics timestamps remain `UNKNOWN` when the current source contracts do not provide a reliable timestamp;
+- review readiness now requires proven fresh source data when the freshness guard is wired;
+- no timestamp is fabricated from request time, cache time, or draft update time;
+- execution remains unavailable: `execution_ready=False`, `executed=False`, and no Action Executor or Ozon mutation path is connected.
+
 ## 2026-08-28 — Product Task Draft Readiness Checklist v1
 
 - added proposal-specific factual checks for manual draft review;

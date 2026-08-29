@@ -33,6 +33,9 @@ from services.product_action_task_draft_storage_service import (
 from services.product_task_draft_review_queue_service import (
     ProductTaskDraftReviewQueueService
 )
+from services.product_task_draft_freshness_service import (
+    ProductTaskDraftFreshnessService
+)
 from services.product_task_draft_readiness_service import (
     ProductTaskDraftReadinessService
 )
@@ -68,7 +71,8 @@ def create_product_business_decision_query(
     action_proposal_confirmation_service=None,
     action_task_draft_service=None,
     task_draft_review_queue_service=None,
-    task_draft_readiness_service=None
+    task_draft_readiness_service=None,
+    task_draft_freshness_service=None,
 ):
     if core_components is None:
         from telegram_core_factory import create_telegram_core
@@ -131,8 +135,14 @@ def create_product_business_decision_query(
         task_draft_review_queue_service
         or ProductTaskDraftReviewQueueService()
     )
+    freshness_service = (
+        task_draft_freshness_service
+        or ProductTaskDraftFreshnessService()
+    )
     query.task_draft_readiness_service = (
         task_draft_readiness_service
-        or ProductTaskDraftReadinessService()
+        or ProductTaskDraftReadinessService(
+            freshness_service=freshness_service
+        )
     )
     return query
