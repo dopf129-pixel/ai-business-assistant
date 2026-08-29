@@ -17,15 +17,20 @@ The approval contract must contain complete context:
 - `draft_id`;
 - `sku`.
 
-It must also remain in the expected v20 state:
+`approval_id` must equal `evidence-approval:<draft_id>`.
+
+The contract must also remain in the expected v20 state:
 
 - `status=APPROVAL_REQUIRED`;
 - `approval_ready=True`;
 - `approval_required=True`;
+- `approval_granted=False`;
 - `freshness_guard_validated=True`;
 - `preview_freshness_status=FRESH`;
 - `application_allowed=False`;
 - non-empty `validated_evidence`.
+
+`validated_evidence` is re-whitelisted at the signal boundary. Any unexpected field blocks the signal instead of being silently carried forward.
 
 ## Decision semantics
 
@@ -56,4 +61,4 @@ No Ozon calls are performed by this contract.
 
 Focused tests: `tests/test_product_task_freshness_evidence_approval_signal.py`.
 
-Targeted assistant-side pytest: `7 passed in 0.04s`.
+Targeted assistant-side pytest after safety hardening: `10 passed in 0.05s`.
