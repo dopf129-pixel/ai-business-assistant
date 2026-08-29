@@ -124,6 +124,14 @@ def test_cross_draft_context_is_blocked():
     assert result["applied_evidence"] == {}
 
 
+def test_forged_request_id_is_blocked():
+    freshness, readiness = _services()
+    result = build_freshness_evidence_application_preview(
+        _draft(), _eligibility(request_id="refresh:d2"), freshness, readiness
+    )
+    assert result["code"] == "REQUEST_ID_MISMATCH"
+
+
 def test_forged_eligibility_id_is_blocked():
     freshness, readiness = _services()
     result = build_freshness_evidence_application_preview(
@@ -157,10 +165,19 @@ def test_evidence_count_mismatch_is_blocked():
 
 
 def test_missing_freshness_service_is_blocked():
+    _, readiness = _services()
     result = build_freshness_evidence_application_preview(
-        _draft(), _eligibility(), None
+        _draft(), _eligibility(), None, readiness
     )
     assert result["code"] == "FRESHNESS_SERVICE_REQUIRED"
+
+
+def test_missing_readiness_service_is_blocked():
+    freshness, _ = _services()
+    result = build_freshness_evidence_application_preview(
+        _draft(), _eligibility(), freshness, None
+    )
+    assert result["code"] == "READINESS_SERVICE_REQUIRED"
 
 
 def test_eligibility_that_already_allows_application_is_blocked():
