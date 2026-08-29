@@ -107,7 +107,7 @@ class AssistantProjectVerificationService:
     def render_markdown(self, evaluation):
         source = dict(evaluation or {})
         if source.get("error") is not False:
-            return "# Verification Status\\n\\nStatus: INVALID\\n"
+            return "# Verification Status\n\nStatus: INVALID\n"
 
         baseline = source.get("baseline") or {}
         lines = [
@@ -143,7 +143,7 @@ class AssistantProjectVerificationService:
             ),
             "",
         ])
-        return "\\n".join(lines)
+        return "\n".join(lines)
 
     def _expected_report_id(
         self,
