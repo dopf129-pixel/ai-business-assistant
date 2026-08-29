@@ -32,7 +32,9 @@ The candidate builder does not promote these fields to source freshness evidence
 - analytics period boundaries;
 - unit-economics `as_of`.
 
-A source timestamp is considered present only when the matching canonical `*_source_recorded_at` field is explicitly present in refreshed data.
+A source-evidence candidate exists only when the matching canonical `*_source_recorded_at` field is explicitly present in refreshed data.
+
+Presence alone does not prove freshness. The timestamp may still be invalid, future-dated, or stale. Only the existing `ProductTaskDraftFreshnessService` may validate the timestamp after a separately reviewed evidence-application step.
 
 ## Output
 
@@ -41,9 +43,11 @@ A source timestamp is considered present only when the matching canonical `*_sou
 - component-level evidence candidates;
 - flattened `evidence_update` candidate fields;
 - counts for source and observation evidence;
-- `source_freshness_proven` based only on canonical source timestamp presence.
+- `source_evidence_candidate_present` when canonical source evidence exists;
+- `requires_freshness_guard_validation=True` when source evidence must later be validated;
+- `source_freshness_proven=False` in all cases at this stage.
 
-This flag means the candidate contains source evidence. It does not mean the evidence has been applied to a Product Decision or task draft, and it does not bypass the freshness guard.
+The candidate is not applied to a Product Decision or task draft and does not bypass the freshness guard.
 
 ## Safety invariants
 
@@ -61,4 +65,4 @@ No Ozon call is performed by this contract.
 
 Focused tests: `tests/test_product_task_freshness_evidence_candidate.py`.
 
-Targeted assistant-side pytest: `5 passed in 0.05s`.
+Targeted assistant-side pytest after safety review: `5 passed in 0.05s`.
