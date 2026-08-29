@@ -6,6 +6,9 @@ sys.path.insert(
 )
 
 
+from freshness_operational_runtime_factory import (
+    create_freshness_operational_runtime
+)
 from period_profit_factory import (
     create_period_profit_query
 )
@@ -109,7 +112,9 @@ from services.action_history_service import (
 
 
 
-def create_assistant():
+def create_assistant(
+    freshness_audit_reader=None
+):
 
     history = (
         ActionHistoryService()
@@ -219,6 +224,12 @@ def create_assistant():
         )
     )
 
+    freshness_operational_runtime = (
+        create_freshness_operational_runtime(
+            freshness_audit_reader
+        )
+    )
+
 
     entry = (
         AssistantEntryService(
@@ -234,6 +245,9 @@ def create_assistant():
             ),
             period_profit_mapping_recovery_runtime_service=(
                 mapping_recovery_runtime
+            ),
+            freshness_operational_runtime_service=(
+                freshness_operational_runtime
             )
         )
     )
