@@ -81,11 +81,7 @@ def test_vector_memory_does_not_expose_mutable_internal_payload():
     first["payload"]["files"].append("DECISIONS.md")
     second = memory.search("roadmap")["results"][0]
 
-    assert second["payload"]["files"] == [
-        "ROADMAP.md",
-        "CHANGELOG.md",
-        "DECISIONS.md",
-    ]
+    assert second["payload"]["files"] == ["ROADMAP.md"]
 
 
 def test_vector_memory_rejects_embedding_dimension_mismatch():
