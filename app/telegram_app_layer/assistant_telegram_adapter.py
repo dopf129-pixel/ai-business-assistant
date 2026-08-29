@@ -222,7 +222,7 @@ class AssistantTelegramAdapter:
             lines.extend([
                 "",
                 "Доказательства свежести:",
-                "Источник подтверждён: "
+                "Поле timestamp источника есть: "
                 + str(coverage.get("SOURCE_PROVEN", 0)),
                 "Только наблюдение: "
                 + str(coverage.get("OBSERVED_ONLY", 0)),
