@@ -95,15 +95,17 @@ def build_write_protocol_audit(eligibility, write_request, decision, adapter_con
     error = _validate_decision(decided)
     if error:
         return _blocked(decided, error)
-    expected_eligibility = "evidence-write-protocol-eligibility:" + decided.get("application_write_handoff_id", "")
+    expected_handoff, expected_eligibility, expected_audit = _expected_lineage(decided)
+    if any(x.get("application_write_handoff_id") != expected_handoff for x in (eligible, request, decided)):
+        return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_LINEAGE_MISMATCH")
     if any(x.get("write_protocol_eligibility_id") != expected_eligibility for x in (eligible, request, decided)):
+        return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_LINEAGE_MISMATCH")
+    if any(x.get("executor_admission_audit_id") != expected_audit for x in (eligible, request, decided)):
         return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_LINEAGE_MISMATCH")
     expected_request = "evidence-write-request:" + expected_eligibility
     if request.get("write_request_id") != expected_request or decided.get("write_request_id") != expected_request:
         return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_LINEAGE_MISMATCH")
-    if request.get("expected_target_revision_id") != decided.get("expected_target_revision_id"):
-        return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_TARGET_MISMATCH")
-    if request.get("expected_target_version") != decided.get("expected_target_version"):
+    if request.get("expected_target_revision_id") != decided.get("expected_target_revision_id") or request.get("expected_target_version") != decided.get("expected_target_version"):
         return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_TARGET_MISMATCH")
     if request.get("write_operations") != decided.get("write_operations"):
         return _blocked(decided, "APPLICATION_WRITE_PROTOCOL_AUDIT_OPERATIONS_MISMATCH")
@@ -176,11 +178,13 @@ def _validate_reread_snapshot(handoff, snapshot):
 def _validate_eligibility(source):
     if source.get("error") is not False or source.get("status") != "APPLICATION_WRITE_PROTOCOL_ELIGIBLE" or source.get("write_protocol_eligible") is not True or source.get("stale_lineage_check_passed") is not True:
         return "APPLICATION_WRITE_PROTOCOL_NOT_ELIGIBLE"
-    expected_handoff = "evidence-application-write-handoff:" + source.get("executor_authorization_id", "")
+    expected_handoff, expected_eligibility, expected_audit = _expected_lineage(source)
     if source.get("application_write_handoff_id") != expected_handoff:
         return "APPLICATION_WRITE_HANDOFF_ID_MISMATCH"
-    if source.get("write_protocol_eligibility_id") != "evidence-write-protocol-eligibility:" + expected_handoff:
+    if source.get("write_protocol_eligibility_id") != expected_eligibility:
         return "APPLICATION_WRITE_PROTOCOL_ELIGIBILITY_ID_MISMATCH"
+    if source.get("executor_admission_audit_id") != expected_audit:
+        return "APPLICATION_EXECUTOR_AUDIT_LINEAGE_MISMATCH"
     if _unsafe(source):
         return "APPLICATION_WRITE_PROTOCOL_SAFETY_BOUNDARY_VIOLATION"
     if not isinstance(source.get("target_revision_id"), str) or not source["target_revision_id"].strip():
@@ -193,7 +197,10 @@ def _validate_eligibility(source):
 def _validate_request(source):
     if source.get("error") is not False or source.get("status") != "APPLICATION_WRITE_REQUEST_READY" or source.get("write_request_ready") is not True:
         return "APPLICATION_WRITE_REQUEST_REQUIRED"
-    if source.get("write_request_id") != "evidence-write-request:" + source.get("write_protocol_eligibility_id", ""):
+    expected_handoff, expected_eligibility, expected_audit = _expected_lineage(source)
+    if source.get("application_write_handoff_id") != expected_handoff or source.get("write_protocol_eligibility_id") != expected_eligibility or source.get("executor_admission_audit_id") != expected_audit:
+        return "APPLICATION_WRITE_REQUEST_LINEAGE_MISMATCH"
+    if source.get("write_request_id") != "evidence-write-request:" + expected_eligibility:
         return "APPLICATION_WRITE_REQUEST_ID_MISMATCH"
     if source.get("expected_target_revision_id") != source.get("target_revision_id") or source.get("expected_target_version") != source.get("target_version"):
         return "APPLICATION_WRITE_REQUEST_TARGET_MISMATCH"
@@ -241,6 +248,14 @@ def _validate_adapter_contract(source):
     return None
 
 
+def _expected_lineage(source):
+    auth_id = source.get("executor_authorization_id", "")
+    handoff = "evidence-application-write-handoff:" + auth_id
+    eligibility = "evidence-write-protocol-eligibility:" + handoff
+    audit = "evidence-application-executor-admission-audit:" + auth_id
+    return handoff, eligibility, audit
+
+
 def _validate_operations(operations, count):
     if not isinstance(operations, list) or not operations:
         return "APPLICATION_WRITE_OPERATIONS_REQUIRED"
@@ -274,8 +289,8 @@ def _unsafe(source):
 
 def _base(source, **additions):
     carry = (
-        "draft_id", "sku", "executor_authorization_id", "application_write_handoff_id",
-        "write_protocol_eligibility_id", "write_request_id", "write_decision_id",
+        "draft_id", "sku", "executor_authorization_id", "executor_admission_audit_id",
+        "application_write_handoff_id", "write_protocol_eligibility_id", "write_request_id", "write_decision_id",
         "target_revision_id", "target_version", "proposed_changes", "proposed_change_count",
         "expected_target_revision_id", "expected_target_version", "write_operations", "write_operation_count",
     )
