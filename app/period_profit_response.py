@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 
-def build_period_profit_response(summary, comparison=None):
+def build_period_profit_response(summary, comparison=None, return_evidence=None):
     source = deepcopy(dict(summary or {}))
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
         return {"error": True, "code": "PERIOD_PROFIT_RESPONSE_SUMMARY_REQUIRED", "status": "PERIOD_PROFIT_RESPONSE_UNAVAILABLE"}
@@ -30,6 +30,15 @@ def build_period_profit_response(summary, comparison=None):
         f"Прибыль: {_money(source.get('profit'))}",
         f"Маржа: {_percent(source.get('margin_percent'))}",
     ])
+
+    if isinstance(return_evidence, dict) and return_evidence.get("status") == "PERIOD_PROFIT_RETURN_EVIDENCE_READY":
+        count = int(return_evidence.get("return_record_count") or 0)
+        if return_evidence.get("returns_observed") is True:
+            lines.extend(["", f"↩️ Ozon зафиксировал возвраты за период: {count}."])
+            lines.append("Их денежное влияние пока не включено в прибыль.")
+        else:
+            lines.extend(["", "↩️ Ozon не вернул записей о возвратах за выбранный период."])
+            lines.append("Это не меняет текущий статус: возвратные корректировки ещё не входят в формулу прибыли.")
 
     if isinstance(comparison, dict) and comparison.get("status") == "PERIOD_PROFIT_COMPARISON_READY":
         direction = {"UP": "выросла", "DOWN": "снизилась", "UNCHANGED": "не изменилась"}.get(comparison.get("profit_direction"), "изменилась")
