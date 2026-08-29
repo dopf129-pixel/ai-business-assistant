@@ -24,7 +24,8 @@ class AssistantEntryService:
         period_profit_runtime_service=None,
         return_operation_review_runtime_service=None,
         period_profit_mapping_admin_runtime_service=None,
-        period_profit_mapping_recovery_runtime_service=None
+        period_profit_mapping_recovery_runtime_service=None,
+        freshness_operational_runtime_service=None
     ):
         self.main_flow_service = main_flow_service
 
@@ -45,6 +46,9 @@ class AssistantEntryService:
         )
         self.period_profit_mapping_recovery_runtime_service = (
             period_profit_mapping_recovery_runtime_service
+        )
+        self.freshness_operational_runtime_service = (
+            freshness_operational_runtime_service
         )
 
         self.sales_context_provider = (
@@ -74,6 +78,14 @@ class AssistantEntryService:
         context=None,
         user_id=None
     ):
+        if self.freshness_operational_runtime_service is not None:
+            direct_result = (
+                self.freshness_operational_runtime_service
+                .handle_text(text)
+            )
+            if direct_result is not None:
+                return direct_result
+
         if self.period_profit_mapping_recovery_runtime_service is not None:
             direct_result = (
                 self.period_profit_mapping_recovery_runtime_service
