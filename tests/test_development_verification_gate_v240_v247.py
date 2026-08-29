@@ -344,3 +344,35 @@ def test_v247_agent_rejects_forged_custom_verification_components():
     assert result["verification"]["status"] == "STALE_BASELINE"
     assert result["report"]["status"] == "blocked"
     assert result["status"] == "workflow_blocked"
+
+
+def test_v247_legacy_workflow_signature_is_blocked_not_raised():
+    class LegacyWorkflow:
+        def start_workflow(self, change):
+            return {
+                "change": change,
+                "status": "started",
+                "steps": [],
+            }
+
+    verification_service = _verification()
+    agent = AssistantDevelopmentAgent(
+        workflow=LegacyWorkflow(),
+        checkpoint_service=AssistantGitCheckpointService(
+            verification_service=verification_service
+        ),
+        verification_service=verification_service,
+    )
+
+    result = agent.run_development_cycle(
+        "change",
+        current_sha=CURRENT_SHA,
+        test_report=_report(CURRENT_SHA),
+    )
+
+    assert result["workflow"]["status"] == "blocked"
+    assert result["workflow"]["code"] == (
+        "VERIFIED_WORKFLOW_CAPABILITY_MISSING"
+    )
+    assert result["report"]["status"] == "blocked"
+    assert result["status"] == "workflow_blocked"
