@@ -66,6 +66,16 @@ def test_confirmation_can_use_current_and_explicit_replacement_only():
     assert result["confirmations"][1]["replacement_operation"]["type_id"] == 2
 
 
+def test_replacement_cannot_overwrite_unaffected_active_type_id():
+    candidate = build_mapping_rereview_candidate(_quality(), _mapping(), _catalog())
+    result = build_mapping_rereview_confirmation(candidate, [
+        {"type_id": 1, "decision": "USE_CURRENT"},
+        {"type_id": 9, "decision": "REPLACE", "replacement_type_id": 5},
+    ])
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REREVIEW_REPLACEMENT_COLLIDES_WITH_ACTIVE_OPERATION"
+    assert result["automatic_remap_allowed"] is False
+
+
 def test_draft_and_diff_preserve_unaffected_operations():
     candidate = build_mapping_rereview_candidate(_quality(), _mapping(), _catalog())
     confirmation = build_mapping_rereview_confirmation(candidate, [
