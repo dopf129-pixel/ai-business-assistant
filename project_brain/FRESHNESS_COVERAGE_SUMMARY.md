@@ -66,4 +66,8 @@ This change does not:
 
 Focused regression tests were added in `tests/test_product_task_freshness_coverage.py`.
 
-Validation status: pending local/CI execution.
+Targeted validation executed in a minimal local checkout containing the exact changed services, Telegram adapter, freshness service, and focused tests:
+
+- `4 passed in 0.07s`
+
+GitHub Actions did not provide a workflow run for the PR head at validation time. Full repository suite was not rerun for this isolated additive block.
