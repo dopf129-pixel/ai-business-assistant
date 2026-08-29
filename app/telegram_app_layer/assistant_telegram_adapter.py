@@ -6,6 +6,18 @@ class AssistantTelegramAdapter:
         "UNKNOWN": "свежесть неизвестна",
     }
 
+    FRESHNESS_EVIDENCE_LABELS = {
+        "SOURCE_PROVEN": "источник подтверждён",
+        "OBSERVED_ONLY": "есть только время наблюдения",
+        "NO_EVIDENCE": "временных доказательств нет",
+    }
+
+    FRESHNESS_COMPONENT_LABELS = {
+        "sales": "Продажи",
+        "stock": "Остатки",
+        "unit_economics": "Юнит-экономика",
+    }
+
     FRESHNESS_REASON_LABELS = {
         "DECISION_SNAPSHOT_STALE": "снимок решения устарел",
         "DECISION_SNAPSHOT_TIMESTAMP_UNKNOWN": (
@@ -186,6 +198,20 @@ class AssistantTelegramAdapter:
             "Устарели: " + str(counts.get("STALE", 0)),
             "Неизвестно: " + str(counts.get("UNKNOWN", 0)),
         ]
+
+        coverage = summary.get("freshness_coverage_counts") or {}
+        if coverage:
+            lines.extend([
+                "",
+                "Доказательства свежести:",
+                "Источник подтверждён: "
+                + str(coverage.get("SOURCE_PROVEN", 0)),
+                "Только наблюдение: "
+                + str(coverage.get("OBSERVED_ONLY", 0)),
+                "Нет временных доказательств: "
+                + str(coverage.get("NO_EVIDENCE", 0)),
+            ])
+
         return self._append_message(result, lines)
 
     def _with_freshness_detail(self, result):
@@ -203,6 +229,24 @@ class AssistantTelegramAdapter:
             self.FRESHNESS_STATUS_LABELS.get(status, str(status)),
             "Возраст снимка решения: " + age,
         ]
+
+        coverage = readiness.get("freshness_coverage") or {}
+        components = coverage.get("components") or {}
+        if components:
+            lines.extend(["", "Доказательства по компонентам:"])
+            for component_name, component in components.items():
+                evidence_state = component.get("evidence_state")
+                component_label = self.FRESHNESS_COMPONENT_LABELS.get(
+                    component_name,
+                    str(component_name),
+                )
+                evidence_label = self.FRESHNESS_EVIDENCE_LABELS.get(
+                    evidence_state,
+                    str(evidence_state),
+                )
+                lines.append(
+                    "• " + component_label + ": " + evidence_label
+                )
 
         reasons = freshness.get("reasons") or []
         if reasons:
