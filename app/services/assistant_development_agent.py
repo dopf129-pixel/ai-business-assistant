@@ -19,12 +19,14 @@ class AssistantDevelopmentAgent:
         workflow=None,
         brain_manager=None,
         checkpoint_service=None,
+        verification_service=None,
     ):
         self.name = "AssistantDevelopmentAgent"
 
         self.workflow = workflow
         self.brain_manager = brain_manager
         self.checkpoint_service = checkpoint_service
+        self.verification_service = verification_service
 
     def create_plan(self, task):
         """
@@ -68,6 +70,10 @@ class AssistantDevelopmentAgent:
         """
 
         plan = self.create_plan(task)
+        canonical_verification = self._verify_revision(
+            current_sha,
+            test_report,
+        )
 
         result = {
             "agent": self.name,
@@ -75,6 +81,9 @@ class AssistantDevelopmentAgent:
             "status": "workflow_started",
             "steps": plan["steps"],
         }
+
+        if canonical_verification is not None:
+            result["verification"] = canonical_verification
 
         if self.workflow:
             result["workflow"] = self.execute_workflow(
@@ -104,6 +113,7 @@ class AssistantDevelopmentAgent:
             result["project_brain"],
             result["checkpoint"],
             verification_required=(current_sha is not None),
+            canonical_verification=canonical_verification,
         )
 
         report_status = result["report"].get("status")
@@ -122,23 +132,36 @@ class AssistantDevelopmentAgent:
         project_brain,
         checkpoint,
         verification_required=False,
+        canonical_verification=None,
     ):
         """
         Creates development execution report.
         """
 
-        verification = (
+        workflow_verification = (
             workflow.get("verification")
             if isinstance(workflow, dict)
             else None
         )
+        checkpoint_verification = (
+            checkpoint.get("verification")
+            if isinstance(checkpoint, dict)
+            else None
+        )
+        verification = (
+            canonical_verification
+            if verification_required
+            else workflow_verification
+        )
 
         status = "completed"
         if verification_required:
-            if (
-                not isinstance(verification, dict)
-                or verification.get("current_suite_verified") is not True
-                or verification.get("current_suite_passed") is not True
+            if not self._verification_passed(verification):
+                status = "blocked"
+
+            if not self._verification_matches(
+                verification,
+                workflow_verification,
             ):
                 status = "blocked"
 
@@ -146,6 +169,10 @@ class AssistantDevelopmentAgent:
                 not isinstance(checkpoint, dict)
                 or checkpoint.get("status") != "ready"
                 or checkpoint.get("checkpoint_ready") is not True
+                or not self._verification_matches(
+                    verification,
+                    checkpoint_verification,
+                )
             ):
                 status = "blocked"
         elif (
@@ -189,6 +216,47 @@ class AssistantDevelopmentAgent:
             task,
             current_sha=current_sha,
             test_report=test_report,
+        )
+
+    def _verify_revision(self, current_sha, test_report):
+        if current_sha is None:
+            return None
+        if self.verification_service is None:
+            return {
+                "error": True,
+                "status": "VERIFICATION_SERVICE_REQUIRED",
+                "current_sha": current_sha,
+                "current_suite_verified": False,
+                "current_suite_passed": False,
+                "baseline": None,
+                "baseline_is_current": False,
+            }
+        return self.verification_service.evaluate(
+            current_sha,
+            test_report,
+        )
+
+    def _verification_passed(self, verification):
+        return (
+            isinstance(verification, dict)
+            and verification.get("error") is False
+            and verification.get("current_suite_verified") is True
+            and verification.get("current_suite_passed") is True
+        )
+
+    def _verification_matches(self, expected, actual):
+        if not isinstance(expected, dict) or not isinstance(actual, dict):
+            return False
+        fields = (
+            "status",
+            "current_sha",
+            "current_suite_verified",
+            "current_suite_passed",
+            "baseline_is_current",
+        )
+        return all(
+            expected.get(field) == actual.get(field)
+            for field in fields
         )
 
     def update_project_brain(self, task):
