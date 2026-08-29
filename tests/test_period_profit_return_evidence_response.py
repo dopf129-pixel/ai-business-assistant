@@ -17,4 +17,5 @@ def test_reports_no_return_records_without_marking_returns_included():
     evidence = {"status": "PERIOD_PROFIT_RETURN_EVIDENCE_READY", "returns_observed": False, "return_record_count": 0}
     text = build_period_profit_response(_summary(), return_evidence=evidence)["text"]
     assert "не вернул записей о возвратах" in text
-    assert "возвратные корректировки ещё не входят" in text
+    assert "не доказывает отсутствие всех возвратных расходов" in text
+    assert "пока не включены полностью: возвраты" in text

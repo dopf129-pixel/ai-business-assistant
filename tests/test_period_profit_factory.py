@@ -22,10 +22,23 @@ class Summary:
 
 
 class Query:
-    def __init__(self, summary_service, product_provider, return_evidence_service=None):
+    def __init__(
+        self,
+        summary_service,
+        product_provider,
+        return_evidence_service=None,
+        authorized_return_mapping=None,
+        authorized_advertising_mapping=None,
+        authorized_storage_mapping=None,
+        mapping_observability_service=None,
+    ):
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
+        self.authorized_return_mapping = authorized_return_mapping
+        self.authorized_advertising_mapping = authorized_advertising_mapping
+        self.authorized_storage_mapping = authorized_storage_mapping
+        self.mapping_observability_service = mapping_observability_service
 
 
 def test_factory_wires_existing_production_dependencies(monkeypatch):
@@ -45,3 +58,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
+    assert query.authorized_return_mapping is None
+    assert query.authorized_advertising_mapping is None
+    assert query.authorized_storage_mapping is None
+    assert query.mapping_observability_service is None
