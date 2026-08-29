@@ -23,15 +23,17 @@ def build_period_profit_coverage(summary):
         else:
             missing.append(name)
 
+    all_tracked_components_included = not missing
     return {
         "error": False,
         "status": "PERIOD_PROFIT_COVERAGE_READY",
-        "coverage_status": "COMPLETE" if not missing else "PARTIAL",
+        "coverage_status": "COMPLETE" if all_tracked_components_included else "PARTIAL",
         "included_components": included,
         "missing_components": missing,
         "included_count": len(included),
         "missing_count": len(missing),
-        "accounting_net_profit_claim_allowed": not missing,
+        "all_tracked_components_included": all_tracked_components_included,
+        "accounting_net_profit_claim_allowed": False,
         "read_only": True,
         "executed": False,
     }
