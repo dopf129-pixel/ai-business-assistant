@@ -2,6 +2,7 @@ from period_profit_expense_operation_authorized_mapping import (
     build_period_profit_expense_operation_authorized_mapping,
 )
 from period_profit_mapping_integrity import verify_period_profit_mapping_integrity
+from period_profit_mapping_rereview import build_mapping_replacement_diff
 from return_financial_operation_authorized_mapping import (
     build_return_financial_operation_authorized_mapping,
 )
@@ -22,6 +23,9 @@ def build_authorized_replacement_mapping(authorization):
         or source.get("mapping_authorized") is not True
         or source.get("registry_save_allowed") is not False
         or source.get("activation_allowed") is not False
+        or source.get("automatic_activation_allowed") is not False
+        or source.get("profit_adjustment_allowed") is not False
+        or source.get("executed") is not False
     ):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_BUILD_AUTHORIZATION_REQUIRED")
 
@@ -70,7 +74,7 @@ def build_replacement_persistence_preview(registry_service, authorization, artif
     history = registry_service.history(scope)
     if history.get("error") is not False or history.get("status") != "PERIOD_PROFIT_MAPPING_HISTORY_READY":
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_REGISTRY_HISTORY_REQUIRED")
-    if history.get("registry_health_status") not in {"EMPTY", "HEALTHY"}:
+    if history.get("registry_health_status") != "HEALTHY":
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_REGISTRY_HEALTH_BLOCKED")
 
     revisions = list(history.get("revisions") or [])
@@ -81,6 +85,22 @@ def build_replacement_persistence_preview(registry_service, authorization, artif
     )
     if active_revision is None or active_revision.get("mapping_id") != auth.get("active_mapping_id"):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVE_LINEAGE_MISMATCH")
+    active_mapping = active_revision.get("mapping")
+    if not isinstance(active_mapping, dict):
+        return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVE_MAPPING_REQUIRED")
+
+    recomputed = build_mapping_replacement_diff(
+        active_mapping,
+        {
+            "error": False,
+            "status": "PERIOD_PROFIT_MAPPING_REPLACEMENT_DRAFT_READY",
+            "scope": scope,
+            "active_mapping_id": auth.get("active_mapping_id"),
+            "operations": list(mapping.get("operations") or []),
+        },
+    )
+    if recomputed.get("error") is not False or not _diff_matches(change, recomputed):
+        return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_DIFF_MISMATCH")
 
     expected_number = len(revisions) + 1
     expected_revision_id = f"{scope.lower()}-mapping-r{expected_number}"
@@ -94,10 +114,10 @@ def build_replacement_persistence_preview(registry_service, authorization, artif
         "new_mapping_id": mapping.get("mapping_id"),
         "expected_revision_number": expected_number,
         "expected_revision_id": expected_revision_id,
-        "added_operations": list(change.get("added_operations") or []),
-        "removed_operations": list(change.get("removed_operations") or []),
-        "changed_operations": list(change.get("changed_operations") or []),
-        "change_count": int(change.get("change_count") or 0),
+        "added_operations": list(recomputed.get("added_operations") or []),
+        "removed_operations": list(recomputed.get("removed_operations") or []),
+        "changed_operations": list(recomputed.get("changed_operations") or []),
+        "change_count": int(recomputed.get("change_count") or 0),
         "explicit_save_decision_required": True,
         "registry_save_allowed": False,
         "activation_allowed": False,
@@ -147,6 +167,9 @@ def persist_replacement_as_inactive(registry_service, artifact, save_decision, a
         or decision.get("registry_save_allowed") is not True
         or decision.get("activation_allowed") is not False
         or decision.get("automatic_activation_allowed") is not False
+        or decision.get("profit_adjustment_allowed") is not False
+        or decision.get("ozon_mutation") is not False
+        or decision.get("executed") is not False
     ):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_EXPLICIT_SAVE_REQUIRED")
 
@@ -226,6 +249,9 @@ def _authorized_chain_valid(auth, mapping, diff):
         and auth.get("mapping_build_allowed") is True
         and auth.get("registry_save_allowed") is False
         and auth.get("activation_allowed") is False
+        and auth.get("automatic_activation_allowed") is False
+        and auth.get("profit_adjustment_allowed") is False
+        and auth.get("executed") is False
         and scope in ALLOWED_SCOPES
         and authorized_operations is not None
         and authorized_operations == mapping_operations
@@ -239,10 +265,40 @@ def _authorized_chain_valid(auth, mapping, diff):
     )
 
 
+def _diff_matches(provided, recomputed):
+    return (
+        _normalized_operations(provided.get("added_operations")) == _normalized_operations(recomputed.get("added_operations"))
+        and _normalized_operations(provided.get("removed_operations")) == _normalized_operations(recomputed.get("removed_operations"))
+        and _normalized_changed(provided.get("changed_operations")) == _normalized_changed(recomputed.get("changed_operations"))
+        and int(provided.get("change_count") or 0) == int(recomputed.get("change_count") or 0)
+    )
+
+
+def _normalized_changed(value):
+    if not isinstance(value, (list, tuple)):
+        return None
+    result = []
+    for row in value:
+        if not isinstance(row, dict) or row.get("type_id") is None:
+            return None
+        before = _normalized_operations([row.get("before")])
+        after = _normalized_operations([row.get("after")])
+        if before is None or after is None:
+            return None
+        try:
+            type_id = int(row.get("type_id"))
+        except (TypeError, ValueError):
+            return None
+        result.append({"type_id": type_id, "before": before[0], "after": after[0]})
+    result.sort(key=lambda row: row["type_id"])
+    return result
+
+
 def _normalized_operations(value):
     if not isinstance(value, (list, tuple)):
         return None
     operations = []
+    seen_type_ids = set()
     for row in value:
         if not isinstance(row, dict) or row.get("type_id") is None or not row.get("name"):
             return None
@@ -250,6 +306,9 @@ def _normalized_operations(value):
             type_id = int(row.get("type_id"))
         except (TypeError, ValueError):
             return None
+        if type_id in seen_type_ids:
+            return None
+        seen_type_ids.add(type_id)
         operations.append({
             "type_id": type_id,
             "name": row.get("name"),
