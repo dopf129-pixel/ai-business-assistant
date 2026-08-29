@@ -658,305 +658,154 @@ class AssistantActionExecutionService:
         self,
         user_id
     ):
-        task_result = (
-            self.task_service
-            .get_task(
-                user_id
-            )
-        )
-
-
-        task = (
-            task_result.get(
-                "task"
-            )
-        )
-
+        task_result = self.task_service.get_task(user_id)
+        task = task_result.get("task")
 
         if not task:
-
-
             return {
-
-                "error":
-                    True,
-
-                "message":
-                    "Задача не найдена"
-
+                "error": True,
+                "message": "Задача не найдена"
             }
 
-
-
-        failed_action = None
-
-
-        for action in task.get(
-            "actions",
-            []
-        ):
-
-
-            if action.get(
-                "status"
-            ) == "FAILED":
-
-
-                failed_action = action
-
-                break
-
-
+        failed_action = next(
+            (
+                action
+                for action in task.get("actions", [])
+                if action.get("status") == "FAILED"
+            ),
+            None,
+        )
 
         if not failed_action:
-
-
             return {
-
-                "error":
-                    True,
-
-                "message":
-                    "Нет FAILED действия"
-
+                "error": True,
+                "message": "Нет FAILED действия"
             }
 
+        attempt = failed_action.get("attempt", 1)
 
+        if (
+            self.retry_policy
+            and not self.retry_policy.can_retry(attempt)
+        ):
+            if self.history_service:
+                self.history_service.save_action({
+                    "event": "retry_blocked",
+                    "reason": "maximum retry attempts reached",
+                    "attempt": attempt
+                })
 
-        attempt = (
-            failed_action.get(
-                "attempt",
-                1
+            return {
+                "error": True,
+                "message": "Повторное выполнение заблокировано"
+            }
+
+        prepare_retry = getattr(
+            self.task_service,
+            "prepare_retry_action",
+            None,
+        )
+
+        if callable(prepare_retry):
+            prepared = prepare_retry(
+                user_id,
+                failed_action.get("title"),
+                attempt + 1,
             )
-        )
+            if prepared.get("error"):
+                return prepared
+            failed_action = prepared.get("action")
+        else:
+            failed_action["status"] = "NEW"
+            failed_action["attempt"] = attempt + 1
+            failed_action.pop("error", None)
+            failed_action.pop("retry_allowed", None)
 
-
-
-        if self.retry_policy:
-
-
-            if not self.retry_policy.can_retry(
-                attempt
-            ):
-
-
-                if self.history_service:
-
-
-                    self.history_service.save_action(
-
-                        {
-
-                            "event":
-                                "retry_blocked",
-
-                            "reason":
-                                "maximum retry attempts reached",
-
-                            "attempt":
-                                attempt
-
-                        }
-
-                    )
-
-
-                return {
-
-                    "error":
-                        True,
-
-                    "message":
-                        "Повторное выполнение заблокировано"
-
-                }
-
-
-
-        failed_action["status"] = "NEW"
-
-
-        failed_action["attempt"] = (
-            attempt + 1
-        )
-
-
-        failed_action.pop(
-            "error",
-            None
-        )
-
-
-        failed_action.pop(
-            "retry_allowed",
-            None
-        )
-
+            save = getattr(self.task_service, "save", None)
+            if callable(save):
+                save()
 
         return {
-
-            "error":
-                False,
-
-            "message":
-                "Действие подготовлено к повторному выполнению",
-
-            "action":
-                failed_action
-
+            "error": False,
+            "message": "Действие подготовлено к повторному выполнению",
+            "action": failed_action
         }
-
 
 
     def replan_failed_action(
         self,
         user_id
     ):
-
-
         if not self.replanning_service:
-
-
             return {
-
-                "error":
-                    True,
-
-                "message":
-                    "Replanning service unavailable"
-
+                "error": True,
+                "message": "Replanning service unavailable"
             }
 
-
-
-        task_result = (
-            self.task_service
-            .get_task(
-                user_id
-            )
-        )
-
-
-        task = (
-            task_result.get(
-                "task"
-            )
-        )
-
+        task_result = self.task_service.get_task(user_id)
+        task = task_result.get("task")
 
         if not task:
-
-
             return {
-
-                "error":
-                    True,
-
-                "message":
-                    "Task not found"
-
+                "error": True,
+                "message": "Task not found"
             }
 
-
-
-        failed_action = None
-
-
-
-        for action in task.get(
-            "actions",
-            []
-        ):
-
-
-            if action.get(
-                "status"
-            ) == "FAILED":
-
-
-                failed_action = action
-
-                break
-
-
+        failed_action = next(
+            (
+                action
+                for action in task.get("actions", [])
+                if action.get("status") == "FAILED"
+            ),
+            None,
+        )
 
         if not failed_action:
-
-
             return {
-
-                "error":
-                    True,
-
-                "message":
-                    "FAILED action not found"
-
+                "error": True,
+                "message": "FAILED action not found"
             }
 
-
-
-        result = (
-            self.replanning_service
-            .replan(
-                failed_action
-            )
+        result = self.replanning_service.replan(
+            failed_action
         )
-
-
-        if result.get(
-            "error"
-        ):
-
-
+        if result.get("error"):
             return result
 
-
-
-        task["actions"] = (
-            result.get(
-                "plan",
-                []
-            )
+        plan = result.get("plan", [])
+        apply_replan = getattr(
+            self.task_service,
+            "apply_replan",
+            None,
         )
 
+        if callable(apply_replan):
+            applied = apply_replan(
+                user_id,
+                plan,
+                reason=failed_action.get("error"),
+            )
+            if applied.get("error"):
+                return applied
+            plan = applied.get("plan", [])
+        else:
+            task["actions"] = plan
+            task["replanned"] = True
+            task["pending_action"] = None
 
-        task["replanned"] = True
-
-
+            save = getattr(self.task_service, "save", None)
+            if callable(save):
+                save()
 
         if self.history_service:
-
-
-            self.history_service.save_action(
-
-                {
-
-                    "event":
-                        "replanned",
-
-                    "reason":
-                        failed_action.get(
-                            "error"
-                        ),
-
-                    "plan":
-                        task["actions"]
-
-                }
-
-            )
-
-
+            self.history_service.save_action({
+                "event": "replanned",
+                "reason": failed_action.get("error"),
+                "plan": plan
+            })
 
         return {
-
-            "error":
-                False,
-
-            "message":
-                "Plan updated",
-
-            "plan":
-                task["actions"]
-
+            "error": False,
+            "message": "Plan updated",
+            "plan": plan
         }
