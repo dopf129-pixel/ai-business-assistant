@@ -9,7 +9,13 @@ sys.path.insert(
 from period_profit_factory import (
     create_period_profit_query
 )
+from return_financial_operation_review_factory import (
+    create_return_financial_operation_review_report_service
+)
 
+from services.assistant_return_operation_review_runtime_service import (
+    AssistantReturnOperationReviewRuntimeService
+)
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService
 )
@@ -164,12 +170,23 @@ def create_assistant():
         )
     )
 
+    return_operation_review_runtime = (
+        AssistantReturnOperationReviewRuntimeService(
+            report_service=(
+                create_return_financial_operation_review_report_service()
+            )
+        )
+    )
+
 
     entry = (
         AssistantEntryService(
             main_flow_service=main_flow,
             period_profit_runtime_service=(
                 period_profit_runtime
+            ),
+            return_operation_review_runtime_service=(
+                return_operation_review_runtime
             )
         )
     )
