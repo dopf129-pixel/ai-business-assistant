@@ -44,4 +44,8 @@ Memory is context for later planning/action generation; it does not authorize ex
 3. feedback becoming visible to subsequent action generation;
 4. isolation of unrelated action memory.
 
-Full repository validation must pass before this roadmap item is marked complete.
+Targeted self-improvement tests passed.
+
+Full repository validation reported by the project owner:
+
+`392 passed`
