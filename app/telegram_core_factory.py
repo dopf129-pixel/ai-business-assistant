@@ -218,6 +218,20 @@ def create_telegram_core(
     )
 
 
+    planning_service = (
+        AssistantPlanningService(
+            memory_service=memory_service
+        )
+    )
+
+
+    action_generator_service = (
+        AssistantActionGeneratorService(
+            memory_service=memory_service
+        )
+    )
+
+
     history = (
         ActionHistoryService()
     )
@@ -376,7 +390,7 @@ def create_telegram_core(
             ),
 
             action_generator_service=(
-                AssistantActionGeneratorService()
+                action_generator_service
             ),
 
             execution_service=(
@@ -394,7 +408,7 @@ def create_telegram_core(
             ),
 
             planning_service=(
-                AssistantPlanningService()
+                planning_service
             ),
 
             executor_service=(
@@ -666,6 +680,12 @@ def create_telegram_core(
 
         "memory_service":
             memory_service,
+
+        "planning_service":
+            planning_service,
+
+        "action_generator_service":
+            action_generator_service,
 
         "tax_configuration":
             tax_configuration,
