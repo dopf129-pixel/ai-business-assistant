@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+
+
 class ProductDecisionMetricsSource:
 
     def __init__(
@@ -5,12 +8,16 @@ class ProductDecisionMetricsSource:
         product_service,
         analytics_service,
         metrics_service,
-        stock_intelligence_service
+        stock_intelligence_service,
+        observation_clock=None
     ):
         self.product_service = product_service
         self.analytics_service = analytics_service
         self.metrics_service = metrics_service
         self.stock_intelligence_service = stock_intelligence_service
+        self.observation_clock = observation_clock or (
+            lambda: datetime.now(timezone.utc)
+        )
         self._cache = {}
 
     def sales(self, sku):
@@ -127,6 +134,9 @@ class ProductDecisionMetricsSource:
                 "sku": target_sku,
                 "sales_velocity": sales_velocity,
                 "sales_trend": sales_trend,
+                "sales_period_from": current_period.get("date_from"),
+                "sales_period_to": current_period.get("date_to"),
+                "sales_observed_at": self._observed_at(),
                 "missing_data": self._unique(sales_missing),
             },
             "stock": {
@@ -275,6 +285,14 @@ class ProductDecisionMetricsSource:
                 ],
             },
         }
+
+    def _observed_at(self):
+        value = self.observation_clock()
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc).isoformat()
+        return str(value)
 
     def _unique(self, values):
         result = []
