@@ -797,6 +797,16 @@ class AssistantTaskService:
 
 
 
+        if self._task_is_terminal(
+            task
+        ):
+
+
+            return self._terminal_task_error(
+                task
+            )
+
+
         task["pending_action"] = action
 
 
