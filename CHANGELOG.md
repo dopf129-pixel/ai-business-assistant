@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-29 — Product Task Freshness Evidence Contract v1
+
+- product task drafts now preserve optional source-recorded freshness timestamps from product decisions;
+- observation/retrieval timestamps are stored separately and never count as proof of source freshness;
+- no source timestamp is generated, inferred, or substituted from request/cache/draft time;
+- legacy decisions without freshness evidence remain compatible and evaluate unsupported source age as `UNKNOWN`;
+- targeted freshness evidence and freshness guard validation: `15 passed`;
+- full repository suite intentionally not rerun under the reduced full-suite cadence; previous full checkpoint remains `392 passed`;
+- no Product Decision rule, execution permission, Action Executor connection, or Ozon mutation path changed.
+
 ## 2026-08-29 — Development Autopilot Vector Memory v1
 
 - added `AssistantVectorMemoryService` for similarity-based development context lookup;
@@ -92,14 +102,14 @@
 - one draft is created per decision snapshot and repeated confirmation is
   idempotent;
 - dismissing the proposal closes its matching draft;
-- Telegram exposes a draft summary and the draft state on product cards;
+- Telegram exposes a draft summary and the draft state on product card;
 - task drafts always keep `execution_allowed=False` and `executed=False`;
 - existing task executors and Ozon APIs are not connected.
 
 ## 2026-08-28 — Product Action Proposal Confirmation v1
 
 - actionable product proposals can be confirmed or dismissed in Telegram;
-- status is attached to the latest decision snapshot and repeated input is
+- status is attached to the latest stored decision snapshot and repeated input is
   idempotent;
 - stale proposals are rejected against the latest stored decision;
 - every confirmation result explicitly keeps `executed=False` and
