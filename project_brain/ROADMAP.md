@@ -192,6 +192,8 @@ Tasks:
 
 [x] Self-improvement cycle
 
+Project Brain appendix: `SELF_IMPROVEMENT_CYCLE.md`
+
 
 
 ---
