@@ -81,8 +81,7 @@ def test_stale_source_candidate_previews_stale_and_does_not_claim_freshness():
     assert result["after"]["status"] == "STALE"
     assert result["preview_freshness_validated"] is False
     assert result["source_freshness_proven"] is False
-    sales = result["after"]["components"]["sales"]
-    assert sales["status"] == "STALE"
+    assert result["after"]["components"]["sales"]["status"] == "STALE"
 
 
 def test_future_source_candidate_stays_unknown_after_guard_validation():
@@ -134,6 +133,25 @@ def test_unexpected_candidate_fields_are_ignored_and_execution_stays_blocked():
     assert result["preview_freshness_status"] == "FRESH"
     assert result["execution_allowed"] is False
     assert result["execution_ready"] is False
+    assert result["executed"] is False
+
+
+def test_mismatched_draft_candidate_is_blocked_before_evidence_application():
+    candidate = _candidate(
+        sales_source_recorded_at="2026-08-29T11:55:00+00:00",
+    )
+    candidate["draft_id"] = "d2"
+
+    result = build_freshness_evidence_validation_preview(
+        _draft(),
+        candidate,
+        _service(),
+    )
+
+    assert result["status"] == "PREVIEW_BLOCKED"
+    assert result["code"] == "EVIDENCE_CANDIDATE_DRAFT_MISMATCH"
+    assert result["applied_evidence"] == {}
+    assert result["preview_freshness_status"] is None
     assert result["executed"] is False
 
 
