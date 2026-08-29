@@ -7,6 +7,11 @@ class Products:
 
 class Finance: pass
 class Costs: pass
+class Ozon: pass
+
+
+class ReturnEvidence:
+    def __init__(self, ozon_client): self.ozon_client = ozon_client
 
 
 class Summary:
@@ -17,15 +22,18 @@ class Summary:
 
 
 class Query:
-    def __init__(self, summary_service, product_provider):
+    def __init__(self, summary_service, product_provider, return_evidence_service=None):
         self.summary_service = summary_service
         self.product_provider = product_provider
+        self.return_evidence_service = return_evidence_service
 
 
 def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ProductService", Products)
     monkeypatch.setattr(factory, "FinanceService", Finance)
     monkeypatch.setattr(factory, "ProductCostService", Costs)
+    monkeypatch.setattr(factory, "OzonClient", Ozon)
+    monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
     monkeypatch.setattr(factory, "TAX_RATE", 0.06)
@@ -35,3 +43,5 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.summary_service.cost_service, Costs)
     assert query.summary_service.tax_rate == 0.06
     assert query.product_provider() == [{"sku": "1"}]
+    assert isinstance(query.return_evidence_service, ReturnEvidence)
+    assert isinstance(query.return_evidence_service.ozon_client, Ozon)
