@@ -16,6 +16,15 @@ class ProductBusinessDecisionQueryService:
         "NONE": 4,
     }
 
+    EVIDENCE_FIELDS = (
+        "sales_source_recorded_at",
+        "stock_source_recorded_at",
+        "unit_economics_source_recorded_at",
+        "sales_observed_at",
+        "stock_observed_at",
+        "unit_economics_observed_at",
+    )
+
     def __init__(
         self,
         product_service,
@@ -114,6 +123,7 @@ class ProductBusinessDecisionQueryService:
             economics_metrics
         )
         metrics_context = self._metrics_context(prepared)
+        evidence_context = self._evidence_context(prepared)
 
         if decision.get("decision_type") == self.CODE_INSUFFICIENT_DATA:
             return {
@@ -121,7 +131,8 @@ class ProductBusinessDecisionQueryService:
                 "code": self.CODE_INSUFFICIENT_DATA,
                 **decision,
                 **metrics_context,
-                **economics_context
+                **economics_context,
+                **evidence_context,
             }
 
         return {
@@ -129,7 +140,8 @@ class ProductBusinessDecisionQueryService:
             "code": None,
             **decision,
             **metrics_context,
-            **economics_context
+            **economics_context,
+            **evidence_context,
         }
 
     def query_all(self):
@@ -400,7 +412,7 @@ class ProductBusinessDecisionQueryService:
             profit = result.get("net_profit_per_unit")
             margin = result.get("margin_percent")
 
-        return {
+        normalized = {
             "product_id": result.get("product_id", product_id),
             "sku": result.get("sku", sku),
             "net_profit_per_unit": profit,
@@ -410,6 +422,22 @@ class ProductBusinessDecisionQueryService:
             "returns_coverage_percent": coverage,
             "missing_data": missing_data
         }
+
+        source_recorded_at = result.get(
+            "unit_economics_source_recorded_at"
+        )
+        if source_recorded_at is not None:
+            normalized["unit_economics_source_recorded_at"] = (
+                source_recorded_at
+            )
+
+        observed_at = result.get("unit_economics_observed_at")
+        if observed_at is None:
+            observed_at = result.get("as_of")
+        if observed_at is not None:
+            normalized["unit_economics_observed_at"] = observed_at
+
+        return normalized
 
     def _metrics_context(self, prepared):
         metrics = dict(prepared or {})
@@ -425,6 +453,14 @@ class ProductBusinessDecisionQueryService:
             "decision_margin_percent": metrics.get(
                 "margin_percent"
             ),
+        }
+
+    def _evidence_context(self, prepared):
+        metrics = dict(prepared or {})
+        return {
+            field: metrics.get(field)
+            for field in self.EVIDENCE_FIELDS
+            if metrics.get(field) is not None
         }
 
     def _economics_context(self, economics):
