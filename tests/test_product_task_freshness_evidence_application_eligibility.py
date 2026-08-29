@@ -26,6 +26,14 @@ def _contract(**values):
         "freshness_guard_validated": True,
         "preview_freshness_status": "FRESH",
         "validated_evidence": _evidence(),
+        "source_freshness_proven": False,
+        "persistent": False,
+        "product_decision_recomputed": False,
+        "product_decision_mutated": False,
+        "task_draft_mutated": False,
+        "execution_allowed": False,
+        "execution_ready": False,
+        "executed": False,
     }
     result.update(values)
     return result
@@ -46,6 +54,7 @@ def _signal(**values):
         "validated_evidence": _evidence(),
         "application_allowed": False,
         "application_started": False,
+        "source_freshness_proven": False,
         "persistent": False,
         "product_decision_recomputed": False,
         "product_decision_mutated": False,
@@ -156,3 +165,23 @@ def test_signal_with_execution_boundary_violation_is_blocked():
 
     assert result["code"] == "SIGNAL_SAFETY_BOUNDARY_VIOLATION"
     assert result["execution_ready"] is False
+
+
+def test_forged_persistent_contract_is_blocked():
+    result = build_freshness_evidence_application_eligibility(
+        _contract(persistent=True),
+        _signal(),
+    )
+
+    assert result["code"] == "CONTRACT_PERSISTENCE_BOUNDARY_VIOLATION"
+    assert result["application_eligible"] is False
+
+
+def test_forged_signal_cannot_claim_source_freshness():
+    result = build_freshness_evidence_application_eligibility(
+        _contract(),
+        _signal(source_freshness_proven=True),
+    )
+
+    assert result["code"] == "SIGNAL_FRESHNESS_BOUNDARY_VIOLATION"
+    assert result["source_freshness_proven"] is False
