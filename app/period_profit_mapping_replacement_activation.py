@@ -18,9 +18,7 @@ def build_replacement_canonical_activation_preview(admin_service, handoff):
     ):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_HANDOFF_REQUIRED")
 
-    preview = admin_service.preview(
-        source.get("scope"), "ACTIVATE", source.get("target_revision_id")
-    )
+    preview = admin_service.preview(source.get("scope"), "ACTIVATE", source.get("target_revision_id"))
     if (
         preview.get("error") is not False
         or preview.get("status") != "PERIOD_PROFIT_MAPPING_ADMIN_PREVIEW_READY"
@@ -33,7 +31,7 @@ def build_replacement_canonical_activation_preview(admin_service, handoff):
 
 
 def build_replacement_activation_decision(canonical_preview, decision):
-    """v145: use the existing admin APPLY/REJECT decision contract without shortcuts."""
+    """v145: use the existing admin APPLY/REJECT contract and retain preview lineage."""
     preview = _dict(canonical_preview)
     choice = str(decision or "").strip().upper()
     if choice not in ALLOWED_DECISIONS:
@@ -52,11 +50,13 @@ def build_replacement_activation_decision(canonical_preview, decision):
     result = build_mapping_admin_decision(preview, choice)
     if result.get("error") is not False:
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_DECISION_FAILED")
+    result = dict(result)
+    result["expected_current_active_revision_id"] = preview.get("current_active_revision_id")
     return result
 
 
 def apply_replacement_activation(admin_service, persisted_revision, decision, actor="USER"):
-    """v146: execute only an explicit APPLY through the existing admin service."""
+    """v146: execute only an explicit, still-current APPLY through the existing admin service."""
     persisted = _dict(persisted_revision)
     source = _dict(decision)
     if (
@@ -74,6 +74,15 @@ def apply_replacement_activation(admin_service, persisted_revision, decision, ac
         or source.get("scope") != persisted.get("scope")
     ):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_EXPLICIT_ACTIVATION_APPLY_REQUIRED")
+
+    current = admin_service.preview(source.get("scope"), "ACTIVATE", source.get("target_revision_id"))
+    if (
+        current.get("error") is not False
+        or current.get("status") != "PERIOD_PROFIT_MAPPING_ADMIN_PREVIEW_READY"
+        or current.get("target_mapping_id") != source.get("target_mapping_id")
+        or current.get("current_active_revision_id") != source.get("expected_current_active_revision_id")
+    ):
+        return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_DECISION_STALE")
 
     result = admin_service.apply(source, actor=actor)
     if result.get("error") is not False:
@@ -108,26 +117,14 @@ def verify_replacement_activation(registry_service, persisted_revision, activati
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_HISTORY_REQUIRED")
     active_revision_id = history.get("active_revision_id")
     revision = next(
-        (
-            dict(row)
-            for row in history.get("revisions") or []
-            if isinstance(row, dict) and row.get("revision_id") == active_revision_id
-        ),
+        (dict(row) for row in history.get("revisions") or [] if isinstance(row, dict) and row.get("revision_id") == active_revision_id),
         None,
     )
-    if (
-        active_revision_id != persisted.get("revision_id")
-        or revision is None
-        or revision.get("mapping_id") != persisted.get("mapping_id")
-    ):
+    if active_revision_id != persisted.get("revision_id") or revision is None or revision.get("mapping_id") != persisted.get("mapping_id"):
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_VERIFICATION_FAILED")
 
     events = [row for row in history.get("events") or [] if isinstance(row, dict)]
-    matching_events = [
-        row
-        for row in events
-        if row.get("event") == "ACTIVATE" and row.get("revision_id") == persisted.get("revision_id")
-    ]
+    matching_events = [row for row in events if row.get("event") == "ACTIVATE" and row.get("revision_id") == persisted.get("revision_id")]
     if not matching_events:
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_EVENT_MISSING")
 
