@@ -298,6 +298,8 @@ Current:
 
 [x] Autonomous Assistant v8 — Draft Data Freshness Guards
 
+Project Brain appendix: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`
+
 
 Next:
 
