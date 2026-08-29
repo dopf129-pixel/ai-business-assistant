@@ -68,4 +68,4 @@ Evidence propagation is implemented at the input/query composition boundary. `Pr
 4. propagation of explicit source evidence into the final decision;
 5. end-to-end proof that observed economics time alone still leaves draft freshness `UNKNOWN`.
 
-Status: targeted validation pending.
+Status: targeted validation passed — `5 passed in 0.07s` (user-reported). Full repository suite intentionally skipped for this isolated change under the current test cadence.
