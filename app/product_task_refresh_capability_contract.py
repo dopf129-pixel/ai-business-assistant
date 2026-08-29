@@ -55,6 +55,7 @@ def build_refresh_capability_contract(refresh_request):
     supported_count = sum(
         1 for item in targets if item.get("supported") is True
     )
+    all_supported = bool(targets) and supported_count == len(targets)
 
     return {
         "error": False,
@@ -63,7 +64,7 @@ def build_refresh_capability_contract(refresh_request):
         "sku": request.get("sku"),
         "status": (
             "CAPABILITY_READY"
-            if targets and supported_count == len(targets)
+            if all_supported
             else "CAPABILITY_PARTIAL"
             if supported_count
             else "CAPABILITY_UNAVAILABLE"
@@ -71,10 +72,9 @@ def build_refresh_capability_contract(refresh_request):
         "targets": targets,
         "target_count": len(targets),
         "supported_count": supported_count,
-        "all_read_only": bool(targets) and all(
+        "all_read_only": all_supported and all(
             item.get("read_only") is True
             for item in targets
-            if item.get("supported")
         ),
         "persistent": False,
         "refresh_started": False,
