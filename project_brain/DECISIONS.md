@@ -1420,3 +1420,40 @@ Reason:
 Status:
 
 Implemented
+
+---
+
+## Decision 027
+
+Date:
+
+2026-08-28
+
+Topic:
+
+Product Task Draft Readiness Checklist
+
+Decision:
+
+Готовность к ручной проверке и готовность к исполнению являются разными
+состояниями. Полный factual checklist не разрешает выполнение действия.
+
+Rules:
+
+- factual checks зависят от типа proposal;
+- нулевое значение считается доступным фактом, None — отсутствующим;
+- STALE, DISMISSED и ARCHIVED не готовы к актуальной ручной проверке;
+- missing facts отображаются без экстраполяции;
+- execution_ready всегда False;
+- execution blockers включают неподключённый workflow и отсутствующие
+  бизнес-политики количества, срока поставки, цены или целевой маржи;
+- checklist не меняет decision, draft lifecycle или review score.
+
+Reason:
+
+Даже качественные входные данные не заменяют утверждённые бизнес-правила и
+явно спроектированный исполнительный контур.
+
+Status:
+
+Implemented
