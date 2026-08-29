@@ -27,6 +27,10 @@ def _decision():
         "recorded_at": "decision-time",
         "profit_per_unit": 35.1,
         "margin_percent": 36.5,
+        "current_stock": 8,
+        "sales_velocity": 4.0,
+        "days_of_stock": 2.0,
+        "economics_basis": "ESTIMATED_RETURNS",
     }
 
 
@@ -54,6 +58,8 @@ def test_confirmation_creates_non_executable_task_draft_once():
     assert first["task_draft"]["executed"] is False
     assert len(service.list_drafts()) == 1
     assert storage.save_calls == 1
+    assert first["task_draft"]["current_stock"] == 8
+    assert first["task_draft"]["economics_basis"] == "ESTIMATED_RETURNS"
     assert first["task_draft"]["events"] == [{
         "event_id": "e1",
         "event_type": "CREATED",
