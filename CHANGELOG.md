@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-29 — Self-improvement Cycle v1
+
+- closed the production learning loop from execution feedback into shared memory and back into subsequent planning and action generation;
+- production planning and action generation now use the same `AssistantMemoryService` instance as feedback;
+- added integration coverage for `feedback → memory → next plan/action` and unrelated-action isolation;
+- targeted self-improvement tests passed;
+- full repository validation: `392 passed`;
+- no recommendation/replanning algorithm or task execution semantics were changed;
+- no Product Decision execution, legacy Action Executor connection, or mutating Ozon path was enabled.
+
 ## 2026-08-29 — Long-running Task Recovery validation
 
 - validated restart recovery for persisted long-running tasks;
