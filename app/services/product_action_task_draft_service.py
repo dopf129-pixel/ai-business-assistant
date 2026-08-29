@@ -9,6 +9,18 @@ class ProductActionTaskDraftService:
     STATUS_STALE = "STALE"
     STATUS_ARCHIVED = "ARCHIVED"
 
+    SOURCE_TIMESTAMP_FIELDS = (
+        "sales_source_recorded_at",
+        "stock_source_recorded_at",
+        "unit_economics_source_recorded_at",
+    )
+
+    OBSERVED_TIMESTAMP_FIELDS = (
+        "sales_observed_at",
+        "stock_observed_at",
+        "unit_economics_observed_at",
+    )
+
     def __init__(self, storage_service=None, clock=None):
         self.storage_service = storage_service
         self.clock = clock or (
@@ -76,6 +88,7 @@ class ProductActionTaskDraftService:
             "execution_allowed": False,
             "executed": False,
         }
+        self._copy_freshness_evidence(decision, record)
         self._append_event(
             record,
             event_type="CREATED" if previous is None else "REOPENED",
@@ -253,6 +266,11 @@ class ProductActionTaskDraftService:
             ),
             "executed_count": 0,
         }
+
+    def _copy_freshness_evidence(self, decision, record):
+        for field in self.SOURCE_TIMESTAMP_FIELDS + self.OBSERVED_TIMESTAMP_FIELDS:
+            if field in decision:
+                record[field] = decision.get(field)
 
     def _draft_key(self, sku, proposal_type, recorded_at):
         return "|".join((sku, proposal_type, recorded_at))
