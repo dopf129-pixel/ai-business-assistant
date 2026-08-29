@@ -302,10 +302,12 @@ Current:
 
 [x] Autonomous Assistant v8 — Draft Data Freshness Guards
 
-Project Brain appendix: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`
+[x] Autonomous Assistant v9 — Freshness Evidence Contract
+
+Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`
 
 
 Next:
 
 
-To be selected after comparing the roadmap with the implemented code.
+Propagate reliable source-recorded timestamps where upstream source contracts actually provide them; keep unsupported components UNKNOWN.
