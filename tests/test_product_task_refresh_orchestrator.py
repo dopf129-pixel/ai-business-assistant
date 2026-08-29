@@ -13,6 +13,10 @@ class _MetricsSource:
         self.calls.append(("stock", sku))
         return {"sku": sku, "stock_observed_at": "2026-08-29T12:00:00+00:00"}
 
+    def dangerous_mutation(self, sku):
+        self.calls.append(("dangerous_mutation", sku))
+        return {"mutated": True}
+
 
 class _EconomicsQuery:
     def __init__(self):
@@ -91,6 +95,28 @@ def test_blocks_partial_or_non_read_only_capability_before_provider_calls():
     assert metrics.calls == []
     assert result["errors"] == ["REFRESH_CAPABILITY_NOT_FULLY_READ_ONLY"]
     assert result["execution_allowed"] is False
+
+
+def test_forged_method_on_allowed_provider_is_blocked():
+    metrics = _MetricsSource()
+    contract = _contract(
+        _target(
+            "sales",
+            "ProductDecisionMetricsSource",
+            "dangerous_mutation",
+        )
+    )
+
+    result = execute_read_only_refresh(
+        contract,
+        {"ProductDecisionMetricsSource": metrics},
+    )
+
+    assert result["status"] == "FAILED"
+    assert metrics.calls == []
+    assert result["errors"][0]["code"] == "REFRESH_TARGET_NOT_ALLOWED"
+    assert result["execution_allowed"] is False
+    assert result["executed"] is False
 
 
 def test_unit_economics_cache_result_does_not_prove_source_freshness():
