@@ -81,7 +81,8 @@ class ProductDecisionMetricsSource:
 
         current_sales = self._sales_count(current_finance)
         previous_sales = self._sales_count(previous_finance)
-        current_stock = self._current_stock(product_id)
+        stock_snapshot = self._current_stock_snapshot(product_id)
+        current_stock = stock_snapshot["current_stock"]
         period_days = current_period.get("days")
 
         stock_result = self.stock_intelligence_service.analyze(
@@ -128,35 +129,49 @@ class ProductDecisionMetricsSource:
                 ["days_of_stock", "stock_priority"]
             )
 
+        sales_payload = {
+            "product_id": str(product_id),
+            "sku": target_sku,
+            "sales_velocity": sales_velocity,
+            "sales_trend": sales_trend,
+            "sales_period_from": current_period.get("date_from"),
+            "sales_period_to": current_period.get("date_to"),
+            "sales_observed_at": self._observed_at(),
+            "missing_data": self._unique(sales_missing),
+        }
+        self._copy_exact_evidence(
+            sales_payload,
+            current_finance,
+            "sales_source_recorded_at"
+        )
+
+        stock_payload = {
+            "product_id": str(product_id),
+            "sku": target_sku,
+            "current_stock": current_stock,
+            "days_of_stock": (
+                stock_result.get("days_of_stock")
+                if isinstance(stock_result, dict)
+                else None
+            ),
+            "priority": (
+                stock_result.get("priority")
+                if isinstance(stock_result, dict)
+                and not stock_result.get("error")
+                else None
+            ),
+            "stock_observed_at": self._observed_at(),
+            "missing_data": self._unique(stock_missing),
+        }
+        self._copy_exact_evidence(
+            stock_payload,
+            stock_snapshot,
+            "stock_source_recorded_at"
+        )
+
         result = {
-            "sales": {
-                "product_id": str(product_id),
-                "sku": target_sku,
-                "sales_velocity": sales_velocity,
-                "sales_trend": sales_trend,
-                "sales_period_from": current_period.get("date_from"),
-                "sales_period_to": current_period.get("date_to"),
-                "sales_observed_at": self._observed_at(),
-                "missing_data": self._unique(sales_missing),
-            },
-            "stock": {
-                "product_id": str(product_id),
-                "sku": target_sku,
-                "current_stock": current_stock,
-                "days_of_stock": (
-                    stock_result.get("days_of_stock")
-                    if isinstance(stock_result, dict)
-                    else None
-                ),
-                "priority": (
-                    stock_result.get("priority")
-                    if isinstance(stock_result, dict)
-                    and not stock_result.get("error")
-                    else None
-                ),
-                "stock_observed_at": self._observed_at(),
-                "missing_data": self._unique(stock_missing),
-            },
+            "sales": sales_payload,
+            "stock": stock_payload,
         }
 
         self._cache[target_sku] = result
@@ -212,13 +227,32 @@ class ProductDecisionMetricsSource:
         return int(value)
 
     def _current_stock(self, product_id):
+        return self._current_stock_snapshot(
+            product_id
+        )["current_stock"]
+
+    def _current_stock_snapshot(self, product_id):
         result = self.metrics_service.get_product_metrics(product_id)
 
         if not isinstance(result, dict) or result.get("error"):
-            return None
+            return {
+                "current_stock": None,
+                "stock_source_recorded_at": None,
+            }
 
         metrics = result.get("metrics") or {}
-        return metrics.get("fbo_available")
+        source_recorded_at = result.get(
+            "stock_source_recorded_at"
+        )
+        if source_recorded_at is None and isinstance(metrics, dict):
+            source_recorded_at = metrics.get(
+                "stock_source_recorded_at"
+            )
+
+        return {
+            "current_stock": metrics.get("fbo_available"),
+            "stock_source_recorded_at": source_recorded_at,
+        }
 
     def _sales_trend(self, current_sales, previous_sales):
         if current_sales is None or previous_sales is None:
@@ -286,6 +320,13 @@ class ProductDecisionMetricsSource:
                 ],
             },
         }
+
+    def _copy_exact_evidence(self, target, source, field):
+        if not isinstance(source, dict):
+            return
+        if field not in source or source.get(field) is None:
+            return
+        target[field] = source.get(field)
 
     def _observed_at(self):
         value = self.observation_clock()
