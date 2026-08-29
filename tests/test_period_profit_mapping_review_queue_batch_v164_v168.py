@@ -46,6 +46,13 @@ def _handoff(**overrides):
 
 
 def _queue_item(scope="RETURN", revision="r2", mapping="map:2", priority="P1"):
+    by_priority = {
+        "P0": (["CATALOG_EVIDENCE_UNAVAILABLE"], ["CATALOG_EVIDENCE_UNAVAILABLE"]),
+        "P1": (["CATALOG_DRIFT"], ["CATALOG_DRIFT"]),
+        "P2": (["FRESHNESS"], ["FRESHNESS"]),
+        "P3": (["REVIEW_REQUIREMENT"], ["REVIEW_REQUIREMENT"]),
+    }
+    categories, basis = by_priority[priority]
     return {
         "error": False,
         "status": "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_ITEM_READY",
@@ -53,9 +60,9 @@ def _queue_item(scope="RETURN", revision="r2", mapping="map:2", priority="P1"):
         "scope": scope,
         "revision_id": revision,
         "mapping_id": mapping,
-        "incident_categories": ["CATALOG_DRIFT"],
+        "incident_categories": categories,
         "priority": priority,
-        "priority_basis": ["CATALOG_DRIFT"],
+        "priority_basis": basis,
         "human_rereview_required": True,
         "review_state": "PENDING_HUMAN_REREVIEW",
         "mapping_build_allowed": False,
