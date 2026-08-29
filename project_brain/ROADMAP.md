@@ -296,10 +296,8 @@ Current:
 
 [x] Autonomous Assistant v7 — Draft Readiness Checklist
 
-[x] Autonomous Assistant v8 — Draft Data Freshness Guards
-
 
 Next:
 
 
-To be selected after comparing the roadmap with the implemented code.
+[ ] Autonomous Assistant v8 — Draft Data Freshness Guards
