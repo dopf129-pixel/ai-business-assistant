@@ -56,6 +56,7 @@ def test_unknown_component_is_not_assumed_safe():
 
     assert result["status"] == "CAPABILITY_PARTIAL"
     assert result["supported_count"] == 1
+    assert result["all_read_only"] is False
     unknown = next(
         item for item in result["targets"]
         if item["component"] == "advertising"
