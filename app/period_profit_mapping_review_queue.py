@@ -59,20 +59,9 @@ def assign_review_incident_priority(intake):
     if source.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_INTAKE_READY" or source.get("error") is not False:
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_INTAKE_REQUIRED")
     categories = _categories(source.get("incident_categories"))
-    if categories is None or not categories:
+    if categories is None or not categories or not _valid_lineage(_lineage(source)):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_INCIDENT_CATEGORIES_INVALID")
-    if "CATALOG_EVIDENCE_UNAVAILABLE" in categories:
-        priority = "P0"
-        basis = ["CATALOG_EVIDENCE_UNAVAILABLE"]
-    elif "CATALOG_DRIFT" in categories:
-        priority = "P1"
-        basis = ["CATALOG_DRIFT"]
-    elif "FRESHNESS" in categories:
-        priority = "P2"
-        basis = ["FRESHNESS"]
-    else:
-        priority = "P3"
-        basis = list(categories)
+    priority, basis = _expected_priority(categories)
     return {
         "error": False,
         "status": "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_PRIORITY_READY",
@@ -100,18 +89,24 @@ def build_review_queue_item(intake, priority):
     """v166: produce a canonical immutable queue item for human review."""
     source = _dict(intake)
     ranked = _dict(priority)
+    categories = _categories(source.get("incident_categories"))
+    ranked_categories = _categories(ranked.get("incident_categories"))
     if (
         source.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_INTAKE_READY"
         or ranked.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_PRIORITY_READY"
         or source.get("error") is not False
         or ranked.get("error") is not False
+        or not _valid_lineage(_lineage(source))
         or _lineage(source) != _lineage(ranked)
-        or source.get("incident_categories") != ranked.get("incident_categories")
-        or ranked.get("priority") not in PRIORITY_ORDER
+        or categories is None
+        or categories != ranked_categories
     ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_ITEM_INPUT_REQUIRED")
+    expected_priority, expected_basis = _expected_priority(categories)
+    if ranked.get("priority") != expected_priority or ranked.get("priority_basis") != expected_basis:
+        return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_PRIORITY_INCONSISTENT")
     lineage = _lineage(source)
-    queue_key = "|".join(str(value) for value in lineage)
+    queue_key = "|".join(lineage)
     return {
         "error": False,
         "status": "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_ITEM_READY",
@@ -119,9 +114,9 @@ def build_review_queue_item(intake, priority):
         "scope": lineage[0],
         "revision_id": lineage[1],
         "mapping_id": lineage[2],
-        "incident_categories": list(source.get("incident_categories") or []),
-        "priority": ranked.get("priority"),
-        "priority_basis": list(ranked.get("priority_basis") or []),
+        "incident_categories": categories,
+        "priority": expected_priority,
+        "priority_basis": expected_basis,
         "human_rereview_required": True,
         "review_state": "PENDING_HUMAN_REREVIEW",
         "mapping_build_allowed": False,
@@ -144,20 +139,25 @@ def build_review_queue_snapshot(items):
     seen = set()
     for raw in items:
         item = _dict(raw)
+        categories = _categories(item.get("incident_categories"))
         if (
             item.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_ITEM_READY"
             or item.get("error") is not False
             or item.get("review_state") != "PENDING_HUMAN_REREVIEW"
             or item.get("priority") not in PRIORITY_ORDER
             or item.get("human_rereview_required") is not True
+            or categories is None
             or not _permissions_disabled(item)
         ):
             return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_ITEM_INVALID")
+        expected_priority, expected_basis = _expected_priority(categories)
+        if item.get("priority") != expected_priority or item.get("priority_basis") != expected_basis:
+            return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_PRIORITY_INCONSISTENT")
         lineage = _lineage(item)
         if not _valid_lineage(lineage):
             return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_LINEAGE_INVALID")
         key = item.get("queue_key")
-        expected_key = "|".join(str(value) for value in lineage)
+        expected_key = "|".join(lineage)
         if key != expected_key or key in seen:
             return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_DUPLICATE_OR_KEY_INVALID")
         seen.add(key)
@@ -166,8 +166,8 @@ def build_review_queue_snapshot(items):
             "scope": lineage[0],
             "revision_id": lineage[1],
             "mapping_id": lineage[2],
-            "incident_categories": list(item.get("incident_categories") or []),
-            "priority": item.get("priority"),
+            "incident_categories": categories,
+            "priority": expected_priority,
             "review_state": item.get("review_state"),
         })
     normalized.sort(key=lambda row: (PRIORITY_ORDER[row["priority"]], row["scope"], row["revision_id"], row["mapping_id"]))
@@ -201,10 +201,20 @@ def build_review_queue_readiness_summary(snapshot):
     if not isinstance(items, list) or not isinstance(counts, dict):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_SNAPSHOT_SCHEMA_INVALID")
     expected_counts = {priority: 0 for priority in PRIORITY_ORDER}
+    seen = set()
     for row in items:
-        if not isinstance(row, dict) or row.get("priority") not in PRIORITY_ORDER:
+        if not isinstance(row, dict):
             return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_SNAPSHOT_SCHEMA_INVALID")
-        expected_counts[row["priority"]] += 1
+        categories = _categories(row.get("incident_categories"))
+        lineage = _lineage(row)
+        if categories is None or not _valid_lineage(lineage):
+            return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_SNAPSHOT_SCHEMA_INVALID")
+        expected_priority, _ = _expected_priority(categories)
+        expected_key = "|".join(lineage)
+        if row.get("priority") != expected_priority or row.get("queue_key") != expected_key or expected_key in seen:
+            return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_SNAPSHOT_INCONSISTENT")
+        seen.add(expected_key)
+        expected_counts[expected_priority] += 1
     if counts != expected_counts or source.get("item_count") != len(items) or source.get("human_rereview_required_count") != len(items):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_QUEUE_SNAPSHOT_INCONSISTENT")
     highest_priority = next((priority for priority in PRIORITY_ORDER if expected_counts[priority] > 0), None)
@@ -228,6 +238,16 @@ def build_review_queue_readiness_summary(snapshot):
     }
 
 
+def _expected_priority(categories):
+    if "CATALOG_EVIDENCE_UNAVAILABLE" in categories:
+        return "P0", ["CATALOG_EVIDENCE_UNAVAILABLE"]
+    if "CATALOG_DRIFT" in categories:
+        return "P1", ["CATALOG_DRIFT"]
+    if "FRESHNESS" in categories:
+        return "P2", ["FRESHNESS"]
+    return "P3", list(categories)
+
+
 def _categories(value):
     if not isinstance(value, list) or not value:
         return None
@@ -242,7 +262,14 @@ def _lineage(value):
 
 
 def _valid_lineage(lineage):
-    return lineage[0] in ALLOWED_SCOPES and bool(lineage[1]) and bool(lineage[2])
+    return (
+        isinstance(lineage[0], str)
+        and lineage[0] in ALLOWED_SCOPES
+        and isinstance(lineage[1], str)
+        and bool(lineage[1].strip())
+        and isinstance(lineage[2], str)
+        and bool(lineage[2].strip())
+    )
 
 
 def _permissions_disabled(source):
