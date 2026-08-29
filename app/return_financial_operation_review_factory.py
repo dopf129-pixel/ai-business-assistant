@@ -1,0 +1,9 @@
+from services.finance_service import FinanceService
+from services.return_financial_operation_catalog_service import ReturnFinancialOperationCatalogService
+from services.return_financial_operation_review_report_service import ReturnFinancialOperationReviewReportService
+
+
+def create_return_financial_operation_review_report_service():
+    finance_service = FinanceService()
+    catalog_service = ReturnFinancialOperationCatalogService(finance_service)
+    return ReturnFinancialOperationReviewReportService(catalog_service)
