@@ -119,6 +119,34 @@ class ProductTaskDraftReadinessService:
             "executed": False,
         }
 
+    def build_refresh_request(self, draft):
+        source = deepcopy(draft or {})
+        readiness = self.evaluate(source)
+        guidance = readiness.get("freshness_refresh_guidance") or {}
+        targets = deepcopy(guidance.get("targets") or [])
+        required = bool(targets)
+        request_id = None
+        if required:
+            request_id = "refresh:" + str(source.get("draft_id") or "unknown")
+
+        return {
+            "error": False,
+            "request_id": request_id,
+            "draft_id": source.get("draft_id"),
+            "sku": source.get("sku"),
+            "proposal_type": source.get("proposal_type"),
+            "status": "REQUEST_DRAFT" if required else "NOT_REQUIRED",
+            "required": required,
+            "targets": targets,
+            "target_count": len(targets),
+            "source_decision_recorded_at": source.get("decision_recorded_at"),
+            "persistent": False,
+            "refresh_started": False,
+            "execution_allowed": False,
+            "execution_ready": False,
+            "executed": False,
+        }
+
     def summarize(self, drafts):
         items = []
         counts = {
