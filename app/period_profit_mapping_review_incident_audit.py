@@ -15,15 +15,26 @@ def build_monitoring_observation(checkpoint, refresh, evaluation):
     lineage = _lineage(base)
     if lineage != _lineage(current) or lineage != _lineage(result):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_OBSERVATION_LINEAGE_MISMATCH")
-    missing = current.get("missing_type_ids")
-    renamed = current.get("renamed_operations")
-    reasons = result.get("reopen_reasons")
-    if not isinstance(missing, list) or not isinstance(renamed, list) or not isinstance(reasons, list):
+    if (
+        not isinstance(current.get("catalog_available"), bool)
+        or not isinstance(current.get("catalog_drift_detected"), bool)
+        or not isinstance(current.get("review_required"), bool)
+        or not isinstance(result.get("review_reopened"), bool)
+        or not isinstance(result.get("reopen_reasons"), list)
+    ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_OBSERVATION_SCHEMA_INVALID")
-    if not all(isinstance(row, dict) for row in renamed):
+    missing = _normalized_missing(current.get("missing_type_ids"))
+    renamed = _normalized_renamed(current.get("renamed_operations"))
+    if missing is None or renamed is None:
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_OBSERVATION_SCHEMA_INVALID")
-    reopened = result.get("review_reopened") is True
-    if reopened != (result.get("status") == "PERIOD_PROFIT_MAPPING_REVIEW_REOPENED"):
+    expected_reasons = _expected_reopen_reasons(current, missing, renamed)
+    reasons = list(result.get("reopen_reasons"))
+    reopened = result.get("review_reopened")
+    if (
+        reasons != expected_reasons
+        or reopened != bool(expected_reasons)
+        or reopened != (result.get("status") == "PERIOD_PROFIT_MAPPING_REVIEW_REOPENED")
+    ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_OBSERVATION_STATE_INVALID")
     return {
         "error": False,
@@ -31,15 +42,15 @@ def build_monitoring_observation(checkpoint, refresh, evaluation):
         "scope": lineage[0],
         "revision_id": lineage[1],
         "mapping_id": lineage[2],
-        "catalog_available": current.get("catalog_available") is True,
+        "catalog_available": current.get("catalog_available"),
         "freshness_status": current.get("freshness_status"),
-        "missing_type_ids": sorted(list(missing)),
-        "renamed_operations": _normalized_renamed(renamed),
-        "catalog_drift_detected": current.get("catalog_drift_detected") is True,
-        "review_required": current.get("review_required") is True,
+        "missing_type_ids": missing,
+        "renamed_operations": renamed,
+        "catalog_drift_detected": current.get("catalog_drift_detected"),
+        "review_required": current.get("review_required"),
         "quality_score": current.get("quality_score"),
         "review_reopened": reopened,
-        "reopen_reasons": list(reasons),
+        "reopen_reasons": reasons,
         "automatic_remap_allowed": False,
         "automatic_activation_allowed": False,
         "profit_adjustment_allowed": False,
@@ -141,6 +152,7 @@ def build_review_monitoring_incident_handoff(incident, evaluation):
         or result.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_REOPENED"
         or result.get("error") is not False
         or result.get("review_reopened") is not True
+        or source.get("reopen_reasons") != result.get("reopen_reasons")
         or _lineage(source) != _lineage(result)
     ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_INCIDENT_HANDOFF_REQUIRED")
@@ -176,11 +188,18 @@ def build_review_monitoring_audit_receipt(observation, delta, incident, handoff=
         or source.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_INCIDENT_READY"
         or current.get("error") is not False or change.get("error") is not False or source.get("error") is not False
         or _lineage(current) != _lineage(change) or _lineage(current) != _lineage(source)
+        or source.get("reopen_reasons") != current.get("reopen_reasons")
+        or source.get("incident_detected") != current.get("review_reopened")
     ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_AUDIT_INPUT_REQUIRED")
     handoff_source = _dict(handoff)
     if source.get("incident_detected") is True:
-        if handoff_source.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_INCIDENT_HANDOFF_READY" or handoff_source.get("error") is not False or _lineage(current) != _lineage(handoff_source):
+        if (
+            handoff_source.get("status") != "PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_INCIDENT_HANDOFF_READY"
+            or handoff_source.get("error") is not False
+            or _lineage(current) != _lineage(handoff_source)
+            or handoff_source.get("reopen_reasons") != current.get("reopen_reasons")
+        ):
             return _error("PERIOD_PROFIT_MAPPING_REVIEW_MONITORING_AUDIT_HANDOFF_REQUIRED")
     return {
         "error": False,
@@ -203,8 +222,49 @@ def build_review_monitoring_audit_receipt(observation, delta, incident, handoff=
     }
 
 
+def _expected_reopen_reasons(current, missing, renamed):
+    reasons = []
+    if current.get("catalog_available") is not True:
+        reasons.append("CATALOG_UNAVAILABLE")
+    if missing:
+        reasons.append("MISSING_TYPE_IDS")
+    if renamed:
+        reasons.append("RENAMED_OPERATIONS")
+    if current.get("catalog_drift_detected") is True and not (missing or renamed):
+        reasons.append("CATALOG_DRIFT")
+    if current.get("freshness_status") != "FRESH":
+        reasons.append("FRESHNESS_NOT_FRESH")
+    if current.get("review_required") is True and not reasons:
+        reasons.append("REVIEW_REQUIRED")
+    return reasons
+
+
+def _normalized_missing(values):
+    if not isinstance(values, list):
+        return None
+    normalized = []
+    try:
+        for value in values:
+            normalized.append(int(value))
+    except (TypeError, ValueError):
+        return None
+    return sorted(normalized)
+
+
 def _normalized_renamed(rows):
-    return sorted([dict(row) for row in rows], key=lambda row: (str(row.get("type_id")), str(row.get("mapped_name")), str(row.get("current_name"))))
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return None
+    normalized = []
+    for row in rows:
+        if row.get("type_id") is None:
+            return None
+        try:
+            item = dict(row)
+            item["type_id"] = int(item.get("type_id"))
+        except (TypeError, ValueError):
+            return None
+        normalized.append(item)
+    return sorted(normalized, key=lambda row: (row.get("type_id"), str(row.get("mapped_name")), str(row.get("current_name"))))
 
 
 def _lineage(value):
