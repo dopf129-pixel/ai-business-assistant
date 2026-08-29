@@ -1,3 +1,6 @@
+import re
+
+
 class AssistantTestRunnerService:
     """
     Provides project test validation.
@@ -83,4 +86,8 @@ class AssistantTestRunnerService:
 
     def _sha(self, value):
         text = str(value or "").strip().lower()
-        return text or None
+        if not text:
+            return None
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", text):
+            return None
+        return text
