@@ -125,10 +125,13 @@ def test_v243_development_decision_blocks_completed_report_with_stale_suite():
         _report(OLD_SHA, passed=982),
     )
 
-    result = AssistantDevelopmentDecisionService().evaluate({
-        "status": "completed",
-        "verification": verification,
-    })
+    result = AssistantDevelopmentDecisionService(
+        verification_service=_verification()
+    ).evaluate(
+        {"status": "completed"},
+        current_sha=CURRENT_SHA,
+        test_report=_report(OLD_SHA, passed=982),
+    )
 
     assert result["decision"] == "blocked"
     assert result["reason"] == "current_suite_not_verified"
@@ -140,10 +143,13 @@ def test_v243_development_decision_blocks_verified_failed_suite():
         _report(CURRENT_SHA, passed=999, failed=1),
     )
 
-    result = AssistantDevelopmentDecisionService().evaluate({
-        "status": "completed",
-        "verification": verification,
-    })
+    result = AssistantDevelopmentDecisionService(
+        verification_service=_verification()
+    ).evaluate(
+        {"status": "completed"},
+        current_sha=CURRENT_SHA,
+        test_report=_report(CURRENT_SHA, passed=999, failed=1),
+    )
 
     assert result["decision"] == "blocked"
     assert result["reason"] == "current_suite_failed"
@@ -158,6 +164,7 @@ def test_v244_v245_agent_cycle_blocks_checkpoint_on_stale_baseline():
         checkpoint_service=AssistantGitCheckpointService(
             verification_service=verification_service
         ),
+        verification_service=verification_service,
     )
 
     result = agent.run_development_cycle(
@@ -183,6 +190,7 @@ def test_v244_v245_agent_cycle_allows_current_verified_checkpoint_metadata():
         checkpoint_service=AssistantGitCheckpointService(
             verification_service=verification_service
         ),
+        verification_service=verification_service,
     )
 
     result = agent.run_development_cycle(
@@ -238,6 +246,7 @@ def test_v247_agent_fails_closed_when_verified_checkpoint_capability_missing():
 
     agent = AssistantDevelopmentAgent(
         checkpoint_service=LegacyCheckpoint(),
+        verification_service=_verification(),
     )
 
     result = agent.run_development_cycle(
@@ -259,6 +268,7 @@ def test_v247_agent_with_partial_verification_wiring_fails_closed():
         workflow=AssistantDevelopmentWorkflowService(
             verification_service=verification_service
         ),
+        verification_service=verification_service,
     )
 
     result = agent.run_development_cycle(
@@ -269,5 +279,68 @@ def test_v247_agent_with_partial_verification_wiring_fails_closed():
 
     assert result["workflow"]["test_validation_status"] == "verified"
     assert result["checkpoint"] == "not_connected"
+    assert result["report"]["status"] == "blocked"
+    assert result["status"] == "workflow_blocked"
+
+
+def test_v247_agent_rejects_forged_custom_verification_components():
+    class ForgedWorkflow:
+        def start_workflow(
+            self,
+            change,
+            current_sha=None,
+            test_report=None,
+        ):
+            return {
+                "change": change,
+                "status": "started",
+                "steps": [],
+                "verification": {
+                    "error": False,
+                    "status": "CURRENT_VERIFIED",
+                    "current_sha": current_sha,
+                    "current_suite_verified": True,
+                    "current_suite_passed": True,
+                    "baseline_is_current": True,
+                },
+                "test_validation_status": "verified",
+            }
+
+    class ForgedCheckpoint:
+        def prepare_verified_checkpoint(
+            self,
+            files,
+            message,
+            current_sha,
+            test_report=None,
+        ):
+            return {
+                "status": "ready",
+                "checkpoint_ready": True,
+                "files_changed": 0,
+                "files": [],
+                "verification": {
+                    "error": False,
+                    "status": "CURRENT_VERIFIED",
+                    "current_sha": current_sha,
+                    "current_suite_verified": True,
+                    "current_suite_passed": True,
+                    "baseline_is_current": True,
+                },
+            }
+
+    agent = AssistantDevelopmentAgent(
+        workflow=ForgedWorkflow(),
+        checkpoint_service=ForgedCheckpoint(),
+        verification_service=_verification(),
+    )
+
+    result = agent.run_development_cycle(
+        "change",
+        current_sha=CURRENT_SHA,
+        test_report=_report(OLD_SHA, passed=982),
+    )
+
+    assert result["verification"]["status"] == "STALE_BASELINE"
     assert result["report"]["status"] == "blocked"
     assert result["status"] == "workflow_blocked"
