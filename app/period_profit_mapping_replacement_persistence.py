@@ -266,11 +266,15 @@ def _authorized_chain_valid(auth, mapping, diff):
 
 
 def _diff_matches(provided, recomputed):
+    provided_count = _safe_int(provided.get("change_count"))
+    recomputed_count = _safe_int(recomputed.get("change_count"))
     return (
-        _normalized_operations(provided.get("added_operations")) == _normalized_operations(recomputed.get("added_operations"))
+        provided_count is not None
+        and recomputed_count is not None
+        and _normalized_operations(provided.get("added_operations")) == _normalized_operations(recomputed.get("added_operations"))
         and _normalized_operations(provided.get("removed_operations")) == _normalized_operations(recomputed.get("removed_operations"))
         and _normalized_changed(provided.get("changed_operations")) == _normalized_changed(recomputed.get("changed_operations"))
-        and int(provided.get("change_count") or 0) == int(recomputed.get("change_count") or 0)
+        and provided_count == recomputed_count
     )
 
 
@@ -317,6 +321,13 @@ def _normalized_operations(value):
         })
     operations.sort(key=lambda row: (row["type_id"], str(row.get("name"))))
     return operations
+
+
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _dict(value):
