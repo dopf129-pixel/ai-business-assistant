@@ -57,11 +57,14 @@ def test_v144_restores_existing_canonical_admin_preview(tmp_path):
     assert registry.history("RETURN")["active_revision_id"] == "return-mapping-r1"
 
 
-def test_v145_reject_uses_existing_admin_decision_and_does_not_apply(tmp_path):
+def test_v145_reject_reuses_existing_admin_decision_and_keeps_lineage(tmp_path):
     registry, admin, _, handoff = _setup(tmp_path)
     preview = build_replacement_canonical_activation_preview(admin, handoff)
     decision = build_replacement_activation_decision(preview, "REJECT")
-    assert decision == build_mapping_admin_decision(preview, "REJECT")
+    expected = build_mapping_admin_decision(preview, "REJECT")
+    for key, value in expected.items():
+        assert decision[key] == value
+    assert decision["expected_current_active_revision_id"] == "return-mapping-r1"
     assert decision["registry_apply_allowed"] is False
     assert registry.history("RETURN")["active_revision_id"] == "return-mapping-r1"
 
@@ -79,6 +82,15 @@ def test_v146_requires_explicit_apply_and_activates_only_target(tmp_path):
     assert result["revision_id"] == persisted["revision_id"]
     assert result["admin_explicit_apply"] is True
     assert registry.history("RETURN")["active_revision_id"] == persisted["revision_id"]
+
+
+def test_v146_stale_apply_decision_fails_closed(tmp_path):
+    registry, admin, persisted, handoff = _setup(tmp_path)
+    preview = build_replacement_canonical_activation_preview(admin, handoff)
+    decision = build_replacement_activation_decision(preview, "APPLY")
+    registry.activate("RETURN", persisted["revision_id"], actor="OTHER_REVIEWER")
+    result = apply_replacement_activation(admin, persisted, decision)
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REPLACEMENT_ACTIVATION_DECISION_STALE"
 
 
 def test_v147_verifies_registry_and_activation_event(tmp_path):
