@@ -175,13 +175,17 @@ def test_production_source_preserves_product_sales_trend():
     sales = query.sales_metrics_source("hook-2")
     stock = query.stock_metrics_source("hook-2")
 
-    assert sales == {
-        "product_id": "101",
-        "sku": "hook-2",
-        "sales_velocity": 2.0,
-        "sales_trend": "GROWING",
-        "missing_data": [],
-    }
+    assert sales["product_id"] == "101"
+    assert sales["sku"] == "hook-2"
+    assert sales["sales_velocity"] == 2.0
+    assert sales["sales_trend"] == "GROWING"
+    assert sales["missing_data"] == []
+    assert sales["sales_period_from"] == "2026-08-18"
+    assert sales["sales_period_to"] == "2026-08-24"
+    assert isinstance(sales["sales_observed_at"], str)
+    assert sales["sales_observed_at"]
+    assert "sales_source_recorded_at" not in sales
+
     assert stock == {
         "product_id": "101",
         "sku": "hook-2",
