@@ -42,6 +42,7 @@ def test_observation_only_builds_candidate_without_proving_source_freshness():
     assert result["status"] == "CANDIDATE_READY"
     assert result["source_evidence_count"] == 0
     assert result["observation_evidence_count"] == 2
+    assert result["source_evidence_candidate_present"] is False
     assert result["source_freshness_proven"] is False
     assert result["evidence_update"] == {
         "sales_observed_at": "2026-08-29T12:00:00+00:00",
@@ -51,7 +52,7 @@ def test_observation_only_builds_candidate_without_proving_source_freshness():
     assert result["executed"] is False
 
 
-def test_real_canonical_source_timestamp_is_preserved_as_source_evidence():
+def test_real_canonical_source_timestamp_is_candidate_until_guard_validates_it():
     refresh = _refresh(
         _result("sales", {
             "sales_source_recorded_at": "2026-08-29T11:59:00+00:00",
@@ -60,9 +61,14 @@ def test_real_canonical_source_timestamp_is_preserved_as_source_evidence():
     )
 
     result = build_freshness_evidence_candidate(refresh)
+    candidate = result["candidates"][0]
 
     assert result["source_evidence_count"] == 1
-    assert result["source_freshness_proven"] is True
+    assert result["source_evidence_candidate_present"] is True
+    assert result["source_freshness_proven"] is False
+    assert result["requires_freshness_guard_validation"] is True
+    assert candidate["source_freshness_proven"] is False
+    assert candidate["requires_freshness_guard_validation"] is True
     assert result["evidence_update"]["sales_source_recorded_at"] == (
         "2026-08-29T11:59:00+00:00"
     )
