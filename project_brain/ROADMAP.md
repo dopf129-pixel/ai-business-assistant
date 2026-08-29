@@ -296,8 +296,10 @@ Current:
 
 [x] Autonomous Assistant v7 — Draft Readiness Checklist
 
+[x] Autonomous Assistant v8 — Draft Data Freshness Guards
+
 
 Next:
 
 
-[ ] Autonomous Assistant v8 — Draft Data Freshness Guards
+[ ] Autonomous Assistant v9 — Draft Refresh Planning
