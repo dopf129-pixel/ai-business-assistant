@@ -251,3 +251,23 @@ def test_v247_agent_fails_closed_when_verified_checkpoint_capability_missing():
     assert result["checkpoint"]["code"] == (
         "VERIFIED_CHECKPOINT_CAPABILITY_MISSING"
     )
+
+
+def test_v247_agent_with_partial_verification_wiring_fails_closed():
+    verification_service = _verification()
+    agent = AssistantDevelopmentAgent(
+        workflow=AssistantDevelopmentWorkflowService(
+            verification_service=verification_service
+        ),
+    )
+
+    result = agent.run_development_cycle(
+        "change",
+        current_sha=CURRENT_SHA,
+        test_report=_report(CURRENT_SHA),
+    )
+
+    assert result["workflow"]["test_validation_status"] == "verified"
+    assert result["checkpoint"] == "not_connected"
+    assert result["report"]["status"] == "blocked"
+    assert result["status"] == "workflow_blocked"
