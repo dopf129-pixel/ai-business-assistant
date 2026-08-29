@@ -187,7 +187,7 @@ Tasks:
 [x] Memory-aware action generation
 
 
-[ ] Long-running tasks
+[x] Long-running tasks
 
 
 [ ] Self-improvement cycle
