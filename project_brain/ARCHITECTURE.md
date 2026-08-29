@@ -1,12 +1,26 @@
 # AI Assistant Architecture
 
+
 ## Project
 
-AI Business Assistant.
 
-The system combines task orchestration, business intelligence, product-level decision support, manual review workflows and controlled execution infrastructure.
+AI Business Assistant
 
-## Core Assistant Flow
+
+Назначение:
+
+
+Система автоматизированного бизнес-анализа,
+планирования, выполнения действий
+и накопления опыта для автономного поведения.
+
+
+
+---
+
+
+# Main Architecture Flow
+
 
 User
 
@@ -54,23 +68,509 @@ AssistantActionRouterService
 
 Business Executors
 
-The existing Action / Executor pipeline is an execution subsystem. Product Decision task drafts described below do **not** enter this pipeline.
 
-## Intelligence Layers
 
-The product contains separate intelligence services for sales, stock, finance, returns and product unit economics. Prepared business facts are passed into higher-level decision services through explicit service boundaries and dependency injection.
+---
 
-## Product Business Decision Flow
 
-Prepared Sales / Stock / Unit Economics / Returns Facts
+# Autonomous Agent Flow
+
+
+Execution
 
 ↓
+
+Feedback
+
+↓
+
+Memory
+
+↓
+
+Planning Improvement
+
+↓
+
+Action Generation
+
+↓
+
+Execution
+
+
+
+Назначение:
+
+
+Агент использует результаты прошлых действий
+для улучшения будущих решений.
+
+
+
+---
+
+
+# Core Components
+
+
+
+## Intent Layer
+
+
+Ответственность:
+
+
+- определение намерения пользователя
+- перевод текста в команду
+
+
+Service:
+
+
+AssistantIntentService
+
+
+
+---
+
+
+## Task Layer
+
+
+Ответственность:
+
+
+- создание задач
+- управление состояниями
+- выполнение шагов
+- хранение состояния долгих процессов
+
+
+Service:
+
+
+AssistantTaskService
+
+
+Статусы:
+
+
+NEW
+
+DONE
+
+PAUSED
+
+CANCELLED
+
+SKIPPED
+
+FAILED
+
+
+
+---
+
+
+## Planning Layer
+
+
+Ответственность:
+
+
+Создание и корректировка плана действий
+с учётом зависимостей и прошлого опыта.
+
+
+
+Components:
+
+
+- RecommendationService
+- PlanningService
+- BusinessPlannerService
+- ReplanningService
+
+
+
+Поддерживает:
+
+
+- multi-level dependencies
+- dependency validation
+- automatic replanning
+- plan correction
+- memory context
+
+
+
+---
+
+
+## Action Layer
+
+
+Ответственность:
+
+
+Управление действиями.
+
+
+
+Pipeline:
+
+
+Recommendation
+
+↓
+
+Action Generator
+
+↓
+
+Memory Context
+
+↓
+
+Priority Resolver
+
+↓
+
+Dependency Check
+
+↓
+
+Condition Check
+
+↓
+
+Execution
+
+↓
+
+Feedback
+
+↓
+
+History
+
+↓
+
+Memory
+
+
+
+---
+
+
+# Action Rules
+
+
+Каждое действие содержит:
+
+
+title
+
+type
+
+status
+
+priority
+
+depends_on
+
+condition
+
+result
+
+
+
+Дополнительно может содержать:
+
+
+memory_context
+
+
+
+---
+
+
+# Dependency System
+
+
+Поддерживается:
+
+
+Action B depends_on Action A
+
+
+Action B может выполняться только после:
+
+
+Action A = DONE
+
+
+
+Поддерживается:
+
+
+- multi-level dependencies
+- dependency validation
+- cycle detection
+
+
+
+---
+
+
+# Condition System
+
+
+Поддерживается:
+
+
+condition:
+
+
+contains
+
+
+
+Пример:
+
+
+Если результат предыдущего действия содержит:
+
+
+"падение"
+
+
+тогда действие разрешено.
+
+
+
+Если условие не выполнено:
+
+
+status = SKIPPED
+
+
+skip_reason сохраняется.
+
+
+
+---
+
+
+# Execution System
+
+
+Router выбирает исполнителя:
+
+
+sales
+
+stock
+
+marketing
+
+
+
+Каждый executor отвечает
+за свой тип действия.
+
+
+
+Execution System поддерживает:
+
+
+- FAILED state
+- error storage
+- retry execution
+- retry policy
+- retry limits
+- retry blocked history
+
+
+
+---
+
+
+# Feedback System
+
+
+Ответственность:
+
+
+Получение результата выполнения
+и формирование опыта.
+
+
+
+Service:
+
+
+AssistantFeedbackService
+
+
+
+Процесс:
+
+
+Execution Result
+
+↓
+
+Feedback
+
+↓
+
+Experience
+
+
+
+---
+
+
+# Memory System
+
+
+Ответственность:
+
+
+Хранение опыта агента
+и использование его в будущих решениях.
+
+
+
+Service:
+
+
+AssistantMemoryService
+
+
+
+Поддерживает:
+
+
+- сохранение опыта
+- поиск похожего опыта
+- передачу контекста в планирование
+- передачу опыта в генерацию действий
+
+
+
+---
+
+
+# History System
+
+
+История хранит:
+
+
+- действие
+- статус
+- результат
+- причину пропуска
+- ошибки выполнения
+- retry события
+- feedback события
+
+
+
+---
+
+
+# Project Brain Integration
+
+
+Разработка управляется через:
+
+
+- CURRENT_STATE.md
+- ROADMAP.md
+- TEST_MAP.md
+- CHANGELOG.md
+- DECISIONS.md
+
+
+
+Каждый значимый этап:
+
+
+1. получает тест
+
+2. обновляет документацию
+
+3. фиксируется в истории изменений
+
+
+
+---
+
+
+# Development Rules
+
+
+Каждое новое изменение:
+
+
+1. Новый тест
+
+2. Изменение кода
+
+3. Запуск pytest
+
+4. Обновление документации
+
+5. Архитектурное решение при изменении структуры
+
+
+
+---
+
+
+# Current Test Status
+
+
+Last known:
+
+
+49 passed
+
+
+
+---
+
+
+# Current Architecture Level
+
+
+Task Orchestration Engine
+
++
+
+Smart Planning
+
++
+
+Autonomous Agent Foundation
+
++
+
+AI Development Infrastructure
+
+
+---
+
+
+# Product Decision Memory
+
+Flow:
 
 ProductBusinessDecisionQueryService
-
-↓
-
-ProductBusinessDecisionService
 
 ↓
 
@@ -78,19 +578,79 @@ ProductDecisionHistoryService
 
 ↓
 
-ProductDecisionActionProposalService
+ProductDecisionHistoryStorageService
 
 ↓
 
-Manual Action Proposal
+data/product_decision_history.json
 
-The decision path is read-oriented. It must not mutate marketplace state.
+Responsibilities:
 
-## Product Decision Memory and Feedback
+- persist the first successful decision baseline;
+- persist only decision type or priority transitions;
+- expose previous decision context to Telegram;
+- retain a bounded history per seller article.
 
-Successful product decisions may be persisted as history snapshots. Manual feedback and later decision changes are observational signals only. They do not rewrite decision rules and must not be presented as proof of causality.
+The history is observational. It does not modify decision rules and does not
+trigger actions.
 
-## Safe Product Action Proposal Flow
+Feedback flow:
+
+Telegram Decision Card
+
+↓
+
+AssistantButtonHandlerService
+
+↓
+
+ProductDecisionHistoryService.record_feedback
+
+↓
+
+Latest Decision Snapshot
+
+Allowed signals:
+
+- USEFUL
+- NOT_RELEVANT
+
+Feedback remains observational and participates only in the separate
+outcome-correlation stage described below.
+
+Outcome correlation flow:
+
+Previous Decision + Manual Feedback
+
+↓
+
+Next Changed Decision
+
+↓
+
+Priority Decreased / Priority Increased / Decision Changed
+
+The correlation is observational. It must not be presented as proof that the
+recommendation or a user action caused the later change.
+
+Learning read model:
+
+ProductDecisionHistoryService.learning_summary
+
+↓
+
+Assortment Snapshot / Feedback / Outcome Counts
+
+ProductDecisionHistoryService.history
+
+↓
+
+Latest Five Product Decision Changes
+
+These read paths expose stored facts only. They do not calculate success rates,
+change recommendations, or trigger actions.
+
+Safe action proposal flow:
 
 Product Business Decision
 
@@ -100,17 +660,36 @@ ProductDecisionActionProposalService
 
 ↓
 
-Manual Confirmation Boundary
+Read-only Manual Proposal
 
-Rules:
+Proposal rules:
 
-- `execution_allowed=False`;
-- no replenishment quantity is inferred;
-- no price mutation is inferred;
-- no Action Executor dependency;
-- no external mutation is performed.
+- execution_allowed is always false;
+- operational review proposals require manual confirmation;
+- no quantity, price, or external mutation is inferred;
+- the proposal layer has no dependency on Action Executor.
 
-## Product Task Draft Flow
+Confirmation flow:
+
+Telegram Confirm / Dismiss
+
+↓
+
+ProductActionProposalConfirmationService
+
+↓
+
+Latest Decision + Rebuilt Proposal Guard
+
+↓
+
+ProductDecisionHistoryService.record_proposal_status
+
+The stored status represents user intent only. The flow always returns
+executed=False, has no Action Executor dependency, and performs no external
+mutation.
+
+Confirmed task draft flow:
 
 Confirmed Proposal + Latest Decision Snapshot
 
@@ -120,7 +699,31 @@ ProductActionTaskDraftService
 
 ↓
 
-Persistent Product Task Draft
+Persistent Read-only Product Task Draft
+
+The draft key identifies one proposal for one decision snapshot. Drafts may be
+listed or dismissed, but they are not converted to AssistantTaskService tasks,
+do not enter Action Pipeline, and cannot reach an executor or external API.
+
+Draft review lifecycle:
+
+Current Decision Snapshot + Current Actionable Proposal
+
+↓
+
+ProductActionTaskDraftService.reconcile
+
+↓
+
+Keep DRAFT or mark previous DRAFT as STALE
+
+Telegram may archive DRAFT, STALE, or DISMISSED records. ARCHIVED is terminal.
+These are storage lifecycle transitions only: every path preserves
+execution_allowed=False and executed=False.
+
+Review queue read flow:
+
+DRAFT / STALE Records
 
 ↓
 
@@ -128,100 +731,52 @@ ProductTaskDraftReviewQueueService
 
 ↓
 
-ProductTaskDraftReadinessService
+Score + Priority + Explainable Reasons
 
 ↓
 
-Manual Review UI
+Telegram Review Queue
 
-Drafts are review artifacts, not executable Assistant tasks. Draft lifecycle statuses and audit events describe stored review state only.
+The queue excludes DISMISSED and ARCHIVED records. Scores are calculated on
+read and are not persisted, learned, or passed to an executor. Stable ties are
+ordered oldest first.
 
-## Draft Lifecycle and Audit
+Draft detail and audit flow:
 
-`ProductActionTaskDraftService` owns draft lifecycle reconciliation and audit events.
-
-Supported lifecycle concepts include current draft, stale draft, dismissed draft and terminal archived draft. Idempotent commands must not create duplicate lifecycle events. Legacy records with unavailable history are reported honestly rather than reconstructed.
-
-## Draft Review Queue
-
-`ProductTaskDraftReviewQueueService` provides deterministic read-time prioritization of reviewable drafts. Queue score and reason codes are not persisted as learned truth and are not passed into any executor.
-
-## Draft Readiness
-
-`ProductTaskDraftReadinessService` evaluates whether a draft has the factual data required for manual review.
-
-Review readiness and execution readiness are separate concepts. The execution side remains a hard false boundary.
-
-## Draft Data Freshness Guards
-
-Autonomous Assistant v8 adds a separate read-only `ProductTaskDraftFreshnessService`.
-
-Flow:
-
-Product Task Draft Snapshot
+Review Queue Item
 
 ↓
 
-ProductTaskDraftFreshnessService
+ProductActionTaskDraftService.get
 
 ↓
 
-`FRESH` / `STALE` / `UNKNOWN`
+Draft Source Context + Append-only Lifecycle Events
+
+↓
+
+Read-only Telegram Detail Card
+
+Audit events are written only with real lifecycle transitions. Idempotent
+commands add no event. Legacy records are returned with an explicit unavailable
+history marker instead of inferred events. Audit data never reaches an executor.
+
+Draft readiness flow:
+
+Draft Snapshot
 
 ↓
 
 ProductTaskDraftReadinessService
+
+↓
+
+Factual Review Checks + Explicit Missing Fields
 
 ↓
 
 Review Ready or Needs Data / Refresh
 
-Freshness rules:
-
-- `decision_recorded_at` is the persisted timestamp of the decision snapshot, not proof of marketplace source freshness;
-- sales freshness uses `sales_source_recorded_at` only when that timestamp is actually supplied by the source contract;
-- stock freshness uses `stock_source_recorded_at` only when supplied;
-- unit-economics freshness uses `unit_economics_source_recorded_at` only when supplied;
-- missing or invalid timestamps are `UNKNOWN`;
-- timestamps in the future are `UNKNOWN`;
-- timestamps older than the configured maximum age are `STALE`;
-- request time, cache time, draft creation time and draft update time must never be substituted for missing source timestamps.
-
-Freshness evaluation is proposal-aware:
-
-- `REVIEW_REPLENISHMENT` checks the decision snapshot plus sales and stock freshness;
-- `REVIEW_UNIT_ECONOMICS` checks the decision snapshot plus unit-economics freshness;
-- `REVIEW_MARGIN` checks the decision snapshot plus unit-economics freshness;
-- unknown proposal types are handled conservatively.
-
-Production wiring is owned by `product_business_decision_factory.py`. The default readiness service receives the default freshness service through dependency injection. Explicit custom freshness and explicit readiness-service overrides remain supported.
-
-## Telegram Presentation Boundary
-
-`AssistantButtonHandlerService` continues to produce the underlying draft/readiness structures.
-
-`AssistantTelegramAdapter` enriches only the presentation of draft list/detail callbacks with freshness information:
-
-- queue counts for fresh / stale / unknown data;
-- draft-detail freshness status;
-- decision-snapshot age when known;
-- Russian human-readable freshness reasons.
-
-This keeps freshness display logic out of the large button-handler business flow and preserves other callbacks unchanged.
-
-## Execution Safety Boundary
-
-For the Product Decision / Proposal / Draft / Freshness path:
-
-- `execution_ready=False`;
-- `executed=False`;
-- `execution_allowed=False` on proposal/draft contracts remains unchanged;
-- Product Task Drafts are not converted into `AssistantTaskService` tasks;
-- Product Task Drafts do not enter Action Generator / Action Execution / Action Router;
-- no mutating Ozon API call is connected.
-
-A future execution policy, if ever added, requires a separate business and architecture decision.
-
-## Project Brain
-
-Project architecture, current state, roadmap, test map, decisions and changelog are maintained in `project_brain/` and Git. Significant changes require tests and documentation synchronization before merge.
+Execution readiness is a separate hard-false output. It always includes the
+disconnected workflow blocker plus proposal-specific policy blockers. The
+readiness service is read-only and cannot mutate a draft or invoke an executor.
