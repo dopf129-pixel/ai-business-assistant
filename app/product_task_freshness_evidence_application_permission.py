@@ -1,288 +1,123 @@
 from copy import deepcopy
 
-ALLOWED_EVIDENCE_FIELDS = {
-    "sales_source_recorded_at",
-    "sales_observed_at",
-    "stock_source_recorded_at",
-    "stock_observed_at",
-    "unit_economics_source_recorded_at",
-    "unit_economics_observed_at",
-}
+ALLOWED_EVIDENCE_FIELDS = {"sales_source_recorded_at", "sales_observed_at", "stock_source_recorded_at", "stock_observed_at", "unit_economics_source_recorded_at", "unit_economics_observed_at"}
+SAFETY_FIELDS = ("application_allowed", "application_started", "persistent", "product_decision_recomputed", "product_decision_mutated", "task_draft_mutated", "execution_allowed", "execution_ready", "executed")
 
 
 def build_application_permission_eligibility(authorization_signal):
-    """v169: validate a granted authorization signal for a separate permission review."""
     source = deepcopy(authorization_signal or {})
-    error = _validate_granted_signal(source)
-    if error:
-        return _blocked(source, error)
-    evidence = _safe_evidence(source.get("authorization_evidence"))
-    return _base(source, {
-        "error": False,
-        "status": "APPLICATION_PERMISSION_ELIGIBLE",
-        "permission_eligibility_id": "evidence-application-permission-eligibility:" + source["authorization_signal_id"],
-        "permission_eligible": True,
-        "permission_review_required": True,
-        "permission_granted": False,
-        "eligible_evidence": evidence,
-        "eligible_evidence_count": len(evidence),
-    })
+    error = _validate_signal(source)
+    if error: return _blocked(source, error)
+    evidence = _evidence(source, "authorization_evidence")
+    return _base(source, error=False, status="APPLICATION_PERMISSION_ELIGIBLE", permission_eligibility_id="evidence-application-permission-eligibility:" + source["authorization_signal_id"], permission_eligible=True, permission_review_required=True, permission_granted=False, eligible_evidence=evidence, eligible_evidence_count=len(evidence))
 
 
 def build_application_permission_review(eligibility):
-    """v170: produce a read-only human review contract without granting permission."""
     source = deepcopy(eligibility or {})
-    error = _validate_eligibility(source)
-    if error:
-        return _blocked(source, error)
-    evidence = _safe_evidence(source.get("eligible_evidence"))
-    return _base(source, {
-        "error": False,
-        "status": "APPLICATION_PERMISSION_REVIEW_REQUIRED",
-        "permission_review_id": "evidence-application-permission-review:" + source["permission_eligibility_id"],
-        "permission_eligible": True,
-        "permission_review_required": True,
-        "permission_granted": False,
-        "review_evidence": evidence,
-        "review_evidence_count": len(evidence),
-    })
+    error = _validate_stage(source, "eligibility")
+    if error: return _blocked(source, error)
+    evidence = _evidence(source, "eligible_evidence")
+    return _base(source, error=False, status="APPLICATION_PERMISSION_REVIEW_REQUIRED", permission_review_id="evidence-application-permission-review:" + source["permission_eligibility_id"], permission_eligible=True, permission_review_required=True, permission_granted=False, review_evidence=evidence, review_evidence_count=len(evidence))
 
 
 def build_application_permission_decision(review, decision):
-    """v171: record explicit PERMIT/REJECT; PERMIT is still not application execution."""
-    source = deepcopy(review or {})
-    choice = str(decision or "").strip().upper()
-    error = _validate_review(source)
-    if error:
-        return _blocked(source, error, decision=choice)
-    if choice not in {"PERMIT", "REJECT"}:
-        return _blocked(source, "APPLICATION_PERMISSION_DECISION_INVALID", decision=choice)
-    evidence = _safe_evidence(source.get("review_evidence"))
-    permitted = choice == "PERMIT"
-    return _base(source, {
-        "error": False,
-        "status": "APPLICATION_PERMISSION_GRANTED" if permitted else "APPLICATION_PERMISSION_REJECTED",
-        "permission_decision_id": "evidence-application-permission-decision:" + source["permission_review_id"],
-        "decision": choice,
-        "permission_eligible": True,
-        "permission_review_required": False,
-        "permission_granted": permitted,
-        "permission_rejected": not permitted,
-        "permission_evidence": evidence,
-        "permission_evidence_count": len(evidence),
-    })
+    source = deepcopy(review or {}); choice = str(decision or "").strip().upper()
+    error = _validate_stage(source, "review")
+    if error: return _blocked(source, error, decision=choice)
+    if choice not in {"PERMIT", "REJECT"}: return _blocked(source, "APPLICATION_PERMISSION_DECISION_INVALID", decision=choice)
+    evidence = _evidence(source, "review_evidence"); granted = choice == "PERMIT"
+    return _base(source, error=False, status="APPLICATION_PERMISSION_GRANTED" if granted else "APPLICATION_PERMISSION_REJECTED", permission_decision_id="evidence-application-permission-decision:" + source["permission_review_id"], decision=choice, permission_eligible=True, permission_review_required=False, permission_granted=granted, permission_rejected=not granted, permission_evidence=evidence, permission_evidence_count=len(evidence))
 
 
 def build_application_start_handoff(permission_decision):
-    """v172: hand off a permitted decision to a future application stage without starting it."""
     source = deepcopy(permission_decision or {})
-    error = _validate_permission_decision(source)
-    if error:
-        return _blocked(source, error)
-    evidence = _safe_evidence(source.get("permission_evidence"))
-    return _base(source, {
-        "error": False,
-        "status": "APPLICATION_START_HANDOFF_READY",
-        "application_handoff_id": "evidence-application-start-handoff:" + source["permission_decision_id"],
-        "permission_granted": True,
-        "application_handoff_ready": True,
-        "handoff_evidence": evidence,
-        "handoff_evidence_count": len(evidence),
-    })
+    error = _validate_stage(source, "decision")
+    if error: return _blocked(source, error)
+    if source.get("status") != "APPLICATION_PERMISSION_GRANTED": return _blocked(source, "APPLICATION_PERMISSION_NOT_GRANTED")
+    evidence = _evidence(source, "permission_evidence")
+    return _base(source, error=False, status="APPLICATION_START_HANDOFF_READY", application_handoff_id="evidence-application-start-handoff:" + source["permission_decision_id"], permission_granted=True, application_handoff_ready=True, handoff_evidence=evidence, handoff_evidence_count=len(evidence))
 
 
 def build_application_permission_audit(eligibility, review, decision, handoff=None):
-    """v173: deterministic audit receipt for the permission lifecycle."""
-    eligible = deepcopy(eligibility or {})
-    reviewed = deepcopy(review or {})
-    decided = deepcopy(decision or {})
-    if _validate_eligibility(eligible) or _validate_review(reviewed):
-        return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_INPUT_INVALID")
-    if _identity(eligible) != _identity(reviewed) or _identity(reviewed) != _identity(decided):
-        return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_IDENTITY_MISMATCH")
-    if decided.get("status") not in {"APPLICATION_PERMISSION_GRANTED", "APPLICATION_PERMISSION_REJECTED"}:
-        return _blocked(decided, "APPLICATION_PERMISSION_DECISION_REQUIRED")
-    evidence = _safe_evidence(eligible.get("eligible_evidence"))
-    if evidence != _safe_evidence(reviewed.get("review_evidence")) or evidence != _safe_evidence(decided.get("permission_evidence")):
-        return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_EVIDENCE_MISMATCH")
-    granted = decided.get("permission_granted") is True
+    eligible, reviewed, decided = [deepcopy(value or {}) for value in (eligibility, review, decision)]
+    if _validate_stage(eligible, "eligibility") or _validate_stage(reviewed, "review"): return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_INPUT_INVALID")
+    error = _validate_stage(decided, "decision")
+    if error: return _blocked(decided, error)
+    if _identity(eligible) != _identity(reviewed) or _identity(reviewed) != _identity(decided): return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_IDENTITY_MISMATCH")
+    evidence = _evidence(eligible, "eligible_evidence")
+    if evidence != _evidence(reviewed, "review_evidence") or evidence != _evidence(decided, "permission_evidence"): return _blocked(decided, "APPLICATION_PERMISSION_AUDIT_EVIDENCE_MISMATCH")
+    granted = decided["permission_granted"] is True
     if granted:
         target = deepcopy(handoff or {})
-        if target.get("status") != "APPLICATION_START_HANDOFF_READY" or target.get("application_handoff_ready") is not True:
-            return _blocked(decided, "APPLICATION_START_HANDOFF_REQUIRED")
-        if _identity(target) != _identity(decided) or _safe_evidence(target.get("handoff_evidence")) != evidence:
-            return _blocked(decided, "APPLICATION_START_HANDOFF_MISMATCH")
-    elif handoff is not None:
-        return _blocked(decided, "REJECTED_PERMISSION_CANNOT_HAVE_HANDOFF")
-    return _base(decided, {
-        "error": False,
-        "status": "APPLICATION_PERMISSION_AUDIT_READY",
-        "audit_id": "evidence-application-permission-audit:" + decided["permission_decision_id"],
-        "permission_granted": granted,
-        "permission_rejected": not granted,
-        "application_handoff_ready": granted,
-        "audited_evidence": evidence,
-        "audited_evidence_count": len(evidence),
-    })
+        if target.get("status") != "APPLICATION_START_HANDOFF_READY" or target.get("application_handoff_ready") is not True: return _blocked(decided, "APPLICATION_START_HANDOFF_REQUIRED")
+        if _identity(target) != _identity(decided) or target.get("permission_decision_id") != decided.get("permission_decision_id"): return _blocked(decided, "APPLICATION_START_HANDOFF_MISMATCH")
+        if _evidence(target, "handoff_evidence") != evidence or target.get("handoff_evidence_count") != len(evidence) or _unsafe(target): return _blocked(decided, "APPLICATION_START_HANDOFF_MISMATCH")
+    elif handoff is not None: return _blocked(decided, "REJECTED_PERMISSION_CANNOT_HAVE_HANDOFF")
+    return _base(decided, error=False, status="APPLICATION_PERMISSION_AUDIT_READY", audit_id="evidence-application-permission-audit:" + decided["permission_decision_id"], permission_granted=granted, permission_rejected=not granted, application_handoff_ready=granted, audited_evidence=evidence, audited_evidence_count=len(evidence))
 
 
-def _validate_granted_signal(source):
-    error = _identity_error(source, through="authorization_signal")
-    if error:
-        return error
-    if source.get("status") != "APPLICATION_AUTHORIZATION_GRANTED" or source.get("decision") != "AUTHORIZE":
-        return "APPLICATION_AUTHORIZATION_NOT_GRANTED"
-    if source.get("authorization_signal_ready") is not True or source.get("authorization_granted") is not True:
-        return "APPLICATION_AUTHORIZATION_NOT_GRANTED"
-    if source.get("authorization_rejected") is not False:
-        return "APPLICATION_AUTHORIZATION_CONTRADICTORY"
-    return _safety_and_evidence_error(source, "authorization_evidence", "authorization_evidence_count")
+def _validate_signal(source):
+    error = _ids(source, "signal")
+    if error: return error
+    if source.get("status") != "APPLICATION_AUTHORIZATION_GRANTED" or source.get("decision") != "AUTHORIZE" or source.get("authorization_signal_ready") is not True or source.get("authorization_granted") is not True or source.get("authorization_rejected") is not False: return "APPLICATION_AUTHORIZATION_NOT_GRANTED"
+    return _payload_error(source, "authorization_evidence", "authorization_evidence_count")
 
 
-def _validate_eligibility(source):
-    error = _identity_error(source, through="permission_eligibility")
-    if error:
-        return error
-    if source.get("status") != "APPLICATION_PERMISSION_ELIGIBLE" or source.get("permission_eligible") is not True:
-        return "APPLICATION_PERMISSION_NOT_ELIGIBLE"
-    if source.get("permission_review_required") is not True or source.get("permission_granted") is not False:
-        return "APPLICATION_PERMISSION_ELIGIBILITY_BOUNDARY_VIOLATION"
-    return _safety_and_evidence_error(source, "eligible_evidence", "eligible_evidence_count")
+def _validate_stage(source, stage):
+    error = _ids(source, stage)
+    if error: return error
+    expected = {"eligibility": ("APPLICATION_PERMISSION_ELIGIBLE", "eligible_evidence", "eligible_evidence_count"), "review": ("APPLICATION_PERMISSION_REVIEW_REQUIRED", "review_evidence", "review_evidence_count"), "decision": (None, "permission_evidence", "permission_evidence_count")}[stage]
+    if stage == "eligibility" and (source.get("status") != expected[0] or source.get("permission_eligible") is not True or source.get("permission_review_required") is not True or source.get("permission_granted") is not False): return "APPLICATION_PERMISSION_NOT_ELIGIBLE"
+    if stage == "review" and (source.get("status") != expected[0] or source.get("permission_eligible") is not True or source.get("permission_review_required") is not True or source.get("permission_granted") is not False): return "APPLICATION_PERMISSION_REVIEW_NOT_READY"
+    if stage == "decision":
+        if source.get("permission_eligible") is not True or source.get("permission_review_required") is not False: return "APPLICATION_PERMISSION_DECISION_BOUNDARY_VIOLATION"
+        if source.get("status") == "APPLICATION_PERMISSION_GRANTED":
+            if source.get("decision") != "PERMIT" or source.get("permission_granted") is not True or source.get("permission_rejected") is not False: return "APPLICATION_PERMISSION_DECISION_CONTRADICTORY"
+        elif source.get("status") == "APPLICATION_PERMISSION_REJECTED":
+            if source.get("decision") != "REJECT" or source.get("permission_granted") is not False or source.get("permission_rejected") is not True: return "APPLICATION_PERMISSION_DECISION_CONTRADICTORY"
+        else: return "APPLICATION_PERMISSION_DECISION_REQUIRED"
+    return _payload_error(source, expected[1], expected[2])
 
 
-def _validate_review(source):
-    error = _identity_error(source, through="permission_review")
-    if error:
-        return error
-    if source.get("status") != "APPLICATION_PERMISSION_REVIEW_REQUIRED":
-        return "APPLICATION_PERMISSION_REVIEW_NOT_READY"
-    if source.get("permission_review_required") is not True or source.get("permission_granted") is not False:
-        return "APPLICATION_PERMISSION_REVIEW_BOUNDARY_VIOLATION"
-    return _safety_and_evidence_error(source, "review_evidence", "review_evidence_count")
-
-
-def _validate_permission_decision(source):
-    error = _identity_error(source, through="permission_decision")
-    if error:
-        return error
-    if source.get("status") != "APPLICATION_PERMISSION_GRANTED" or source.get("decision") != "PERMIT":
-        return "APPLICATION_PERMISSION_NOT_GRANTED"
-    if source.get("permission_granted") is not True or source.get("permission_rejected") is not False:
-        return "APPLICATION_PERMISSION_NOT_GRANTED"
-    return _safety_and_evidence_error(source, "permission_evidence", "permission_evidence_count")
-
-
-def _identity_error(source, through):
-    draft_id = _text(source.get("draft_id"))
-    sku = _text(source.get("sku"))
-    request_id = _text(source.get("request_id"))
-    approval_id = _text(source.get("approval_id"))
-    signal_id = _text(source.get("signal_id"))
-    eligibility_id = _text(source.get("eligibility_id"))
-    preview_id = _text(source.get("preview_id"))
-    authorization_id = _text(source.get("authorization_id"))
-    authorization_signal_id = _text(source.get("authorization_signal_id"))
-    if not all((draft_id, sku, request_id, approval_id, signal_id, eligibility_id, preview_id, authorization_id, authorization_signal_id)):
-        return "APPLICATION_PERMISSION_CONTEXT_REQUIRED"
-    expected = {
-        "request_id": "refresh:" + draft_id,
-        "approval_id": "evidence-approval:" + draft_id,
-        "signal_id": "evidence-signal:" + approval_id,
-        "eligibility_id": "evidence-eligibility:" + signal_id,
-        "preview_id": "evidence-application-preview:" + eligibility_id,
-        "authorization_id": "evidence-application-authorization:" + preview_id,
-        "authorization_signal_id": "evidence-application-authorization-signal:" + authorization_id,
-    }
+def _ids(source, stage):
+    fields = ("draft_id", "sku", "request_id", "approval_id", "signal_id", "eligibility_id", "preview_id", "authorization_id", "authorization_signal_id")
+    if any(not isinstance(source.get(f), str) or not source[f].strip() for f in fields): return "APPLICATION_PERMISSION_CONTEXT_REQUIRED"
+    d = source["draft_id"]
+    expected = {"request_id": "refresh:" + d, "approval_id": "evidence-approval:" + d, "signal_id": "evidence-signal:" + source["approval_id"], "eligibility_id": "evidence-eligibility:" + source["signal_id"], "preview_id": "evidence-application-preview:" + source["eligibility_id"], "authorization_id": "evidence-application-authorization:" + source["preview_id"], "authorization_signal_id": "evidence-application-authorization-signal:" + source["authorization_id"]}
     for field, value in expected.items():
-        if source.get(field) != value:
-            return field.upper() + "_MISMATCH"
-    if through in {"permission_eligibility", "permission_review", "permission_decision"}:
-        pid = _text(source.get("permission_eligibility_id"))
-        if not pid or pid != "evidence-application-permission-eligibility:" + authorization_signal_id:
-            return "PERMISSION_ELIGIBILITY_ID_MISMATCH"
-    if through in {"permission_review", "permission_decision"}:
-        rid = _text(source.get("permission_review_id"))
-        if not rid or rid != "evidence-application-permission-review:" + source["permission_eligibility_id"]:
-            return "PERMISSION_REVIEW_ID_MISMATCH"
-    if through == "permission_decision":
-        did = _text(source.get("permission_decision_id"))
-        if not did or did != "evidence-application-permission-decision:" + source["permission_review_id"]:
-            return "PERMISSION_DECISION_ID_MISMATCH"
+        if source.get(field) != value: return field.upper() + "_MISMATCH"
+    if stage in {"eligibility", "review", "decision"} and source.get("permission_eligibility_id") != "evidence-application-permission-eligibility:" + source["authorization_signal_id"]: return "PERMISSION_ELIGIBILITY_ID_MISMATCH"
+    if stage in {"review", "decision"} and source.get("permission_review_id") != "evidence-application-permission-review:" + source["permission_eligibility_id"]: return "PERMISSION_REVIEW_ID_MISMATCH"
+    if stage == "decision" and source.get("permission_decision_id") != "evidence-application-permission-decision:" + source["permission_review_id"]: return "PERMISSION_DECISION_ID_MISMATCH"
     return None
 
 
-def _safety_and_evidence_error(source, evidence_field, count_field):
-    if any(source.get(field) is not False for field in (
-        "application_allowed", "application_started", "persistent",
-        "product_decision_recomputed", "product_decision_mutated", "task_draft_mutated",
-        "execution_allowed", "execution_ready", "executed",
-    )):
-        return "APPLICATION_PERMISSION_SAFETY_BOUNDARY_VIOLATION"
-    if source.get("source_freshness_proven") is not False:
-        return "SOURCE_FRESHNESS_BOUNDARY_VIOLATION"
-    evidence = _safe_evidence(source.get(evidence_field))
-    if not evidence or evidence != source.get(evidence_field):
-        return "APPLICATION_PERMISSION_EVIDENCE_UNSAFE"
-    if source.get(count_field) != len(evidence):
-        return "APPLICATION_PERMISSION_EVIDENCE_COUNT_MISMATCH"
+def _payload_error(source, field, count):
+    if _unsafe(source): return "APPLICATION_PERMISSION_SAFETY_BOUNDARY_VIOLATION"
+    evidence = _evidence(source, field)
+    if not evidence or evidence != source.get(field): return "APPLICATION_PERMISSION_EVIDENCE_UNSAFE"
+    if source.get(count) != len(evidence): return "APPLICATION_PERMISSION_EVIDENCE_COUNT_MISMATCH"
     return None
+
+
+def _unsafe(source):
+    return any(source.get(field) is not False for field in SAFETY_FIELDS) or source.get("source_freshness_proven") is not False
+
+
+def _evidence(source, field):
+    values = source.get(field)
+    if not isinstance(values, dict): return {}
+    return {key: deepcopy(value) for key, value in values.items() if key in ALLOWED_EVIDENCE_FIELDS and value not in (None, "")}
 
 
 def _identity(source):
-    return tuple(source.get(field) for field in (
-        "draft_id", "sku", "request_id", "approval_id", "signal_id", "eligibility_id",
-        "preview_id", "authorization_id", "authorization_signal_id",
-    ))
+    return tuple(source.get(field) for field in ("draft_id", "sku", "request_id", "approval_id", "signal_id", "eligibility_id", "preview_id", "authorization_id", "authorization_signal_id"))
 
 
-def _safe_evidence(values):
-    if not isinstance(values, dict):
-        return {}
-    return {field: deepcopy(value) for field, value in values.items() if field in ALLOWED_EVIDENCE_FIELDS and value not in (None, "")}
-
-
-def _base(source, additions):
-    result = {
-        "authorization_signal_id": source.get("authorization_signal_id"),
-        "authorization_id": source.get("authorization_id"),
-        "preview_id": source.get("preview_id"),
-        "eligibility_id": source.get("eligibility_id"),
-        "signal_id": source.get("signal_id"),
-        "approval_id": source.get("approval_id"),
-        "request_id": source.get("request_id"),
-        "draft_id": source.get("draft_id"),
-        "sku": source.get("sku"),
-        "permission_eligibility_id": source.get("permission_eligibility_id"),
-        "permission_review_id": source.get("permission_review_id"),
-        "permission_decision_id": source.get("permission_decision_id"),
-        "application_allowed": False,
-        "application_started": False,
-        "source_freshness_proven": False,
-        "persistent": False,
-        "product_decision_recomputed": False,
-        "product_decision_mutated": False,
-        "task_draft_mutated": False,
-        "execution_allowed": False,
-        "execution_ready": False,
-        "executed": False,
-    }
-    result.update(additions)
-    return result
+def _base(source, **additions):
+    result = {field: source.get(field) for field in ("authorization_signal_id", "authorization_id", "preview_id", "eligibility_id", "signal_id", "approval_id", "request_id", "draft_id", "sku", "permission_eligibility_id", "permission_review_id", "permission_decision_id")}
+    result.update({field: False for field in SAFETY_FIELDS}); result["source_freshness_proven"] = False; result.update(additions); return result
 
 
 def _blocked(source, code, decision=None):
-    return _base(source, {
-        "error": True,
-        "code": code,
-        "status": "APPLICATION_PERMISSION_BLOCKED",
-        "decision": decision,
-        "permission_eligible": False,
-        "permission_review_required": False,
-        "permission_granted": False,
-        "permission_rejected": False,
-        "application_handoff_ready": False,
-    })
-
-
-def _text(value):
-    return value.strip() if isinstance(value, str) else ""
+    return _base(source, error=True, code=code, status="APPLICATION_PERMISSION_BLOCKED", decision=decision, permission_eligible=False, permission_review_required=False, permission_granted=False, permission_rejected=False, application_handoff_ready=False)
