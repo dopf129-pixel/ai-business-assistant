@@ -2,15 +2,23 @@ from period_profit_request import build_period_profit_request, build_previous_pe
 from period_profit_comparison import build_period_profit_comparison
 from period_profit_response import build_period_profit_response
 from period_profit_coverage import build_period_profit_coverage
+from period_profit_return_financial_evidence import build_period_profit_return_financial_evidence
 
 
 class PeriodProfitQueryService:
     """Read-only orchestration for user-facing profit queries."""
 
-    def __init__(self, summary_service, product_provider, return_evidence_service=None):
+    def __init__(
+        self,
+        summary_service,
+        product_provider,
+        return_evidence_service=None,
+        return_financial_operation_names=None,
+    ):
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
+        self.return_financial_operation_names = tuple(return_financial_operation_names or ())
 
     def query(self, period_code=None, date_from=None, date_to=None, compare_previous=False, today=None):
         request = build_period_profit_request(period_code=period_code, date_from=date_from, date_to=date_to, today=today)
@@ -38,6 +46,11 @@ class PeriodProfitQueryService:
             if return_evidence.get("error"):
                 return return_evidence
 
+        return_financial_evidence = build_period_profit_return_financial_evidence(
+            [{"fee_breakdown": summary.get("fee_breakdown")}],
+            self.return_financial_operation_names,
+        )
+
         comparison = None
         previous_summary = None
         if compare_previous:
@@ -62,6 +75,7 @@ class PeriodProfitQueryService:
             "summary": summary,
             "coverage": coverage,
             "return_evidence": return_evidence,
+            "return_financial_evidence": return_financial_evidence,
             "previous_summary": previous_summary,
             "comparison": comparison,
             "text": response["text"],
