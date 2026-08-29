@@ -302,4 +302,4 @@ Current:
 Next:
 
 
-[ ] Autonomous Assistant v9 — Draft Refresh Planning
+To be selected after comparing the roadmap with the implemented code.
