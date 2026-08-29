@@ -28,11 +28,41 @@ def _artifact(status, **overrides):
 
 
 def _snapshot():
+    prep_decision = "prep-decision-1"
+    prep_audit = "evidence-application-preparation-audit:" + prep_decision
+    auth = "executor-auth-1"
+    executor_audit = "evidence-application-executor-admission-audit:" + auth
+    write_audit = "evidence-write-protocol-audit:write-decision-1"
     return {
-        "preparation_audit": _artifact("APPLICATION_PREPARATION_AUDIT_READY"),
-        "executor_admission_audit": _artifact("APPLICATION_EXECUTOR_ADMISSION_AUDIT_READY"),
-        "write_protocol_audit": _artifact("APPLICATION_WRITE_PROTOCOL_AUDIT_READY"),
-        "adapter_boundary_audit": _artifact("WRITE_ADAPTER_BOUNDARY_AUDIT_READY"),
+        "preparation_audit": _artifact(
+            "APPLICATION_PREPARATION_AUDIT_READY",
+            preparation_decision_id=prep_decision,
+            preparation_audit_id=prep_audit,
+        ),
+        "executor_admission_audit": _artifact(
+            "APPLICATION_EXECUTOR_ADMISSION_AUDIT_READY",
+            preparation_decision_id=prep_decision,
+            preparation_audit_id=prep_audit,
+            executor_authorization_id=auth,
+            executor_admission_audit_id=executor_audit,
+            target_revision_id="rev-9",
+            target_version=9,
+        ),
+        "write_protocol_audit": _artifact(
+            "APPLICATION_WRITE_PROTOCOL_AUDIT_READY",
+            executor_authorization_id=auth,
+            executor_admission_audit_id=executor_audit,
+            write_protocol_audit_id=write_audit,
+            expected_target_revision_id="rev-9",
+            expected_target_version=9,
+        ),
+        "adapter_boundary_audit": _artifact(
+            "WRITE_ADAPTER_BOUNDARY_AUDIT_READY",
+            executor_authorization_id=auth,
+            write_protocol_audit_id=write_audit,
+            expected_target_revision_id="rev-9",
+            expected_target_version=9,
+        ),
     }
 
 
@@ -57,6 +87,14 @@ def test_v195_exposes_blockers_fail_closed():
     assert result["operationally_ready"] is False
     assert "WRITE_PROTOCOL_SAFETY_VIOLATION" in result["blockers"]
     assert result["next_action"] == "REVIEW_BLOCKERS"
+
+
+def test_v195_rejects_forged_cross_stage_lineage():
+    snapshot = _snapshot()
+    snapshot["adapter_boundary_audit"]["executor_authorization_id"] = "forged"
+    result = build_freshness_operational_projection(snapshot)
+    assert result["operationally_ready"] is False
+    assert "WRITE_ADAPTER_LINEAGE_MISMATCH" in result["blockers"]
 
 
 def test_v196_selects_next_missing_stage_deterministically():
