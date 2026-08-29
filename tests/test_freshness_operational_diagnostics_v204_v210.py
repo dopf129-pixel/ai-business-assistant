@@ -127,13 +127,13 @@ def test_v209_runtime_diagnostics_route_is_separate_from_status_route():
     assert runtime.handle_text("что с продажами") is None
 
 
-def test_v210_diagnostics_audit_rejects_forged_activation_claim():
+def test_v210_diagnostics_audit_rejects_forged_safety_claim():
     diagnostics = collect_freshness_snapshot_diagnostics(_Reader())
     ready = build_freshness_runtime_activation_readiness(diagnostics)
     forged = dict(ready, lifecycle_ready=True)
     result = build_freshness_diagnostics_audit(diagnostics, forged)
     assert result["error"] is True
-    assert result["code"] == "FRESHNESS_DIAGNOSTICS_AUDIT_CONTRADICTION"
+    assert result["code"] == "FRESHNESS_DIAGNOSTICS_AUDIT_SAFETY_VIOLATION"
 
 
 def test_safety_violating_artifact_is_reported_and_never_activation_ready():
