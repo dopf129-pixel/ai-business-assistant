@@ -1,5 +1,9 @@
 from copy import deepcopy
 
+from product_task_freshness_operational_diagnostics import (
+    collect_freshness_snapshot_diagnostics,
+)
+
 
 ARTIFACTS = (
     ("preparation_audit", "get_preparation_audit"),
@@ -30,3 +34,6 @@ class FreshnessOperationalSnapshotProvider:
             snapshot[field] = deepcopy(value)
 
         return snapshot
+
+    def get_diagnostics(self):
+        return collect_freshness_snapshot_diagnostics(self.reader)
