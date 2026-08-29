@@ -41,7 +41,7 @@ def test_freshness_uses_real_decision_snapshot_timestamp():
     assert result["decision_snapshot"]["age_seconds"] == 1800.0
     assert result["components"]["sales"]["status"] == "UNKNOWN"
     assert result["components"]["stock"]["status"] == "UNKNOWN"
-    assert result["components"]["unit_economics"]["status"] == "UNKNOWN"
+    assert "unit_economics" not in result["components"]
     assert result["status"] == "UNKNOWN"
     assert result["execution_ready"] is False
     assert result["executed"] is False
@@ -85,7 +85,7 @@ def test_future_timestamp_is_unknown_not_fresh():
     assert "DECISION_SNAPSHOT_TIMESTAMP_IN_FUTURE" in result["reasons"]
 
 
-def test_component_source_timestamps_are_used_only_when_supplied():
+def test_replenishment_uses_only_sales_and_stock_freshness():
     service = ProductTaskDraftFreshnessService(
         max_snapshot_age_seconds=3600,
         clock=_clock,
@@ -99,9 +99,43 @@ def test_component_source_timestamps_are_used_only_when_supplied():
 
     assert result["components"]["sales"]["status"] == "FRESH"
     assert result["components"]["stock"]["status"] == "STALE"
-    assert result["components"]["unit_economics"]["status"] == "FRESH"
+    assert "unit_economics" not in result["components"]
     assert result["status"] == "STALE"
     assert "STOCK_DATA_STALE" in result["reasons"]
+
+
+def test_unit_economics_review_ignores_unrelated_sales_and_stock_timestamps():
+    service = ProductTaskDraftFreshnessService(
+        max_snapshot_age_seconds=3600,
+        clock=_clock,
+    )
+
+    result = service.evaluate(_draft(
+        proposal_type="REVIEW_UNIT_ECONOMICS",
+        sales_source_recorded_at=None,
+        stock_source_recorded_at=None,
+        unit_economics_source_recorded_at="2026-08-29T09:45:00+00:00",
+    ))
+
+    assert set(result["components"]) == {"unit_economics"}
+    assert result["components"]["unit_economics"]["status"] == "FRESH"
+    assert result["status"] == "FRESH"
+
+
+def test_margin_review_uses_unit_economics_freshness():
+    service = ProductTaskDraftFreshnessService(
+        max_snapshot_age_seconds=3600,
+        clock=_clock,
+    )
+
+    result = service.evaluate(_draft(
+        proposal_type="REVIEW_MARGIN",
+        unit_economics_source_recorded_at=None,
+    ))
+
+    assert set(result["components"]) == {"unit_economics"}
+    assert result["status"] == "UNKNOWN"
+    assert "UNIT_ECONOMICS_TIMESTAMP_UNKNOWN" in result["reasons"]
 
 
 def test_readiness_requires_freshness_when_guard_is_connected():
@@ -117,7 +151,6 @@ def test_readiness_requires_freshness_when_guard_is_connected():
     fresh = readiness.evaluate(_draft(
         sales_source_recorded_at="2026-08-29T09:45:00+00:00",
         stock_source_recorded_at="2026-08-29T09:45:00+00:00",
-        unit_economics_source_recorded_at="2026-08-29T09:45:00+00:00",
     ))
 
     assert unknown["review_ready"] is False
@@ -127,6 +160,19 @@ def test_readiness_requires_freshness_when_guard_is_connected():
     assert fresh["freshness"]["status"] == "FRESH"
     assert fresh["execution_ready"] is False
     assert fresh["executed"] is False
+
+
+def test_unknown_proposal_remains_conservative():
+    service = ProductTaskDraftFreshnessService(clock=_clock)
+
+    result = service.evaluate(_draft(proposal_type="UNKNOWN_PROPOSAL"))
+
+    assert set(result["components"]) == {
+        "sales",
+        "stock",
+        "unit_economics",
+    }
+    assert result["status"] == "UNKNOWN"
 
 
 def test_readiness_without_freshness_guard_preserves_legacy_behavior():
