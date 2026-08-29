@@ -8,22 +8,21 @@ from product_task_freshness_evidence_write_protocol import (
 
 
 def _handoff(**overrides):
+    auth = "executor-auth-1"
     result = {
         "error": False,
         "status": "APPLICATION_WRITE_ADAPTER_HANDOFF_READY",
         "draft_id": "draft-1",
         "sku": "sku-1",
-        "executor_authorization_id": "executor-auth-1",
-        "application_write_handoff_id": "write-handoff-1",
+        "executor_authorization_id": auth,
+        "application_write_handoff_id": "evidence-application-write-handoff:" + auth,
         "write_handoff_ready": True,
         "write_adapter_required": True,
         "stale_lineage_check_required": True,
         "readback_verification_required": True,
         "target_revision_id": "rev-7",
         "target_version": 7,
-        "proposed_changes": [
-            {"field": "stock_observed_at", "before": "old", "after": "new"},
-        ],
+        "proposed_changes": [{"field": "stock_observed_at", "before": "old", "after": "new"}],
         "proposed_change_count": 1,
         "application_allowed": False,
         "application_started": False,
@@ -67,10 +66,7 @@ def _audit(**overrides):
 
 def _snapshot(**overrides):
     result = {
-        "draft_id": "draft-1",
-        "sku": "sku-1",
-        "target_revision_id": "rev-7",
-        "target_version": 7,
+        "draft_id": "draft-1", "sku": "sku-1", "target_revision_id": "rev-7", "target_version": 7,
         "current_values": {"stock_observed_at": "old"},
     }
     result.update(overrides)
@@ -92,6 +88,16 @@ def test_v184_requires_exact_reread_revision_version_and_before_values():
     assert result["persistent"] is False
     assert build_write_protocol_eligibility(_handoff(), _audit(), _snapshot(target_version=8))["code"] == "APPLICATION_WRITE_STALE_VERSION"
     assert build_write_protocol_eligibility(_handoff(), _audit(), _snapshot(current_values={"stock_observed_at": "changed"}))["code"] == "APPLICATION_WRITE_STALE_CURRENT_VALUE"
+
+
+def test_v184_recomputes_handoff_lineage_and_rejects_duplicate_fields():
+    forged = _handoff(application_write_handoff_id="forged")
+    assert build_write_protocol_eligibility(forged, _audit(), _snapshot())["code"] == "APPLICATION_WRITE_HANDOFF_ID_MISMATCH"
+    duplicate = _handoff(proposed_changes=[
+        {"field": "stock_observed_at", "before": "old", "after": "new"},
+        {"field": "stock_observed_at", "before": "old", "after": "newer"},
+    ], proposed_change_count=2)
+    assert build_write_protocol_eligibility(duplicate, _audit(proposed_change_count=2), _snapshot())["code"] == "APPLICATION_WRITE_DUPLICATE_FIELD"
 
 
 def test_v185_builds_canonical_non_executing_write_request():
@@ -152,8 +158,9 @@ def test_forged_request_decision_and_contract_fail_closed():
     assert build_write_protocol_audit(eligibility, request, decision, forged_contract)["code"] == "APPLICATION_WRITE_ADAPTER_CONTRACT_MISMATCH"
 
 
-def test_unknown_fields_and_unsafe_flags_fail_closed():
-    bad_handoff = _handoff(proposed_changes=[{"field": "unknown", "before": None, "after": "x"}])
-    bad_handoff["proposed_change_count"] = 1
-    assert build_write_protocol_eligibility(bad_handoff, _audit(), _snapshot())["error"] is True
+def test_unknown_fields_noops_and_unsafe_flags_fail_closed():
+    bad = _handoff(proposed_changes=[{"field": "unknown", "before": None, "after": "x"}])
+    assert build_write_protocol_eligibility(bad, _audit(), _snapshot())["code"] == "APPLICATION_WRITE_CHANGE_FIELD_UNSAFE"
+    noop = _handoff(proposed_changes=[{"field": "stock_observed_at", "before": "old", "after": "old"}])
+    assert build_write_protocol_eligibility(noop, _audit(), _snapshot())["code"] == "APPLICATION_WRITE_NOOP_OPERATION"
     assert build_write_protocol_eligibility(_handoff(persistent=True), _audit(), _snapshot())["code"] == "APPLICATION_WRITE_PROTOCOL_SAFETY_BOUNDARY_VIOLATION"
