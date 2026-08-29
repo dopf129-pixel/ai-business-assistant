@@ -54,6 +54,7 @@ class StubDecisionQuery:
         self.decision_history_service = None
         self.action_proposal_confirmation_service = None
         self.action_task_draft_service = None
+        self.task_draft_readiness_service = None
 
     def query(self, sku):
         self.calls.append(sku)
@@ -490,6 +491,12 @@ class StubTaskDrafts:
             "status": "DRAFT",
             "execution_allowed": False,
             "executed": False,
+            "current_stock": 8,
+            "sales_velocity": 4.0,
+            "days_of_stock": 2.0,
+            "profit_per_unit": 35.1,
+            "margin_percent": 36.5,
+            "economics_basis": "ESTIMATED_RETURNS",
         }
 
     def latest_for_sku(self, sku):
@@ -525,8 +532,6 @@ class StubTaskDrafts:
         record = dict(self.record)
         record.update({
             "priority": "CRITICAL",
-            "profit_per_unit": 35.1,
-            "margin_percent": 36.5,
             "created_at": "created-time",
             "updated_at": "updated-time",
         })
@@ -543,6 +548,42 @@ class StubTaskDrafts:
             "executed": False,
         }
 
+
+class StubDraftReadiness:
+    def evaluate(self, draft):
+        return {
+            "error": False,
+            "draft_id": draft.get("draft_id"),
+            "review_status": "READY_FOR_REVIEW",
+            "review_ready": True,
+            "required_checks": [],
+            "missing_fields": [],
+            "review_blockers": [],
+            "execution_ready": False,
+            "execution_blockers": [
+                "EXECUTION_WORKFLOW_NOT_CONNECTED",
+                "REPLENISHMENT_QUANTITY_POLICY_MISSING",
+                "SUPPLIER_LEAD_TIME_MISSING",
+            ],
+            "executed": False,
+        }
+
+    def summarize(self, drafts):
+        items = []
+        for draft in drafts:
+            item = dict(draft)
+            item["readiness"] = self.evaluate(item)
+            items.append(item)
+        return {
+            "error": False,
+            "counts": {
+                "READY_FOR_REVIEW": len(items),
+                "NEEDS_DATA_OR_REFRESH": 0,
+            },
+            "items": items,
+            "execution_ready_count": 0,
+            "executed_count": 0,
+        }
 
 def test_product_decision_card_offers_manual_feedback_buttons():
     result = {
@@ -841,3 +882,24 @@ def test_archived_task_draft_detail_has_no_lifecycle_controls():
     assert "Статус: Архивирован" in response["message"]
     assert response["keyboard"]["buttons"] == []
     assert response["executed"] is False
+
+
+def test_task_draft_detail_separates_review_and_execution_readiness():
+    confirmation = StubProposalConfirmation()
+    confirmation.task_draft_service = StubTaskDrafts()
+    handler, _, query = _handler(confirmation_service=confirmation)
+    query.task_draft_readiness_service = StubDraftReadiness()
+
+    detail = handler.handle("product_task_draft:view:d1")
+    queue = handler.handle("product_action_task_drafts")
+
+    assert "Готовность к ручной проверке:" in detail["message"]
+    assert "Данных достаточно" in detail["message"]
+    assert "Готовность к исполнению: нет" in detail["message"]
+    assert "не утверждена политика количества" in detail["message"]
+    assert "не указан срок поставки" in detail["message"]
+    assert detail["readiness"]["execution_ready"] is False
+    assert "Данных достаточно: 1" in queue["message"]
+    assert "данных достаточно для проверки" in queue["message"]
+    assert "Готово к исполнению: 0" in queue["message"]
+    assert queue["readiness_summary"]["executed_count"] == 0
