@@ -2,6 +2,21 @@ class ProductDecisionInputProvider:
 
     IDENTITY_MISMATCH = "IDENTITY_MISMATCH"
 
+    EVIDENCE_FIELDS = {
+        "sales": (
+            "sales_source_recorded_at",
+            "sales_observed_at",
+        ),
+        "stock": (
+            "stock_source_recorded_at",
+            "stock_observed_at",
+        ),
+        "economics": (
+            "unit_economics_source_recorded_at",
+            "unit_economics_observed_at",
+        ),
+    }
+
     def build(
         self,
         sales_metrics=None,
@@ -58,6 +73,10 @@ class ProductDecisionInputProvider:
             "missing_data": missing_data
         }
 
+        self._copy_evidence(result, sales, "sales")
+        self._copy_evidence(result, stock, "stock")
+        self._copy_evidence(result, economics, "economics")
+
         for field in (
             "product_id",
             "sku",
@@ -76,6 +95,11 @@ class ProductDecisionInputProvider:
                 )
 
         return result
+
+    def _copy_evidence(self, result, source, source_name):
+        for field in self.EVIDENCE_FIELDS[source_name]:
+            if field in source and source.get(field) is not None:
+                result[field] = source.get(field)
 
     def _identity_mismatch(self, product_id, sku, sources):
         for source in sources:
