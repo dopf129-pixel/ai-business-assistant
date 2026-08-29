@@ -311,10 +311,12 @@ Current:
 
 [x] Autonomous Assistant v13 — Freshness Coverage Summary
 
-Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`
+[x] Autonomous Assistant v14 — Freshness Refresh Guidance
+
+Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`
 
 
 Next:
 
 
-Propagate real source-recorded timestamps only when upstream source contracts actually provide them; keep unsupported components UNKNOWN and expose coverage explicitly.
+Propagate real source-recorded timestamps only when upstream source contracts actually provide them; keep unsupported components UNKNOWN. Guidance may explain required refresh/evidence work, but must not auto-refresh or enable execution.
