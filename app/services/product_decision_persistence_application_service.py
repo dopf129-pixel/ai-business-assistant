@@ -24,12 +24,36 @@ class ProductDecisionPersistenceApplicationService:
         authorization_id = str(
             source.get("decision_persistence_authorization_id") or ""
         ).strip()
+        eligibility_id = str(
+            source.get("decision_persistence_eligibility_id") or ""
+        ).strip()
+        review_id = str(source.get("decision_preview_review_id") or "").strip()
+        delta_id = str(source.get("decision_preview_delta_id") or "").strip()
+        preview_id = str(source.get("recompute_preview_id") or "").strip()
+        draft_id = str(source.get("draft_id") or "").strip()
         sku = str(source.get("sku") or "").strip()
 
-        if not readiness_id or not authorization_id or not sku:
+        if (
+            not readiness_id
+            or not authorization_id
+            or not eligibility_id
+            or not review_id
+            or not delta_id
+            or not preview_id
+            or not draft_id
+            or not sku
+        ):
             return self._blocked("DECISION_PERSISTENCE_APPLICATION_CONTEXT_REQUIRED", source)
         if readiness_id != "product-decision-persistence-application-readiness:" + authorization_id:
             return self._blocked("DECISION_PERSISTENCE_APPLICATION_READINESS_ID_MISMATCH", source)
+        if authorization_id != "product-decision-persistence-authorization:" + eligibility_id:
+            return self._blocked("DECISION_PERSISTENCE_AUTHORIZATION_ID_MISMATCH", source)
+        if eligibility_id != "product-decision-persistence-eligibility:" + review_id:
+            return self._blocked("DECISION_PERSISTENCE_ELIGIBILITY_ID_MISMATCH", source)
+        if review_id != "product-decision-preview-review:" + delta_id:
+            return self._blocked("DECISION_PREVIEW_REVIEW_ID_MISMATCH", source)
+        if delta_id != "product-decision-preview-delta:" + preview_id:
+            return self._blocked("DECISION_PREVIEW_DELTA_ID_MISMATCH", source)
         if source.get("status") != "PRODUCT_DECISION_PERSISTENCE_APPLICATION_READY":
             return self._blocked("DECISION_PERSISTENCE_APPLICATION_STATUS_INVALID", source)
         if source.get("decision_persistence_allowed") is not True:
@@ -121,6 +145,11 @@ class ProductDecisionPersistenceApplicationService:
             "decision_persistence_application_id": "product-decision-persistence-application:" + readiness_id,
             "decision_persistence_application_readiness_id": readiness_id,
             "decision_persistence_authorization_id": authorization_id,
+            "decision_persistence_eligibility_id": eligibility_id,
+            "decision_preview_review_id": review_id,
+            "decision_preview_delta_id": delta_id,
+            "recompute_preview_id": preview_id,
+            "draft_id": draft_id,
             "sku": sku,
             "decision_persistence_allowed": True,
             "decision_persistence_application_ready": True,
@@ -157,6 +186,13 @@ class ProductDecisionPersistenceApplicationService:
             "decision_persistence_authorization_id": source.get(
                 "decision_persistence_authorization_id"
             ),
+            "decision_persistence_eligibility_id": source.get(
+                "decision_persistence_eligibility_id"
+            ),
+            "decision_preview_review_id": source.get("decision_preview_review_id"),
+            "decision_preview_delta_id": source.get("decision_preview_delta_id"),
+            "recompute_preview_id": source.get("recompute_preview_id"),
+            "draft_id": source.get("draft_id"),
             "sku": source.get("sku"),
             "decision_persistence_allowed": False,
             "decision_persistence_application_ready": False,
