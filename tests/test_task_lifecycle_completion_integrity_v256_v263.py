@@ -164,6 +164,14 @@ def test_v261_done_task_rejects_lifecycle_mutations(tmp_path):
             }],
         ),
         service.request_replan(USER_ID, "late request"),
+        service.set_pending_action(
+            USER_ID,
+            {
+                "title": "Поддельный pending",
+                "type": "test",
+                "status": "IN_PROGRESS",
+            },
+        ),
     ]
 
     assert all(item["error"] is True for item in checks)
