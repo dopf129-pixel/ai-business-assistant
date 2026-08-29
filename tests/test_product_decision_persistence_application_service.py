@@ -31,10 +31,22 @@ class FakeHistoryService:
 
 
 def _readiness(**values):
+    preview_id = "product-decision-recompute-preview:auth-1"
+    delta_id = "product-decision-preview-delta:" + preview_id
+    review_id = "product-decision-preview-review:" + delta_id
+    eligibility_id = "product-decision-persistence-eligibility:" + review_id
+    authorization_id = "product-decision-persistence-authorization:" + eligibility_id
     result = {
         "status": "PRODUCT_DECISION_PERSISTENCE_APPLICATION_READY",
-        "decision_persistence_application_readiness_id": "product-decision-persistence-application-readiness:auth-1",
-        "decision_persistence_authorization_id": "auth-1",
+        "decision_persistence_application_readiness_id": (
+            "product-decision-persistence-application-readiness:" + authorization_id
+        ),
+        "decision_persistence_authorization_id": authorization_id,
+        "decision_persistence_eligibility_id": eligibility_id,
+        "decision_preview_review_id": review_id,
+        "decision_preview_delta_id": delta_id,
+        "recompute_preview_id": preview_id,
+        "draft_id": "draft-1",
         "sku": "hook-2",
         "decision_persistence_allowed": True,
         "decision_persistence_application_ready": True,
@@ -127,6 +139,14 @@ def test_forged_readiness_id_is_blocked_without_write():
         _readiness(decision_persistence_application_readiness_id="forged"), _full_preview()
     )
     assert result["code"] == "DECISION_PERSISTENCE_APPLICATION_READINESS_ID_MISMATCH"
+    assert history.record_calls == []
+
+
+def test_forged_intermediate_lineage_is_blocked_without_write():
+    history = FakeHistoryService()
+    source = _readiness(decision_preview_review_id="forged-review")
+    result = ProductDecisionPersistenceApplicationService(history).apply(source, _full_preview())
+    assert result["code"] == "DECISION_PERSISTENCE_ELIGIBILITY_ID_MISMATCH"
     assert history.record_calls == []
 
 
