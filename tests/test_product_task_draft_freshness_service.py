@@ -73,6 +73,18 @@ def test_invalid_or_missing_timestamp_is_unknown_not_fresh():
     assert "DECISION_SNAPSHOT_TIMESTAMP_UNKNOWN" in missing["reasons"]
 
 
+def test_future_timestamp_is_unknown_not_fresh():
+    service = ProductTaskDraftFreshnessService(clock=_clock)
+
+    result = service.evaluate(_draft(
+        decision_recorded_at="2026-08-29T10:05:00+00:00"
+    ))
+
+    assert result["decision_snapshot"]["status"] == "UNKNOWN"
+    assert result["decision_snapshot"]["age_seconds"] is None
+    assert "DECISION_SNAPSHOT_TIMESTAMP_IN_FUTURE" in result["reasons"]
+
+
 def test_component_source_timestamps_are_used_only_when_supplied():
     service = ProductTaskDraftFreshnessService(
         max_snapshot_age_seconds=3600,
@@ -114,3 +126,16 @@ def test_readiness_requires_freshness_when_guard_is_connected():
     assert fresh["review_ready"] is True
     assert fresh["freshness"]["status"] == "FRESH"
     assert fresh["execution_ready"] is False
+    assert fresh["executed"] is False
+
+
+def test_readiness_without_freshness_guard_preserves_legacy_behavior():
+    readiness = ProductTaskDraftReadinessService()
+
+    result = readiness.evaluate(_draft())
+
+    assert result["review_ready"] is True
+    assert result["freshness"] is None
+    assert "SOURCE_DATA_NOT_FRESH" not in result["review_blockers"]
+    assert result["execution_ready"] is False
+    assert result["executed"] is False
