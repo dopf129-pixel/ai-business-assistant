@@ -135,6 +135,19 @@ def test_v140_preview_is_read_only_and_predicts_next_inactive_revision(tmp_path)
     assert before["revisions"] == after["revisions"]
 
 
+def test_v140_preview_rejects_valid_but_unauthorized_artifact(tmp_path):
+    registry = _registry(tmp_path)
+    active = _return_mapping(_ops())
+    registry.save("RETURN", active, activate=True)
+    diff, authorization = _authorized_chain(active)
+    unauthorized = _return_mapping([
+        {"type_id": 777, "name": "Different", "description": None, "source": "OZON_FINANCE_ACCRUAL_TYPES"},
+    ])
+    result = build_replacement_persistence_preview(registry, authorization, unauthorized, diff)
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REPLACEMENT_PREVIEW_INPUT_INVALID"
+    assert result["registry_save_allowed"] is False
+
+
 def test_v141_reject_never_allows_registry_save(tmp_path):
     registry = _registry(tmp_path)
     active = _return_mapping(_ops())
