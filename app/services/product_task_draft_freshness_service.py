@@ -18,22 +18,26 @@ class ProductTaskDraftFreshnessService:
             source.get("decision_recorded_at"),
             stale_code="DECISION_SNAPSHOT_STALE",
             unknown_code="DECISION_SNAPSHOT_TIMESTAMP_UNKNOWN",
+            future_code="DECISION_SNAPSHOT_TIMESTAMP_IN_FUTURE",
         )
         components = {
             "sales": self._component(
                 source.get("sales_source_recorded_at"),
                 stale_code="SALES_DATA_STALE",
                 unknown_code="SALES_TIMESTAMP_UNKNOWN",
+                future_code="SALES_TIMESTAMP_IN_FUTURE",
             ),
             "stock": self._component(
                 source.get("stock_source_recorded_at"),
                 stale_code="STOCK_DATA_STALE",
                 unknown_code="STOCK_TIMESTAMP_UNKNOWN",
+                future_code="STOCK_TIMESTAMP_IN_FUTURE",
             ),
             "unit_economics": self._component(
                 source.get("unit_economics_source_recorded_at"),
                 stale_code="UNIT_ECONOMICS_DATA_STALE",
                 unknown_code="UNIT_ECONOMICS_TIMESTAMP_UNKNOWN",
+                future_code="UNIT_ECONOMICS_TIMESTAMP_IN_FUTURE",
             ),
         }
         statuses = [snapshot["status"]] + [
@@ -59,7 +63,13 @@ class ProductTaskDraftFreshnessService:
             "executed": False,
         }
 
-    def _component(self, timestamp, stale_code, unknown_code):
+    def _component(
+        self,
+        timestamp,
+        stale_code,
+        unknown_code,
+        future_code,
+    ):
         parsed = self._parse_timestamp(timestamp)
         if parsed is None:
             return {
@@ -80,7 +90,15 @@ class ProductTaskDraftFreshnessService:
             }
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
-        age_seconds = max(0.0, (now - parsed).total_seconds())
+        now = now.astimezone(timezone.utc)
+        age_seconds = (now - parsed).total_seconds()
+        if age_seconds < 0:
+            return {
+                "status": self.STATUS_UNKNOWN,
+                "recorded_at": timestamp,
+                "age_seconds": None,
+                "reasons": [future_code],
+            }
         stale = age_seconds > self.max_snapshot_age_seconds
         return {
             "status": self.STATUS_STALE if stale else self.STATUS_FRESH,
