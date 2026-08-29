@@ -18,6 +18,18 @@ class AssistantTelegramAdapter:
         "unit_economics": "Юнит-экономика",
     }
 
+    FRESHNESS_REFRESH_ACTION_LABELS = {
+        "SOURCE_TIMESTAMP_REQUIRED": (
+            "нужен достоверный timestamp источника"
+        ),
+        "VERIFY_SOURCE_TIMESTAMP": (
+            "проверить timestamp источника"
+        ),
+        "REFRESH_SOURCE_DATA": (
+            "обновить данные из источника"
+        ),
+    }
+
     FRESHNESS_REASON_LABELS = {
         "DECISION_SNAPSHOT_STALE": "снимок решения устарел",
         "DECISION_SNAPSHOT_TIMESTAMP_UNKNOWN": (
@@ -212,6 +224,19 @@ class AssistantTelegramAdapter:
                 + str(coverage.get("NO_EVIDENCE", 0)),
             ])
 
+        refresh_counts = summary.get("freshness_refresh_counts") or {}
+        if refresh_counts:
+            lines.extend([
+                "",
+                "Что требуется:",
+                "Нужен timestamp источника: "
+                + str(refresh_counts.get("SOURCE_TIMESTAMP_REQUIRED", 0)),
+                "Проверить timestamp: "
+                + str(refresh_counts.get("VERIFY_SOURCE_TIMESTAMP", 0)),
+                "Обновить источник: "
+                + str(refresh_counts.get("REFRESH_SOURCE_DATA", 0)),
+            ])
+
         return self._append_message(result, lines)
 
     def _with_freshness_detail(self, result):
@@ -246,6 +271,25 @@ class AssistantTelegramAdapter:
                 )
                 lines.append(
                     "• " + component_label + ": " + evidence_label
+                )
+
+        guidance = readiness.get("freshness_refresh_guidance") or {}
+        targets = guidance.get("targets") or []
+        if targets:
+            lines.extend(["", "Что требуется:"])
+            for target in targets:
+                component_name = target.get("component")
+                action = target.get("action")
+                component_label = self.FRESHNESS_COMPONENT_LABELS.get(
+                    component_name,
+                    str(component_name),
+                )
+                action_label = self.FRESHNESS_REFRESH_ACTION_LABELS.get(
+                    action,
+                    str(action),
+                )
+                lines.append(
+                    "• " + component_label + ": " + action_label
                 )
 
         reasons = freshness.get("reasons") or []
