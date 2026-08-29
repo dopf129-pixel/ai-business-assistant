@@ -6,6 +6,14 @@ sys.path.insert(
 )
 
 
+from period_profit_factory import (
+    create_period_profit_query
+)
+
+from services.assistant_period_profit_runtime_service import (
+    AssistantPeriodProfitRuntimeService
+)
+
 from services.assistant_core_service import (
     AssistantCoreService
 )
@@ -150,9 +158,19 @@ def create_assistant():
     )
 
 
+    period_profit_runtime = (
+        AssistantPeriodProfitRuntimeService(
+            query_service=create_period_profit_query()
+        )
+    )
+
+
     entry = (
         AssistantEntryService(
-            main_flow_service=main_flow
+            main_flow_service=main_flow,
+            period_profit_runtime_service=(
+                period_profit_runtime
+            )
         )
     )
 
