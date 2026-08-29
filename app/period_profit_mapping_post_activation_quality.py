@@ -56,18 +56,31 @@ def refresh_post_activation_quality(quality_service, validation_request):
         or scope_quality.get("mapping_id") != request.get("mapping_id")
     ):
         return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_LINEAGE_MISMATCH")
+
+    missing = scope_quality.get("missing_type_ids")
+    renamed = scope_quality.get("renamed_operations")
+    if (
+        not isinstance(missing, (list, tuple))
+        or not isinstance(renamed, (list, tuple))
+        or any(not isinstance(row, dict) for row in renamed)
+        or not isinstance(scope_quality.get("catalog_available"), bool)
+        or not isinstance(scope_quality.get("catalog_drift_detected"), bool)
+        or not isinstance(scope_quality.get("review_required"), bool)
+    ):
+        return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_QUALITY_SCHEMA_INVALID")
+
     return {
         "error": False,
         "status": "PERIOD_PROFIT_MAPPING_POST_ACTIVATION_QUALITY_REFRESHED",
         "scope": scope,
         "revision_id": request.get("revision_id"),
         "mapping_id": request.get("mapping_id"),
-        "catalog_available": scope_quality.get("catalog_available") is True,
+        "catalog_available": scope_quality.get("catalog_available"),
         "freshness_status": scope_quality.get("freshness_status"),
-        "missing_type_ids": list(scope_quality.get("missing_type_ids") or []),
-        "renamed_operations": [dict(row) for row in scope_quality.get("renamed_operations") or [] if isinstance(row, dict)],
-        "catalog_drift_detected": scope_quality.get("catalog_drift_detected") is True,
-        "review_required": scope_quality.get("review_required") is True,
+        "missing_type_ids": list(missing),
+        "renamed_operations": [dict(row) for row in renamed],
+        "catalog_drift_detected": scope_quality.get("catalog_drift_detected"),
+        "review_required": scope_quality.get("review_required"),
         "quality_score": scope_quality.get("quality_score"),
         "automatic_remap_allowed": False,
         "automatic_activation_allowed": False,
