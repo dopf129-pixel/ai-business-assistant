@@ -22,7 +22,9 @@ A monitoring observation binds checkpoint, refreshed quality, and evaluation to 
 
 It freezes only already-observed evidence: catalog availability, freshness, missing type IDs, renamed operations, drift flag, review-required flag, quality score, reopen state, and explicit reopen reasons.
 
-Renamed operations are deterministically ordered for stable artifacts. Malformed evidence fails closed.
+The observation does not blindly trust supplied reopen state. It deterministically recomputes the expected reopen reasons from refreshed evidence and requires exact equality with the v156/v157 evaluation. A forged clean evaluation cannot hide drift, and a forged reason cannot alter later incident classification.
+
+Missing type IDs and renamed-operation type IDs are normalized only through exact integer IDs. Malformed IDs, malformed booleans, malformed lists, or inconsistent reopen state fail closed.
 
 ## v160 — exact evidence delta
 
@@ -32,20 +34,20 @@ The delta records changed evidence fields with explicit `before` and `after` val
 
 ## v161 — incident classification
 
-Incident classification is derived only from explicit reopen reasons already produced by the monitoring workflow:
+Incident classification is derived only from explicit reopen reasons already validated against refreshed evidence:
 
 - `CATALOG_UNAVAILABLE` → `CATALOG_EVIDENCE_UNAVAILABLE`;
 - `MISSING_TYPE_IDS`, `RENAMED_OPERATIONS`, `CATALOG_DRIFT` → `CATALOG_DRIFT`;
 - `FRESHNESS_NOT_FRESH` → `FRESHNESS`;
 - `REVIEW_REQUIRED` / `REVIEW_STILL_REQUIRED` → `REVIEW_REQUIREMENT`.
 
-If a review is reopened with another explicit reason, the artifact uses `REOPENED_OTHER_EXPLICIT_REASON`; it still does not invent mapping semantics.
+If a review is reopened with another explicit validated reason, the artifact uses `REOPENED_OTHER_EXPLICIT_REASON`; it still does not invent mapping semantics.
 
 A still-closed observation produces no incident.
 
 ## v162 — human escalation handoff
 
-A handoff can be built only for a real reopened incident bound to the same exact lineage as the reopen evaluation.
+A handoff can be built only for a real reopened incident bound to the same exact lineage and exact reopen reasons as the reopen evaluation.
 
 The handoff explicitly keeps all mutation permissions disabled:
 
@@ -61,7 +63,7 @@ It indicates only that human re-review is required. The actual re-review remains
 
 The audit receipt aggregates the current observation, exact delta, incident classification, and—when an incident exists—the human escalation handoff.
 
-An incident audit cannot be considered ready without the corresponding handoff. Clean monitoring observations do not require one.
+An incident audit cannot be considered ready without the corresponding handoff. Observation, incident, and handoff must retain the same lineage and reopen reasons. Clean monitoring observations do not require a handoff.
 
 The audit is deterministic, read-only, and has `executed=False`.
 
@@ -83,6 +85,12 @@ Unchanged:
 
 ## Tests
 
+Primary coverage:
+
 `tests/test_period_profit_mapping_review_incident_audit_batch_v159_v163.py`
 
-Coverage includes exact lineage binding, deterministic evidence ordering, exact observation delta, clean/no-incident state, explicit incident categorization, human-only handoff permissions, audit handoff requirement, clean audit path, and malformed schema fail-closed behavior.
+Fail-closed regressions:
+
+`tests/test_period_profit_mapping_review_incident_audit_fail_closed.py`
+
+Coverage includes exact lineage binding, deterministic evidence ordering, exact observation delta, clean/no-incident state, explicit incident categorization, human-only handoff permissions, audit handoff requirement, clean audit path, forged evaluation rejection, malformed ID rejection, and malformed schema fail-closed behavior.
