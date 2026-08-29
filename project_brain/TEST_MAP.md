@@ -4,9 +4,21 @@
 ## Current Status
 
 
-Total:
+Verification model:
 
-63 passed
+SHA-bound.
+
+Latest confirmed full-suite baseline:
+
+982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+
+Full-suite status for later revisions:
+
+not confirmed.
+
+Canonical status:
+
+`project_brain/VERIFICATION_STATUS.md`
 
 
 ---
