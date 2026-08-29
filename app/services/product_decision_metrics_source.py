@@ -154,6 +154,7 @@ class ProductDecisionMetricsSource:
                     and not stock_result.get("error")
                     else None
                 ),
+                "stock_observed_at": self._observed_at(),
                 "missing_data": self._unique(stock_missing),
             },
         }
