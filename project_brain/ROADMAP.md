@@ -219,7 +219,6 @@ AI Development Agent является внутренним инструмент�
 ускоряющим разработку основного продукта.
 
 
-
 Tasks:
 
 
@@ -304,10 +303,18 @@ Current:
 
 [x] Autonomous Assistant v9 — Freshness Evidence Contract
 
-Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`
+[x] Autonomous Assistant v10 — Freshness Evidence Propagation
+
+[x] Autonomous Assistant v11 — Sales Freshness Period Evidence
+
+[x] Autonomous Assistant v12 — Stock Freshness Observation Evidence
+
+[x] Autonomous Assistant v13 — Freshness Coverage Summary
+
+Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`
 
 
 Next:
 
 
-Propagate reliable source-recorded timestamps where upstream source contracts actually provide them; keep unsupported components UNKNOWN.
+Propagate real source-recorded timestamps only when upstream source contracts actually provide them; keep unsupported components UNKNOWN and expose coverage explicitly.
