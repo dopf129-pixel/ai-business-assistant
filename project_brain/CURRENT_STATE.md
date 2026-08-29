@@ -3,14 +3,24 @@
 
 Date:
 
-2026-08-24
+2026-08-30
 
 
 
 # Test Status
 
 
-63 passed
+Verification model: SHA-bound.
+
+Latest full-suite baseline confirmed:
+
+982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+
+Current revisions after that baseline:
+
+full suite not confirmed.
+
+See `project_brain/VERIFICATION_STATUS.md`.
 
 
 
@@ -714,7 +724,13 @@ Development Autopilot Layer
 
 Tests:
 
-63 passed
+SHA-bound verification active.
+
+Latest confirmed full-suite baseline:
+982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+
+Current later revisions:
+full suite not confirmed.
 
 
 
