@@ -8,6 +8,7 @@ def build_period_profit_response(
     return_financial_evidence=None,
     advertising_financial_evidence=None,
     storage_financial_evidence=None,
+    mapping_observability=None,
 ):
     source = deepcopy(dict(summary or {}))
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
@@ -59,6 +60,7 @@ def build_period_profit_response(
 
     _append_expense_evidence(lines, "📣 Подтверждённые операции рекламы", advertising_financial_evidence)
     _append_expense_evidence(lines, "🏬 Подтверждённые операции хранения", storage_financial_evidence)
+    _append_mapping_observability_warning(lines, mapping_observability)
 
     if isinstance(comparison, dict) and comparison.get("status") == "PERIOD_PROFIT_COMPARISON_READY":
         direction = {"UP": "выросла", "DOWN": "снизилась", "UNCHANGED": "не изменилась"}.get(comparison.get("profit_direction"), "изменилась")
@@ -94,6 +96,25 @@ def _append_expense_evidence(lines, title, evidence):
     if mapping_id:
         lines.append(f"• Mapping ID: {mapping_id}")
     lines.append("Эти расходы уже находятся внутри net_accrual и повторно не вычитаются.")
+
+
+def _append_mapping_observability_warning(lines, observability):
+    source = dict(observability or {})
+    if source.get("status") != "PERIOD_PROFIT_MAPPING_OBSERVABILITY_SNAPSHOT_READY":
+        return
+    if source.get("registry_health_status") == "CORRUPT" or source.get("load_allowed") is not True:
+        lines.extend([
+            "",
+            "⚠️ Mapping registry недоступен или повреждён; evidence mappings работают в fail-closed режиме.",
+        ])
+        return
+    stale = list(source.get("stale_scopes") or [])
+    if stale:
+        lines.extend([
+            "",
+            "⚠️ Активные mapping revisions не являются последними для: " + ", ".join(stale) + ".",
+            "Это предупреждение о конфигурации; формула прибыли не изменяется.",
+        ])
 
 
 def _money(value):
