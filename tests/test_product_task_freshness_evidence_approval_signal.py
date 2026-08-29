@@ -102,3 +102,38 @@ def test_contract_that_already_allows_application_is_rejected():
     assert result["code"] == "APPLICATION_BOUNDARY_VIOLATION"
     assert result["approval_granted"] is False
     assert result["execution_ready"] is False
+
+
+def test_approval_id_must_be_bound_to_same_draft():
+    result = build_freshness_evidence_approval_signal(
+        _contract(approval_id="evidence-approval:d2"),
+        "APPROVE",
+    )
+
+    assert result["code"] == "APPROVAL_ID_MISMATCH"
+    assert result["approval_granted"] is False
+
+
+def test_validated_evidence_must_remain_whitelisted():
+    result = build_freshness_evidence_approval_signal(
+        _contract(validated_evidence={
+            "sales_source_recorded_at": "2026-08-29T11:55:00+00:00",
+            "execution_allowed": True,
+        }),
+        "APPROVE",
+    )
+
+    assert result["code"] == "VALIDATED_EVIDENCE_UNSAFE"
+    assert result["validated_evidence"] == {}
+    assert result["application_allowed"] is False
+
+
+def test_contract_cannot_arrive_with_prior_approval_signal():
+    result = build_freshness_evidence_approval_signal(
+        _contract(approval_granted=True),
+        "APPROVE",
+    )
+
+    assert result["code"] == "APPROVAL_SIGNAL_ALREADY_PRESENT"
+    assert result["signal_ready"] is False
+    assert result["application_started"] is False
