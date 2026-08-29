@@ -140,10 +140,20 @@ def build_review_reopen_handoff(registry_service, catalog_service, quality_servi
         active_mapping = registry_service.load_active(source.get("scope"))
     except Exception:
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_REOPEN_HANDOFF_EVIDENCE_REQUIRED")
-    if not isinstance(quality_report, dict) or not isinstance(catalog, dict) or not isinstance(active_mapping, dict):
+    if (
+        not isinstance(quality_report, dict)
+        or quality_report.get("error") is not False
+        or quality_report.get("status") != "PERIOD_PROFIT_MAPPING_QUALITY_REPORT_READY"
+        or not isinstance(catalog, dict)
+        or not isinstance(active_mapping, dict)
+    ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_REOPEN_HANDOFF_EVIDENCE_REQUIRED")
     quality = _dict(_dict(quality_report.get("scopes")).get(source.get("scope")))
-    if quality.get("active_revision_id") != source.get("revision_id") or active_mapping.get("mapping_id") != source.get("mapping_id"):
+    if (
+        quality.get("active_revision_id") != source.get("revision_id")
+        or quality.get("mapping_id") != source.get("mapping_id")
+        or active_mapping.get("mapping_id") != source.get("mapping_id")
+    ):
         return _error("PERIOD_PROFIT_MAPPING_REVIEW_REOPEN_HANDOFF_LINEAGE_CHANGED")
     candidate = build_mapping_rereview_candidate(quality, active_mapping, catalog)
     if candidate.get("error") is not False:
