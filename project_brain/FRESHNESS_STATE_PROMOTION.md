@@ -16,10 +16,10 @@ The contract consumes the v31 durable verification result and requires:
 
 ## Success
 
-Returns `SOURCE_FRESHNESS_PROVEN`, `source_freshness_proven=True`, deterministic promotion identity, and a copied `proven_evidence` set.
+Returns `SOURCE_FRESHNESS_PROVEN`, `source_freshness_proven=True`, deterministic promotion identity bound to the exact verified evidence fingerprint, and a copied `proven_evidence` set.
 
 ## Safety
 
 Promotion is a pure contract only. It does not save storage, mutate the task draft, recompute or mutate Product Decisions, call Ozon, invoke the legacy Action Executor, or enable execution. `execution_allowed`, `execution_ready`, and `executed` remain false.
 
-Targeted exact minimal-checkout pytest: `9 passed in 0.04s`.
+Targeted exact minimal-checkout pytest: `10 passed in 0.04s`.
