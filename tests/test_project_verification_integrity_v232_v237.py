@@ -162,3 +162,68 @@ def test_v237_markdown_explicitly_marks_stale_baseline():
     assert "Passed: 982" in text
     assert OLD_SHA in text
     assert CURRENT_SHA in text
+
+
+def test_v237_manually_forged_inconsistent_counts_fail_closed():
+    report = {
+        "error": False,
+        "status": "passed",
+        "passed": 999,
+        "failed": 0,
+        "total": 1000,
+        "commit_sha": CURRENT_SHA,
+        "sha_bound": True,
+        "test_report_id": "pytest:" + CURRENT_SHA + ":999:0:1000",
+    }
+
+    result = AssistantProjectVerificationService().evaluate(
+        CURRENT_SHA,
+        report,
+    )
+
+    assert result["status"] == "TEST_REPORT_COUNTS_INVALID"
+    assert result["current_suite_verified"] is False
+    assert result["current_suite_passed"] is False
+
+
+def test_v237_manually_forged_status_contradiction_fails_closed():
+    report = {
+        "error": False,
+        "status": "passed",
+        "passed": 999,
+        "failed": 1,
+        "total": 1000,
+        "commit_sha": CURRENT_SHA,
+        "sha_bound": True,
+        "test_report_id": "pytest:" + CURRENT_SHA + ":999:1:1000",
+    }
+
+    result = AssistantProjectVerificationService().evaluate(
+        CURRENT_SHA,
+        report,
+    )
+
+    assert result["status"] == "TEST_REPORT_STATUS_CONTRADICTORY"
+    assert result["current_suite_verified"] is False
+    assert result["current_suite_passed"] is False
+
+
+def test_v237_non_sha_identifier_cannot_bind_report():
+    report = AssistantTestRunnerService().create_test_report(
+        passed=10,
+        failed=0,
+        total=10,
+        commit_sha="main",
+    )
+
+    assert report["commit_sha"] is None
+    assert report["sha_bound"] is False
+    assert "test_report_id" not in report
+
+    result = AssistantProjectVerificationService().evaluate(
+        "main",
+        report,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "CURRENT_SHA_REQUIRED"
