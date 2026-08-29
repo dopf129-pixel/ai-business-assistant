@@ -17,6 +17,7 @@ class PeriodProfitSummaryService:
 
         rows = []
         totals = self._empty_totals()
+        fee_breakdown = {}
         for product in products or []:
             if not isinstance(product, dict):
                 continue
@@ -33,8 +34,10 @@ class PeriodProfitSummaryService:
             rows.append(row)
             for key in totals:
                 totals[key] += row[key]
+            self._merge_fee_breakdown(fee_breakdown, row.get("fee_breakdown"))
 
         totals = {key: round(value, 2) for key, value in totals.items()}
+        fee_breakdown = {key: round(value, 2) for key, value in fee_breakdown.items()}
         revenue = totals["revenue"]
         totals["margin_percent"] = round(totals["profit"] / revenue * 100, 2) if revenue else 0.0
         return {
@@ -45,6 +48,7 @@ class PeriodProfitSummaryService:
             "product_count": len(rows),
             "products": rows,
             **totals,
+            "fee_breakdown": fee_breakdown,
             "returns_included": False,
             "advertising_included": False,
             "storage_included": False,
@@ -54,6 +58,7 @@ class PeriodProfitSummaryService:
 
     def _calculate_product(self, start, end, sku, offer_id, cost):
         values = self._empty_totals()
+        fee_breakdown = {}
         current = start
         while current <= end:
             finance = self.finance_service.get_daily_finance(current.isoformat(), sku=sku)
@@ -75,10 +80,25 @@ class PeriodProfitSummaryService:
             values["product_cost"] += product_cost
             values["tax"] += tax
             values["profit"] += profit
+            self._merge_fee_breakdown(fee_breakdown, finance.get("fee_breakdown"))
             current += timedelta(days=1)
         rounded = {key: round(value, 2) for key, value in values.items()}
         rounded["margin_percent"] = round(rounded["profit"] / rounded["revenue"] * 100, 2) if rounded["revenue"] else 0.0
-        return {"error": False, "sku": sku, "offer_id": offer_id, "cost_per_unit": round(cost, 2), **rounded}
+        return {
+            "error": False,
+            "sku": sku,
+            "offer_id": offer_id,
+            "cost_per_unit": round(cost, 2),
+            **rounded,
+            "fee_breakdown": {key: round(value, 2) for key, value in fee_breakdown.items()},
+        }
+
+    @staticmethod
+    def _merge_fee_breakdown(target, source):
+        if not isinstance(source, dict):
+            return
+        for name, amount in source.items():
+            target[str(name)] = target.get(str(name), 0.0) + float(amount or 0)
 
     def _resolve_cost(self, product):
         for field in ("cost", "cost_price"):
