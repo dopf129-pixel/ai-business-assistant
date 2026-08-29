@@ -28,7 +28,7 @@ def build_authorized_replacement_mapping(authorization):
     scope = _scope(source.get("scope"))
     if scope not in ALLOWED_SCOPES:
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_SCOPE_INVALID")
-    operations = [dict(row) for row in source.get("replacement_operations") or [] if isinstance(row, dict)]
+    operations = _normalized_operations(source.get("replacement_operations"))
     if not operations:
         return _error("PERIOD_PROFIT_MAPPING_REPLACEMENT_OPERATIONS_REQUIRED")
 
@@ -216,6 +216,9 @@ def build_replacement_activation_handoff(admin_service, persisted_revision):
 
 def _authorized_chain_valid(auth, mapping, diff):
     scope = _scope(auth.get("scope"))
+    authorized_operations = _normalized_operations(auth.get("replacement_operations"))
+    mapping_operations = _normalized_operations(mapping.get("operations"))
+    diff_operations = _normalized_operations(diff.get("replacement_operations"))
     return (
         auth.get("status") == "PERIOD_PROFIT_MAPPING_REPLACEMENT_AUTHORIZED"
         and auth.get("error") is False
@@ -224,14 +227,37 @@ def _authorized_chain_valid(auth, mapping, diff):
         and auth.get("registry_save_allowed") is False
         and auth.get("activation_allowed") is False
         and scope in ALLOWED_SCOPES
+        and authorized_operations is not None
+        and authorized_operations == mapping_operations
+        and authorized_operations == diff_operations
         and mapping.get("error") is False
         and verify_period_profit_mapping_integrity(scope, mapping).get("integrity_valid") is True
         and diff.get("status") == "PERIOD_PROFIT_MAPPING_REPLACEMENT_DIFF_READY"
         and diff.get("error") is False
         and _scope(diff.get("scope")) == scope
         and diff.get("active_mapping_id") == auth.get("active_mapping_id")
-        and list(diff.get("replacement_operations") or []) == list(auth.get("replacement_operations") or [])
     )
+
+
+def _normalized_operations(value):
+    if not isinstance(value, (list, tuple)):
+        return None
+    operations = []
+    for row in value:
+        if not isinstance(row, dict) or row.get("type_id") is None or not row.get("name"):
+            return None
+        try:
+            type_id = int(row.get("type_id"))
+        except (TypeError, ValueError):
+            return None
+        operations.append({
+            "type_id": type_id,
+            "name": row.get("name"),
+            "description": row.get("description"),
+            "source": row.get("source"),
+        })
+    operations.sort(key=lambda row: (row["type_id"], str(row.get("name"))))
+    return operations
 
 
 def _dict(value):
