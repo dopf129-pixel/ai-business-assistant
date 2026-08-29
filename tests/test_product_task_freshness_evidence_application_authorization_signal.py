@@ -45,7 +45,7 @@ def test_authorize_builds_signal_without_allowing_application():
     source = _contract()
     snapshot = deepcopy(source)
     result = build_freshness_evidence_application_authorization_signal(source, "AUTHORIZE")
-    assert result["status"] == "APPLICATION_AUTHORIZED"
+    assert result["status"] == "APPLICATION_AUTHORIZATION_GRANTED"
     assert result["authorization_granted"] is True
     assert result["application_allowed"] is False
     assert result["application_started"] is False
