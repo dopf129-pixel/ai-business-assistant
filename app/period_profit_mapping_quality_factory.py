@@ -1,0 +1,10 @@
+from period_profit_mapping_registry_factory import create_period_profit_mapping_registry
+from services.finance_service import FinanceService
+from services.period_profit_mapping_quality_service import PeriodProfitMappingQualityService
+from services.return_financial_operation_catalog_service import ReturnFinancialOperationCatalogService
+
+
+def create_period_profit_mapping_quality_service(mapping_registry=None):
+    registry = mapping_registry or create_period_profit_mapping_registry()
+    catalog_service = ReturnFinancialOperationCatalogService(FinanceService())
+    return PeriodProfitMappingQualityService(registry, catalog_service)
