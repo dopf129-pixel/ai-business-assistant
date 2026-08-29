@@ -11,25 +11,29 @@ ALLOWED_EVIDENCE_FIELDS = {
 }
 
 
-def build_freshness_evidence_validation_preview(
-    draft,
-    evidence_candidate,
-    freshness_service,
-):
+def build_freshness_evidence_validation_preview(draft, evidence_candidate, freshness_service):
     source = deepcopy(draft or {})
     candidate = deepcopy(evidence_candidate or {})
 
     if freshness_service is None:
         return _blocked(source, candidate, "FRESHNESS_SERVICE_REQUIRED")
 
+    source_draft_id = str(source.get("draft_id") or "").strip()
+    candidate_draft_id = str(candidate.get("draft_id") or "").strip()
+    if source_draft_id and candidate_draft_id and source_draft_id != candidate_draft_id:
+        return _blocked(source, candidate, "EVIDENCE_CANDIDATE_DRAFT_MISMATCH")
+
+    source_sku = str(source.get("sku") or "").strip()
+    candidate_sku = str(candidate.get("sku") or "").strip()
+    if source_sku and candidate_sku and source_sku != candidate_sku:
+        return _blocked(source, candidate, "EVIDENCE_CANDIDATE_SKU_MISMATCH")
+
     before = freshness_service.evaluate(source)
     preview_draft = deepcopy(source)
     applied_evidence = {}
 
     for field, value in (candidate.get("evidence_update") or {}).items():
-        if field not in ALLOWED_EVIDENCE_FIELDS:
-            continue
-        if value in (None, ""):
+        if field not in ALLOWED_EVIDENCE_FIELDS or value in (None, ""):
             continue
         preview_draft[field] = deepcopy(value)
         applied_evidence[field] = deepcopy(value)
@@ -38,16 +42,11 @@ def build_freshness_evidence_validation_preview(
     changed_components = []
     before_components = before.get("components") or {}
     after_components = after.get("components") or {}
-
     for component in sorted(set(before_components) | set(after_components)):
         before_status = (before_components.get(component) or {}).get("status")
         after_status = (after_components.get(component) or {}).get("status")
         if before_status != after_status:
-            changed_components.append({
-                "component": component,
-                "before": before_status,
-                "after": after_status,
-            })
+            changed_components.append({"component": component, "before": before_status, "after": after_status})
 
     return {
         "error": False,
