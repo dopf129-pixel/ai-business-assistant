@@ -20,7 +20,8 @@ class AssistantEntryService:
         metrics_service=None,
         sales_context_provider=None,
         stock_context_provider=None,
-        finance_context_provider=None
+        finance_context_provider=None,
+        period_profit_runtime_service=None
     ):
         self.main_flow_service = main_flow_service
 
@@ -30,6 +31,9 @@ class AssistantEntryService:
         self.period_profit_service = period_profit_service
         self.analytics_service = analytics_service
         self.metrics_service = metrics_service
+        self.period_profit_runtime_service = (
+            period_profit_runtime_service
+        )
 
         self.sales_context_provider = (
             sales_context_provider
@@ -58,6 +62,14 @@ class AssistantEntryService:
         context=None,
         user_id=None
     ):
+        if self.period_profit_runtime_service is not None:
+            direct_result = (
+                self.period_profit_runtime_service
+                .handle_text(text)
+            )
+            if direct_result is not None:
+                return direct_result
+
         report = {
             "sales_down": True,
             "low_stock": True
