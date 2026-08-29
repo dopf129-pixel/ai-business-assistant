@@ -1690,3 +1690,35 @@ Tests:
 - detail callback, source metrics и русские event labels;
 - отсутствие archive-кнопки у терминального черновика;
 - executed=False во всех audit/detail результатах.
+
+---
+
+# Product Task Draft Readiness Checklist v1
+
+Services:
+
+- ProductTaskDraftReadinessService
+- ProductDecisionHistoryService
+- ProductActionTaskDraftService
+- AssistantButtonHandlerService
+
+Composition:
+
+- product_business_decision_factory.py
+
+Tests:
+
+- tests/test_product_task_draft_readiness_service.py
+- tests/test_product_action_task_draft_service.py
+- tests/test_product_business_decision_production_wiring.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- готовность полных данных к ручной проверке;
+- missing fields без подстановки оценок;
+- блокировку устаревшего черновика;
+- отдельные policy blockers для каждого proposal;
+- summary counts и нулевую execution readiness;
+- перенос исходных фактов в draft snapshot;
+- Telegram detail и queue presentation.
