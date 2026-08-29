@@ -164,6 +164,11 @@ class ProductTaskDraftReadinessService:
             "VERIFY_SOURCE_TIMESTAMP": 0,
             "REFRESH_SOURCE_DATA": 0,
         }
+        freshness_source_timestamp_counts = {
+            "VERIFIED": 0,
+            "UNVERIFIED": 0,
+            "ABSENT": 0,
+        }
         for draft in drafts or []:
             item = deepcopy(draft)
             readiness = self.evaluate(item)
@@ -176,6 +181,13 @@ class ProductTaskDraftReadinessService:
             for state, value in (coverage.get("counts") or {}).items():
                 if state in freshness_coverage_counts:
                     freshness_coverage_counts[state] += int(value or 0)
+            for state, value in (
+                coverage.get("source_timestamp_counts") or {}
+            ).items():
+                if state in freshness_source_timestamp_counts:
+                    freshness_source_timestamp_counts[state] += int(
+                        value or 0
+                    )
             guidance = readiness.get("freshness_refresh_guidance") or {}
             for action, value in (guidance.get("counts") or {}).items():
                 if action in freshness_refresh_counts:
@@ -186,6 +198,9 @@ class ProductTaskDraftReadinessService:
             "counts": counts,
             "freshness_counts": freshness_counts,
             "freshness_coverage_counts": freshness_coverage_counts,
+            "freshness_source_timestamp_counts": (
+                freshness_source_timestamp_counts
+            ),
             "freshness_refresh_counts": freshness_refresh_counts,
             "items": items,
             "execution_ready_count": 0,
@@ -201,6 +216,11 @@ class ProductTaskDraftReadinessService:
             "SOURCE_PROVEN": 0,
             "OBSERVED_ONLY": 0,
             "NO_EVIDENCE": 0,
+        }
+        source_timestamp_counts = {
+            "VERIFIED": 0,
+            "UNVERIFIED": 0,
+            "ABSENT": 0,
         }
         freshness_components = freshness.get("components") or {}
 
@@ -222,10 +242,20 @@ class ProductTaskDraftReadinessService:
             else:
                 evidence_state = "NO_EVIDENCE"
 
+            freshness_status = component_freshness.get("status")
+            if source_present and freshness_status in {"FRESH", "STALE"}:
+                source_timestamp_state = "VERIFIED"
+            elif source_present:
+                source_timestamp_state = "UNVERIFIED"
+            else:
+                source_timestamp_state = "ABSENT"
+
             counts[evidence_state] += 1
+            source_timestamp_counts[source_timestamp_state] += 1
             components[component_name] = {
-                "freshness_status": component_freshness.get("status"),
+                "freshness_status": freshness_status,
                 "evidence_state": evidence_state,
+                "source_timestamp_state": source_timestamp_state,
                 "source_recorded_at": source_value,
                 "observed_at": observed_value,
             }
@@ -233,9 +263,19 @@ class ProductTaskDraftReadinessService:
         return {
             "components": components,
             "counts": counts,
+            "source_timestamp_counts": source_timestamp_counts,
             "source_proven_count": counts["SOURCE_PROVEN"],
             "observed_only_count": counts["OBSERVED_ONLY"],
             "no_evidence_count": counts["NO_EVIDENCE"],
+            "source_timestamp_verified_count": (
+                source_timestamp_counts["VERIFIED"]
+            ),
+            "source_timestamp_unverified_count": (
+                source_timestamp_counts["UNVERIFIED"]
+            ),
+            "source_timestamp_absent_count": (
+                source_timestamp_counts["ABSENT"]
+            ),
         }
 
     def _freshness_refresh_guidance(self, freshness, coverage):
@@ -256,13 +296,17 @@ class ProductTaskDraftReadinessService:
             if status == "FRESH":
                 continue
 
-            evidence_state = (
+            coverage_component = (
                 coverage_components.get(component_name) or {}
-            ).get("evidence_state")
+            )
+            evidence_state = coverage_component.get("evidence_state")
+            source_timestamp_state = coverage_component.get(
+                "source_timestamp_state"
+            )
 
             if status == "STALE":
                 action = "REFRESH_SOURCE_DATA"
-            elif evidence_state == "SOURCE_PROVEN":
+            elif source_timestamp_state == "UNVERIFIED":
                 action = "VERIFY_SOURCE_TIMESTAMP"
             else:
                 action = "SOURCE_TIMESTAMP_REQUIRED"
@@ -273,6 +317,7 @@ class ProductTaskDraftReadinessService:
                 "action": action,
                 "freshness_status": status,
                 "evidence_state": evidence_state,
+                "source_timestamp_state": source_timestamp_state,
                 "reasons": list(component_freshness.get("reasons") or []),
             })
 
