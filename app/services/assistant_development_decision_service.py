@@ -13,6 +13,22 @@ class AssistantDevelopmentDecisionService:
         Analyzes development report.
         """
 
+        verification = report.get("verification")
+        if isinstance(verification, dict):
+            if verification.get("current_suite_verified") is not True:
+                return {
+                    "decision": "blocked",
+                    "next_action": "review_required",
+                    "reason": "current_suite_not_verified",
+                }
+
+            if verification.get("current_suite_passed") is not True:
+                return {
+                    "decision": "blocked",
+                    "next_action": "review_required",
+                    "reason": "current_suite_failed",
+                }
+
         if report["status"] == "completed":
 
             return {
