@@ -171,7 +171,8 @@ def build_executor_admission_audit(eligibility, target_binding, diff, authorizat
         return _blocked(decision, error)
     if _identity(eligible) != _identity(bound) or _identity(bound) != _identity(delta) or _identity(delta) != _identity(decision):
         return _blocked(decision, "APPLICATION_EXECUTOR_AUDIT_IDENTITY_MISMATCH")
-    if eligible.get("preparation_audit_id") != bound.get("preparation_audit_id") or bound.get("preparation_audit_id") != delta.get("preparation_audit_id") or delta.get("preparation_audit_id") != decision.get("preparation_audit_id"):
+    expected_preparation_audit_id = "evidence-application-preparation-audit:" + decision["preparation_decision_id"]
+    if any(item.get("preparation_audit_id") != expected_preparation_audit_id for item in (eligible, bound, delta, decision)):
         return _blocked(decision, "APPLICATION_EXECUTOR_AUDIT_PREPARATION_LINEAGE_MISMATCH")
     if bound.get("target_revision_id") != delta.get("target_revision_id") or delta.get("target_revision_id") != decision.get("target_revision_id"):
         return _blocked(decision, "APPLICATION_EXECUTOR_AUDIT_TARGET_LINEAGE_MISMATCH")
@@ -244,6 +245,9 @@ def _validate_eligibility(source):
         return "APPLICATION_EXECUTOR_NOT_ELIGIBLE"
     if _ids_error(source) or not _valid_executor_eligibility_id(source):
         return "APPLICATION_EXECUTOR_LINEAGE_MISMATCH"
+    expected_audit = "evidence-application-preparation-audit:" + source["preparation_decision_id"]
+    if source.get("preparation_audit_id") != expected_audit:
+        return "APPLICATION_EXECUTOR_PREPARATION_AUDIT_LINEAGE_MISMATCH"
     return _payload_error(source, "admission_evidence", "admission_evidence_count")
 
 
@@ -267,6 +271,8 @@ def _validate_target_binding(source):
         return "APPLICATION_TARGET_BINDING_REQUIRED"
     if _ids_error(source) or not _valid_executor_eligibility_id(source):
         return "APPLICATION_EXECUTOR_LINEAGE_MISMATCH"
+    if source.get("preparation_audit_id") != "evidence-application-preparation-audit:" + source["preparation_decision_id"]:
+        return "APPLICATION_EXECUTOR_PREPARATION_AUDIT_LINEAGE_MISMATCH"
     if not isinstance(source.get("target_revision_id"), str) or not source["target_revision_id"].strip():
         return "APPLICATION_TARGET_REVISION_REQUIRED"
     if not isinstance(source.get("target_version"), int) or isinstance(source.get("target_version"), bool) or source["target_version"] < 1:
@@ -288,6 +294,8 @@ def _validate_diff(source):
         return "APPLICATION_EXECUTOR_DIFF_REQUIRED"
     if _ids_error(source) or not _valid_executor_eligibility_id(source):
         return "APPLICATION_EXECUTOR_LINEAGE_MISMATCH"
+    if source.get("preparation_audit_id") != "evidence-application-preparation-audit:" + source["preparation_decision_id"]:
+        return "APPLICATION_EXECUTOR_PREPARATION_AUDIT_LINEAGE_MISMATCH"
     expected_binding = "evidence-application-executor-target:" + source["executor_admission_eligibility_id"] + ":" + source["target_revision_id"]
     if source.get("executor_target_binding_id") != expected_binding:
         return "APPLICATION_TARGET_BINDING_ID_MISMATCH"
@@ -322,6 +330,10 @@ def _validate_authorization(source):
 def _validate_write_handoff(source):
     if source.get("error") is not False or source.get("status") != "APPLICATION_WRITE_ADAPTER_HANDOFF_READY":
         return "APPLICATION_WRITE_HANDOFF_REQUIRED"
+    if _ids_error(source) or not _valid_executor_eligibility_id(source):
+        return "APPLICATION_EXECUTOR_LINEAGE_MISMATCH"
+    if source.get("preparation_audit_id") != "evidence-application-preparation-audit:" + source["preparation_decision_id"]:
+        return "APPLICATION_EXECUTOR_PREPARATION_AUDIT_LINEAGE_MISMATCH"
     if source.get("executor_authorized") is not True or source.get("write_adapter_required") is not True or source.get("write_handoff_ready") is not True:
         return "APPLICATION_WRITE_HANDOFF_REQUIRED"
     if source.get("stale_lineage_check_required") is not True or source.get("readback_verification_required") is not True:
@@ -342,7 +354,31 @@ def _valid_executor_eligibility_id(source):
 
 
 def _ids_error(source):
-    return any(not isinstance(source.get(field), str) or not source[field].strip() for field in IDENTITY_FIELDS)
+    if any(not isinstance(source.get(field), str) or not source[field].strip() for field in IDENTITY_FIELDS):
+        return True
+    draft_id = source["draft_id"]
+    expected = {
+        "request_id": "refresh:" + draft_id,
+        "approval_id": "evidence-approval:" + draft_id,
+    }
+    expected["signal_id"] = "evidence-signal:" + expected["approval_id"]
+    expected["eligibility_id"] = "evidence-eligibility:" + expected["signal_id"]
+    expected["preview_id"] = "evidence-application-preview:" + expected["eligibility_id"]
+    expected["authorization_id"] = "evidence-application-authorization:" + expected["preview_id"]
+    expected["authorization_signal_id"] = "evidence-application-authorization-signal:" + expected["authorization_id"]
+    expected["permission_eligibility_id"] = "evidence-application-permission-eligibility:" + expected["authorization_signal_id"]
+    expected["permission_review_id"] = "evidence-application-permission-review:" + expected["permission_eligibility_id"]
+    expected["permission_decision_id"] = "evidence-application-permission-decision:" + expected["permission_review_id"]
+    expected["application_handoff_id"] = "evidence-application-start-handoff:" + expected["permission_decision_id"]
+    expected["preparation_eligibility_id"] = "evidence-application-preparation-eligibility:" + expected["application_handoff_id"]
+    expected["preparation_plan_id"] = "evidence-application-preparation-plan:" + expected["preparation_eligibility_id"]
+    expected["preparation_decision_id"] = "evidence-application-preparation-decision:" + expected["preparation_plan_id"]
+    if any(source.get(field) != value for field, value in expected.items()):
+        return True
+    execution_handoff_id = source.get("application_execution_handoff_id")
+    if execution_handoff_id is not None and execution_handoff_id != "evidence-application-execution-handoff:" + expected["preparation_decision_id"]:
+        return True
+    return False
 
 
 def _payload_error(source, field, count):
