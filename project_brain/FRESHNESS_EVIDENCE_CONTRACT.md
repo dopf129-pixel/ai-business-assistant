@@ -56,3 +56,9 @@ This contract allows real source timestamps to be propagated later without weake
 3. observed time cannot prove freshness;
 4. real source timestamps can prove freshness;
 5. legacy decisions remain compatible.
+
+Targeted validation on 2026-08-29:
+
+`15 passed`
+
+The full repository suite was intentionally not rerun for this isolated contract under the reduced full-suite cadence. The previous full regression checkpoint remains `392 passed`.
