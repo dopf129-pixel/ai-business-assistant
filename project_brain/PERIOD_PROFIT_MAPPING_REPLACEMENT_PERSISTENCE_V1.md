@@ -16,11 +16,16 @@ The steps remain intentionally separate.
 
 ## v139 — Authorized replacement mapping builder
 
-`build_authorized_replacement_mapping()` accepts only the explicit v138 `AUTHORIZE` artifact with:
+`build_authorized_replacement_mapping()` accepts only the explicit v138 `AUTHORIZE` artifact with the expected fail-closed safety flags:
 
 - `mapping_build_allowed=True`;
 - `registry_save_allowed=False`;
-- `activation_allowed=False`.
+- `activation_allowed=False`;
+- `automatic_activation_allowed=False`;
+- `profit_adjustment_allowed=False`;
+- `executed=False`.
+
+It rejects malformed replacement operations and duplicate `type_id` values.
 
 It reuses the existing production mapping builders:
 
@@ -40,6 +45,8 @@ Therefore canonical hashing and immutable artifact format are unchanged. The art
 - exact added / removed / changed operation diff.
 
 The preview requires the current active registry mapping to match the mapping that was re-reviewed. Artifact operations, diff replacement operations, and v138 authorized replacement operations must match exactly after deterministic normalization.
+
+The supplied v137 diff is not trusted on presentation alone. v140 recomputes the deterministic diff from the actual active registry mapping and the authorized replacement artifact, then requires the supplied diff to match exactly. A tampered or stale diff fails closed.
 
 No registry write happens in preview.
 
@@ -107,8 +114,10 @@ Coverage includes:
 
 - RETURN canonical hash reuse;
 - STORAGE canonical hash reuse;
+- duplicate type-ID rejection;
 - read-only preview / expected revision;
 - valid-but-unauthorized artifact rejection;
+- tampered diff rejection against actual registry state;
 - REJECT blocks persistence;
 - SAVE creates inactive revision only;
 - stale preview rejection;
