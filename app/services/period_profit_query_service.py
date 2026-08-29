@@ -14,11 +14,13 @@ class PeriodProfitQueryService:
         product_provider,
         return_evidence_service=None,
         return_financial_operation_names=None,
+        authorized_return_mapping=None,
     ):
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
         self.return_financial_operation_names = tuple(return_financial_operation_names or ())
+        self.authorized_return_mapping = dict(authorized_return_mapping or {})
 
     def query(self, period_code=None, date_from=None, date_to=None, compare_previous=False, today=None):
         request = build_period_profit_request(period_code=period_code, date_from=date_from, date_to=date_to, today=today)
@@ -46,10 +48,13 @@ class PeriodProfitQueryService:
             if return_evidence.get("error"):
                 return return_evidence
 
+        operation_names, mapping = self._return_financial_mapping()
         return_financial_evidence = build_period_profit_return_financial_evidence(
             [{"fee_breakdown": summary.get("fee_breakdown")}],
-            self.return_financial_operation_names,
+            operation_names,
         )
+        return_financial_evidence["authorized_mapping_id"] = mapping.get("mapping_id") if mapping else None
+        return_financial_evidence["authorized_mapping_applied"] = bool(mapping)
 
         comparison = None
         previous_summary = None
@@ -82,3 +87,17 @@ class PeriodProfitQueryService:
             "read_only": True,
             "executed": False,
         }
+
+    def _return_financial_mapping(self):
+        mapping = self.authorized_return_mapping
+        if (
+            mapping.get("status") == "RETURN_FINANCIAL_OPERATION_AUTHORIZED_MAPPING_READY"
+            and mapping.get("error") is False
+            and mapping.get("mapping_authorized") is True
+            and mapping.get("financial_evidence_mapping_allowed") is True
+            and mapping.get("returns_profit_adjustment_allowed") is False
+            and mapping.get("automatic_activation_allowed") is False
+            and mapping.get("immutable_artifact") is True
+        ):
+            return tuple(mapping.get("operation_names") or ()), mapping
+        return self.return_financial_operation_names, None
