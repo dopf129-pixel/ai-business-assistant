@@ -212,11 +212,18 @@ class AssistantDevelopmentAgent:
                 task
             )
 
-        return self.workflow.start_workflow(
-            task,
-            current_sha=current_sha,
-            test_report=test_report,
-        )
+        try:
+            return self.workflow.start_workflow(
+                task,
+                current_sha=current_sha,
+                test_report=test_report,
+            )
+        except TypeError:
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_WORKFLOW_CAPABILITY_MISSING",
+                "verification": None,
+            }
 
     def _verify_revision(self, current_sha, test_report):
         if current_sha is None:
@@ -310,9 +317,18 @@ Task:
                 "files": [],
             }
 
-        return verified(
-            files=[],
-            message="Development workflow checkpoint",
-            current_sha=current_sha,
-            test_report=test_report,
-        )
+        try:
+            return verified(
+                files=[],
+                message="Development workflow checkpoint",
+                current_sha=current_sha,
+                test_report=test_report,
+            )
+        except TypeError:
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_CHECKPOINT_CAPABILITY_INVALID",
+                "checkpoint_ready": False,
+                "files_changed": 0,
+                "files": [],
+            }
