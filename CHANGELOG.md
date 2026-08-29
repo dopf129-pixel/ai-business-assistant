@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-08-29 — Long-running Task Recovery validation
+
+- validated restart recovery for persisted long-running tasks;
+- in-progress pending actions remain recoverable after service restart;
+- paused/resumed state and completed progress survive restart;
+- recovery selects the next unfinished action without executing anything implicitly;
+- added four restart/recovery regression tests;
+- full repository validation: `388 passed`;
+- no Product Decision execution, legacy Action Executor connection, or mutating Ozon path was enabled.
+
 ## 2026-08-29 — Product Task Draft Data Freshness Guards v1
 
 - added a separate read-only `ProductTaskDraftFreshnessService`;
