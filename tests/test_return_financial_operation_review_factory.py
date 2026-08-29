@@ -1,0 +1,7 @@
+from return_financial_operation_review_factory import create_return_financial_operation_review_report_service
+from services.return_financial_operation_review_report_service import ReturnFinancialOperationReviewReportService
+
+
+def test_factory_builds_review_report_service():
+    service = create_return_financial_operation_review_report_service()
+    assert isinstance(service, ReturnFinancialOperationReviewReportService)
