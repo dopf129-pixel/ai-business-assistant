@@ -19,12 +19,14 @@ class AssistantDevelopmentAgent:
         workflow=None,
         brain_manager=None,
         checkpoint_service=None,
+        verification_service=None,
     ):
         self.name = "AssistantDevelopmentAgent"
 
         self.workflow = workflow
         self.brain_manager = brain_manager
         self.checkpoint_service = checkpoint_service
+        self.verification_service = verification_service
 
     def create_plan(self, task):
         """
@@ -53,7 +55,12 @@ class AssistantDevelopmentAgent:
             "status": status,
         }
 
-    def run_development_cycle(self, task):
+    def run_development_cycle(
+        self,
+        task,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Runs development support workflow.
 
@@ -63,6 +70,10 @@ class AssistantDevelopmentAgent:
         """
 
         plan = self.create_plan(task)
+        canonical_verification = self._verify_revision(
+            current_sha,
+            test_report,
+        )
 
         result = {
             "agent": self.name,
@@ -71,8 +82,15 @@ class AssistantDevelopmentAgent:
             "steps": plan["steps"],
         }
 
+        if canonical_verification is not None:
+            result["verification"] = canonical_verification
+
         if self.workflow:
-            result["workflow"] = self.execute_workflow(task)
+            result["workflow"] = self.execute_workflow(
+                task,
+                current_sha=current_sha,
+                test_report=test_report,
+            )
         else:
             result["workflow"] = "not_connected"
 
@@ -82,7 +100,10 @@ class AssistantDevelopmentAgent:
             result["project_brain"] = "not_connected"
 
         if self.checkpoint_service:
-            result["checkpoint"] = self.prepare_checkpoint()
+            result["checkpoint"] = self.prepare_checkpoint(
+                current_sha=current_sha,
+                test_report=test_report,
+            )
         else:
             result["checkpoint"] = "not_connected"
 
@@ -91,9 +112,16 @@ class AssistantDevelopmentAgent:
             result["workflow"],
             result["project_brain"],
             result["checkpoint"],
+            verification_required=(current_sha is not None),
+            canonical_verification=canonical_verification,
         )
 
-        result["status"] = "workflow_completed"
+        report_status = result["report"].get("status")
+        result["status"] = (
+            "workflow_completed"
+            if report_status == "completed"
+            else "workflow_blocked"
+        )
 
         return result
 
@@ -103,15 +131,60 @@ class AssistantDevelopmentAgent:
         workflow,
         project_brain,
         checkpoint,
+        verification_required=False,
+        canonical_verification=None,
     ):
         """
         Creates development execution report.
         """
 
-        return {
+        workflow_verification = (
+            workflow.get("verification")
+            if isinstance(workflow, dict)
+            else None
+        )
+        checkpoint_verification = (
+            checkpoint.get("verification")
+            if isinstance(checkpoint, dict)
+            else None
+        )
+        verification = (
+            canonical_verification
+            if verification_required
+            else workflow_verification
+        )
+
+        status = "completed"
+        if verification_required:
+            if not self._verification_passed(verification):
+                status = "blocked"
+
+            if not self._verification_matches(
+                verification,
+                workflow_verification,
+            ):
+                status = "blocked"
+
+            if (
+                not isinstance(checkpoint, dict)
+                or checkpoint.get("status") != "ready"
+                or checkpoint.get("checkpoint_ready") is not True
+                or not self._verification_matches(
+                    verification,
+                    checkpoint_verification,
+                )
+            ):
+                status = "blocked"
+        elif (
+            isinstance(checkpoint, dict)
+            and checkpoint.get("status") == "blocked"
+        ):
+            status = "blocked"
+
+        result = {
             "agent": self.name,
             "task": task,
-            "status": "completed",
+            "status": status,
             "summary": {
                 "workflow": workflow,
                 "project_brain": project_brain,
@@ -119,13 +192,78 @@ class AssistantDevelopmentAgent:
             },
         }
 
-    def execute_workflow(self, task):
+        if isinstance(verification, dict):
+            result["verification"] = verification
+
+        return result
+
+    def execute_workflow(
+        self,
+        task,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Executes workflow service.
         """
 
-        return self.workflow.start_workflow(
-            task
+        if current_sha is None:
+            return self.workflow.start_workflow(
+                task
+            )
+
+        try:
+            return self.workflow.start_workflow(
+                task,
+                current_sha=current_sha,
+                test_report=test_report,
+            )
+        except TypeError:
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_WORKFLOW_CAPABILITY_MISSING",
+                "verification": None,
+            }
+
+    def _verify_revision(self, current_sha, test_report):
+        if current_sha is None:
+            return None
+        if self.verification_service is None:
+            return {
+                "error": True,
+                "status": "VERIFICATION_SERVICE_REQUIRED",
+                "current_sha": current_sha,
+                "current_suite_verified": False,
+                "current_suite_passed": False,
+                "baseline": None,
+                "baseline_is_current": False,
+            }
+        return self.verification_service.evaluate(
+            current_sha,
+            test_report,
+        )
+
+    def _verification_passed(self, verification):
+        return (
+            isinstance(verification, dict)
+            and verification.get("error") is False
+            and verification.get("current_suite_verified") is True
+            and verification.get("current_suite_passed") is True
+        )
+
+    def _verification_matches(self, expected, actual):
+        if not isinstance(expected, dict) or not isinstance(actual, dict):
+            return False
+        fields = (
+            "status",
+            "current_sha",
+            "current_suite_verified",
+            "current_suite_passed",
+            "baseline_is_current",
+        )
+        return all(
+            expected.get(field) == actual.get(field)
+            for field in fields
         )
 
     def update_project_brain(self, task):
@@ -150,12 +288,47 @@ Task:
             "date": str(date.today()),
         }
 
-    def prepare_checkpoint(self):
+    def prepare_checkpoint(
+        self,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Prepares Git checkpoint metadata.
         """
 
-        return self.checkpoint_service.prepare_checkpoint(
-            files=[],
-            message="Development workflow checkpoint",
+        if current_sha is None:
+            return self.checkpoint_service.prepare_checkpoint(
+                files=[],
+                message="Development workflow checkpoint",
+            )
+
+        verified = getattr(
+            self.checkpoint_service,
+            "prepare_verified_checkpoint",
+            None,
         )
+        if not callable(verified):
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_CHECKPOINT_CAPABILITY_MISSING",
+                "checkpoint_ready": False,
+                "files_changed": 0,
+                "files": [],
+            }
+
+        try:
+            return verified(
+                files=[],
+                message="Development workflow checkpoint",
+                current_sha=current_sha,
+                test_report=test_report,
+            )
+        except TypeError:
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_CHECKPOINT_CAPABILITY_INVALID",
+                "checkpoint_ready": False,
+                "files_changed": 0,
+                "files": [],
+            }
