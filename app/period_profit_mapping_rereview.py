@@ -12,6 +12,11 @@ def build_mapping_rereview_candidate(scope_quality, active_mapping, catalog):
     if quality.get("mapping_available") is not True or not isinstance(active_mapping, dict):
         return _error("PERIOD_PROFIT_MAPPING_REREVIEW_ACTIVE_MAPPING_REQUIRED")
     mapping = dict(active_mapping)
+    if not mapping.get("mapping_id"):
+        return _error("PERIOD_PROFIT_MAPPING_REREVIEW_ACTIVE_MAPPING_REQUIRED")
+    mapping_scope = str(mapping.get("scope") or "").strip().upper()
+    if mapping_scope and mapping_scope != scope:
+        return _error("PERIOD_PROFIT_MAPPING_REREVIEW_SCOPE_MISMATCH")
     if source_catalog.get("status") != "RETURN_FINANCIAL_OPERATION_CATALOG_READY" or source_catalog.get("error") is not False:
         return _error("PERIOD_PROFIT_MAPPING_REREVIEW_CATALOG_REQUIRED")
 
@@ -99,6 +104,10 @@ def build_mapping_rereview_confirmation(candidate, decisions):
         for row in source.get("targets") or []
         if isinstance(row, dict) and row.get("type_id") is not None
     }
+    active_operations = [
+        _operation(row) for row in source.get("active_operations") or [] if _valid_operation(row)
+    ]
+    active_type_ids = {row["type_id"] for row in active_operations}
     if not required.issubset(targets):
         return _error("PERIOD_PROFIT_MAPPING_REREVIEW_CANDIDATE_INVALID")
 
@@ -121,6 +130,8 @@ def build_mapping_rereview_confirmation(candidate, decisions):
                 replacement_id = int(decision.get("replacement_type_id"))
             except (TypeError, ValueError):
                 return _error("PERIOD_PROFIT_MAPPING_REREVIEW_REPLACEMENT_TYPE_ID_REQUIRED")
+            if replacement_id in active_type_ids and replacement_id != type_id:
+                return _error("PERIOD_PROFIT_MAPPING_REREVIEW_REPLACEMENT_COLLIDES_WITH_ACTIVE_OPERATION")
             replacement = catalog_by_id.get(replacement_id)
             if replacement is None:
                 return _error("PERIOD_PROFIT_MAPPING_REREVIEW_REPLACEMENT_NOT_IN_CATALOG")
@@ -131,9 +142,6 @@ def build_mapping_rereview_confirmation(candidate, decisions):
             "human_confirmed": True,
         })
 
-    active_operations = [
-        _operation(row) for row in source.get("active_operations") or [] if _valid_operation(row)
-    ]
     return {
         "error": False,
         "status": "PERIOD_PROFIT_MAPPING_REREVIEW_CONFIRMATION_READY",
