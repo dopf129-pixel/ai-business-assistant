@@ -98,9 +98,7 @@ def build_application_preparation_audit(eligibility, plan, decision, execution_h
         return _blocked(decided, error)
     if _identity(eligible) != _identity(planned) or _identity(planned) != _identity(decided):
         return _blocked(decided, "APPLICATION_PREPARATION_AUDIT_IDENTITY_MISMATCH")
-    if eligible.get("preparation_eligibility_id") != planned.get("preparation_eligibility_id"):
-        return _blocked(decided, "APPLICATION_PREPARATION_AUDIT_LINEAGE_MISMATCH")
-    if planned.get("preparation_plan_id") != decided.get("preparation_plan_id"):
+    if not _same_context(eligible, planned, decided):
         return _blocked(decided, "APPLICATION_PREPARATION_AUDIT_LINEAGE_MISMATCH")
     evidence = _evidence(eligible, "preparation_evidence")
     if evidence != _evidence(planned, "planned_evidence") or evidence != _evidence(decided, "decision_evidence"):
@@ -111,7 +109,9 @@ def build_application_preparation_audit(eligibility, plan, decision, execution_h
         error = _validate_execution_handoff(target)
         if error:
             return _blocked(decided, error)
-        if _identity(target) != _identity(decided) or target.get("preparation_decision_id") != decided.get("preparation_decision_id"):
+        if _identity(target) != _identity(decided) or not _same_context(decided, target):
+            return _blocked(decided, "APPLICATION_EXECUTION_HANDOFF_MISMATCH")
+        if target.get("preparation_decision_id") != decided.get("preparation_decision_id"):
             return _blocked(decided, "APPLICATION_EXECUTION_HANDOFF_MISMATCH")
         if _evidence(target, "execution_handoff_evidence") != evidence:
             return _blocked(decided, "APPLICATION_EXECUTION_HANDOFF_MISMATCH")
@@ -166,6 +166,8 @@ def _validate_eligibility(source):
         return "APPLICATION_PREPARATION_NOT_ELIGIBLE"
     if _ids_error(source) or not _valid_eligibility_id(source):
         return "APPLICATION_PREPARATION_LINEAGE_MISMATCH"
+    if not isinstance(source.get("permission_audit_id"), str) or not source["permission_audit_id"]:
+        return "APPLICATION_PREPARATION_PERMISSION_AUDIT_LINEAGE_REQUIRED"
     return _payload_error(source, "preparation_evidence", "preparation_evidence_count")
 
 
@@ -176,6 +178,8 @@ def _validate_plan(source):
         return "APPLICATION_PREPARATION_PLAN_REQUIRED"
     if _ids_error(source) or not _valid_eligibility_id(source):
         return "APPLICATION_PREPARATION_LINEAGE_MISMATCH"
+    if not isinstance(source.get("permission_audit_id"), str) or not source["permission_audit_id"]:
+        return "APPLICATION_PREPARATION_PERMISSION_AUDIT_LINEAGE_REQUIRED"
     if source.get("preparation_plan_id") != "evidence-application-preparation-plan:" + source["preparation_eligibility_id"]:
         return "APPLICATION_PREPARATION_PLAN_ID_MISMATCH"
     error = _payload_error(source, "planned_evidence", "planned_evidence_count")
@@ -190,6 +194,8 @@ def _validate_plan(source):
 def _decision_lineage_error(source):
     if _ids_error(source) or not _valid_eligibility_id(source):
         return "APPLICATION_PREPARATION_LINEAGE_MISMATCH"
+    if not isinstance(source.get("permission_audit_id"), str) or not source["permission_audit_id"]:
+        return "APPLICATION_PREPARATION_PERMISSION_AUDIT_LINEAGE_REQUIRED"
     plan_id = "evidence-application-preparation-plan:" + source["preparation_eligibility_id"]
     if source.get("preparation_plan_id") != plan_id:
         return "APPLICATION_PREPARATION_PLAN_ID_MISMATCH"
@@ -231,6 +237,15 @@ def _validate_execution_handoff(source):
     if source.get("application_execution_handoff_id") != expected:
         return "APPLICATION_EXECUTION_HANDOFF_ID_MISMATCH"
     return _payload_error(source, "execution_handoff_evidence", "execution_handoff_evidence_count")
+
+
+def _same_context(*sources):
+    fields = ("application_handoff_id", "permission_audit_id", "preparation_eligibility_id")
+    reference = tuple(sources[0].get(field) for field in fields)
+    if any(tuple(source.get(field) for field in fields) != reference for source in sources[1:]):
+        return False
+    plan_ids = [source.get("preparation_plan_id") for source in sources if source.get("preparation_plan_id") is not None]
+    return not plan_ids or all(value == plan_ids[0] for value in plan_ids)
 
 
 def _valid_eligibility_id(source):
