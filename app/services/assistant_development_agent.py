@@ -103,6 +103,7 @@ class AssistantDevelopmentAgent:
             result["workflow"],
             result["project_brain"],
             result["checkpoint"],
+            verification_required=(current_sha is not None),
         )
 
         report_status = result["report"].get("status")
@@ -120,13 +121,34 @@ class AssistantDevelopmentAgent:
         workflow,
         project_brain,
         checkpoint,
+        verification_required=False,
     ):
         """
         Creates development execution report.
         """
 
+        verification = (
+            workflow.get("verification")
+            if isinstance(workflow, dict)
+            else None
+        )
+
         status = "completed"
-        if (
+        if verification_required:
+            if (
+                not isinstance(verification, dict)
+                or verification.get("current_suite_verified") is not True
+                or verification.get("current_suite_passed") is not True
+            ):
+                status = "blocked"
+
+            if (
+                not isinstance(checkpoint, dict)
+                or checkpoint.get("status") != "ready"
+                or checkpoint.get("checkpoint_ready") is not True
+            ):
+                status = "blocked"
+        elif (
             isinstance(checkpoint, dict)
             and checkpoint.get("status") == "blocked"
         ):
@@ -143,10 +165,8 @@ class AssistantDevelopmentAgent:
             },
         }
 
-        if isinstance(workflow, dict):
-            verification = workflow.get("verification")
-            if isinstance(verification, dict):
-                result["verification"] = verification
+        if isinstance(verification, dict):
+            result["verification"] = verification
 
         return result
 
