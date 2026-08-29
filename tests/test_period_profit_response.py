@@ -2,7 +2,7 @@ from period_profit_response import build_period_profit_response
 
 
 def _summary(**values):
-    result = {"error": False, "status": "PERIOD_PROFIT_SUMMARY_READY", "date_from": "2026-08-01", "date_to": "2026-08-07", "revenue": 1000, "net_accrual": 800, "product_cost": 300, "tax": 60, "profit": 440, "margin_percent": 44, "returns_included": False, "advertising_included": False, "storage_included": False, "profit_scope": "V1"}
+    result = {"error": False, "status": "PERIOD_PROFIT_SUMMARY_READY", "date_from": "2026-08-01", "date_to": "2026-08-07", "revenue": 1000, "net_accrual": 800, "commission": -100, "logistics": -50, "acquiring": -10, "other_fees": -40, "fee_components_included": True, "product_cost": 300, "tax": 60, "profit": 440, "margin_percent": 44, "returns_included": False, "advertising_included": False, "storage_included": False, "profit_scope": "V1"}
     result.update(values)
     return result
 
@@ -11,8 +11,17 @@ def test_formats_profit_and_scope_warning():
     result = build_period_profit_response(_summary())
     assert result["status"] == "PERIOD_PROFIT_RESPONSE_READY"
     assert "Прибыль: 440.00 ₽" in result["text"]
+    assert "Комиссия: 100.00 ₽" in result["text"]
+    assert "Логистика: 50.00 ₽" in result["text"]
+    assert "Эквайринг: 10.00 ₽" in result["text"]
+    assert "Прочие начисления/удержания: 40.00 ₽" in result["text"]
     assert "возвраты" in result["text"]
     assert "бухгалтерская чистая прибыль" in result["text"]
+
+
+def test_fee_breakdown_is_not_shown_without_explicit_coverage_flag():
+    text = build_period_profit_response(_summary(fee_components_included=False))["text"]
+    assert "Расшифровка удержаний Ozon" not in text
 
 
 def test_formats_comparison():
