@@ -64,7 +64,8 @@ Task-owner mutation methods reject changes after overall task status becomes ter
 - fail action;
 - retry preparation;
 - applied replan;
-- replan request.
+- replan request;
+- pending-action injection.
 
 The terminal error includes the existing terminal task status.
 
