@@ -111,12 +111,38 @@ def test_v139_expense_builder_reuses_canonical_production_hash():
         "mapping_authorized": True,
         "registry_save_allowed": False,
         "activation_allowed": False,
+        "automatic_activation_allowed": False,
+        "profit_adjustment_allowed": False,
+        "executed": False,
     }
     result = build_authorized_replacement_mapping(authorization)
     expected = _expense_mapping("STORAGE", operations)
     assert result["mapping_id"] == expected["mapping_id"]
     assert result["scope"] == "STORAGE"
     assert result["profit_adjustment_allowed"] is False
+
+
+def test_v139_duplicate_type_ids_fail_closed():
+    authorization = {
+        "error": False,
+        "status": "PERIOD_PROFIT_MAPPING_REPLACEMENT_AUTHORIZED",
+        "scope": "RETURN",
+        "decision": "AUTHORIZE",
+        "replacement_operations": [
+            {"type_id": 1, "name": "A"},
+            {"type_id": 1, "name": "B"},
+        ],
+        "mapping_build_allowed": True,
+        "mapping_authorized": True,
+        "registry_save_allowed": False,
+        "activation_allowed": False,
+        "automatic_activation_allowed": False,
+        "profit_adjustment_allowed": False,
+        "executed": False,
+    }
+    result = build_authorized_replacement_mapping(authorization)
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REPLACEMENT_OPERATIONS_REQUIRED"
+    assert result["activation_allowed"] is False
 
 
 def test_v140_preview_is_read_only_and_predicts_next_inactive_revision(tmp_path):
@@ -145,6 +171,22 @@ def test_v140_preview_rejects_valid_but_unauthorized_artifact(tmp_path):
     ])
     result = build_replacement_persistence_preview(registry, authorization, unauthorized, diff)
     assert result["code"] == "PERIOD_PROFIT_MAPPING_REPLACEMENT_PREVIEW_INPUT_INVALID"
+    assert result["registry_save_allowed"] is False
+
+
+def test_v140_preview_rejects_tampered_diff(tmp_path):
+    registry = _registry(tmp_path)
+    active = _return_mapping(_ops())
+    registry.save("RETURN", active, activate=True)
+    diff, authorization = _authorized_chain(active)
+    artifact = build_authorized_replacement_mapping(authorization)
+    tampered = dict(diff)
+    tampered["added_operations"] = []
+    tampered["removed_operations"] = []
+    tampered["changed_operations"] = []
+    tampered["change_count"] = 0
+    result = build_replacement_persistence_preview(registry, authorization, artifact, tampered)
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REPLACEMENT_DIFF_MISMATCH"
     assert result["registry_save_allowed"] is False
 
 
