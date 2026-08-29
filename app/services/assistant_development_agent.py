@@ -53,7 +53,12 @@ class AssistantDevelopmentAgent:
             "status": status,
         }
 
-    def run_development_cycle(self, task):
+    def run_development_cycle(
+        self,
+        task,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Runs development support workflow.
 
@@ -72,7 +77,11 @@ class AssistantDevelopmentAgent:
         }
 
         if self.workflow:
-            result["workflow"] = self.execute_workflow(task)
+            result["workflow"] = self.execute_workflow(
+                task,
+                current_sha=current_sha,
+                test_report=test_report,
+            )
         else:
             result["workflow"] = "not_connected"
 
@@ -82,7 +91,10 @@ class AssistantDevelopmentAgent:
             result["project_brain"] = "not_connected"
 
         if self.checkpoint_service:
-            result["checkpoint"] = self.prepare_checkpoint()
+            result["checkpoint"] = self.prepare_checkpoint(
+                current_sha=current_sha,
+                test_report=test_report,
+            )
         else:
             result["checkpoint"] = "not_connected"
 
@@ -93,7 +105,12 @@ class AssistantDevelopmentAgent:
             result["checkpoint"],
         )
 
-        result["status"] = "workflow_completed"
+        report_status = result["report"].get("status")
+        result["status"] = (
+            "workflow_completed"
+            if report_status == "completed"
+            else "workflow_blocked"
+        )
 
         return result
 
@@ -108,10 +125,17 @@ class AssistantDevelopmentAgent:
         Creates development execution report.
         """
 
-        return {
+        status = "completed"
+        if (
+            isinstance(checkpoint, dict)
+            and checkpoint.get("status") == "blocked"
+        ):
+            status = "blocked"
+
+        result = {
             "agent": self.name,
             "task": task,
-            "status": "completed",
+            "status": status,
             "summary": {
                 "workflow": workflow,
                 "project_brain": project_brain,
@@ -119,13 +143,32 @@ class AssistantDevelopmentAgent:
             },
         }
 
-    def execute_workflow(self, task):
+        if isinstance(workflow, dict):
+            verification = workflow.get("verification")
+            if isinstance(verification, dict):
+                result["verification"] = verification
+
+        return result
+
+    def execute_workflow(
+        self,
+        task,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Executes workflow service.
         """
 
+        if current_sha is None:
+            return self.workflow.start_workflow(
+                task
+            )
+
         return self.workflow.start_workflow(
-            task
+            task,
+            current_sha=current_sha,
+            test_report=test_report,
         )
 
     def update_project_brain(self, task):
@@ -150,12 +193,38 @@ Task:
             "date": str(date.today()),
         }
 
-    def prepare_checkpoint(self):
+    def prepare_checkpoint(
+        self,
+        current_sha=None,
+        test_report=None,
+    ):
         """
         Prepares Git checkpoint metadata.
         """
 
-        return self.checkpoint_service.prepare_checkpoint(
+        if current_sha is None:
+            return self.checkpoint_service.prepare_checkpoint(
+                files=[],
+                message="Development workflow checkpoint",
+            )
+
+        verified = getattr(
+            self.checkpoint_service,
+            "prepare_verified_checkpoint",
+            None,
+        )
+        if not callable(verified):
+            return {
+                "status": "blocked",
+                "code": "VERIFIED_CHECKPOINT_CAPABILITY_MISSING",
+                "checkpoint_ready": False,
+                "files_changed": 0,
+                "files": [],
+            }
+
+        return verified(
             files=[],
             message="Development workflow checkpoint",
+            current_sha=current_sha,
+            test_report=test_report,
         )
