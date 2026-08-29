@@ -226,7 +226,7 @@ class ProductUnitEconomicsProvider:
         elif not self.tax_service or not self.tax_mode:
             missing_fields.append("tax")
 
-        return {
+        result = {
             "product_id": (
                 str(facts.get("product_id"))
                 if facts.get("product_id") is not None
@@ -277,6 +277,15 @@ class ProductUnitEconomicsProvider:
                 "finance_sample_days"
             )
         }
+
+        for field in (
+            "unit_economics_source_recorded_at",
+            "unit_economics_observed_at",
+        ):
+            if field in facts and facts.get(field) is not None:
+                result[field] = facts.get(field)
+
+        return result
 
     def _calculate_tax(
         self,
