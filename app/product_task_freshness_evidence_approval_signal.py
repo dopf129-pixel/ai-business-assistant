@@ -2,6 +2,14 @@ from copy import deepcopy
 
 
 ALLOWED_DECISIONS = {"APPROVE", "REJECT"}
+ALLOWED_EVIDENCE_FIELDS = {
+    "sales_source_recorded_at",
+    "sales_observed_at",
+    "stock_source_recorded_at",
+    "stock_observed_at",
+    "unit_economics_source_recorded_at",
+    "unit_economics_observed_at",
+}
 
 
 def build_freshness_evidence_approval_signal(
@@ -21,6 +29,8 @@ def build_freshness_evidence_approval_signal(
         return _blocked(contract, normalized_decision, "APPROVAL_NOT_READY")
     if contract.get("approval_required") is not True:
         return _blocked(contract, normalized_decision, "APPROVAL_NOT_REQUIRED")
+    if contract.get("approval_granted") is not False:
+        return _blocked(contract, normalized_decision, "APPROVAL_SIGNAL_ALREADY_PRESENT")
     if contract.get("freshness_guard_validated") is not True:
         return _blocked(contract, normalized_decision, "FRESHNESS_NOT_VALIDATED")
     if contract.get("preview_freshness_status") != "FRESH":
@@ -30,9 +40,16 @@ def build_freshness_evidence_approval_signal(
     if normalized_decision not in ALLOWED_DECISIONS:
         return _blocked(contract, normalized_decision, "APPROVAL_DECISION_INVALID")
 
-    validated_evidence = deepcopy(contract.get("validated_evidence") or {})
+    raw_evidence = contract.get("validated_evidence") or {}
+    validated_evidence = {
+        field: deepcopy(value)
+        for field, value in dict(raw_evidence).items()
+        if field in ALLOWED_EVIDENCE_FIELDS and value not in (None, "")
+    }
     if not validated_evidence:
         return _blocked(contract, normalized_decision, "VALIDATED_EVIDENCE_REQUIRED")
+    if validated_evidence != raw_evidence:
+        return _blocked(contract, normalized_decision, "VALIDATED_EVIDENCE_UNSAFE")
 
     approved = normalized_decision == "APPROVE"
     return {
@@ -69,6 +86,8 @@ def _context_error(contract):
     sku = str(contract.get("sku") or "").strip()
     if not all((approval_id, request_id, draft_id, sku)):
         return "APPROVAL_CONTEXT_REQUIRED"
+    if approval_id != "evidence-approval:" + draft_id:
+        return "APPROVAL_ID_MISMATCH"
     return None
 
 
