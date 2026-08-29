@@ -11,11 +11,25 @@ def build_period_profit_response(summary, comparison=None):
         "",
         f"Выручка: {_money(source.get('revenue'))}",
         f"Начисления Ozon после комиссий/услуг: {_money(source.get('net_accrual'))}",
+    ]
+
+    if source.get("fee_components_included") is True:
+        lines.extend([
+            "",
+            "Расшифровка удержаний Ozon:",
+            f"• Комиссия: {_money_abs(source.get('commission'))}",
+            f"• Логистика: {_money_abs(source.get('logistics'))}",
+            f"• Эквайринг: {_money_abs(source.get('acquiring'))}",
+            f"• Прочие начисления/удержания: {_money_abs(source.get('other_fees'))}",
+        ])
+
+    lines.extend([
+        "",
         f"Себестоимость: {_money(source.get('product_cost'))}",
         f"Налог: {_money(source.get('tax'))}",
         f"Прибыль: {_money(source.get('profit'))}",
         f"Маржа: {_percent(source.get('margin_percent'))}",
-    ]
+    ])
 
     if isinstance(comparison, dict) and comparison.get("status") == "PERIOD_PROFIT_COMPARISON_READY":
         direction = {"UP": "выросла", "DOWN": "снизилась", "UNCHANGED": "не изменилась"}.get(comparison.get("profit_direction"), "изменилась")
@@ -40,6 +54,10 @@ def build_period_profit_response(summary, comparison=None):
 
 def _money(value):
     return f"{float(value or 0):,.2f} ₽".replace(",", " ")
+
+
+def _money_abs(value):
+    return _money(abs(float(value or 0)))
 
 
 def _percent(value):
