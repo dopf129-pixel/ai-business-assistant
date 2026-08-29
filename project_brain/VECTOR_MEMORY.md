@@ -42,4 +42,6 @@ This stage provides the vector-memory primitive and its deterministic test contr
 
 `tests/test_vector_memory.py` covers ranking, injected embeddings, limits and thresholds, payload isolation, dimension mismatch, and clear behavior.
 
-The roadmap item must not be marked complete until targeted and full repository tests pass.
+Targeted vector-memory tests passed.
+
+The full repository suite was intentionally not rerun for this isolated feature under the reduced full-suite cadence. The previous full regression checkpoint remains `392 passed` from the preceding Self-improvement Cycle stage.
