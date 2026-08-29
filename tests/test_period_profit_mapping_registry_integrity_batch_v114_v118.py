@@ -61,6 +61,19 @@ def test_tampered_mapping_id_is_not_loadable(tmp_path):
     assert service.load_active("RETURN") is None
 
 
+def test_tampered_operation_names_is_not_loadable_even_with_valid_hash(tmp_path):
+    path = tmp_path / "registry.json"
+    service = PeriodProfitMappingRegistryService(str(path), clock=lambda: "t")
+    service.save("RETURN", _mapping(), activate=True)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["scopes"]["RETURN"]["revisions"][0]["mapping"]["operation_names"] = ["Different operation"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    health = service.health()
+    assert health["health_status"] == "CORRUPT"
+    assert service.load_active("RETURN") is None
+
+
 def test_stale_active_revision_is_reported_but_remains_loadable(tmp_path):
     path = tmp_path / "registry.json"
     service = PeriodProfitMappingRegistryService(str(path), clock=lambda: "t")
