@@ -246,3 +246,59 @@ def test_v255_owner_retry_rejects_non_failed_action_without_mutation(tmp_path):
     task = recovered.get_task(USER_ID)["task"]
     assert task["actions"][0]["status"] == "NEW"
     assert "attempt" not in task["actions"][0]
+
+
+def test_v255_invalid_retry_attempt_fails_closed_and_stays_failed(tmp_path):
+    path = tmp_path / "tasks.json"
+    service = AssistantTaskService(file_path=str(path))
+    service.create_task(USER_ID, "Задача", _actions())
+    service.fail_action(USER_ID, "Первый шаг", "failure")
+
+    result = service.prepare_retry_action(
+        USER_ID,
+        "Первый шаг",
+        "not-an-attempt",
+    )
+
+    assert result["error"] is True
+
+    recovered = AssistantTaskService(file_path=str(path))
+    action = recovered.get_task(USER_ID)["task"]["actions"][0]
+    assert action["status"] == "FAILED"
+    assert action["error"] == "failure"
+
+
+def test_v255_replanned_plan_isolated_from_external_mutation(tmp_path):
+    path = tmp_path / "tasks.json"
+    service = AssistantTaskService(file_path=str(path))
+    service.create_task(USER_ID, "Задача", _actions())
+
+    plan = [{
+        "title": "Новый шаг",
+        "type": "test",
+        "status": "NEW",
+    }]
+    applied = service.apply_replan(
+        USER_ID,
+        plan,
+        reason="manual recovery",
+    )
+
+    assert applied["error"] is False
+
+    plan[0]["status"] = "DONE"
+    plan.append({
+        "title": "Внешний шаг",
+        "type": "test",
+        "status": "DONE",
+    })
+
+    in_memory = service.get_task(USER_ID)["task"]["actions"]
+    assert in_memory == [{
+        "title": "Новый шаг",
+        "type": "test",
+        "status": "NEW",
+    }]
+
+    recovered = AssistantTaskService(file_path=str(path))
+    assert recovered.get_task(USER_ID)["task"]["actions"] == in_memory
