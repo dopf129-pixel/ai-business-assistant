@@ -30,14 +30,26 @@ def build_product_decision_user_action_completion_revision(previous_persisted, d
     ):
         return _blocked("USER_ACTION_COMPLETION_REVISION_SAFETY_BOUNDARY_VIOLATION", source)
 
-    previous_revision = int(source.get("completion_revision") or 1)
+    try:
+        previous_revision = int(source.get("completion_revision") or 1)
+    except (TypeError, ValueError):
+        return _blocked("USER_ACTION_COMPLETION_REVISION_NUMBER_INVALID", source)
+    if previous_revision < 1:
+        return _blocked("USER_ACTION_COMPLETION_REVISION_NUMBER_INVALID", source)
+
     next_revision = previous_revision + 1
     completed = normalized_decision == "CONFIRM_COMPLETED"
     root_id = str(source.get("completion_evidence_root_id") or evidence_id).strip()
+    status = (
+        "PRODUCT_DECISION_USER_ACTION_COMPLETION_CONFIRMED"
+        if completed
+        else "PRODUCT_DECISION_USER_ACTION_COMPLETION_DECLINED"
+    )
 
     return {
         "error": False,
-        "status": "PRODUCT_DECISION_USER_ACTION_COMPLETION_REVISION_READY",
+        "status": status,
+        "completion_revision_ready": True,
         "completion_evidence_root_id": root_id,
         "user_action_completion_evidence_id": "%s:revision:%d" % (root_id, next_revision),
         "previous_user_action_completion_evidence_id": evidence_id,
@@ -64,6 +76,7 @@ def _blocked(code, source):
         "error": True,
         "code": code,
         "status": "PRODUCT_DECISION_USER_ACTION_COMPLETION_REVISION_BLOCKED",
+        "completion_revision_ready": False,
         "completion_evidence_root_id": source.get("completion_evidence_root_id"),
         "user_action_completion_evidence_id": None,
         "user_action_checklist_id": source.get("user_action_checklist_id"),
