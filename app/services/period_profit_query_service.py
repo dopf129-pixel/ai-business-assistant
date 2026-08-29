@@ -18,6 +18,7 @@ class PeriodProfitQueryService:
         authorized_return_mapping=None,
         authorized_advertising_mapping=None,
         authorized_storage_mapping=None,
+        mapping_observability_service=None,
     ):
         self.summary_service = summary_service
         self.product_provider = product_provider
@@ -26,6 +27,7 @@ class PeriodProfitQueryService:
         self.authorized_return_mapping = dict(authorized_return_mapping or {})
         self.authorized_advertising_mapping = dict(authorized_advertising_mapping or {})
         self.authorized_storage_mapping = dict(authorized_storage_mapping or {})
+        self.mapping_observability_service = mapping_observability_service
 
     def query(self, period_code=None, date_from=None, date_to=None, compare_previous=False, today=None):
         request = build_period_profit_request(period_code=period_code, date_from=date_from, date_to=date_to, today=today)
@@ -65,6 +67,10 @@ class PeriodProfitQueryService:
         if coverage.get("error"):
             return coverage
 
+        mapping_observability = None
+        if self.mapping_observability_service is not None:
+            mapping_observability = self.mapping_observability_service.snapshot()
+
         comparison = None
         previous_summary = None
         if compare_previous:
@@ -85,6 +91,7 @@ class PeriodProfitQueryService:
             return_financial_evidence,
             advertising_evidence,
             storage_evidence,
+            mapping_observability,
         )
         if response.get("error"):
             return response
@@ -99,6 +106,7 @@ class PeriodProfitQueryService:
             "return_financial_evidence": return_financial_evidence,
             "advertising_financial_evidence": advertising_evidence,
             "storage_financial_evidence": storage_evidence,
+            "mapping_observability": mapping_observability,
             "previous_summary": previous_summary,
             "comparison": comparison,
             "text": response["text"],
