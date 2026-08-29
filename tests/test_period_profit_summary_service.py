@@ -13,8 +13,26 @@ class Costs:
 
 def test_calculates_period_profit_with_explicit_scope():
     finance = Finance({
-        ("2026-08-01", "100"): {"error": False, "sales_count": 2, "gross_sales": 200, "net_accrual": 150},
-        ("2026-08-02", "100"): {"error": False, "sales_count": 1, "gross_sales": 100, "net_accrual": 75},
+        ("2026-08-01", "100"): {
+            "error": False,
+            "sales_count": 2,
+            "gross_sales": 200,
+            "net_accrual": 150,
+            "commission": -20,
+            "logistics": -15,
+            "acquiring": -3,
+            "other_fees": -12,
+        },
+        ("2026-08-02", "100"): {
+            "error": False,
+            "sales_count": 1,
+            "gross_sales": 100,
+            "net_accrual": 75,
+            "commission": -10,
+            "logistics": -8,
+            "acquiring": -2,
+            "other_fees": -5,
+        },
     })
     costs = Costs({"10": ("10", "100", "hook", 20.0, "RUB", None)})
     result = PeriodProfitSummaryService(finance, costs, tax_rate=0.06).calculate(
@@ -24,9 +42,14 @@ def test_calculates_period_profit_with_explicit_scope():
     assert result["units_sold"] == 3
     assert result["revenue"] == 300
     assert result["net_accrual"] == 225
+    assert result["commission"] == -30
+    assert result["logistics"] == -23
+    assert result["acquiring"] == -5
+    assert result["other_fees"] == -17
     assert result["product_cost"] == 60
     assert result["tax"] == 18
     assert result["profit"] == 147
+    assert result["fee_components_included"] is True
     assert result["returns_included"] is False
     assert result["advertising_included"] is False
 
