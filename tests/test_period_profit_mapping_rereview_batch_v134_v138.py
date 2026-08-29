@@ -94,3 +94,17 @@ def test_authorization_still_blocks_save_and_activation():
     assert result["activation_allowed"] is False
     assert result["profit_adjustment_allowed"] is False
     assert result["executed"] is False
+
+
+def test_malformed_mapping_fails_closed_without_exception():
+    result = build_mapping_rereview_candidate(_quality(), ["not", "a", "mapping"], _catalog())
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REREVIEW_ACTIVE_MAPPING_REQUIRED"
+    assert result["automatic_remap_allowed"] is False
+
+
+def test_malformed_operation_is_ignored_and_required_target_blocks():
+    mapping = _mapping()
+    mapping["operations"] = [{"name": "missing id"}, mapping["operations"][2]]
+    result = build_mapping_rereview_candidate(_quality(), mapping, _catalog())
+    assert result["code"] == "PERIOD_PROFIT_MAPPING_REREVIEW_MAPPING_TARGET_MISSING"
+    assert result["automatic_activation_allowed"] is False
