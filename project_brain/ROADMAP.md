@@ -190,7 +190,7 @@ Tasks:
 [x] Long-running tasks
 
 
-[ ] Self-improvement cycle
+[x] Self-improvement cycle
 
 
 
