@@ -84,6 +84,24 @@ def test_non_fresh_preview_is_blocked():
     assert result["application_allowed"] is False
 
 
+def test_forged_validated_flag_without_fresh_status_is_blocked():
+    result = build_freshness_evidence_approval_contract(
+        _draft(),
+        _candidate(
+            sales_source_recorded_at="2026-08-29T11:55:00+00:00",
+            stock_source_recorded_at="2026-08-29T11:56:00+00:00",
+        ),
+        _preview(
+            preview_freshness_status="STALE",
+            preview_freshness_validated=True,
+        ),
+    )
+
+    assert result["code"] == "FRESHNESS_NOT_VALIDATED"
+    assert result["approval_ready"] is False
+    assert result["approval_granted"] is False
+
+
 def test_candidate_and_preview_evidence_must_match_exactly():
     result = build_freshness_evidence_approval_contract(
         _draft(),
