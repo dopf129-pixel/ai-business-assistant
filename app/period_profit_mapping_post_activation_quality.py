@@ -37,12 +37,15 @@ def build_post_activation_validation_request(activation_audit):
 
 
 def refresh_post_activation_quality(quality_service, validation_request):
-    """v150: read the existing quality service after activation and bind its scope result to the activated lineage."""
+    """v150: read existing quality evidence and bind it to the exact activated lineage."""
     request = _dict(validation_request)
     if request.get("status") != "PERIOD_PROFIT_MAPPING_POST_ACTIVATION_VALIDATION_REQUEST_READY" or request.get("error") is not False:
         return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_VALIDATION_REQUEST_REQUIRED")
-    report = quality_service.report()
-    if report.get("error") is not False or report.get("status") != "PERIOD_PROFIT_MAPPING_QUALITY_REPORT_READY":
+    try:
+        report = quality_service.report()
+    except Exception:
+        return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_QUALITY_REPORT_REQUIRED")
+    if not isinstance(report, dict) or report.get("error") is not False or report.get("status") != "PERIOD_PROFIT_MAPPING_QUALITY_REPORT_READY":
         return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_QUALITY_REPORT_REQUIRED")
     scope = request.get("scope")
     scope_quality = _dict(_dict(report.get("scopes")).get(scope))
@@ -76,11 +79,10 @@ def refresh_post_activation_quality(quality_service, validation_request):
 
 
 def evaluate_post_activation_review_closure(refreshed_quality):
-    """v151-v152: close only with current exact-catalog evidence; otherwise stay unresolved and fail closed."""
+    """v151-v152: close only with current exact-catalog evidence; otherwise stay unresolved."""
     source = _dict(refreshed_quality)
     if source.get("status") != "PERIOD_PROFIT_MAPPING_POST_ACTIVATION_QUALITY_REFRESHED" or source.get("error") is not False:
         return _error("PERIOD_PROFIT_MAPPING_POST_ACTIVATION_REFRESHED_QUALITY_REQUIRED")
-
     reasons = []
     if source.get("catalog_available") is not True:
         reasons.append("CATALOG_UNAVAILABLE")
@@ -94,7 +96,6 @@ def evaluate_post_activation_review_closure(refreshed_quality):
         reasons.append("FRESHNESS_NOT_FRESH")
     if source.get("review_required") is True and not reasons:
         reasons.append("REVIEW_STILL_REQUIRED")
-
     closed = not reasons
     return {
         "error": False,
