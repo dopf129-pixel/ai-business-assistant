@@ -1,6 +1,7 @@
 from period_profit_request import build_period_profit_request, build_previous_period_profit_request
 from period_profit_comparison import build_period_profit_comparison
 from period_profit_response import build_period_profit_response
+from period_profit_coverage import build_period_profit_coverage
 
 
 class PeriodProfitQueryService:
@@ -22,6 +23,10 @@ class PeriodProfitQueryService:
         summary = self.summary_service.calculate(request["date_from"], request["date_to"], products)
         if summary.get("error"):
             return summary
+
+        coverage = build_period_profit_coverage(summary)
+        if coverage.get("error"):
+            return coverage
 
         comparison = None
         previous_summary = None
@@ -45,6 +50,7 @@ class PeriodProfitQueryService:
             "status": "PERIOD_PROFIT_QUERY_READY",
             "request": request,
             "summary": summary,
+            "coverage": coverage,
             "previous_summary": previous_summary,
             "comparison": comparison,
             "text": response["text"],
