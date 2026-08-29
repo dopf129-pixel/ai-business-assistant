@@ -1,6 +1,7 @@
 import hashlib
 import math
 import re
+from copy import deepcopy
 
 
 class AssistantVectorMemoryService:
@@ -29,7 +30,7 @@ class AssistantVectorMemoryService:
 
         item = {
             "text": normalized_text,
-            "payload": dict(payload or {}),
+            "payload": deepcopy(payload or {}),
             "vector": vector,
         }
 
@@ -148,5 +149,5 @@ class AssistantVectorMemoryService:
     def _public_item(self, item):
         return {
             "text": item["text"],
-            "payload": dict(item["payload"]),
+            "payload": deepcopy(item["payload"]),
         }
