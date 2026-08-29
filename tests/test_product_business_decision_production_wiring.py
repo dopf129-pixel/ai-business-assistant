@@ -144,6 +144,7 @@ def test_production_factory_wires_storage_only_proposal_confirmation():
         confirmation.task_draft_service
     )
     assert query.task_draft_review_queue_service is not None
+    assert query.task_draft_readiness_service is not None
 
 
 def test_production_query_uses_real_prepared_stock_and_sales_path():

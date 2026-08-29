@@ -1033,3 +1033,25 @@ Preserved:
 - audit facts do not influence decisions or queue score;
 - old history is never inferred;
 - detail and audit paths cannot execute tasks or mutate Ozon.
+
+---
+
+# Product Task Draft Readiness Checklist v1 — 2026-08-28
+
+Completed:
+
+[x] Separate ProductTaskDraftReadinessService
+[x] Proposal-specific factual requirements
+[x] Review-ready / needs-data distinction
+[x] Explicit missing-field output
+[x] Proposal-specific execution policy blockers
+[x] Detail-card readiness section
+[x] Review-queue readiness counts and item labels
+[x] Production composition wiring
+
+Preserved:
+
+- review_ready never implies execution_ready;
+- execution_ready_count remains zero;
+- missing values are not inferred;
+- checklist does not mutate decisions, drafts, or Ozon.

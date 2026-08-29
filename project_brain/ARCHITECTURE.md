@@ -760,3 +760,23 @@ Read-only Telegram Detail Card
 Audit events are written only with real lifecycle transitions. Idempotent
 commands add no event. Legacy records are returned with an explicit unavailable
 history marker instead of inferred events. Audit data never reaches an executor.
+
+Draft readiness flow:
+
+Draft Snapshot
+
+↓
+
+ProductTaskDraftReadinessService
+
+↓
+
+Factual Review Checks + Explicit Missing Fields
+
+↓
+
+Review Ready or Needs Data / Refresh
+
+Execution readiness is a separate hard-false output. It always includes the
+disconnected workflow blocker plus proposal-specific policy blockers. The
+readiness service is read-only and cannot mutate a draft or invoke an executor.

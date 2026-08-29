@@ -60,8 +60,12 @@ class ProductActionTaskDraftService:
             "decision_type": decision.get("decision_type"),
             "priority": decision.get("priority"),
             "decision_recorded_at": recorded_at,
+            "current_stock": decision.get("current_stock"),
+            "sales_velocity": decision.get("sales_velocity"),
+            "days_of_stock": decision.get("days_of_stock"),
             "profit_per_unit": decision.get("profit_per_unit"),
             "margin_percent": decision.get("margin_percent"),
+            "economics_basis": decision.get("economics_basis"),
             "created_at": (
                 self.records[index].get("created_at")
                 if index is not None

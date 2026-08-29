@@ -121,6 +121,36 @@ class AssistantButtonHandlerService:
         "ARCHIVED": "Черновик архивирован",
     }
 
+    TASK_DRAFT_READINESS_FIELD_LABELS = {
+        "current_stock": "Текущий остаток",
+        "sales_velocity": "Скорость продаж",
+        "days_of_stock": "Дни запаса",
+        "profit_per_unit": "Прибыль с единицы",
+        "margin_percent": "Маржа",
+        "economics_basis": "Источник юнит-экономики",
+    }
+
+    TASK_DRAFT_EXECUTION_BLOCKER_LABELS = {
+        "EXECUTION_WORKFLOW_NOT_CONNECTED": (
+            "исполнительный workflow не подключён"
+        ),
+        "REPLENISHMENT_QUANTITY_POLICY_MISSING": (
+            "не утверждена политика количества пополнения"
+        ),
+        "SUPPLIER_LEAD_TIME_MISSING": (
+            "не указан срок поставки"
+        ),
+        "ACTION_POLICY_NOT_DEFINED": (
+            "не утверждена политика дальнейшего действия"
+        ),
+        "PRICE_CHANGE_POLICY_MISSING": (
+            "не утверждена политика изменения цены"
+        ),
+        "TARGET_MARGIN_POLICY_MISSING": (
+            "не задана целевая маржа"
+        ),
+    }
+
     MISSING_DATA_LABELS = {
         "advertising": "Реклама",
         "storage": "Хранение",
@@ -748,6 +778,16 @@ class AssistantButtonHandlerService:
         else:
             queue = None
             drafts = summary.get("drafts") or []
+        readiness_service = getattr(
+            self.product_business_decision_query,
+            "task_draft_readiness_service",
+            None,
+        )
+        if readiness_service is not None:
+            readiness_summary = readiness_service.summarize(drafts)
+            drafts = readiness_summary.get("items") or []
+        else:
+            readiness_summary = None
         if queue is not None:
             priority_counts = queue.get("priority_counts") or {}
             lines.extend([
@@ -757,6 +797,19 @@ class AssistantButtonHandlerService:
                 "Высокий: " + str(priority_counts.get("HIGH", 0)),
                 "Обычный: " + str(priority_counts.get("NORMAL", 0)),
                 "Низкий: " + str(priority_counts.get("LOW", 0)),
+            ])
+        if readiness_summary is not None:
+            readiness_counts = readiness_summary.get("counts") or {}
+            lines.extend([
+                "",
+                "Готовность к ручной проверке:",
+                "Данных достаточно: "
+                + str(readiness_counts.get("READY_FOR_REVIEW", 0)),
+                "Нужны данные или обновление: "
+                + str(
+                    readiness_counts.get("NEEDS_DATA_OR_REFRESH", 0)
+                ),
+                "Готово к исполнению: 0",
             ])
         if drafts:
             lines.extend(["", "Очередь проверки:"])
@@ -797,6 +850,16 @@ class AssistantButtonHandlerService:
                             for reason in review_reasons
                         )
                     )
+                readiness = draft.get("readiness") or {}
+                if readiness:
+                    lines.append(
+                        "  Готовность: "
+                        + (
+                            "данных достаточно для проверки"
+                            if readiness.get("review_ready")
+                            else "нужны данные или актуализация"
+                        )
+                    )
         lines.extend([
             "",
             "Черновики не выполняют действий и не изменяют данные Ozon.",
@@ -806,6 +869,7 @@ class AssistantButtonHandlerService:
             "message": "\n".join(lines),
             "summary": summary,
             "review_queue": queue,
+            "readiness_summary": readiness_summary,
             "executed": False,
         }
         if self.keyboard_service:
@@ -857,6 +921,16 @@ class AssistantButtonHandlerService:
                 "executed": False,
             }
         draft = result.get("task_draft") or {}
+        readiness_service = getattr(
+            self.product_business_decision_query,
+            "task_draft_readiness_service",
+            None,
+        )
+        readiness = (
+            readiness_service.evaluate(draft)
+            if readiness_service is not None
+            else None
+        )
         lines = [
             "📋 Черновик задачи",
             "",
@@ -897,6 +971,41 @@ class AssistantButtonHandlerService:
                     str(event.get("event_type") or "—"),
                 )
             )
+        if readiness is not None:
+            lines.extend([
+                "",
+                "Готовность к ручной проверке:",
+                (
+                    "Данных достаточно"
+                    if readiness.get("review_ready")
+                    else "Нужны данные или актуализация"
+                ),
+            ])
+            missing_fields = readiness.get("missing_fields") or []
+            if missing_fields:
+                lines.append(
+                    "Не хватает: "
+                    + ", ".join(
+                        self.TASK_DRAFT_READINESS_FIELD_LABELS.get(
+                            field,
+                            str(field),
+                        )
+                        for field in missing_fields
+                    )
+                )
+            lines.extend([
+                "",
+                "Готовность к исполнению: нет",
+                "Причины блокировки:",
+            ])
+            lines.extend(
+                "• "
+                + self.TASK_DRAFT_EXECUTION_BLOCKER_LABELS.get(
+                    blocker,
+                    str(blocker),
+                )
+                for blocker in readiness.get("execution_blockers") or []
+            )
         lines.extend([
             "",
             "Исполнение: недоступно.",
@@ -907,6 +1016,7 @@ class AssistantButtonHandlerService:
             "message": "\n".join(lines),
             "task_draft": draft,
             "audit_events": events,
+            "readiness": readiness,
             "executed": False,
         }
         if self.keyboard_service:

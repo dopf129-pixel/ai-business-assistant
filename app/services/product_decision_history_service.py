@@ -242,6 +242,7 @@ class ProductDecisionHistoryService:
             "confidence": decision.get("confidence"),
             "reasons": list(decision.get("reasons") or []),
             "sales_velocity": decision.get("sales_velocity"),
+            "current_stock": decision.get("current_stock"),
             "days_of_stock": decision.get("days_of_stock"),
             "profit_per_unit": decision.get("decision_profit_per_unit"),
             "margin_percent": decision.get("decision_margin_percent"),

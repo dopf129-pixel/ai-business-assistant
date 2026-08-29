@@ -47,6 +47,7 @@ class ProductBusinessDecisionQueryService:
             None,
         )
         self.task_draft_review_queue_service = None
+        self.task_draft_readiness_service = None
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
         self.clock = clock or monotonic
         self._decision_cache = {}

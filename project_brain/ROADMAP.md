@@ -294,8 +294,10 @@ Current:
 
 [x] Autonomous Assistant v6 — Draft Detail and Audit Trail
 
+[x] Autonomous Assistant v7 — Draft Readiness Checklist
+
 
 Next:
 
 
-[ ] Autonomous Assistant v7 — Draft Readiness Checklist
+[ ] Autonomous Assistant v8 — Draft Data Freshness Guards
