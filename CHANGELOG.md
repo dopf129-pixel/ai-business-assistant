@@ -12,6 +12,7 @@
 - embedding dimension mismatches fail explicitly;
 - targeted vector-memory tests passed;
 - full repository suite intentionally not rerun for this isolated feature under the reduced full-suite cadence;
+- previous full regression checkpoint remains `392 passed` from the preceding Self-improvement Cycle stage;
 - no Product Decision execution, Action Executor connection, Ozon mutation, or business execution wiring was changed.
 
 ## 2026-08-29 — Self-improvement Cycle v1
