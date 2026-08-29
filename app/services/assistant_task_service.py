@@ -1,5 +1,6 @@
 import json
 import os
+from copy import deepcopy
 
 
 from core.task_states import TaskStatus
@@ -1663,12 +1664,36 @@ class AssistantTaskService:
             }
 
 
+        try:
+
+            next_attempt = int(
+                attempt
+            )
+
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            return {
+                "error": True,
+                "message": "Invalid retry attempt"
+            }
+
+
+        if next_attempt < 1:
+
+            return {
+                "error": True,
+                "message": "Invalid retry attempt"
+            }
+
+
         action["status"] = "NEW"
 
 
-        action["attempt"] = int(
-            attempt
-        )
+        action["attempt"] = next_attempt
 
 
         action.pop(
@@ -1730,7 +1755,7 @@ class AssistantTaskService:
             }
 
 
-        task["actions"] = list(
+        task["actions"] = deepcopy(
             actions
         )
 
