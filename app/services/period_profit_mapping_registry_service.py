@@ -110,11 +110,9 @@ class PeriodProfitMappingRegistryService:
     def history(self, scope):
         normalized = str(scope or "").strip().upper()
         registry, health = self._read_registry()
-        scope_state = registry["scopes"].get(normalized) or {
-            "active_revision_id": None,
-            "revisions": [],
-            "events": [],
-        }
+        scope_state = registry["scopes"].get(normalized)
+        if not isinstance(scope_state, dict):
+            scope_state = {"active_revision_id": None, "revisions": [], "events": []}
         return {
             "error": False,
             "status": "PERIOD_PROFIT_MAPPING_HISTORY_READY",
@@ -131,10 +129,14 @@ class PeriodProfitMappingRegistryService:
         registry, health = self._read_registry()
         scopes = {}
         for scope in sorted(SCOPES):
-            state = registry["scopes"].get(scope) or {}
+            state = registry["scopes"].get(scope)
+            if not isinstance(state, dict):
+                state = {}
             revisions = state.get("revisions") or []
+            revisions = revisions if isinstance(revisions, list) else []
             active = state.get("active_revision_id")
-            latest = revisions[-1].get("revision_id") if revisions else None
+            latest_row = revisions[-1] if revisions and isinstance(revisions[-1], dict) else {}
+            latest = latest_row.get("revision_id")
             scopes[scope] = {
                 "active_revision_id": active,
                 "latest_revision_id": latest,
@@ -158,7 +160,9 @@ class PeriodProfitMappingRegistryService:
         }
 
     def _validate_mapping(self, scope, mapping):
-        source = dict(mapping or {})
+        if not isinstance(mapping, dict):
+            return self._error("PERIOD_PROFIT_AUTHORIZED_MAPPING_REQUIRED")
+        source = dict(mapping)
         if scope not in SCOPES:
             return self._error("PERIOD_PROFIT_MAPPING_SCOPE_INVALID")
         if scope == "RETURN":
