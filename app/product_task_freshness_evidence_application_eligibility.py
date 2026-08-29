@@ -28,12 +28,27 @@ def build_freshness_evidence_application_eligibility(
         return _blocked(contract, signal, "APPROVAL_NOT_READY")
     if contract.get("approval_required") is not True:
         return _blocked(contract, signal, "APPROVAL_NOT_REQUIRED")
+    if contract.get("approval_granted") is not False:
+        return _blocked(contract, signal, "CONTRACT_APPROVAL_STATE_INVALID")
     if contract.get("freshness_guard_validated") is not True:
         return _blocked(contract, signal, "FRESHNESS_NOT_VALIDATED")
     if contract.get("preview_freshness_status") != "FRESH":
         return _blocked(contract, signal, "FRESHNESS_NOT_VALIDATED")
     if contract.get("application_allowed") is not False:
         return _blocked(contract, signal, "APPLICATION_BOUNDARY_VIOLATION")
+    if contract.get("persistent") is not False:
+        return _blocked(contract, signal, "CONTRACT_PERSISTENCE_BOUNDARY_VIOLATION")
+    if contract.get("source_freshness_proven") is not False:
+        return _blocked(contract, signal, "CONTRACT_FRESHNESS_BOUNDARY_VIOLATION")
+    if any(contract.get(field) is not False for field in (
+        "product_decision_recomputed",
+        "product_decision_mutated",
+        "task_draft_mutated",
+        "execution_allowed",
+        "execution_ready",
+        "executed",
+    )):
+        return _blocked(contract, signal, "CONTRACT_SAFETY_BOUNDARY_VIOLATION")
 
     if signal.get("status") != "APPROVED":
         return _blocked(contract, signal, "APPROVAL_SIGNAL_NOT_APPROVED")
@@ -51,6 +66,8 @@ def build_freshness_evidence_application_eligibility(
         return _blocked(contract, signal, "APPLICATION_ALREADY_STARTED")
     if signal.get("persistent") is not False:
         return _blocked(contract, signal, "SIGNAL_PERSISTENCE_BOUNDARY_VIOLATION")
+    if signal.get("source_freshness_proven") is not False:
+        return _blocked(contract, signal, "SIGNAL_FRESHNESS_BOUNDARY_VIOLATION")
     if any(signal.get(field) is not False for field in (
         "product_decision_recomputed",
         "product_decision_mutated",
@@ -61,8 +78,8 @@ def build_freshness_evidence_application_eligibility(
     )):
         return _blocked(contract, signal, "SIGNAL_SAFETY_BOUNDARY_VIOLATION")
 
-    contract_evidence = _safe_evidence(contract.get("validated_evidence") or {})
-    signal_evidence = _safe_evidence(signal.get("validated_evidence") or {})
+    contract_evidence = _safe_evidence(contract.get("validated_evidence"))
+    signal_evidence = _safe_evidence(signal.get("validated_evidence"))
     if not contract_evidence or not signal_evidence:
         return _blocked(contract, signal, "VALIDATED_EVIDENCE_REQUIRED")
     if contract_evidence != contract.get("validated_evidence"):
@@ -117,9 +134,11 @@ def _context_error(contract, signal):
 
 
 def _safe_evidence(values):
+    if not isinstance(values, dict):
+        return {}
     return {
         field: deepcopy(value)
-        for field, value in dict(values or {}).items()
+        for field, value in values.items()
         if field in ALLOWED_EVIDENCE_FIELDS and value not in (None, "")
     }
 
