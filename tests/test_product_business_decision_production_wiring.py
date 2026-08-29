@@ -186,14 +186,15 @@ def test_production_source_preserves_product_sales_trend():
     assert sales["sales_observed_at"]
     assert "sales_source_recorded_at" not in sales
 
-    assert stock == {
-        "product_id": "101",
-        "sku": "hook-2",
-        "current_stock": 4,
-        "days_of_stock": 2.0,
-        "priority": "CRITICAL",
-        "missing_data": [],
-    }
+    assert stock["product_id"] == "101"
+    assert stock["sku"] == "hook-2"
+    assert stock["current_stock"] == 4
+    assert stock["days_of_stock"] == 2.0
+    assert stock["priority"] == "CRITICAL"
+    assert stock["missing_data"] == []
+    assert isinstance(stock["stock_observed_at"], str)
+    assert stock["stock_observed_at"]
+    assert "stock_source_recorded_at" not in stock
 
 
 def test_production_query_keeps_unknown_tax_as_insufficient_data():
