@@ -55,6 +55,16 @@ class AssistantCoreService:
                 )
             )
 
+            if not self._valid_context_result(
+                context
+            ):
+
+                return {
+                    "error": True,
+                    "message":
+                        "INVALID_USER_CONTEXT_RESULT"
+                }
+
 
 
         elif (
@@ -99,12 +109,22 @@ class AssistantCoreService:
             and user_id is not None
         ):
 
-            self.user_context_service.update(
-                user_id,
-                "last_message",
-                text
+            update_result = (
+                self.user_context_service
+                .update(
+                    user_id,
+                    "last_message",
+                    text
+                )
             )
 
+            if not self._valid_update_result(
+                update_result
+            ):
+                return self._context_failure(
+                    result,
+                    "INVALID_USER_CONTEXT_UPDATE_RESULT"
+                )
 
             context = (
                 self.user_context_service
@@ -112,6 +132,14 @@ class AssistantCoreService:
                     user_id
                 )
             )
+
+            if not self._valid_context_result(
+                context
+            ):
+                return self._context_failure(
+                    result,
+                    "INVALID_USER_CONTEXT_REFRESH_RESULT"
+                )
 
 
 
@@ -141,3 +169,75 @@ class AssistantCoreService:
             )
             is bool
         )
+
+
+    @staticmethod
+    def _valid_context_result(
+        result
+    ):
+
+        return (
+            isinstance(
+                result,
+                dict
+            )
+            and result.get(
+                "error"
+            )
+            is False
+            and isinstance(
+                result.get(
+                    "context"
+                ),
+                dict
+            )
+            and isinstance(
+                result.get(
+                    "memory"
+                ),
+                dict
+            )
+        )
+
+
+    @staticmethod
+    def _valid_update_result(
+        result
+    ):
+
+        return (
+            isinstance(
+                result,
+                dict
+            )
+            and result.get(
+                "error"
+            )
+            is False
+            and result.get(
+                "updated"
+            )
+            is True
+        )
+
+
+    @staticmethod
+    def _context_failure(
+        result,
+        code
+    ):
+
+        if result.get(
+            "error"
+        ):
+            return result
+
+        failed = dict(
+            result
+        )
+
+        failed[
+            "context_persistence_error"
+        ] = code
+
+        return failed
