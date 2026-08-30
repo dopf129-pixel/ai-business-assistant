@@ -28,6 +28,16 @@ class StorePeriodReportService:
         products
     ):
 
+        if self.profit_service is None:
+
+            return {
+                "error": True,
+                "message": (
+                    "Сервис расчёта прибыли периода недоступен"
+                )
+            }
+
+
         if not current_period:
 
             return {
