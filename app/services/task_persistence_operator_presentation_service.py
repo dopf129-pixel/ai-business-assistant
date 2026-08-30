@@ -16,12 +16,13 @@ class TaskPersistenceOperatorPresentationService:
                 "Критических проблем persistence не обнаружено. "
                 "Автоматическое восстановление lock отключено."
             )
-        elif "TASK_WRITE_LOCK_PRESENT_UNOWNED" in blockers:
+        elif "TASK_FILE_WRITE_LOCKED" in blockers:
             message = (
                 "Хранилище задач: заблокировано. "
-                "Обнаружен write-lock, но его владелец и stale-статус не подтверждены. "
-                "Не удаляйте lock автоматически. "
-                "Сначала вручную подтвердите владельца и безопасность удаления."
+                "При последней попытке записи kernel lock был занят другим writer. "
+                "Владелец и stale-статус не выводятся. "
+                "Не удаляйте coordination file: он не является признаком stale lock. "
+                "Повторите запись вручную только после завершения активного writer."
             )
         elif "TASK_WRITE_LOCK_INSPECTION_FAILED" in blockers:
             message = (

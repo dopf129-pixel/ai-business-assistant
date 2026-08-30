@@ -1,3 +1,5 @@
+> **Current-runtime note (v378-v387):** the v333-v342 `O_EXCL` ownership primitive described below is historical. Current runtime ownership uses kernel-backed `fcntl.flock`; the coordination file persists and its existence does not block writes. See `TASK_PERSISTENCE_KERNEL_LOCK_V2.md`.
+
 # Task Persistence Write Lock V1
 
 Date: 2026-08-30  

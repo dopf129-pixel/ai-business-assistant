@@ -1,3 +1,5 @@
+> **Current-runtime note (v378-v387):** coordination-file presence is no longer treated as an active/unowned lock blocker. Current diagnostics use kernel-lock evidence; actual contention is recorded as `TASK_FILE_WRITE_LOCKED`. See `TASK_PERSISTENCE_KERNEL_LOCK_V2.md`.
+
 # Task Persistence Operator Readiness V1
 
 Date: 2026-08-30  

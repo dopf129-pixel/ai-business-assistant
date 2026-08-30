@@ -3,6 +3,11 @@ import json
 import os
 from copy import deepcopy
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 from core.task_states import TaskStatus
 from services.assistant_task_service import AssistantTaskService
 
@@ -66,26 +71,61 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         return self.file_path + ".lock"
 
     def _acquire_write_lock(self):
+        if fcntl is None:
+            raise RuntimeError("TASK_FILE_KERNEL_LOCK_UNAVAILABLE")
+
+        if getattr(self, "_write_lock_fd", None) is not None:
+            raise FileExistsError("TASK_FILE_WRITE_LOCKED")
+
         folder = os.path.dirname(self.file_path)
         if folder:
             os.makedirs(folder, exist_ok=True)
 
         lock_fd = os.open(
             self._write_lock_path(),
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            os.O_CREAT | os.O_RDWR,
             0o600,
         )
-        os.close(lock_fd)
+
+        try:
+            fcntl.flock(
+                lock_fd,
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+            os.fchmod(lock_fd, 0o600)
+        except BlockingIOError:
+            os.close(lock_fd)
+            raise FileExistsError("TASK_FILE_WRITE_LOCKED") from None
+        except Exception:
+            os.close(lock_fd)
+            raise
+
+        self._write_lock_fd = lock_fd
 
     def _release_write_lock(self):
-        try:
-            os.remove(self._write_lock_path())
-        except FileNotFoundError:
+        lock_fd = getattr(self, "_write_lock_fd", None)
+        if lock_fd is None:
             self._last_lock_release_issue = "TASK_FILE_WRITE_LOCK_MISSING"
+            return
+
+        release_issue = None
+
+        try:
+            if fcntl is None:
+                release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
+            else:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
         except Exception:
-            self._last_lock_release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
-        else:
-            self._last_lock_release_issue = None
+            release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
+
+        try:
+            os.close(lock_fd)
+        except Exception:
+            release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
+        finally:
+            self._write_lock_fd = None
+
+        self._last_lock_release_issue = release_issue
 
     def _sync_parent_directory(self):
         folder = os.path.dirname(self.file_path) or "."
@@ -246,23 +286,39 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         }
 
     def get_write_lock_diagnostics(self):
-        try:
-            os.stat(self._write_lock_path())
-        except FileNotFoundError:
-            inspection_state = "ABSENT"
-            lock_present = False
-            ownership_state = "NONE"
-            manual_intervention_required = False
-        except Exception:
+        if fcntl is None:
+            coordination_file_present = None
             inspection_state = "CHECK_ERROR"
             lock_present = None
             ownership_state = "UNKNOWN"
             manual_intervention_required = True
+            kernel_lock_guard = False
         else:
-            inspection_state = "PRESENT"
-            lock_present = True
-            ownership_state = "UNKNOWN"
-            manual_intervention_required = True
+            try:
+                os.stat(self._write_lock_path())
+            except FileNotFoundError:
+                coordination_file_present = False
+            except Exception:
+                coordination_file_present = None
+                inspection_state = "CHECK_ERROR"
+                lock_present = None
+                ownership_state = "UNKNOWN"
+                manual_intervention_required = True
+                kernel_lock_guard = True
+            else:
+                coordination_file_present = True
+
+            if coordination_file_present is not None:
+                kernel_lock_guard = True
+                if getattr(self, "_write_lock_fd", None) is not None:
+                    inspection_state = "SELF_HELD"
+                    lock_present = True
+                    ownership_state = "SELF"
+                else:
+                    inspection_state = "NO_ACTIVE_LOCK_EVIDENCE"
+                    lock_present = None
+                    ownership_state = "UNKNOWN"
+                manual_intervention_required = False
 
         return {
             "error": False,
@@ -270,6 +326,9 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "inspection_state": inspection_state,
             "lock_present": lock_present,
             "ownership_state": ownership_state,
+            "coordination_file_present": coordination_file_present,
+            "kernel_lock_guard": kernel_lock_guard,
+            "orphan_file_blocks_writes": False,
             "stale_proven": False,
             "automatic_recovery_allowed": False,
             "manual_lock_removal_allowed": False,
