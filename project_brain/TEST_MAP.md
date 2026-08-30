@@ -1782,3 +1782,33 @@ Tests:
 - сохранение injected report-service path;
 - fail-closed malformed summary runner output;
 - отсутствие AttributeError на default summary composition.
+
+
+---
+
+# Unknown Advertising Financial Evidence v1
+
+Services / composition:
+
+- telegram_core_factory.create_telegram_core
+- BusinessAnalyticsService
+- SalesIntelligenceService
+- AssistantSalesExecutorService
+- AdvertisingDashboardService
+- BusinessProfitDashboardService
+
+Tests:
+
+- tests/test_unknown_advertising_financial_evidence_v514_v520.py
+- test_business_analytics.py
+- tests/test_sales_intelligence_production_wiring.py
+
+Проверяет:
+
+- production default advertising evidence остаётся unknown;
+- explicit zero остаётся известным нулём;
+- unknown advertising блокирует business_profit и margin;
+- unknown tax + advertising перечисляются как missing evidence;
+- tax error не маскируется;
+- Sales Intelligence не нормализует unknown profit в zero;
+- seller-facing analysis/dashboard presentation показывает «—», а не 0/None.
