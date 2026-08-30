@@ -4,62 +4,60 @@ Date: 2026-08-30
 
 ## Latest verified product baseline
 
-`0f8ae846a06652743c698ec671ab586bbf1bb4bd`
+`05f6546cf4110ff5a507f4fb145599e4f842dd7a`
 
 Latest merged production-correctness batch:
 
-`v620-v628: User Storage Load Integrity`
+`v629-v637: User Storage Atomic Write Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `e8a133baefb6743d4248842a8ce26069606b5652`
-- push Verify #300
+- exact main: `574c7199c1a08e889452b0f604ef470d98bf7de3`
+- push Verify #314
 - conclusion: success
-- tests: 1519 passed / 0 failed
-- artifact: `verification-e8a133baefb6743d4248842a8ce26069606b5652`
-- artifact digest: `sha256:1b74c5cfc01a30864f09fb6e74ee499734132764df50e254f42f96a1679ab833`
+- tests: 1528 passed / 0 failed
+- artifact: `verification-574c7199c1a08e889452b0f604ef470d98bf7de3`
+- artifact digest: `sha256:0abe8889938b0a2190b75e03dbe872443db94ca3c4caa937c3a678622dcbddc9`
 
 ### Exact final feature-head verification
 
-- branch: `fix/user-storage-load-integrity-v620-v628`
-- exact SHA: `65a690512d43a1adc359390dcba7b21369a7c535`
-- push Verify #303
+- branch: `fix/user-storage-atomic-write-integrity-v629-v637`
+- exact SHA: `0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
+- push Verify #317
 - conclusion: success
-- tests: 1528 passed / 0 failed
-- artifact: `verification-65a690512d43a1adc359390dcba7b21369a7c535`
-- artifact digest: `sha256:ad24a59147a26ebd56497b850610b4449215f1127e73a71f773567147c646cb4`
+- tests: 1537 passed / 0 failed
+- artifact: `verification-0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
+- artifact digest: `sha256:604cd811466e39fb1880c1f3d7c5cbf03f163f33017e0432de9dc5cab78c0d9c`
 
 ### PR merge-ref integration verification
 
-- PR #256
-- branch head: `65a690512d43a1adc359390dcba7b21369a7c535`
-- synthetic merge SHA: `1cd14f9079589a228b03da68af294f027424ed47`
-- pull_request Verify #304
+- PR #258
+- branch head: `0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
+- synthetic merge SHA: `926cb40e84d27041c25121901fd7bb59e7ec89e0`
+- pull_request Verify #318
 - conclusion: success
-- tests: 1528 passed / 0 failed
-- artifact: `verification-1cd14f9079589a228b03da68af294f027424ed47`
-- artifact digest: `sha256:7691263bc8e1afa823b1ba1f351d63026ad7b0fe08c5e70c0f82a76d26de3a54`
+- tests: 1537 passed / 0 failed
+- artifact: `verification-926cb40e84d27041c25121901fd7bb59e7ec89e0`
+- artifact digest: `sha256:277bddf0e5b6ae885378222ade110531c4a94e9800fbd291da42ea7c1ea3cd7f`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `0f8ae846a06652743c698ec671ab586bbf1bb4bd`
-- push Verify #305
+- exact main: `05f6546cf4110ff5a507f4fb145599e4f842dd7a`
+- push Verify #319
 - conclusion: success
-- tests: 1528 passed / 0 failed
-- artifact: `verification-0f8ae846a06652743c698ec671ab586bbf1bb4bd`
-- artifact digest: `sha256:7f8297c257fdda77a4a5e26938a00dfd19978db59ce550efc6c17f40ee169aea`
+- tests: 1537 passed / 0 failed
+- artifact: `verification-05f6546cf4110ff5a507f4fb145599e4f842dd7a`
+- artifact digest: `sha256:c064fb52968d03d0d94151c6b272a96929d89d714f798b11c0f7271cff521ba0`
 
-## User Storage Load Integrity
+## User Storage Atomic Write Integrity
 
-The existing user-storage owner now preserves corrupted/unreadable stores as an
-explicit unavailable state instead of silently treating them as empty writable
-storage. Uncommitted in-memory changes are reverted when persistence fails.
+The existing user-storage owner now serializes before touching the filesystem target, writes through a same-directory temporary file, flushes and fsyncs temporary content, and commits with atomic `os.replace`.
 
-No new persistence layer, business execution capability, Product Decision
-execution, or Ozon mutation was introduced. Repository `data/users.json` was
-not modified.
+Pre-commit failures preserve the existing target and roll back only uncommitted in-memory changes. A directory-fsync failure after replace is reported as a durability warning rather than a false rollback because the replacement is already committed.
+
+No additional persistence layer, business execution capability, Product Decision execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -72,5 +70,5 @@ Workflow/test-manifest evidence is not independent external verification;
 ## Related implementation
 
 - `app/services/assistant_user_storage_service.py`
-- `tests/test_user_storage_load_integrity_v620_v628.py`
-- `project_brain/CURRENT_CHECKPOINT_V620_V628.md`
+- `tests/test_user_storage_atomic_write_integrity_v629_v637.py`
+- `project_brain/CURRENT_CHECKPOINT_V629_V637.md`
