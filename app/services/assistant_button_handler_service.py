@@ -176,7 +176,8 @@ class AssistantButtonHandlerService:
         keyboard_service=None,
         unit_economics_query=None,
         product_business_decision_query=None,
-        returns_finance_impact_query=None
+        returns_finance_impact_query=None,
+        product_decision_learning_health_builder=None
     ):
 
         self.assistant = (
@@ -209,6 +210,10 @@ class AssistantButtonHandlerService:
 
         self.returns_finance_impact_query = (
             returns_finance_impact_query
+        )
+
+        self.product_decision_learning_health_builder = (
+            product_decision_learning_health_builder
         )
 
 
@@ -279,6 +284,9 @@ class AssistantButtonHandlerService:
 
         if button_id == "product_decision_learning_summary":
             return self._show_product_decision_learning_summary()
+
+        if button_id == "product_decision_learning_health":
+            return self._show_product_decision_learning_health()
 
         if button_id == "product_action_task_drafts":
             return self._show_product_action_task_drafts()
@@ -520,6 +528,12 @@ class AssistantButtonHandlerService:
                     total_pages=total_pages,
                     include_learning_summary=(
                         self._product_decision_history_service()
+                        is not None
+                    ),
+                    include_learning_health=(
+                        self._product_decision_history_service()
+                        is not None
+                        and self.product_decision_learning_health_builder
                         is not None
                     ),
                     include_task_drafts=(
@@ -1099,6 +1113,112 @@ class AssistantButtonHandlerService:
             "error": False,
             "message": message,
             "learning_summary": summary,
+        }
+
+    def _show_product_decision_learning_health(self):
+        history_service = self._product_decision_history_service()
+        builder = self.product_decision_learning_health_builder
+        if history_service is None or builder is None:
+            return {
+                "error": True,
+                "message": "Качество данных обучения недоступно"
+            }
+
+        try:
+            summary = history_service.learning_summary()
+            health = builder(summary)
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "error": True,
+                "message": "Качество данных обучения недоступно"
+            }
+
+        if (
+            not isinstance(health, dict)
+            or health.get("status")
+            != "PRODUCT_DECISION_LEARNING_HEALTH_READY"
+            or health.get("error") is not False
+            or health.get("causal_claim_allowed") is not False
+            or health.get("success_rate_claim_allowed") is not False
+            or health.get("profitability_claim_allowed") is not False
+            or health.get("decision_rule_update_allowed") is not False
+            or health.get("automatic_execution_allowed") is not False
+            or health.get("executed") is not False
+        ):
+            return {
+                "error": True,
+                "message": "Качество данных обучения недоступно"
+            }
+
+        health_labels = {
+            "NO_FEEDBACK_EVIDENCE": "Нет пользовательских оценок",
+            "FEEDBACK_ONLY": "Есть оценки, но нет последующих наблюдений",
+            "EARLY_POST_FEEDBACK_SAMPLE": "Ранняя описательная выборка",
+            "MULTI_PRODUCT_DESCRIPTIVE_SAMPLE": (
+                "Описательная выборка по нескольким товарам"
+            ),
+        }
+        action_labels = {
+            "COLLECT_USER_FEEDBACK": (
+                "Собрать больше пользовательских оценок решений"
+            ),
+            "WAIT_FOR_LATER_DECISION_OBSERVATIONS": (
+                "Дождаться следующих изменений решений после оценок"
+            ),
+            "COLLECT_MORE_DESCRIPTIVE_OBSERVATIONS": (
+                "Накопить больше наблюдений по товарам"
+            ),
+            "REVIEW_DESCRIPTIVE_PATTERNS": (
+                "Просмотреть описательные паттерны без причинных выводов"
+            ),
+        }
+
+        message = "\n".join([
+            "🩺 Качество данных обучения",
+            "",
+            "Товаров в истории: "
+            + str(health.get("products_count", 0)),
+            "Снимков решений: "
+            + str(health.get("decision_snapshots_count", 0)),
+            "Оценок пользователя: "
+            + str(health.get("feedback_count", 0)),
+            "👍 Полезно: "
+            + str(health.get("useful_count", 0)),
+            "👎 Неактуально: "
+            + str(health.get("not_relevant_count", 0)),
+            "",
+            "Наблюдений после оценок: "
+            + str(health.get("outcome_count", 0)),
+            "Срочность снизилась: "
+            + str(health.get("priority_decreased_count", 0)),
+            "Срочность выросла: "
+            + str(health.get("priority_increased_count", 0)),
+            "Решение изменилось: "
+            + str(health.get("decision_changed_count", 0)),
+            "",
+            "Состояние данных: "
+            + health_labels.get(
+                health.get("health_state"),
+                str(health.get("health_state") or "—"),
+            ),
+            "Следующий шаг: "
+            + action_labels.get(
+                health.get("next_action"),
+                str(health.get("next_action") or "—"),
+            ),
+            "",
+            (
+                "Это описательная статистика истории решений. "
+                "Она не доказывает причинность, корректность решения "
+                "или прибыльность."
+            ),
+        ])
+
+        return {
+            "error": False,
+            "message": message,
+            "learning_health": health,
+            "executed": False,
         }
 
     def _show_product_decision_history(self, sku):
