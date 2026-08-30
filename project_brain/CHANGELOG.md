@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Finance Evidence Availability v554-v560
+
+Reconciled Project Brain to the verified Finance evidence baseline.
+
+- exact feature head `e988f0c0729048a96aa6494e40d9c5e623b143d9`: push Verify #157 success, 1406 passed;
+- PR #238 synthetic merge-ref Verify #158 success;
+- squash main `77075b39fbe5a864f8909a358163f57caeb1030b`: exact push Verify #159 success, 1406 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V554_V560.md.
+
+Docs only; no runtime, finance formula, execution, Ozon, persistence-format or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Finance Evidence Availability Propagation v1
 
 Propagated fail-closed Finance evidence state into the assistant report.
