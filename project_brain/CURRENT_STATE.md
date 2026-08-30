@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1519 passed on `ae4418cac1cda455133876c1f3462cbbc65a487f`.
+1528 passed on `0f8ae846a06652743c698ec671ab586bbf1bb4bd`.
 
-GitHub Actions push verification run #291 completed successfully for this exact main SHA.
+GitHub Actions push verification run #305 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1519 passed on `ae4418cac1cda455133876c1f3462cbbc65a487f`.
+1528 passed on `0f8ae846a06652743c698ec671ab586bbf1bb4bd`.
 
 Verification source:
-GitHub Actions push run #291, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #305, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 

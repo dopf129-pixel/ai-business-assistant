@@ -2348,3 +2348,25 @@ SHA-bound evidence:
 - PR #254 synthetic merge SHA `096ed7e16f32fa605c31dea91321acb5320a080f`: Verify #290, 1519 passed;
 - squash main `ae4418cac1cda455133876c1f3462cbbc65a487f`: push Verify #291, 1519 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-30 — User Storage Load Integrity v620-v628
+
+- corrupted/unreadable user storage no longer degrades silently to an empty writable store;
+- invalid top-level storage roots fail closed;
+- load-error state blocks user creation, memory writes, and history writes while preserving the original file;
+- save failures return explicit errors;
+- uncommitted in-memory user creation, memory writes, and history appends are rolled back when save fails;
+- malformed existing user records are not replaced;
+- existing persistence owner hardened in place; no new persistence layer;
+- repository data/users.json unchanged;
+- no business mutation, Product Decision execution, or Ozon mutation capability added;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `e8a133baefb6743d4248842a8ce26069606b5652`: push Verify #300, 1519 passed;
+- final feature head `65a690512d43a1adc359390dcba7b21369a7c535`: push Verify #303, 1528 passed;
+- PR #256 synthetic merge SHA `1cd14f9079589a228b03da68af294f027424ed47`: Verify #304, 1528 passed;
+- squash main `0f8ae846a06652743c698ec671ab586bbf1bb4bd`: push Verify #305, 1528 passed;
+- no independent external-verification claim.
