@@ -131,7 +131,9 @@ The route never:
 - calls Ozon mutation APIs;
 - changes mapping authorization;
 - changes finance calculations;
-- touches `data/users.json`.
+- adds any direct write to `data/users.json`.
+
+Existing shared Telegram user-context behavior is unchanged by this package; the operator access/runtime services themselves do not use user storage as an authorization source.
 
 ## Operator configuration boundary
 
