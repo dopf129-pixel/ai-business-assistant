@@ -5,6 +5,9 @@ class BusinessProfitDashboardService:
         value
     ):
 
+        if value is None:
+            return "—"
+
         try:
             number = float(value)
         except (
@@ -109,9 +112,17 @@ class BusinessProfitDashboardService:
             )
         )
 
+        margin_percent = result.get(
+            "margin_percent"
+        )
+
         print(
             "Маржинальность после налога:",
-            f'{result.get("margin_percent", 0):.2f}%'
+            (
+                f"{margin_percent:.2f}%"
+                if margin_percent is not None
+                else "—"
+            )
         )
 
         print()
