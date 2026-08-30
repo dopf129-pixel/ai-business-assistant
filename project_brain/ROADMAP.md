@@ -331,15 +331,15 @@ Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHN
 Current hardening queue:
 
 
-1. Terminal task immutability and transient-state cleanup across restart/recovery.
+1. Keep full SHA-bound GitHub Actions verification green on every merged `main`.
 
-2. Owner-level recovery consistency and malformed persisted-state handling.
+2. Continue operator/release readiness for task persistence diagnostics, write-lock contention and crash-durability warnings.
 
-3. Full SHA-bound repository regression verification on the then-current `main`.
+3. Continue Project Brain drift cleanup as new safety-critical batches land.
 
-4. Continue Project Brain drift cleanup as new batches land.
+4. Treat stale write-lock recovery as an explicit operator boundary; do not auto-delete an unowned lock.
 
 5. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V264_V268.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V353_V357.md`.
