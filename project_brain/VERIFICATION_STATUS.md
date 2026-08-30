@@ -4,110 +4,68 @@ Date: 2026-08-30
 
 ## Latest verified product baseline
 
-Latest exact verified `main` product baseline:
-
-`15d2051487dccd1c630394424f0675ac50aecdae`
+`77075b39fbe5a864f8909a358163f57caeb1030b`
 
 Latest merged production-correctness batch:
 
-`v548-v553: Marketing Evidence Integrity`
-
-GitHub evidence remains SHA-bound and separated by execution layer.
+`v554-v560: Finance Evidence Availability Propagation`
 
 ### Exact feature-head verification
 
-- feature branch: `fix/marketing-evidence-integrity-v548-v553`
-- exact head SHA: `ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
-- workflow: `Verify`
-- event: **push**
-- run number: **134**
-- run id: **33326826494**
-- conclusion: **success**
-- full test suite: **1399 passed**
-- failed: **0**
-- artifact: `verification-ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
-- artifact id: **9736469026**
-
-This branch-push run is the exact feature-head evidence.
+- branch: `fix/finance-evidence-availability-v554-v560`
+- exact SHA: `e988f0c0729048a96aa6494e40d9c5e623b143d9`
+- push Verify #157
+- run id: 33327523360
+- conclusion: success
+- tests: 1406 passed / 0 failed
+- artifact: `verification-e988f0c0729048a96aa6494e40d9c5e623b143d9`
+- artifact id: 9736662168
 
 ### PR merge-ref integration verification
 
-- PR: **#235**
-- branch head: `ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
-- workflow: `Verify`
-- event: **pull_request**
-- run number: **135**
-- run id: **33326865201**
-- conclusion: **success**
-- full test suite: **1399 passed**
-- failed: **0**
+- PR #238
+- branch head: `e988f0c0729048a96aa6494e40d9c5e623b143d9`
+- pull_request Verify #158
+- run id: 33327557469
+- conclusion: success
+- tests: 1406 passed / 0 failed
 
-This is synthetic PR merge-ref integration evidence and is not promoted as
-exact branch-head verification.
+This is synthetic merge-ref integration evidence, not exact-head proof.
 
 ### Post-merge exact main verification
 
-- exact main SHA: `15d2051487dccd1c630394424f0675ac50aecdae`
-- workflow: `Verify`
-- event: **push**
-- run number: **136**
-- run id: **33326897395**
-- conclusion: **success**
-- full test suite: **1399 passed**
-- failed: **0**
-- artifact: `verification-15d2051487dccd1c630394424f0675ac50aecdae`
-- artifact id: **9736487921**
+- exact main: `77075b39fbe5a864f8909a358163f57caeb1030b`
+- push Verify #159
+- run id: 33327593577
+- conclusion: success
+- tests: 1406 passed / 0 failed
+- artifact: `verification-77075b39fbe5a864f8909a358163f57caeb1030b`
+- artifact id: 9736680763
+- artifact digest: `sha256:11d83257edb6439dda059f8e73abe980dbb5c1ff9b505fa5cf110b92b3bd5cbf`
 
-This completed run verifies the exact squash-merge SHA. It is not independent
-external verification.
+## Finance Evidence Availability
 
-## Marketing Evidence Integrity
+- derived finance success -> `finance_evidence_available=True`;
+- derived finance failure with period evidence -> `False`;
+- missing period evidence does not invent availability;
+- explicit incoming finance_context remains authoritative;
+- unavailable finance evidence suppresses finance recommendation;
+- unavailable finance evidence blocks a false clean-business fallback;
+- legacy finance_context-only callers remain compatible.
 
-The existing marketing path no longer invents execution-looking analysis.
-
-Contract:
-
-- `marketing_problem=True` alone is not actionable;
-- marketing recommendation requires `marketing_evidence_available=True`;
-- recommendation also requires a non-empty `marketing_context`;
-- executor requires explicit non-empty string `evidence`;
-- executor formats supplied evidence only;
-- missing or malformed evidence returns an error;
-- persisted router execution therefore enters the existing FAILED lifecycle;
-- generic fallback reports insufficient data when marketing evidence is unavailable.
-
-The repository still has no production marketing data service/API connected to
-this path. No hidden fetch is performed.
-
-## Execution safety
-
-This package does not:
-
-- add a marketing API;
-- mutate advertising campaigns;
-- mutate Ozon;
-- alter Product Decision rules;
-- execute Product Task Drafts;
-- change persistence format;
-- modify `data/users.json`.
-
-Marketing evidence availability is not execution authorization.
+FinanceContextProvider shape and finance formulas are unchanged.
 
 ## Verification policy
 
-Exact branch push verification is required for feature/docs heads.
-
-PR `pull_request` runs are merge-ref integration evidence and remain separate.
-
-Every resulting `main` SHA must receive its own successful push verification
-before becoming the verified baseline.
+Exact branch push verification proves feature/docs heads.
+Pull-request runs are synthetic merge-ref integration evidence.
+Every squash-main SHA receives its own exact push verification.
+No workflow evidence here is described as independent external verification.
 
 ## Related implementation
 
-- `app/services/assistant_marketing_executor_service.py`
+- `app/services/assistant_entry_service.py`
 - `app/services/assistant_recommendation_service.py`
-- `tests/test_marketing_executor.py`
-- `tests/test_marketing_recommendation.py`
-- `tests/test_marketing_evidence_integrity_v548_v553.py`
-- `project_brain/MARKETING_EVIDENCE_INTEGRITY_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V548_V553.md`
+- `tests/test_finance_evidence_availability_v554_v560.py`
+- `project_brain/FINANCE_EVIDENCE_AVAILABILITY_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V554_V560.md`
