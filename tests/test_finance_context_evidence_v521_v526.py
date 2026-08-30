@@ -310,3 +310,24 @@ def test_v526_finance_intelligence_rejects_malformed_previous_context():
         "margin": None,
     }
     assert result["insights"] == []
+
+
+def test_v526_finance_context_rejects_partial_error_rows():
+    result = FinanceContextProvider().build(
+        _period_data(
+            current=[
+                {
+                    "error": False,
+                    "gross_sales": 1000,
+                    "gross_profit": 300,
+                },
+                {
+                    "error": True,
+                    "gross_sales": 500,
+                    "gross_profit": 100,
+                },
+            ]
+        )
+    )
+
+    assert result is None
