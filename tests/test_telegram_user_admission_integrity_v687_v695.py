@@ -94,8 +94,8 @@ class _MemoryCommands:
     ):
         self.calls += 1
         return {
-            "error": True,
-            "message": "not memory",
+            "error": False,
+            "handled": False,
         }
 
 
