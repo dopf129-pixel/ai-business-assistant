@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1519 passed on `ae4418cac1cda455133876c1f3462cbbc65a487f`.
+1528 passed on `0f8ae846a06652743c698ec671ab586bbf1bb4bd`.
 
-GitHub Actions push Verify #291 completed successfully for this exact main SHA.
+GitHub Actions push Verify #305 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2105,3 +2105,27 @@ Tests:
 - post-execution context persistence/refresh failures do not falsely imply rollback;
 - already-produced business result semantics are preserved with a separate context persistence issue marker;
 - data/users.json is not modified by the package.
+
+
+---
+
+# User Storage Load Integrity v1
+
+Service:
+
+- AssistantUserStorageService
+
+Tests:
+
+- tests/test_user_storage_load_integrity_v620_v628.py
+
+Проверяет:
+
+- malformed/unreadable JSON storage becomes explicit unavailable state;
+- invalid top-level storage roots fail closed;
+- load errors block create/memory/history mutation and preserve the original file;
+- malformed existing user records are not replaced;
+- save failures return explicit errors;
+- uncommitted in-memory user/memory/history mutations roll back when save fails;
+- absent-store creation and valid persistence remain compatible;
+- regression tests use temporary paths and do not modify repository data/users.json.
