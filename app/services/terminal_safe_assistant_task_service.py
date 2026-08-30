@@ -87,6 +87,27 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         else:
             self._last_lock_release_issue = None
 
+    def _sync_parent_directory(self):
+        folder = os.path.dirname(self.file_path) or "."
+        directory_fd = None
+
+        try:
+            directory_fd = os.open(
+                folder,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            os.fsync(directory_fd)
+        except Exception:
+            return "TASK_DIRECTORY_FSYNC_ERROR"
+        finally:
+            if directory_fd is not None:
+                try:
+                    os.close(directory_fd)
+                except Exception:
+                    pass
+
+        return None
+
     def save(self):
         try:
             self._acquire_write_lock()
@@ -129,8 +150,15 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             self._source_fingerprint = expected_fingerprint
             self._load_source_state = "LOADED"
             self._load_issues = ()
-            self._last_save_state = "SUCCEEDED"
-            self._last_save_issue = None
+
+            durability_issue = self._sync_parent_directory()
+            if durability_issue is None:
+                self._last_save_state = "SUCCEEDED"
+                self._last_save_issue = None
+            else:
+                self._last_save_state = "SUCCEEDED_WITH_DURABILITY_WARNING"
+                self._last_save_issue = durability_issue
+
             self._last_save_rolled_back = False
         finally:
             self._release_write_lock()
@@ -227,6 +255,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "last_save_rolled_back": getattr(self, "_last_save_rolled_back", False),
             "optimistic_concurrency_guard": True,
             "write_lock_guard": True,
+            "directory_fsync_required": True,
             "last_lock_release_issue": getattr(self, "_last_lock_release_issue", None),
             "loaded_task_count": len(self.tasks),
             "read_only": True,
