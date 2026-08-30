@@ -112,7 +112,7 @@ class TaskPersistenceOperationalService:
 
     @staticmethod
     def _valid_load(value):
-        return (
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_PERSISTENCE_LOAD_DIAGNOSTICS"
             and value.get("read_only") is True
@@ -124,11 +124,32 @@ class TaskPersistenceOperationalService:
             and value.get("issue_count") == len(value.get("issues"))
             and isinstance(value.get("loaded_task_count"), int)
             and value.get("loaded_task_count") >= 0
-        )
+        ):
+            return False
+
+        state = value["source_state"]
+        issues = value["issues"]
+        count = value["loaded_task_count"]
+
+        if state == "ABSENT":
+            return issues == [] and count == 0
+        if state == "UNREADABLE":
+            return issues == ["TASK_FILE_READ_ERROR"] and count == 0
+        if state == "INVALID_ROOT":
+            return issues == ["INVALID_TASK_FILE_ROOT"] and count == 0
+
+        allowed = {
+            "MALFORMED_TASK",
+            "INVALID_TASK_STATUS",
+            "INVALID_TASK_ACTIONS",
+            "MALFORMED_TASK_ACTION",
+            "INVALID_PENDING_ACTION_NORMALIZED",
+        }
+        return all(issue in allowed for issue in issues)
 
     @staticmethod
     def _valid_persistence(value):
-        return (
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_PERSISTENCE_DIAGNOSTICS"
             and value.get("read_only") is True
@@ -144,11 +165,36 @@ class TaskPersistenceOperationalService:
             }
             and isinstance(value.get("loaded_task_count"), int)
             and value.get("loaded_task_count") >= 0
-        )
+            and value.get("last_lock_release_issue") in {
+                None,
+                "TASK_FILE_WRITE_LOCK_MISSING",
+                "TASK_FILE_WRITE_LOCK_RELEASE_ERROR",
+            }
+        ):
+            return False
+
+        state = value["last_save_state"]
+        issue = value.get("last_save_issue")
+        rolled_back = value.get("last_save_rolled_back")
+
+        if state in {"NEVER_ATTEMPTED", "SUCCEEDED"}:
+            return issue is None and rolled_back is False
+        if state == "SUCCEEDED_WITH_DURABILITY_WARNING":
+            return issue == "TASK_DIRECTORY_FSYNC_ERROR" and rolled_back is False
+
+        allowed_failures = {
+            "TASK_FILE_WRITE_LOCKED",
+            "TASK_FILE_WRITE_LOCK_ERROR",
+            "TASK_FILE_CONCURRENCY_CHECK_ERROR",
+            "TASK_FILE_STALE_WRITE",
+            "TASK_FILE_SERIALIZATION_ERROR",
+            "TASK_FILE_WRITE_ERROR",
+        }
+        return issue in allowed_failures and rolled_back is True
 
     @staticmethod
     def _valid_lock(value):
-        return (
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_WRITE_LOCK_DIAGNOSTICS"
             and value.get("read_only") is True
@@ -156,11 +202,24 @@ class TaskPersistenceOperationalService:
             and value.get("inspection_state") in {"ABSENT", "PRESENT", "CHECK_ERROR"}
             and value.get("lock_present") in {True, False, None}
             and value.get("ownership_state") in {"NONE", "UNKNOWN"}
+            and isinstance(value.get("manual_intervention_required"), bool)
             and value.get("stale_proven") is False
             and value.get("automatic_recovery_allowed") is False
             and value.get("manual_lock_removal_allowed") is False
             and value.get("path_exposed") is False
-        )
+        ):
+            return False
+
+        expected = {
+            "ABSENT": (False, "NONE", False),
+            "PRESENT": (True, "UNKNOWN", True),
+            "CHECK_ERROR": (None, "UNKNOWN", True),
+        }
+        return (
+            value.get("lock_present"),
+            value.get("ownership_state"),
+            value.get("manual_intervention_required"),
+        ) == expected[value["inspection_state"]]
 
     @staticmethod
     def _blocked(code):
