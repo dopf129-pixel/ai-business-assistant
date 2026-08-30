@@ -14,11 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+1197 passed on `d0286d45f23e6da17b33afbb269ce109f8a72e3b`.
 
-Current revisions after that baseline:
-
-full suite not confirmed.
+GitHub Actions push verification run #21 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -409,19 +407,16 @@ Completed goal:
 Next planned changes:
 
 
-1. Добавить сохранение состояния долгих задач
+1. Поддерживать SHA-bound CI verification на каждом новом main
 
 
-2. Добавить восстановление после остановки
+2. Продолжить operator/release readiness для persistence diagnostics и recovery warnings
 
 
-3. Добавить прогресс выполнения
+3. Убирать Project Brain drift после safety-critical batches
 
 
-4. Добавить продолжение незавершённых задач
-
-
-5. Добавить тесты long-running tasks
+4. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
 
 
 ---
@@ -627,19 +622,19 @@ Current Goal:
 [x] Change Impact Analysis
 
 
-[ ] Documentation Drift Detection
+[x] Documentation Drift Detection
 
 
-[ ] Automated development workflow
+[x] Automated development workflow
 
 
-[ ] Git checkpoint assistant
+[x] Git checkpoint assistant
 
 
-[ ] Long-running tasks
+[x] Long-running tasks
 
 
-[ ] Self-improvement cycle
+[x] Self-improvement cycle
 
 
 
@@ -708,7 +703,7 @@ Development Autopilot Layer
 [x] Project Brain Synchronization
 
 
-[ ] Vector memory
+[x] Vector memory
 
 
 [x] Completed
@@ -727,10 +722,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+1197 passed on `d0286d45f23e6da17b33afbb269ce109f8a72e3b`.
 
-Current later revisions:
-full suite not confirmed.
+Verification source:
+GitHub Actions push run #21, exact SHA-bound main verification.
 
 
 
