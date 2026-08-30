@@ -58,7 +58,9 @@ def test_v344_directory_fsync_runs_while_write_lock_is_held(tmp_path, monkeypatc
     observed = []
 
     def guarded_sync():
-        observed.append((tmp_path / "tasks.json.lock").exists())
+        observed.append(
+            getattr(service, "_write_lock_fd", None) is not None
+        )
         return None
 
     monkeypatch.setattr(service, "_sync_parent_directory", guarded_sync)
@@ -143,21 +145,25 @@ def test_v349_directory_fsync_warning_still_releases_write_lock(tmp_path, monkey
 
     service.create_task(USER_ID, "Сохранено", [_action()])
 
-    assert not (tmp_path / "tasks.json.lock").exists()
+    lock = service.get_write_lock_diagnostics()
+    assert lock["inspection_state"] == "NO_ACTIVE_LOCK_EVIDENCE"
+    assert lock["coordination_file_present"] is True
 
 
-def test_v350_durability_and_lock_release_warnings_remain_distinct(tmp_path, monkeypatch):
+def test_v350_durability_and_kernel_unlock_warnings_remain_distinct(tmp_path, monkeypatch):
+    import services.terminal_safe_assistant_task_service as terminal_module
+
     path = tmp_path / "tasks.json"
     service = TerminalSafeAssistantTaskService(file_path=str(path))
     monkeypatch.setattr(service, "_sync_parent_directory", lambda: "TASK_DIRECTORY_FSYNC_ERROR")
-    real_remove = os.remove
+    real_flock = terminal_module.fcntl.flock
 
-    def failing_lock_remove(target):
-        if str(target).endswith(".lock"):
+    def failing_unlock(fd, operation):
+        if operation == terminal_module.fcntl.LOCK_UN:
             raise OSError("sensitive lock release")
-        return real_remove(target)
+        return real_flock(fd, operation)
 
-    monkeypatch.setattr(os, "remove", failing_lock_remove)
+    monkeypatch.setattr(terminal_module.fcntl, "flock", failing_unlock)
 
     result = service.create_task(USER_ID, "Сохранено", [_action()])
 
