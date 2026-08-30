@@ -55,6 +55,10 @@ class AssistantEntryService:
             task_persistence_operational_runtime_service
         )
 
+        self._sales_context_provider_explicit = (
+            sales_context_provider is not None
+        )
+
         self.sales_context_provider = (
             sales_context_provider
             or SalesContextProvider(
@@ -204,23 +208,63 @@ class AssistantEntryService:
         return self.stock_context_provider.build()
 
     def _build_sales_report(self):
-        sales_result = self.sales_context_provider.build()
+        sales_result = (
+            self.sales_context_provider
+            .build()
+        )
 
-        if not isinstance(sales_result, dict):
+        configured = (
+            self._sales_context_provider_explicit
+            or any(
+                [
+                    self.product_service,
+                    self.period_profit_service,
+                    self.analytics_service
+                ]
+            )
+        )
+
+        if not isinstance(
+            sales_result,
+            dict
+        ):
+            if configured:
+                return {
+                    "sales_down": False,
+                    "sales_evidence_available": False
+                }
+
             return None
 
-        sales_report = sales_result.get("report")
+        sales_report = sales_result.get(
+            "report"
+        )
 
         if not sales_report:
+            if configured:
+                return {
+                    "sales_down": False,
+                    "sales_evidence_available": False
+                }
+
             return None
 
-        result = dict(sales_report)
-        finance_report = self.finance_context_provider.build(
-            sales_result.get("period_data")
+        result = dict(
+            sales_report
+        )
+        finance_report = (
+            self.finance_context_provider
+            .build(
+                sales_result.get(
+                    "period_data"
+                )
+            )
         )
 
         if finance_report:
-            result.update(finance_report)
+            result.update(
+                finance_report
+            )
 
         return result
 
