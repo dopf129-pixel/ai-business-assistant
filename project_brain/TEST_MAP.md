@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1495 passed on `6555245c816051024040fa81382773a530279f32`.
+1503 passed on `5131832339239f87886f9172f71cc1c0ec3553b4`.
 
-GitHub Actions push Verify #243 completed successfully for this exact main SHA.
+GitHub Actions push Verify #262 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2030,3 +2030,30 @@ Tests:
 - explicit upstream errors are preserved by the response builder;
 - cancelled-task execution remains error=True rather than a false successful state;
 - no new business mutation, Product Decision execution, or Ozon mutation path is enabled.
+
+
+---
+
+# Entry/Core Result Integrity v1
+
+Services:
+
+- AssistantEntryService
+- AssistantCoreService
+
+Tests:
+
+- tests/test_entry_core_result_integrity_v597_v603.py
+- tests/test_assistant_entry_freshness_operational_route.py
+- tests/test_assistant_entry_period_profit_route.py
+- tests/test_task_persistence_operator_access_v368_v377.py
+- tests/test_task_persistence_operator_readiness_v358_v367.py
+
+Проверяет:
+
+- direct runtime success/failure payloads require an explicit boolean error marker;
+- malformed direct runtime payloads fail closed with deterministic non-secret codes;
+- valid explicit runtime failures are preserved;
+- malformed orchestrator results fail closed before context attachment;
+- legacy fixtures match the actual explicit-success production contract;
+- no new mutation or business execution path is enabled.
