@@ -1812,3 +1812,31 @@ Tests:
 - tax error не маскируется;
 - Sales Intelligence не нормализует unknown profit в zero;
 - seller-facing analysis/dashboard presentation показывает «—», а не 0/None.
+
+
+---
+
+# Finance Context Evidence Hardening v1
+
+Services:
+
+- FinanceContextProvider
+- FinanceIntelligenceService
+- AssistantFinanceExecutorService
+
+Tests:
+
+- tests/test_finance_context_evidence_v521_v526.py
+- tests/test_finance_intelligence_business_data_input.py
+- tests/test_finance_intelligence_executor_integration.py
+- tests/test_intelligence_context_providers_refactor.py
+
+Проверяет:
+
+- fail-closed malformed/missing/non-finite financial facts;
+- explicit zero remains valid;
+- PERIOD_GROSS_PROFIT scope propagation;
+- no optimistic zero normalization;
+- neutral gross-result insight wording;
+- evidence-scoped Finance Executor labels;
+- existing complete-evidence context propagation.
