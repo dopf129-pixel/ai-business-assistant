@@ -282,3 +282,27 @@ def test_v517_dashboards_do_not_render_malformed_values_as_zero():
 
     assert advertising.format_money("not-a-number") == "—"
     assert business_profit.format_money("not-a-number") == "—"
+
+
+def test_v520_production_composed_sales_intelligence_does_not_assume_zero_ads():
+    core = create_telegram_core(
+        advertising_cost=None
+    )
+
+    intelligence = (
+        core["action_router"]
+        .executors["sales"]
+        .sales_intelligence_service
+    )
+    analytics = intelligence.analytics_service
+
+    assert analytics.business_analytics.advertising_cost is None
+
+    result = analytics.business_analytics.calculate(_profits())
+
+    assert result["error"] is False
+    assert result["advertising"]["configured"] is False
+    assert result["advertising"]["advertising_cost"] is None
+    assert result["business_profit"]["business_profit"] is None
+    assert result["business_profit"]["margin_percent"] is None
+    assert "advertising" in result["business_profit"]["missing_fields"]
