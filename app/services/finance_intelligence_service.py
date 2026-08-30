@@ -21,6 +21,14 @@ class FinanceIntelligenceService:
         ):
             return self._missing_data_result()
 
+        if (
+            previous_data
+            and self._previous_data_malformed(
+                previous_data
+            )
+        ):
+            return self._missing_data_result()
+
         revenue = self._number(
             finance_data.get(
                 "revenue"
@@ -142,11 +150,6 @@ class FinanceIntelligenceService:
 
         if not previous_data:
             return insights
-
-        if self._previous_data_malformed(
-            previous_data
-        ):
-            return []
 
         previous_profit = self._resolve_profit(
             previous_data
