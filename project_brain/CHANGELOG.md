@@ -2265,3 +2265,24 @@ Returns & Buyout Analytics v1
 - squash main `b9fa039f626e230ac695162528f22b3ded5c093d`: push Verify #226, 1484 passed;
 - canonical verification status and current checkpoint updated;
 - no external-verification overclaim.
+
+
+## 2026-08-30 — Top-Level Result Integrity v591-v596
+
+- hardened seller-facing upper orchestration against malformed and contradictory downstream result payloads;
+- preserved explicit execution failures as `error=True` while retaining safe failure messages;
+- validated nested task-read results and business-plan actions/count consistency;
+- made AssistantMainFlowService fail closed instead of raising on missing/non-boolean `error`;
+- prevented AssistantResponseBuilderService from rewriting explicit upstream failures as success;
+- aligned cancelled-task execution regression coverage with failure-integrity semantics;
+- no new business mutation, Product Decision execution, Ozon mutation, or persistence owner;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `6b857ea34b654efae8b40eb554881d7c87f2dd22`: push Verify #234, 1484 passed;
+- intermediate feature SHA `9f90b8055f6e95c9d7037e392dbf6c7629dec044`: push Verify #239 failed, 1493 passed / 2 failed; retained as failed evidence;
+- final feature head `ff41b6b9aec7804e329453a669bd0c2becfe60a4`: push Verify #241, 1495 passed;
+- PR #248 synthetic merge SHA `432e33d77a02aaaab0ebc499eb05f7a1c6302603`: Verify #242, 1495 passed;
+- squash main `6555245c816051024040fa81382773a530279f32`: push Verify #243, 1495 passed;
+- no independent external-verification claim.
