@@ -26,17 +26,6 @@ class StorePeriodRunnerService:
             )
         )
 
-        self.period_service = (
-            AnalysisPeriodService()
-        )
-
-        self.report_service = (
-            report_service
-            or StorePeriodReportService(
-    profit_service=profit_service
-)
-        )
-
 
     def build_store_period_report(
         self,
