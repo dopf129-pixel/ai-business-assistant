@@ -335,17 +335,19 @@ Current hardening queue:
 
 2. Treat kernel-backed task-persistence hardening as closed after release closure v463-v472; add more persistence layers only for a concrete discovered failure or product need.
 
-3. Return focus to seller-facing AI Assistant Product Development and select the next unmet product capability from current repository evidence rather than stale historical "Next" notes.
+3. Continue seller-facing Product Decision learning with a per-SKU Learning Coverage Queue built only from existing persisted decision-history facts.
 
-4. Keep workflow-run/test-manifest provenance development-side and explicit; no production runtime GitHub fetch.
+4. Use the queue to identify SKUs needing explicit user feedback or later descriptive observations; do not rank business performance or claim success.
 
-5. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
+5. Do not production-wire the newer canonical user-action advisory/checklist chain until an exact persisted Product Decision verification artifact is available in the Telegram lineage.
 
-6. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
+6. Keep workflow-run/test-manifest provenance development-side and explicit; no production runtime GitHub fetch.
 
-7. Continue Project Brain drift cleanup when it changes product/safety interpretation.
+7. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
 
-8. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+8. Continue Project Brain drift cleanup when it changes product/safety interpretation.
+
+9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V473_V477.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V488_V492.md`.
