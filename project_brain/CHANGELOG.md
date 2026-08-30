@@ -2370,3 +2370,24 @@ SHA-bound evidence:
 - PR #256 synthetic merge SHA `1cd14f9079589a228b03da68af294f027424ed47`: Verify #304, 1528 passed;
 - squash main `0f8ae846a06652743c698ec671ab586bbf1bb4bd`: push Verify #305, 1528 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Memory Persistence Result Integrity v652-v659
+
+- AssistantMemoryService now validates storage save results instead of returning false success;
+- exact boolean rejection rolls back only definite pre-commit in-memory changes;
+- exceptions and malformed storage results preserve ambiguous persistence state without fabricated rollback;
+- AssistantMemoryIntegrationService exposes failed and partial memory writes;
+- AssistantFeedbackService reports memory persistence failure while preserving already-recorded feedback facts;
+- default production memory remains in-memory; no new persistence layer was wired;
+- no business execution, Product Decision/Product Task Draft execution, or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `f61d0e84e94eb03de5f81e00cfab1ad3b76e46dc`: push Verify #347, 1551 passed;
+- final feature SHA `0b67a19c1c2da55be69310849988218c253a3adb`: exact-SHA push Verify #353, 1559 passed;
+- PR #264 synthetic merge SHA `6dcb328dcad048eb45a7cc33f3478f422e992ea5`: Verify #354, 1559 passed;
+- squash main `e8680957f91e23e75574bca806007ba9384ec542`: push Verify #355, 1559 passed;
+- no independent external-verification claim.
