@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1568 passed on `4b362fbe0679d2640945b66e4cc2e482baf83756`.
+1577 passed on `5db998a9c6cc59ac64e347dcbcca135ffb88fd51`.
 
-GitHub Actions push Verify #361 completed successfully for this exact main SHA.
+GitHub Actions push Verify #368 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2181,6 +2181,37 @@ Tests:
 - explicit user-storage errors are preserved and block save;
 - malformed user and memory payloads fail closed before mutation;
 - explicit pre-commit save failures restore the previous in-memory memory object;
+- malformed or exceptional save outcomes do not fabricate rollback and report unknown persistence state;
+- post-commit durability warning keeps the clear committed;
+- exception details are not leaked through stable error codes;
+- no new persistence layer, business execution, Product Decision execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# History Clear Integrity v1
+
+Service:
+
+- AssistantHistoryService
+
+Production composition:
+
+- telegram_assistant_factory.create_telegram_assistant
+- AssistantUserStorageService
+
+Tests:
+
+- tests/test_history_clear_integrity_v668_v676.py
+
+Проверяет:
+
+- clear mutates the canonical nested user history instead of the get_user result wrapper;
+- canonical history remains a list and is cleared to an empty list;
+- explicit user-storage errors are preserved and block save;
+- malformed user and history payloads fail closed before mutation;
+- explicit pre-commit save failures restore the previous in-memory history list;
 - malformed or exceptional save outcomes do not fabricate rollback and report unknown persistence state;
 - post-commit durability warning keeps the clear committed;
 - exception details are not leaked through stable error codes;
