@@ -62,36 +62,78 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         self.load()
         self._last_save_rolled_back = True
 
+    def _write_lock_path(self):
+        return self.file_path + ".lock"
+
+    def _acquire_write_lock(self):
+        folder = os.path.dirname(self.file_path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+
+        lock_fd = os.open(
+            self._write_lock_path(),
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        os.close(lock_fd)
+
+    def _release_write_lock(self):
+        try:
+            os.remove(self._write_lock_path())
+        except FileNotFoundError:
+            self._last_lock_release_issue = "TASK_FILE_WRITE_LOCK_MISSING"
+        except Exception:
+            self._last_lock_release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
+        else:
+            self._last_lock_release_issue = None
+
     def save(self):
         try:
-            current_fingerprint = self._current_file_fingerprint()
+            self._acquire_write_lock()
+        except FileExistsError:
+            self._rollback_after_save_failure("TASK_FILE_WRITE_LOCKED")
+            raise RuntimeError("TASK_FILE_WRITE_LOCKED") from None
         except Exception:
-            self._rollback_after_save_failure("TASK_FILE_CONCURRENCY_CHECK_ERROR")
-            raise RuntimeError("TASK_FILE_CONCURRENCY_CHECK_ERROR") from None
-
-        if current_fingerprint != getattr(self, "_source_fingerprint", None):
-            self._rollback_after_save_failure("TASK_FILE_STALE_WRITE")
-            raise RuntimeError("TASK_FILE_STALE_WRITE")
-
-        expected_raw = json.dumps(
-            self.tasks,
-            ensure_ascii=False,
-            indent=4,
-        ).encode("utf-8")
-        expected_fingerprint = self._fingerprint(expected_raw)
+            self._rollback_after_save_failure("TASK_FILE_WRITE_LOCK_ERROR")
+            raise RuntimeError("TASK_FILE_WRITE_LOCK_ERROR") from None
 
         try:
-            super().save()
-        except Exception:
-            self._rollback_after_save_failure("TASK_FILE_WRITE_ERROR")
-            raise
+            try:
+                current_fingerprint = self._current_file_fingerprint()
+            except Exception:
+                self._rollback_after_save_failure("TASK_FILE_CONCURRENCY_CHECK_ERROR")
+                raise RuntimeError("TASK_FILE_CONCURRENCY_CHECK_ERROR") from None
 
-        self._source_fingerprint = expected_fingerprint
-        self._load_source_state = "LOADED"
-        self._load_issues = ()
-        self._last_save_state = "SUCCEEDED"
-        self._last_save_issue = None
-        self._last_save_rolled_back = False
+            if current_fingerprint != getattr(self, "_source_fingerprint", None):
+                self._rollback_after_save_failure("TASK_FILE_STALE_WRITE")
+                raise RuntimeError("TASK_FILE_STALE_WRITE")
+
+            try:
+                expected_raw = json.dumps(
+                    self.tasks,
+                    ensure_ascii=False,
+                    indent=4,
+                ).encode("utf-8")
+            except Exception:
+                self._rollback_after_save_failure("TASK_FILE_SERIALIZATION_ERROR")
+                raise RuntimeError("TASK_FILE_SERIALIZATION_ERROR") from None
+
+            expected_fingerprint = self._fingerprint(expected_raw)
+
+            try:
+                super().save()
+            except Exception:
+                self._rollback_after_save_failure("TASK_FILE_WRITE_ERROR")
+                raise
+
+            self._source_fingerprint = expected_fingerprint
+            self._load_source_state = "LOADED"
+            self._load_issues = ()
+            self._last_save_state = "SUCCEEDED"
+            self._last_save_issue = None
+            self._last_save_rolled_back = False
+        finally:
+            self._release_write_lock()
 
     def _validate_loaded_task(self, task):
         if not isinstance(task, dict):
@@ -184,6 +226,8 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "last_save_issue": getattr(self, "_last_save_issue", None),
             "last_save_rolled_back": getattr(self, "_last_save_rolled_back", False),
             "optimistic_concurrency_guard": True,
+            "write_lock_guard": True,
+            "last_lock_release_issue": getattr(self, "_last_lock_release_issue", None),
             "loaded_task_count": len(self.tasks),
             "read_only": True,
             "executed": False,
