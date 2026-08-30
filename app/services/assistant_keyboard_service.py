@@ -70,6 +70,7 @@ class AssistantKeyboardService:
         page=1,
         total_pages=1,
         include_learning_summary=False,
+        include_learning_health=False,
         include_task_drafts=False
     ):
         buttons = [
@@ -95,6 +96,12 @@ class AssistantKeyboardService:
             buttons.append({
                 "text": "📚 Итоги обучения",
                 "callback": "product_decision_learning_summary",
+            })
+
+        if include_learning_health:
+            buttons.append({
+                "text": "🩺 Качество данных обучения",
+                "callback": "product_decision_learning_health",
             })
 
         if include_task_drafts:
