@@ -305,12 +305,36 @@ class BusinessAnalyticsService:
             )
         )
 
-        advertising = (
-            self.advertising_service
-            .calculate(
-                self.advertising_cost
+        if self.advertising_cost is None:
+
+            advertising = {
+                "error": False,
+                "configured": False,
+                "advertising_cost": None
+            }
+
+        else:
+
+            advertising = (
+                self.advertising_service
+                .calculate(
+                    self.advertising_cost
+                )
             )
-        )
+
+            if not advertising.get(
+                "error"
+            ):
+
+                advertising = dict(
+                    advertising
+                )
+
+                advertising.setdefault(
+                    "configured",
+                    True
+                )
+
 
         if advertising.get(
             "error"
@@ -353,25 +377,83 @@ class BusinessAnalyticsService:
                 "expenses": expenses
             }
 
-        business_profit = (
-            self.business_profit_service
-            .calculate(
-                store_profit=store_profit,
-                tax=tax,
-                advertising_cost=(
-                    advertising.get(
-                        "advertising_cost",
-                        0
-                    )
-                ),
-                other_expenses=(
-                    expenses.get(
-                        "other_expenses",
-                        0
+        if tax.get(
+            "error"
+        ):
+
+            business_profit = (
+                self.business_profit_service
+                .calculate(
+                    store_profit=store_profit,
+                    tax=tax,
+                    advertising_cost=0,
+                    other_expenses=(
+                        expenses.get(
+                            "other_expenses",
+                            0
+                        )
                     )
                 )
             )
-        )
+
+        elif advertising.get(
+            "configured"
+        ) is False:
+
+            missing_fields = [
+                "advertising"
+            ]
+
+            if (
+                tax.get("configured") is False
+                or tax.get("tax_amount") is None
+            ):
+
+                missing_fields.append(
+                    "tax"
+                )
+
+            business_profit = {
+                "error": False,
+                "configured": False,
+                "gross_sales": store_profit.get(
+                    "gross_sales"
+                ),
+                "gross_profit": store_profit.get(
+                    "gross_profit"
+                ),
+                "tax_amount": tax.get(
+                    "tax_amount"
+                ),
+                "advertising_cost": None,
+                "other_expenses": expenses.get(
+                    "other_expenses"
+                ),
+                "business_profit": None,
+                "margin_percent": None,
+                "missing_fields": missing_fields
+            }
+
+        else:
+
+            business_profit = (
+                self.business_profit_service
+                .calculate(
+                    store_profit=store_profit,
+                    tax=tax,
+                    advertising_cost=(
+                        advertising.get(
+                            "advertising_cost"
+                        )
+                    ),
+                    other_expenses=(
+                        expenses.get(
+                            "other_expenses",
+                            0
+                        )
+                    )
+                )
+            )
 
         return {
             "error": False,

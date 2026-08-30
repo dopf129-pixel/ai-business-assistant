@@ -5,9 +5,20 @@ class AdvertisingService:
         advertising_cost=0
     ):
 
+        if advertising_cost in (
+            None,
+            ""
+        ):
+
+            return {
+                "error": False,
+                "configured": False,
+                "advertising_cost": None
+            }
+
         try:
             advertising_cost = float(
-                advertising_cost or 0
+                advertising_cost
             )
 
         except (
@@ -35,6 +46,7 @@ class AdvertisingService:
 
         return {
             "error": False,
+            "configured": True,
             "advertising_cost": round(
                 advertising_cost,
                 2

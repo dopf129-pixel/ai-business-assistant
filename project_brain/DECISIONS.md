@@ -1457,3 +1457,42 @@ Reason:
 Status:
 
 Implemented
+
+
+---
+
+## Decision 028
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Unknown Advertising Financial Evidence
+
+Decision:
+
+Отсутствие подтверждённого значения рекламных расходов не эквивалентно
+нулевым расходам.
+
+Rules:
+
+- `advertising_cost=None` означает отсутствие evidence и сохраняется как unknown;
+- только явно переданный `advertising_cost=0` означает подтверждённый ноль;
+- при unknown advertising `business_profit` и `margin_percent` не рассчитываются;
+- revenue и gross profit могут оставаться доступными как отдельные факты;
+- presentation не превращает unknown financial values в `0`;
+- отсутствие advertising evidence не является ошибкой внешнего API и не
+  запускает автоматическое получение/классификацию данных;
+- никакое seller/business execution из этого состояния не разрешается.
+
+Reason:
+
+Оптимистичная подстановка нулевой рекламы завышает финансовый результат и
+смешивает отсутствие evidence с фактическим нулём. Финансовые выводы должны
+быть fail-closed и evidence-bound.
+
+Status:
+
+Implemented

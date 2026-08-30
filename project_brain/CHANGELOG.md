@@ -2,6 +2,25 @@
 
 ## 2026-08-30
 
+### Unknown Advertising Financial Evidence v1
+
+Corrected production financial evidence semantics so missing advertising
+expense evidence is no longer treated as a known zero.
+
+- production advertising default changed from implicit 0 to unknown;
+- explicit 0 remains supported through optional DI;
+- business profit and margin stay unknown while advertising evidence is missing;
+- dashboards and sales-analysis details render unknown values as «—»;
+- tax errors remain visible;
+- no auto-fetch, heuristic classification, financial double counting or execution change.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Store Period hardening v509-v513
 
 Reconciled Project Brain to the verified Store Period production-correctness baseline.

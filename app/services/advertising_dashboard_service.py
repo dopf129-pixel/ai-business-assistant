@@ -5,13 +5,16 @@ class AdvertisingDashboardService:
         value
     ):
 
+        if value is None:
+            return "—"
+
         try:
             number = float(value)
         except (
             TypeError,
             ValueError
         ):
-            number = 0.0
+            return "—"
 
         formatted = (
             f"{abs(number):,.2f}"
