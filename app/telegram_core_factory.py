@@ -86,6 +86,10 @@ from services.task_persistence_operational_service import (
     TaskPersistenceOperationalService
 )
 
+from services.task_persistence_release_observability_service import (
+    TaskPersistenceReleaseObservabilityService
+)
+
 from services.task_persistence_operator_access_policy import (
     TaskPersistenceOperatorAccessPolicy
 )
@@ -281,18 +285,34 @@ def create_telegram_core(
         )
     )
 
+    task_persistence_operational_service = (
+        TaskPersistenceOperationalService(
+            task_service=task_service
+        )
+    )
+
+    task_persistence_release_observability_service = (
+        TaskPersistenceReleaseObservabilityService(
+            task_service=task_service,
+            operational_service=(
+                task_persistence_operational_service
+            )
+        )
+    )
+
     task_persistence_operational_runtime = (
         AssistantTaskPersistenceOperationalRuntimeService(
             operational_service=(
-                TaskPersistenceOperationalService(
-                    task_service=task_service
-                )
+                task_persistence_operational_service
             ),
             access_policy=(
                 task_persistence_operator_access_policy
             ),
             presentation_service=(
                 TaskPersistenceOperatorPresentationService()
+            ),
+            release_observability_service=(
+                task_persistence_release_observability_service
             )
         )
     )
@@ -724,6 +744,9 @@ def create_telegram_core(
 
         "task_persistence_operational_runtime_service":
             task_persistence_operational_runtime,
+
+        "task_persistence_release_observability_service":
+            task_persistence_release_observability_service,
 
         "task_persistence_operator_access_policy":
             task_persistence_operator_access_policy,
