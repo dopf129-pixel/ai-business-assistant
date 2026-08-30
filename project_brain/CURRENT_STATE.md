@@ -1206,3 +1206,28 @@ Preserved:
 - no Product Decision or task execution wiring;
 - no Ozon mutation;
 - no data/users.json change.
+
+
+---
+
+# Stock Evidence Availability Hardening v1 — 2026-08-30
+
+Completed:
+
+[x] Missing stock dependencies no longer imply verified safe stock
+[x] Empty or partial assortment evidence is marked unavailable
+[x] Complete no-risk evidence is distinguished from unavailable evidence
+[x] Confirmed low-stock action context remains backward compatible
+[x] Stock Intelligence rejects malformed/non-finite/boolean/negative evidence
+[x] Cross-product stock/sales evidence fails closed
+[x] Explicit zero sales remains valid NO_SALES evidence
+[x] General fallback does not claim “no critical problems” when stock evidence is unavailable
+
+Preserved:
+
+- existing low-stock threshold behavior for complete evidence;
+- no replenishment quantity inference;
+- no Product Decision rule change;
+- no new stock execution route;
+- no Ozon mutation;
+- no data/users.json change.
