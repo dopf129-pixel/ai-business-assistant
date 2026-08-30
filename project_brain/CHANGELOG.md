@@ -2412,3 +2412,25 @@ SHA-bound evidence:
 - PR #266 synthetic merge SHA `12690439ea2230b8c2cd587ec9a4d8f3c6993610`: Verify #360, 1568 passed;
 - squash main `4b362fbe0679d2640945b66e4cc2e482baf83756`: push Verify #361, 1568 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — History Clear Integrity v668-v676
+
+- fixed production-wired history clear to mutate the actual canonical user record instead of the get_user result wrapper;
+- preserved canonical `history: list` shape by clearing to an empty list;
+- validated user-read and save-result contracts before claiming clear success;
+- explicit canonical pre-commit save failures restore the prior in-memory history list;
+- exception/malformed save states remain explicit and do not fabricate rollback;
+- post-commit durability warnings preserve committed state;
+- stable error codes do not expose exception detail;
+- no persistence owner/layer change, business execution, Product Decision/Product Task Draft execution, or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `edfd1605708ad991f116b313cee8a64581e2c271`: push Verify #365, 1568 passed;
+- final feature head `6bd0ddb72eef7f24f4203a9427f8f8cad82c3024`: push Verify #366, 1577 passed;
+- PR #268 synthetic merge SHA `a488d12f7ff5a67af59ad0acecce60c53c7ff2b3`: Verify #367, 1577 passed;
+- squash main `5db998a9c6cc59ac64e347dcbcca135ffb88fd51`: push Verify #368, 1577 passed;
+- no independent external-verification claim.
