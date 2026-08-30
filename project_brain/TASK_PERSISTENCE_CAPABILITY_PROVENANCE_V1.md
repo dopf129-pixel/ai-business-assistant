@@ -75,7 +75,11 @@ This produces:
 
 `TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_READY`
 
-but retains:
+with a deterministic `evidence_id` derived from the exact supplied CI metadata.
+
+The evidence ID is recomputed during downstream validation; changing the metadata or ID breaks the contract.
+
+The artifact retains:
 
 `externally_verified=False`.
 
@@ -117,7 +121,9 @@ Capability audit receives:
 - canonical manifest;
 - optional exact-SHA CI binding.
 
-It rechecks snapshot-to-manifest lineage and CI binding consistency.
+It rechecks snapshot-to-manifest lineage, the original CI evidence identity, and CI binding consistency.
+
+A binding without its canonical source CI evidence is not sufficient for a bound audit receipt.
 
 The receipt is deterministic SHA-256 local evidence.
 
