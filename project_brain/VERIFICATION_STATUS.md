@@ -2,98 +2,114 @@
 
 Date: 2026-08-30
 
-## Latest verified baseline entering v428-v432
+## Latest verified baseline entering v443-v447
 
-Latest exact verified `main` at the start of this reconciliation:
+Latest exact verified `main`:
 
-`d18b5a8c5e913477e749c15c3df233cda51d4bc4`
+`379352ad66cf90debc2cebdf701dc2e4ef1170ed`
 
-Latest merged verification batch:
+Latest merged capability-provenance batch:
 
-`v418-v427: add SHA-bound CI verification manifest`
+`v433-v442: bind canonical verification manifests to persistence capability provenance`
 
 Full-suite verification for this exact SHA:
 
 - GitHub Actions workflow: `Verify`
 - event: `push`
-- run number: **41**
+- run number: **45**
 - conclusion: **success**
-- result: **1265 passed**
+- result: **1276 passed**
 - failed: **0**
 - exact SHA-bound: **yes**
-- canonical JSON artifact: **yes**
+- canonical JSON test manifest generated: **yes**
 
-Artifact:
+## Current evidence layers
 
-`verification-d18b5a8c5e913477e749c15c3df233cda51d4bc4`
+The project now distinguishes:
 
-The artifact contains the workflow verification payload generated after pytest and is bound to this exact SHA by artifact name and workflow metadata.
+1. implementation-contract evidence;
+2. runtime diagnostic evidence;
+3. canonical SHA-bound pytest manifest evidence;
+4. caller-supplied exact-SHA CI metadata;
+5. final GitHub workflow-run conclusion evidence;
+6. external verification.
 
-## Current verification coverage
+These are not interchangeable.
 
-The green suite now covers:
+The v433-v442 bridge binds layer 3 into persistence capability provenance.
 
-- task persistence integrity, concurrency, kernel locking and crash durability;
-- operator-only persistence diagnostics and release observability;
-- capability provenance and exact-SHA CI metadata binding;
-- deterministic release/provenance audit receipts;
-- CI JUnit normalization;
-- canonical SHA-bound test-report identity;
-- deterministic CI verification-manifest identity;
-- tampered manifest rejection;
-- current-vs-stale project verification;
-- real workflow generation of `verification-artifacts/test-report.json`.
+It deliberately does **not** claim layer 5 or layer 6.
+
+## Current persistence verification coverage
+
+The green suite covers:
+
+- persistence load/recovery integrity;
+- exact persisted-byte optimistic concurrency;
+- POSIX kernel-backed write locking;
+- file fsync, atomic replace and parent-directory fsync;
+- operator readiness and default-deny access;
+- release observability and deterministic release audit;
+- capability provenance;
+- canonical JUnit → SHA-bound JSON test manifest;
+- manifest identity/tamper validation;
+- exact-SHA project verification;
+- verification-manifest → capability-provenance import;
+- failed-suite evidence preservation;
+- cross-snapshot lineage rejection;
+- explicit distinction between test-suite evidence and final CI-run success.
 
 ## Verification infrastructure
 
-The `Verify` workflow:
+The `Verify` workflow produces:
 
-1. checks out the exact revision;
-2. installs explicit verification dependencies;
-3. compiles the application;
-4. initializes deterministic test schema;
-5. records revision metadata;
-6. runs full pytest with JUnit output;
-7. generates canonical SHA-bound `test-report.json` with `if: always()`;
-8. uploads revision metadata, JUnit and JSON manifest with `if: always()`.
+- `verification-artifacts/revision.txt`;
+- `verification-artifacts/pytest-junit.xml`;
+- `verification-artifacts/test-report.json`.
 
-Workflow permissions remain `contents: read`.
+The JSON manifest is generated after pytest and before the full job is complete.
 
-Ozon credentials are explicitly empty.
+Therefore:
 
-## Evidence semantics
+- `test_suite_passed=True` may be proven by the manifest;
+- final workflow-run success must be established separately from completed-run evidence.
 
-A successful workflow run verifies only its exact recorded commit SHA.
+## Current next verification target
 
-A green report for another revision is `STALE_BASELINE`.
+Add a development-side final workflow-run evidence contract that requires exact:
 
-The canonical JSON manifest is stronger than manually transcribed counts because its identity is deterministically recomputed from exact SHA, counts and workflow metadata.
+- head SHA;
+- workflow name;
+- event;
+- run ID;
+- run number;
+- completed status;
+- success conclusion.
 
-The repository runtime does not automatically fetch GitHub artifacts. Any future provenance import must be explicit, locally validated and exact-SHA matched.
-
-Validation of a local/caller-supplied artifact does not by itself justify `externally_verified=True`.
+It must bind to the same revision/test manifest without network access from production runtime and without setting `externally_verified=True` merely because metadata was validated.
 
 ## Historical baselines
 
-Earlier exact baselines remain evidence only for their own SHAs, including:
+Historical exact baselines remain evidence only for their own SHAs, including:
 
 - `11883f901d3bb344816735b834392a59185c0c81` — **982 passed**;
 - `d0286d45f23e6da17b33afbb269ce109f8a72e3b` — **1197 passed**;
 - `3a5bbe9332492073555ef258038e4a4db9e7bf85` — **1234 passed**;
 - `1a31258db514e18842f61d240b9040bbf7eeac46` — **1244 passed**;
-- `95270b66667bd789a120f3efb3afecb4e50a867d` — **1254 passed**.
+- `95270b66667bd789a120f3efb3afecb4e50a867d` — **1254 passed**;
+- `d18b5a8c5e913477e749c15c3df233cda51d4bc4` — **1265 passed**.
 
-## Current verification policy
+## Verification policy
 
-Every safety-critical feature PR must pass full GitHub Actions verification before merge.
+Every safety-critical PR must pass full GitHub Actions verification before merge.
 
-After squash merge, the resulting `main` SHA must receive its own successful push verification before it becomes the current exact verified baseline.
+Every resulting `main` SHA must receive its own successful push verification before it becomes current verified baseline.
 
-Focused regressions supplement but do not replace the full-suite signal.
+No test count or workflow conclusion is transferable to another revision.
 
 ## Safety
 
-Verification does not:
+Verification/provenance does not:
 
 - alter Product Decisions;
 - enable Product Task Draft execution;
@@ -107,9 +123,9 @@ Verification does not:
 
 - `.github/workflows/verify.yml`
 - `app/services/assistant_ci_verification_manifest_service.py`
-- `app/ci_verification_manifest.py`
 - `app/services/assistant_project_verification_service.py`
 - `app/services/task_persistence_capability_provenance_service.py`
-- `tests/test_ci_verification_manifest_v418_v427.py`
-- `project_brain/CI_VERIFICATION_MANIFEST_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V428_V432.md`
+- `app/services/task_persistence_verification_manifest_provenance_service.py`
+- `tests/test_task_persistence_verification_manifest_provenance_v433_v442.py`
+- `project_brain/TASK_PERSISTENCE_VERIFICATION_MANIFEST_PROVENANCE_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V443_V447.md`
