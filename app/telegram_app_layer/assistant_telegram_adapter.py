@@ -1,3 +1,8 @@
+from telegram_app_layer.telegram_call_compat import (
+    call_with_legacy_arity,
+)
+
+
 class AssistantTelegramAdapter:
 
     FRESHNESS_STATUS_LABELS = {
@@ -173,21 +178,17 @@ class AssistantTelegramAdapter:
                 user_id
             )
 
-        try:
-            result = (
-                self.button_handler
-                .handle(
-                    callback,
-                    user_id
-                )
-            )
-        except TypeError:
-            result = (
-                self.button_handler
-                .handle(
-                    callback
-                )
-            )
+        result = call_with_legacy_arity(
+            self.button_handler
+            .handle,
+            (
+                callback,
+                user_id,
+            ),
+            (
+                callback,
+            ),
+        )
 
         return self._with_task_draft_freshness(
             callback,

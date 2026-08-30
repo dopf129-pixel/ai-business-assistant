@@ -1,3 +1,8 @@
+from telegram_app_layer.telegram_call_compat import (
+    call_with_legacy_arity,
+)
+
+
 class TelegramRunner:
 
 
@@ -13,30 +18,19 @@ class TelegramRunner:
         self.context_service = None
 
 
-
     def start(
         self,
         user_id=None
     ):
 
-
-        try:
-
-            result = (
-                self.bot_service
-                .on_start(
-                    user_id
-                )
-            )
-
-        except TypeError:
-
-            result = (
-                self.bot_service
-                .on_start()
-            )
-
-
+        result = call_with_legacy_arity(
+            self.bot_service
+            .on_start,
+            (
+                user_id,
+            ),
+            (),
+        )
 
         if (
             self.history_service
@@ -47,8 +41,6 @@ class TelegramRunner:
                 user_id,
                 "Запущен ассистент"
             )
-
-
 
         if (
             self.context_service
@@ -61,9 +53,7 @@ class TelegramRunner:
                 "start"
             )
 
-
         return result
-
 
 
     def receive_message(
@@ -72,13 +62,10 @@ class TelegramRunner:
         text=None
     ):
 
-
         if text is None:
 
             text = user_id
             user_id = None
-
-
 
         if (
             self.history_service
@@ -90,8 +77,6 @@ class TelegramRunner:
                 user_id,
                 f"Сообщение: {text}"
             )
-
-
 
         if (
             self.context_service
@@ -105,36 +90,23 @@ class TelegramRunner:
                 text
             )
 
-
-
             self.context_service.update(
                 user_id,
                 "current_task",
                 text
             )
 
-
-
-        try:
-
-            return (
-                self.bot_service
-                .on_message(
-                    user_id,
-                    text
-                )
-            )
-
-
-        except TypeError:
-
-            return (
-                self.bot_service
-                .on_message(
-                    text
-                )
-            )
-
+        return call_with_legacy_arity(
+            self.bot_service
+            .on_message,
+            (
+                user_id,
+                text,
+            ),
+            (
+                text,
+            ),
+        )
 
 
     def receive_callback(
@@ -143,13 +115,10 @@ class TelegramRunner:
         callback=None
     ):
 
-
         if callback is None:
 
             callback = user_id
             user_id = None
-
-
 
         if (
             self.history_service
@@ -165,8 +134,6 @@ class TelegramRunner:
                 f"Нажата кнопка: {callback}"
             )
 
-
-
         if (
             self.context_service
             and user_id
@@ -178,24 +145,14 @@ class TelegramRunner:
                 callback
             )
 
-
-
-        try:
-
-            return (
-                self.bot_service
-                .on_callback(
-                    user_id,
-                    callback
-                )
-            )
-
-
-        except TypeError:
-
-            return (
-                self.bot_service
-                .on_callback(
-                    callback
-                )
-            )
+        return call_with_legacy_arity(
+            self.bot_service
+            .on_callback,
+            (
+                user_id,
+                callback,
+            ),
+            (
+                callback,
+            ),
+        )
