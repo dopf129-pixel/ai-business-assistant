@@ -2327,3 +2327,24 @@ SHA-bound evidence:
 - PR #252 synthetic merge SHA `20f2d3a8e5afb2125465a759cd8d86aff6d6da9a`: Verify #275, 1511 passed;
 - squash main `b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`: push Verify #276, 1511 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-30 — User Context Result Integrity v612-v619
+
+- validated profile get_user results before context access or mutation;
+- rejected malformed context and memory payloads;
+- validated context and memory save-result contracts;
+- blocked orchestration when initial user context is malformed;
+- preserved already-produced business results when post-execution context persistence/refresh fails;
+- surfaced post-execution context persistence issues separately instead of implying rollback;
+- no business mutation, Product Decision execution, Ozon mutation, or persistence owner change;
+- data/users.json unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `fd7133da045c88e77a85be6f2849d64e370805a3`: push Verify #285, 1511 passed;
+- final feature head `4a7bddba14fd4f9bc277a0de63bc3994b4098769`: push Verify #289, 1519 passed;
+- PR #254 synthetic merge SHA `096ed7e16f32fa605c31dea91321acb5320a080f`: Verify #290, 1519 passed;
+- squash main `ae4418cac1cda455133876c1f3462cbbc65a487f`: push Verify #291, 1519 passed;
+- no independent external-verification claim.
