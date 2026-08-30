@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1511 passed on `b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`.
+1519 passed on `ae4418cac1cda455133876c1f3462cbbc65a487f`.
 
-GitHub Actions push Verify #276 completed successfully for this exact main SHA.
+GitHub Actions push Verify #291 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2081,3 +2081,27 @@ Tests:
 - unavailable finance evidence remains explicit;
 - valid stock/sales/finance context shapes remain compatible;
 - no business mutation or execution path is enabled.
+
+
+---
+
+# User Context Result Integrity v1
+
+Services:
+
+- AssistantUserContextService
+- AssistantCoreService
+
+Tests:
+
+- tests/test_user_context_result_integrity_v612_v619.py
+
+Проверяет:
+
+- malformed profile get_user results fail closed before user/context access;
+- malformed context and memory payloads are rejected;
+- context/memory save result contracts are validated;
+- malformed initial user context blocks orchestration before business execution;
+- post-execution context persistence/refresh failures do not falsely imply rollback;
+- already-produced business result semantics are preserved with a separate context persistence issue marker;
+- data/users.json is not modified by the package.
