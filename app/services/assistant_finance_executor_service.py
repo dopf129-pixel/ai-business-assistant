@@ -71,6 +71,15 @@ class AssistantFinanceExecutorService:
             )
 
 
+            profit_label = (
+                "Расчётный валовый результат"
+                if intelligence.get(
+                    "profit_scope"
+                )
+                == "PERIOD_GROSS_PROFIT"
+                else "Расчётный финансовый результат"
+            )
+
             details = [
                 "Выручка: "
                 +
@@ -80,7 +89,7 @@ class AssistantFinanceExecutorService:
                         0
                     )
                 ),
-                "Расходы: "
+                "Расходы по доступным данным: "
                 +
                 str(
                     metrics.get(
@@ -88,7 +97,9 @@ class AssistantFinanceExecutorService:
                         0
                     )
                 ),
-                "Прибыль: "
+                profit_label
+                +
+                ": "
                 +
                 str(
                     metrics.get(
@@ -96,7 +107,7 @@ class AssistantFinanceExecutorService:
                         0
                     )
                 ),
-                "Маржинальность: "
+                "Маржинальность по доступным данным: "
                 +
                 str(
                     metrics.get(
