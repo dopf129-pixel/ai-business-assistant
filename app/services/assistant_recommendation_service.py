@@ -104,17 +104,39 @@ class AssistantRecommendationService:
         ):
 
 
-            recommendations.append(
-                {
-                    "type":
-                        "marketing",
-
-                    "message":
-                        (
-                            "Проверить эффективность рекламных каналов"
-                        )
-                }
+            marketing_context = report.get(
+                "marketing_context"
             )
+            marketing_evidence_available = report.get(
+                "marketing_evidence_available"
+            )
+
+
+            if (
+                marketing_evidence_available is True
+                and isinstance(
+                    marketing_context,
+                    dict
+                )
+                and marketing_context
+            ):
+
+                recommendations.append(
+                    {
+                        "type":
+                            "marketing",
+
+                        "message":
+                            (
+                                "Проверить эффективность рекламных каналов"
+                            ),
+
+                        "context":
+                            dict(
+                                marketing_context
+                            )
+                    }
+                )
 
 
         if len(
@@ -145,6 +167,11 @@ class AssistantRecommendationService:
                             if (
                                 stock_evidence_available is False
                                 or sales_evidence_available is False
+                                or (
+                                    report.get("marketing_problem")
+                                    and report.get("marketing_evidence_available")
+                                    is not True
+                                )
                             )
                             else "Критичных проблем не найдено"
                         )
