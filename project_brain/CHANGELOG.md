@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Finance Context hardening v521-v526
+
+Reconciled Project Brain to the verified Finance Context production-correctness baseline.
+
+- initial PR #227 head `b794ae652faf4e49a69457ad7fa6c5b2232fb623`: Verify #78 failed because the first iteration extended the protected Finance Context output shape;
+- final PR head `33a2e3551bc453cadc748314b552286a4de306a8`: Verify #87 success, 1355 passed;
+- squash-merge main `0dacff655fe97a6ca9bab32b7977b7ac432cc0c9`: push Verify #88 success, 1355 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V521_V526.md.
+
+Docs only; no runtime, financial formula, execution, Ozon, mapping, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Finance Context Evidence Hardening v1
 
 Hardened Finance Intelligence input and seller-facing financial semantics.
