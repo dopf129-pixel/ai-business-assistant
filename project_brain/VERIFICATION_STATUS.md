@@ -4,78 +4,112 @@ Date: 2026-08-30
 
 ## Latest verified product baseline
 
-`477760653f63f1464ae1e675632e18244e00adcf`
+`29f9581aec7e642658dc91f536741bc6eb664dd2`
 
 Latest merged production-correctness batch:
 
-`v561-v567: Recommendation Context Integrity`
+`v568-v574: Action Plan Result Integrity`
+
+### Failed intermediate exact-head evidence
+
+Earlier feature SHA:
+
+`df233c329c709725af5013bb5b5edb9e723fdf84`
+
+- branch push Verify #185
+- run id: 33328960078
+- conclusion: failure
+- tests: 1429 passed / 2 failed
+
+The failures were in a newly added test helper: `None` was used both as the
+malformed-result input and as the helper's default-success sentinel. Production
+implementation was not the cause. The helper was corrected in the same branch.
+
+This SHA remains failed evidence and is not promoted as verified.
 
 ### Exact feature-head verification
 
-- branch: `fix/recommendation-context-integrity-v561-v567`
-- exact SHA: `f8bc48b9b8799569cac61548006722c03e7b207a`
-- push Verify #173
-- run id: 33328405594
+- branch: `fix/action-plan-result-integrity-v568-v574`
+- exact SHA: `3be04bb8b839f9d8f3336b54f8ab2167d8bb2ca4`
+- push Verify #186
+- run id: 33329041863
 - conclusion: success
-- tests: 1417 passed / 0 failed
-- artifact: `verification-f8bc48b9b8799569cac61548006722c03e7b207a`
-- artifact id: 9736913555
-- artifact digest: `sha256:1ea63ab990ca8deffe6db39dd6df7a03f9d54dd081ce4ef19ed7049ca1eb8de2`
+- tests: 1450 passed / 0 failed
+- artifact: `verification-3be04bb8b839f9d8f3336b54f8ab2167d8bb2ca4`
+- artifact id: 9737092106
+- artifact digest: `sha256:a0daa4f30716fa11a9933e4ac40219b375fc6ca300f72f6754a842d2fc719300`
 
 ### PR merge-ref integration verification
 
-- PR #240
-- branch head: `f8bc48b9b8799569cac61548006722c03e7b207a`
-- synthetic merge SHA: `ae8fa26c65d5da07142e6d1d0504d9820516c878`
-- pull_request Verify #174
-- run id: 33328491980
+- PR #242
+- branch head: `3be04bb8b839f9d8f3336b54f8ab2167d8bb2ca4`
+- synthetic merge SHA: `97ef5a9b800b2f230f631555557bc1986f91bfd8`
+- pull_request Verify #187
+- run id: 33329083077
 - conclusion: success
-- tests: 1417 passed / 0 failed
-- artifact: `verification-ae8fa26c65d5da07142e6d1d0504d9820516c878`
+- tests: 1450 passed / 0 failed
+- artifact: `verification-97ef5a9b800b2f230f631555557bc1986f91bfd8`
+- artifact id: 9737102256
+- artifact digest: `sha256:f300f693da6437e20f0f104d84c30fd5e2a5907ac9b8a62c976cd924f5114442`
 
 This is synthetic merge-ref integration evidence, not exact-head proof.
 
 ### Post-merge exact main verification
 
-- exact main: `477760653f63f1464ae1e675632e18244e00adcf`
-- push Verify #175
-- run id: 33328534689
+- exact main: `29f9581aec7e642658dc91f536741bc6eb664dd2`
+- push Verify #188
+- run id: 33329121313
 - conclusion: success
-- tests: 1417 passed / 0 failed
-- artifact: `verification-477760653f63f1464ae1e675632e18244e00adcf`
-- artifact id: 9736949688
-- artifact digest: `sha256:2a2b685ea4b2b66eb5713f721244f84bcc8272a5a580ebb6846dd7c85325d882`
+- tests: 1450 passed / 0 failed
+- artifact: `verification-29f9581aec7e642658dc91f536741bc6eb664dd2`
+- artifact id: 9737113271
+- artifact digest: `sha256:ce94913c14bd08d36b4abed18c5e9d0eee30ad4dec4032ef420199ff314cea93`
 
-## Recommendation Context Integrity
+## Action Plan Result Integrity
 
-Actionable recommendations now require valid non-empty dictionary domain context.
+AssistantActionPlanExecutorService now validates every existing orchestration
+boundary before promoting downstream data into successful plan output.
 
-- `sales_down=True` without valid `sales_context` is not actionable;
-- `low_stock=True` without valid `stock_context` is not actionable;
-- malformed `finance_context` is not converted into an action and does not crash recommendation construction;
-- valid sales, stock, finance and marketing recommendation contracts remain compatible;
-- malformed non-dict report input fails closed.
+Generator boundary:
 
-Recommendation type `general` is presentation-only:
+- exceptions -> stable `ACTION_GENERATION_FAILED`;
+- result must be a dict with `error=False` exactly;
+- actions must be a non-empty list/tuple;
+- every generated action must be a dict;
+- explicit generator `error=True` remains the downstream-owned error result.
 
-- it is filtered before planning;
-- planning is not called if no actionable recommendation remains;
-- action-plan execution is not called;
-- no task is created;
-- result contains `actions=[]` and `count=0`.
+Priority boundary:
 
-This removes execution-looking behavior from insufficient-data and clean-business presentation messages. It does not add any business execution permission.
+- exceptions -> stable `PRIORITY_RESOLUTION_FAILED`;
+- result must be a dict with `error=False` exactly and a dict action;
+- explicit priority `error=True` is returned unchanged;
+- later actions/execution are not reached after priority failure.
+
+Execution boundary:
+
+- exceptions -> stable `PLAN_EXECUTION_FAILED`;
+- result must be a dict with `error=False` exactly;
+- `executed` must be a list of dicts;
+- `count` must be a non-bool, non-negative int exactly matching `len(executed)`;
+- explicit execution `error=True` is returned unchanged instead of being wrapped
+  as top-level success.
+
+Malformed internal orchestration evidence returns a deterministic fail-closed result
+with `actions=[]` and `count=0`. Raw exception text is not returned.
+
+Valid success output and action ordering remain backward compatible.
 
 ## Execution safety
 
 This package does not:
 
-- add an executor/service/runtime route;
+- add an executor/action/service/runtime route;
 - alter Product Decision rules;
 - execute Product Task Drafts;
 - mutate Ozon;
-- infer missing domain evidence;
-- change finance formulas or sales/stock thresholds;
+- infer missing action context;
+- change sales/stock/finance/marketing thresholds;
+- change finance formulas;
 - change persistence format;
 - modify `data/users.json`.
 
@@ -84,12 +118,12 @@ This package does not:
 Exact branch push verification proves feature/docs heads.
 Pull-request runs are synthetic merge-ref integration evidence.
 Every squash-main SHA receives its own exact push verification.
+Failed SHAs remain failed evidence even when a later SHA succeeds.
 No workflow evidence here is described as independent external verification.
 
 ## Related implementation
 
-- `app/services/assistant_recommendation_service.py`
-- `app/services/assistant_business_planner_service.py`
-- `tests/test_recommendation_context_integrity_v561_v567.py`
-- `project_brain/RECOMMENDATION_CONTEXT_INTEGRITY_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V561_V567.md`
+- `app/services/assistant_action_plan_executor_service.py`
+- `tests/test_action_plan_result_integrity_v568_v574.py`
+- `project_brain/ACTION_PLAN_RESULT_INTEGRITY_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V568_V574.md`
