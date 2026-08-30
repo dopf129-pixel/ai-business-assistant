@@ -1635,3 +1635,42 @@ Sales Intelligence metrics могли превращаться в 0. Это см
 Status:
 
 Implemented
+
+---
+
+## Decision 032
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Marketing Evidence Integrity
+
+Decision:
+
+Marketing recommendation/executor boundaries must not claim analysis or channel
+checks without explicit supplied evidence.
+
+Rules:
+
+- `marketing_problem=True` alone is not actionable;
+- actionable marketing recommendation requires
+  `marketing_evidence_available=True` and non-empty `marketing_context`;
+- executor accepts only explicit non-empty string evidence items;
+- executor formats provided evidence and does not invent findings;
+- missing/malformed evidence returns an error;
+- persisted router execution therefore uses the existing FAILED lifecycle;
+- evidence availability is not mutation/execution authorization;
+- no hidden marketing API fetch or campaign mutation is introduced.
+
+Reason:
+
+The previous executor had no marketing data source but returned completed-looking
+claims such as checked channels and found opportunities. That overclaimed runtime
+evidence.
+
+Status:
+
+Implemented

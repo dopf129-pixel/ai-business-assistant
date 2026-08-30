@@ -1903,3 +1903,20 @@ Tests:
 - unknown business-profit/margin preservation;
 - no false stable insight from missing change;
 - «—» presentation for unknown sales metrics.
+
+
+---
+
+# Marketing Evidence Integrity v1
+
+Services:
+- AssistantRecommendationService
+- AssistantMarketingExecutorService
+- AssistantActionRouterService
+
+Tests:
+- tests/test_marketing_executor.py
+- tests/test_marketing_recommendation.py
+- tests/test_marketing_evidence_integrity_v548_v553.py
+
+Проверяет explicit evidence gating, malformed evidence fail-closed, no invented marketing facts и FAILED lifecycle через router.run().
