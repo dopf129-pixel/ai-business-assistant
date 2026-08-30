@@ -4,58 +4,58 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`9a8b290333428334f76903c4bf6284863b930f06`
+`4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
 
 Latest merged production-correctness batch:
 
-`v677-v686: Telegram TypeError Retry Integrity`
+`v687-v695: Telegram User Admission Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `b8e1656a607901ef251c686a61f6bc72eee69bbf`
-- push Verify #371
+- exact main: `e666eae65467fde17041ac807382fa298ac1e69b`
+- push Verify #377
 - conclusion: success
-- tests: 1577 passed / 0 failed
-- artifact: `verification-b8e1656a607901ef251c686a61f6bc72eee69bbf`
-- artifact digest: `sha256:09c311fc3da6c2e17ed57855e73a4a41d99d00d60e69549b6abe21d428f9a47b`
+- tests: 1587 passed / 0 failed
+- artifact: `verification-e666eae65467fde17041ac807382fa298ac1e69b`
+- artifact digest: `sha256:e7fcb5fb9ae0c32feac5830f4873d9df1e1e4a7c4b3431a34fca4e24a403ad38`
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-typeerror-retry-integrity-v677-v686`
-- exact SHA: `b8371c4194f004ed71584439543fa8a30998f5fb`
-- push Verify #372
+- branch: `fix/telegram-user-admission-integrity-v687-v695`
+- exact SHA: `9c778fc9911fa956960c17aa03c490a48aee100c`
+- push Verify #378
 - conclusion: success
-- tests: 1587 passed / 0 failed
-- artifact: `verification-b8371c4194f004ed71584439543fa8a30998f5fb`
-- artifact digest: `sha256:6e949f48bd074ca220fa62f1a3e190209811c6807abb2eba5d411a32adf55225`
+- tests: 1596 passed / 0 failed
+- artifact: `verification-9c778fc9911fa956960c17aa03c490a48aee100c`
+- artifact digest: `sha256:b358d74fbe5906900bf5afb324d646212459ccbc7ded2c33928785bd86b9fdf9`
 
 ### PR merge-ref integration verification
 
-- PR #270
-- branch head: `b8371c4194f004ed71584439543fa8a30998f5fb`
-- synthetic merge SHA: `3064816c03be1efdbf4272833f3430d9fb68521c`
-- pull_request Verify #373
+- PR #272
+- branch head: `9c778fc9911fa956960c17aa03c490a48aee100c`
+- synthetic merge SHA: `02362780db074ed45c4ca23bbeacfda12320d504`
+- pull_request Verify #379
 - conclusion: success
-- tests: 1587 passed / 0 failed
-- artifact: `verification-3064816c03be1efdbf4272833f3430d9fb68521c`
-- artifact digest: `sha256:5b97f77ae6a2b59a4e2e1b319fb992f4a7b9ffe3f3491126f88a7d8e8ce83c31`
+- tests: 1596 passed / 0 failed
+- artifact: `verification-02362780db074ed45c4ca23bbeacfda12320d504`
+- artifact digest: `sha256:5004c5540377f6a13d54c4c82f3fcd256949fd5e19addcfae220a9c652c806aa`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `9a8b290333428334f76903c4bf6284863b930f06`
-- push Verify #374
+- exact main: `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
+- push Verify #380
 - conclusion: success
-- tests: 1587 passed / 0 failed
-- artifact: `verification-9a8b290333428334f76903c4bf6284863b930f06`
-- artifact digest: `sha256:1a8272687166b2dc82d9ee7bb069b4103b863b88db65d03b260db253ab2be470`
+- tests: 1596 passed / 0 failed
+- artifact: `verification-4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
+- artifact digest: `sha256:7dc1eddf89b22601fa373d08f6763fd1532b91e383cd9fdc451fe093d6dcd5a7`
 
-## Telegram TypeError Retry Integrity
+## Telegram User Admission Integrity
 
-Telegram compatibility dispatch now determines whether a callable accepts the modern or legacy arity before invoking it. An internal TypeError raised after a handler starts is no longer mistaken for a signature mismatch and therefore cannot trigger a second invocation.
+AssistantTelegramAdapter now treats canonical persisted-user admission as a fail-closed prerequisite for identified Telegram users.
 
-The compatibility boundary remains narrow and does not change business logic. Legacy one-argument callables remain supported where the old fallback expected them.
+Explicit user-storage errors, malformed profile results, and profile exceptions stop successful /start, text, and button downstream dispatch. Successful canonical admission preserves existing behavior, while no-user-id compatibility remains unchanged.
 
 No persistence owner or layer changed. No business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
@@ -69,9 +69,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/telegram_app_layer/telegram_call_compat.py`
-- `app/telegram_app_layer/telegram_runner.py`
-- `app/telegram_app_layer/telegram_bot_service.py`
 - `app/telegram_app_layer/assistant_telegram_adapter.py`
-- `tests/test_telegram_dispatch_typeerror_integrity_v677_v686.py`
-- `project_brain/CURRENT_CHECKPOINT_V677_V686.md`
+- `tests/test_telegram_user_admission_integrity_v687_v695.py`
+- `project_brain/CURRENT_CHECKPOINT_V687_V695.md`

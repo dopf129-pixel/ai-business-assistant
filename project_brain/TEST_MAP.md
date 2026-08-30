@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1587 passed on `9a8b290333428334f76903c4bf6284863b930f06`.
+1596 passed on `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`.
 
-GitHub Actions push Verify #374 completed successfully for this exact main SHA.
+GitHub Actions push Verify #380 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2244,4 +2244,33 @@ Tests:
 - AssistantTelegramAdapter does not retry a failing button handler;
 - a partially started handler cannot be invoked a second time by the compatibility fallback;
 - no business rule, persistence owner, Product Decision execution, Product Task Draft execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Telegram User Admission Integrity v1
+
+Runtime boundary:
+
+- AssistantTelegramAdapter
+
+Production persistence:
+
+- AssistantUserStorageService via telegram_assistant_factory.create_telegram_assistant
+
+Tests:
+
+- tests/test_telegram_user_admission_integrity_v687_v695.py
+
+Проверяет:
+
+- explicit create_user error blocks successful /start UI;
+- explicit profile errors stop text before memory-command and assistant dispatch;
+- explicit profile errors stop button callbacks before button-handler dispatch;
+- malformed profile results fail closed;
+- profile exceptions become stable non-secret errors;
+- successful canonical user admission preserves start/text/button behavior;
+- no-user-id legacy flows remain compatible;
+- no persistence owner/layer, Product Decision execution, Product Task Draft execution, or Ozon mutation is enabled;
 - repository data/users.json remains untouched.
