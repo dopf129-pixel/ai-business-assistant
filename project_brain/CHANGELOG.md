@@ -2227,3 +2227,13 @@ Tests:
 Next:
 
 Returns & Buyout Analytics v1
+
+## 2026-08-30 — Business Planner Result Integrity v575-v581
+
+- preserved explicit downstream recommendation/planning/execution/task errors;
+- rejected malformed boundary payloads before later stages;
+- enforced execution actions/count consistency;
+- prevented fail-closed Action Plan results from being rewritten as error=False;
+- retained general-only non-actionable behavior and valid task creation;
+- added focused regressions and package contract;
+- Architecture Review Required: Yes.
