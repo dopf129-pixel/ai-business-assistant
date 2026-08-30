@@ -442,3 +442,190 @@ def test_v502_telegram_factory_wires_canonical_coverage_builder():
 
     assert "build_product_decision_learning_coverage_queue" in text
     assert "product_decision_learning_coverage_builder=(" in text
+
+
+def test_v503_coverage_keyboard_maps_states_to_existing_decision_route():
+    keyboard = AssistantKeyboardService()
+
+    result = keyboard.build_product_decision_learning_coverage_keyboard([
+        {
+            "sku": "sku-feedback",
+            "coverage_state": "NEEDS_USER_FEEDBACK",
+        },
+        {
+            "sku": "sku-empty",
+            "coverage_state": "NO_DECISION_HISTORY",
+        },
+        {
+            "sku": "sku-wait",
+            "coverage_state": "WAITING_FOR_LATER_OBSERVATION",
+        },
+    ])
+
+    assert result["error"] is False
+    assert [item["text"] for item in result["buttons"]] == [
+        "Оценить решение — sku-feedback",
+        "Открыть решение — sku-empty",
+        "Проверить решение — sku-wait",
+        "🎯 Все решения",
+    ]
+    assert [item["callback"] for item in result["buttons"]] == [
+        "product_decision:sku-feedback",
+        "product_decision:sku-empty",
+        "product_decision:sku-wait",
+        "product_decisions",
+    ]
+    assert all(
+        not item["callback"].startswith("product_decision_feedback:")
+        for item in result["buttons"]
+    )
+
+
+def test_v504_coverage_handler_adds_navigation_without_querying_decisions():
+    histories = {
+        "sku-feedback": [_record("sku-feedback")],
+        "sku-empty": [],
+        "sku-wait": [_record("sku-wait", feedback="USEFUL")],
+    }
+    handler, query = _handler(
+        histories,
+        ["sku-feedback", "sku-empty", "sku-wait"],
+    )
+
+    response = handler.handle("product_decision_learning_coverage")
+
+    assert response["error"] is False
+    assert query.query_calls == 0
+    assert [item["callback"] for item in response["keyboard"]["buttons"]] == [
+        "product_decision:sku-feedback",
+        "product_decision:sku-empty",
+        "product_decision:sku-wait",
+        "product_decisions",
+    ]
+    assert response["executed"] is False
+
+
+def test_v505_coverage_handler_rejects_forged_navigation_callback():
+    class ForgedKeyboard(AssistantKeyboardService):
+        def build_product_decision_learning_coverage_keyboard(
+            self,
+            items,
+            limit=10,
+        ):
+            return {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": [{
+                    "text": "Опасная кнопка",
+                    "callback": "product_decision_feedback:useful:sku-a",
+                }],
+            }
+
+    query = _Query(
+        {"sku-a": [_record("sku-a")]},
+        ["sku-a"],
+    )
+    handler = AssistantButtonHandlerService(
+        assistant=_Assistant(),
+        keyboard_service=ForgedKeyboard(),
+        product_business_decision_query=query,
+        product_decision_learning_coverage_builder=(
+            build_product_decision_learning_coverage_queue
+        ),
+    )
+
+    response = handler.handle("product_decision_learning_coverage")
+
+    assert response["error"] is True
+    assert response["message"] == (
+        "Очередь сбора обратной связи недоступна"
+    )
+    assert response["executed"] is False
+    assert query.query_calls == 0
+
+
+def test_v506_coverage_keyboard_fails_closed_on_invalid_navigation_item():
+    keyboard = AssistantKeyboardService()
+
+    invalid_state = keyboard.build_product_decision_learning_coverage_keyboard([
+        {
+            "sku": "sku-a",
+            "coverage_state": "BUSINESS_PRIORITY",
+        }
+    ])
+    empty_sku = keyboard.build_product_decision_learning_coverage_keyboard([
+        {
+            "sku": "",
+            "coverage_state": "NEEDS_USER_FEEDBACK",
+        }
+    ])
+    invalid_items = keyboard.build_product_decision_learning_coverage_keyboard(
+        {"sku": "sku-a"}
+    )
+
+    assert invalid_state["error"] is True
+    assert invalid_state["buttons"] == []
+    assert empty_sku["error"] is True
+    assert empty_sku["buttons"] == []
+    assert invalid_items["error"] is True
+    assert invalid_items["buttons"] == []
+
+
+def test_v507_coverage_navigation_is_bounded_to_visible_top_ten():
+    rows = [
+        {
+            "sku": f"sku-{index:02d}",
+            "history": [_record(f"sku-{index:02d}")],
+        }
+        for index in range(12)
+    ]
+    result = build_product_decision_learning_coverage_queue(rows)
+    keyboard = AssistantKeyboardService()
+
+    navigation = keyboard.build_product_decision_learning_coverage_keyboard(
+        result["items"]
+    )
+
+    callbacks = [item["callback"] for item in navigation["buttons"]]
+    assert callbacks[:-1] == [
+        f"product_decision:sku-{index:02d}"
+        for index in range(10)
+    ]
+    assert callbacks[-1] == "product_decisions"
+    assert len(callbacks) == 11
+
+
+def test_v508_coverage_navigation_preserves_read_only_queue_boundary():
+    histories = {
+        "sku-a": [_record("sku-a")],
+    }
+    handler, query = _handler(histories, ["sku-a"])
+
+    response = handler.handle("product_decision_learning_coverage")
+
+    assert query.query_calls == 0
+    assert response["learning_coverage"]["automatic_execution_allowed"] is False
+    assert response["learning_coverage"]["executed"] is False
+    assert all(
+        button["callback"] in {
+            "product_decision:sku-a",
+            "product_decisions",
+        }
+        for button in response["keyboard"]["buttons"]
+    )
+
+
+def test_v505_non_dict_coverage_builder_payload_fails_closed():
+    handler, query = _handler(
+        {"sku-a": [_record("sku-a")]},
+        ["sku-a"],
+        builder=lambda rows: [],
+    )
+
+    response = handler.handle("product_decision_learning_coverage")
+
+    assert response["error"] is True
+    assert response["message"] == (
+        "Очередь сбора обратной связи недоступна"
+    )
+    assert query.query_calls == 0

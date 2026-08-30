@@ -288,6 +288,8 @@ Completed foundation and safety work:
 
 [x] Memory / Learning v6 — Per-SKU Learning Coverage Queue
 
+[x] Memory / Learning v7 — Coverage Queue Navigation
+
 [x] Autonomous Assistant v1 — Safe Action Proposals
 
 [x] Autonomous Assistant v2 — Confirmation Workflow

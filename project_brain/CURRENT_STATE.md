@@ -1111,3 +1111,28 @@ Preserved:
 - no Ozon mutation;
 - `automatic_execution_allowed=False`;
 - `executed=False`.
+
+
+---
+
+# Product Decision Learning Coverage Navigation v1 — 2026-08-30
+
+Completed:
+
+[x] State-specific inline navigation from the per-SKU learning coverage queue
+[x] Existing `product_decision:<sku>` route reused; no new runtime route
+[x] Top-10 navigation matches visible queue ordering
+[x] Return path to the full Product Decisions screen
+[x] Forged or malformed navigation fails closed
+[x] Queue opening remains read-only and does not query Product Decisions
+[x] No direct feedback callback is emitted from the queue
+
+Preserved:
+
+- seller explicitly opens a concrete Product Decision before feedback;
+- no Product Decision rule change;
+- no Product Task Draft execution;
+- no Ozon mutation;
+- no persistence or finance/mapping change;
+- `automatic_execution_allowed=False`;
+- `executed=False`.

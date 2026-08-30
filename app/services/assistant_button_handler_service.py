@@ -1316,11 +1316,16 @@ class AssistantButtonHandlerService:
             "NO_DECISION_HISTORY": 2,
             "WAITING_FOR_LATER_OBSERVATION": 3,
         }
+        if not isinstance(coverage, dict):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
         items = coverage.get("items")
         counts = coverage.get("counts")
         if (
-            not isinstance(coverage, dict)
-            or coverage.get("status")
+            coverage.get("status")
             != "PRODUCT_DECISION_LEARNING_COVERAGE_QUEUE_READY"
             or coverage.get("error") is not False
             or coverage.get("evidence_scope")
@@ -1440,12 +1445,60 @@ class AssistantButtonHandlerService:
             ),
         ])
 
-        return {
+        response = {
             "error": False,
             "message": "\n".join(lines),
             "learning_coverage": coverage,
             "executed": False,
         }
+
+        keyboard_builder = getattr(
+            self.keyboard_service,
+            "build_product_decision_learning_coverage_keyboard",
+            None,
+        )
+        if keyboard_builder is not None:
+            navigation_items = [
+                {
+                    "sku": item["sku"],
+                    "coverage_state": item["coverage_state"],
+                }
+                for item in items[:10]
+            ]
+            keyboard = keyboard_builder(navigation_items)
+            expected_callbacks = [
+                "product_decision:" + item["sku"]
+                for item in navigation_items
+            ] + ["product_decisions"]
+            buttons = (
+                keyboard.get("buttons")
+                if isinstance(keyboard, dict)
+                else None
+            )
+            callbacks = (
+                [
+                    button.get("callback")
+                    for button in buttons
+                    if isinstance(button, dict)
+                ]
+                if isinstance(buttons, list)
+                else None
+            )
+            if (
+                not isinstance(keyboard, dict)
+                or keyboard.get("error") is not False
+                or keyboard.get("type") != "inline_keyboard"
+                or callbacks != expected_callbacks
+                or len(callbacks) != len(buttons)
+            ):
+                return {
+                    "error": True,
+                    "message": "Очередь сбора обратной связи недоступна",
+                    "executed": False,
+                }
+            response["keyboard"] = keyboard
+
+        return response
 
     def _show_product_decision_history(self, sku):
         history_service = self._product_decision_history_service()

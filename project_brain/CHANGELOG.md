@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Product Decision Learning Coverage Navigation v1
+
+Added bounded seller navigation from the read-only Learning Coverage Queue to the existing Product Decision card.
+
+- state-specific SKU buttons for the visible top 10;
+- existing `product_decision:<sku>` route only;
+- no direct feedback callbacks from the queue;
+- forged navigation fails closed;
+- queue opening still performs no Product Decision query and no execution/mutation.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Product Decision Learning Coverage v1
 
 Reconciled Project Brain with the already merged and separately verified v493-v502 package.
