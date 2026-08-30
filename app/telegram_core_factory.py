@@ -200,7 +200,8 @@ def create_telegram_core(
     tax_configuration_service=None,
     product_service=None,
     period_profit_service=None,
-    analytics_service=None
+    analytics_service=None,
+    task_service=None
 ):
 
 
@@ -246,7 +247,8 @@ def create_telegram_core(
 
 
     task_service = (
-        TerminalSafeAssistantTaskService()
+        task_service
+        or TerminalSafeAssistantTaskService()
     )
 
 
