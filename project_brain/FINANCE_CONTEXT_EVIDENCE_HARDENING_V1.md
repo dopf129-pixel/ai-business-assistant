@@ -30,15 +30,16 @@ Missing, malformed, boolean, non-finite or explicitly failed source evidence fai
 
 Explicit numeric zero remains valid evidence.
 
-Provider output now carries:
+FinanceContextProvider keeps its existing output shape for backward compatibility.
 
-`profit_scope=PERIOD_GROSS_PROFIT`
-
-Direct FinanceIntelligenceService callers without provider scope are classified
-deterministically:
+FinanceIntelligenceService classifies its own direct inputs deterministically
+without requiring a new provider field:
 
 - missing explicit profit -> `DERIVED_REVENUE_MINUS_EXPENSES`;
 - explicit caller profit without scope -> `CALLER_PROVIDED`.
+
+Seller-facing wording remains generic unless an explicit compatible scope is
+already supplied by a direct caller.
 
 ## Arithmetic
 
@@ -97,7 +98,7 @@ Review result:
 - existing complete-evidence arithmetic preserved;
 - missing evidence fails closed;
 - explicit zero remains distinct from missing;
-- source scope is explicit;
+- existing FinanceContextProvider output shape is preserved;
 - no hidden side effects;
 - no financial double counting;
 - no execution permission is introduced;
@@ -111,12 +112,13 @@ Focused regressions cover:
 2. missing required gross_sales / gross_profit;
 3. malformed / non-finite / boolean values;
 4. explicit zero;
-5. explicit PERIOD_GROSS_PROFIT scope;
+5. backward-compatible provider output shape;
 6. neutral Finance Intelligence wording;
 7. deterministic direct-caller scopes;
 8. decline wording;
-9. scoped Finance Executor presentation;
-10. error-only rows do not become zero evidence;
-11. mixed valid + error rows fail closed instead of producing partial totals.
+9. evidence-scoped Finance Executor presentation;
+10. malformed Finance Intelligence current/previous context rejection;
+11. error-only rows do not become zero evidence;
+12. mixed valid + error rows fail closed instead of producing partial totals.
 
 Full GitHub Actions verification is required before merge.
