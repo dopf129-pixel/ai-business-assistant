@@ -88,7 +88,12 @@ class TaskPersistenceCapabilityProvenanceService:
         ci_evidence=None,
     ):
         self.release_observability_service = release_observability_service
-        self.revision_id = self._normalize_revision(revision_id)
+        normalized_revision = self._normalize_revision(revision_id)
+        if revision_id is not None and normalized_revision is None:
+            raise ValueError(
+                "INVALID_TASK_PERSISTENCE_REVISION_ID"
+            )
+        self.revision_id = normalized_revision
         self.ci_evidence = ci_evidence
 
     def build_manifest(self, snapshot, revision_id=None):
