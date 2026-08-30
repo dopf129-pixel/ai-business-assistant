@@ -256,6 +256,43 @@ def test_v455_report_and_audit_are_deterministic_for_same_evidence(tmp_path):
     )
 
 
+def test_v455_forged_capability_manifest_id_breaks_workflow_audit(tmp_path):
+    service = _services(tmp_path)
+    manifest = _manifest(tmp_path)
+    metadata = _run_metadata()
+
+    provenance = (
+        service.verification_manifest_provenance_service
+        .build_report(
+            manifest,
+            REVISION,
+        )
+    )
+    run = service.build_run_evidence(metadata)
+    binding = service.bind_manifest(manifest, run)
+    report = service.build_report(
+        manifest,
+        REVISION,
+        metadata,
+    )
+    report["capability_manifest_id"] = (
+        "task-persistence-capability-manifest:" + ("0" * 64)
+    )
+
+    rejected = service.build_audit_receipt(
+        provenance,
+        manifest,
+        run,
+        binding,
+        report,
+    )
+
+    assert rejected["error"] is True
+    assert rejected["code"] == (
+        "TASK_PERSISTENCE_WORKFLOW_REPORT_INVALID"
+    )
+
+
 def test_v456_tampered_run_evidence_identity_is_rejected_before_manifest_binding(tmp_path):
     service = _services(tmp_path)
     manifest = _manifest(tmp_path)
