@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1385 passed on `ed7ca690c78372e10e09ff471cae8023bd8d4125`.
+1395 passed on `81ebdccf88a3959d65607de28c904bb952054139`.
 
-GitHub Actions push verification run #100 completed successfully for this exact main SHA.
+GitHub Actions push verification run #114 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1385 passed on `ed7ca690c78372e10e09ff471cae8023bd8d4125`.
+1395 passed on `81ebdccf88a3959d65607de28c904bb952054139`.
 
 Verification source:
-GitHub Actions push run #100, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #114, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1259,4 +1259,33 @@ Preserved:
 - no Product Task Draft execution;
 - no new sales execution route;
 - no Ozon mutation;
+- no data/users.json change.
+
+
+---
+
+# Executor Error-Result Lifecycle Integrity v1 — 2026-08-30
+
+Completed:
+
+[x] Executor `error=True` results enter the existing FAILED lifecycle
+[x] Direct router `execute()` result contract remains backward compatible
+[x] Non-dict and malformed executor results fail closed
+[x] Missing executor error message uses stable `EXECUTOR_RETURNED_ERROR`
+[x] Failed action no longer reaches `complete_action()`
+[x] Task remains ACTIVE after executor-returned failure
+[x] Pending action is cleared through the existing failure owner
+[x] Failure history/feedback use FAILED semantics
+[x] Existing retry policy and retry preparation remain active
+[x] Successful executor results preserve the DONE lifecycle
+[x] Exact feature/docs branch push verification is now available
+[x] Pull-request merge-ref evidence is distinguished from exact branch-head evidence
+
+Preserved:
+
+- no new executor or production runtime route;
+- no Product Decision or Product Task Draft execution change;
+- no Ozon mutation;
+- no retry-limit change;
+- no task persistence-format change;
 - no data/users.json change.
