@@ -1,3 +1,5 @@
+import json
+import os
 from copy import deepcopy
 
 from core.task_states import TaskStatus
@@ -12,6 +14,31 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         TaskStatus.SKIPPED,
         TaskStatus.CANCELLED,
     }
+
+    def load(self):
+        self.tasks = {}
+        self._load_issues = ()
+        self._load_source_state = "ABSENT"
+
+        if not os.path.exists(self.file_path):
+            return
+
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as file:
+                loaded = json.load(file)
+        except Exception:
+            self._load_source_state = "UNREADABLE"
+            self._load_issues = ("TASK_FILE_READ_ERROR",)
+            return
+
+        if not isinstance(loaded, dict):
+            self._load_source_state = "INVALID_ROOT"
+            self._load_issues = ("INVALID_TASK_FILE_ROOT",)
+            return
+
+        self.tasks = loaded
+        self._load_source_state = "LOADED"
+        self._reconcile_loaded_tasks()
 
     def _validate_loaded_task(self, task):
         if not isinstance(task, dict):
@@ -87,6 +114,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         return {
             "error": False,
             "status": "TASK_PERSISTENCE_LOAD_DIAGNOSTICS",
+            "source_state": getattr(self, "_load_source_state", "UNKNOWN"),
             "issue_count": len(issues),
             "issues": issues,
             "loaded_task_count": len(self.tasks),
