@@ -140,6 +140,18 @@ class AssistantKeyboardService:
         limit=10,
     ):
         buttons = []
+        if (
+            not isinstance(items, list)
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 0
+        ):
+            return {
+                "error": True,
+                "type": "inline_keyboard",
+                "buttons": [],
+            }
+
         valid_states = {
             "NEEDS_USER_FEEDBACK",
             "NO_DECISION_HISTORY",
