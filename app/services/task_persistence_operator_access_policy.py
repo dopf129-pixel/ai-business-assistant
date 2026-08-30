@@ -2,7 +2,18 @@ class TaskPersistenceOperatorAccessPolicy:
     """Explicit default-deny operator access policy for persistence diagnostics."""
 
     def __init__(self, allowed_user_ids=None):
-        values = allowed_user_ids or ()
+        if allowed_user_ids is None:
+            values = ()
+        elif isinstance(
+            allowed_user_ids,
+            (list, tuple, set, frozenset),
+        ):
+            values = allowed_user_ids
+        else:
+            raise ValueError(
+                "INVALID_TASK_PERSISTENCE_OPERATOR_ALLOWLIST"
+            )
+
         normalized = set()
 
         for value in values:
