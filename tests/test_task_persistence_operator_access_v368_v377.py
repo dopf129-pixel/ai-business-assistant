@@ -114,6 +114,13 @@ def test_v369_access_policy_accepts_only_explicit_positive_integer_ids():
         ):
             TaskPersistenceOperatorAccessPolicy([invalid])
 
+    for malformed in (OPERATOR_ID, str(OPERATOR_ID), object()):
+        with pytest.raises(
+            ValueError,
+            match="INVALID_TASK_PERSISTENCE_OPERATOR_ALLOWLIST",
+        ):
+            TaskPersistenceOperatorAccessPolicy(malformed)
+
 
 def test_v370_unauthorized_runtime_never_reads_persistence_diagnostics():
     runtime, operational = _runtime([OPERATOR_ID])
