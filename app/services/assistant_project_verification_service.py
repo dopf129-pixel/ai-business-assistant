@@ -104,6 +104,51 @@ class AssistantProjectVerificationService:
             baseline=self._baseline(report),
         )
 
+    def evaluate_manifest(
+        self,
+        current_sha,
+        manifest,
+        manifest_service=None,
+    ):
+        if manifest_service is None:
+            from services.assistant_ci_verification_manifest_service import (
+                AssistantCiVerificationManifestService,
+            )
+            manifest_service = (
+                AssistantCiVerificationManifestService()
+            )
+
+        validation = manifest_service.validate(manifest)
+        if validation.get("error") is not False:
+            current = self._sha(current_sha)
+            if current is None:
+                return self._blocked("CURRENT_SHA_REQUIRED")
+            return self._result(
+                current_sha=current,
+                status="CI_VERIFICATION_MANIFEST_INVALID",
+                current_suite_verified=False,
+                current_suite_passed=False,
+                baseline=self._baseline(
+                    dict(manifest)
+                    if isinstance(manifest, dict)
+                    else {}
+                ),
+            )
+
+        source = dict(manifest)
+        report = {
+            "error": source["error"],
+            "status": source["status"],
+            "command": source["command"],
+            "passed": source["passed"],
+            "failed": source["failed"],
+            "total": source["total"],
+            "commit_sha": source["commit_sha"],
+            "sha_bound": source["sha_bound"],
+            "test_report_id": source["test_report_id"],
+        }
+        return self.evaluate(current_sha, report)
+
     def render_markdown(self, evaluation):
         source = dict(evaluation or {})
         if source.get("error") is not False:
