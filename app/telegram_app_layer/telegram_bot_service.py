@@ -1,3 +1,8 @@
+from telegram_app_layer.telegram_call_compat import (
+    call_with_legacy_arity,
+)
+
+
 class TelegramBotService:
 
 
@@ -16,28 +21,19 @@ class TelegramBotService:
         )
 
 
-
     def on_start(
         self,
         user_id=None
     ):
 
-        try:
-
-            return (
-                self.adapter
-                .get_start_response(
-                    user_id
-                )
-            )
-
-        except TypeError:
-
-            return (
-                self.adapter
-                .get_start_response()
-            )
-
+        return call_with_legacy_arity(
+            self.adapter
+            .get_start_response,
+            (
+                user_id,
+            ),
+            (),
+        )
 
 
     def on_message(
@@ -46,13 +42,10 @@ class TelegramBotService:
         text=None
     ):
 
-
         if text is None:
 
             text = user_id
             user_id = None
-
-
 
         if (
             self.command_service
@@ -66,32 +59,21 @@ class TelegramBotService:
                 )
             )
 
-
             if command_result:
 
                 return command_result
 
-
-
-        try:
-
-            return (
-                self.adapter
-                .handle_text(
-                    text,
-                    user_id
-                )
-            )
-
-        except TypeError:
-
-            return (
-                self.adapter
-                .handle_text(
-                    text
-                )
-            )
-
+        return call_with_legacy_arity(
+            self.adapter
+            .handle_text,
+            (
+                text,
+                user_id,
+            ),
+            (
+                text,
+            ),
+        )
 
 
     def on_callback(
@@ -100,28 +82,19 @@ class TelegramBotService:
         callback=None
     ):
 
-
         if callback is None:
 
             callback = user_id
             user_id = None
 
-
-        try:
-
-            return (
-                self.adapter
-                .handle_button(
-                    callback,
-                    user_id
-                )
-            )
-
-        except TypeError:
-
-            return (
-                self.adapter
-                .handle_button(
-                    callback
-                )
-            )
+        return call_with_legacy_arity(
+            self.adapter
+            .handle_button,
+            (
+                callback,
+                user_id,
+            ),
+            (
+                callback,
+            ),
+        )
