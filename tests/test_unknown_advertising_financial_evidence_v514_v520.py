@@ -4,6 +4,9 @@ from contextlib import redirect_stdout
 from services.advertising_dashboard_service import (
     AdvertisingDashboardService,
 )
+from services.advertising_service import (
+    AdvertisingService,
+)
 from services.business_analytics_service import (
     BusinessAnalyticsService,
 )
@@ -231,3 +234,23 @@ def test_v519_tax_error_is_not_hidden_by_unknown_advertising():
     assert result["business_profit"]["message"] == (
         "Неподдерживаемый налоговый режим"
     )
+
+
+def test_v515_advertising_service_distinguishes_missing_from_zero():
+    service = AdvertisingService()
+
+    missing = service.calculate(None)
+    empty = service.calculate("")
+    zero = service.calculate(0)
+
+    assert missing == {
+        "error": False,
+        "configured": False,
+        "advertising_cost": None,
+    }
+    assert empty == missing
+    assert zero == {
+        "error": False,
+        "configured": True,
+        "advertising_cost": 0.0,
+    }
