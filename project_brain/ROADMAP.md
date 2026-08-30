@@ -340,6 +340,8 @@ Completed foundation and safety work:
 
 [x] Sales Evidence Availability Hardening
 
+[x] Marketing Evidence Integrity
+
 [x] Executor Error-Result Lifecycle Integrity
 
 [x] Exact Branch SHA Verification
