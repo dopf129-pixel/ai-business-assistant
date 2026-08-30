@@ -1231,3 +1231,32 @@ Preserved:
 - no new stock execution route;
 - no Ozon mutation;
 - no data/users.json change.
+
+
+---
+
+# Sales Evidence Availability Hardening v1 — 2026-08-30
+
+Completed:
+
+[x] Configured missing/partial sales evidence no longer becomes a clean no-decline result
+[x] Missing or malformed revenue comparison does not normalize to 0%
+[x] Confirmed sales-decline action context remains backward compatible
+[x] Complete non-decline comparison is explicitly distinguishable from unavailable evidence
+[x] Partial configured AssistantEntryService path suppresses sales action
+[x] Legacy no-data AssistantEntryService fallback remains backward compatible
+[x] Sales Intelligence rejects malformed action context before analytics
+[x] Missing required revenue/gross-profit metrics fail closed
+[x] Unknown business profit/margin remain None
+[x] Explicit numeric zero remains valid
+[x] Missing comparison change no longer produces a false “stable” insight
+[x] Sales executor renders unknown metrics as «—»
+
+Preserved:
+
+- existing sales-decline threshold: revenue change < 0;
+- no Product Decision rule change;
+- no Product Task Draft execution;
+- no new sales execution route;
+- no Ozon mutation;
+- no data/users.json change.

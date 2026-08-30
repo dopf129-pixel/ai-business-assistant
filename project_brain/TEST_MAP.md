@@ -1869,3 +1869,37 @@ Tests:
 - cross-product evidence rejection;
 - explicit zero sales / NO_SALES;
 - non-clean general fallback wording under incomplete stock evidence.
+
+
+---
+
+# Sales Evidence Availability Hardening v1
+
+Services:
+
+- SalesContextProvider
+- AssistantEntryService
+- AssistantRecommendationService
+- SalesIntelligenceService
+- AssistantSalesExecutorService
+
+Tests:
+
+- tests/test_sales_evidence_availability_v534_v540.py
+- tests/test_sales_intelligence_business_data_input.py
+- tests/test_sales_intelligence_service.py
+- tests/test_sales_intelligence_executor_integration.py
+- tests/test_intelligence_context_providers_refactor.py
+
+Проверяет:
+
+- configured unavailable sales evidence != verified no-decline;
+- preserved legacy no-data Entry fallback;
+- preserved confirmed decline action context;
+- malformed products / profit rows / comparison evidence;
+- explicit zero change and zero sales metrics;
+- malformed action context rejection before analytics;
+- required revenue/gross-profit facts;
+- unknown business-profit/margin preservation;
+- no false stable insight from missing change;
+- «—» presentation for unknown sales metrics.

@@ -1587,3 +1587,51 @@ Reason:
 Status:
 
 Implemented
+
+
+---
+
+## Decision 031
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Sales Evidence Availability
+
+Decision:
+
+Настроенный Sales Intelligence data path не должен превращать отсутствующее,
+malformed или partial comparison evidence в подтверждённое
+`sales_down=False` или искусственные нулевые метрики.
+
+Rules:
+
+- подтверждённый decline сохраняет существующий `sales_down=True` +
+  `sales_context` action payload без нового availability field;
+- complete non-decline comparison получает
+  `sales_evidence_available=True`;
+- unavailable/partial configured sales evidence получает
+  `sales_down=False` + `sales_evidence_available=False` и не создаёт sales action;
+- missing/malformed `change_percent` не считается 0%;
+- malformed profits / period / analytics / comparison payloads fail closed;
+- SalesIntelligenceService требует valid revenue и gross_profit;
+- business_profit и margin могут оставаться `None`;
+- explicit numeric zero остаётся валидным фактом;
+- generic fallback не утверждает clean business state при unavailable sales evidence;
+- historical AssistantEntryService mode без data dependencies сохраняет старый
+  hardcoded fallback;
+- availability metadata не является execution authorization.
+
+Reason:
+
+Ранее отсутствующий revenue comparison по default превращался в 0%, а missing
+Sales Intelligence metrics могли превращаться в 0. Это смешивало
+“нет доказательств” с “стабильно/нулевое значение” и могло подавлять sales action
+или создавать ложное clean-state впечатление.
+
+Status:
+
+Implemented
