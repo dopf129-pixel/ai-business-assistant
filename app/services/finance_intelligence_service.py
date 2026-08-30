@@ -54,6 +54,9 @@ class FinanceIntelligenceService:
         return {
             "error": False,
             "metrics": metrics,
+            "profit_scope": finance_data.get(
+                "profit_scope"
+            ),
             "insights": self._build_insights(
                 metrics,
                 previous_data
@@ -73,7 +76,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_profitable",
                     "severity": "positive",
-                    "message": "Бизнес работает с положительной прибылью"
+                    "message": "Расчётный валовый результат положительный"
                 }
             )
         elif metrics["profit"] < 0:
@@ -81,7 +84,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_loss",
                     "severity": "critical",
-                    "message": "Бизнес работает с убытком"
+                    "message": "Расчётный валовый результат отрицательный"
                 }
             )
         else:
@@ -89,7 +92,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_break_even",
                     "severity": "neutral",
-                    "message": "Бизнес работает в точке безубыточности"
+                    "message": "Расчётный валовый результат равен нулю"
                 }
             )
 
@@ -112,7 +115,7 @@ class FinanceIntelligenceService:
                         metrics["profit"],
                         previous_profit
                     ),
-                    "message": "Прибыль снизилась относительно предыдущего периода"
+                    "message": "Расчётный валовый результат снизился относительно предыдущего периода"
                 }
             )
 
