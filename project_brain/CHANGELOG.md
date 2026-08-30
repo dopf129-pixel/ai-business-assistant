@@ -2434,3 +2434,22 @@ SHA-bound evidence:
 - PR #268 synthetic merge SHA `a488d12f7ff5a67af59ad0acecce60c53c7ff2b3`: Verify #367, 1577 passed;
 - squash main `5db998a9c6cc59ac64e347dcbcca135ffb88fd51`: push Verify #368, 1577 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Telegram TypeError Retry Integrity v677-v686
+
+- replaced retry-after-TypeError compatibility fallbacks with pre-invocation arity selection;
+- preserved legacy one-argument Telegram callables without invoking them twice;
+- internal TypeError from Runner, BotService, Adapter or ButtonHandler no longer triggers a duplicate downstream call;
+- removed a concrete partial-side-effect duplication risk from execution-adjacent Telegram dispatch;
+- no business rule, persistence owner/layer, Product Decision/Product Task Draft execution, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `b8e1656a607901ef251c686a61f6bc72eee69bbf`: push Verify #371, 1577 passed;
+- final feature head `b8371c4194f004ed71584439543fa8a30998f5fb`: push Verify #372, 1587 passed;
+- PR #270 synthetic merge SHA `3064816c03be1efdbf4272833f3430d9fb68521c`: Verify #373, 1587 passed;
+- squash main `9a8b290333428334f76903c4bf6284863b930f06`: push Verify #374, 1587 passed;
+- no independent external-verification claim.

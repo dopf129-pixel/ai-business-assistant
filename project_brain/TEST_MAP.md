@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1577 passed on `5db998a9c6cc59ac64e347dcbcca135ffb88fd51`.
+1587 passed on `9a8b290333428334f76903c4bf6284863b930f06`.
 
-GitHub Actions push Verify #368 completed successfully for this exact main SHA.
+GitHub Actions push Verify #374 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2216,4 +2216,32 @@ Tests:
 - post-commit durability warning keeps the clear committed;
 - exception details are not leaked through stable error codes;
 - no new persistence layer, business execution, Product Decision execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Telegram TypeError Retry Integrity v1
+
+Runtime boundaries:
+
+- TelegramRunner
+- TelegramBotService
+- AssistantTelegramAdapter
+- telegram_call_compat.call_with_legacy_arity
+
+Tests:
+
+- tests/test_telegram_dispatch_typeerror_integrity_v677_v686.py
+
+Проверяет:
+
+- legacy one-argument Telegram callables remain supported;
+- callable arity is selected before invocation;
+- internal handler TypeError is never treated as an arity mismatch after the handler has started;
+- Runner message/callback dispatch does not retry a failing bot handler;
+- BotService message/callback dispatch does not retry a failing adapter;
+- AssistantTelegramAdapter does not retry a failing button handler;
+- a partially started handler cannot be invoked a second time by the compatibility fallback;
+- no business rule, persistence owner, Product Decision execution, Product Task Draft execution, or Ozon mutation is enabled;
 - repository data/users.json remains untouched.

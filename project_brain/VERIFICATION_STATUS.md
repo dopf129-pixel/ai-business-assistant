@@ -4,60 +4,60 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`5db998a9c6cc59ac64e347dcbcca135ffb88fd51`
+`9a8b290333428334f76903c4bf6284863b930f06`
 
 Latest merged production-correctness batch:
 
-`v668-v676: History Clear Integrity`
+`v677-v686: Telegram TypeError Retry Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `edfd1605708ad991f116b313cee8a64581e2c271`
-- push Verify #365
+- exact main: `b8e1656a607901ef251c686a61f6bc72eee69bbf`
+- push Verify #371
 - conclusion: success
-- tests: 1568 passed / 0 failed
-- artifact: `verification-edfd1605708ad991f116b313cee8a64581e2c271`
-- artifact digest: `sha256:da9afe6bc307970b78911c84145f178a7bb8754fa3947db44c4f8309e53ef797`
+- tests: 1577 passed / 0 failed
+- artifact: `verification-b8e1656a607901ef251c686a61f6bc72eee69bbf`
+- artifact digest: `sha256:09c311fc3da6c2e17ed57855e73a4a41d99d00d60e69549b6abe21d428f9a47b`
 
 ### Exact final feature-head verification
 
-- branch: `fix/history-clear-integrity-v668-v676`
-- exact SHA: `6bd0ddb72eef7f24f4203a9427f8f8cad82c3024`
-- push Verify #366
+- branch: `fix/telegram-typeerror-retry-integrity-v677-v686`
+- exact SHA: `b8371c4194f004ed71584439543fa8a30998f5fb`
+- push Verify #372
 - conclusion: success
-- tests: 1577 passed / 0 failed
-- artifact: `verification-6bd0ddb72eef7f24f4203a9427f8f8cad82c3024`
-- artifact digest: `sha256:f1a8d7c208a5c295995e3e53610c5674a39aa649844f71b4139567b0fb150cc7`
+- tests: 1587 passed / 0 failed
+- artifact: `verification-b8371c4194f004ed71584439543fa8a30998f5fb`
+- artifact digest: `sha256:6e949f48bd074ca220fa62f1a3e190209811c6807abb2eba5d411a32adf55225`
 
 ### PR merge-ref integration verification
 
-- PR #268
-- branch head: `6bd0ddb72eef7f24f4203a9427f8f8cad82c3024`
-- synthetic merge SHA: `a488d12f7ff5a67af59ad0acecce60c53c7ff2b3`
-- pull_request Verify #367
+- PR #270
+- branch head: `b8371c4194f004ed71584439543fa8a30998f5fb`
+- synthetic merge SHA: `3064816c03be1efdbf4272833f3430d9fb68521c`
+- pull_request Verify #373
 - conclusion: success
-- tests: 1577 passed / 0 failed
-- artifact: `verification-a488d12f7ff5a67af59ad0acecce60c53c7ff2b3`
-- artifact digest: `sha256:81b73ee668009b89f9860a7df0b60c4e26f05a6c9ca98ede11777a9d58d79cf3`
+- tests: 1587 passed / 0 failed
+- artifact: `verification-3064816c03be1efdbf4272833f3430d9fb68521c`
+- artifact digest: `sha256:5b97f77ae6a2b59a4e2e1b319fb992f4a7b9ffe3f3491126f88a7d8e8ce83c31`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `5db998a9c6cc59ac64e347dcbcca135ffb88fd51`
-- push Verify #368
+- exact main: `9a8b290333428334f76903c4bf6284863b930f06`
+- push Verify #374
 - conclusion: success
-- tests: 1577 passed / 0 failed
-- artifact: `verification-5db998a9c6cc59ac64e347dcbcca135ffb88fd51`
-- artifact digest: `sha256:862d2e67b4b51336139b58f9595ca6f34381b17f113608490ee0f6a4ea14f20f`
+- tests: 1587 passed / 0 failed
+- artifact: `verification-9a8b290333428334f76903c4bf6284863b930f06`
+- artifact digest: `sha256:1a8272687166b2dc82d9ee7bb069b4103b863b88db65d03b260db253ab2be470`
 
-## History Clear Integrity
+## Telegram TypeError Retry Integrity
 
-The production-wired AssistantHistoryService now clears the actual canonical nested user history list instead of mutating the get_user result wrapper or replacing history with an invalid object.
+Telegram compatibility dispatch now determines whether a callable accepts the modern or legacy arity before invoking it. An internal TypeError raised after a handler starts is no longer mistaken for a signature mismatch and therefore cannot trigger a second invocation.
 
-The service validates user-read and save-result contracts before claiming success. Explicit canonical pre-commit save failures restore the prior in-memory history list. Exceptions and malformed save outcomes remain fail-closed without a fabricated rollback because commit state may be ambiguous. A post-commit directory-fsync warning keeps the already-replaced state committed and is surfaced to the caller.
+The compatibility boundary remains narrow and does not change business logic. Legacy one-argument callables remain supported where the old fallback expected them.
 
-No persistence owner or layer changed. No business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No persistence owner or layer changed. No business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -69,6 +69,9 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_history_service.py`
-- `tests/test_history_clear_integrity_v668_v676.py`
-- `project_brain/CURRENT_CHECKPOINT_V668_V676.md`
+- `app/telegram_app_layer/telegram_call_compat.py`
+- `app/telegram_app_layer/telegram_runner.py`
+- `app/telegram_app_layer/telegram_bot_service.py`
+- `app/telegram_app_layer/assistant_telegram_adapter.py`
+- `tests/test_telegram_dispatch_typeerror_integrity_v677_v686.py`
+- `project_brain/CURRENT_CHECKPOINT_V677_V686.md`
