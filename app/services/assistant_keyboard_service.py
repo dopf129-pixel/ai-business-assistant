@@ -134,6 +134,54 @@ class AssistantKeyboardService:
             "buttons": buttons
         }
 
+    def build_product_decision_learning_coverage_keyboard(
+        self,
+        items,
+        limit=10,
+    ):
+        buttons = []
+        valid_states = {
+            "NEEDS_USER_FEEDBACK",
+            "NO_DECISION_HISTORY",
+            "WAITING_FOR_LATER_OBSERVATION",
+        }
+        labels = {
+            "NEEDS_USER_FEEDBACK": "Оценить решение",
+            "NO_DECISION_HISTORY": "Открыть решение",
+            "WAITING_FOR_LATER_OBSERVATION": "Проверить решение",
+        }
+
+        for item in (items or [])[:limit]:
+            if not isinstance(item, dict):
+                return {
+                    "error": True,
+                    "type": "inline_keyboard",
+                    "buttons": [],
+                }
+            sku = str(item.get("sku") or "").strip()
+            state = item.get("coverage_state")
+            if not sku or state not in valid_states:
+                return {
+                    "error": True,
+                    "type": "inline_keyboard",
+                    "buttons": [],
+                }
+            buttons.append({
+                "text": labels[state] + " — " + sku,
+                "callback": "product_decision:" + sku,
+            })
+
+        buttons.append({
+            "text": "🎯 Все решения",
+            "callback": "product_decisions",
+        })
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
+
     def build_product_decision_feedback_keyboard(self, sku, proposal=None):
         sku = str(sku)
         buttons = []
