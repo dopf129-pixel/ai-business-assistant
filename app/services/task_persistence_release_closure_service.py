@@ -433,6 +433,18 @@ class TaskPersistenceReleaseClosureService:
 
         if not all(self._valid_check(item) for item in value["checklist"]):
             return False
+
+        check_ids = [item["id"] for item in value["checklist"]]
+        if len(check_ids) != len(set(check_ids)):
+            return False
+        if (
+            not all(isinstance(item, str) and item for item in value["blockers"])
+            or len(value["blockers"]) != len(set(value["blockers"]))
+            or not all(isinstance(item, str) and item for item in value["warnings"])
+            or len(value["warnings"]) != len(set(value["warnings"]))
+        ):
+            return False
+
         expected_blockers = [
             item["id"]
             for item in value["checklist"]
@@ -497,6 +509,7 @@ class TaskPersistenceReleaseClosureService:
         return (
             isinstance(item, dict)
             and isinstance(item.get("id"), str)
+            and bool(item.get("id"))
             and item.get("required") is True
             and isinstance(item.get("satisfied"), bool)
             and isinstance(item.get("evidence"), str)
