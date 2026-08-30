@@ -370,7 +370,11 @@ Completed foundation and safety work:
 
 [x] User Context Pre-Commit Rollback Integrity
 
-[x] Existing User Record Integrity\n\n[x] Memory Persistence Result Integrity\n\n[x] Telegram Memory Clear Integrity
+[x] Existing User Record Integrity
+
+[x] Memory Persistence Result Integrity
+
+[x] Telegram Memory Clear Integrity
 
 Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`, `EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`, `EXACT_BRANCH_SHA_VERIFICATION_V1.md`, `RECOMMENDATION_CONTEXT_INTEGRITY_V1.md`, and `ACTION_PLAN_RESULT_INTEGRITY_V1.md`.
 
