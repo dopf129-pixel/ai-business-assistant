@@ -2,6 +2,25 @@
 
 ## 2026-08-30
 
+### Finance Context Evidence Hardening v1
+
+Hardened Finance Intelligence input and seller-facing financial semantics.
+
+- missing/malformed gross_sales or gross_profit now fails closed;
+- non-finite and boolean values are rejected;
+- explicit numeric zero remains valid;
+- FinanceContextProvider output shape remains backward compatible;
+- Finance Intelligence no longer claims whole-business profitability from gross-profit evidence;
+- Finance Executor uses evidence-scoped labels;
+- no financial formula, double subtraction or execution change.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after unknown advertising evidence v514-v520
 
 Reconciled Project Brain to the verified financial-correctness baseline.

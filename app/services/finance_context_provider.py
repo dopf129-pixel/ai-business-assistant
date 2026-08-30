@@ -1,10 +1,17 @@
+from math import isfinite
+
+
 class FinanceContextProvider:
 
     def build(
         self,
         period_data
     ):
-        period_data = period_data or {}
+        if not isinstance(
+            period_data,
+            dict
+        ):
+            return None
 
         finance_data = self._build_finance_data(
             period_data.get(
@@ -33,33 +40,59 @@ class FinanceContextProvider:
         self,
         profits
     ):
-        valid_profits = [
-            profit
-            for profit in (profits or [])
-            if not profit.get("error")
-        ]
+        if not isinstance(
+            profits,
+            (list, tuple)
+        ):
+            return None
+
+        valid_profits = []
+
+        for item in profits:
+            if not isinstance(
+                item,
+                dict
+            ):
+                return None
+
+            if item.get(
+                "error"
+            ):
+                return None
+
+            gross_sales = self._number(
+                item.get(
+                    "gross_sales"
+                )
+            )
+            gross_profit = self._number(
+                item.get(
+                    "gross_profit"
+                )
+            )
+
+            if (
+                gross_sales is None
+                or gross_profit is None
+            ):
+                return None
+
+            valid_profits.append(
+                (
+                    gross_sales,
+                    gross_profit
+                )
+            )
 
         if not valid_profits:
             return None
 
         revenue = sum(
-            float(
-                profit.get(
-                    "gross_sales",
-                    0
-                )
-                or 0
-            )
-            for profit in valid_profits
+            item[0]
+            for item in valid_profits
         )
         profit = sum(
-            float(
-                item.get(
-                    "gross_profit",
-                    0
-                )
-                or 0
-            )
+            item[1]
             for item in valid_profits
         )
         expenses = revenue - profit
@@ -75,3 +108,30 @@ class FinanceContextProvider:
             "profit": round(profit, 2),
             "margin": round(margin, 2)
         }
+
+    def _number(
+        self,
+        value
+    ):
+        if (
+            value is None
+            or isinstance(value, bool)
+        ):
+            return None
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if not isfinite(
+            number
+        ):
+            return None
+
+        return number

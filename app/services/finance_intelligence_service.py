@@ -1,3 +1,6 @@
+from math import isfinite
+
+
 class FinanceIntelligenceService:
 
     def analyze(
@@ -6,30 +9,66 @@ class FinanceIntelligenceService:
         previous_data=None
     ):
 
-        if not finance_data:
+        if (
+            not isinstance(finance_data, dict)
+            or not finance_data
+        ):
             return self._missing_data_result()
 
-        revenue = finance_data.get(
-            "revenue"
+        if (
+            previous_data is not None
+            and not isinstance(previous_data, dict)
+        ):
+            return self._missing_data_result()
+
+        if (
+            previous_data
+            and self._previous_data_malformed(
+                previous_data
+            )
+        ):
+            return self._missing_data_result()
+
+        revenue = self._number(
+            finance_data.get(
+                "revenue"
+            )
         )
-        expenses = finance_data.get(
-            "expenses"
+        expenses = self._number(
+            finance_data.get(
+                "expenses"
+            )
         )
 
         if revenue is None or expenses is None:
             return self._missing_data_result()
 
-        revenue = float(revenue)
-        expenses = float(expenses)
-
         profit = finance_data.get(
             "profit"
+        )
+
+        profit_scope = finance_data.get(
+            "profit_scope"
         )
 
         if profit is None:
             profit = revenue - expenses
 
-        profit = float(profit)
+            if not profit_scope:
+                profit_scope = (
+                    "DERIVED_REVENUE_MINUS_EXPENSES"
+                )
+
+        else:
+            profit = self._number(
+                profit
+            )
+
+            if profit is None:
+                return self._missing_data_result()
+
+            if not profit_scope:
+                profit_scope = "CALLER_PROVIDED"
 
         margin = finance_data.get(
             "margin"
@@ -42,7 +81,13 @@ class FinanceIntelligenceService:
                 else 0
             )
 
-        margin = float(margin)
+        else:
+            margin = self._number(
+                margin
+            )
+
+            if margin is None:
+                return self._missing_data_result()
 
         metrics = {
             "revenue": round(revenue, 2),
@@ -54,26 +99,36 @@ class FinanceIntelligenceService:
         return {
             "error": False,
             "metrics": metrics,
+            "profit_scope": profit_scope,
             "insights": self._build_insights(
                 metrics,
-                previous_data
+                previous_data,
+                profit_scope
             )
         }
 
     def _build_insights(
         self,
         metrics,
-        previous_data
+        previous_data,
+        profit_scope=None
     ):
 
         insights = []
+
+        result_label = (
+            "Расчётный валовый результат"
+            if profit_scope
+            == "PERIOD_GROSS_PROFIT"
+            else "Расчётный финансовый результат"
+        )
 
         if metrics["profit"] > 0:
             insights.append(
                 {
                     "type": "finance_profitable",
                     "severity": "positive",
-                    "message": "Бизнес работает с положительной прибылью"
+                    "message": result_label + " положительный"
                 }
             )
         elif metrics["profit"] < 0:
@@ -81,7 +136,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_loss",
                     "severity": "critical",
-                    "message": "Бизнес работает с убытком"
+                    "message": result_label + " отрицательный"
                 }
             )
         else:
@@ -89,7 +144,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_break_even",
                     "severity": "neutral",
-                    "message": "Бизнес работает в точке безубыточности"
+                    "message": result_label + " равен нулю"
                 }
             )
 
@@ -112,17 +167,22 @@ class FinanceIntelligenceService:
                         metrics["profit"],
                         previous_profit
                     ),
-                    "message": "Прибыль снизилась относительно предыдущего периода"
+                    "message": (
+                        result_label
+                        + " снизился относительно предыдущего периода"
+                    )
                 }
             )
 
-        previous_expenses = previous_data.get(
-            "expenses"
+        previous_expenses = self._number(
+            previous_data.get(
+                "expenses"
+            )
         )
 
         if (
             previous_expenses is not None
-            and metrics["expenses"] > float(previous_expenses)
+            and metrics["expenses"] > previous_expenses
         ):
             insights.append(
                 {
@@ -130,13 +190,60 @@ class FinanceIntelligenceService:
                     "severity": "attention",
                     "change_percent": self._change_percent(
                         metrics["expenses"],
-                        float(previous_expenses)
+                        previous_expenses
                     ),
                     "message": "Расходы выросли относительно предыдущего периода"
                 }
             )
 
         return insights
+
+    def _previous_data_malformed(
+        self,
+        data
+    ):
+        for field in (
+            "revenue",
+            "expenses",
+            "profit",
+            "margin"
+        ):
+            if (
+                field in data
+                and self._number(
+                    data.get(field)
+                ) is None
+            ):
+                return True
+
+        return False
+
+    def _number(
+        self,
+        value
+    ):
+        if (
+            value is None
+            or isinstance(value, bool)
+        ):
+            return None
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if not isfinite(
+            number
+        ):
+            return None
+
+        return number
 
     def _resolve_profit(
         self,
@@ -148,7 +255,9 @@ class FinanceIntelligenceService:
         )
 
         if profit is not None:
-            return float(profit)
+            return self._number(
+                profit
+            )
 
         revenue = data.get(
             "revenue"
@@ -160,7 +269,17 @@ class FinanceIntelligenceService:
         if revenue is None or expenses is None:
             return None
 
-        return float(revenue) - float(expenses)
+        revenue = self._number(
+            revenue
+        )
+        expenses = self._number(
+            expenses
+        )
+
+        if revenue is None or expenses is None:
+            return None
+
+        return revenue - expenses
 
     def _change_percent(
         self,

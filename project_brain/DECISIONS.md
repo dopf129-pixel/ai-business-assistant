@@ -1496,3 +1496,48 @@ Reason:
 Status:
 
 Implemented
+
+
+---
+
+## Decision 029
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Finance Context Evidence Scope
+
+Decision:
+
+Finance Intelligence context built from StorePeriodProfitService must preserve
+the scope of its source evidence and must not promote missing facts to zero.
+
+Rules:
+
+- any explicit error row blocks finance-context aggregation;
+- gross_sales and gross_profit are required for every accepted period-profit row;
+- malformed, non-finite, boolean or missing required values fail closed;
+- explicit numeric zero remains a valid fact;
+- FinanceContextProvider preserves its existing output shape;
+- Finance Intelligence may classify its own direct derived/caller-provided
+  result internally without requiring a new provider context field;
+- derived expenses remain revenue minus period gross profit and are described
+  only as expenses by available evidence;
+- Finance Intelligence must not call PERIOD_GROSS_PROFIT accounting net profit
+  or claim that the whole business is profitable;
+- no tax, advertising, storage or returns expense is inferred or subtracted
+  again in this context layer.
+
+Reason:
+
+The finance recommendation pipeline consumes period gross-profit evidence.
+Without explicit scope and fail-closed validation, incomplete payloads can look
+like zero-cost facts and seller-facing wording can overstate what the evidence
+proves.
+
+Status:
+
+Implemented
