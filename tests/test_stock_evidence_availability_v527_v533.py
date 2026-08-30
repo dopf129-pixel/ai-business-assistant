@@ -1,3 +1,6 @@
+from services.assistant_entry_service import (
+    AssistantEntryService,
+)
 from services.assistant_recommendation_service import (
     AssistantRecommendationService,
 )
@@ -357,3 +360,56 @@ def test_v533_stock_provider_rejects_invalid_period_evidence():
         "low_stock": False,
         "stock_evidence_available": False,
     }
+
+
+def test_v533_entry_propagates_unavailable_stock_evidence_without_stock_action():
+    class _MainFlow:
+        def __init__(self):
+            self.report = None
+
+        def process(
+            self,
+            text,
+            report,
+            context,
+            user_id,
+        ):
+            self.report = report
+            return {
+                "error": False,
+            }
+
+    class _NoSalesProvider:
+        def build(self):
+            return None
+
+    main_flow = _MainFlow()
+
+    AssistantEntryService(
+        main_flow_service=main_flow,
+        stock_context_provider=StockContextProvider(),
+        sales_context_provider=_NoSalesProvider(),
+    ).handle(
+        "Проверь бизнес",
+        user_id=1,
+    )
+
+    assert main_flow.report["low_stock"] is False
+    assert (
+        main_flow.report["stock_evidence_available"]
+        is False
+    )
+    assert "stock_context" not in main_flow.report
+
+    recommendations = AssistantRecommendationService().analyze(
+        main_flow.report
+    )
+
+    assert all(
+        item["type"] != "stock"
+        for item in recommendations["recommendations"]
+    )
+    assert recommendations["recommendations"] == [{
+        "type": "general",
+        "message": "Недостаточно данных для полной оценки бизнеса",
+    }]
