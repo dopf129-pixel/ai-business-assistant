@@ -331,6 +331,63 @@ def test_v470_closure_audit_is_deterministic_and_rejects_forged_lineage(tmp_path
     )
 
 
+def test_v470_duplicate_or_empty_closure_codes_fail_audit_validation(tmp_path):
+    _, closure = _services(tmp_path)
+    report = closure.build_report(
+        _manifest(tmp_path),
+        REVISION,
+        _run_metadata(),
+    )
+    source = dict(report)
+    source.pop("closure_audit_receipt_id")
+
+    duplicated = dict(source)
+    duplicated["warnings"] = ["DUPLICATE_WARNING", "DUPLICATE_WARNING"]
+    duplicated["warning_count"] = 2
+    duplicated["release_review_ready"] = False
+    duplicated["closure_state"] = "BLOCKED"
+    duplicated["closure_id"] = closure._digest(
+        "task-persistence-release-closure:",
+        {
+            "revision_id": duplicated["revision_id"],
+            "runtime_release_audit_id": duplicated[
+                "runtime_release_audit_id"
+            ],
+            "workflow_audit_id": duplicated["workflow_audit_id"],
+            "verification_manifest_id": duplicated[
+                "verification_manifest_id"
+            ],
+            "test_report_id": duplicated["test_report_id"],
+            "run_id": duplicated["run_id"],
+            "run_number": duplicated["run_number"],
+            "checklist": duplicated["checklist"],
+            "blockers": duplicated["blockers"],
+            "warnings": duplicated["warnings"],
+            "closure_state": duplicated["closure_state"],
+            "release_review_ready": duplicated[
+                "release_review_ready"
+            ],
+        },
+    )
+
+    rejected = closure.build_audit_receipt(duplicated)
+    assert rejected["error"] is True
+    assert rejected["code"] == (
+        "TASK_PERSISTENCE_RELEASE_CLOSURE_REPORT_INVALID"
+    )
+
+    empty_id = dict(source)
+    empty_id["checklist"] = [dict(item) for item in source["checklist"]]
+    empty_id["checklist"][0]["id"] = ""
+    empty_id["blockers"] = [""]
+    empty_id["blocker_count"] = 1
+    empty_id["release_review_ready"] = False
+    empty_id["closure_state"] = "BLOCKED"
+
+    rejected_empty = closure.build_audit_receipt(empty_id)
+    assert rejected_empty["error"] is True
+
+
 def test_v471_closure_never_claims_external_verification_or_business_execution(tmp_path):
     _, closure = _services(tmp_path)
 
