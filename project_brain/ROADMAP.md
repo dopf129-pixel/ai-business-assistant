@@ -255,7 +255,7 @@ Project Brain appendix: `VECTOR_MEMORY.md`
 # Product Intelligence Roadmap
 
 
-Current:
+Completed foundation and safety work:
 
 
 [x] Stock Intelligence Integration v1
@@ -313,10 +313,33 @@ Current:
 
 [x] Autonomous Assistant v14 — Freshness Refresh Guidance
 
-Project Brain appendices: `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`
+[x] Freshness evidence authorization/application safety boundaries
+
+[x] Freshness write protocol and adapter admission boundaries without enabling actual business mutation
+
+[x] Freshness operational readiness, diagnostics and snapshot-provider boundaries
+
+[x] Opt-in read-only freshness production composition
+
+[x] Durable long-running task persistence/recovery hardening
+
+[x] Terminal task/action lifecycle reconciliation
+
+Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, and `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`.
 
 
-Next:
+Current hardening queue:
 
 
-Propagate real source-recorded timestamps only when upstream source contracts actually provide them; keep unsupported components UNKNOWN. Guidance may explain required refresh/evidence work, but must not auto-refresh or enable execution.
+1. Terminal task immutability and transient-state cleanup across restart/recovery.
+
+2. Owner-level recovery consistency and malformed persisted-state handling.
+
+3. Full SHA-bound repository regression verification on the then-current `main`.
+
+4. Continue Project Brain drift cleanup as new batches land.
+
+5. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+
+
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V264_V268.md`.
