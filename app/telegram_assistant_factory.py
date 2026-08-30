@@ -27,6 +27,11 @@ from services.assistant_button_handler_service import (
 )
 
 
+from product_decision_learning_health import (
+    build_product_decision_learning_health
+)
+
+
 from services.assistant_telegram_memory_service import (
     AssistantTelegramMemoryService
 )
@@ -166,6 +171,9 @@ def create_telegram_assistant():
             ),
             returns_finance_impact_query=(
                 returns_finance_impact_query
+            ),
+            product_decision_learning_health_builder=(
+                build_product_decision_learning_health
             )
         )
     )
