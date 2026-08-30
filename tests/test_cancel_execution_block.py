@@ -58,7 +58,7 @@ def test_cancelled_task_cannot_execute():
     assert (
         execute_result["error"]
         is
-        False
+        True
     )
 
 

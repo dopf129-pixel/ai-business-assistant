@@ -7,6 +7,58 @@ class AssistantResponseBuilderService:
     ):
 
 
+        if not isinstance(
+            result,
+            dict
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_RESPONSE_INPUT"
+            }
+
+
+        if "error" in result:
+
+            if type(
+                result.get(
+                    "error"
+                )
+            ) is not bool:
+
+                return {
+                    "error": True,
+                    "message":
+                        "INVALID_RESPONSE_INPUT"
+                }
+
+
+            if result["error"]:
+
+                message = (
+                    result.get(
+                        "message"
+                    )
+                )
+
+                return {
+                    "error": True,
+                    "message":
+                        (
+                            message
+                            if (
+                                isinstance(
+                                    message,
+                                    str
+                                )
+                                and message.strip()
+                            )
+                            else "UPSTREAM_ERROR"
+                        )
+                }
+
+
         message = (
             result.get(
                 "message"
