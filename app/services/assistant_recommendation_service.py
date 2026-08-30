@@ -122,6 +122,13 @@ class AssistantRecommendationService:
         ) == 0:
 
 
+            stock_evidence_available = (
+                report.get(
+                    "stock_evidence_available"
+                )
+            )
+
+
             recommendations.append(
                 {
                     "type":
@@ -129,7 +136,9 @@ class AssistantRecommendationService:
 
                     "message":
                         (
-                            "Критичных проблем не найдено"
+                            "Недостаточно данных для полной оценки бизнеса"
+                            if stock_evidence_available is False
+                            else "Критичных проблем не найдено"
                         )
                 }
             )
