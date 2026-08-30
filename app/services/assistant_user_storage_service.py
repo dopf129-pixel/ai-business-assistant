@@ -234,14 +234,15 @@ class AssistantUserStorageService:
             user_id
         )
 
-        existing = self.users.get(
-            user_id
-        )
+        if user_id in self.users:
 
-        if existing is not None:
+            existing = self.users[
+                user_id
+            ]
 
             if not self._valid_user(
-                existing
+                existing,
+                user_id
             ):
 
                 return {
@@ -500,7 +501,8 @@ class AssistantUserStorageService:
 
     @staticmethod
     def _valid_user(
-        user
+        user,
+        expected_user_id
     ):
 
         return (
@@ -508,17 +510,21 @@ class AssistantUserStorageService:
                 user,
                 dict
             )
+            and user.get(
+                "user_id"
+            )
+            == expected_user_id
+            and "memory" in user
             and isinstance(
                 user.get(
-                    "memory",
-                    {}
+                    "memory"
                 ),
                 dict
             )
+            and "history" in user
             and isinstance(
                 user.get(
-                    "history",
-                    []
+                    "history"
                 ),
                 list
             )
