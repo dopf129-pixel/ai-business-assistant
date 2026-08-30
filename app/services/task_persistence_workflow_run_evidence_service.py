@@ -69,7 +69,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             "event": event,
             "run_id": run_id,
             "run_number": run_number,
-            "status": status,
+            "run_status": status,
             "conclusion": conclusion,
             "run_success": conclusion == "success",
             "evidence_source": (
@@ -170,7 +170,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             **evidence,
             "workflow": run["workflow"],
             "event": run["event"],
-            "run_status": run["status"],
+            "run_status": run["run_status"],
             "run_conclusion": run["conclusion"],
             "completed_workflow_run_bound": True,
             "verification_manifest_bound": True,
@@ -465,7 +465,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             or report.get("run_number") != run.get("run_number")
             or report.get("workflow") != run.get("workflow")
             or report.get("event") != run.get("event")
-            or report.get("run_status") != run.get("status")
+            or report.get("run_status") != run.get("run_status")
             or report.get("run_conclusion") != run.get("conclusion")
             or report.get("test_suite_passed")
             is not manifest_binding.get("test_suite_passed")
@@ -547,6 +547,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             isinstance(value, dict)
             and value.get("status")
             == "TASK_PERSISTENCE_WORKFLOW_RUN_EVIDENCE_READY"
+            and value.get("run_status") == "completed"
             and value.get("error") is False
             and self._sha(value.get("head_sha"))
             == value.get("head_sha")
@@ -577,7 +578,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             "event": value["event"],
             "run_id": value["run_id"],
             "run_number": value["run_number"],
-            "status": "completed",
+            "run_status": "completed",
             "conclusion": value["conclusion"],
             "run_success": value["run_success"],
             "evidence_source": value["evidence_source"],
