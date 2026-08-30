@@ -33,6 +33,12 @@ Provider output now carries:
 
 `profit_scope=PERIOD_GROSS_PROFIT`
 
+Direct FinanceIntelligenceService callers without provider scope are classified
+deterministically:
+
+- missing explicit profit -> `DERIVED_REVENUE_MINUS_EXPENSES`;
+- explicit caller profit without scope -> `CALLER_PROVIDED`.
+
 ## Arithmetic
 
 For complete source evidence, existing arithmetic is preserved:
@@ -106,8 +112,9 @@ Focused regressions cover:
 4. explicit zero;
 5. explicit PERIOD_GROSS_PROFIT scope;
 6. neutral Finance Intelligence wording;
-7. decline wording;
-8. scoped Finance Executor presentation;
-9. error-only rows do not become zero evidence.
+7. deterministic direct-caller scopes;
+8. decline wording;
+9. scoped Finance Executor presentation;
+10. error-only rows do not become zero evidence.
 
 Full GitHub Actions verification is required before merge.
