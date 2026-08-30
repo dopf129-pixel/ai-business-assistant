@@ -559,11 +559,16 @@ def test_v506_coverage_keyboard_fails_closed_on_invalid_navigation_item():
             "coverage_state": "NEEDS_USER_FEEDBACK",
         }
     ])
+    invalid_items = keyboard.build_product_decision_learning_coverage_keyboard(
+        {"sku": "sku-a"}
+    )
 
     assert invalid_state["error"] is True
     assert invalid_state["buttons"] == []
     assert empty_sku["error"] is True
     assert empty_sku["buttons"] == []
+    assert invalid_items["error"] is True
+    assert invalid_items["buttons"] == []
 
 
 def test_v507_coverage_navigation_is_bounded_to_visible_top_ten():
@@ -608,3 +613,19 @@ def test_v508_coverage_navigation_preserves_read_only_queue_boundary():
         }
         for button in response["keyboard"]["buttons"]
     )
+
+
+def test_v505_non_dict_coverage_builder_payload_fails_closed():
+    handler, query = _handler(
+        {"sku-a": [_record("sku-a")]},
+        ["sku-a"],
+        builder=lambda rows: [],
+    )
+
+    response = handler.handle("product_decision_learning_coverage")
+
+    assert response["error"] is True
+    assert response["message"] == (
+        "Очередь сбора обратной связи недоступна"
+    )
+    assert query.query_calls == 0
