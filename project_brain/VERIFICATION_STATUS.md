@@ -6,211 +6,108 @@ Date: 2026-08-30
 
 Latest exact verified `main` product baseline:
 
-`81ebdccf88a3959d65607de28c904bb952054139`
+`15d2051487dccd1c630394424f0675ac50aecdae`
 
-Latest merged lifecycle-correctness batch:
+Latest merged production-correctness batch:
 
-`v541-v547: preserve FAILED lifecycle for executor error results`
+`v548-v553: Marketing Evidence Integrity`
 
-GitHub evidence is separated by the revision actually executed.
+GitHub evidence remains SHA-bound and separated by execution layer.
 
-## Verification layers for PR #233
+### Exact feature-head verification
 
-### Failed exact branch-head evidence
-
-Earlier exact feature SHA:
-
-`3c49c302b631f888f45e74c3c7c38d2b36522946`
-
+- feature branch: `fix/marketing-evidence-integrity-v548-v553`
+- exact head SHA: `ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
 - workflow: `Verify`
 - event: **push**
-- run number: **106**
-- run id: **33318940284**
-- actual checkout SHA: `3c49c302b631f888f45e74c3c7c38d2b36522946`
-- status: **completed**
-- conclusion: **failure**
-- tests: **1392 passed, 1 failed**
-
-The failure came from the existing CI contract test requiring the explicit
-`- main` push trigger after branch push verification was first added as only
-`"**"`.
-
-The workflow was corrected in the same branch to preserve explicit `main` and
-also verify all branch pushes.
-
-This failed SHA remains failed evidence and is not promoted by later green runs.
-
-### Final exact branch-head verification
-
-Final feature head:
-
-`aca50b561c999da1a6aac47afb1ebfe191617a9a`
-
-- PR: **#233**
-- workflow: `Verify`
-- event: **push**
-- run number: **112**
-- run id: **33319126918**
-- actual checkout SHA: `aca50b561c999da1a6aac47afb1ebfe191617a9a`
-- status: **completed**
+- run number: **134**
+- run id: **33326826494**
 - conclusion: **success**
-- full test suite: **1395 passed**
+- full test suite: **1399 passed**
 - failed: **0**
-- SHA-bound artifact: `verification-aca50b561c999da1a6aac47afb1ebfe191617a9a`
-- artifact id: **9734360032**
+- artifact: `verification-ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
+- artifact id: **9736469026**
 
-This is the exact PR branch-head verification evidence.
+This branch-push run is the exact feature-head evidence.
 
-### Pull-request merge-ref integration verification
+### PR merge-ref integration verification
 
-- PR: **#233**
+- PR: **#235**
+- branch head: `ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`
 - workflow: `Verify`
 - event: **pull_request**
-- run number: **113**
-- run id: **33319129148**
-- status: **completed**
+- run number: **135**
+- run id: **33326865201**
 - conclusion: **success**
+- full test suite: **1399 passed**
+- failed: **0**
 
-GitHub's pull-request workflow checks out a synthetic PR merge revision by
-default. Therefore this run is merge-ref integration evidence, not exact
-branch-head evidence, even though GitHub run metadata also references the PR
-head.
-
-Do not transfer this run's test manifest or revision identity to
-`aca50b561c999da1a6aac47afb1ebfe191617a9a`.
+This is synthetic PR merge-ref integration evidence and is not promoted as
+exact branch-head verification.
 
 ### Post-merge exact main verification
 
-Squash-merge `main` SHA:
-
-`81ebdccf88a3959d65607de28c904bb952054139`
-
+- exact main SHA: `15d2051487dccd1c630394424f0675ac50aecdae`
 - workflow: `Verify`
 - event: **push**
-- run number: **114**
-- run id: **33319235235**
-- actual checkout SHA: `81ebdccf88a3959d65607de28c904bb952054139`
-- status: **completed**
+- run number: **136**
+- run id: **33326897395**
 - conclusion: **success**
-- full test suite: **1395 passed**
+- full test suite: **1399 passed**
 - failed: **0**
-- SHA-bound artifact: `verification-81ebdccf88a3959d65607de28c904bb952054139`
-- artifact id: **9734392896**
+- artifact: `verification-15d2051487dccd1c630394424f0675ac50aecdae`
+- artifact id: **9736487921**
 
-This completed push run verifies the exact squash-merge SHA and establishes the
-current product baseline. It is CI evidence, not independent external
-verification.
+This completed run verifies the exact squash-merge SHA. It is not independent
+external verification.
 
-## Executor error-result lifecycle integrity
+## Marketing Evidence Integrity
 
-Before v541-v547, AssistantActionExecutionService handled raised exceptions as
-FAILED but an executor could return a normal dictionary with `error=True` and
-still continue into `complete_action()`.
+The existing marketing path no longer invents execution-looking analysis.
 
-The persisted execution boundary now fails closed:
+Contract:
 
-- `AssistantActionRouterService.execute()` preserves its direct result-returning
-  contract;
-- `AssistantActionRouterService.run()` validates persisted-execution results;
-- explicit executor `error=True` is routed into the existing exception/FAILED
-  lifecycle;
-- non-dict results fail as `INVALID_EXECUTOR_RESULT`;
-- malformed error flags fail as `INVALID_EXECUTOR_RESULT`;
-- explicit error without a usable message uses `EXECUTOR_RETURNED_ERROR`;
-- arbitrary result payload fields are not stringified into persisted errors.
+- `marketing_problem=True` alone is not actionable;
+- marketing recommendation requires `marketing_evidence_available=True`;
+- recommendation also requires a non-empty `marketing_context`;
+- executor requires explicit non-empty string `evidence`;
+- executor formats supplied evidence only;
+- missing or malformed evidence returns an error;
+- persisted router execution therefore enters the existing FAILED lifecycle;
+- generic fallback reports insufficient data when marketing evidence is unavailable.
 
-For executor-returned failures:
-
-- action status becomes FAILED, not DONE;
-- task remains ACTIVE rather than falsely completing;
-- pending action is cleared;
-- failed progress is not counted as completed;
-- history records `execution_failed`, not `execution_completed`;
-- feedback records FAILED, not DONE;
-- existing retry policy and retry preparation remain active;
-- `complete_action()` is not reached.
-
-Successful results preserve the existing DONE completion path.
-
-## Exact branch-SHA CI contract
-
-`Verify` now runs on:
-
-- pull requests;
-- explicit `main` pushes;
-- all branch pushes;
-- workflow dispatch.
-
-For an open PR, use the branch-push run as exact feature/docs head evidence.
-Use the pull-request run as synthetic merge-ref integration evidence.
-
-After squash merge, a separate `main` push run remains mandatory for the exact
-merged SHA.
-
-Evidence must not be transferred among:
-
-1. feature/docs branch head SHA;
-2. synthetic PR merge SHA;
-3. squash-merge `main` SHA.
-
-The canonical test report remains bound to the run's actual `GITHUB_SHA` and does
-not by itself prove final workflow completion.
+The repository still has no production marketing data service/API connected to
+this path. No hidden fetch is performed.
 
 ## Execution safety
 
 This package does not:
 
-- add a new executor or runtime route;
-- change Product Decision rules;
+- add a marketing API;
+- mutate advertising campaigns;
+- mutate Ozon;
+- alter Product Decision rules;
 - execute Product Task Drafts;
-- add Ozon mutation;
-- change retry limits;
-- change task persistence format;
+- change persistence format;
 - modify `data/users.json`.
 
-The lifecycle change prevents false completion; it does not grant new business
-execution permission.
-
-## Persistence hardening status
-
-Kernel-backed task-persistence hardening remains closed after v463-v472.
-
-No new persistence layer is planned without a concrete defect or product requirement.
-
-## Next package selection
-
-Choose the next package from a concrete current product, production-correctness,
-operator-usability, observability or release-readiness gap.
-
-Do not extend lifecycle/provenance/evidence layers solely to advance stage
-numbering.
-
-The canonical user-action advisory/checklist chain remains disconnected from
-production Telegram until exact persisted Product Decision verification lineage
-is available there.
+Marketing evidence availability is not execution authorization.
 
 ## Verification policy
 
-Every production or safety-critical feature branch must receive successful
-exact branch-push verification before merge.
+Exact branch push verification is required for feature/docs heads.
 
-Pull-request merge-ref green status is additional integration evidence and does
-not replace branch-head verification.
+PR `pull_request` runs are merge-ref integration evidence and remain separate.
 
 Every resulting `main` SHA must receive its own successful push verification
-before becoming the current exact baseline.
+before becoming the verified baseline.
 
-A failed SHA remains failed evidence even if a later SHA passes.
+## Related implementation
 
-A canonical test manifest proves suite results for its bound SHA; it does not by
-itself prove final workflow completion or independent external verification.
-
-## Related implementation and evidence
-
-- `app/services/assistant_action_router_service.py`
-- `.github/workflows/verify.yml`
-- `tests/test_executor_error_result_lifecycle_v541_v547.py`
-- `tests/test_exact_branch_verification_v547.py`
-- `project_brain/EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`
-- `project_brain/EXACT_BRANCH_SHA_VERIFICATION_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V541_V547.md`
+- `app/services/assistant_marketing_executor_service.py`
+- `app/services/assistant_recommendation_service.py`
+- `tests/test_marketing_executor.py`
+- `tests/test_marketing_recommendation.py`
+- `tests/test_marketing_evidence_integrity_v548_v553.py`
+- `project_brain/MARKETING_EVIDENCE_INTEGRITY_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V548_V553.md`
