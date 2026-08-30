@@ -1157,3 +1157,27 @@ Preserved:
 - no Product Decision or execution wiring;
 - no Ozon mutation;
 - no data/users.json change.
+
+
+---
+
+# Unknown Advertising Financial Evidence v1 — 2026-08-30
+
+Completed:
+
+[x] Production advertising defaults to unknown instead of implicit zero
+[x] Explicit advertising_cost=0 remains a valid known zero
+[x] Business profit and margin stay unknown without advertising evidence
+[x] Revenue and gross profit remain independently available
+[x] Advertising and business-profit dashboards render unknown as «—»
+[x] Sales analysis preserves unknown profit metrics instead of optimistic zero
+[x] Tax errors remain visible when advertising is unknown
+
+Preserved:
+
+- no advertising auto-fetch or heuristic classification;
+- no financial double counting;
+- no change to Ozon fee formulas;
+- no Product Decision rule change;
+- no seller/business execution or Ozon mutation;
+- no data/users.json change.
