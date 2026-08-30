@@ -1316,11 +1316,16 @@ class AssistantButtonHandlerService:
             "NO_DECISION_HISTORY": 2,
             "WAITING_FOR_LATER_OBSERVATION": 3,
         }
+        if not isinstance(coverage, dict):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
         items = coverage.get("items")
         counts = coverage.get("counts")
         if (
-            not isinstance(coverage, dict)
-            or coverage.get("status")
+            coverage.get("status")
             != "PRODUCT_DECISION_LEARNING_COVERAGE_QUEUE_READY"
             or coverage.get("error") is not False
             or coverage.get("evidence_scope")
