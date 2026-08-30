@@ -1311,6 +1311,13 @@ class AssistantButtonHandlerService:
             "NO_DECISION_HISTORY",
             "WAITING_FOR_LATER_OBSERVATION",
         }
+        rank_by_state = {
+            "NEEDS_USER_FEEDBACK": 1,
+            "NO_DECISION_HISTORY": 2,
+            "WAITING_FOR_LATER_OBSERVATION": 3,
+        }
+        items = coverage.get("items")
+        counts = coverage.get("counts")
         if (
             not isinstance(coverage, dict)
             or coverage.get("status")
@@ -1325,10 +1332,30 @@ class AssistantButtonHandlerService:
             or coverage.get("decision_rule_update_allowed") is not False
             or coverage.get("automatic_execution_allowed") is not False
             or coverage.get("executed") is not False
-            or not isinstance(coverage.get("items"), list)
-            or any(
-                not isinstance(item, dict)
-                or item.get("coverage_state") not in valid_states
+            or not isinstance(items, list)
+            or not isinstance(counts, dict)
+            or set(counts) != valid_states
+            or coverage.get("total") != len(items)
+        ):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        item_skus = []
+        for item in items:
+            if not isinstance(item, dict):
+                return {
+                    "error": True,
+                    "message": "Очередь сбора обратной связи недоступна"
+                }
+            state = item.get("coverage_state")
+            sku = str(item.get("sku") or "").strip()
+            if (
+                state not in valid_states
+                or not sku
+                or item.get("learning_attention_rank")
+                != rank_by_state[state]
                 or item.get("business_priority_claimed") is not False
                 or item.get("causal_claim_allowed") is not False
                 or item.get("success_rate_claim_allowed") is not False
@@ -1336,7 +1363,25 @@ class AssistantButtonHandlerService:
                 or item.get("decision_rule_update_allowed") is not False
                 or item.get("automatic_execution_allowed") is not False
                 or item.get("executed") is not False
-                for item in coverage.get("items")
+            ):
+                return {
+                    "error": True,
+                    "message": "Очередь сбора обратной связи недоступна"
+                }
+            item_skus.append(sku)
+
+        if (
+            len(item_skus) != len(set(item_skus))
+            or any(
+                isinstance(counts.get(state), bool)
+                or not isinstance(counts.get(state), int)
+                or counts.get(state) < 0
+                or counts.get(state)
+                != sum(
+                    item.get("coverage_state") == state
+                    for item in items
+                )
+                for state in valid_states
             )
         ):
             return {
@@ -1351,7 +1396,6 @@ class AssistantButtonHandlerService:
                 "Оценка сохранена — ждём следующее изменение решения"
             ),
         }
-        counts = coverage.get("counts") or {}
         lines = [
             "🧭 Очередь сбора обратной связи",
             "",
