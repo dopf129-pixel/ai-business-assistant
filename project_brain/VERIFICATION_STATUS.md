@@ -6,107 +6,109 @@ Date: 2026-08-30
 
 Latest exact verified `main` product baseline:
 
-`98778c278166157bb70c0fcb0c670db60c849451`
+`ed7ca690c78372e10e09ff471cae8023bd8d4125`
 
 Latest merged production-correctness batch:
 
-`v527-v533: distinguish unavailable stock evidence`
+`v534-v540: harden Sales evidence availability`
 
 GitHub evidence remains SHA-bound and separated by layer.
 
-### PR verification history
+### PR-head verification
 
-Initial PR head:
-
-`8dfaa00d540085a0c250d6ecb06d02df3a90ec75`
-
-- PR: **#229**
+- PR: **#231**
+- final exact head SHA: `86d24f903b37de19c042414e33a932dbbbc94c1e`
 - workflow: `Verify`
 - event: pull request
-- run number: **91**
-- run id: **33317198972**
-- status: **completed**
-- conclusion: **failure**
-
-The first iteration changed the protected historical AssistantEntryService
-no-data fallback and one new integration assertion ignored the existing legacy
-sales fallback.
-
-Both issues were corrected in the same branch.
-
-The failed SHA remains failed evidence and is not promoted as verified.
-
-Final PR head:
-
-`64a5a02fd4dea10f0929f9d6068b63ac01242605`
-
-- workflow: `Verify`
-- event: pull request
-- run number: **95**
-- run id: **33317271587**
+- run number: **99**
+- run id: **33317832547**
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1369 passed**
+- full test suite: **1385 passed**
 - failed: **0**
 
-This confirms the final PR head only. It is not reused as proof for the squash-merge SHA.
+This confirms the PR head only. It is not reused as proof for the squash-merge SHA.
 
 ### Post-merge main verification
 
-- exact main SHA: `98778c278166157bb70c0fcb0c670db60c849451`
+- exact main SHA: `ed7ca690c78372e10e09ff471cae8023bd8d4125`
 - workflow: `Verify`
 - event: **push**
-- run number: **96**
-- run id: **33317320477**
+- run number: **100**
+- run id: **33317865276**
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1369 passed**
+- full test suite: **1385 passed**
 - failed: **0**
 - canonical SHA-bound test-report artifact: **generated**
-- workflow artifact: `verification-98778c278166157bb70c0fcb0c670db60c849451`
+- workflow artifact: `verification-ed7ca690c78372e10e09ff471cae8023bd8d4125`
 
 The completed workflow run is CI evidence for this exact SHA. It does not imply independent external verification.
 
-## Stock evidence availability hardening
+## Sales evidence availability hardening
 
-The configured stock data path now distinguishes between:
-
-- verified no-risk stock evidence;
-- unavailable, malformed, failed or partial stock evidence.
+The configured Sales Intelligence path now distinguishes complete comparison
+evidence from unavailable or malformed comparison evidence.
 
 Contract:
 
-- confirmed low stock keeps the existing `low_stock=True` + `stock_context` action payload;
-- complete checked no-risk assortment returns `low_stock=False` and `stock_evidence_available=True`;
-- unavailable/partial configured stock evidence returns `low_stock=False` and `stock_evidence_available=False`;
+- confirmed decline keeps the existing `sales_down=True` + `sales_context`
+  action payload;
+- complete non-decline evidence returns `sales_down=False` and
+  `sales_evidence_available=True`;
+- unavailable/partial configured evidence returns `sales_down=False` and
+  `sales_evidence_available=False`;
 - availability metadata is report evidence only and is not execution permission.
 
 Historical AssistantEntryService mode with no data dependencies at all keeps its
 existing hardcoded fallback for backward compatibility.
 
-## Fail-closed stock evidence
+## Fail-closed sales evidence
 
-Configured stock evidence fails closed on:
+Configured sales evidence fails closed on:
 
-- missing stock dependencies;
-- empty product list;
+- malformed or empty product collections;
 - malformed product targets;
-- failed or malformed stock metrics;
-- failed or malformed sales facts;
-- invalid period length;
-- boolean, negative or non-finite numeric facts;
-- cross-product stock/sales identifiers;
-- mixed valid + failed assortment evidence when no confirmed low-stock item has already been found.
+- invalid current/previous period payloads;
+- failed, empty or malformed period-profit evidence;
+- failed or malformed analytics results;
+- malformed comparison structures;
+- missing, boolean or non-finite revenue `change_percent`.
 
-Explicit numeric zero sales remains valid and yields the existing `NO_SALES`
-Stock Intelligence state.
+Missing comparison change is not normalized to 0%.
+
+Explicit numeric zero change remains valid stable evidence.
+
+## Sales Intelligence metric semantics
+
+SalesIntelligenceService rejects malformed action context before invoking the
+analytics service.
+
+Required sales facts:
+
+- revenue / `gross_sales`;
+- gross profit / `gross_profit`.
+
+Missing or malformed required facts produce an insufficient-data result.
+
+Optional business metrics:
+
+- business profit;
+- margin percent.
+
+Missing optional business metrics remain `None`, not zero.
+
+Missing or malformed comparison change produces no trend insight and is not
+treated as stable.
+
+AssistantSalesExecutorService renders unknown metrics as `—`.
 
 ## Recommendation semantics
 
-A stock action remains tied to `low_stock=True`.
+A sales action remains tied to `sales_down=True`.
 
 When no other recommendation exists and
-`stock_evidence_available=False`, the generic fallback says:
+`sales_evidence_available=False`, the generic fallback says:
 
 `Недостаточно данных для полной оценки бизнеса`
 
@@ -114,14 +116,11 @@ instead of claiming:
 
 `Критичных проблем не найдено`.
 
-Verified complete no-risk stock evidence preserves the existing clean fallback.
-
 ## Execution safety
 
 This package does not:
 
-- infer replenishment quantity;
-- create a replenishment draft;
+- change the sales-decline threshold;
 - alter Product Decision rules;
 - execute Product Task Drafts;
 - add an Action Executor route;
@@ -129,7 +128,7 @@ This package does not:
 - modify persistence;
 - modify `data/users.json`.
 
-No stock-evidence availability field is business execution authorization.
+No sales-evidence availability field is business execution authorization.
 
 ## Persistence hardening status
 
@@ -142,7 +141,7 @@ No new persistence layer is planned without a concrete defect or product require
 Choose the next package from a concrete current product, production-correctness,
 operator-usability, observability or release-readiness gap.
 
-Do not extend stock/evidence/provenance layers solely to advance stage numbering.
+Do not extend sales/evidence/provenance layers solely to advance stage numbering.
 
 The canonical user-action advisory/checklist chain remains disconnected from
 production Telegram until exact persisted Product Decision verification lineage
@@ -167,8 +166,9 @@ itself prove final workflow completion.
 
 - `app/services/assistant_entry_service.py`
 - `app/services/assistant_recommendation_service.py`
-- `app/services/stock_context_provider.py`
-- `app/services/stock_intelligence_service.py`
-- `tests/test_stock_evidence_availability_v527_v533.py`
-- `project_brain/STOCK_EVIDENCE_AVAILABILITY_HARDENING_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V527_V533.md`
+- `app/services/sales_context_provider.py`
+- `app/services/sales_intelligence_service.py`
+- `app/services/assistant_sales_executor_service.py`
+- `tests/test_sales_evidence_availability_v534_v540.py`
+- `project_brain/SALES_EVIDENCE_AVAILABILITY_HARDENING_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V534_V540.md`
