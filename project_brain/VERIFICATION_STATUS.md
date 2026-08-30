@@ -2,43 +2,49 @@
 
 Date: 2026-08-30
 
-## Latest verified baseline entering v388-v392
+## Latest verified baseline entering v403-v407
 
 Latest exact verified `main` at the start of this reconciliation:
 
-`3a5bbe9332492073555ef258038e4a4db9e7bf85`
+`1a31258db514e18842f61d240b9040bbf7eeac46`
 
 Latest merged runtime batch at this revision:
 
-`v378-v387: replace orphan-prone task lockfile ownership with kernel flock`
+`v393-v402: add task persistence release observability`
 
 Full-suite verification for this exact SHA:
 
 - GitHub Actions workflow: `Verify`
 - event: `push`
-- run number: **31**
+- run number: **35**
 - conclusion: **success**
-- result: **1234 passed**
+- result: **1244 passed**
 - failed: **0**
 - exact SHA-bound: **yes**
 
-This is the exact SHA-bound baseline for the start of the v388-v392 docs-only reconciliation. The later docs-only merge creates a different main SHA and must receive its own successful push verification before that SHA is called current-verified.
+This is the exact SHA-bound baseline for the start of the v403-v407 docs-only reconciliation. A later docs-only merge creates a different main SHA and requires its own successful push verification.
 
 ## Current persistence verification coverage
 
-The current green suite includes regression coverage for:
+The current green suite covers:
 
 - terminal task lifecycle/recovery integrity;
 - malformed and unreadable task-store handling;
-- atomic save failure rollback;
+- atomic save rollback;
 - exact persisted-byte optimistic concurrency;
 - POSIX kernel-backed task write locking;
 - crash-like fd-close lock release;
 - persistent inert coordination-file compatibility;
-- task-file and parent-directory fsync semantics;
-- persistence operator readiness;
+- task-file fsync and parent-directory fsync semantics;
+- operator readiness;
 - default-deny operator access;
-- non-sensitive human-readable persistence diagnostics.
+- human-readable persistence diagnostics;
+- release capability evidence;
+- release readiness and blocker/warning projection;
+- explicit incident classification;
+- deterministic SHA-256 release audit receipts;
+- forged release snapshot/incident rejection;
+- operator-only `/task-persistence-release` production wiring.
 
 ## Verification infrastructure
 
@@ -63,9 +69,10 @@ The workflow is development verification only and does not execute seller action
 Earlier exact baselines remain historical evidence for their own SHAs only, including:
 
 - `11883f901d3bb344816735b834392a59185c0c81` — **982 passed**;
-- `d0286d45f23e6da17b33afbb269ce109f8a72e3b` — **1197 passed**.
+- `d0286d45f23e6da17b33afbb269ce109f8a72e3b` — **1197 passed**;
+- `3a5bbe9332492073555ef258038e4a4db9e7bf85` — **1234 passed**.
 
-Neither historical count may be transferred to a later SHA.
+No historical count may be transferred to a later SHA.
 
 ## Rule
 
@@ -105,6 +112,7 @@ Verification does not:
 - `requirements-dev.txt`
 - `app/services/terminal_safe_assistant_task_service.py`
 - `app/services/task_persistence_operational_service.py`
-- `tests/test_task_persistence_kernel_lock_v378_v387.py`
-- `project_brain/TASK_PERSISTENCE_KERNEL_LOCK_V2.md`
-- `project_brain/CURRENT_CHECKPOINT_V388_V392.md`
+- `app/services/task_persistence_release_observability_service.py`
+- `tests/test_task_persistence_release_observability_v393_v402.py`
+- `project_brain/TASK_PERSISTENCE_RELEASE_OBSERVABILITY_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V403_V407.md`
