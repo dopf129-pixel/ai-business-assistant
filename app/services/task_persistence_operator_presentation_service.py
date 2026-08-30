@@ -63,6 +63,71 @@ class TaskPersistenceOperatorPresentationService:
         result["lock_age_inferred"] = False
         return result
 
+    def present_provenance(self, report):
+        if not isinstance(report, dict):
+            return self._provenance_unavailable()
+        if (
+            report.get("status")
+            != "TASK_PERSISTENCE_CAPABILITY_PROVENANCE_REPORT"
+            or report.get("error") is not False
+        ):
+            return self._provenance_unavailable()
+
+        result = dict(report)
+        ci_state = result.get("ci_evidence_state")
+        revision = result.get("revision_id")
+
+        if ci_state == "BOUND":
+            message = (
+                "Provenance persistence: implementation/runtime evidence "
+                "связано с caller-supplied exact-SHA CI metadata. "
+                "Это не external verification."
+            )
+        elif revision is not None:
+            message = (
+                "Provenance persistence: revision объявлен, но exact-SHA CI "
+                "evidence не привязан. External verification отсутствует."
+            )
+        else:
+            message = (
+                "Provenance persistence: implementation/runtime evidence доступно, "
+                "но revision и CI evidence не привязаны. "
+                "Active probing production store не выполнялся."
+            )
+
+        result["message"] = message
+        result["operator_message_generated"] = True
+        result["path_exposed"] = False
+        result["user_id_exposed"] = False
+        result["lock_owner_inferred"] = False
+        result["lock_age_inferred"] = False
+        return result
+
+    @staticmethod
+    def _provenance_unavailable():
+        return {
+            "error": True,
+            "code": "TASK_PERSISTENCE_CAPABILITY_PROVENANCE_PRESENTATION_UNAVAILABLE",
+            "status": "TASK_PERSISTENCE_CAPABILITY_PROVENANCE_REPORT",
+            "message": (
+                "Provenance persistence недоступен. "
+                "Нужна ручная проверка evidence."
+            ),
+            "active_probe_performed": False,
+            "externally_verified": False,
+            "automatic_retry_allowed": False,
+            "automatic_lock_recovery_allowed": False,
+            "manual_lock_removal_allowed": False,
+            "business_execution_ready": False,
+            "mutation_ready": False,
+            "path_exposed": False,
+            "user_id_exposed": False,
+            "lock_owner_inferred": False,
+            "lock_age_inferred": False,
+            "read_only": True,
+            "executed": False,
+        }
+
     def present_release(self, report):
         if not isinstance(report, dict):
             return self._release_unavailable()

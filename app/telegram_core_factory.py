@@ -90,6 +90,10 @@ from services.task_persistence_release_observability_service import (
     TaskPersistenceReleaseObservabilityService
 )
 
+from services.task_persistence_capability_provenance_service import (
+    TaskPersistenceCapabilityProvenanceService
+)
+
 from services.task_persistence_operator_access_policy import (
     TaskPersistenceOperatorAccessPolicy
 )
@@ -214,7 +218,9 @@ def create_telegram_core(
     period_profit_service=None,
     analytics_service=None,
     task_service=None,
-    task_persistence_operator_user_ids=None
+    task_persistence_operator_user_ids=None,
+    task_persistence_revision_id=None,
+    task_persistence_ci_evidence=None
 ):
 
 
@@ -300,6 +306,16 @@ def create_telegram_core(
         )
     )
 
+    task_persistence_capability_provenance_service = (
+        TaskPersistenceCapabilityProvenanceService(
+            release_observability_service=(
+                task_persistence_release_observability_service
+            ),
+            revision_id=task_persistence_revision_id,
+            ci_evidence=task_persistence_ci_evidence,
+        )
+    )
+
     task_persistence_operational_runtime = (
         AssistantTaskPersistenceOperationalRuntimeService(
             operational_service=(
@@ -313,6 +329,9 @@ def create_telegram_core(
             ),
             release_observability_service=(
                 task_persistence_release_observability_service
+            ),
+            capability_provenance_service=(
+                task_persistence_capability_provenance_service
             )
         )
     )
@@ -747,6 +766,9 @@ def create_telegram_core(
 
         "task_persistence_release_observability_service":
             task_persistence_release_observability_service,
+
+        "task_persistence_capability_provenance_service":
+            task_persistence_capability_provenance_service,
 
         "task_persistence_operator_access_policy":
             task_persistence_operator_access_policy,
