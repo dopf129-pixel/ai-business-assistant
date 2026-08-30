@@ -26,8 +26,20 @@ class FinanceIntelligenceService:
             "profit"
         )
 
+        profit_scope = finance_data.get(
+            "profit_scope"
+        )
+
         if profit is None:
             profit = revenue - expenses
+
+            if not profit_scope:
+                profit_scope = (
+                    "DERIVED_REVENUE_MINUS_EXPENSES"
+                )
+
+        elif not profit_scope:
+            profit_scope = "CALLER_PROVIDED"
 
         profit = float(profit)
 
@@ -54,29 +66,36 @@ class FinanceIntelligenceService:
         return {
             "error": False,
             "metrics": metrics,
-            "profit_scope": finance_data.get(
-                "profit_scope"
-            ),
+            "profit_scope": profit_scope,
             "insights": self._build_insights(
                 metrics,
-                previous_data
+                previous_data,
+                profit_scope
             )
         }
 
     def _build_insights(
         self,
         metrics,
-        previous_data
+        previous_data,
+        profit_scope=None
     ):
 
         insights = []
+
+        result_label = (
+            "Расчётный валовый результат"
+            if profit_scope
+            == "PERIOD_GROSS_PROFIT"
+            else "Расчётный финансовый результат"
+        )
 
         if metrics["profit"] > 0:
             insights.append(
                 {
                     "type": "finance_profitable",
                     "severity": "positive",
-                    "message": "Расчётный валовый результат положительный"
+                    "message": result_label + " положительный"
                 }
             )
         elif metrics["profit"] < 0:
@@ -84,7 +103,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_loss",
                     "severity": "critical",
-                    "message": "Расчётный валовый результат отрицательный"
+                    "message": result_label + " отрицательный"
                 }
             )
         else:
@@ -92,7 +111,7 @@ class FinanceIntelligenceService:
                 {
                     "type": "finance_break_even",
                     "severity": "neutral",
-                    "message": "Расчётный валовый результат равен нулю"
+                    "message": result_label + " равен нулю"
                 }
             )
 
@@ -115,7 +134,10 @@ class FinanceIntelligenceService:
                         metrics["profit"],
                         previous_profit
                     ),
-                    "message": "Расчётный валовый результат снизился относительно предыдущего периода"
+                    "message": (
+                        result_label
+                        + " снизился относительно предыдущего периода"
+                    )
                 }
             )
 
