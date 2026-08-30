@@ -335,15 +335,17 @@ Current hardening queue:
 
 2. Keep task persistence release observability and capability provenance operator-only and fail-closed.
 
-3. Import canonical CI verification manifests into capability provenance only through explicit validation and exact-SHA matching; no runtime GitHub fetch.
+3. Add explicit final GitHub workflow-run evidence binding as a separate exact-SHA/run-id layer; do not infer final CI success from the earlier test-report manifest.
 
-4. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
+4. Keep all GitHub-run evidence import development-side and explicit; no production runtime GitHub fetch.
 
-5. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
+5. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
 
-6. Continue Project Brain drift cleanup as safety-critical batches land.
+6. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
 
-7. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+7. Continue Project Brain drift cleanup as safety-critical batches land.
+
+8. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V428_V432.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V443_V447.md`.
