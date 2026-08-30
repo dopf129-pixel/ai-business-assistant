@@ -265,3 +265,48 @@ def test_v524_caller_provided_profit_uses_caller_scope():
     })
 
     assert result["profit_scope"] == "CALLER_PROVIDED"
+
+
+def test_v526_finance_intelligence_rejects_malformed_current_context():
+    service = FinanceIntelligenceService()
+
+    non_dict = service.analyze(["bad"])
+    boolean_value = service.analyze({
+        "revenue": True,
+        "expenses": 10,
+    })
+    non_finite = service.analyze({
+        "revenue": 100,
+        "expenses": float("inf"),
+    })
+
+    for result in (
+        non_dict,
+        boolean_value,
+        non_finite,
+    ):
+        assert result["error"] is True
+        assert result["metrics"]["profit"] is None
+        assert result["insights"] == []
+
+
+def test_v526_finance_intelligence_rejects_malformed_previous_context():
+    result = FinanceIntelligenceService().analyze(
+        {
+            "revenue": 1000,
+            "expenses": 600,
+        },
+        previous_data={
+            "revenue": 900,
+            "expenses": "bad",
+        },
+    )
+
+    assert result["error"] is True
+    assert result["metrics"] == {
+        "revenue": None,
+        "expenses": None,
+        "profit": None,
+        "margin": None,
+    }
+    assert result["insights"] == []
