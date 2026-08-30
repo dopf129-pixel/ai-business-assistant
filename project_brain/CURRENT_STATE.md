@@ -1136,3 +1136,24 @@ Preserved:
 - no persistence or finance/mapping change;
 - `automatic_execution_allowed=False`;
 - `executed=False`.
+
+
+---
+
+# Store Period Default Composition Hardening — 2026-08-30
+
+Completed:
+
+[x] Removed duplicate StorePeriodRunnerService initialization
+[x] Missing period profit dependency fails closed with an explicit error result
+[x] StorePeriodSummaryService rejects malformed runner output
+[x] Default summary path no longer raises AttributeError on missing profit service
+[x] Existing constructor DI remains backward compatible
+
+Preserved:
+
+- no new data source or invented financial state;
+- no change to profit formulas;
+- no Product Decision or execution wiring;
+- no Ozon mutation;
+- no data/users.json change.

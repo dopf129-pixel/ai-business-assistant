@@ -98,6 +98,33 @@ class TestStorePeriodReportService(
         )
 
 
+    def test_v510_missing_profit_service_fails_closed(
+        self
+    ):
+
+        service = StorePeriodReportService(
+            profit_service=None
+        )
+
+        result = service.build(
+            current_period={
+                "date_from": "2026-07-11",
+                "date_to": "2026-08-07"
+            },
+            previous_period={
+                "date_from": "2026-06-13",
+                "date_to": "2026-07-10"
+            },
+            products=[]
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(
+            result["message"],
+            "Сервис расчёта прибыли периода недоступен"
+        )
+
+
     def test_without_current_period(
         self
     ):

@@ -110,6 +110,26 @@ class TestStorePeriodRunnerService(
         )
 
 
+    def test_v509_default_runner_fails_closed_without_profit_service(
+        self
+    ):
+
+        service = StorePeriodRunnerService()
+        service.period_service = FakePeriodService()
+
+        result = service.build_store_period_report(
+            period_code="28D",
+            date_to="2026-08-07",
+            products=[]
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(
+            result["message"],
+            "Сервис расчёта прибыли периода недоступен"
+        )
+
+
     def test_without_products(
         self
     ):

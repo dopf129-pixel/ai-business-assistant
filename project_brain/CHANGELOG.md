@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Store Period Default Composition Hardening
+
+Corrected a broken default dependency path in Store Period reporting.
+
+- removed duplicate runner initialization;
+- missing period profit dependency now fails closed;
+- malformed summary runner output fails closed;
+- existing DI signatures preserved;
+- no financial formula or execution change.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Learning Coverage Navigation v1
 
 Reconciled Project Brain to the verified v503-v508 merge baseline.

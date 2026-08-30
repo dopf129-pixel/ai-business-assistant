@@ -71,6 +71,58 @@ class TestStorePeriodSummaryService(
         )
 
 
+    def test_v511_malformed_runner_result_fails_closed(
+        self
+    ):
+
+        class MalformedRunner:
+
+            def build_store_period_report(
+                self,
+                period_code,
+                date_to,
+                products
+            ):
+
+                return None
+
+
+        service = StorePeriodSummaryService(
+            period_runner=MalformedRunner()
+        )
+
+        result = service.build(
+            period_code="28D",
+            date_to="2026-08-07",
+            products=[]
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(
+            result["message"],
+            "Не удалось построить периодический отчёт"
+        )
+
+
+    def test_v512_default_summary_does_not_raise_without_profit_service(
+        self
+    ):
+
+        service = StorePeriodSummaryService()
+
+        result = service.build(
+            period_code="28D",
+            date_to="2026-08-07",
+            products=[]
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(
+            result["message"],
+            "Сервис расчёта прибыли периода недоступен"
+        )
+
+
     def test_error_report(
         self
     ):
