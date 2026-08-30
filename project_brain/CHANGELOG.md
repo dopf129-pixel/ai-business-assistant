@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after unknown advertising evidence v514-v520
+
+Reconciled Project Brain to the verified financial-correctness baseline.
+
+- initial PR #225 head `866f28102cd6f8f1ea80987e4fa5adf5bb572f61`: Verify #73 failed due to a new test using the wrong service boundary;
+- final PR head `fbcc64ffa58611dde0a7b2364b0e17a7cdfb5e4a`: Verify #74 success, 1342 passed;
+- squash-merge main `f10679a2d3eb8890480a9cdf59f15c1db5541823`: push Verify #75 success, 1342 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V514_V520.md.
+
+Docs only; no runtime, financial formula, execution, Ozon, mapping, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Unknown Advertising Financial Evidence v1
 
 Corrected production financial evidence semantics so missing advertising
