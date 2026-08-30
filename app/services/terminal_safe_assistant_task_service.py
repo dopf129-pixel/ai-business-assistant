@@ -88,11 +88,11 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         )
 
         try:
-            os.fchmod(lock_fd, 0o600)
             fcntl.flock(
                 lock_fd,
                 fcntl.LOCK_EX | fcntl.LOCK_NB,
             )
+            os.fchmod(lock_fd, 0o600)
         except BlockingIOError:
             os.close(lock_fd)
             raise FileExistsError("TASK_FILE_WRITE_LOCKED") from None
