@@ -94,9 +94,11 @@ def test_v381_fd_close_releases_kernel_lock_without_deleting_coordination_file(t
     os.close(fd)
     first._write_lock_fd = None
 
-    result = second.set_pending_action(USER_ID, {"title": "after-crash-like-close"})
+    second.set_pending_action(
+        USER_ID,
+        {"title": "after-crash-like-close"},
+    )
 
-    assert result["saved"] is True
     assert (tmp_path / "tasks.json.lock").exists()
     durable = json.loads(path.read_text(encoding="utf-8"))
     assert durable[str(USER_ID)]["pending_action"] == {
@@ -138,8 +140,10 @@ def test_v383_legacy_orphan_coordination_file_never_requires_manual_deletion(tmp
     assert diagnostics["automatic_recovery_allowed"] is False
     assert diagnostics["manual_lock_removal_allowed"] is False
 
-    result = service.set_pending_action(USER_ID, {"title": "safe"})
-    assert result["saved"] is True
+    service.set_pending_action(USER_ID, {"title": "safe"})
+    durable = json.loads(path.read_text(encoding="utf-8"))
+    assert durable[str(USER_ID)]["pending_action"] == {"title": "safe"}
+    assert service.get_pending_action(USER_ID)["action"] == {"title": "safe"}
 
 
 def test_v384_operational_blocker_comes_from_real_contention_evidence_not_file_presence(tmp_path):
@@ -207,9 +211,12 @@ def test_v386_unlock_error_still_closes_fd_and_releases_kernel_ownership(tmp_pat
 
     monkeypatch.setattr(terminal_module.fcntl, "flock", real_flock)
     second.load()
-    result = second.set_pending_action(USER_ID, {"title": "second"})
+    second.set_pending_action(USER_ID, {"title": "second"})
 
-    assert result["saved"] is True
+    durable = json.loads(path.read_text(encoding="utf-8"))
+    assert durable[str(USER_ID)]["pending_action"] == {"title": "second"}
+    assert second.get_pending_action(USER_ID)["action"] == {"title": "second"}
+    assert second.get_persistence_diagnostics()["last_save_state"] == "SUCCEEDED"
 
 
 def test_v387_kernel_lock_hardening_never_enables_business_execution_or_lock_deletion(tmp_path):
