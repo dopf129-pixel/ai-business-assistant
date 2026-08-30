@@ -20,12 +20,13 @@ expenses are not necessarily included in this context.
 
 ## Contract
 
-Provider-generated finance context now requires, for every non-error source row:
+Provider-generated finance context now requires complete source rows:
 
-- finite numeric `gross_sales`;
-- finite numeric `gross_profit`.
+- any explicit source row with `error=True` fails closed;
+- every source row requires finite numeric `gross_sales`;
+- every source row requires finite numeric `gross_profit`.
 
-Missing, malformed, boolean or non-finite values fail closed.
+Missing, malformed, boolean, non-finite or explicitly failed source evidence fails closed.
 
 Explicit numeric zero remains valid evidence.
 
@@ -115,6 +116,7 @@ Focused regressions cover:
 7. deterministic direct-caller scopes;
 8. decline wording;
 9. scoped Finance Executor presentation;
-10. error-only rows do not become zero evidence.
+10. error-only rows do not become zero evidence;
+11. mixed valid + error rows fail closed instead of producing partial totals.
 
 Full GitHub Actions verification is required before merge.
