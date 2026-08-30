@@ -72,6 +72,9 @@ class AssistantRecommendationService:
             report.get(
                 "finance_context"
             )
+            and report.get(
+                "finance_evidence_available"
+            ) is not False
         ):
 
 
@@ -154,6 +157,11 @@ class AssistantRecommendationService:
                     "sales_evidence_available"
                 )
             )
+            finance_evidence_available = (
+                report.get(
+                    "finance_evidence_available"
+                )
+            )
 
 
             recommendations.append(
@@ -167,6 +175,7 @@ class AssistantRecommendationService:
                             if (
                                 stock_evidence_available is False
                                 or sales_evidence_available is False
+                                or finance_evidence_available is False
                                 or (
                                     report.get("marketing_problem")
                                     and report.get("marketing_evidence_available")
