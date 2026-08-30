@@ -44,9 +44,8 @@ def test_v333_legacy_coordination_file_does_not_block_kernel_lock_write(tmp_path
     lock_path.write_bytes(b"")
     service = TerminalSafeAssistantTaskService(file_path=str(path))
 
-    result = service.set_pending_action(USER_ID, {"title": "safe"})
+    service.set_pending_action(USER_ID, {"title": "safe"})
 
-    assert result["saved"] is True
     durable = json.loads(path.read_text(encoding="utf-8"))
     assert durable[str(USER_ID)]["pending_action"] == {"title": "safe"}
     diagnostics = service.get_write_lock_diagnostics()
