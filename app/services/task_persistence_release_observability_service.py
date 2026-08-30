@@ -5,6 +5,15 @@ import json
 class TaskPersistenceReleaseObservabilityService:
     """Read-only release readiness and incident audit for task persistence."""
 
+    CAPABILITY_NAMES = (
+        "optimistic_concurrency_guard",
+        "kernel_lock_guard",
+        "atomic_replace_required",
+        "file_fsync_required",
+        "directory_fsync_required",
+        "coordination_file_ownership_neutral",
+    )
+
     def __init__(self, task_service, operational_service):
         self.task_service = task_service
         self.operational_service = operational_service
@@ -39,7 +48,9 @@ class TaskPersistenceReleaseObservabilityService:
         }
 
         missing_capabilities = [
-            name for name, enabled in capabilities.items() if enabled is not True
+            name
+            for name in self.CAPABILITY_NAMES
+            if capabilities[name] is not True
         ]
         for name in missing_capabilities:
             blockers.append("RELEASE_CAPABILITY_MISSING:" + name)
@@ -188,7 +199,7 @@ class TaskPersistenceReleaseObservabilityService:
 
     @staticmethod
     def _valid_operational(value):
-        return (
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_PERSISTENCE_OPERATIONAL_READINESS"
             and value.get("error") is False
@@ -203,7 +214,26 @@ class TaskPersistenceReleaseObservabilityService:
             and value.get("mutation_ready") is False
             and value.get("read_only") is True
             and value.get("executed") is False
+        ):
+            return False
+
+        blockers = value["blockers"]
+        warnings = value["warnings"]
+        if (
+            not all(isinstance(item, str) and item for item in blockers + warnings)
+            or len(blockers) != len(set(blockers))
+            or len(warnings) != len(set(warnings))
+        ):
+            return False
+
+        expected_state = (
+            "BLOCKED"
+            if blockers
+            else "WARNING"
+            if warnings
+            else "READY"
         )
+        return value["operational_state"] == expected_state
 
     @staticmethod
     def _valid_persistence(value):
@@ -262,28 +292,34 @@ class TaskPersistenceReleaseObservabilityService:
         ):
             return False
 
-        expected_keys = {
-            "optimistic_concurrency_guard",
-            "kernel_lock_guard",
-            "atomic_replace_required",
-            "file_fsync_required",
-            "directory_fsync_required",
-            "coordination_file_ownership_neutral",
-        }
+        expected_keys = set(cls.CAPABILITY_NAMES)
         capabilities = value["capabilities"]
         if set(capabilities) != expected_keys:
             return False
-        if not all(isinstance(capabilities[key], bool) for key in expected_keys):
+        if not all(
+            isinstance(capabilities[key], bool)
+            for key in cls.CAPABILITY_NAMES
+        ):
+            return False
+
+        blockers = value["blockers"]
+        warnings = value["warnings"]
+        if (
+            not all(isinstance(item, str) and item for item in blockers + warnings)
+            or len(blockers) != len(set(blockers))
+            or len(warnings) != len(set(warnings))
+        ):
             return False
 
         expected_missing = [
-            name for name, enabled in capabilities.items()
-            if enabled is not True
+            name
+            for name in cls.CAPABILITY_NAMES
+            if capabilities[name] is not True
         ]
         if value["missing_capabilities"] != expected_missing:
             return False
 
-        expected_blockers = list(value["blockers"])
+        expected_blockers = list(blockers)
         for name in expected_missing:
             code = "RELEASE_CAPABILITY_MISSING:" + name
             if code not in expected_blockers:
