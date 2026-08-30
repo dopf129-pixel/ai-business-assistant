@@ -174,6 +174,10 @@ class AssistantEntryService:
 
     def _build_sales_report(self):
         sales_result = self.sales_context_provider.build()
+
+        if not isinstance(sales_result, dict):
+            return None
+
         sales_report = sales_result.get("report")
 
         if not sales_report:
