@@ -4,53 +4,66 @@ Date: 2026-08-30
 
 ## Latest verified product baseline
 
-`d2c5a23ca16ed2579ad34db5148b976c36c54712`
+`b9fa039f626e230ac695162528f22b3ded5c093d`
 
 Latest merged production-correctness batch:
 
-`v575-v581: Business Planner Result Integrity`
+`v582-v590: Business Flow Result Integrity`
 
-### Exact feature-head verification
+### Failed intermediate feature evidence
 
-- branch: `fix/business-planner-result-integrity-v575-v581`
-- exact SHA: `f7a8517ca1b83ce180a713ec8aab74084b80f770`
-- push Verify #203
+- exact SHA: `bac382c3c419e171d6b20c87c54fe4d41ffd8377`
+- push Verify #223
+- conclusion: failure
+- tests: 1483 passed / 1 failed
+- artifact: `verification-bac382c3c419e171d6b20c87c54fe4d41ffd8377`
+- artifact id: 9737428653
+- artifact digest: `sha256:5c0cd46ffcd8cd560026cd2122ae509b20c071878a8ac003fd05b02e40ee37ba`
+
+The failure was in a new test-helper sentinel ambiguity. The SHA remains failed
+evidence and is not promoted.
+
+### Exact final feature-head verification
+
+- branch: `fix/business-flow-result-integrity-v582-v590`
+- exact SHA: `5a2f25747ee73e4500c782b63d4c1ae042e0d27d`
+- push Verify #224
 - conclusion: success
-- tests: 1462 passed / 0 failed
-- artifact: `verification-f7a8517ca1b83ce180a713ec8aab74084b80f770`
-- artifact id: 9737282290
-- artifact digest: `sha256:31820104411fcb0d6f947e16394088a48813f9a2c4856c198f25236f45384e26`
+- tests: 1484 passed / 0 failed
+- artifact: `verification-5a2f25747ee73e4500c782b63d4c1ae042e0d27d`
+- artifact id: 9737441027
+- artifact digest: `sha256:2e8973b2eac8c4b02dd820530f2e33b874a7f747078aa9f63058cfdcd84155bd`
 
 ### PR merge-ref integration verification
 
-- PR #244
-- branch head: `f7a8517ca1b83ce180a713ec8aab74084b80f770`
-- synthetic merge SHA: `64c5a19daed4bd8855bf1c38942eadfe72c6ec40`
-- pull_request Verify #204
+- PR #246
+- branch head: `5a2f25747ee73e4500c782b63d4c1ae042e0d27d`
+- synthetic merge SHA: `4ec4deb23c0594949d55ed20d703abcb49c60d0d`
+- pull_request Verify #225
 - conclusion: success
-- tests: 1462 passed / 0 failed
-- artifact: `verification-64c5a19daed4bd8855bf1c38942eadfe72c6ec40`
-- artifact id: 9737294572
-- artifact digest: `sha256:83764c5d3a4293d48417465b71d37601dd742e7d363e63987a5f621ae1a4363a`
+- tests: 1484 passed / 0 failed
+- artifact: `verification-4ec4deb23c0594949d55ed20d703abcb49c60d0d`
+- artifact id: 9737451876
+- artifact digest: `sha256:acd54235a87f8b7a9e815f99021d45ed5fb8e62468ff59c16720c24b213ed8c8`
 
 This is synthetic merge-ref integration evidence, not exact-head proof.
 
 ### Post-merge exact main verification
 
-- exact main: `d2c5a23ca16ed2579ad34db5148b976c36c54712`
-- push Verify #205
+- exact main: `b9fa039f626e230ac695162528f22b3ded5c093d`
+- push Verify #226
 - conclusion: success
-- tests: 1462 passed / 0 failed
-- artifact: `verification-d2c5a23ca16ed2579ad34db5148b976c36c54712`
-- artifact id: 9737303582
-- artifact digest: `sha256:016805ef0b3b77c6283778dbe1b07ef9b3512fe3c23eeb3fb63e6c01cdce8dad`
+- tests: 1484 passed / 0 failed
+- artifact: `verification-b9fa039f626e230ac695162528f22b3ded5c093d`
+- artifact id: 9737466539
+- artifact digest: `sha256:af31c0c3b8926d05c096bd821c8cbe57068fc3eed559fa83667f82f0c2450508`
 
-## Business Planner Result Integrity
+## Business Flow Result Integrity
 
-The Business Planner now preserves explicit downstream failures and fails closed
-on malformed recommendation/planning/execution/task-creation result payloads.
+The seller-facing business flow now preserves downstream errors and rejects
+malformed intent/planner/task/execution results before presenting success.
 
-It does not add any new business execution capability.
+No new business execution capability is introduced.
 
 ## Verification policy
 
@@ -61,7 +74,7 @@ No workflow evidence here is described as independent external verification.
 
 ## Related implementation
 
-- `app/services/assistant_business_planner_service.py`
-- `tests/test_business_planner_result_integrity_v575_v581.py`
-- `project_brain/BUSINESS_PLANNER_RESULT_INTEGRITY_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V575_V581.md`
+- `app/services/assistant_business_flow_service.py`
+- `tests/test_business_flow_result_integrity_v582_v590.py`
+- `project_brain/BUSINESS_FLOW_RESULT_INTEGRITY_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V582_V590.md`
