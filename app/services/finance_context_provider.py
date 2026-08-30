@@ -60,7 +60,7 @@ class FinanceContextProvider:
             if item.get(
                 "error"
             ):
-                continue
+                return None
 
             gross_sales = self._number(
                 item.get(
