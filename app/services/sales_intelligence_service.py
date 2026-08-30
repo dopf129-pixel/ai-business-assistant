@@ -20,6 +20,21 @@ class SalesIntelligenceService:
         previous_result=None
     ):
 
+        if not isinstance(
+            profits,
+            (list, tuple)
+        ):
+            return self._missing_data_result()
+
+        if (
+            previous_result is not None
+            and not isinstance(
+                previous_result,
+                dict
+            )
+        ):
+            return self._missing_data_result()
+
         result = (
             self.analytics_service
             .analyze(
@@ -65,17 +80,26 @@ class SalesIntelligenceService:
         ):
             business_profit = {}
 
+        revenue = self._number(
+            store_profit.get(
+                "gross_sales"
+            )
+        )
+        gross_profit = self._number(
+            store_profit.get(
+                "gross_profit"
+            )
+        )
+
+        if (
+            revenue is None
+            or gross_profit is None
+        ):
+            return self._missing_data_result()
+
         metrics = {
-            "revenue": self._number(
-                store_profit.get(
-                    "gross_sales"
-                )
-            ),
-            "gross_profit": self._number(
-                store_profit.get(
-                    "gross_profit"
-                )
-            ),
+            "revenue": revenue,
+            "gross_profit": gross_profit,
             "business_profit": self._number(
                 business_profit.get(
                     "business_profit"
