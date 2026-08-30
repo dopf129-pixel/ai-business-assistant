@@ -70,14 +70,11 @@ def test_v201_factory_runtime_reaches_read_only_operational_projection():
     assert result["executed"] is False
 
 
-def test_v202_missing_reader_capability_fails_closed_through_runtime():
+def test_v202_missing_reader_capability_fails_closed_before_runtime_activation():
     class BrokenReader:
         def get_preparation_audit(self): return None
-    runtime = create_freshness_operational_runtime(BrokenReader())
-    result = runtime.handle_text("freshness status")
-    assert result["error"] is True
-    assert result["code"] == "FRESHNESS_OPERATIONAL_SNAPSHOT_UNAVAILABLE"
-    assert result["read_only"] is True
+
+    assert create_freshness_operational_runtime(BrokenReader()) is None
 
 
 def test_v203_provider_returns_copies_not_mutable_reader_objects():
