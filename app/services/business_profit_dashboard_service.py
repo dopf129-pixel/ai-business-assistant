@@ -14,7 +14,7 @@ class BusinessProfitDashboardService:
             TypeError,
             ValueError
         ):
-            number = 0.0
+            return "—"
 
         formatted = (
             f"{abs(number):,.2f}"
