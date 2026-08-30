@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 
 
 class AssistantUserStorageService:
@@ -111,6 +112,25 @@ class AssistantUserStorageService:
 
         try:
 
+            serialized = json.dumps(
+                self.users,
+                ensure_ascii=False,
+                indent=4
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_SERIALIZATION_FAILED"
+            }
+
+        temp_path = None
+        replaced = False
+
+        try:
+
             if (
                 folder
                 and not os.path.exists(
@@ -122,20 +142,48 @@ class AssistantUserStorageService:
                     folder
                 )
 
-            with open(
-                self.file_path,
+            target_folder = (
+                folder
+                or "."
+            )
+
+            fd, temp_path = (
+                tempfile.mkstemp(
+                    prefix=
+                        ".users-write-",
+                    suffix=".tmp",
+                    dir=target_folder
+                )
+            )
+
+            with os.fdopen(
+                fd,
                 "w",
                 encoding="utf-8"
             ) as file:
 
-                json.dump(
-                    self.users,
-                    file,
-                    ensure_ascii=False,
-                    indent=4
+                file.write(
+                    serialized
                 )
 
+                file.flush()
+                os.fsync(
+                    file.fileno()
+                )
+
+            os.replace(
+                temp_path,
+                self.file_path
+            )
+
+            replaced = True
+            temp_path = None
+
         except Exception:
+
+            self._cleanup_temp(
+                temp_path
+            )
 
             return {
                 "error": True,
@@ -146,10 +194,31 @@ class AssistantUserStorageService:
         if self.load_state == "ABSENT":
             self.load_state = "LOADED"
 
-        return {
+        durability_warning = (
+            self._fsync_directory(
+                folder
+                or "."
+            )
+            is False
+        )
+
+        result = {
             "error": False,
-            "saved": True
+            "saved": True,
+            "atomic_replace": (
+                replaced
+            )
         }
+
+        if durability_warning:
+
+            result[
+                "durability_warning"
+            ] = (
+                "USER_STORAGE_DIRECTORY_FSYNC_FAILED"
+            )
+
+        return result
 
 
     def create_user(
@@ -466,3 +535,68 @@ class AssistantUserStorageService:
                 self.load_issue
                 or "USER_STORAGE_UNAVAILABLE"
         }
+
+
+    @staticmethod
+    def _cleanup_temp(
+        temp_path
+    ):
+
+        if not temp_path:
+            return
+
+        try:
+            os.unlink(
+                temp_path
+            )
+        except Exception:
+            return
+
+
+    @staticmethod
+    def _fsync_directory(
+        directory
+    ):
+
+        flags = os.O_RDONLY
+
+        if hasattr(
+            os,
+            "O_DIRECTORY"
+        ):
+            flags = (
+                flags
+                | os.O_DIRECTORY
+            )
+
+        try:
+
+            fd = os.open(
+                directory,
+                flags
+            )
+
+        except Exception:
+
+            return False
+
+        try:
+
+            os.fsync(
+                fd
+            )
+
+        except Exception:
+
+            return False
+
+        finally:
+
+            try:
+                os.close(
+                    fd
+                )
+            except Exception:
+                pass
+
+        return True
