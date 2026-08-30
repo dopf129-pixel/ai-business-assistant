@@ -189,15 +189,13 @@ def test_real_period_profit_data_builds_finance_context_and_reaches_action():
             "revenue": 1500.0,
             "expenses": 1100.0,
             "profit": 400.0,
-            "margin": 26.67,
-            "profit_scope": "PERIOD_GROSS_PROFIT"
+            "margin": 26.67
         },
         "previous_data": {
             "revenue": 1200.0,
             "expenses": 700.0,
             "profit": 500.0,
-            "margin": 41.67,
-            "profit_scope": "PERIOD_GROSS_PROFIT"
+            "margin": 41.67
         }
     }
 
