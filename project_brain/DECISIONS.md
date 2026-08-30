@@ -1521,6 +1521,9 @@ Rules:
 - malformed, non-finite, boolean or missing required values fail closed;
 - explicit numeric zero remains a valid fact;
 - provider-generated profit is tagged as PERIOD_GROSS_PROFIT;
+- direct Finance Intelligence derivation from revenue minus expenses is tagged
+  DERIVED_REVENUE_MINUS_EXPENSES;
+- explicit caller-provided profit without source scope is tagged CALLER_PROVIDED;
 - derived expenses remain revenue minus period gross profit and are described
   only as expenses by available evidence;
 - Finance Intelligence must not call PERIOD_GROSS_PROFIT accounting net profit
