@@ -78,27 +78,9 @@ class TaskPersistenceReleaseObservabilityService:
         if not self._valid_snapshot(source):
             return self._incident_error("TASK_PERSISTENCE_RELEASE_SNAPSHOT_REQUIRED")
 
-        categories = []
-        blockers = set(source.get("blockers") or [])
-        warnings = set(source.get("warnings") or [])
-
-        if "TASK_FILE_WRITE_LOCKED" in blockers:
-            categories.append("LOCK_CONTENTION")
-        if "TASK_WRITE_LOCK_INSPECTION_FAILED" in blockers:
-            categories.append("LOCK_INSPECTION")
-        if blockers.intersection({"TASK_STORE_UNREADABLE", "TASK_STORE_INVALID_ROOT"}):
-            categories.append("STORE_INTEGRITY")
-        if any(value.startswith("RELEASE_CAPABILITY_MISSING:") for value in blockers):
-            categories.append("RELEASE_CAPABILITY")
-        if "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
-            categories.append("DURABILITY")
-        if "TASK_FILE_WRITE_LOCK_RELEASE_ERROR" in warnings:
-            categories.append("LOCK_RELEASE")
-        if "TASK_STORE_RECONCILIATION_ISSUES" in warnings:
-            categories.append("STORE_RECONCILIATION")
-        if source.get("last_save_state") == "FAILED" and not categories:
-            categories.append("SAVE_FAILURE")
-
+        categories = self._expected_incident_categories(source)
+        blockers = list(source.get("blockers") or [])
+        warnings = list(source.get("warnings") or [])
         incident_detected = bool(categories or blockers or warnings)
 
         return {
@@ -258,7 +240,7 @@ class TaskPersistenceReleaseObservabilityService:
 
     @classmethod
     def _valid_snapshot(cls, value):
-        return (
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_PERSISTENCE_RELEASE_SNAPSHOT_READY"
             and value.get("error") is False
@@ -270,7 +252,6 @@ class TaskPersistenceReleaseObservabilityService:
             and value.get("warning_count") == len(value.get("warnings"))
             and isinstance(value.get("capabilities"), dict)
             and isinstance(value.get("missing_capabilities"), list)
-            and value.get("release_ready") == (not value.get("blockers"))
             and value.get("automatic_retry_allowed") is False
             and value.get("automatic_lock_recovery_allowed") is False
             and value.get("manual_lock_removal_allowed") is False
@@ -278,11 +259,41 @@ class TaskPersistenceReleaseObservabilityService:
             and value.get("mutation_ready") is False
             and value.get("read_only") is True
             and value.get("executed") is False
-        )
+        ):
+            return False
 
-    @staticmethod
-    def _valid_incident(value, snapshot):
-        return (
+        expected_keys = {
+            "optimistic_concurrency_guard",
+            "kernel_lock_guard",
+            "atomic_replace_required",
+            "file_fsync_required",
+            "directory_fsync_required",
+            "coordination_file_ownership_neutral",
+        }
+        capabilities = value["capabilities"]
+        if set(capabilities) != expected_keys:
+            return False
+        if not all(isinstance(capabilities[key], bool) for key in expected_keys):
+            return False
+
+        expected_missing = [
+            name for name, enabled in capabilities.items()
+            if enabled is not True
+        ]
+        if value["missing_capabilities"] != expected_missing:
+            return False
+
+        expected_blockers = list(value["blockers"])
+        for name in expected_missing:
+            code = "RELEASE_CAPABILITY_MISSING:" + name
+            if code not in expected_blockers:
+                return False
+
+        return value["release_ready"] == (not expected_blockers)
+
+    @classmethod
+    def _valid_incident(cls, value, snapshot):
+        if not (
             isinstance(value, dict)
             and value.get("status") == "TASK_PERSISTENCE_RELEASE_INCIDENT_READY"
             and value.get("error") is False
@@ -300,7 +311,47 @@ class TaskPersistenceReleaseObservabilityService:
             and value.get("mutation_ready") is False
             and value.get("read_only") is True
             and value.get("executed") is False
+        ):
+            return False
+
+        expected_categories = cls._expected_incident_categories(snapshot)
+        expected_detected = bool(
+            expected_categories
+            or snapshot.get("blockers")
+            or snapshot.get("warnings")
         )
+        return (
+            value["incident_categories"] == expected_categories
+            and value["incident_detected"] == expected_detected
+        )
+
+    @staticmethod
+    def _expected_incident_categories(snapshot):
+        blockers = set(snapshot.get("blockers") or [])
+        warnings = set(snapshot.get("warnings") or [])
+        categories = []
+
+        if "TASK_FILE_WRITE_LOCKED" in blockers:
+            categories.append("LOCK_CONTENTION")
+        if "TASK_WRITE_LOCK_INSPECTION_FAILED" in blockers:
+            categories.append("LOCK_INSPECTION")
+        if blockers.intersection({"TASK_STORE_UNREADABLE", "TASK_STORE_INVALID_ROOT"}):
+            categories.append("STORE_INTEGRITY")
+        if any(
+            value.startswith("RELEASE_CAPABILITY_MISSING:")
+            for value in blockers
+        ):
+            categories.append("RELEASE_CAPABILITY")
+        if "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
+            categories.append("DURABILITY")
+        if "TASK_FILE_WRITE_LOCK_RELEASE_ERROR" in warnings:
+            categories.append("LOCK_RELEASE")
+        if "TASK_STORE_RECONCILIATION_ISSUES" in warnings:
+            categories.append("STORE_RECONCILIATION")
+        if snapshot.get("last_save_state") == "FAILED" and not categories:
+            categories.append("SAVE_FAILURE")
+
+        return categories
 
     @staticmethod
     def _blocked(code):
