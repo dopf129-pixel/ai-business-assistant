@@ -51,15 +51,44 @@ class TelegramBotService:
             self.command_service
         ):
 
-            command_result = (
-                self.command_service
-                .handle(
-                    user_id,
-                    text
-                )
-            )
+            try:
 
-            if command_result:
+                command_result = (
+                    self.command_service
+                    .handle(
+                        user_id,
+                        text
+                    )
+                )
+
+            except Exception:
+
+                return {
+                    "error": True,
+                    "message":
+                        "TELEGRAM_COMMAND_DISPATCH_FAILED"
+                }
+
+            if command_result is not None:
+
+                if (
+                    not isinstance(
+                        command_result,
+                        dict
+                    )
+                    or type(
+                        command_result.get(
+                            "error"
+                        )
+                    )
+                    is not bool
+                ):
+
+                    return {
+                        "error": True,
+                        "message":
+                            "INVALID_TELEGRAM_COMMAND_RESULT"
+                    }
 
                 return command_result
 

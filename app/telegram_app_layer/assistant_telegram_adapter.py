@@ -122,6 +122,8 @@ class AssistantTelegramAdapter:
             return result
 
         return {
+            "error": False,
+
             "text":
                 "Привет! Я AI Assistant. Выберите действие:",
 
@@ -150,15 +152,60 @@ class AssistantTelegramAdapter:
             self.memory_command_service
         ):
 
-            memory_result = (
-                self.memory_command_service
-                .handle(
-                    user_id,
-                    text
-                )
-            )
+            try:
 
-            if not memory_result["error"]:
+                memory_result = (
+                    self.memory_command_service
+                    .handle(
+                        user_id,
+                        text
+                    )
+                )
+
+            except Exception:
+
+                return {
+                    "error": True,
+                    "message":
+                        "TELEGRAM_MEMORY_COMMAND_FAILED"
+                }
+
+            if (
+                not isinstance(
+                    memory_result,
+                    dict
+                )
+                or type(
+                    memory_result.get(
+                        "error"
+                    )
+                )
+                is not bool
+                or type(
+                    memory_result.get(
+                        "handled"
+                    )
+                )
+                is not bool
+            ):
+
+                return {
+                    "error": True,
+                    "message":
+                        "INVALID_TELEGRAM_MEMORY_COMMAND_RESULT"
+                }
+
+            if memory_result.get(
+                "handled"
+            ) is True:
+
+                if memory_result.get(
+                    "error"
+                ) is True:
+
+                    return dict(
+                        memory_result
+                    )
 
                 return {
                     "error": False,
