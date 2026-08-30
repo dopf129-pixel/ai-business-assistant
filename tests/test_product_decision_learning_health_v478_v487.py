@@ -297,6 +297,36 @@ def test_v486_handler_rejects_forged_builder_that_enables_rule_update():
     )
 
 
+def test_v486_handler_rejects_forged_scope_or_state():
+    def forged_scope(summary):
+        result = build_product_decision_learning_health(summary)
+        result["evidence_scope"] = "CAUSAL_EFFECT"
+        return result
+
+    scope_handler = _handler(
+        _summary(products=1, snapshots=1),
+        builder=forged_scope,
+    )
+    scope_response = scope_handler.handle(
+        "product_decision_learning_health"
+    )
+    assert scope_response["error"] is True
+
+    def forged_state(summary):
+        result = build_product_decision_learning_health(summary)
+        result["health_state"] = "PROVEN_SUCCESS"
+        return result
+
+    state_handler = _handler(
+        _summary(products=1, snapshots=1),
+        builder=forged_state,
+    )
+    state_response = state_handler.handle(
+        "product_decision_learning_health"
+    )
+    assert state_response["error"] is True
+
+
 def test_v487_telegram_factory_wires_canonical_learning_health_builder():
     text = (
         ROOT
