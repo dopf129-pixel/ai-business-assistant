@@ -159,6 +159,34 @@ def test_v436_tampered_manifest_is_rejected_before_provenance_import(tmp_path):
     )
 
 
+def test_v436_forged_imported_mirrored_fields_fail_before_binding(tmp_path):
+    _, release, provenance, bridge = _services(tmp_path)
+    snapshot = release.build_snapshot()
+    verification = _verification_manifest(tmp_path, tests=5)
+    imported = bridge.import_manifest(
+        snapshot,
+        verification,
+        REVISION,
+    )
+    imported["passed"] = 4
+    manifest = provenance.build_manifest(
+        snapshot,
+        revision_id=REVISION,
+    )
+
+    rejected = bridge.build_binding(
+        snapshot,
+        manifest,
+        verification,
+        imported,
+    )
+
+    assert rejected["error"] is True
+    assert rejected["code"] == (
+        "TASK_PERSISTENCE_VERIFICATION_IMPORT_INVALID"
+    )
+
+
 def test_v437_binding_enriches_exact_canonical_capabilities(tmp_path):
     _, release, provenance, bridge = _services(tmp_path)
     snapshot = release.build_snapshot()
