@@ -2,6 +2,22 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Sales Evidence Availability v534-v540
+
+Reconciled Project Brain to the verified sales production-correctness baseline.
+
+- PR #231 head `86d24f903b37de19c042414e33a932dbbbc94c1e`: Verify #99 success, 1385 passed;
+- squash-merge main `ed7ca690c78372e10e09ff471cae8023bd8d4125`: push Verify #100 success, 1385 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V534_V540.md.
+
+Docs only; no runtime, sales threshold, execution, Ozon, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Sales Evidence Availability Hardening v1
 
 Hardened configured Sales Intelligence evidence semantics.
