@@ -2,6 +2,25 @@
 
 ## 2026-08-30
 
+### Stock Evidence Availability Hardening v1
+
+Separated verified safe-stock evidence from missing or partial stock evidence.
+
+- unavailable/partial stock evidence no longer implies verified `low_stock=False`;
+- complete no-risk assortment evidence is explicitly marked available;
+- confirmed low-stock action context remains backward compatible;
+- malformed/non-finite/negative/cross-product evidence fails closed;
+- explicit zero sales remains valid `NO_SALES` evidence;
+- generic fallback no longer claims a clean business state when stock evidence is unavailable;
+- no replenishment execution, quantity inference or Ozon mutation added.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Finance Context hardening v521-v526
 
 Reconciled Project Brain to the verified Finance Context production-correctness baseline.
