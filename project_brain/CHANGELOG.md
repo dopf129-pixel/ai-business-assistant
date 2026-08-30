@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Marketing Evidence Integrity v548-v553
+
+Reconciled Project Brain to the verified marketing evidence baseline.
+
+- exact feature head `ec4bfdb0acbcdcf24c82c5ea0990b88b34e384af`: push Verify #134 success, 1399 passed;
+- PR #235 synthetic merge-ref Verify #135 success and kept separate from exact-head evidence;
+- squash-merge main `15d2051487dccd1c630394424f0675ac50aecdae`: exact main push Verify #136 success, 1399 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V548_V553.md.
+
+Docs only; no runtime, marketing API, execution, Ozon, persistence-format or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Marketing Evidence Integrity v1
 
 Removed invented success-looking marketing evidence from the existing marketing path.
