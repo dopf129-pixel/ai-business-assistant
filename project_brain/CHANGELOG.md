@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-08-30
+
+### Project Brain reconciliation after Product Decision Learning Coverage v1
+
+Reconciled Project Brain with the already merged and separately verified v493-v502 package.
+
+Updated:
+
+- `CURRENT_STATE.md` to mark the per-SKU Learning Coverage Queue complete;
+- `ROADMAP.md` to remove the completed queue from the future work list;
+- `VERIFICATION_STATUS.md` to bind the latest verified product baseline to exact merge SHA `ef8b52ad34740d5cbb657988866ec01ebfe7191b`;
+- new `CURRENT_CHECKPOINT_V493_V502.md`.
+
+Verification evidence recorded without cross-SHA promotion:
+
+- PR #219 head `dea7c6e7accdbc599744043d181636957766db35`: Verify run #61 success;
+- squash-merge main `ef8b52ad34740d5cbb657988866ec01ebfe7191b`: push Verify run #62 success;
+- exact main full suite: 1321 passed, 0 failed.
+
+No runtime code, Product Decision rule, persistence, mapping, finance, Ozon mutation, task execution, or `data/users.json` change is part of this docs-only reconciliation.
+
+---
 
 ## 2026-08-14
 
