@@ -4,64 +4,66 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`4fc8b894d463781902226ebf92c5a260761d8762`
+`e8680957f91e23e75574bca806007ba9384ec542`
 
 Latest merged production-correctness batch:
 
-`v645-v651: Existing User Record Integrity`
+`v652-v659: Memory Persistence Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `f9c66a59fe185bcd81f5c8f428120fd3e3c2bf86`
-- push Verify #336
+- exact main: `f61d0e84e94eb03de5f81e00cfab1ad3b76e46dc`
+- push Verify #347
 - conclusion: success
-- tests: 1544 passed / 0 failed
-- artifact: `verification-f9c66a59fe185bcd81f5c8f428120fd3e3c2bf86`
-- artifact digest: `sha256:5897b43da8989cf6c3bf410378f7bf03c1d31c240410568dc3b644cc6239a15c`
+- tests: 1551 passed / 0 failed
+- artifact: `verification-f61d0e84e94eb03de5f81e00cfab1ad3b76e46dc`
+- artifact digest: `sha256:4819ccc21e51f87726790f446df67191941ea7217752d0aecde0494777c8cb43`
 
 ### Exact final feature-head verification
 
-- branch: `fix/existing-user-record-integrity-v645-v651`
-- exact SHA: `3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
-- push Verify #339
+- feature branch: `fix/memory-persistence-result-integrity-v652-v659`
+- exact SHA: `0b67a19c1c2da55be69310849988218c253a3adb`
+- exact-SHA push Verify #353 on `verify/memory-persistence-result-integrity-v652-v659`
 - conclusion: success
-- tests: 1551 passed / 0 failed
-- artifact: `verification-3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
-- artifact digest: `sha256:84e68a8ce1ee924756efca7620d50720c1762d014b0b696997b5539902354434`
+- tests: 1559 passed / 0 failed
+- artifact: `verification-0b67a19c1c2da55be69310849988218c253a3adb`
+- artifact digest: `sha256:a22ec5356ccb204155cfaebcba95db519639efd57dfde543d0ccc7adb8bb72df`
+
+The dedicated verification ref points to the identical final feature SHA. The original feature-ref run #352 was queued behind an older in-progress concurrency run and is not used as evidence.
 
 ### PR merge-ref integration verification
 
-- PR #262
-- branch head: `3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
-- synthetic merge SHA: `d579316aa809344e88e3db967967954a064038bd`
-- pull_request Verify #340
+- PR #264
+- branch head: `0b67a19c1c2da55be69310849988218c253a3adb`
+- synthetic merge SHA: `6dcb328dcad048eb45a7cc33f3478f422e992ea5`
+- pull_request Verify #354
 - conclusion: success
-- tests: 1551 passed / 0 failed
-- artifact: `verification-d579316aa809344e88e3db967967954a064038bd`
-- artifact digest: `sha256:6321f96e23133f6069d1ba7c77eb000c239c6bbfc9509f6bdd4f68c4ea6483d0`
+- tests: 1559 passed / 0 failed
+- artifact: `verification-6dcb328dcad048eb45a7cc33f3478f422e992ea5`
+- artifact digest: `sha256:d2d7a0945a4c8f3317301729d0da0902f618f18e2b2f8991fc03a80142cbc1f5`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `4fc8b894d463781902226ebf92c5a260761d8762`
-- push Verify #341
+- exact main: `e8680957f91e23e75574bca806007ba9384ec542`
+- push Verify #355
 - conclusion: success
-- tests: 1551 passed / 0 failed
-- artifact: `verification-4fc8b894d463781902226ebf92c5a260761d8762`
-- artifact digest: `sha256:e1f90db4426be801e5b902aebcae9af1561649c689f3090d0d62c5eef85c99b7`
+- tests: 1559 passed / 0 failed
+- artifact: `verification-e8680957f91e23e75574bca806007ba9384ec542`
+- artifact digest: `sha256:902cd69f2f0797bad6b27609d007eb207d8b9daf0cdeb5c76dd9ee113bfde057`
 
-## Existing User Record Integrity
+## Memory Persistence Result Integrity
 
-AssistantUserStorageService now distinguishes an existing persisted key from an absent user and validates the canonical persisted record shape before returning it or allowing a write path to proceed.
+AssistantMemoryService now validates the supported storage save contract instead of silently reporting success for rejected or malformed persistence results.
 
-Existing `null`, empty, incomplete, or mismatched-ID records fail closed as `USER_STORAGE_USER_INVALID` and are not automatically replaced or repaired. Truly absent users remain compatible with normal creation.
+Only an explicit boolean `False` is treated as a definite pre-commit rejection eligible for in-memory rollback. Exceptions and malformed results fail closed while preserving the possibility that persistence state is ambiguous. AssistantMemoryIntegrationService exposes partial state when only one of its two memory writes succeeds, and AssistantFeedbackService no longer hides a memory persistence failure after feedback was already recorded.
 
-No additional persistence layer, migration, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+The default production memory instance remains in-memory only. No additional persistence layer, runtime GitHub dependency, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
-Exact branch push verification proves only that exact branch head.
+Exact SHA evidence is not transferred between different revisions.
 Pull-request runs prove only their synthetic merge refs.
 Every squash-main SHA requires its own exact push verification.
 Workflow/test-manifest evidence is not independent external verification;
@@ -69,6 +71,8 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_user_storage_service.py`
-- `tests/test_existing_user_record_integrity_v645_v651.py`
-- `project_brain/CURRENT_CHECKPOINT_V645_V651.md`
+- `app/services/assistant_memory_service.py`
+- `app/services/assistant_memory_integration_service.py`
+- `app/services/assistant_feedback_service.py`
+- `tests/test_memory_persistence_result_integrity_v652_v659.py`
+- `project_brain/CURRENT_CHECKPOINT_V652_V659.md`

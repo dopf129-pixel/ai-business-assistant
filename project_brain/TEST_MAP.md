@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1528 passed on `0f8ae846a06652743c698ec671ab586bbf1bb4bd`.
+1559 passed on `e8680957f91e23e75574bca806007ba9384ec542`.
 
-GitHub Actions push Verify #305 completed successfully for this exact main SHA.
+GitHub Actions push Verify #355 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2129,3 +2129,30 @@ Tests:
 - uncommitted in-memory user/memory/history mutations roll back when save fails;
 - absent-store creation and valid persistence remain compatible;
 - regression tests use temporary paths and do not modify repository data/users.json.
+
+
+---
+
+# Memory Persistence Result Integrity v1
+
+Services:
+
+- AssistantMemoryService
+- AssistantMemoryIntegrationService
+- AssistantFeedbackService
+
+Tests:
+
+- tests/test_memory_persistence_result_integrity_v652_v659.py
+
+Проверяет:
+
+- storage save `False` no longer becomes memory success;
+- explicit boolean rejection rolls back only the uncommitted in-memory mutation;
+- storage exceptions and malformed results fail closed without fabricated rollback;
+- ambiguous persistence state remains explicit;
+- memory integration stops after the first failed save;
+- a second-save failure reports partial memory state instead of full success;
+- feedback already recorded before memory failure is reported as partial state;
+- default in-memory production behavior remains compatible;
+- no new persistence layer, business execution, Product Decision execution, or Ozon mutation is enabled.
