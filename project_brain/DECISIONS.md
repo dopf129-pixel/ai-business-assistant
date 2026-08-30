@@ -1517,7 +1517,8 @@ the scope of its source evidence and must not promote missing facts to zero.
 
 Rules:
 
-- gross_sales and gross_profit are required for each non-error period-profit row;
+- any explicit error row blocks finance-context aggregation;
+- gross_sales and gross_profit are required for every accepted period-profit row;
 - malformed, non-finite, boolean or missing required values fail closed;
 - explicit numeric zero remains a valid fact;
 - provider-generated profit is tagged as PERIOD_GROSS_PROFIT;
