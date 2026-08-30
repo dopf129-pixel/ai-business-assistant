@@ -1308,3 +1308,27 @@ Preserved:
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - no data/users.json change.
+
+---
+
+# Finance Evidence Availability Propagation v1 — 2026-08-30
+
+Completed:
+
+[x] Derived finance context success is marked available
+[x] Derived finance context failure with period evidence is marked unavailable
+[x] Missing period evidence does not invent finance availability
+[x] Explicit finance context remains authoritative and available
+[x] Unavailable finance evidence suppresses finance recommendation
+[x] Unavailable finance evidence prevents false clean-business fallback
+[x] Legacy finance_context-only recommendation callers remain compatible
+
+Preserved:
+
+- FinanceContextProvider output shape;
+- existing finance arithmetic;
+- no fee double subtraction;
+- no accounting net-profit claim;
+- no Product Decision/Product Task Draft execution;
+- no Ozon mutation;
+- no data/users.json change.
