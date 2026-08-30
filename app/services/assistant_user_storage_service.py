@@ -2,9 +2,7 @@ import json
 import os
 
 
-
 class AssistantUserStorageService:
-
 
     def __init__(
         self,
@@ -19,13 +17,12 @@ class AssistantUserStorageService:
                 "users.json"
             )
 
-
         self.file_path = file_path
-
         self.users = {}
+        self.load_state = "UNINITIALIZED"
+        self.load_issue = None
 
         self.load()
-
 
 
     def normalize_id(
@@ -38,7 +35,6 @@ class AssistantUserStorageService:
         )
 
 
-
     def load(
         self
     ):
@@ -47,8 +43,14 @@ class AssistantUserStorageService:
             self.file_path
         ):
 
-            return
+            self.users = {}
+            self.load_state = "ABSENT"
+            self.load_issue = None
 
+            return {
+                "error": False,
+                "state": "ABSENT"
+            }
 
         try:
 
@@ -58,46 +60,96 @@ class AssistantUserStorageService:
                 encoding="utf-8"
             ) as file:
 
-                self.users = json.load(
+                loaded = json.load(
                     file
                 )
-
 
         except Exception:
 
             self.users = {}
+            self.load_state = "ERROR"
+            self.load_issue = (
+                "USER_STORAGE_LOAD_FAILED"
+            )
 
+            return self._unavailable_result()
+
+        if not isinstance(
+            loaded,
+            dict
+        ):
+
+            self.users = {}
+            self.load_state = "ERROR"
+            self.load_issue = (
+                "USER_STORAGE_ROOT_INVALID"
+            )
+
+            return self._unavailable_result()
+
+        self.users = loaded
+        self.load_state = "LOADED"
+        self.load_issue = None
+
+        return {
+            "error": False,
+            "state": "LOADED"
+        }
 
 
     def save(
         self
     ):
 
+        if self.load_state == "ERROR":
+
+            return self._unavailable_result()
+
         folder = os.path.dirname(
             self.file_path
         )
 
+        try:
 
-        if folder and not os.path.exists(folder):
-
-            os.makedirs(
+            if (
                 folder
-            )
+                and not os.path.exists(
+                    folder
+                )
+            ):
 
+                os.makedirs(
+                    folder
+                )
 
-        with open(
-            self.file_path,
-            "w",
-            encoding="utf-8"
-        ) as file:
+            with open(
+                self.file_path,
+                "w",
+                encoding="utf-8"
+            ) as file:
 
-            json.dump(
-                self.users,
-                file,
-                ensure_ascii=False,
-                indent=4
-            )
+                json.dump(
+                    self.users,
+                    file,
+                    ensure_ascii=False,
+                    indent=4
+                )
 
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_SAVE_FAILED"
+            }
+
+        if self.load_state == "ABSENT":
+            self.load_state = "LOADED"
+
+        return {
+            "error": False,
+            "saved": True
+        }
 
 
     def create_user(
@@ -105,29 +157,60 @@ class AssistantUserStorageService:
         user_id
     ):
 
+        if self.load_state == "ERROR":
+
+            return self._unavailable_result()
+
         user_id = self.normalize_id(
             user_id
         )
 
+        existing = self.users.get(
+            user_id
+        )
 
-        if user_id not in self.users:
+        if existing is not None:
 
-            self.users[user_id] = {
-                "user_id": user_id,
-                "memory": {},
-                "history": []
+            if not self._valid_user(
+                existing
+            ):
+
+                return {
+                    "error": True,
+                    "message":
+                        "USER_STORAGE_USER_INVALID"
+                }
+
+            return {
+                "error": False,
+                "user": existing
             }
 
+        user = {
+            "user_id": user_id,
+            "memory": {},
+            "history": []
+        }
 
-            self.save()
+        self.users[user_id] = user
 
+        save_result = self.save()
 
+        if save_result.get(
+            "error"
+        ):
+
+            self.users.pop(
+                user_id,
+                None
+            )
+
+            return save_result
 
         return {
             "error": False,
-            "user": self.users[user_id]
+            "user": user
         }
-
 
 
     def get_user(
@@ -142,7 +225,6 @@ class AssistantUserStorageService:
         )
 
 
-
     def save_memory(
         self,
         user_id,
@@ -150,18 +232,59 @@ class AssistantUserStorageService:
         value
     ):
 
-        user = (
+        user_result = (
             self.create_user(
                 user_id
             )
         )
 
+        if user_result.get(
+            "error"
+        ):
 
-        user["user"]["memory"][key] = value
+            return user_result
 
+        user = user_result[
+            "user"
+        ]
 
-        self.save()
+        memory = user.get(
+            "memory"
+        )
 
+        if not isinstance(
+            memory,
+            dict
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_MEMORY_INVALID"
+            }
+
+        existed = key in memory
+        previous = memory.get(
+            key
+        )
+
+        memory[key] = value
+
+        save_result = self.save()
+
+        if save_result.get(
+            "error"
+        ):
+
+            if existed:
+                memory[key] = previous
+            else:
+                memory.pop(
+                    key,
+                    None
+                )
+
+            return save_result
 
         return {
             "error": False,
@@ -169,24 +292,44 @@ class AssistantUserStorageService:
         }
 
 
-
     def get_memory(
         self,
         user_id
     ):
 
-        user = (
+        user_result = (
             self.create_user(
                 user_id
             )
         )
 
+        if user_result.get(
+            "error"
+        ):
+
+            return user_result
+
+        memory = user_result[
+            "user"
+        ].get(
+            "memory"
+        )
+
+        if not isinstance(
+            memory,
+            dict
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_MEMORY_INVALID"
+            }
 
         return {
             "error": False,
-            "memory": user["user"]["memory"]
+            "memory": memory
         }
-
 
 
     def add_history(
@@ -195,20 +338,50 @@ class AssistantUserStorageService:
         event
     ):
 
-        user = (
+        user_result = (
             self.create_user(
                 user_id
             )
         )
 
+        if user_result.get(
+            "error"
+        ):
 
-        user["user"]["history"].append(
+            return user_result
+
+        user = user_result[
+            "user"
+        ]
+
+        history = user.get(
+            "history"
+        )
+
+        if not isinstance(
+            history,
+            list
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_HISTORY_INVALID"
+            }
+
+        history.append(
             event
         )
 
+        save_result = self.save()
 
-        self.save()
+        if save_result.get(
+            "error"
+        ):
 
+            history.pop()
+
+            return save_result
 
         return {
             "error": False,
@@ -216,20 +389,80 @@ class AssistantUserStorageService:
         }
 
 
-
     def get_history(
         self,
         user_id
     ):
 
-        user = (
+        user_result = (
             self.create_user(
                 user_id
             )
         )
 
+        if user_result.get(
+            "error"
+        ):
+
+            return user_result
+
+        history = user_result[
+            "user"
+        ].get(
+            "history"
+        )
+
+        if not isinstance(
+            history,
+            list
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "USER_STORAGE_HISTORY_INVALID"
+            }
 
         return {
             "error": False,
-            "history": user["user"]["history"]
+            "history": history
+        }
+
+
+    @staticmethod
+    def _valid_user(
+        user
+    ):
+
+        return (
+            isinstance(
+                user,
+                dict
+            )
+            and isinstance(
+                user.get(
+                    "memory",
+                    {}
+                ),
+                dict
+            )
+            and isinstance(
+                user.get(
+                    "history",
+                    []
+                ),
+                list
+            )
+        )
+
+
+    def _unavailable_result(
+        self
+    ):
+
+        return {
+            "error": True,
+            "message":
+                self.load_issue
+                or "USER_STORAGE_UNAVAILABLE"
         }
