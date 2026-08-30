@@ -231,3 +231,37 @@ def test_v526_finance_context_error_items_do_not_become_zero_facts():
     )
 
     assert result is None
+
+
+def test_v524_direct_finance_input_uses_derived_scope_and_generic_wording():
+    result = FinanceIntelligenceService().analyze({
+        "revenue": 1000,
+        "expenses": 600,
+    })
+
+    assert result["profit_scope"] == (
+        "DERIVED_REVENUE_MINUS_EXPENSES"
+    )
+    messages = [
+        item["message"]
+        for item in result["insights"]
+    ]
+    assert (
+        "Расчётный финансовый результат положительный"
+        in messages
+    )
+    assert all(
+        "валовый" not in message.lower()
+        for message in messages
+    )
+
+
+def test_v524_caller_provided_profit_uses_caller_scope():
+    result = FinanceIntelligenceService().analyze({
+        "revenue": 1000,
+        "expenses": 700,
+        "profit": 300,
+        "margin": 30,
+    })
+
+    assert result["profit_scope"] == "CALLER_PROVIDED"
