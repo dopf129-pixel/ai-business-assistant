@@ -2,7 +2,7 @@
 
 Date: 2026-08-30  
 Stages: v503-v508  
-Architecture Review Required: No
+Architecture Review Required: Yes
 
 ## Gap
 
@@ -41,3 +41,20 @@ The handler validates generated callbacks against the exact already-validated qu
 Focused tests cover routing, labels, no-query semantics, forged callback rejection, malformed items, top-10 bounds, and read-only invariants.
 
 Full GitHub Actions verification is required before merge.
+
+
+## Architecture review
+
+Required because the package exceeds the approximate 300 changed-line review threshold including tests and Project Brain updates.
+
+Review result before PR:
+
+- no new production service;
+- no new runtime route;
+- existing `product_decision:<sku>` callback reused;
+- no Product Decision recompute while opening the queue;
+- explicit seller click is required before opening a decision;
+- no direct feedback callback from the queue;
+- no execution/Ozon mutation path added;
+- malformed builder/keyboard payloads fail closed;
+- no `data/users.json` change.
