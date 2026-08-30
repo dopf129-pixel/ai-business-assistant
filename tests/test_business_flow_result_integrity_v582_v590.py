@@ -256,8 +256,6 @@ def _flow(
             _ExecutionService(
                 execution
             )
-            if execution is not None
-            else None
         ),
     )
 
