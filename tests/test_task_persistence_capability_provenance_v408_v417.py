@@ -203,6 +203,9 @@ def test_v411_ci_metadata_is_structurally_validated_without_external_verificatio
     assert evidence["status"] == (
         "TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_READY"
     )
+    assert evidence["evidence_id"].startswith(
+        "task-persistence-ci-evidence:"
+    )
     assert evidence["target_sha"] == REVISION
     assert evidence["ci_success_claim_consistent"] is True
     assert evidence["evidence_source"] == "CALLER_SUPPLIED_CI_METADATA"
@@ -215,6 +218,10 @@ def test_v411_ci_metadata_is_structurally_validated_without_external_verificatio
     assert rejected["code"] == (
         "TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_INVALID"
     )
+
+    forged = dict(evidence)
+    forged["evidence_id"] = "task-persistence-ci-evidence:" + ("0" * 64)
+    assert service._valid_ci_evidence(forged) is False
 
 
 def test_v412_ci_binding_requires_declared_exact_matching_sha(tmp_path):
@@ -309,11 +316,13 @@ def test_v414_audit_receipt_is_deterministic_and_rebinds_snapshot_lineage(tmp_pa
         snapshot,
         manifest,
         binding,
+        evidence,
     )
     second = service.build_audit_receipt(
         snapshot,
         manifest,
         binding,
+        evidence,
     )
 
     assert first == second
