@@ -1,10 +1,14 @@
+import pytest
+
 from services.assistant_action_plan_executor_service import (
     AssistantActionPlanExecutorService,
 )
 
 
-class _Generator:
+_DEFAULT = object()
 
+
+class _Generator:
     def __init__(self, result=None, error=None):
         self.result = result
         self.error = error
@@ -12,15 +16,12 @@ class _Generator:
 
     def generate(self, plan):
         self.calls.append(plan)
-
         if self.error:
             raise self.error
-
         return self.result
 
 
 class _Priority:
-
     def __init__(self, result=None, error=None):
         self.result = result
         self.error = error
@@ -28,18 +29,14 @@ class _Priority:
 
     def resolve(self, action):
         self.calls.append(action)
-
         if self.error:
             raise self.error
-
         if callable(self.result):
             return self.result(action)
-
         return self.result
 
 
 class _Execution:
-
     def __init__(self, result=None, error=None):
         self.result = result
         self.error = error
@@ -47,17 +44,33 @@ class _Execution:
 
     def execute(self, actions):
         self.calls.append(actions)
-
         if self.error:
             raise self.error
-
         return self.result
+
+
+def _default_priority(action):
+    return {
+        "error": False,
+        "action": dict(action),
+    }
+
+
+def _default_execution():
+    return {
+        "error": False,
+        "executed": [{
+            "action": {"type": "sales"},
+            "result": {"error": False},
+        }],
+        "count": 1,
+    }
 
 
 def _service(
     generated,
-    priority=None,
-    executed=None,
+    priority=_DEFAULT,
+    executed=_DEFAULT,
     generator_error=None,
     priority_error=None,
     execution_error=None,
@@ -67,25 +80,15 @@ def _service(
         error=generator_error,
     )
     priority_service = _Priority(
-        priority
-        if priority is not None
-        else lambda action: {
-            "error": False,
-            "action": dict(action),
-        },
+        _default_priority
+        if priority is _DEFAULT
+        else priority,
         error=priority_error,
     )
     execution = _Execution(
-        executed
-        if executed is not None
-        else {
-            "error": False,
-            "executed": [{
-                "action": {"type": "sales"},
-                "result": {"error": False},
-            }],
-            "count": 1,
-        },
+        _default_execution()
+        if executed is _DEFAULT
+        else executed,
         error=execution_error,
     )
 
@@ -108,6 +111,15 @@ def _valid_generated():
             "type": "sales",
             "title": "Проверить продажи",
         }],
+    }
+
+
+def _failure(code):
+    return {
+        "error": True,
+        "message": code,
+        "actions": [],
+        "count": 0,
     }
 
 
@@ -138,9 +150,7 @@ def test_v568_generator_explicit_error_is_returned_and_stops_pipeline():
         "error": True,
         "message": "generator failed",
     }
-    service, _, priority, execution = _service(
-        generated
-    )
+    service, _, priority, execution = _service(generated)
 
     result = service.execute_plan([])
 
@@ -149,31 +159,25 @@ def test_v568_generator_explicit_error_is_returned_and_stops_pipeline():
     assert execution.calls == []
 
 
-def test_v569_generator_malformed_results_fail_closed():
-    cases = [
+@pytest.mark.parametrize(
+    "generated",
+    [
         None,
         [],
         {"actions": []},
         {"error": None, "actions": []},
         {"error": "false", "actions": []},
         {"error": False, "actions": "bad"},
-    ]
+    ],
+)
+def test_v569_generator_malformed_results_fail_closed(generated):
+    service, _, priority, execution = _service(generated)
 
-    for generated in cases:
-        service, _, priority, execution = _service(
-            generated
-        )
-
-        result = service.execute_plan([])
-
-        assert result == {
-            "error": True,
-            "message": "INVALID_GENERATOR_RESULT",
-            "actions": [],
-            "count": 0,
-        }
-        assert priority.calls == []
-        assert execution.calls == []
+    assert service.execute_plan([]) == _failure(
+        "INVALID_GENERATOR_RESULT"
+    )
+    assert priority.calls == []
+    assert execution.calls == []
 
 
 def test_v569_generator_exception_uses_stable_error_code():
@@ -186,12 +190,7 @@ def test_v569_generator_exception_uses_stable_error_code():
 
     result = service.execute_plan([])
 
-    assert result == {
-        "error": True,
-        "message": "ACTION_GENERATION_FAILED",
-        "actions": [],
-        "count": 0,
-    }
+    assert result == _failure("ACTION_GENERATION_FAILED")
     assert "secret" not in result["message"]
     assert priority.calls == []
     assert execution.calls == []
@@ -203,9 +202,9 @@ def test_v569_empty_generated_action_list_fails_closed():
         "actions": [],
     })
 
-    result = service.execute_plan([])
-
-    assert result["message"] == "EMPTY_ACTION_PLAN"
+    assert service.execute_plan([]) == _failure(
+        "EMPTY_ACTION_PLAN"
+    )
     assert priority.calls == []
     assert execution.calls == []
 
@@ -216,9 +215,9 @@ def test_v570_non_dict_generated_action_fails_closed():
         "actions": ["bad-action"],
     })
 
-    result = service.execute_plan([])
-
-    assert result["message"] == "INVALID_GENERATED_ACTION"
+    assert service.execute_plan([]) == _failure(
+        "INVALID_GENERATED_ACTION"
+    )
     assert priority.calls == []
     assert execution.calls == []
 
@@ -240,31 +239,27 @@ def test_v570_priority_explicit_error_is_returned_and_stops_execution():
     assert execution.calls == []
 
 
-def test_v570_priority_malformed_results_fail_closed():
-    cases = [
+@pytest.mark.parametrize(
+    "priority_result",
+    [
         None,
         [],
         {},
         {"error": None},
         {"error": False},
         {"error": False, "action": "bad"},
-    ]
+    ],
+)
+def test_v570_priority_malformed_results_fail_closed(priority_result):
+    service, _, _, execution = _service(
+        _valid_generated(),
+        priority=priority_result,
+    )
 
-    for priority_result in cases:
-        service, _, _, execution = _service(
-            _valid_generated(),
-            priority=priority_result,
-        )
-
-        result = service.execute_plan([])
-
-        assert result == {
-            "error": True,
-            "message": "INVALID_PRIORITY_RESULT",
-            "actions": [],
-            "count": 0,
-        }
-        assert execution.calls == []
+    assert service.execute_plan([]) == _failure(
+        "INVALID_PRIORITY_RESULT"
+    )
+    assert execution.calls == []
 
 
 def test_v571_priority_exception_uses_stable_error_code():
@@ -277,7 +272,7 @@ def test_v571_priority_exception_uses_stable_error_code():
 
     result = service.execute_plan([])
 
-    assert result["message"] == "PRIORITY_RESOLUTION_FAILED"
+    assert result == _failure("PRIORITY_RESOLUTION_FAILED")
     assert "secret" not in result["message"]
     assert execution.calls == []
 
@@ -308,18 +303,14 @@ def test_v571_execution_exception_uses_stable_error_code():
 
     result = service.execute_plan([])
 
-    assert result == {
-        "error": True,
-        "message": "PLAN_EXECUTION_FAILED",
-        "actions": [],
-        "count": 0,
-    }
+    assert result == _failure("PLAN_EXECUTION_FAILED")
     assert "secret" not in result["message"]
     assert len(execution.calls) == 1
 
 
-def test_v572_execution_malformed_results_fail_closed():
-    cases = [
+@pytest.mark.parametrize(
+    "executed",
+    [
         None,
         [],
         {},
@@ -330,22 +321,17 @@ def test_v572_execution_malformed_results_fail_closed():
         {"error": False, "executed": [], "count": 1},
         {"error": False, "executed": "bad", "count": 0},
         {"error": False, "executed": ["bad"], "count": 1},
-    ]
+    ],
+)
+def test_v572_execution_malformed_results_fail_closed(executed):
+    service, _, _, _ = _service(
+        _valid_generated(),
+        executed=executed,
+    )
 
-    for executed in cases:
-        service, _, _, _ = _service(
-            _valid_generated(),
-            executed=executed,
-        )
-
-        result = service.execute_plan([])
-
-        assert result == {
-            "error": True,
-            "message": "INVALID_EXECUTION_RESULT",
-            "actions": [],
-            "count": 0,
-        }
+    assert service.execute_plan([]) == _failure(
+        "INVALID_EXECUTION_RESULT"
+    )
 
 
 def test_v573_multiple_actions_preserve_priority_order_into_execution():
@@ -356,7 +342,6 @@ def test_v573_multiple_actions_preserve_priority_order_into_execution():
             {"type": "finance", "priority": "NORMAL"},
         ],
     }
-
     execution_result = {
         "error": False,
         "executed": [
@@ -365,7 +350,6 @@ def test_v573_multiple_actions_preserve_priority_order_into_execution():
         ],
         "count": 2,
     }
-
     service, _, priority, execution = _service(
         generated,
         executed=execution_result,
@@ -393,13 +377,11 @@ def test_v574_first_priority_failure_stops_later_actions():
 
     def resolve(action):
         calls.append(action["type"])
-
         if action["type"] == "sales":
             return {
                 "error": True,
                 "message": "priority failed",
             }
-
         raise AssertionError(
             "later action should not be resolved"
         )
