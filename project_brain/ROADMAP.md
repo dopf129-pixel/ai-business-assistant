@@ -330,6 +330,8 @@ Completed foundation and safety work:
 
 [x] Terminal task/action lifecycle reconciliation
 
+[x] Store Period Default Composition Hardening
+
 Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, and `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`.
 
 
@@ -355,4 +357,4 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V503_V508.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V509_V513.md`.
