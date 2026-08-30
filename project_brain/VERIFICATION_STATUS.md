@@ -4,66 +4,64 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`e8680957f91e23e75574bca806007ba9384ec542`
+`4b362fbe0679d2640945b66e4cc2e482baf83756`
 
 Latest merged production-correctness batch:
 
-`v652-v659: Memory Persistence Result Integrity`
+`v660-v667: Telegram Memory Clear Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `f61d0e84e94eb03de5f81e00cfab1ad3b76e46dc`
-- push Verify #347
+- exact main: `3940bf4b947691603f891f5cb70da4772235d2ab`
+- push Verify #358
 - conclusion: success
-- tests: 1551 passed / 0 failed
-- artifact: `verification-f61d0e84e94eb03de5f81e00cfab1ad3b76e46dc`
-- artifact digest: `sha256:4819ccc21e51f87726790f446df67191941ea7217752d0aecde0494777c8cb43`
+- tests: 1559 passed / 0 failed
+- artifact: `verification-3940bf4b947691603f891f5cb70da4772235d2ab`
+- artifact digest: `sha256:0e2bb459ee571cd1b841771c4b0acfdeb7901e71583a951482cc9080ccb808d7`
 
 ### Exact final feature-head verification
 
-- feature branch: `fix/memory-persistence-result-integrity-v652-v659`
-- exact SHA: `0b67a19c1c2da55be69310849988218c253a3adb`
-- exact-SHA push Verify #353 on `verify/memory-persistence-result-integrity-v652-v659`
+- branch: `fix/telegram-memory-clear-integrity-v660-v667`
+- exact SHA: `8fe643f55ec16fa802b6a68c3bfd3d03958dfff2`
+- push Verify #359
 - conclusion: success
-- tests: 1559 passed / 0 failed
-- artifact: `verification-0b67a19c1c2da55be69310849988218c253a3adb`
-- artifact digest: `sha256:a22ec5356ccb204155cfaebcba95db519639efd57dfde543d0ccc7adb8bb72df`
-
-The dedicated verification ref points to the identical final feature SHA. The original feature-ref run #352 was queued behind an older in-progress concurrency run and is not used as evidence.
+- tests: 1568 passed / 0 failed
+- artifact: `verification-8fe643f55ec16fa802b6a68c3bfd3d03958dfff2`
+- artifact digest: `sha256:8e26d25c381869dab0ce4de84918390d2c8caf493f70912d79ea47a1d0eb7958`
 
 ### PR merge-ref integration verification
 
-- PR #264
-- branch head: `0b67a19c1c2da55be69310849988218c253a3adb`
-- synthetic merge SHA: `6dcb328dcad048eb45a7cc33f3478f422e992ea5`
-- pull_request Verify #354
+- PR #266
+- branch head: `8fe643f55ec16fa802b6a68c3bfd3d03958dfff2`
+- synthetic merge SHA: `12690439ea2230b8c2cd587ec9a4d8f3c6993610`
+- pull_request Verify #360
 - conclusion: success
-- tests: 1559 passed / 0 failed
-- artifact: `verification-6dcb328dcad048eb45a7cc33f3478f422e992ea5`
-- artifact digest: `sha256:d2d7a0945a4c8f3317301729d0da0902f618f18e2b2f8991fc03a80142cbc1f5`
+- tests: 1568 passed / 0 failed
+- artifact: `verification-12690439ea2230b8c2cd587ec9a4d8f3c6993610`
+- artifact digest: `sha256:641f20933d38033cffecebfa5b1554f255b07ea6ace641512722da340eabea43`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `e8680957f91e23e75574bca806007ba9384ec542`
-- push Verify #355
+- exact main: `4b362fbe0679d2640945b66e4cc2e482baf83756`
+- push Verify #361
 - conclusion: success
-- tests: 1559 passed / 0 failed
-- artifact: `verification-e8680957f91e23e75574bca806007ba9384ec542`
-- artifact digest: `sha256:902cd69f2f0797bad6b27609d007eb207d8b9daf0cdeb5c76dd9ee113bfde057`
+- tests: 1568 passed / 0 failed
+- artifact: `verification-4b362fbe0679d2640945b66e4cc2e482baf83756`
+- artifact digest: `sha256:b8b35b1d39f822c72d693ac7550c7ce3963bc72b29c034f65926d11606065640`
 
-## Memory Persistence Result Integrity
+## Telegram Memory Clear Integrity
 
-AssistantMemoryService now validates the supported storage save contract instead of silently reporting success for rejected or malformed persistence results.
+The production-wired AssistantTelegramMemoryService now clears the actual canonical nested user memory record instead of mutating the get_user result wrapper.
 
-Only an explicit boolean `False` is treated as a definite pre-commit rejection eligible for in-memory rollback. Exceptions and malformed results fail closed while preserving the possibility that persistence state is ambiguous. AssistantMemoryIntegrationService exposes partial state when only one of its two memory writes succeeds, and AssistantFeedbackService no longer hides a memory persistence failure after feedback was already recorded.
+The adapter validates user-read and save-result contracts before claiming success. Explicit canonical pre-commit save failures restore the prior in-memory memory object. Exceptions and malformed save outcomes remain fail-closed without a fabricated rollback because commit state may be ambiguous. A post-commit directory-fsync warning keeps the already-replaced state committed and is surfaced to the caller.
 
-The default production memory instance remains in-memory only. No additional persistence layer, runtime GitHub dependency, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No persistence owner or layer changed. No business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
-Exact SHA evidence is not transferred between different revisions.
+Exact branch push verification proves only that exact branch head.
 Pull-request runs prove only their synthetic merge refs.
 Every squash-main SHA requires its own exact push verification.
 Workflow/test-manifest evidence is not independent external verification;
@@ -71,8 +69,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_memory_service.py`
-- `app/services/assistant_memory_integration_service.py`
-- `app/services/assistant_feedback_service.py`
-- `tests/test_memory_persistence_result_integrity_v652_v659.py`
-- `project_brain/CURRENT_CHECKPOINT_V652_V659.md`
+- `app/services/assistant_telegram_memory_service.py`
+- `tests/test_telegram_memory_clear_integrity_v660_v667.py`
+- `project_brain/CURRENT_CHECKPOINT_V660_V667.md`
