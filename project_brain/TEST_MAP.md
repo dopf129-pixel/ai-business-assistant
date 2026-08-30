@@ -1757,3 +1757,28 @@ Tests:
 - fail-closed обработку forged/malformed navigation;
 - ограничение навигации видимыми top-10 SKU;
 - сохранение `executed=False`.
+
+
+---
+
+# Store Period Default Composition Hardening
+
+Services:
+
+- StorePeriodRunnerService
+- StorePeriodReportService
+- StorePeriodSummaryService
+
+Tests:
+
+- test_store_period_runner.py
+- test_store_period_report.py
+- test_store_period_summary.py
+
+Проверяет:
+
+- отсутствие duplicate runner initialization;
+- fail-closed результат при отсутствии period profit dependency;
+- сохранение injected report-service path;
+- fail-closed malformed summary runner output;
+- отсутствие AttributeError на default summary composition.
