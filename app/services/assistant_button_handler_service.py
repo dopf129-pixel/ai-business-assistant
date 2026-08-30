@@ -177,7 +177,8 @@ class AssistantButtonHandlerService:
         unit_economics_query=None,
         product_business_decision_query=None,
         returns_finance_impact_query=None,
-        product_decision_learning_health_builder=None
+        product_decision_learning_health_builder=None,
+        product_decision_learning_coverage_builder=None
     ):
 
         self.assistant = (
@@ -214,6 +215,10 @@ class AssistantButtonHandlerService:
 
         self.product_decision_learning_health_builder = (
             product_decision_learning_health_builder
+        )
+
+        self.product_decision_learning_coverage_builder = (
+            product_decision_learning_coverage_builder
         )
 
 
@@ -287,6 +292,9 @@ class AssistantButtonHandlerService:
 
         if button_id == "product_decision_learning_health":
             return self._show_product_decision_learning_health()
+
+        if button_id == "product_decision_learning_coverage":
+            return self._show_product_decision_learning_coverage()
 
         if button_id == "product_action_task_drafts":
             return self._show_product_action_task_drafts()
@@ -534,6 +542,12 @@ class AssistantButtonHandlerService:
                         self._product_decision_history_service()
                         is not None
                         and self.product_decision_learning_health_builder
+                        is not None
+                    ),
+                    include_learning_coverage=(
+                        self._product_decision_history_service()
+                        is not None
+                        and self.product_decision_learning_coverage_builder
                         is not None
                     ),
                     include_task_drafts=(
@@ -1234,6 +1248,158 @@ class AssistantButtonHandlerService:
             "error": False,
             "message": message,
             "learning_health": health,
+            "executed": False,
+        }
+
+    def _show_product_decision_learning_coverage(self):
+        history_service = self._product_decision_history_service()
+        builder = self.product_decision_learning_coverage_builder
+        query = self.product_business_decision_query
+        product_service = getattr(query, "product_service", None)
+
+        if (
+            history_service is None
+            or builder is None
+            or product_service is None
+        ):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        try:
+            products = product_service.load_products()
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        if not isinstance(products, list):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        rows = []
+        seen = set()
+        try:
+            for product in products:
+                if not isinstance(product, dict):
+                    raise ValueError("invalid product")
+                sku = str(
+                    product.get("offer_id")
+                    or product.get("sku")
+                    or ""
+                ).strip()
+                if not sku or sku in seen:
+                    raise ValueError("invalid product identity")
+                seen.add(sku)
+                rows.append({
+                    "sku": sku,
+                    "history": history_service.history(sku),
+                })
+            coverage = builder(rows)
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        valid_states = {
+            "NEEDS_USER_FEEDBACK",
+            "NO_DECISION_HISTORY",
+            "WAITING_FOR_LATER_OBSERVATION",
+        }
+        if (
+            not isinstance(coverage, dict)
+            or coverage.get("status")
+            != "PRODUCT_DECISION_LEARNING_COVERAGE_QUEUE_READY"
+            or coverage.get("error") is not False
+            or coverage.get("evidence_scope")
+            != "PERSISTED_DECISION_HISTORY_COVERAGE_ONLY"
+            or coverage.get("business_priority_claimed") is not False
+            or coverage.get("causal_claim_allowed") is not False
+            or coverage.get("success_rate_claim_allowed") is not False
+            or coverage.get("profitability_claim_allowed") is not False
+            or coverage.get("decision_rule_update_allowed") is not False
+            or coverage.get("automatic_execution_allowed") is not False
+            or coverage.get("executed") is not False
+            or not isinstance(coverage.get("items"), list)
+            or any(
+                not isinstance(item, dict)
+                or item.get("coverage_state") not in valid_states
+                or item.get("business_priority_claimed") is not False
+                or item.get("causal_claim_allowed") is not False
+                or item.get("success_rate_claim_allowed") is not False
+                or item.get("profitability_claim_allowed") is not False
+                or item.get("decision_rule_update_allowed") is not False
+                or item.get("automatic_execution_allowed") is not False
+                or item.get("executed") is not False
+                for item in coverage.get("items")
+            )
+        ):
+            return {
+                "error": True,
+                "message": "Очередь сбора обратной связи недоступна"
+            }
+
+        labels = {
+            "NEEDS_USER_FEEDBACK": "Нужна оценка текущего решения",
+            "NO_DECISION_HISTORY": "Нет сохранённой истории решения",
+            "WAITING_FOR_LATER_OBSERVATION": (
+                "Оценка сохранена — ждём следующее изменение решения"
+            ),
+        }
+        counts = coverage.get("counts") or {}
+        lines = [
+            "🧭 Очередь сбора обратной связи",
+            "",
+            "Нужна оценка: "
+            + str(counts.get("NEEDS_USER_FEEDBACK", 0)),
+            "Нет истории решения: "
+            + str(counts.get("NO_DECISION_HISTORY", 0)),
+            "Ждём следующего наблюдения: "
+            + str(
+                counts.get(
+                    "WAITING_FOR_LATER_OBSERVATION",
+                    0,
+                )
+            ),
+            "",
+        ]
+
+        for index, item in enumerate(
+            coverage.get("items")[:10],
+            start=1,
+        ):
+            lines.append(
+                str(index)
+                + ". "
+                + str(item.get("sku") or "—")
+                + " — "
+                + labels.get(
+                    item.get("coverage_state"),
+                    "Статус неизвестен",
+                )
+            )
+
+        lines.extend([
+            "",
+            (
+                "Это очередь сбора learning evidence, "
+                "а не бизнес-приоритет товаров."
+            ),
+            (
+                "Она не оценивает прибыльность и "
+                "не запускает никаких действий."
+            ),
+        ])
+
+        return {
+            "error": False,
+            "message": "\n".join(lines),
+            "learning_coverage": coverage,
             "executed": False,
         }
 
