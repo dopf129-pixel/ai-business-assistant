@@ -1521,10 +1521,9 @@ Rules:
 - gross_sales and gross_profit are required for every accepted period-profit row;
 - malformed, non-finite, boolean or missing required values fail closed;
 - explicit numeric zero remains a valid fact;
-- provider-generated profit is tagged as PERIOD_GROSS_PROFIT;
-- direct Finance Intelligence derivation from revenue minus expenses is tagged
-  DERIVED_REVENUE_MINUS_EXPENSES;
-- explicit caller-provided profit without source scope is tagged CALLER_PROVIDED;
+- FinanceContextProvider preserves its existing output shape;
+- Finance Intelligence may classify its own direct derived/caller-provided
+  result internally without requiring a new provider context field;
 - derived expenses remain revenue minus period gross profit and are described
   only as expenses by available evidence;
 - Finance Intelligence must not call PERIOD_GROSS_PROFIT accounting net profit
