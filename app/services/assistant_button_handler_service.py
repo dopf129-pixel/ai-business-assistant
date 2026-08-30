@@ -1133,11 +1133,27 @@ class AssistantButtonHandlerService:
                 "message": "Качество данных обучения недоступно"
             }
 
+        valid_states = {
+            "NO_FEEDBACK_EVIDENCE",
+            "FEEDBACK_ONLY",
+            "EARLY_POST_FEEDBACK_SAMPLE",
+            "MULTI_PRODUCT_DESCRIPTIVE_SAMPLE",
+        }
+        valid_actions = {
+            "COLLECT_USER_FEEDBACK",
+            "WAIT_FOR_LATER_DECISION_OBSERVATIONS",
+            "COLLECT_MORE_DESCRIPTIVE_OBSERVATIONS",
+            "REVIEW_DESCRIPTIVE_PATTERNS",
+        }
         if (
             not isinstance(health, dict)
             or health.get("status")
             != "PRODUCT_DECISION_LEARNING_HEALTH_READY"
             or health.get("error") is not False
+            or health.get("evidence_scope")
+            != "DESCRIPTIVE_DECISION_HISTORY_ONLY"
+            or health.get("health_state") not in valid_states
+            or health.get("next_action") not in valid_actions
             or health.get("causal_claim_allowed") is not False
             or health.get("success_rate_claim_allowed") is not False
             or health.get("profitability_claim_allowed") is not False
