@@ -4,70 +4,61 @@ Date: 2026-08-30
 
 ## Latest verified product baseline
 
-`5131832339239f87886f9172f71cc1c0ec3553b4`
+`b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`
 
 Latest merged production-correctness batch:
 
-`v597-v603: Entry/Core Result Integrity`
+`v604-v611: Context Provider Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `de084ad62b251b1d308ece4fa36f7f70e585b4c9`
-- push Verify #252
+- exact main: `f456850c763849b14d484d54516202c950ac0515`
+- push Verify #271
 - conclusion: success
-- tests: 1495 passed / 0 failed
-
-### Failed intermediate feature evidence
-
-- exact SHA: `3fd85c7eb6052ed4047e81b0a2571eca98702c02`
-- push Verify #256
-- conclusion: failure
-- tests: 1499 passed / 4 failed
-
-This SHA remains failed evidence. The failures were legacy direct-runtime fixtures
-that omitted the explicit boolean `error` marker required by the hardened entry
-boundary. Later green evidence is not transferred back to this SHA.
+- tests: 1503 passed / 0 failed
+- artifact: `verification-f456850c763849b14d484d54516202c950ac0515`
+- artifact digest: `sha256:d9d752aef0ab6e905c5380ae54a8d839e504380effbdb4acaca7fc7fda222df0`
 
 ### Exact final feature-head verification
 
-- branch: `fix/entry-core-result-integrity-v597-v603`
-- exact SHA: `4808e27661f869aeef59baca4d07035132f012c7`
-- push Verify #260
+- branch: `fix/context-provider-result-integrity-v604-v611`
+- exact SHA: `d2ddd0de5e3f6f180dfff42b8265e7773676e9da`
+- push Verify #274
 - conclusion: success
-- tests: 1503 passed / 0 failed
-- artifact: `verification-4808e27661f869aeef59baca4d07035132f012c7`
-- artifact digest: `sha256:22836898eee87f26725f6fb8b4b2ed9cd5c3ca7920dc1a0c302d82bdc3fb08da`
+- tests: 1511 passed / 0 failed
+- artifact: `verification-d2ddd0de5e3f6f180dfff42b8265e7773676e9da`
+- artifact digest: `sha256:466c808fe1f9bab27895d33fe2d62f1ae309246a9b69e6c09fe2ba11a80ff406`
 
 ### PR merge-ref integration verification
 
-- PR #250
-- branch head: `4808e27661f869aeef59baca4d07035132f012c7`
-- synthetic merge SHA: `6ea107c8c27def9a7531c19d725ee7e8fea25330`
-- pull_request Verify #261
+- PR #252
+- branch head: `d2ddd0de5e3f6f180dfff42b8265e7773676e9da`
+- synthetic merge SHA: `20f2d3a8e5afb2125465a759cd8d86aff6d6da9a`
+- pull_request Verify #275
 - conclusion: success
-- tests: 1503 passed / 0 failed
-- artifact: `verification-6ea107c8c27def9a7531c19d725ee7e8fea25330`
-- artifact digest: `sha256:d14789f4f3d04fbfe2c262e20698326ad9edba3dd733b1289c73042df06ee2e2`
+- tests: 1511 passed / 0 failed
+- artifact: `verification-20f2d3a8e5afb2125465a759cd8d86aff6d6da9a`
+- artifact digest: `sha256:790cb536ee0d20c37862f5a73617ba2d13ae3bf9db0c68e84fb8c24851993af9`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `5131832339239f87886f9172f71cc1c0ec3553b4`
-- push Verify #262
+- exact main: `b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`
+- push Verify #276
 - conclusion: success
-- tests: 1503 passed / 0 failed
-- artifact: `verification-5131832339239f87886f9172f71cc1c0ec3553b4`
-- artifact digest: `sha256:bfe98cd795f9b22933c7cdf3a510787d135356e31533f3a47383dff511d7849d`
+- tests: 1511 passed / 0 failed
+- artifact: `verification-b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`
+- artifact digest: `sha256:f9f997342b7f71910f44286af6f67ce0c8009b094d8f35c4d3c5aad22af85460`
 
-## Entry/Core Result Integrity
+## Context Provider Result Integrity
 
-Application entry and core boundaries now reject malformed direct-runtime and
-orchestrator results before they can be forwarded, mutated, or interpreted as
-successful responses.
+Stock, sales, and finance context-provider results are validated before they can
+modify the seller-facing report. Malformed evidence becomes explicit unavailable
+evidence rather than a clean state or an exception.
 
 No new business execution capability, Product Decision execution, Ozon mutation,
-or persistence owner was introduced.
+or persistence behavior was introduced.
 
 ## Verification policy
 
@@ -80,6 +71,5 @@ Workflow/test-manifest evidence is not independent external verification;
 ## Related implementation
 
 - `app/services/assistant_entry_service.py`
-- `app/services/assistant_core_service.py`
-- `tests/test_entry_core_result_integrity_v597_v603.py`
-- `project_brain/CURRENT_CHECKPOINT_V597_V603.md`
+- `tests/test_context_provider_result_integrity_v604_v611.py`
+- `project_brain/CURRENT_CHECKPOINT_V604_V611.md`
