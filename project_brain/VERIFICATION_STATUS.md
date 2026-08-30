@@ -4,9 +4,13 @@ Date: 2026-08-30
 
 ## Current revision
 
-Current tracked main at the start of this verification-integrity batch:
+Current tracked main at the start of the v264-v268 Project Brain reconciliation batch:
 
-`4d1a7e3dde453cb71ca2a64f491c0c7a05562c60`
+`4b27cdf24b78db567d1304f728c0b16d6e38fe54`
+
+Latest merged lifecycle work at that revision:
+
+`v256-v263: reconcile terminal task completion lifecycle`
 
 Current full-suite verification:
 
@@ -42,6 +46,12 @@ Recent GitHub PRs do not expose a CI workflow/status check that runs the full py
 
 Therefore the repository may advance beyond the last locally confirmed full-suite baseline. Project documentation must show that distinction explicitly instead of carrying forward an old pass count as if it applied to current main.
 
+## Current verification priority
+
+After terminal task persistence/recovery hardening is complete, run the full repository pytest suite against the exact then-current `main` SHA and record that SHA-bound result here.
+
+Until that happens, focused regression files may document intended coverage, but they must not be described as a full-suite pass.
+
 ## Safety
 
 Verification status is development metadata only.
@@ -60,3 +70,4 @@ It does not:
 - `app/services/assistant_test_runner_service.py`
 - `app/services/assistant_project_verification_service.py`
 - `tests/test_project_verification_integrity_v232_v237.py`
+- `project_brain/CURRENT_CHECKPOINT_V264_V268.md`
