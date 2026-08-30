@@ -1355,3 +1355,28 @@ Preserved:
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - no business-evidence inference.
+
+---
+
+# Business Flow Result Integrity v1 — 2026-08-30
+
+Completed:
+
+[x] malformed intent result fail-closed
+[x] execution result validation before success presentation
+[x] execution error message preservation without false completed wording
+[x] cancel/pause/resume downstream failure propagation
+[x] task status/history/details/next malformed-result guards
+[x] skip pre-mutation next-action validation
+[x] skip result validation and post-mutation partial-state reporting
+[x] continue next-action and pending-action result validation
+[x] planner error propagation and actions/count integrity validation
+
+Preserved:
+
+- existing constructor dependency injection;
+- existing valid execute/task/planner response structure;
+- no Product Decision/Product Task Draft execution;
+- no Ozon mutation;
+- no automatic rollback or retry;
+- no business-evidence inference.

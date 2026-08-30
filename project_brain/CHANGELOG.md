@@ -2245,3 +2245,14 @@ Returns & Buyout Analytics v1
 - squash main `d2c5a23ca16ed2579ad34db5148b976c36c54712`: push Verify #205, 1462 passed;
 - canonical verification status and current checkpoint updated;
 - no external-verification overclaim.
+
+## 2026-08-30 — Business Flow Result Integrity v582-v590
+
+- validated intent/planner/task/execution result contracts at the seller-facing flow;
+- removed optimistic success defaults for malformed execution results;
+- prevented task lifecycle failures from receiving cancel/pause/resume success wording;
+- prevented next-action failures from becoming “no action” success;
+- preserved partial committed skip state when a post-skip read fails;
+- validated continue pending-action persistence results;
+- added focused regressions and package contract;
+- Architecture Review Required: Yes.

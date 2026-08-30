@@ -1972,3 +1972,35 @@ Tests:
 - actions/count consistency;
 - отсутствие task creation после downstream failure;
 - сохранение valid plan result и general-only non-actionable path.
+
+---
+
+# Business Flow Result Integrity v1
+
+Services:
+
+- AssistantBusinessFlowService
+- AssistantIntentService
+- AssistantBusinessPlannerService
+- AssistantActionExecutionService
+- AssistantTaskService
+
+Tests:
+
+- tests/test_business_flow_result_integrity_v582_v590.py
+- tests/test_business_planner_result_integrity_v575_v581.py
+- tests/test_action_plan_result_integrity_v568_v574.py
+
+Проверяет:
+
+- malformed intent/result contracts fail closed;
+- planner error=True не перепаковывается в success;
+- malformed planner actions/count не становятся пустым successful plan;
+- execute error/malformed result не получает текст «Действие выполнено»;
+- cancel/pause/resume failure не получает success wording;
+- task read malformed payloads fail closed;
+- skip next-action error не маскируется как “нет шага”;
+- malformed skip target блокируется до mutation;
+- committed skip + later next-read failure reports partial state without fake rollback;
+- continue validates next-action and pending-action persistence result;
+- valid seller-facing shapes remain compatible.

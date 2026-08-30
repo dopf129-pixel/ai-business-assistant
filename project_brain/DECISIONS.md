@@ -1756,3 +1756,49 @@ presenting an execution-adjacent planning operation as successful.
 Status:
 
 Implemented
+
+---
+
+## Decision 035
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Business Flow Result Integrity
+
+Decision:
+
+AssistantBusinessFlowService must preserve downstream failure semantics and must
+not present malformed or failing intent/planner/task/execution results as
+successful seller-facing operations.
+
+Rules:
+
+- every consumed downstream result must be a dictionary with exact boolean error;
+- successful intent requires a non-empty string command;
+- explicit downstream error=True remains failure and is not paired with success wording;
+- successful current-action execution requires a non-empty message, valid optional
+  action fields, boolean completion flag, and valid non-negative progress;
+- successful planner output requires list actions and a non-boolean, non-negative
+  integer count matching len(actions);
+- task lifecycle/read results are validated before success presentation;
+- skip validates its target before mutation and validates its post-skip read;
+- if skip is already committed and a later read fails, the result reports that
+  partial committed state rather than pretending rollback;
+- continue validates both next-action lookup and pending-action persistence;
+- malformed results use deterministic non-secret fail-closed codes;
+- no new executor, action type, mutation path, retry, rollback, or execution
+  permission is introduced.
+
+Reason:
+
+The Business Flow previously used optimistic defaults such as error=False and
+“Действие выполнено” and could therefore suppress lower-layer failures even after
+Action Plan and Business Planner result integrity had been hardened.
+
+Status:
+
+Implemented
