@@ -220,7 +220,8 @@ def create_telegram_core(
     task_service=None,
     task_persistence_operator_user_ids=None,
     task_persistence_revision_id=None,
-    task_persistence_ci_evidence=None
+    task_persistence_ci_evidence=None,
+    advertising_cost=None
 ):
 
 
@@ -379,7 +380,7 @@ def create_telegram_core(
                 if tax_policy
                 else 0
             ),
-            advertising_cost=0,
+            advertising_cost=advertising_cost,
             finance_service=FinanceService()
         )
     )
