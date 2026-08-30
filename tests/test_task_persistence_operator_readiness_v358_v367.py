@@ -71,9 +71,12 @@ class _FakeTaskService:
         self.lock = lock or {
             "error": False,
             "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
-            "inspection_state": "ABSENT",
-            "lock_present": False,
-            "ownership_state": "NONE",
+            "inspection_state": "NO_ACTIVE_LOCK_EVIDENCE",
+            "lock_present": None,
+            "ownership_state": "UNKNOWN",
+            "coordination_file_present": False,
+            "kernel_lock_guard": True,
+            "orphan_file_blocks_writes": False,
             "stale_proven": False,
             "automatic_recovery_allowed": False,
             "manual_lock_removal_allowed": False,
@@ -103,9 +106,12 @@ def test_v358_absent_lock_is_read_only_and_not_stale(tmp_path):
     assert diagnostics == {
         "error": False,
         "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
-        "inspection_state": "ABSENT",
-        "lock_present": False,
-        "ownership_state": "NONE",
+        "inspection_state": "NO_ACTIVE_LOCK_EVIDENCE",
+        "lock_present": None,
+        "ownership_state": "UNKNOWN",
+        "coordination_file_present": False,
+        "kernel_lock_guard": True,
+        "orphan_file_blocks_writes": False,
         "stale_proven": False,
         "automatic_recovery_allowed": False,
         "manual_lock_removal_allowed": False,
@@ -116,18 +122,21 @@ def test_v358_absent_lock_is_read_only_and_not_stale(tmp_path):
     }
 
 
-def test_v359_present_lock_never_infers_owner_or_staleness(tmp_path):
+def test_v359_coordination_file_presence_never_infers_active_owner_or_staleness(tmp_path):
     path = tmp_path / "tasks.json"
     service = TerminalSafeAssistantTaskService(file_path=str(path))
     (tmp_path / "tasks.json.lock").write_bytes(b"")
 
     diagnostics = service.get_write_lock_diagnostics()
 
-    assert diagnostics["inspection_state"] == "PRESENT"
-    assert diagnostics["lock_present"] is True
+    assert diagnostics["inspection_state"] == "NO_ACTIVE_LOCK_EVIDENCE"
+    assert diagnostics["lock_present"] is None
     assert diagnostics["ownership_state"] == "UNKNOWN"
+    assert diagnostics["coordination_file_present"] is True
+    assert diagnostics["kernel_lock_guard"] is True
+    assert diagnostics["orphan_file_blocks_writes"] is False
     assert diagnostics["stale_proven"] is False
-    assert diagnostics["manual_intervention_required"] is True
+    assert diagnostics["manual_intervention_required"] is False
     assert diagnostics["automatic_recovery_allowed"] is False
     assert diagnostics["manual_lock_removal_allowed"] is False
     assert str(path) not in repr(diagnostics)
@@ -151,6 +160,8 @@ def test_v360_lock_check_error_preserves_unknown_presence(tmp_path, monkeypatch)
     assert diagnostics["lock_present"] is None
     assert diagnostics["ownership_state"] == "UNKNOWN"
     assert diagnostics["manual_intervention_required"] is True
+    assert diagnostics["coordination_file_present"] is None
+    assert diagnostics["kernel_lock_guard"] is True
     assert "sensitive stat detail" not in repr(diagnostics)
 
 
@@ -169,19 +180,20 @@ def test_v361_clean_absent_store_projects_ready_without_write_permission():
     assert report["executed"] is False
 
 
-def test_v362_present_unowned_lock_blocks_and_requires_manual_owner_verification():
+def test_v362_proven_kernel_lock_contention_blocks_without_stale_file_recovery():
     fake = _FakeTaskService(
-        lock={
+        persistence={
             "error": False,
-            "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
-            "inspection_state": "PRESENT",
-            "lock_present": True,
-            "ownership_state": "UNKNOWN",
-            "stale_proven": False,
-            "automatic_recovery_allowed": False,
-            "manual_lock_removal_allowed": False,
-            "manual_intervention_required": True,
-            "path_exposed": False,
+            "status": "TASK_PERSISTENCE_DIAGNOSTICS",
+            "load_source_state": "ABSENT",
+            "last_save_state": "FAILED",
+            "last_save_issue": "TASK_FILE_WRITE_LOCKED",
+            "last_save_rolled_back": True,
+            "optimistic_concurrency_guard": True,
+            "write_lock_guard": True,
+            "directory_fsync_required": True,
+            "last_lock_release_issue": None,
+            "loaded_task_count": 0,
             "read_only": True,
             "executed": False,
         }
@@ -190,8 +202,8 @@ def test_v362_present_unowned_lock_blocks_and_requires_manual_owner_verification
     report = TaskPersistenceOperationalService(fake).build_report()
 
     assert report["operational_state"] == "BLOCKED"
-    assert report["blockers"] == ["TASK_WRITE_LOCK_PRESENT_UNOWNED"]
-    assert report["next_action"] == "VERIFY_WRITE_LOCK_OWNER_MANUALLY"
+    assert report["blockers"] == ["TASK_FILE_WRITE_LOCKED"]
+    assert report["next_action"] == "WAIT_FOR_ACTIVE_WRITER_AND_RETRY_MANUALLY"
     assert report["write_lock_stale_proven"] is False
     assert report["automatic_lock_recovery_allowed"] is False
     assert report["manual_lock_removal_allowed"] is False
@@ -239,13 +251,16 @@ def test_v364_contradictory_lock_diagnostics_fail_closed():
         lock={
             "error": False,
             "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
-            "inspection_state": "ABSENT",
-            "lock_present": True,
+            "inspection_state": "SELF_HELD",
+            "lock_present": None,
             "ownership_state": "UNKNOWN",
+            "coordination_file_present": True,
+            "kernel_lock_guard": True,
+            "orphan_file_blocks_writes": False,
             "stale_proven": False,
             "automatic_recovery_allowed": False,
             "manual_lock_removal_allowed": False,
-            "manual_intervention_required": True,
+            "manual_intervention_required": False,
             "path_exposed": False,
             "read_only": True,
             "executed": False,
