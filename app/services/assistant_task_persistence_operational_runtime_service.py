@@ -19,20 +19,33 @@ class AssistantTaskPersistenceOperationalRuntimeService:
         "/task-persistence-release",
     )
 
+    PROVENANCE_TOKENS = (
+        "provenance persistence",
+        "источники capability persistence",
+        "task persistence provenance",
+        "task persistence capability provenance",
+        "/task-persistence-provenance",
+    )
+
     def __init__(
         self,
         operational_service,
         access_policy,
         presentation_service,
         release_observability_service=None,
+        capability_provenance_service=None,
     ):
         self.operational_service = operational_service
         self.access_policy = access_policy
         self.presentation_service = presentation_service
         self.release_observability_service = release_observability_service
+        self.capability_provenance_service = capability_provenance_service
 
     def handle_text(self, text, user_id=None):
         value = " ".join(str(text or "").strip().lower().split())
+        provenance_requested = any(
+            token in value for token in self.PROVENANCE_TOKENS
+        )
         release_requested = any(
             token in value for token in self.RELEASE_TOKENS
         )
@@ -40,11 +53,43 @@ class AssistantTaskPersistenceOperationalRuntimeService:
             token in value for token in self.TOKENS
         )
 
-        if not release_requested and not operational_requested:
+        if (
+            not provenance_requested
+            and not release_requested
+            and not operational_requested
+        ):
             return None
 
         if not self.access_policy.is_allowed(user_id):
             return self._access_denied()
+
+        if provenance_requested:
+            if self.capability_provenance_service is None:
+                return self._provenance_unavailable()
+            try:
+                report = (
+                    self.capability_provenance_service
+                    .build_report()
+                )
+            except Exception:
+                return self._provenance_unavailable()
+
+            if not isinstance(report, dict):
+                return self._provenance_unavailable()
+
+            try:
+                presented = (
+                    self.presentation_service
+                    .present_provenance(report)
+                )
+            except Exception:
+                return self._provenance_unavailable()
+
+            if not isinstance(presented, dict):
+                return self._provenance_unavailable()
+
+            presented["operator_authorized"] = True
+            return presented
 
         if release_requested:
             if self.release_observability_service is None:
@@ -103,6 +148,30 @@ class AssistantTaskPersistenceOperationalRuntimeService:
             "operator_authorized": False,
             "operator_attention_required": False,
             "message": "Недостаточно прав для просмотра статуса хранилища задач.",
+            "automatic_lock_recovery_allowed": False,
+            "manual_lock_removal_allowed": False,
+            "business_execution_ready": False,
+            "mutation_ready": False,
+            "path_exposed": False,
+            "user_id_exposed": False,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _provenance_unavailable():
+        return {
+            "error": True,
+            "code": "TASK_PERSISTENCE_CAPABILITY_PROVENANCE_UNAVAILABLE",
+            "status": "TASK_PERSISTENCE_CAPABILITY_PROVENANCE_REPORT",
+            "operator_authorized": True,
+            "message": (
+                "Provenance capability persistence недоступен. "
+                "Нужна ручная проверка implementation/CI evidence."
+            ),
+            "active_probe_performed": False,
+            "externally_verified": False,
+            "automatic_retry_allowed": False,
             "automatic_lock_recovery_allowed": False,
             "manual_lock_removal_allowed": False,
             "business_execution_ready": False,
