@@ -71,6 +71,7 @@ class AssistantKeyboardService:
         total_pages=1,
         include_learning_summary=False,
         include_learning_health=False,
+        include_learning_coverage=False,
         include_task_drafts=False
     ):
         buttons = [
@@ -102,6 +103,12 @@ class AssistantKeyboardService:
             buttons.append({
                 "text": "🩺 Качество данных обучения",
                 "callback": "product_decision_learning_health",
+            })
+
+        if include_learning_coverage:
+            buttons.append({
+                "text": "🧭 Что оценить дальше",
+                "callback": "product_decision_learning_coverage",
             })
 
         if include_task_drafts:
