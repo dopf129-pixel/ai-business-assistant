@@ -436,6 +436,21 @@ class TaskPersistenceVerificationManifestProvenanceService:
             "test_report_id"
         ):
             return False
+        mirrored_fields = (
+            "workflow",
+            "event",
+            "run_id",
+            "run_number",
+            "passed",
+            "failed",
+            "total",
+            "skipped",
+        )
+        if any(
+            imported.get(field) != verification.get(field)
+            for field in mirrored_fields
+        ):
+            return False
         expected_passed = verification.get("status") == "passed"
         if imported.get("test_suite_passed") is not expected_passed:
             return False
