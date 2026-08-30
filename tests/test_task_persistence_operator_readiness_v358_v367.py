@@ -9,6 +9,12 @@ from services.assistant_task_persistence_operational_runtime_service import (
 from services.task_persistence_operational_service import (
     TaskPersistenceOperationalService,
 )
+from services.task_persistence_operator_access_policy import (
+    TaskPersistenceOperatorAccessPolicy,
+)
+from services.task_persistence_operator_presentation_service import (
+    TaskPersistenceOperatorPresentationService,
+)
 from services.terminal_safe_assistant_task_service import (
     TerminalSafeAssistantTaskService,
 )
@@ -29,8 +35,9 @@ class _Runtime:
         self.result = result
         self.calls = 0
 
-    def handle_text(self, text):
+    def handle_text(self, text, user_id=None):
         self.calls += 1
+        self.user_id = user_id
         return self.result
 
 
@@ -255,12 +262,19 @@ def test_v364_contradictory_lock_diagnostics_fail_closed():
 
 def test_v365_runtime_handles_only_explicit_persistence_status_tokens():
     runtime = AssistantTaskPersistenceOperationalRuntimeService(
-        TaskPersistenceOperationalService(_FakeTaskService())
+        operational_service=TaskPersistenceOperationalService(
+            _FakeTaskService()
+        ),
+        access_policy=TaskPersistenceOperatorAccessPolicy([7001]),
+        presentation_service=TaskPersistenceOperatorPresentationService(),
     )
 
-    assert runtime.handle_text("покажи продажи") is None
+    assert runtime.handle_text("покажи продажи", user_id=7001) is None
 
-    report = runtime.handle_text("статус хранилища задач")
+    report = runtime.handle_text(
+        "статус хранилища задач",
+        user_id=7001,
+    )
 
     assert report["status"] == "TASK_PERSISTENCE_OPERATIONAL_READINESS"
     assert report["read_only"] is True
@@ -281,7 +295,10 @@ def test_v366_entry_routes_operator_status_before_business_flow():
         task_persistence_operational_runtime_service=runtime,
     )
 
-    result = entry.handle("статус хранилища задач")
+    result = entry.handle(
+        "статус хранилища задач",
+        user_id=7001,
+    )
 
     assert result["status"] == "TASK_PERSISTENCE_OPERATIONAL_READINESS"
     assert runtime.calls == 1
@@ -293,11 +310,17 @@ def test_v367_telegram_core_composes_read_only_persistence_runtime_with_injected
         file_path=str(tmp_path / "tasks.json")
     )
 
-    composition = create_telegram_core(task_service=task_service)
+    composition = create_telegram_core(
+        task_service=task_service,
+        task_persistence_operator_user_ids=[7001],
+    )
 
     assert composition["task_service"] is task_service
     runtime = composition["task_persistence_operational_runtime_service"]
-    report = runtime.handle_text("task persistence status")
+    report = runtime.handle_text(
+        "task persistence status",
+        user_id=7001,
+    )
 
     assert report["operational_state"] == "READY"
     assert report["read_only"] is True
