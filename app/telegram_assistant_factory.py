@@ -32,6 +32,11 @@ from product_decision_learning_health import (
 )
 
 
+from product_decision_learning_coverage_queue import (
+    build_product_decision_learning_coverage_queue
+)
+
+
 from services.assistant_telegram_memory_service import (
     AssistantTelegramMemoryService
 )
@@ -174,6 +179,9 @@ def create_telegram_assistant():
             ),
             product_decision_learning_health_builder=(
                 build_product_decision_learning_health
+            ),
+            product_decision_learning_coverage_builder=(
+                build_product_decision_learning_coverage_queue
             )
         )
     )
