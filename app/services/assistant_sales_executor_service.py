@@ -79,22 +79,29 @@ class AssistantSalesExecutorService:
                 "margin_percent"
             )
 
+            revenue = metrics.get(
+                "revenue"
+            )
+
+            gross_profit = metrics.get(
+                "gross_profit"
+            )
+
+
             details = [
                 "Выручка: "
                 +
-                str(
-                    metrics.get(
-                        "revenue",
-                        0
-                    )
+                (
+                    str(revenue)
+                    if revenue is not None
+                    else "—"
                 ),
                 "Валовая прибыль: "
                 +
-                str(
-                    metrics.get(
-                        "gross_profit",
-                        0
-                    )
+                (
+                    str(gross_profit)
+                    if gross_profit is not None
+                    else "—"
                 ),
                 "Прибыль после расходов: "
                 +
