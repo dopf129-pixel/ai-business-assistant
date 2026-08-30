@@ -48,9 +48,12 @@ def _base():
     lock = {
         "error": False,
         "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
-        "inspection_state": "ABSENT",
-        "lock_present": False,
-        "ownership_state": "NONE",
+        "inspection_state": "NO_ACTIVE_LOCK_EVIDENCE",
+        "lock_present": None,
+        "ownership_state": "UNKNOWN",
+        "coordination_file_present": False,
+        "kernel_lock_guard": True,
+        "orphan_file_blocks_writes": False,
         "stale_proven": False,
         "automatic_recovery_allowed": False,
         "manual_lock_removal_allowed": False,
@@ -114,12 +117,12 @@ def test_forged_durability_warning_with_wrong_code_fails_closed():
     assert report["code"] == "TASK_PERSISTENCE_DIAGNOSTICS_INVALID"
 
 
-def test_forged_present_lock_claiming_known_absence_fails_closed():
+def test_forged_self_held_lock_without_self_ownership_fails_closed():
     load, persistence, lock = _base()
-    lock["inspection_state"] = "PRESENT"
+    lock["inspection_state"] = "SELF_HELD"
     lock["lock_present"] = True
-    lock["ownership_state"] = "NONE"
-    lock["manual_intervention_required"] = True
+    lock["ownership_state"] = "UNKNOWN"
+    lock["coordination_file_present"] = True
 
     report = TaskPersistenceOperationalService(
         _Fake(load, persistence, lock)
@@ -134,6 +137,7 @@ def test_forged_check_error_claiming_absent_lock_fails_closed():
     lock["inspection_state"] = "CHECK_ERROR"
     lock["lock_present"] = False
     lock["ownership_state"] = "UNKNOWN"
+    lock["coordination_file_present"] = None
     lock["manual_intervention_required"] = True
 
     report = TaskPersistenceOperationalService(
