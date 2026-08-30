@@ -1289,3 +1289,22 @@ Preserved:
 - no retry-limit change;
 - no task persistence-format change;
 - no data/users.json change.
+
+
+---
+
+# Marketing Evidence Integrity v1 — 2026-08-30
+
+Completed:
+
+[x] Unsupported marketing executor no longer invents checked-channel evidence
+[x] Marketing recommendation requires explicit evidence availability and context
+[x] Missing/malformed marketing evidence fails closed
+[x] Persisted router run enters existing FAILED lifecycle on missing evidence
+
+Preserved:
+
+- no marketing API or campaign mutation;
+- no Product Decision/Product Task Draft execution;
+- no Ozon mutation;
+- no data/users.json change.
