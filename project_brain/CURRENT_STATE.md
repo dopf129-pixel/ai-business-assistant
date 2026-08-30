@@ -1181,3 +1181,28 @@ Preserved:
 - no Product Decision rule change;
 - no seller/business execution or Ozon mutation;
 - no data/users.json change.
+
+
+---
+
+# Finance Context Evidence Hardening v1 — 2026-08-30
+
+Completed:
+
+[x] FinanceContextProvider fails closed on malformed period payloads
+[x] Missing gross_sales / gross_profit no longer normalize to zero
+[x] Non-finite and boolean financial facts are rejected
+[x] Explicit numeric zero remains valid evidence
+[x] Finance context marks profit_scope=PERIOD_GROSS_PROFIT
+[x] Finance Intelligence uses gross-result wording instead of accounting-profit claims
+[x] Finance executor presentation uses evidence-scoped labels
+
+Preserved:
+
+- existing revenue / gross-profit arithmetic for complete evidence;
+- no extra expense inference;
+- no tax / advertising / returns double subtraction;
+- no accounting net-profit claim;
+- no Product Decision or task execution wiring;
+- no Ozon mutation;
+- no data/users.json change.
