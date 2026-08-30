@@ -2453,3 +2453,23 @@ SHA-bound evidence:
 - PR #270 synthetic merge SHA `3064816c03be1efdbf4272833f3430d9fb68521c`: Verify #373, 1587 passed;
 - squash main `9a8b290333428334f76903c4bf6284863b930f06`: push Verify #374, 1587 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Telegram User Admission Integrity v687-v695
+
+- made canonical persisted-user admission a fail-closed prerequisite for identified Telegram requests;
+- explicit create_user errors now stop successful /start, text, and button dispatch;
+- malformed profile results fail closed;
+- profile exceptions map to stable non-secret errors;
+- valid profile and no-user-id compatibility paths remain intact;
+- no persistence owner/layer, Product Decision/Product Task Draft execution, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `e666eae65467fde17041ac807382fa298ac1e69b`: push Verify #377, 1587 passed;
+- final feature head `9c778fc9911fa956960c17aa03c490a48aee100c`: push Verify #378, 1596 passed;
+- PR #272 synthetic merge SHA `02362780db074ed45c4ca23bbeacfda12320d504`: Verify #379, 1596 passed;
+- squash main `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`: push Verify #380, 1596 passed;
+- no independent external-verification claim.
