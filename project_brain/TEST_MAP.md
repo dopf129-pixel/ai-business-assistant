@@ -10,11 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-982 passed on `11883f901d3bb344816735b834392a59185c0c81`.
+1495 passed on `6555245c816051024040fa81382773a530279f32`.
 
-Full-suite status for later revisions:
-
-not confirmed.
+GitHub Actions push Verify #243 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2004,3 +2002,31 @@ Tests:
 - committed skip + later next-read failure reports partial state without fake rollback;
 - continue validates next-action and pending-action persistence result;
 - valid seller-facing shapes remain compatible.
+
+
+---
+
+# Top-Level Result Integrity v1
+
+Services:
+
+- AssistantOrchestratorBusinessService
+- AssistantMainFlowService
+- AssistantResponseBuilderService
+
+Tests:
+
+- tests/test_top_level_result_integrity_v591_v596.py
+- tests/test_cancel_execution_block.py
+
+Проверяет:
+
+- malformed top-level Business Flow results fail closed instead of becoming success or raising KeyError;
+- explicit execution error=True remains a top-level failure with a safe seller-facing message;
+- malformed execution payloads cannot receive success wording;
+- nested task-read error payloads cannot be repackaged as successful status/history/details/next results;
+- business-plan actions/count consistency is validated at the upper orchestration boundary;
+- malformed business-service and response-service payloads fail closed;
+- explicit upstream errors are preserved by the response builder;
+- cancelled-task execution remains error=True rather than a false successful state;
+- no new business mutation, Product Decision execution, or Ozon mutation path is enabled.
