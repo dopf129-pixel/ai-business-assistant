@@ -38,8 +38,8 @@ class _CountingOperational:
             "warnings": [],
             "load_source_state": "ABSENT",
             "loaded_task_count": 0,
-            "write_lock_present": False,
-            "write_lock_ownership_state": "NONE",
+            "write_lock_present": None,
+            "write_lock_ownership_state": "UNKNOWN",
             "write_lock_stale_proven": False,
             "automatic_lock_recovery_allowed": False,
             "manual_lock_removal_allowed": False,
@@ -169,15 +169,15 @@ def test_v372_authorized_ready_report_gets_human_readable_message():
     assert result["user_id_exposed"] is False
 
 
-def test_v373_unowned_lock_message_never_authorizes_auto_delete():
+def test_v373_kernel_lock_contention_message_never_authorizes_coordination_file_delete():
     report = _CountingOperational().report
     report.update({
         "operational_state": "BLOCKED",
         "operator_attention_required": True,
-        "next_action": "VERIFY_WRITE_LOCK_OWNER_MANUALLY",
+        "next_action": "WAIT_FOR_ACTIVE_WRITER_AND_RETRY_MANUALLY",
         "blocker_count": 1,
-        "blockers": ["TASK_WRITE_LOCK_PRESENT_UNOWNED"],
-        "write_lock_present": True,
+        "blockers": ["TASK_FILE_WRITE_LOCKED"],
+        "write_lock_present": None,
         "write_lock_ownership_state": "UNKNOWN",
     })
     runtime, _ = _runtime([OPERATOR_ID], report=report)
@@ -187,7 +187,7 @@ def test_v373_unowned_lock_message_never_authorizes_auto_delete():
         user_id=OPERATOR_ID,
     )
 
-    assert "Не удаляйте lock автоматически" in result["message"]
+    assert "Не удаляйте coordination file" in result["message"]
     assert result["automatic_lock_recovery_allowed"] is False
     assert result["manual_lock_removal_allowed"] is False
     assert result["write_lock_stale_proven"] is False
