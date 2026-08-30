@@ -1835,7 +1835,7 @@ Tests:
 
 - fail-closed malformed/missing/non-finite financial facts;
 - explicit zero remains valid;
-- PERIOD_GROSS_PROFIT scope propagation;
+- backward-compatible FinanceContextProvider output shape;
 - no optimistic zero normalization;
 - neutral gross-result insight wording;
 - evidence-scoped Finance Executor labels;
