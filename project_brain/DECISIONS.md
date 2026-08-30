@@ -1674,3 +1674,44 @@ evidence.
 Status:
 
 Implemented
+
+---
+
+## Decision 033
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Finance Evidence Availability Propagation
+
+Decision:
+
+Assistant report/recommendation semantics must distinguish unavailable finance
+evidence from a verified clean finance state without changing
+FinanceContextProvider's established payload.
+
+Rules:
+
+- successful derived finance context marks `finance_evidence_available=True`;
+- derived finance failure with non-null period evidence marks
+  `finance_evidence_available=False`;
+- absent period evidence does not invent a finance availability conclusion;
+- explicit incoming finance_context remains authoritative and available;
+- `finance_evidence_available=False` suppresses finance recommendation and
+  clean-business fallback;
+- legacy direct callers with finance_context and no availability metadata remain
+  backward compatible;
+- availability does not authorize execution.
+
+Reason:
+
+A fail-closed provider result was previously discarded by AssistantEntryService,
+allowing verified-safe Sales/Stock evidence plus unavailable Finance evidence to
+produce an unsupported “no critical problems” conclusion.
+
+Status:
+
+Implemented
