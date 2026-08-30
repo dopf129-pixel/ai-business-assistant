@@ -9,7 +9,7 @@ Hardened Finance Intelligence input and seller-facing financial semantics.
 - missing/malformed gross_sales or gross_profit now fails closed;
 - non-finite and boolean values are rejected;
 - explicit numeric zero remains valid;
-- provider output carries PERIOD_GROSS_PROFIT scope;
+- FinanceContextProvider output shape remains backward compatible;
 - Finance Intelligence no longer claims whole-business profitability from gross-profit evidence;
 - Finance Executor uses evidence-scoped labels;
 - no financial formula, double subtraction or execution change.
