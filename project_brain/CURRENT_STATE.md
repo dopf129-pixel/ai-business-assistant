@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1244 passed on `1a31258db514e18842f61d240b9040bbf7eeac46`.
+1265 passed on `d18b5a8c5e913477e749c15c3df233cda51d4bc4`.
 
-GitHub Actions push verification run #35 completed successfully for this exact main SHA.
+GitHub Actions push verification run #41 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -410,10 +410,13 @@ Next planned changes:
 1. Поддерживать SHA-bound CI verification на каждом новом main
 
 
-2. Продолжить release readiness и observability для kernel-backed task persistence
+2. Поддерживать release observability и capability provenance для kernel-backed task persistence
 
 
-3. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
+3. Связать canonical CI test-report artifact с provenance через explicit validated import
+
+
+4. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
 
 
 4. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
@@ -722,10 +725,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1244 passed on `1a31258db514e18842f61d240b9040bbf7eeac46`.
+1265 passed on `d18b5a8c5e913477e749c15c3df233cda51d4bc4`.
 
 Verification source:
-GitHub Actions push run #35, exact SHA-bound main verification.
+GitHub Actions push run #41, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
