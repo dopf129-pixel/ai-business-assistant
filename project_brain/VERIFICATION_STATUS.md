@@ -1,63 +1,63 @@
 # Verification Status
 
-Date: 2026-08-30
+Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`05f6546cf4110ff5a507f4fb145599e4f842dd7a`
+`1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
 
 Latest merged production-correctness batch:
 
-`v629-v637: User Storage Atomic Write Integrity`
+`v638-v644: User Context Pre-Commit Rollback Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `574c7199c1a08e889452b0f604ef470d98bf7de3`
-- push Verify #314
+- exact main: `2083e4b5940b248fbe610bab95f37be3f0402165`
+- push Verify #325
 - conclusion: success
-- tests: 1528 passed / 0 failed
-- artifact: `verification-574c7199c1a08e889452b0f604ef470d98bf7de3`
-- artifact digest: `sha256:0abe8889938b0a2190b75e03dbe872443db94ca3c4caa937c3a678622dcbddc9`
+- tests: 1537 passed / 0 failed
+- artifact: `verification-2083e4b5940b248fbe610bab95f37be3f0402165`
+- artifact digest: `sha256:8c67961e1ea3b22eb39bf0060228c34c43be1b37a36f0f8f40b5e397f83a6c58`
 
 ### Exact final feature-head verification
 
-- branch: `fix/user-storage-atomic-write-integrity-v629-v637`
-- exact SHA: `0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
-- push Verify #317
+- branch: `fix/user-context-precommit-rollback-v638-v644`
+- exact SHA: `626c678d332390a7b054c460c29feab3fe01c080`
+- push Verify #328
 - conclusion: success
-- tests: 1537 passed / 0 failed
-- artifact: `verification-0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
-- artifact digest: `sha256:604cd811466e39fb1880c1f3d7c5cbf03f163f33017e0432de9dc5cab78c0d9c`
+- tests: 1544 passed / 0 failed
+- artifact: `verification-626c678d332390a7b054c460c29feab3fe01c080`
+- artifact digest: `sha256:c1fbaeee5c0e8c1ba672bf6a793f8b34b4c9c5e8d300311a69aa80785ccfbb98`
 
 ### PR merge-ref integration verification
 
-- PR #258
-- branch head: `0b7ac4145d8ea0772debd41b30d644fbaa2f8150`
-- synthetic merge SHA: `926cb40e84d27041c25121901fd7bb59e7ec89e0`
-- pull_request Verify #318
+- PR #260
+- branch head: `626c678d332390a7b054c460c29feab3fe01c080`
+- synthetic merge SHA: `2ae2c4f1f018feca32a2d0b0ef82bc6d4088f1b0`
+- pull_request Verify #329
 - conclusion: success
-- tests: 1537 passed / 0 failed
-- artifact: `verification-926cb40e84d27041c25121901fd7bb59e7ec89e0`
-- artifact digest: `sha256:277bddf0e5b6ae885378222ade110531c4a94e9800fbd291da42ea7c1ea3cd7f`
+- tests: 1544 passed / 0 failed
+- artifact: `verification-2ae2c4f1f018feca32a2d0b0ef82bc6d4088f1b0`
+- artifact digest: `sha256:763eca230f68d4705108438f3e9940afb449386e29036931c1d82a631e282865`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `05f6546cf4110ff5a507f4fb145599e4f842dd7a`
-- push Verify #319
+- exact main: `1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
+- push Verify #330
 - conclusion: success
-- tests: 1537 passed / 0 failed
-- artifact: `verification-05f6546cf4110ff5a507f4fb145599e4f842dd7a`
-- artifact digest: `sha256:c064fb52968d03d0d94151c6b272a96929d89d714f798b11c0f7271cff521ba0`
+- tests: 1544 passed / 0 failed
+- artifact: `verification-1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
+- artifact digest: `sha256:e3e3586cc4ade05256284925a070cb06fb7a61b006a97a18e2d1659aea5844f9`
 
-## User Storage Atomic Write Integrity
+## User Context Pre-Commit Rollback Integrity
 
-The existing user-storage owner now serializes before touching the filesystem target, writes through a same-directory temporary file, flushes and fsyncs temporary content, and commits with atomic `os.replace`.
+AssistantUserContextService now rolls back in-memory context changes only when persistence returns an explicit boolean `error=True`, which is the known pre-commit failure contract.
 
-Pre-commit failures preserve the existing target and roll back only uncommitted in-memory changes. A directory-fsync failure after replace is reported as a durability warning rather than a false rollback because the replacement is already committed.
+Malformed or ambiguous persistence output remains fail-closed but does not trigger a fabricated rollback because commit state is unknown. Post-commit durability warnings with `error=False` preserve the committed in-memory state.
 
-No additional persistence layer, business execution capability, Product Decision execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No additional persistence layer, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -69,6 +69,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_user_storage_service.py`
-- `tests/test_user_storage_atomic_write_integrity_v629_v637.py`
-- `project_brain/CURRENT_CHECKPOINT_V629_V637.md`
+- `app/services/assistant_user_context_service.py`
+- `tests/test_user_context_precommit_rollback_v638_v644.py`
+- `project_brain/CURRENT_CHECKPOINT_V638_V644.md`
