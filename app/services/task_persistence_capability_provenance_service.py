@@ -217,7 +217,8 @@ class TaskPersistenceCapabilityProvenanceService:
             "executed": False,
         }
 
-    def bind_ci_evidence(self, manifest, ci_evidence):
+    def bind_ci_evidence(self, snapshot, manifest, ci_evidence):
+        release = dict(snapshot) if isinstance(snapshot, dict) else {}
         source = dict(manifest) if isinstance(manifest, dict) else {}
         verification = (
             dict(ci_evidence)
@@ -225,9 +226,17 @@ class TaskPersistenceCapabilityProvenanceService:
             else {}
         )
 
+        if not self._valid_release_snapshot(release):
+            return self._binding_error(
+                "TASK_PERSISTENCE_CAPABILITY_RELEASE_SNAPSHOT_REQUIRED"
+            )
         if not self._valid_manifest(source):
             return self._binding_error(
                 "TASK_PERSISTENCE_CAPABILITY_MANIFEST_REQUIRED"
+            )
+        if not self._manifest_matches_snapshot(release, source):
+            return self._binding_error(
+                "TASK_PERSISTENCE_CAPABILITY_MANIFEST_LINEAGE_MISMATCH"
             )
         if not self._valid_ci_evidence(verification):
             return self._binding_error(
@@ -288,11 +297,21 @@ class TaskPersistenceCapabilityProvenanceService:
             "executed": False,
         }
 
-    def build_audit_receipt(self, manifest, binding=None):
+    def build_audit_receipt(self, snapshot, manifest, binding=None):
+        release = dict(snapshot) if isinstance(snapshot, dict) else {}
         source = dict(manifest) if isinstance(manifest, dict) else {}
+        if not self._valid_release_snapshot(release):
+            return self._audit_error(
+                "TASK_PERSISTENCE_CAPABILITY_RELEASE_SNAPSHOT_REQUIRED"
+            )
         if not self._valid_manifest(source):
             return self._audit_error(
                 "TASK_PERSISTENCE_CAPABILITY_MANIFEST_REQUIRED"
+            )
+
+        if not self._manifest_matches_snapshot(release, source):
+            return self._audit_error(
+                "TASK_PERSISTENCE_CAPABILITY_MANIFEST_LINEAGE_MISMATCH"
             )
 
         bound = dict(binding) if isinstance(binding, dict) else {}
@@ -372,12 +391,20 @@ class TaskPersistenceCapabilityProvenanceService:
             )
             if evidence.get("error") is True:
                 return evidence
-            binding = self.bind_ci_evidence(manifest, evidence)
+            binding = self.bind_ci_evidence(
+                snapshot,
+                manifest,
+                evidence,
+            )
             if binding.get("error") is True:
                 return binding
             ci_state = "BOUND"
 
-        audit = self.build_audit_receipt(manifest, binding)
+        audit = self.build_audit_receipt(
+            snapshot,
+            manifest,
+            binding,
+        )
         if audit.get("error") is True:
             return audit
 
@@ -419,6 +446,13 @@ class TaskPersistenceCapabilityProvenanceService:
             "read_only": True,
             "executed": False,
         }
+
+    def _manifest_matches_snapshot(self, snapshot, manifest):
+        rebuilt = self.build_manifest(
+            snapshot,
+            revision_id=manifest.get("revision_id"),
+        )
+        return rebuilt == manifest
 
     @classmethod
     def _valid_release_snapshot(cls, value):
