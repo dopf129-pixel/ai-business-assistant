@@ -1541,3 +1541,49 @@ proves.
 Status:
 
 Implemented
+
+
+---
+
+## Decision 030
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Stock Evidence Availability
+
+Decision:
+
+Отсутствие или неполнота evidence по остаткам не эквивалентна доказанному
+`low_stock=False`.
+
+Rules:
+
+- `low_stock=True` создаётся только из конкретных валидных stock + sales facts;
+- подтверждённый low-stock action context сохраняет существующую форму;
+- при отсутствии dependencies, товаров, периода, stock metrics или sales facts
+  action не создаётся и `low_stock=False` сопровождается
+  `stock_evidence_available=False`;
+- только полностью проверенный no-risk ассортимент получает
+  `stock_evidence_available=True`;
+- malformed, boolean, non-finite, negative и cross-product evidence fail closed;
+- explicit zero sales остаётся валидным фактом;
+- общий fallback не утверждает отсутствие критичных проблем при unavailable
+  stock evidence;
+- availability metadata не разрешает replenishment execution;
+- historical AssistantEntryService mode без data dependencies сохраняет
+  прежний hardcoded fallback; availability semantics применяются к реально
+  подключённому stock data path.
+
+Reason:
+
+Ранее несколько failure/missing-data веток возвращали только
+`low_stock=False`, смешивая “риск не найден” с “риск невозможно проверить”.
+Это могло создавать ложное clean-state впечатление.
+
+Status:
+
+Implemented

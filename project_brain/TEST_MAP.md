@@ -1840,3 +1840,32 @@ Tests:
 - neutral gross-result insight wording;
 - evidence-scoped Finance Executor labels;
 - existing complete-evidence context propagation.
+
+
+---
+
+# Stock Evidence Availability Hardening v1
+
+Services:
+
+- StockContextProvider
+- StockIntelligenceService
+- AssistantRecommendationService
+
+Tests:
+
+- tests/test_stock_evidence_availability_v527_v533.py
+- tests/test_stock_intelligence_business_data_input.py
+- tests/test_stock_intelligence_service.py
+- tests/test_intelligence_context_providers_refactor.py
+
+Проверяет:
+
+- unavailable stock evidence != verified safe stock;
+- complete safe assortment evidence;
+- preserved confirmed low-stock action context;
+- partial/missing metrics and sales evidence;
+- malformed/non-finite/boolean/negative values;
+- cross-product evidence rejection;
+- explicit zero sales / NO_SALES;
+- non-clean general fallback wording under incomplete stock evidence.

@@ -63,6 +63,10 @@ class AssistantEntryService:
                 analytics_service=analytics_service
             )
         )
+        self._stock_context_provider_explicit = (
+            stock_context_provider is not None
+        )
+
         self.stock_context_provider = (
             stock_context_provider
             or StockContextProvider(
@@ -185,6 +189,18 @@ class AssistantEntryService:
         )
 
     def _build_stock_report(self):
+        if (
+            not self._stock_context_provider_explicit
+            and not any(
+                [
+                    self.product_service,
+                    self.analytics_service,
+                    self.metrics_service
+                ]
+            )
+        ):
+            return None
+
         return self.stock_context_provider.build()
 
     def _build_sales_report(self):
