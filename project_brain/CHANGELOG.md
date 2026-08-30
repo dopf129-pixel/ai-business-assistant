@@ -2,6 +2,24 @@
 
 ## 2026-08-30
 
+### Finance Evidence Availability Propagation v1
+
+Propagated fail-closed Finance evidence state into the assistant report.
+
+- successful derived finance context is marked available;
+- failed derived finance context with period evidence is marked unavailable;
+- unavailable Finance evidence blocks a false clean-business fallback;
+- explicit finance context remains authoritative;
+- legacy direct finance-context callers remain backward compatible;
+- no finance formula, fee calculation, execution or Ozon mutation changed.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Marketing Evidence Integrity v548-v553
 
 Reconciled Project Brain to the verified marketing evidence baseline.
