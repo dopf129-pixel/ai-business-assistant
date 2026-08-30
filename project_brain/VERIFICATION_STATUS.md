@@ -4,60 +4,60 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
+`4fc8b894d463781902226ebf92c5a260761d8762`
 
 Latest merged production-correctness batch:
 
-`v638-v644: User Context Pre-Commit Rollback Integrity`
+`v645-v651: Existing User Record Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `2083e4b5940b248fbe610bab95f37be3f0402165`
-- push Verify #325
+- exact main: `f9c66a59fe185bcd81f5c8f428120fd3e3c2bf86`
+- push Verify #336
 - conclusion: success
-- tests: 1537 passed / 0 failed
-- artifact: `verification-2083e4b5940b248fbe610bab95f37be3f0402165`
-- artifact digest: `sha256:8c67961e1ea3b22eb39bf0060228c34c43be1b37a36f0f8f40b5e397f83a6c58`
+- tests: 1544 passed / 0 failed
+- artifact: `verification-f9c66a59fe185bcd81f5c8f428120fd3e3c2bf86`
+- artifact digest: `sha256:5897b43da8989cf6c3bf410378f7bf03c1d31c240410568dc3b644cc6239a15c`
 
 ### Exact final feature-head verification
 
-- branch: `fix/user-context-precommit-rollback-v638-v644`
-- exact SHA: `626c678d332390a7b054c460c29feab3fe01c080`
-- push Verify #328
+- branch: `fix/existing-user-record-integrity-v645-v651`
+- exact SHA: `3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
+- push Verify #339
 - conclusion: success
-- tests: 1544 passed / 0 failed
-- artifact: `verification-626c678d332390a7b054c460c29feab3fe01c080`
-- artifact digest: `sha256:c1fbaeee5c0e8c1ba672bf6a793f8b34b4c9c5e8d300311a69aa80785ccfbb98`
+- tests: 1551 passed / 0 failed
+- artifact: `verification-3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
+- artifact digest: `sha256:84e68a8ce1ee924756efca7620d50720c1762d014b0b696997b5539902354434`
 
 ### PR merge-ref integration verification
 
-- PR #260
-- branch head: `626c678d332390a7b054c460c29feab3fe01c080`
-- synthetic merge SHA: `2ae2c4f1f018feca32a2d0b0ef82bc6d4088f1b0`
-- pull_request Verify #329
+- PR #262
+- branch head: `3f8f4fabce0feba50f745b308ccbdf20cb6ccf99`
+- synthetic merge SHA: `d579316aa809344e88e3db967967954a064038bd`
+- pull_request Verify #340
 - conclusion: success
-- tests: 1544 passed / 0 failed
-- artifact: `verification-2ae2c4f1f018feca32a2d0b0ef82bc6d4088f1b0`
-- artifact digest: `sha256:763eca230f68d4705108438f3e9940afb449386e29036931c1d82a631e282865`
+- tests: 1551 passed / 0 failed
+- artifact: `verification-d579316aa809344e88e3db967967954a064038bd`
+- artifact digest: `sha256:6321f96e23133f6069d1ba7c77eb000c239c6bbfc9509f6bdd4f68c4ea6483d0`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
-- push Verify #330
+- exact main: `4fc8b894d463781902226ebf92c5a260761d8762`
+- push Verify #341
 - conclusion: success
-- tests: 1544 passed / 0 failed
-- artifact: `verification-1d3b40029b20e4ce8d28387c3dd7249b9a256f00`
-- artifact digest: `sha256:e3e3586cc4ade05256284925a070cb06fb7a61b006a97a18e2d1659aea5844f9`
+- tests: 1551 passed / 0 failed
+- artifact: `verification-4fc8b894d463781902226ebf92c5a260761d8762`
+- artifact digest: `sha256:e1f90db4426be801e5b902aebcae9af1561649c689f3090d0d62c5eef85c99b7`
 
-## User Context Pre-Commit Rollback Integrity
+## Existing User Record Integrity
 
-AssistantUserContextService now rolls back in-memory context changes only when persistence returns an explicit boolean `error=True`, which is the known pre-commit failure contract.
+AssistantUserStorageService now distinguishes an existing persisted key from an absent user and validates the canonical persisted record shape before returning it or allowing a write path to proceed.
 
-Malformed or ambiguous persistence output remains fail-closed but does not trigger a fabricated rollback because commit state is unknown. Post-commit durability warnings with `error=False` preserve the committed in-memory state.
+Existing `null`, empty, incomplete, or mismatched-ID records fail closed as `USER_STORAGE_USER_INVALID` and are not automatically replaced or repaired. Truly absent users remain compatible with normal creation.
 
-No additional persistence layer, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No additional persistence layer, migration, business execution capability, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -69,6 +69,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_user_context_service.py`
-- `tests/test_user_context_precommit_rollback_v638_v644.py`
-- `project_brain/CURRENT_CHECKPOINT_V638_V644.md`
+- `app/services/assistant_user_storage_service.py`
+- `tests/test_existing_user_record_integrity_v645_v651.py`
+- `project_brain/CURRENT_CHECKPOINT_V645_V651.md`
