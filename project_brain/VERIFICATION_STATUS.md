@@ -2,107 +2,116 @@
 
 Date: 2026-08-30
 
-## Latest verified baseline entering v473-v477
+## Latest verified baseline entering v488-v492
 
 Latest exact verified `main`:
 
-`77ed4ce6335579cdd55259c94e73d0c80d5e076c`
+`5c372255b87b8b5a8387ed980f51372d925b33d9`
 
-Latest merged persistence-hardening batch:
+Latest merged seller-facing batch:
 
-`v463-v472: add task persistence release closure checklist`
+`v478-v487: add Product Decision learning health surface`
 
 Full-suite verification for this exact SHA:
 
 - GitHub Actions workflow: `Verify`
 - event: `push`
-- run number: **54**
+- run number: **58**
 - conclusion: **success**
-- result: **1298 passed**
+- result: **1309 passed**
 - failed: **0**
 - exact SHA-bound: **yes**
 - canonical JSON test manifest generated: **yes**
 
-## Persistence hardening closure
+## Seller-facing Learning Health coverage
 
-The kernel-backed task-persistence track now includes:
+The current production Telegram flow now exposes a read-only Product Decision Learning Health screen.
 
-1. recovery/load integrity;
-2. exact persisted-byte optimistic concurrency;
-3. kernel-backed exclusive writer coordination;
-4. atomic replace and file fsync;
-5. parent-directory fsync;
-6. inert coordination-file semantics;
-7. operator-only readiness diagnostics;
-8. release observability;
-9. capability provenance;
-10. canonical SHA-bound test manifest;
-11. completed workflow-run evidence;
-12. deterministic release-review closure/checklist/runbook.
+It is based only on persisted `ProductDecisionHistoryService.learning_summary()` aggregates.
 
-The final closure state is only:
+The screen shows:
 
-- `READY_FOR_RELEASE_REVIEW`; or
-- `BLOCKED`.
+- products in decision history;
+- decision snapshots;
+- user feedback counts;
+- later decision-change observation counts;
+- descriptive evidence-volume state;
+- a safe next evidence-collection/review step.
 
-It does not deploy, approve or execute anything.
+It does not expose a success rate.
 
-## Current exact release-review evidence semantics
+## Learning Health safety semantics
 
-A clean closure may prove that:
+Mandatory invariants remain:
 
-- required persistence capabilities are present;
-- no current runtime blockers/warnings were detected;
-- the canonical test manifest is bound to the exact revision;
-- the completed workflow run is bound to the same SHA/run identity;
-- the test suite and final run both report success.
+- `causal_claim_allowed=False`;
+- `success_rate_claim_allowed=False`;
+- `profitability_claim_allowed=False`;
+- `decision_rule_update_allowed=False`;
+- `automatic_execution_allowed=False`;
+- `executed=False`.
 
-It does **not** prove:
+The seller-facing wording explicitly states that counts do not prove causality, decision correctness or profitability.
 
-- deployment success;
-- external verification;
-- future filesystem/process health;
-- seller business execution.
+## Canonical advisory-chain limitation
 
-## Current product-direction implication
+The newer user-action guidance/checklist/advisory contracts require exact persisted and independently verified Product Decision lineage.
 
-Persistence hardening is closed unless a concrete regression or new product requirement exposes another gap.
+The current Telegram decision card does not possess that verification artifact.
 
-The next engineering work should return to seller-facing AI Assistant Product Development.
+Therefore the canonical advisory/checklist chain remains intentionally unconnected to production Telegram.
 
-Historical Current State notes must not be used blindly as future roadmap. For example, the old `Returns & Buyout Analytics v1` "Next" item is superseded by existing returns/buyout and returns-finance attribution services.
+No lineage is reconstructed from legacy aggregates.
 
-Full return economics is still not proven merely by those evidence services.
+## Next product target
+
+The next safe seller-facing gap is per-SKU learning coverage.
+
+A Learning Coverage Queue should identify, from existing decision-history facts only:
+
+- SKUs with no stored decision feedback;
+- SKUs with feedback but no later observation;
+- SKUs with later descriptive observations;
+- stable, explainable priority for which SKU to review next.
+
+It must not:
+
+- score business performance;
+- infer causality;
+- infer profitability;
+- change Product Decision rules;
+- execute actions.
+
+## Persistence hardening status
+
+Kernel-backed task-persistence hardening remains closed after v463-v472.
+
+No new persistence layer is planned without a concrete defect or product requirement.
 
 ## Verification policy
 
-Every safety-critical feature PR must pass full GitHub Actions verification before merge.
+Every safety-critical or production-wired PR must pass the full GitHub Actions verification workflow before merge.
 
 Every resulting `main` SHA must receive its own successful push verification before becoming the current exact baseline.
 
-No test count, test manifest or workflow conclusion transfers to another SHA.
-
 ## Safety
 
-Verification/release closure does not:
+Current learning/verification surfaces do not:
 
 - alter Product Decisions;
-- enable Product Task Draft execution;
-- execute business actions;
+- execute Product Task Drafts;
 - mutate Ozon;
 - change mapping authorization;
 - change financial calculations;
-- modify runtime user/task data.
+- modify `data/users.json`.
 
 ## Related implementation
 
-- `.github/workflows/verify.yml`
-- `app/services/terminal_safe_assistant_task_service.py`
-- `app/services/task_persistence_release_observability_service.py`
-- `app/services/task_persistence_capability_provenance_service.py`
-- `app/services/task_persistence_verification_manifest_provenance_service.py`
-- `app/services/task_persistence_workflow_run_evidence_service.py`
-- `app/services/task_persistence_release_closure_service.py`
-- `tests/test_task_persistence_release_closure_v463_v472.py`
-- `project_brain/TASK_PERSISTENCE_RELEASE_CLOSURE_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V473_V477.md`
+- `app/product_decision_learning_health.py`
+- `app/services/product_decision_history_service.py`
+- `app/services/assistant_button_handler_service.py`
+- `app/services/assistant_keyboard_service.py`
+- `app/telegram_assistant_factory.py`
+- `tests/test_product_decision_learning_health_v478_v487.py`
+- `project_brain/PRODUCT_DECISION_LEARNING_HEALTH_SURFACE_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V488_V492.md`

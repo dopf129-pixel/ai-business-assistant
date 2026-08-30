@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1298 passed on `77ed4ce6335579cdd55259c94e73d0c80d5e076c`.
+1309 passed on `5c372255b87b8b5a8387ed980f51372d925b33d9`.
 
-GitHub Actions push verification run #54 completed successfully for this exact main SHA.
+GitHub Actions push verification run #58 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -413,13 +413,16 @@ Next planned changes:
 2. Считать kernel-backed task persistence hardening закрытым; поддерживать только regression/release evidence без новых абстракций без конкретной необходимости
 
 
-3. Вернуться к seller-facing AI Assistant Product Development и выбрать следующий реальный незакрытый product gap по текущему repo evidence
+3. Продолжить seller-facing Product Decision learning: после общего Learning Health добавить per-SKU coverage queue, показывающую где не хватает user feedback или последующего observation
 
 
-4. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
+4. Не подключать canonical user-action advisory/checklist chain к Telegram без exact persisted Product Decision verification lineage
 
 
-5. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
+5. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
+
+
+6. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
 
 
 ---
@@ -725,10 +728,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1298 passed on `77ed4ce6335579cdd55259c94e73d0c80d5e076c`.
+1309 passed on `5c372255b87b8b5a8387ed980f51372d925b33d9`.
 
 Verification source:
-GitHub Actions push run #54, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #58, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
