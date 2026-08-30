@@ -155,7 +155,7 @@ def test_forged_request_decision_and_contract_fail_closed():
     forged_decision = dict(decision, decision="REJECT", write_approved=True, write_rejected=False)
     assert build_write_adapter_invocation_contract(forged_decision)["code"] == "APPLICATION_WRITE_DECISION_CONTRADICTORY"
     forged_contract = dict(contract, expected_target_version=8)
-    assert build_write_protocol_audit(eligibility, request, decision, forged_contract)["code"] == "APPLICATION_WRITE_ADAPTER_CONTRACT_MISMATCH"
+    assert build_write_protocol_audit(eligibility, request, decision, forged_contract)["code"] == "APPLICATION_WRITE_ADAPTER_CONTRACT_INPUT_INVALID"
 
 
 def test_unknown_fields_noops_and_unsafe_flags_fail_closed():
