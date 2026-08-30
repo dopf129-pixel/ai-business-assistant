@@ -2256,3 +2256,12 @@ Returns & Buyout Analytics v1
 - validated continue pending-action persistence results;
 - added focused regressions and package contract;
 - Architecture Review Required: Yes.
+
+## 2026-08-30 — Project Brain reconciliation after Business Flow Result Integrity v582-v590
+
+- intermediate feature SHA `bac382c3c419e171d6b20c87c54fe4d41ffd8377`: push Verify #223 failed, 1483 passed / 1 failed; retained as failed evidence;
+- final feature head `5a2f25747ee73e4500c782b63d4c1ae042e0d27d`: push Verify #224, 1484 passed;
+- PR #246 synthetic merge SHA `4ec4deb23c0594949d55ed20d703abcb49c60d0d`: Verify #225, 1484 passed;
+- squash main `b9fa039f626e230ac695162528f22b3ded5c093d`: push Verify #226, 1484 passed;
+- canonical verification status and current checkpoint updated;
+- no external-verification overclaim.
