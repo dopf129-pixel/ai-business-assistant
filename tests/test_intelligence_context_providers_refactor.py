@@ -205,15 +205,13 @@ def test_finance_provider_preserves_finance_context_contract():
                 "revenue": 1000.0,
                 "expenses": 700.0,
                 "profit": 300.0,
-                "margin": 30.0,
-                "profit_scope": "PERIOD_GROSS_PROFIT"
+                "margin": 30.0
             },
             "previous_data": {
                 "revenue": 1200.0,
                 "expenses": 700.0,
                 "profit": 500.0,
-                "margin": 41.67,
-                "profit_scope": "PERIOD_GROSS_PROFIT"
+                "margin": 41.67
             }
         }
     }
