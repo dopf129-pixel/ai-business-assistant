@@ -1920,3 +1920,29 @@ Tests:
 - tests/test_marketing_evidence_integrity_v548_v553.py
 
 Проверяет explicit evidence gating, malformed evidence fail-closed, no invented marketing facts и FAILED lifecycle через router.run().
+
+---
+
+# Finance Evidence Availability Propagation v1
+
+Services:
+
+- AssistantEntryService
+- FinanceContextProvider
+- AssistantRecommendationService
+
+Tests:
+
+- tests/test_finance_evidence_availability_v554_v560.py
+- tests/test_finance_context_evidence_v521_v526.py
+
+Проверяет:
+
+- derived finance success -> available;
+- derived finance failure with period evidence -> unavailable;
+- no invented availability without period data;
+- explicit finance context precedence;
+- unavailable finance evidence blocks clean fallback;
+- contradictory unavailable context does not create finance action;
+- legacy finance_context-only callers remain compatible;
+- no finance formula/provider-shape change.
