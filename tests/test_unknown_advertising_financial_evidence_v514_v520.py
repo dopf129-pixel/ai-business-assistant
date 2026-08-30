@@ -254,3 +254,31 @@ def test_v515_advertising_service_distinguishes_missing_from_zero():
         "configured": True,
         "advertising_cost": 0.0,
     }
+
+
+def test_v516_empty_advertising_input_stays_unknown_in_business_analytics():
+    service = BusinessAnalyticsService(
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+        minimum_tax_rate=1,
+        advertising_cost="",
+        analysis_date="2026-08-07",
+        expense_repository=_EmptyExpenseRepository(),
+    )
+
+    result = service.calculate(_profits())
+
+    assert result["advertising"]["configured"] is False
+    assert result["advertising"]["advertising_cost"] is None
+    assert result["business_profit"]["business_profit"] is None
+    assert result["business_profit"]["missing_fields"] == [
+        "advertising"
+    ]
+
+
+def test_v517_dashboards_do_not_render_malformed_values_as_zero():
+    advertising = AdvertisingDashboardService()
+    business_profit = BusinessProfitDashboardService()
+
+    assert advertising.format_money("not-a-number") == "—"
+    assert business_profit.format_money("not-a-number") == "—"
