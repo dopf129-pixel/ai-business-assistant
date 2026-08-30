@@ -41,6 +41,9 @@ jobs:
       - name: Compile application
         run: python -m compileall -q app
 
+      - name: Initialize deterministic test schema
+        run: python -c "from database import create_tables; create_tables()"
+
       - name: Record revision metadata
         run: |
           mkdir -p verification-artifacts
