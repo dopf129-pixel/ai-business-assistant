@@ -2307,3 +2307,23 @@ SHA-bound evidence:
 - PR #250 synthetic merge SHA `6ea107c8c27def9a7531c19d725ee7e8fea25330`: Verify #261, 1503 passed;
 - squash main `5131832339239f87886f9172f71cc1c0ec3553b4`: push Verify #262, 1503 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-30 — Context Provider Result Integrity v604-v611
+
+- validated stock, sales, and finance context-provider outputs before report merge;
+- malformed stock evidence now becomes explicit unavailable evidence;
+- malformed sales report payloads no longer reach dict conversion/merge;
+- malformed or partial finance context no longer reaches report.update;
+- unknown evidence is preserved as unavailable rather than presented as proven clean state;
+- valid provider contracts remain compatible;
+- no business mutation, Product Decision execution, Ozon mutation, or persistence change;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `f456850c763849b14d484d54516202c950ac0515`: push Verify #271, 1503 passed;
+- final feature head `d2ddd0de5e3f6f180dfff42b8265e7773676e9da`: push Verify #274, 1511 passed;
+- PR #252 synthetic merge SHA `20f2d3a8e5afb2125465a759cd8d86aff6d6da9a`: Verify #275, 1511 passed;
+- squash main `b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`: push Verify #276, 1511 passed;
+- no independent external-verification claim.
