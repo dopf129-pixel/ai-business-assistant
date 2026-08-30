@@ -1734,3 +1734,26 @@ Tests:
 - summary counts и нулевую execution readiness;
 - перенос исходных фактов в draft snapshot;
 - Telegram detail и queue presentation.
+
+
+---
+
+# Product Decision Learning Coverage Navigation v1
+
+Services:
+
+- AssistantButtonHandlerService
+- AssistantKeyboardService
+
+Tests:
+
+- tests/test_product_decision_learning_coverage_v493_v502.py
+
+Проверяет:
+
+- state-specific переход только в существующий `product_decision:<sku>`;
+- отсутствие прямых feedback callbacks из coverage queue;
+- отсутствие Product Decision query при открытии очереди;
+- fail-closed обработку forged/malformed navigation;
+- ограничение навигации видимыми top-10 SKU;
+- сохранение `executed=False`.
