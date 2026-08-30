@@ -330,9 +330,10 @@ class BusinessAnalyticsService:
                     advertising
                 )
 
-                advertising[
-                    "configured"
-                ] = True
+                advertising.setdefault(
+                    "configured",
+                    True
+                )
 
 
         if advertising.get(
