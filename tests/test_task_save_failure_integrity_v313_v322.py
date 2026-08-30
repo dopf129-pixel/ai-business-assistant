@@ -1,5 +1,6 @@
 import json
 import os
+from copy import deepcopy
 
 import pytest
 
@@ -81,7 +82,7 @@ def test_v316_failed_existing_task_mutation_restores_durable_record(tmp_path, mo
     path = tmp_path / "tasks.json"
     path.write_text(json.dumps({str(USER_ID): _persisted_task()}, ensure_ascii=False), encoding="utf-8")
     service = TerminalSafeAssistantTaskService(file_path=str(path))
-    before = service.get_task(USER_ID)["task"]
+    before = deepcopy(service.get_task(USER_ID)["task"])
     _fail_replace(monkeypatch)
 
     with pytest.raises(OSError):
