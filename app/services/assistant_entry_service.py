@@ -228,7 +228,22 @@ class AssistantEntryService:
         ):
             return None
 
-        return self.stock_context_provider.build()
+        stock_result = (
+            self.stock_context_provider
+            .build()
+        )
+
+        if not self._valid_stock_report(
+            stock_result
+        ):
+            return {
+                "low_stock": False,
+                "stock_evidence_available": False
+            }
+
+        return dict(
+            stock_result
+        )
 
     def _build_sales_report(self):
         sales_result = (
@@ -263,7 +278,9 @@ class AssistantEntryService:
             "report"
         )
 
-        if not sales_report:
+        if not self._valid_sales_report(
+            sales_report
+        ):
             if configured:
                 return {
                     "sales_down": False,
@@ -285,7 +302,9 @@ class AssistantEntryService:
             )
         )
 
-        if finance_report:
+        if self._valid_finance_report(
+            finance_report
+        ):
             result.update(
                 finance_report
             )
@@ -335,3 +354,111 @@ class AssistantEntryService:
             }
 
         return result
+
+
+    @staticmethod
+    def _valid_stock_report(
+        result
+    ):
+
+        if not isinstance(
+            result,
+            dict
+        ):
+            return False
+
+        low_stock = result.get(
+            "low_stock"
+        )
+
+        if type(
+            low_stock
+        ) is not bool:
+            return False
+
+        if low_stock:
+            return isinstance(
+                result.get(
+                    "stock_context"
+                ),
+                dict
+            )
+
+        return type(
+            result.get(
+                "stock_evidence_available"
+            )
+        ) is bool
+
+
+    @staticmethod
+    def _valid_sales_report(
+        result
+    ):
+
+        if not isinstance(
+            result,
+            dict
+        ):
+            return False
+
+        sales_down = result.get(
+            "sales_down"
+        )
+
+        if type(
+            sales_down
+        ) is not bool:
+            return False
+
+        if sales_down:
+            return isinstance(
+                result.get(
+                    "sales_context"
+                ),
+                dict
+            )
+
+        return type(
+            result.get(
+                "sales_evidence_available"
+            )
+        ) is bool
+
+
+    @staticmethod
+    def _valid_finance_report(
+        result
+    ):
+
+        if not isinstance(
+            result,
+            dict
+        ):
+            return False
+
+        finance_context = result.get(
+            "finance_context"
+        )
+
+        if not isinstance(
+            finance_context,
+            dict
+        ):
+            return False
+
+        return (
+            isinstance(
+                finance_context.get(
+                    "finance_data"
+                ),
+                dict
+            )
+            and
+            isinstance(
+                finance_context.get(
+                    "previous_data"
+                ),
+                dict
+            )
+        )
