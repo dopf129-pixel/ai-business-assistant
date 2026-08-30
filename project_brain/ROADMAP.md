@@ -333,9 +333,9 @@ Current hardening queue:
 
 1. Keep full SHA-bound GitHub Actions verification green on every merged `main`.
 
-2. Keep task persistence release observability and deterministic audit receipts operator-only and fail-closed.
+2. Keep task persistence release observability and capability provenance operator-only and fail-closed.
 
-3. Add explicit capability provenance/verification without active probing of the production task store.
+3. Import canonical CI verification manifests into capability provenance only through explicit validation and exact-SHA matching; no runtime GitHub fetch.
 
 4. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
 
@@ -346,4 +346,4 @@ Current hardening queue:
 7. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V403_V407.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V428_V432.md`.
