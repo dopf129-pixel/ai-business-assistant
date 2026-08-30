@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from copy import deepcopy
@@ -15,17 +16,32 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         TaskStatus.CANCELLED,
     }
 
+    @staticmethod
+    def _fingerprint(raw):
+        if raw is None:
+            return None
+        return hashlib.sha256(raw).hexdigest()
+
+    def _current_file_fingerprint(self):
+        if not os.path.exists(self.file_path):
+            return None
+        with open(self.file_path, "rb") as file:
+            return self._fingerprint(file.read())
+
     def load(self):
         self.tasks = {}
         self._load_issues = ()
         self._load_source_state = "ABSENT"
+        self._source_fingerprint = None
 
         if not os.path.exists(self.file_path):
             return
 
         try:
-            with open(self.file_path, "r", encoding="utf-8") as file:
-                loaded = json.load(file)
+            with open(self.file_path, "rb") as file:
+                raw = file.read()
+            self._source_fingerprint = self._fingerprint(raw)
+            loaded = json.loads(raw.decode("utf-8"))
         except Exception:
             self._load_source_state = "UNREADABLE"
             self._load_issues = ("TASK_FILE_READ_ERROR",)
@@ -40,16 +56,39 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         self._load_source_state = "LOADED"
         self._reconcile_loaded_tasks()
 
+    def _rollback_after_save_failure(self, issue):
+        self._last_save_state = "FAILED"
+        self._last_save_issue = issue
+        self.load()
+        self._last_save_rolled_back = True
+
     def save(self):
+        try:
+            current_fingerprint = self._current_file_fingerprint()
+        except Exception:
+            self._rollback_after_save_failure("TASK_FILE_CONCURRENCY_CHECK_ERROR")
+            raise RuntimeError("TASK_FILE_CONCURRENCY_CHECK_ERROR") from None
+
+        if current_fingerprint != getattr(self, "_source_fingerprint", None):
+            self._rollback_after_save_failure("TASK_FILE_STALE_WRITE")
+            raise RuntimeError("TASK_FILE_STALE_WRITE")
+
+        expected_raw = json.dumps(
+            self.tasks,
+            ensure_ascii=False,
+            indent=4,
+        ).encode("utf-8")
+        expected_fingerprint = self._fingerprint(expected_raw)
+
         try:
             super().save()
         except Exception:
-            self._last_save_state = "FAILED"
-            self._last_save_issue = "TASK_FILE_WRITE_ERROR"
-            self.load()
-            self._last_save_rolled_back = True
+            self._rollback_after_save_failure("TASK_FILE_WRITE_ERROR")
             raise
 
+        self._source_fingerprint = expected_fingerprint
+        self._load_source_state = "LOADED"
+        self._load_issues = ()
         self._last_save_state = "SUCCEEDED"
         self._last_save_issue = None
         self._last_save_rolled_back = False
@@ -144,6 +183,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "last_save_state": getattr(self, "_last_save_state", "NEVER_ATTEMPTED"),
             "last_save_issue": getattr(self, "_last_save_issue", None),
             "last_save_rolled_back": getattr(self, "_last_save_rolled_back", False),
+            "optimistic_concurrency_guard": True,
             "loaded_task_count": len(self.tasks),
             "read_only": True,
             "executed": False,
