@@ -2286,3 +2286,24 @@ SHA-bound evidence:
 - PR #248 synthetic merge SHA `432e33d77a02aaaab0ebc499eb05f7a1c6302603`: Verify #242, 1495 passed;
 - squash main `6555245c816051024040fa81382773a530279f32`: push Verify #243, 1495 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-30 — Entry/Core Result Integrity v597-v603
+
+- validated all non-None direct-runtime results at AssistantEntryService;
+- malformed direct-runtime payloads now fail closed instead of propagating;
+- preserved valid explicit runtime failures;
+- validated AssistantCoreService orchestrator results before context attachment;
+- malformed orchestrator payloads now become deterministic failures instead of raising/mutating;
+- aligned legacy direct-runtime fixtures with explicit-success contracts;
+- no new business mutation, Product Decision execution, Ozon mutation, or persistence owner;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `de084ad62b251b1d308ece4fa36f7f70e585b4c9`: push Verify #252, 1495 passed;
+- intermediate feature SHA `3fd85c7eb6052ed4047e81b0a2571eca98702c02`: push Verify #256 failed, 1499 passed / 4 failed; retained as failed evidence;
+- final feature head `4808e27661f869aeef59baca4d07035132f012c7`: push Verify #260, 1503 passed;
+- PR #250 synthetic merge SHA `6ea107c8c27def9a7531c19d725ee7e8fea25330`: Verify #261, 1503 passed;
+- squash main `5131832339239f87886f9172f71cc1c0ec3553b4`: push Verify #262, 1503 passed;
+- no independent external-verification claim.
