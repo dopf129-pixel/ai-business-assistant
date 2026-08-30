@@ -154,7 +154,7 @@ class TaskPersistenceOperationalService:
             and value.get("read_only") is True
             and value.get("executed") is False
             and value.get("inspection_state") in {"ABSENT", "PRESENT", "CHECK_ERROR"}
-            and isinstance(value.get("lock_present"), bool)
+            and value.get("lock_present") in {True, False, None}
             and value.get("ownership_state") in {"NONE", "UNKNOWN"}
             and value.get("stale_proven") is False
             and value.get("automatic_recovery_allowed") is False
