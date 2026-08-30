@@ -55,6 +55,18 @@ jobs:
       - name: Run full test suite
         run: python -m pytest -q --junitxml=verification-artifacts/pytest-junit.xml
 
+      - name: Generate SHA-bound test report
+        if: always()
+        run: |
+          python -m ci_verification_manifest \
+            --junit verification-artifacts/pytest-junit.xml \
+            --output verification-artifacts/test-report.json \
+            --commit-sha "$GITHUB_SHA" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --event "$GITHUB_EVENT_NAME" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
       - name: Upload verification artifacts
         if: always()
         uses: actions/upload-artifact@v4
