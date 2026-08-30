@@ -734,7 +734,7 @@ Latest confirmed full-suite baseline:
 1321 passed on `ef8b52ad34740d5cbb657988866ec01ebfe7191b`.
 
 Verification source:
-GitHub Actions push run #58, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #62, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
