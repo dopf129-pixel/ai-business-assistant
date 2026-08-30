@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1503 passed on `5131832339239f87886f9172f71cc1c0ec3553b4`.
+1511 passed on `b158d3e0f443ceda0b50e1f0bc70d02ad2c64d28`.
 
-GitHub Actions push Verify #262 completed successfully for this exact main SHA.
+GitHub Actions push Verify #276 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2057,3 +2057,27 @@ Tests:
 - malformed orchestrator results fail closed before context attachment;
 - legacy fixtures match the actual explicit-success production contract;
 - no new mutation or business execution path is enabled.
+
+
+---
+
+# Context Provider Result Integrity v1
+
+Service:
+
+- AssistantEntryService
+
+Tests:
+
+- tests/test_context_provider_result_integrity_v604_v611.py
+
+Проверяет:
+
+- malformed stock-provider results cannot reach report.update;
+- unavailable stock evidence is explicit and does not prove a clean state;
+- malformed sales reports cannot be converted/merged as success;
+- unavailable sales evidence remains explicit;
+- malformed or partial finance-provider output cannot reach report.update;
+- unavailable finance evidence remains explicit;
+- valid stock/sales/finance context shapes remain compatible;
+- no business mutation or execution path is enabled.
