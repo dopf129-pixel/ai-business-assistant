@@ -1,3 +1,5 @@
+> **Current-runtime note (v378-v387):** operator access remains default-deny, but lock guidance now follows kernel-lock semantics. A persistent coordination file is not stale-lock evidence and must not be treated as a deletion target. See `TASK_PERSISTENCE_KERNEL_LOCK_V2.md`.
+
 # Task Persistence Operator Access and Presentation V1
 
 Date: 2026-08-30  
