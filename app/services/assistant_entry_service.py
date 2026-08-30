@@ -155,6 +155,7 @@ class AssistantEntryService:
 
         if finance_context:
             report["finance_context"] = finance_context
+            report["finance_evidence_available"] = True
 
         stock_context = dict(
             (context or {}).get(
@@ -177,6 +178,10 @@ class AssistantEntryService:
             if finance_context:
                 sales_report.pop(
                     "finance_context",
+                    None
+                )
+                sales_report.pop(
+                    "finance_evidence_available",
                     None
                 )
 
@@ -252,12 +257,13 @@ class AssistantEntryService:
         result = dict(
             sales_report
         )
+        period_data = sales_result.get(
+            "period_data"
+        )
         finance_report = (
             self.finance_context_provider
             .build(
-                sales_result.get(
-                    "period_data"
-                )
+                period_data
             )
         )
 
@@ -265,6 +271,13 @@ class AssistantEntryService:
             result.update(
                 finance_report
             )
+            result[
+                "finance_evidence_available"
+            ] = True
+        elif period_data is not None:
+            result[
+                "finance_evidence_available"
+            ] = False
 
         return result
 
