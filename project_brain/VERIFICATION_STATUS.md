@@ -6,65 +6,82 @@ Date: 2026-08-30
 
 Latest exact verified `main` product baseline:
 
-`94972f7849571dfa9b6b67d488f52bcde7e031cb`
+`37b1b34506da5e7c626ee8a2bd89e3b2148588a1`
 
-Latest merged seller-facing batch:
+Latest merged production-correctness batch:
 
-`v503-v508: add Learning Coverage Queue navigation`
+`v509-v513: harden Store Period default composition`
 
 GitHub evidence remains SHA-bound and separated by layer.
 
 ### PR-head verification
 
-- PR: **#221**
-- exact head SHA: `c04aacfda86740d3930f64caa9bdb24c883b5478`
+- PR: **#223**
+- exact head SHA: `99da5ec37ebea79fd014675f70b52f66506ebe55`
 - workflow: `Verify`
 - event: pull request
-- run number: **65**
+- run number: **69**
+- run id: **33314061471**
 - status: **completed**
 - conclusion: **success**
 - full test suite: **1328 passed**
 - failed: **0**
 
-This confirms the PR head only.
+This confirms the PR head only. It is not reused as proof for the squash-merge SHA.
 
 ### Post-merge main verification
 
-- exact main SHA: `94972f7849571dfa9b6b67d488f52bcde7e031cb`
+- exact main SHA: `37b1b34506da5e7c626ee8a2bd89e3b2148588a1`
 - workflow: `Verify`
 - event: **push**
-- run number: **66**
-- run id: **33313763962**
+- run number: **70**
+- run id: **33314128646**
 - status: **completed**
 - conclusion: **success**
 - full test suite: **1328 passed**
 - failed: **0**
 - canonical SHA-bound test-report artifact: **generated**
-- workflow artifact: `verification-94972f7849571dfa9b6b67d488f52bcde7e031cb`
+- workflow artifact: `verification-37b1b34506da5e7c626ee8a2bd89e3b2148588a1`
 
 The completed workflow run is CI evidence for this exact SHA. It does not imply independent external verification.
 
-## Learning Coverage Queue navigation
+## Store Period default-composition hardening
 
-The seller-facing Learning Coverage Queue now provides bounded top-10 navigation to the existing `product_decision:<sku>` route.
+The existing Store Period reporting path now fails closed when its period-profit dependency is absent.
 
-Opening the queue remains read-only and does not query Product Decisions.
+Completed behavior:
 
-The queue does not emit direct feedback callbacks. A seller explicitly opens a concrete Product Decision before using the existing feedback controls.
+- duplicate `StorePeriodRunnerService` constructor initialization removed;
+- existing constructor DI remains compatible;
+- current/previous-period validation order is preserved;
+- missing `profit_service` returns an explicit unavailable error instead of reaching `None.calculate_period_profit(...)`;
+- malformed non-dict runner output is rejected by `StorePeriodSummaryService`.
 
-Malformed/non-dict coverage payloads and forged navigation callbacks fail closed.
+No financial value is invented when the dependency is unavailable.
 
-## Safety
+## Financial safety
 
-Mandatory invariants remain:
+This package does not:
 
-- no Product Decision rule change;
-- no Product Task Draft execution;
-- no Ozon mutation;
-- no mapping or finance change;
-- no hidden GitHub runtime fetch;
-- `automatic_execution_allowed=False`;
-- `executed=False`.
+- change Store Period profit formulas;
+- classify or remap RETURN / ADVERTISING / STORAGE;
+- modify `FinanceService.fee_breakdown`;
+- double-count Ozon fees;
+- claim complete accounting net profit;
+- infer complete return economics.
+
+Missing dependency remains blocked/unavailable rather than optimistic success.
+
+## Product and execution safety
+
+This package does not:
+
+- alter Product Decisions;
+- execute Product Task Drafts;
+- connect Action Executor to Product Decision flows;
+- mutate Ozon;
+- add a seller/business execution route;
+- modify `data/users.json`.
 
 ## Persistence hardening status
 
@@ -76,7 +93,7 @@ No new persistence layer is planned without a concrete defect or product require
 
 Choose the next package from a concrete current product, production-correctness, operator-usability, observability or release-readiness gap.
 
-Do not extend the learning chain solely to advance stage numbering.
+Do not extend learning/provenance chains solely to advance stage numbering.
 
 The canonical user-action advisory/checklist chain remains disconnected from production Telegram until exact persisted Product Decision verification lineage is available there.
 
@@ -92,10 +109,11 @@ A canonical test manifest proves suite results for its bound SHA; it does not by
 
 ## Related implementation
 
-- `app/product_decision_learning_coverage_queue.py`
-- `app/services/assistant_button_handler_service.py`
-- `app/services/assistant_keyboard_service.py`
-- `tests/test_product_decision_learning_coverage_v493_v502.py`
-- `project_brain/PRODUCT_DECISION_LEARNING_COVERAGE_QUEUE_V1.md`
-- `project_brain/PRODUCT_DECISION_LEARNING_COVERAGE_NAVIGATION_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V503_V508.md`
+- `app/services/store_period_runner_service.py`
+- `app/services/store_period_report_service.py`
+- `app/services/store_period_summary_service.py`
+- `test_store_period_runner.py`
+- `test_store_period_report.py`
+- `test_store_period_summary.py`
+- `project_brain/STORE_PERIOD_DEFAULT_COMPOSITION_HARDENING_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V509_V513.md`
