@@ -394,6 +394,45 @@ def test_v501_handler_rejects_forged_builder_business_priority_claim():
     )
 
 
+def test_v501_handler_rejects_forged_counts_or_learning_rank():
+    def forged_counts(rows):
+        result = build_product_decision_learning_coverage_queue(
+            rows
+        )
+        result["counts"] = dict(result["counts"])
+        result["counts"]["NEEDS_USER_FEEDBACK"] += 1
+        return result
+
+    counts_handler, _ = _handler(
+        {"sku-a": [_record("sku-a")]},
+        ["sku-a"],
+        builder=forged_counts,
+    )
+    assert counts_handler.handle(
+        "product_decision_learning_coverage"
+    )["error"] is True
+
+    def forged_rank(rows):
+        result = build_product_decision_learning_coverage_queue(
+            rows
+        )
+        result["items"] = [
+            dict(item)
+            for item in result["items"]
+        ]
+        result["items"][0]["learning_attention_rank"] = 99
+        return result
+
+    rank_handler, _ = _handler(
+        {"sku-a": [_record("sku-a")]},
+        ["sku-a"],
+        builder=forged_rank,
+    )
+    assert rank_handler.handle(
+        "product_decision_learning_coverage"
+    )["error"] is True
+
+
 def test_v502_telegram_factory_wires_canonical_coverage_builder():
     text = (
         ROOT
