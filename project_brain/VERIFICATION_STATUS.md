@@ -6,11 +6,11 @@ Date: 2026-08-30
 
 Latest exact verified `main` product baseline:
 
-`0dacff655fe97a6ca9bab32b7977b7ac432cc0c9`
+`98778c278166157bb70c0fcb0c670db60c849451`
 
-Latest merged financial-correctness batch:
+Latest merged production-correctness batch:
 
-`v521-v526: harden Finance Context evidence`
+`v527-v533: distinguish unavailable stock evidence`
 
 GitHub evidence remains SHA-bound and separated by layer.
 
@@ -18,118 +18,118 @@ GitHub evidence remains SHA-bound and separated by layer.
 
 Initial PR head:
 
-`b794ae652faf4e49a69457ad7fa6c5b2232fb623`
+`8dfaa00d540085a0c250d6ecb06d02df3a90ec75`
 
-- PR: **#227**
+- PR: **#229**
 - workflow: `Verify`
 - event: pull request
-- run number: **78**
-- run id: **33315549168**
+- run number: **91**
+- run id: **33317198972**
 - status: **completed**
 - conclusion: **failure**
 
-The failure was caused by the first iteration extending the explicitly protected
-FinanceContextProvider output shape with a new `profit_scope` field.
+The first iteration changed the protected historical AssistantEntryService
+no-data fallback and one new integration assertion ignored the existing legacy
+sales fallback.
 
-That contract extension was removed in the same branch.
+Both issues were corrected in the same branch.
 
 The failed SHA remains failed evidence and is not promoted as verified.
 
 Final PR head:
 
-`33a2e3551bc453cadc748314b552286a4de306a8`
+`64a5a02fd4dea10f0929f9d6068b63ac01242605`
 
 - workflow: `Verify`
 - event: pull request
-- run number: **87**
-- run id: **33315651481**
+- run number: **95**
+- run id: **33317271587**
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1355 passed**
+- full test suite: **1369 passed**
 - failed: **0**
 
 This confirms the final PR head only. It is not reused as proof for the squash-merge SHA.
 
 ### Post-merge main verification
 
-- exact main SHA: `0dacff655fe97a6ca9bab32b7977b7ac432cc0c9`
+- exact main SHA: `98778c278166157bb70c0fcb0c670db60c849451`
 - workflow: `Verify`
 - event: **push**
-- run number: **88**
-- run id: **33315687562**
+- run number: **96**
+- run id: **33317320477**
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1355 passed**
+- full test suite: **1369 passed**
 - failed: **0**
 - canonical SHA-bound test-report artifact: **generated**
-- workflow artifact: `verification-0dacff655fe97a6ca9bab32b7977b7ac432cc0c9`
+- workflow artifact: `verification-98778c278166157bb70c0fcb0c670db60c849451`
 
 The completed workflow run is CI evidence for this exact SHA. It does not imply independent external verification.
 
-## Finance Context evidence hardening
+## Stock evidence availability hardening
 
-The existing FinanceContextProvider output shape remains backward compatible:
+The configured stock data path now distinguishes between:
 
-- `revenue`
-- `expenses`
-- `profit`
-- `margin`
+- verified no-risk stock evidence;
+- unavailable, malformed, failed or partial stock evidence.
 
-No mandatory provider `profit_scope` field was added.
+Contract:
 
-Input handling is now fail-closed:
+- confirmed low stock keeps the existing `low_stock=True` + `stock_context` action payload;
+- complete checked no-risk assortment returns `low_stock=False` and `stock_evidence_available=True`;
+- unavailable/partial configured stock evidence returns `low_stock=False` and `stock_evidence_available=False`;
+- availability metadata is report evidence only and is not execution permission.
 
-- non-dict period payloads are rejected;
-- non-dict source rows are rejected;
-- any explicit source row with `error=True` blocks aggregation;
-- missing `gross_sales` or `gross_profit` blocks aggregation;
-- malformed, boolean and non-finite required values are rejected;
-- explicit numeric zero remains valid evidence;
-- mixed valid + error rows do not produce partial totals.
+Historical AssistantEntryService mode with no data dependencies at all keeps its
+existing hardcoded fallback for backward compatibility.
 
-FinanceIntelligenceService also rejects malformed current or provided previous
-finance contexts instead of converting invalid values to optimistic zero facts.
+## Fail-closed stock evidence
 
-## Seller-facing financial semantics
+Configured stock evidence fails closed on:
 
-Finance Intelligence no longer claims that period gross-result evidence proves
-whole-business accounting profitability.
+- missing stock dependencies;
+- empty product list;
+- malformed product targets;
+- failed or malformed stock metrics;
+- failed or malformed sales facts;
+- invalid period length;
+- boolean, negative or non-finite numeric facts;
+- cross-product stock/sales identifiers;
+- mixed valid + failed assortment evidence when no confirmed low-stock item has already been found.
 
-Seller-facing output uses evidence-scoped language such as:
+Explicit numeric zero sales remains valid and yields the existing `NO_SALES`
+Stock Intelligence state.
 
-- `Расчётный финансовый результат`;
-- `Расходы по доступным данным`;
-- `Маржинальность по доступным данным`.
+## Recommendation semantics
 
-Direct FinanceIntelligenceService inputs may receive deterministic internal
-scope classification, but that does not alter the FinanceContextProvider output
-contract.
+A stock action remains tied to `low_stock=True`.
 
-## Financial safety
+When no other recommendation exists and
+`stock_evidence_available=False`, the generic fallback says:
 
-This package does not:
+`Недостаточно данных для полной оценки бизнеса`
 
-- change period-profit arithmetic for complete evidence;
-- alter `FinanceService.fee_breakdown`;
-- subtract marketplace fees twice;
-- infer or subtract tax, advertising, storage or returns expenses again;
-- claim complete return economics;
-- claim accounting net profit.
+instead of claiming:
 
-The derived `expenses = revenue - gross_profit` value remains an existing
-available-evidence metric, not complete business expenses.
+`Критичных проблем не найдено`.
 
-## Product and execution safety
+Verified complete no-risk stock evidence preserves the existing clean fallback.
+
+## Execution safety
 
 This package does not:
 
-- alter Product Decisions;
+- infer replenishment quantity;
+- create a replenishment draft;
+- alter Product Decision rules;
 - execute Product Task Drafts;
-- add or change Action Executor mappings;
+- add an Action Executor route;
 - mutate Ozon;
-- add a seller/business execution route;
 - modify persistence;
 - modify `data/users.json`.
+
+No stock-evidence availability field is business execution authorization.
 
 ## Persistence hardening status
 
@@ -142,7 +142,7 @@ No new persistence layer is planned without a concrete defect or product require
 Choose the next package from a concrete current product, production-correctness,
 operator-usability, observability or release-readiness gap.
 
-Do not extend finance/evidence/provenance layers solely to advance stage numbering.
+Do not extend stock/evidence/provenance layers solely to advance stage numbering.
 
 The canonical user-action advisory/checklist chain remains disconnected from
 production Telegram until exact persisted Product Decision verification lineage
@@ -165,12 +165,10 @@ itself prove final workflow completion.
 
 ## Related implementation
 
-- `app/services/finance_context_provider.py`
-- `app/services/finance_intelligence_service.py`
-- `app/services/assistant_finance_executor_service.py`
-- `tests/test_finance_context_evidence_v521_v526.py`
-- `tests/test_finance_intelligence_business_data_input.py`
-- `tests/test_finance_intelligence_executor_integration.py`
-- `tests/test_intelligence_context_providers_refactor.py`
-- `project_brain/FINANCE_CONTEXT_EVIDENCE_HARDENING_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V521_V526.md`
+- `app/services/assistant_entry_service.py`
+- `app/services/assistant_recommendation_service.py`
+- `app/services/stock_context_provider.py`
+- `app/services/stock_intelligence_service.py`
+- `tests/test_stock_evidence_availability_v527_v533.py`
+- `project_brain/STOCK_EVIDENCE_AVAILABILITY_HARDENING_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V527_V533.md`
