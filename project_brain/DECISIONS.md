@@ -1573,7 +1573,10 @@ Rules:
 - explicit zero sales остаётся валидным фактом;
 - общий fallback не утверждает отсутствие критичных проблем при unavailable
   stock evidence;
-- availability metadata не разрешает replenishment execution.
+- availability metadata не разрешает replenishment execution;
+- historical AssistantEntryService mode без data dependencies сохраняет
+  прежний hardcoded fallback; availability semantics применяются к реально
+  подключённому stock data path.
 
 Reason:
 
