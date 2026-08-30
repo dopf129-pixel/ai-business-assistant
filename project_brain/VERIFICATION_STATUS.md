@@ -2,36 +2,52 @@
 
 Date: 2026-08-30
 
-## Latest verified baseline entering v353-v357
+## Latest verified baseline entering v388-v392
 
 Latest exact verified `main` at the start of this reconciliation:
 
-`d0286d45f23e6da17b33afbb269ce109f8a72e3b`
+`3a5bbe9332492073555ef258038e4a4db9e7bf85`
 
-Latest merged batch at this revision:
+Latest merged runtime batch at this revision:
 
-`v343-v352: add task persistence crash durability evidence`
+`v378-v387: replace orphan-prone task lockfile ownership with kernel flock`
 
 Full-suite verification for this exact SHA:
 
 - GitHub Actions workflow: `Verify`
 - event: `push`
-- run number: **21**
+- run number: **31**
 - conclusion: **success**
-- result: **1197 passed**
+- result: **1234 passed**
 - failed: **0**
 - exact SHA-bound: **yes**
 
-This is the exact SHA-bound baseline for the start of the v353-v357 docs-only reconciliation. A later docs-only merge creates a new main SHA and must receive its own push verification before that SHA is called current-verified.
+This is the exact SHA-bound baseline for the start of the v388-v392 docs-only reconciliation. The later docs-only merge creates a different main SHA and must receive its own successful push verification before that SHA is called current-verified.
+
+## Current persistence verification coverage
+
+The current green suite includes regression coverage for:
+
+- terminal task lifecycle/recovery integrity;
+- malformed and unreadable task-store handling;
+- atomic save failure rollback;
+- exact persisted-byte optimistic concurrency;
+- POSIX kernel-backed task write locking;
+- crash-like fd-close lock release;
+- persistent inert coordination-file compatibility;
+- task-file and parent-directory fsync semantics;
+- persistence operator readiness;
+- default-deny operator access;
+- non-sensitive human-readable persistence diagnostics.
 
 ## Verification infrastructure
 
-The repository now contains a GitHub Actions full-verification workflow.
+The repository contains a GitHub Actions full-verification workflow.
 
 The workflow:
 
 1. checks out the exact revision;
-2. installs the verification dependencies;
+2. installs verification dependencies;
 3. compiles the application;
 4. initializes the deterministic test schema;
 5. records revision metadata;
@@ -42,15 +58,14 @@ Ozon credentials are not supplied to the verification environment.
 
 The workflow is development verification only and does not execute seller actions.
 
-## Historical baseline
+## Historical baselines
 
-The earlier user-confirmed baseline:
+Earlier exact baselines remain historical evidence for their own SHAs only, including:
 
-- SHA: `11883f901d3bb344816735b834392a59185c0c81`
-- result: **982 passed**
-- failed: **0**
+- `11883f901d3bb344816735b834392a59185c0c81` — **982 passed**;
+- `d0286d45f23e6da17b33afbb269ce109f8a72e3b` — **1197 passed**.
 
-remains valid historical evidence for that SHA only. It is superseded as the current baseline by the exact verified main above.
+Neither historical count may be transferred to a later SHA.
 
 ## Rule
 
@@ -68,7 +83,7 @@ An unbound report may describe a run but cannot verify any revision.
 
 Every safety-critical feature PR must pass the full GitHub Actions verification workflow before merge.
 
-After squash merge, the resulting `main` SHA must receive its own successful push verification before it becomes the new current verified baseline.
+After squash merge, the resulting `main` SHA must receive its own successful push verification before it becomes a current exact verified baseline.
 
 Focused regression files supplement but do not replace the full-suite signal.
 
@@ -88,6 +103,8 @@ Verification does not:
 
 - `.github/workflows/verify.yml`
 - `requirements-dev.txt`
-- `tests/test_ci_verification_foundation_v269_v278.py`
-- `app/services/assistant_project_verification_service.py`
-- `project_brain/CURRENT_CHECKPOINT_V353_V357.md`
+- `app/services/terminal_safe_assistant_task_service.py`
+- `app/services/task_persistence_operational_service.py`
+- `tests/test_task_persistence_kernel_lock_v378_v387.py`
+- `project_brain/TASK_PERSISTENCE_KERNEL_LOCK_V2.md`
+- `project_brain/CURRENT_CHECKPOINT_V388_V392.md`

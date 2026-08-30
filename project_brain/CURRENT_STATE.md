@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1197 passed on `d0286d45f23e6da17b33afbb269ce109f8a72e3b`.
+1234 passed on `3a5bbe9332492073555ef258038e4a4db9e7bf85`.
 
-GitHub Actions push verification run #21 completed successfully for this exact main SHA.
+GitHub Actions push verification run #31 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -410,10 +410,10 @@ Next planned changes:
 1. Поддерживать SHA-bound CI verification на каждом новом main
 
 
-2. Продолжить operator/release readiness для persistence diagnostics и recovery warnings
+2. Продолжить release readiness и observability для kernel-backed task persistence
 
 
-3. Убирать Project Brain drift после safety-critical batches
+3. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
 
 
 4. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
@@ -667,10 +667,10 @@ Autonomous Business Assistant
 [x] Memory system
 
 
-[ ] Long-running tasks
+[x] Long-running tasks
 
 
-[ ] Self-improvement cycle
+[x] Self-improvement cycle
 
 
 
@@ -722,10 +722,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1197 passed on `d0286d45f23e6da17b33afbb269ce109f8a72e3b`.
+1234 passed on `3a5bbe9332492073555ef258038e4a4db9e7bf85`.
 
 Verification source:
-GitHub Actions push run #21, exact SHA-bound main verification.
+GitHub Actions push run #31, exact SHA-bound main verification.
 
 
 
