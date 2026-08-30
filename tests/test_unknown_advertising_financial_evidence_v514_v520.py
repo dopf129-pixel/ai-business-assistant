@@ -10,6 +10,9 @@ from services.business_analytics_service import (
 from services.business_profit_dashboard_service import (
     BusinessProfitDashboardService,
 )
+from services.assistant_sales_executor_service import (
+    AssistantSalesExecutorService,
+)
 from telegram_core_factory import create_telegram_core
 
 
@@ -153,3 +156,34 @@ def test_v517_business_profit_dashboard_does_not_render_unknown_as_zero():
     assert "Реклама: —" in output
     assert "Прибыль после налога: —" in output
     assert "Маржинальность после налога: —" in output
+
+
+def test_v518_sales_executor_formats_unknown_profit_metrics_as_dash():
+    class _SalesIntelligence:
+        def analyze(self, profits, previous_result=None):
+            return {
+                "error": False,
+                "metrics": {
+                    "revenue": 10000.0,
+                    "gross_profit": 5000.0,
+                    "business_profit": None,
+                    "margin_percent": None,
+                },
+                "insights": [],
+            }
+
+    service = AssistantSalesExecutorService(
+        sales_intelligence_service=_SalesIntelligence()
+    )
+
+    result = service.execute({
+        "context": {
+            "profits": [],
+            "previous_result": None,
+        }
+    })
+
+    details = result["result"]["details"]
+    assert "Прибыль после расходов: —" in details
+    assert "Маржинальность: —" in details
+    assert all("None" not in item for item in details)
