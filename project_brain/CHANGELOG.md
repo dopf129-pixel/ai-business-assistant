@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Stock Evidence Availability v527-v533
+
+Reconciled Project Brain to the verified stock production-correctness baseline.
+
+- initial PR #229 head `8dfaa00d540085a0c250d6ecb06d02df3a90ec75`: Verify #91 failed due to protected legacy fallback regressions;
+- final PR head `64a5a02fd4dea10f0929f9d6068b63ac01242605`: Verify #95 success, 1369 passed;
+- squash-merge main `98778c278166157bb70c0fcb0c670db60c849451`: push Verify #96 success, 1369 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V527_V533.md.
+
+Docs only; no runtime, stock threshold, execution, Ozon, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Stock Evidence Availability Hardening v1
 
 Separated verified safe-stock evidence from missing or partial stock evidence.
