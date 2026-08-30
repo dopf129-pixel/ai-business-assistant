@@ -1,3 +1,6 @@
+from math import isfinite
+
+
 class SalesIntelligenceService:
 
 
@@ -25,6 +28,12 @@ class SalesIntelligenceService:
             )
         )
 
+        if not isinstance(
+            result,
+            dict
+        ):
+            return self._missing_data_result()
+
         if result.get(
             "error"
         ):
@@ -34,34 +43,48 @@ class SalesIntelligenceService:
 
         store_profit = (
             result.get(
-                "store_profit",
-                {}
+                "store_profit"
             )
         )
+
+        if not isinstance(
+            store_profit,
+            dict
+        ):
+            store_profit = {}
 
         business_profit = (
             result.get(
-                "business_profit",
-                {}
+                "business_profit"
             )
         )
 
+        if not isinstance(
+            business_profit,
+            dict
+        ):
+            business_profit = {}
+
         metrics = {
-            "revenue": store_profit.get(
-                "gross_sales",
-                0
+            "revenue": self._number(
+                store_profit.get(
+                    "gross_sales"
+                )
             ),
-            "gross_profit": store_profit.get(
-                "gross_profit",
-                0
+            "gross_profit": self._number(
+                store_profit.get(
+                    "gross_profit"
+                )
             ),
-            "business_profit": business_profit.get(
-                "business_profit",
-                0
+            "business_profit": self._number(
+                business_profit.get(
+                    "business_profit"
+                )
             ),
-            "margin_percent": business_profit.get(
-                "margin_percent",
-                0
+            "margin_percent": self._number(
+                business_profit.get(
+                    "margin_percent"
+                )
             )
         }
 
@@ -90,7 +113,10 @@ class SalesIntelligenceService:
     ):
 
         if (
-            not comparison
+            not isinstance(
+                comparison,
+                dict
+            )
             or comparison.get(
                 "error"
             )
@@ -98,24 +124,41 @@ class SalesIntelligenceService:
 
             return []
 
-        revenue = (
+        comparison_items = (
             comparison.get(
-                "comparison",
-                {}
+                "comparison"
             )
-            .get(
+        )
+
+        if not isinstance(
+            comparison_items,
+            dict
+        ):
+
+            return []
+
+        revenue = (
+            comparison_items.get(
                 "revenue"
             )
         )
 
-        if not revenue:
+        if not isinstance(
+            revenue,
+            dict
+        ):
 
             return []
 
-        change = revenue.get(
-            "change_percent",
-            0
+        change = self._number(
+            revenue.get(
+                "change_percent"
+            )
         )
+
+        if change is None:
+
+            return []
 
         if change < 0:
 
@@ -147,3 +190,64 @@ class SalesIntelligenceService:
                 "message": "Продажи не изменились относительно предыдущего периода"
             }
         ]
+
+
+    def _number(
+        self,
+        value
+    ):
+
+        if (
+            value is None
+            or isinstance(
+                value,
+                bool
+            )
+        ):
+
+            return None
+
+        try:
+
+            number = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            return None
+
+        if not isfinite(
+            number
+        ):
+
+            return None
+
+        if number.is_integer():
+
+            return int(
+                number
+            )
+
+        return number
+
+
+    def _missing_data_result(
+        self
+    ):
+
+        return {
+            "error": True,
+            "message": "Недостаточно данных для анализа продаж",
+            "metrics": {
+                "revenue": None,
+                "gross_profit": None,
+                "business_profit": None,
+                "margin_percent": None
+            },
+            "comparison": None,
+            "insights": []
+        }
