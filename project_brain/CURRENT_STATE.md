@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1309 passed on `5c372255b87b8b5a8387ed980f51372d925b33d9`.
+1321 passed on `ef8b52ad34740d5cbb657988866ec01ebfe7191b`.
 
-GitHub Actions push verification run #58 completed successfully for this exact main SHA.
+GitHub Actions push verification run #62 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -413,16 +413,19 @@ Next planned changes:
 2. Считать kernel-backed task persistence hardening закрытым; поддерживать только regression/release evidence без новых абстракций без конкретной необходимости
 
 
-3. Продолжить seller-facing Product Decision learning: после общего Learning Health добавить per-SKU coverage queue, показывающую где не хватает user feedback или последующего observation
+3. Считать seller-facing Product Decision Learning Coverage Queue v493-v502 завершённой: использовать её только как read-only очередь сбора feedback/observation evidence, не как business-priority surface
 
 
-4. Не подключать canonical user-action advisory/checklist chain к Telegram без exact persisted Product Decision verification lineage
+4. Следующий product/operational пакет выбирать по фактическому repo gap после сверки main; не продолжать learning wrappers автоматически
 
 
-5. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
+5. Не подключать canonical user-action advisory/checklist chain к Telegram без exact persisted Product Decision verification lineage
 
 
-6. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
+6. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
+
+
+7. Не включать Product Decision / Product Task Draft execution без отдельной архитектуры и авторизации
 
 
 ---
@@ -728,7 +731,7 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1309 passed on `5c372255b87b8b5a8387ed980f51372d925b33d9`.
+1321 passed on `ef8b52ad34740d5cbb657988866ec01ebfe7191b`.
 
 Verification source:
 GitHub Actions push run #58, exact SHA-bound main verification with canonical `test-report.json` artifact.
@@ -1075,3 +1078,36 @@ Preserved:
 - execution_ready_count remains zero;
 - missing values are not inferred;
 - checklist does not mutate decisions, drafts, or Ozon.
+
+
+---
+
+# Product Decision Learning Coverage Queue v1 — 2026-08-30
+
+Completed:
+
+[x] Per-SKU learning coverage from persisted Product Decision history only
+[x] NEEDS_USER_FEEDBACK / NO_DECISION_HISTORY / WAITING_FOR_LATER_OBSERVATION states
+[x] Deterministic learning-attention rank with exact SKU tie-break
+[x] Latest-feedback semantics without treating old outcomes as future observation
+[x] Fail-closed malformed, duplicate and cross-SKU history handling
+[x] Telegram navigation and seller wording
+[x] No Product Decision query call while opening the queue
+[x] Production DI of the pure coverage builder
+
+Verified product baseline:
+
+- PR #219 head run #61: success
+- merged main SHA: `ef8b52ad34740d5cbb657988866ec01ebfe7191b`
+- push run #62: success
+- full suite: 1321 passed, 0 failed
+
+Preserved:
+
+- queue rank is not business priority;
+- no causality, success-rate or profitability claim;
+- no Product Decision rule update;
+- no Product Task Draft execution;
+- no Ozon mutation;
+- `automatic_execution_allowed=False`;
+- `executed=False`.
