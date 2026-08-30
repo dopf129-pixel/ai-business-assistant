@@ -85,7 +85,10 @@ class AssistantEntryService:
         if self.task_persistence_operational_runtime_service is not None:
             direct_result = (
                 self.task_persistence_operational_runtime_service
-                .handle_text(text)
+                .handle_text(
+                    text,
+                    user_id=user_id
+                )
             )
             if direct_result is not None:
                 return direct_result
