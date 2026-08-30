@@ -5,6 +5,9 @@ class AdvertisingDashboardService:
         value
     ):
 
+        if value is None:
+            return "—"
+
         try:
             number = float(value)
         except (
