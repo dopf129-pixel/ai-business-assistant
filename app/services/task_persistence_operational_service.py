@@ -35,8 +35,8 @@ class TaskPersistenceOperationalService:
 
         if lock["inspection_state"] == "CHECK_ERROR":
             blockers.append("TASK_WRITE_LOCK_INSPECTION_FAILED")
-        elif lock["lock_present"]:
-            blockers.append("TASK_WRITE_LOCK_PRESENT_UNOWNED")
+        elif lock["inspection_state"] == "SELF_HELD":
+            warnings.append("TASK_WRITE_LOCK_SELF_HELD")
 
         save_state = persistence["last_save_state"]
         save_issue = persistence.get("last_save_issue")
@@ -94,8 +94,8 @@ class TaskPersistenceOperationalService:
 
     @classmethod
     def _next_action(cls, blockers, warnings):
-        if "TASK_WRITE_LOCK_PRESENT_UNOWNED" in blockers:
-            return "VERIFY_WRITE_LOCK_OWNER_MANUALLY"
+        if "TASK_FILE_WRITE_LOCKED" in blockers:
+            return "WAIT_FOR_ACTIVE_WRITER_AND_RETRY_MANUALLY"
         if "TASK_WRITE_LOCK_INSPECTION_FAILED" in blockers:
             return "INSPECT_WRITE_LOCK_MANUALLY"
         if "TASK_STORE_UNREADABLE" in blockers:
@@ -199,9 +199,16 @@ class TaskPersistenceOperationalService:
             and value.get("status") == "TASK_WRITE_LOCK_DIAGNOSTICS"
             and value.get("read_only") is True
             and value.get("executed") is False
-            and value.get("inspection_state") in {"ABSENT", "PRESENT", "CHECK_ERROR"}
-            and value.get("lock_present") in {True, False, None}
-            and value.get("ownership_state") in {"NONE", "UNKNOWN"}
+            and value.get("inspection_state") in {
+                "NO_ACTIVE_LOCK_EVIDENCE",
+                "SELF_HELD",
+                "CHECK_ERROR",
+            }
+            and value.get("lock_present") in {True, None}
+            and value.get("ownership_state") in {"SELF", "UNKNOWN"}
+            and value.get("coordination_file_present") in {True, False, None}
+            and isinstance(value.get("kernel_lock_guard"), bool)
+            and value.get("orphan_file_blocks_writes") is False
             and isinstance(value.get("manual_intervention_required"), bool)
             and value.get("stale_proven") is False
             and value.get("automatic_recovery_allowed") is False
@@ -210,16 +217,27 @@ class TaskPersistenceOperationalService:
         ):
             return False
 
-        expected = {
-            "ABSENT": (False, "NONE", False),
-            "PRESENT": (True, "UNKNOWN", True),
-            "CHECK_ERROR": (None, "UNKNOWN", True),
-        }
+        state = value["inspection_state"]
+        if state == "NO_ACTIVE_LOCK_EVIDENCE":
+            return (
+                value.get("lock_present") is None
+                and value.get("ownership_state") == "UNKNOWN"
+                and value.get("kernel_lock_guard") is True
+                and value.get("manual_intervention_required") is False
+            )
+        if state == "SELF_HELD":
+            return (
+                value.get("lock_present") is True
+                and value.get("ownership_state") == "SELF"
+                and value.get("kernel_lock_guard") is True
+                and value.get("manual_intervention_required") is False
+            )
+
         return (
-            value.get("lock_present"),
-            value.get("ownership_state"),
-            value.get("manual_intervention_required"),
-        ) == expected[value["inspection_state"]]
+            value.get("lock_present") is None
+            and value.get("ownership_state") == "UNKNOWN"
+            and value.get("manual_intervention_required") is True
+        )
 
     @staticmethod
     def _blocked(code):
