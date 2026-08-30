@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1559 passed on `e8680957f91e23e75574bca806007ba9384ec542`.
+1568 passed on `4b362fbe0679d2640945b66e4cc2e482baf83756`.
 
-GitHub Actions push Verify #355 completed successfully for this exact main SHA.
+GitHub Actions push Verify #361 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2156,3 +2156,33 @@ Tests:
 - feedback already recorded before memory failure is reported as partial state;
 - default in-memory production behavior remains compatible;
 - no new persistence layer, business execution, Product Decision execution, or Ozon mutation is enabled.
+
+
+---
+
+# Telegram Memory Clear Integrity v1
+
+Service:
+
+- AssistantTelegramMemoryService
+
+Production composition:
+
+- telegram_assistant_factory.create_telegram_assistant
+- AssistantUserStorageService
+
+Tests:
+
+- tests/test_telegram_memory_clear_integrity_v660_v667.py
+
+Проверяет:
+
+- clear mutates the canonical nested user record instead of the get_user result wrapper;
+- explicit user-storage errors are preserved and block save;
+- malformed user and memory payloads fail closed before mutation;
+- explicit pre-commit save failures restore the previous in-memory memory object;
+- malformed or exceptional save outcomes do not fabricate rollback and report unknown persistence state;
+- post-commit durability warning keeps the clear committed;
+- exception details are not leaked through stable error codes;
+- no new persistence layer, business execution, Product Decision execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.

@@ -2391,3 +2391,24 @@ SHA-bound evidence:
 - PR #264 synthetic merge SHA `6dcb328dcad048eb45a7cc33f3478f422e992ea5`: Verify #354, 1559 passed;
 - squash main `e8680957f91e23e75574bca806007ba9384ec542`: push Verify #355, 1559 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Telegram Memory Clear Integrity v660-v667
+
+- fixed production-wired Telegram memory clear to mutate the actual canonical user record instead of the get_user result wrapper;
+- validated user-read and save-result contracts before claiming clear success;
+- explicit canonical pre-commit save failures restore the prior in-memory memory object;
+- exception/malformed save states remain explicit and do not fabricate rollback;
+- post-commit durability warnings preserve committed state;
+- stable error codes do not expose exception detail;
+- no persistence owner/layer change, business execution, Product Decision/Product Task Draft execution, or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `3940bf4b947691603f891f5cb70da4772235d2ab`: push Verify #358, 1559 passed;
+- final feature head `8fe643f55ec16fa802b6a68c3bfd3d03958dfff2`: push Verify #359, 1568 passed;
+- PR #266 synthetic merge SHA `12690439ea2230b8c2cd587ec9a4d8f3c6993610`: Verify #360, 1568 passed;
+- squash main `4b362fbe0679d2640945b66e4cc2e482baf83756`: push Verify #361, 1568 passed;
+- no independent external-verification claim.
