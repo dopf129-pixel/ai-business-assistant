@@ -8,14 +8,10 @@ sys.path.insert(
 from telegram_core_factory import create_telegram_core
 
 
-
-def test_marketing_recommendation_creates_marketing_action():
-
-
+def _service():
     core = create_telegram_core()
 
-
-    service = (
+    return (
         core["core"]
         .orchestrator_service
         .entry_service
@@ -27,31 +23,44 @@ def test_marketing_recommendation_creates_marketing_action():
     )
 
 
-    result = (
-        service.analyze(
-            {
-                "marketing_problem": True
+def test_marketing_problem_without_evidence_is_not_actionable():
+
+    result = _service().analyze(
+        {
+            "marketing_problem": True
+        }
+    )
+
+    assert result["error"] is False
+    assert result["recommendations"] == [
+        {
+            "type": "general",
+            "message": "Недостаточно данных для полной оценки бизнеса"
+        }
+    ]
+
+
+def test_marketing_recommendation_requires_verified_evidence_context():
+
+    result = _service().analyze(
+        {
+            "marketing_problem": True,
+            "marketing_evidence_available": True,
+            "marketing_context": {
+                "evidence": [
+                    "CTR снизился"
+                ],
+                "reason": "Проверить кампанию"
             }
-        )
+        }
     )
 
+    recommendation = result["recommendations"][0]
 
-    assert (
-        result["error"]
-        is
-        False
-    )
-
-
-    assert (
-        result["recommendations"][0]["type"]
-        ==
-        "marketing"
-    )
-
-
-    assert (
-        "рекламных каналов"
-        in
-        result["recommendations"][0]["message"]
-    )
+    assert recommendation["type"] == "marketing"
+    assert recommendation["context"] == {
+        "evidence": [
+            "CTR снизился"
+        ],
+        "reason": "Проверить кампанию"
+    }
