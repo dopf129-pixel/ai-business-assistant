@@ -289,7 +289,7 @@ class TaskPersistenceWorkflowRunEvidenceService:
             **evidence,
             "workflow": run_evidence["workflow"],
             "event": run_evidence["event"],
-            "run_status": run_evidence["status"],
+            "run_status": run_evidence["run_status"],
             "run_conclusion": run_evidence["conclusion"],
             "completed_workflow_run_bound": True,
             "verification_manifest_bound": True,
