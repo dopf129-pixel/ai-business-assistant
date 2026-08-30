@@ -33,6 +33,33 @@ class AssistantOrchestratorBusinessService:
         if not self._valid_result(result):
             return self._invalid()
 
+        execution = result.get("execution")
+
+        if execution is not None:
+
+            if not self._valid_execution(
+                execution
+            ):
+
+                return self._invalid(
+                    "INVALID_EXECUTION_RESULT",
+                    execution=execution
+                )
+
+            if execution["error"]:
+
+                return {
+                    "error": True,
+                    "message":
+                        self._safe_message(
+                            execution,
+                            "EXECUTION_RETURNED_ERROR"
+                        ),
+                    "execution":
+                        execution
+                }
+
+
         if result["error"]:
             return result
 
