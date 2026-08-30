@@ -82,6 +82,14 @@ from services.terminal_safe_assistant_task_service import (
     TerminalSafeAssistantTaskService
 )
 
+from services.task_persistence_operational_service import (
+    TaskPersistenceOperationalService
+)
+
+from services.assistant_task_persistence_operational_runtime_service import (
+    AssistantTaskPersistenceOperationalRuntimeService
+)
+
 from services.assistant_action_router_service import (
     AssistantActionRouterService
 )
@@ -192,7 +200,8 @@ def create_telegram_core(
     tax_configuration_service=None,
     product_service=None,
     period_profit_service=None,
-    analytics_service=None
+    analytics_service=None,
+    task_service=None
 ):
 
 
@@ -237,8 +246,32 @@ def create_telegram_core(
     )
 
 
+    if (
+        task_service is not None
+        and not isinstance(
+            task_service,
+            TerminalSafeAssistantTaskService
+        )
+    ):
+        raise ValueError(
+            "UNSAFE_TASK_SERVICE_INJECTION"
+        )
+
     task_service = (
-        TerminalSafeAssistantTaskService()
+        task_service
+        if task_service is not None
+        else TerminalSafeAssistantTaskService()
+    )
+
+
+    task_persistence_operational_runtime = (
+        AssistantTaskPersistenceOperationalRuntimeService(
+            operational_service=(
+                TaskPersistenceOperationalService(
+                    task_service=task_service
+                )
+            )
+        )
     )
 
 
@@ -583,6 +616,9 @@ def create_telegram_core(
             ),
             finance_context_provider=(
                 finance_context_provider
+            ),
+            task_persistence_operational_runtime_service=(
+                task_persistence_operational_runtime
             )
         )
     )
@@ -662,6 +698,9 @@ def create_telegram_core(
 
         "task_service":
             task_service,
+
+        "task_persistence_operational_runtime_service":
+            task_persistence_operational_runtime,
 
         "execution_service":
             execution_service,

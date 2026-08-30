@@ -245,6 +245,40 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "executed": False,
         }
 
+    def get_write_lock_diagnostics(self):
+        try:
+            os.stat(self._write_lock_path())
+        except FileNotFoundError:
+            inspection_state = "ABSENT"
+            lock_present = False
+            ownership_state = "NONE"
+            manual_intervention_required = False
+        except Exception:
+            inspection_state = "CHECK_ERROR"
+            lock_present = None
+            ownership_state = "UNKNOWN"
+            manual_intervention_required = True
+        else:
+            inspection_state = "PRESENT"
+            lock_present = True
+            ownership_state = "UNKNOWN"
+            manual_intervention_required = True
+
+        return {
+            "error": False,
+            "status": "TASK_WRITE_LOCK_DIAGNOSTICS",
+            "inspection_state": inspection_state,
+            "lock_present": lock_present,
+            "ownership_state": ownership_state,
+            "stale_proven": False,
+            "automatic_recovery_allowed": False,
+            "manual_lock_removal_allowed": False,
+            "manual_intervention_required": manual_intervention_required,
+            "path_exposed": False,
+            "read_only": True,
+            "executed": False,
+        }
+
     def get_persistence_diagnostics(self):
         return {
             "error": False,
