@@ -403,6 +403,9 @@ class TaskPersistenceWorkflowRunEvidenceService:
                 "workflow_run_evidence_id"
             ],
             "revision_id": source["revision_id"],
+            "capability_manifest_id": source[
+                "capability_manifest_id"
+            ],
             "verification_manifest_id": source[
                 "verification_manifest_id"
             ],
@@ -453,6 +456,8 @@ class TaskPersistenceWorkflowRunEvidenceService:
             != provenance.get("revision_id")
             or report.get("verification_manifest_id")
             != provenance.get("verification_manifest_id")
+            or report.get("capability_manifest_id")
+            != provenance.get("capability_manifest_id")
             or report.get("test_report_id")
             != provenance.get("test_report_id")
             or report.get("verification_binding_id")
