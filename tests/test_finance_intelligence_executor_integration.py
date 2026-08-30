@@ -68,7 +68,7 @@ def test_finance_action_calls_intelligence_with_context_data():
     assert result["result"]["type"] == "finance"
     assert result["result"]["priority"] == "HIGH"
     assert "Выручка: 1000.0" in result["result"]["details"]
-    assert "Прибыль: 400.0" in result["result"]["details"]
+    assert "Расчётный финансовый результат: 400.0" in result["result"]["details"]
 
 
 def test_finance_executor_preserves_response_contract():
