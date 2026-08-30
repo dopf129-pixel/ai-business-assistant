@@ -1193,7 +1193,7 @@ Completed:
 [x] Missing gross_sales / gross_profit no longer normalize to zero
 [x] Non-finite and boolean financial facts are rejected
 [x] Explicit numeric zero remains valid evidence
-[x] Finance context marks profit_scope=PERIOD_GROSS_PROFIT
+[x] Finance context output shape remains backward compatible
 [x] Finance Intelligence uses gross-result wording instead of accounting-profit claims
 [x] Finance executor presentation uses evidence-scoped labels
 
