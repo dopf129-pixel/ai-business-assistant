@@ -2,6 +2,27 @@
 
 ## 2026-08-30
 
+### Sales Evidence Availability Hardening v1
+
+Hardened configured Sales Intelligence evidence semantics.
+
+- missing/malformed comparison evidence no longer becomes `sales_down=False` via an implicit 0% change;
+- complete non-decline evidence is distinguishable from unavailable evidence;
+- confirmed decline action context remains backward compatible;
+- legacy no-data AssistantEntryService fallback remains backward compatible;
+- missing required revenue/gross-profit metrics fail closed;
+- unknown business-profit/margin values remain `None`;
+- missing comparison change no longer produces a false stable-sales insight;
+- sales executor renders unknown metrics as «—»;
+- no Product Decision/task execution or Ozon mutation added.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Stock Evidence Availability v527-v533
 
 Reconciled Project Brain to the verified stock production-correctness baseline.
