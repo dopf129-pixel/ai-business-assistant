@@ -376,9 +376,41 @@ class BusinessAnalyticsService:
                 "expenses": expenses
             }
 
-        if advertising.get(
+        if tax.get(
+            "error"
+        ):
+
+            business_profit = (
+                self.business_profit_service
+                .calculate(
+                    store_profit=store_profit,
+                    tax=tax,
+                    advertising_cost=0,
+                    other_expenses=(
+                        expenses.get(
+                            "other_expenses",
+                            0
+                        )
+                    )
+                )
+            )
+
+        elif advertising.get(
             "configured"
         ) is False:
+
+            missing_fields = [
+                "advertising"
+            ]
+
+            if (
+                tax.get("configured") is False
+                or tax.get("tax_amount") is None
+            ):
+
+                missing_fields.append(
+                    "tax"
+                )
 
             business_profit = {
                 "error": False,
@@ -398,9 +430,7 @@ class BusinessAnalyticsService:
                 ),
                 "business_profit": None,
                 "margin_percent": None,
-                "missing_fields": [
-                    "advertising"
-                ]
+                "missing_fields": missing_fields
             }
 
         else:
