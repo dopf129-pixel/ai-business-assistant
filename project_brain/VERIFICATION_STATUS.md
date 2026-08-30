@@ -2,9 +2,9 @@
 
 Date: 2026-08-30
 
-## Current verified revision
+## Latest verified baseline entering v353-v357
 
-Current verified `main`:
+Latest exact verified `main` at the start of this reconciliation:
 
 `d0286d45f23e6da17b33afbb269ce109f8a72e3b`
 
@@ -22,7 +22,7 @@ Full-suite verification for this exact SHA:
 - failed: **0**
 - exact SHA-bound: **yes**
 
-This is the current repository verification baseline.
+This is the exact SHA-bound baseline for the start of the v353-v357 docs-only reconciliation. A later docs-only merge creates a new main SHA and must receive its own push verification before that SHA is called current-verified.
 
 ## Verification infrastructure
 
