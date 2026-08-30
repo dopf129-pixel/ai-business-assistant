@@ -32,6 +32,14 @@ class StorePeriodSummaryService:
             )
         )
 
+        if not isinstance(report, dict):
+
+            return {
+                "error": True,
+                "message": "Не удалось построить периодический отчёт"
+            }
+
+
         if report.get(
             "error"
         ):
