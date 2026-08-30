@@ -36,6 +36,12 @@ When no low-stock risk is found:
 
 The availability flag is report metadata only. It is not execution permission.
 
+Legacy compatibility is preserved for the historical AssistantEntryService mode
+that is constructed with no data dependencies at all: that mode keeps its
+existing hardcoded report behavior. The new availability semantics apply when
+the stock data path is actually configured or an explicit StockContextProvider
+is injected.
+
 ## Complete-evidence requirement
 
 The provider fails closed when any of these are unavailable or malformed:
@@ -112,6 +118,7 @@ Review confirms:
 - no new service/layer;
 - no new runtime route;
 - confirmed low-stock action context remains backward compatible;
+- historical no-data AssistantEntryService fallback remains backward compatible;
 - unavailable evidence does not create a stock action;
 - explicit zero sales remains distinct from missing evidence;
 - no business execution permission is introduced;
