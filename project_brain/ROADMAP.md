@@ -380,3 +380,5 @@ Current hardening queue:
 
 
 Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V561_V567.md`.
+
+Current verified checkpoint: `CURRENT_CHECKPOINT_V575_V581.md`
