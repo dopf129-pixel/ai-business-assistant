@@ -10,6 +10,9 @@ from services.business_analytics_service import (
 from services.business_profit_dashboard_service import (
     BusinessProfitDashboardService,
 )
+from services.sales_intelligence_service import (
+    SalesIntelligenceService,
+)
 from services.assistant_sales_executor_service import (
     AssistantSalesExecutorService,
 )
@@ -187,3 +190,44 @@ def test_v518_sales_executor_formats_unknown_profit_metrics_as_dash():
     assert "Прибыль после расходов: —" in details
     assert "Маржинальность: —" in details
     assert all("None" not in item for item in details)
+
+
+def test_v519_sales_intelligence_preserves_unknown_profit_as_none():
+    analytics = BusinessAnalyticsService(
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+        minimum_tax_rate=1,
+        advertising_cost=None,
+        analysis_date="2026-08-07",
+        expense_repository=_EmptyExpenseRepository(),
+    )
+    intelligence = SalesIntelligenceService(
+        analytics_service=analytics
+    )
+
+    result = intelligence.analyze(_profits())
+
+    assert result["error"] is False
+    assert result["metrics"]["revenue"] == 10000.0
+    assert result["metrics"]["gross_profit"] == 5000.0
+    assert result["metrics"]["business_profit"] is None
+    assert result["metrics"]["margin_percent"] is None
+
+
+def test_v519_tax_error_is_not_hidden_by_unknown_advertising():
+    service = BusinessAnalyticsService(
+        tax_mode="UNSUPPORTED",
+        tax_rate=6,
+        minimum_tax_rate=1,
+        advertising_cost=None,
+        analysis_date="2026-08-07",
+        expense_repository=_EmptyExpenseRepository(),
+    )
+
+    result = service.calculate(_profits())
+
+    assert result["tax"]["error"] is True
+    assert result["business_profit"]["error"] is True
+    assert result["business_profit"]["message"] == (
+        "Неподдерживаемый налоговый режим"
+    )
