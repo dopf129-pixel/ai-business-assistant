@@ -2,6 +2,22 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Learning Coverage Navigation v1
+
+Reconciled Project Brain to the verified v503-v508 merge baseline.
+
+- PR #221 head `c04aacfda86740d3930f64caa9bdb24c883b5478`: Verify #65 success, 1328 passed;
+- squash-merge main `94972f7849571dfa9b6b67d488f52bcde7e031cb`: push Verify #66 success, 1328 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V503_V508.md.
+
+Docs only; no runtime, execution, Ozon, mapping, finance, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Product Decision Learning Coverage Navigation v1
 
 Added bounded seller navigation from the read-only Learning Coverage Queue to the existing Product Decision card.
