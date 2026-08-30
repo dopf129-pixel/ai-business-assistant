@@ -333,15 +333,17 @@ Current hardening queue:
 
 1. Keep full SHA-bound GitHub Actions verification green on every merged `main`.
 
-2. Continue release readiness and observability for kernel-backed task persistence, including contention and crash-durability warnings.
+2. Keep task persistence release observability and deterministic audit receipts operator-only and fail-closed.
 
-3. Keep persistence diagnostics operator-only and default-deny unless explicit operator IDs are configured.
+3. Add explicit capability provenance/verification without active probing of the production task store.
 
-4. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
+4. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
 
-5. Continue Project Brain drift cleanup as safety-critical batches land.
+5. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
 
-6. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+6. Continue Project Brain drift cleanup as safety-critical batches land.
+
+7. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V388_V392.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V403_V407.md`.
