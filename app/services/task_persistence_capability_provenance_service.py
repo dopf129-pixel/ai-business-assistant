@@ -210,9 +210,15 @@ class TaskPersistenceCapabilityProvenanceService:
             "exact_sha_bound": True,
         }
 
+        evidence_id = self._digest(
+            "task-persistence-ci-evidence:",
+            evidence,
+        )
+
         return {
             "error": False,
             "status": "TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_READY",
+            "evidence_id": evidence_id,
             **evidence,
             "evidence_source": "CALLER_SUPPLIED_CI_METADATA",
             "evidence_structurally_valid": True,
@@ -266,6 +272,7 @@ class TaskPersistenceCapabilityProvenanceService:
         evidence = {
             "manifest_id": source["manifest_id"],
             "revision_id": source["revision_id"],
+            "ci_evidence_id": verification["evidence_id"],
             "ci_target_sha": verification["target_sha"],
             "ci_run_number": verification["run_number"],
             "ci_passed": verification["passed"],
@@ -283,6 +290,7 @@ class TaskPersistenceCapabilityProvenanceService:
             "binding_id": binding_id,
             "manifest_id": source["manifest_id"],
             "revision_id": source["revision_id"],
+            "ci_evidence_id": verification["evidence_id"],
             "ci_target_sha": verification["target_sha"],
             "ci_run_number": verification["run_number"],
             "ci_passed": verification["passed"],
@@ -302,7 +310,13 @@ class TaskPersistenceCapabilityProvenanceService:
             "executed": False,
         }
 
-    def build_audit_receipt(self, snapshot, manifest, binding=None):
+    def build_audit_receipt(
+        self,
+        snapshot,
+        manifest,
+        binding=None,
+        ci_evidence=None,
+    ):
         release = dict(snapshot) if isinstance(snapshot, dict) else {}
         source = dict(manifest) if isinstance(manifest, dict) else {}
         if not self._valid_release_snapshot(release):
@@ -320,14 +334,24 @@ class TaskPersistenceCapabilityProvenanceService:
             )
 
         bound = dict(binding) if isinstance(binding, dict) else {}
+        verification = (
+            dict(ci_evidence)
+            if isinstance(ci_evidence, dict)
+            else {}
+        )
         if bound:
-            if not self._valid_binding(bound, source):
+            if not self._valid_ci_evidence(verification):
+                return self._audit_error(
+                    "TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_REQUIRED"
+                )
+            if not self._valid_binding(bound, source, verification):
                 return self._audit_error(
                     "TASK_PERSISTENCE_CAPABILITY_CI_BINDING_INVALID"
                 )
             ci_state = {
                 "ci_evidence_bound": True,
                 "binding_id": bound["binding_id"],
+                "ci_evidence_id": bound["ci_evidence_id"],
                 "ci_target_sha": bound["ci_target_sha"],
                 "ci_run_number": bound["ci_run_number"],
                 "ci_passed": bound["ci_passed"],
@@ -337,6 +361,7 @@ class TaskPersistenceCapabilityProvenanceService:
             ci_state = {
                 "ci_evidence_bound": False,
                 "binding_id": None,
+                "ci_evidence_id": None,
                 "ci_target_sha": None,
                 "ci_run_number": None,
                 "ci_passed": None,
@@ -388,6 +413,7 @@ class TaskPersistenceCapabilityProvenanceService:
             return manifest
 
         binding = None
+        evidence = None
         ci_state = "UNBOUND"
 
         if self.ci_evidence is not None:
@@ -409,6 +435,7 @@ class TaskPersistenceCapabilityProvenanceService:
             snapshot,
             manifest,
             binding,
+            evidence,
         )
         if audit.get("error") is True:
             return audit
@@ -459,34 +486,28 @@ class TaskPersistenceCapabilityProvenanceService:
         )
         return rebuilt == manifest
 
-    @classmethod
-    def _valid_release_snapshot(cls, value):
+    def _valid_release_snapshot(self, value):
+        validator = getattr(
+            self.release_observability_service,
+            "_valid_snapshot",
+            None,
+        )
+        if not callable(validator) or validator(value) is not True:
+            return False
+
         expected = {
             row["capability"]
-            for row in cls.CAPABILITY_CATALOG
+            for row in self.CAPABILITY_CATALOG
         }
         capabilities = value.get("capabilities")
         return (
-            isinstance(value, dict)
-            and value.get("status") == (
-                "TASK_PERSISTENCE_RELEASE_SNAPSHOT_READY"
-            )
-            and value.get("error") is False
-            and isinstance(value.get("release_ready"), bool)
-            and isinstance(capabilities, dict)
+            isinstance(capabilities, dict)
             and set(capabilities) == expected
             and all(
                 isinstance(capabilities[name], bool)
                 for name in expected
             )
             and value.get("active_probe_performed", False) is False
-            and value.get("automatic_retry_allowed") is False
-            and value.get("automatic_lock_recovery_allowed") is False
-            and value.get("manual_lock_removal_allowed") is False
-            and value.get("business_execution_ready") is False
-            and value.get("mutation_ready") is False
-            and value.get("read_only") is True
-            and value.get("executed") is False
         )
 
     @classmethod
@@ -593,6 +614,10 @@ class TaskPersistenceCapabilityProvenanceService:
                 "TASK_PERSISTENCE_CI_VERIFICATION_EVIDENCE_READY"
             )
             and value.get("error") is False
+            and isinstance(value.get("evidence_id"), str)
+            and value.get("evidence_id").startswith(
+                "task-persistence-ci-evidence:"
+            )
             and cls._normalize_revision(value.get("target_sha"))
             == value.get("target_sha")
             and value.get("workflow") == "Verify"
@@ -613,10 +638,23 @@ class TaskPersistenceCapabilityProvenanceService:
             and value.get("externally_verified") is False
             and value.get("read_only") is True
             and value.get("executed") is False
+            and value.get("evidence_id") == cls._digest(
+                "task-persistence-ci-evidence:",
+                {
+                    "target_sha": value.get("target_sha"),
+                    "workflow": value.get("workflow"),
+                    "event": value.get("event"),
+                    "run_number": value.get("run_number"),
+                    "passed": value.get("passed"),
+                    "failed": value.get("failed"),
+                    "conclusion": value.get("conclusion"),
+                    "exact_sha_bound": value.get("exact_sha_bound"),
+                },
+            )
         )
 
     @classmethod
-    def _valid_binding(cls, value, manifest):
+    def _valid_binding(cls, value, manifest, ci_evidence):
         if not (
             isinstance(value, dict)
             and value.get("status") == (
@@ -625,7 +663,13 @@ class TaskPersistenceCapabilityProvenanceService:
             and value.get("error") is False
             and value.get("manifest_id") == manifest.get("manifest_id")
             and value.get("revision_id") == manifest.get("revision_id")
+            and value.get("ci_evidence_id") == ci_evidence.get("evidence_id")
             and value.get("ci_target_sha") == manifest.get("revision_id")
+            and value.get("ci_target_sha") == ci_evidence.get("target_sha")
+            and value.get("ci_run_number") == ci_evidence.get("run_number")
+            and value.get("ci_passed") == ci_evidence.get("passed")
+            and value.get("ci_failed") == ci_evidence.get("failed")
+            and value.get("ci_conclusion") == ci_evidence.get("conclusion")
             and value.get("ci_sha_match") is True
             and value.get("ci_evidence_bound") is True
             and value.get("active_probe_performed") is False
@@ -654,6 +698,7 @@ class TaskPersistenceCapabilityProvenanceService:
         evidence = {
             "manifest_id": manifest["manifest_id"],
             "revision_id": manifest["revision_id"],
+            "ci_evidence_id": value["ci_evidence_id"],
             "ci_target_sha": value["ci_target_sha"],
             "ci_run_number": value["ci_run_number"],
             "ci_passed": value["ci_passed"],
