@@ -78,8 +78,8 @@ from services.assistant_task_context_service import (
     AssistantTaskContextService
 )
 
-from services.assistant_task_service import (
-    AssistantTaskService
+from services.terminal_safe_assistant_task_service import (
+    TerminalSafeAssistantTaskService
 )
 
 from services.assistant_action_router_service import (
@@ -238,7 +238,7 @@ def create_telegram_core(
 
 
     task_service = (
-        AssistantTaskService()
+        TerminalSafeAssistantTaskService()
     )
 
 
