@@ -2,90 +2,69 @@
 
 Date: 2026-08-30
 
-## Latest verified product baseline entering docs reconciliation
+## Latest verified product baseline
 
 Latest exact verified `main` product baseline:
 
-`ef8b52ad34740d5cbb657988866ec01ebfe7191b`
+`94972f7849571dfa9b6b67d488f52bcde7e031cb`
 
 Latest merged seller-facing batch:
 
-`v493-v502: add Product Decision learning coverage queue`
+`v503-v508: add Learning Coverage Queue navigation`
 
-GitHub evidence is kept SHA-bound and separated by layer.
+GitHub evidence remains SHA-bound and separated by layer.
 
 ### PR-head verification
 
-- PR: **#219**
-- exact head SHA: `dea7c6e7accdbc599744043d181636957766db35`
+- PR: **#221**
+- exact head SHA: `c04aacfda86740d3930f64caa9bdb24c883b5478`
 - workflow: `Verify`
 - event: pull request
-- run number: **61**
+- run number: **65**
 - status: **completed**
 - conclusion: **success**
+- full test suite: **1328 passed**
+- failed: **0**
 
-This confirms the PR head only. It is not reused as proof for the squash-merge SHA.
+This confirms the PR head only.
 
 ### Post-merge main verification
 
-- exact main SHA: `ef8b52ad34740d5cbb657988866ec01ebfe7191b`
+- exact main SHA: `94972f7849571dfa9b6b67d488f52bcde7e031cb`
 - workflow: `Verify`
 - event: **push**
-- run number: **62**
-- run id: **33310108807**
+- run number: **66**
+- run id: **33313763962**
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1321 passed**
+- full test suite: **1328 passed**
 - failed: **0**
 - canonical SHA-bound test-report artifact: **generated**
-- workflow artifact: `verification-ef8b52ad34740d5cbb657988866ec01ebfe7191b`
+- workflow artifact: `verification-94972f7849571dfa9b6b67d488f52bcde7e031cb`
 
 The completed workflow run is CI evidence for this exact SHA. It does not imply independent external verification.
 
-## Seller-facing Learning Coverage Queue
+## Learning Coverage Queue navigation
 
-The production Telegram flow now exposes a read-only per-SKU Product Decision Learning Coverage Queue.
+The seller-facing Learning Coverage Queue now provides bounded top-10 navigation to the existing `product_decision:<sku>` route.
 
-It uses only:
+Opening the queue remains read-only and does not query Product Decisions.
 
-- current product identities from `product_service.load_products()`;
-- persisted Product Decision records from `ProductDecisionHistoryService.history(sku)`.
+The queue does not emit direct feedback callbacks. A seller explicitly opens a concrete Product Decision before using the existing feedback controls.
 
-Opening the queue does not call `ProductBusinessDecisionQueryService.query()` and therefore does not create a new Product Decision snapshot.
+Malformed/non-dict coverage payloads and forged navigation callbacks fail closed.
 
-Current states:
-
-- `NEEDS_USER_FEEDBACK`;
-- `NO_DECISION_HISTORY`;
-- `WAITING_FOR_LATER_OBSERVATION`.
-
-The deterministic rank is learning-attention only, with exact SKU lexical tie-break. It is not business priority.
-
-## Learning safety semantics
+## Safety
 
 Mandatory invariants remain:
 
-- `business_priority_claimed=False`;
-- `causal_claim_allowed=False`;
-- `success_rate_claim_allowed=False`;
-- `profitability_claim_allowed=False`;
-- `decision_rule_update_allowed=False`;
+- no Product Decision rule change;
+- no Product Task Draft execution;
+- no Ozon mutation;
+- no mapping or finance change;
+- no hidden GitHub runtime fetch;
 - `automatic_execution_allowed=False`;
 - `executed=False`.
-
-Older outcome evidence does not satisfy the need for a future observation after the latest feedback.
-
-Absence of a later snapshot is not interpreted as evidence that a decision stayed unchanged.
-
-## Canonical advisory-chain limitation
-
-The newer user-action guidance/checklist/advisory contracts require exact persisted and independently verified Product Decision lineage.
-
-The current Telegram decision card still does not possess that verification artifact.
-
-Therefore that canonical advisory/checklist chain remains intentionally unconnected to production Telegram.
-
-No lineage is reconstructed from legacy aggregates.
 
 ## Persistence hardening status
 
@@ -95,43 +74,28 @@ No new persistence layer is planned without a concrete defect or product require
 
 ## Next package selection
 
-The previously planned per-SKU Learning Coverage Queue is complete.
+Choose the next package from a concrete current product, production-correctness, operator-usability, observability or release-readiness gap.
 
-The next package must be selected from a concrete current product, production-correctness, operator-usability, observability or release-readiness gap after re-reading the actual repository.
+Do not extend the learning chain solely to advance stage numbering.
 
-Do not create another learning/provenance wrapper solely because the previous package was in that area.
+The canonical user-action advisory/checklist chain remains disconnected from production Telegram until exact persisted Product Decision verification lineage is available there.
 
 ## Verification policy
 
-Every safety-critical or production-wired PR must pass the full GitHub Actions verification workflow before merge.
+Every safety-critical or production-wired PR must pass full GitHub Actions verification before merge.
 
 Every resulting `main` SHA must receive its own successful push verification before becoming the current exact baseline.
 
 A PR-head green run is not proof for the squash-merge SHA.
 
-A canonical test manifest proves test-suite results for its bound SHA; it does not by itself prove final workflow completion.
-
-## Safety
-
-Current learning/verification surfaces do not:
-
-- alter Product Decisions;
-- execute Product Task Drafts;
-- mutate Ozon;
-- change mapping authorization;
-- change financial calculations;
-- modify `data/users.json`.
+A canonical test manifest proves suite results for its bound SHA; it does not by itself prove final workflow completion.
 
 ## Related implementation
 
-- `app/product_decision_learning_health.py`
 - `app/product_decision_learning_coverage_queue.py`
-- `app/services/product_decision_history_service.py`
 - `app/services/assistant_button_handler_service.py`
 - `app/services/assistant_keyboard_service.py`
-- `app/telegram_assistant_factory.py`
-- `tests/test_product_decision_learning_health_v478_v487.py`
 - `tests/test_product_decision_learning_coverage_v493_v502.py`
-- `project_brain/PRODUCT_DECISION_LEARNING_HEALTH_SURFACE_V1.md`
 - `project_brain/PRODUCT_DECISION_LEARNING_COVERAGE_QUEUE_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V493_V502.md`
+- `project_brain/PRODUCT_DECISION_LEARNING_COVERAGE_NAVIGATION_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V503_V508.md`
