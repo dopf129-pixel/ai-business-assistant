@@ -73,13 +73,20 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             self._rollback_after_save_failure("TASK_FILE_STALE_WRITE")
             raise RuntimeError("TASK_FILE_STALE_WRITE")
 
+        expected_raw = json.dumps(
+            self.tasks,
+            ensure_ascii=False,
+            indent=4,
+        ).encode("utf-8")
+        expected_fingerprint = self._fingerprint(expected_raw)
+
         try:
             super().save()
         except Exception:
             self._rollback_after_save_failure("TASK_FILE_WRITE_ERROR")
             raise
 
-        self._source_fingerprint = self._current_file_fingerprint()
+        self._source_fingerprint = expected_fingerprint
         self._load_source_state = "LOADED"
         self._load_issues = ()
         self._last_save_state = "SUCCEEDED"
