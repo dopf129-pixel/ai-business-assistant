@@ -12,7 +12,7 @@ Added bounded seller navigation from the read-only Learning Coverage Queue to th
 - forged navigation fails closed;
 - queue opening still performs no Product Decision query and no execution/mutation.
 
-Architecture Review Required: No.
+Architecture Review Required: Yes.
 
 ---
 
