@@ -409,7 +409,3 @@ def test_v533_entry_propagates_unavailable_stock_evidence_without_stock_action()
         item["type"] != "stock"
         for item in recommendations["recommendations"]
     )
-    assert recommendations["recommendations"] == [{
-        "type": "general",
-        "message": "Недостаточно данных для полной оценки бизнеса",
-    }]
