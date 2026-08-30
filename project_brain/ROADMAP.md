@@ -340,19 +340,23 @@ Completed foundation and safety work:
 
 [x] Sales Evidence Availability Hardening
 
-Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, and `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`.
+[x] Executor Error-Result Lifecycle Integrity
+
+[x] Exact Branch SHA Verification
+
+Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`, `EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`, and `EXACT_BRANCH_SHA_VERIFICATION_V1.md`.
 
 
 Current hardening queue:
 
 
-1. Keep full SHA-bound GitHub Actions verification green on every merged `main`.
+1. Keep exact branch-SHA and exact merged-main GitHub Actions verification green; treat pull-request merge-ref runs as separate integration evidence.
 
 2. Treat kernel-backed task-persistence hardening as closed after release closure v463-v472; add more persistence layers only for a concrete discovered failure or product need.
 
 3. Treat Product Decision Learning Health and the per-SKU Learning Coverage Queue as completed seller-facing read-only learning surfaces.
 
-4. Select the next package from a concrete current repo/product/operational gap; do not extend the learning chain only to advance stage numbering.
+4. Select the next package from a concrete current repo/product/operational gap; do not extend the learning, evidence, or lifecycle chain only to advance stage numbering.
 
 5. Do not production-wire the newer canonical user-action advisory/checklist chain until an exact persisted Product Decision verification artifact is available in the Telegram lineage.
 
@@ -365,4 +369,4 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V534_V540.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V541_V547.md`.

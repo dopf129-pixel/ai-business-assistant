@@ -6,129 +6,170 @@ Date: 2026-08-30
 
 Latest exact verified `main` product baseline:
 
-`ed7ca690c78372e10e09ff471cae8023bd8d4125`
+`81ebdccf88a3959d65607de28c904bb952054139`
 
-Latest merged production-correctness batch:
+Latest merged lifecycle-correctness batch:
 
-`v534-v540: harden Sales evidence availability`
+`v541-v547: preserve FAILED lifecycle for executor error results`
 
-GitHub evidence remains SHA-bound and separated by layer.
+GitHub evidence is separated by the revision actually executed.
 
-### PR-head verification
+## Verification layers for PR #233
 
-- PR: **#231**
-- final exact head SHA: `86d24f903b37de19c042414e33a932dbbbc94c1e`
-- workflow: `Verify`
-- event: pull request
-- run number: **99**
-- run id: **33317832547**
-- status: **completed**
-- conclusion: **success**
-- full test suite: **1385 passed**
-- failed: **0**
+### Failed exact branch-head evidence
 
-This confirms the PR head only. It is not reused as proof for the squash-merge SHA.
+Earlier exact feature SHA:
 
-### Post-merge main verification
+`3c49c302b631f888f45e74c3c7c38d2b36522946`
 
-- exact main SHA: `ed7ca690c78372e10e09ff471cae8023bd8d4125`
 - workflow: `Verify`
 - event: **push**
-- run number: **100**
-- run id: **33317865276**
+- run number: **106**
+- run id: **33318940284**
+- actual checkout SHA: `3c49c302b631f888f45e74c3c7c38d2b36522946`
+- status: **completed**
+- conclusion: **failure**
+- tests: **1392 passed, 1 failed**
+
+The failure came from the existing CI contract test requiring the explicit
+`- main` push trigger after branch push verification was first added as only
+`"**"`.
+
+The workflow was corrected in the same branch to preserve explicit `main` and
+also verify all branch pushes.
+
+This failed SHA remains failed evidence and is not promoted by later green runs.
+
+### Final exact branch-head verification
+
+Final feature head:
+
+`aca50b561c999da1a6aac47afb1ebfe191617a9a`
+
+- PR: **#233**
+- workflow: `Verify`
+- event: **push**
+- run number: **112**
+- run id: **33319126918**
+- actual checkout SHA: `aca50b561c999da1a6aac47afb1ebfe191617a9a`
 - status: **completed**
 - conclusion: **success**
-- full test suite: **1385 passed**
+- full test suite: **1395 passed**
 - failed: **0**
-- canonical SHA-bound test-report artifact: **generated**
-- workflow artifact: `verification-ed7ca690c78372e10e09ff471cae8023bd8d4125`
+- SHA-bound artifact: `verification-aca50b561c999da1a6aac47afb1ebfe191617a9a`
+- artifact id: **9734360032**
 
-The completed workflow run is CI evidence for this exact SHA. It does not imply independent external verification.
+This is the exact PR branch-head verification evidence.
 
-## Sales evidence availability hardening
+### Pull-request merge-ref integration verification
 
-The configured Sales Intelligence path now distinguishes complete comparison
-evidence from unavailable or malformed comparison evidence.
+- PR: **#233**
+- workflow: `Verify`
+- event: **pull_request**
+- run number: **113**
+- run id: **33319129148**
+- status: **completed**
+- conclusion: **success**
 
-Contract:
+GitHub's pull-request workflow checks out a synthetic PR merge revision by
+default. Therefore this run is merge-ref integration evidence, not exact
+branch-head evidence, even though GitHub run metadata also references the PR
+head.
 
-- confirmed decline keeps the existing `sales_down=True` + `sales_context`
-  action payload;
-- complete non-decline evidence returns `sales_down=False` and
-  `sales_evidence_available=True`;
-- unavailable/partial configured evidence returns `sales_down=False` and
-  `sales_evidence_available=False`;
-- availability metadata is report evidence only and is not execution permission.
+Do not transfer this run's test manifest or revision identity to
+`aca50b561c999da1a6aac47afb1ebfe191617a9a`.
 
-Historical AssistantEntryService mode with no data dependencies at all keeps its
-existing hardcoded fallback for backward compatibility.
+### Post-merge exact main verification
 
-## Fail-closed sales evidence
+Squash-merge `main` SHA:
 
-Configured sales evidence fails closed on:
+`81ebdccf88a3959d65607de28c904bb952054139`
 
-- malformed or empty product collections;
-- malformed product targets;
-- invalid current/previous period payloads;
-- failed, empty or malformed period-profit evidence;
-- failed or malformed analytics results;
-- malformed comparison structures;
-- missing, boolean or non-finite revenue `change_percent`.
+- workflow: `Verify`
+- event: **push**
+- run number: **114**
+- run id: **33319235235**
+- actual checkout SHA: `81ebdccf88a3959d65607de28c904bb952054139`
+- status: **completed**
+- conclusion: **success**
+- full test suite: **1395 passed**
+- failed: **0**
+- SHA-bound artifact: `verification-81ebdccf88a3959d65607de28c904bb952054139`
+- artifact id: **9734392896**
 
-Missing comparison change is not normalized to 0%.
+This completed push run verifies the exact squash-merge SHA and establishes the
+current product baseline. It is CI evidence, not independent external
+verification.
 
-Explicit numeric zero change remains valid stable evidence.
+## Executor error-result lifecycle integrity
 
-## Sales Intelligence metric semantics
+Before v541-v547, AssistantActionExecutionService handled raised exceptions as
+FAILED but an executor could return a normal dictionary with `error=True` and
+still continue into `complete_action()`.
 
-SalesIntelligenceService rejects malformed action context before invoking the
-analytics service.
+The persisted execution boundary now fails closed:
 
-Required sales facts:
+- `AssistantActionRouterService.execute()` preserves its direct result-returning
+  contract;
+- `AssistantActionRouterService.run()` validates persisted-execution results;
+- explicit executor `error=True` is routed into the existing exception/FAILED
+  lifecycle;
+- non-dict results fail as `INVALID_EXECUTOR_RESULT`;
+- malformed error flags fail as `INVALID_EXECUTOR_RESULT`;
+- explicit error without a usable message uses `EXECUTOR_RETURNED_ERROR`;
+- arbitrary result payload fields are not stringified into persisted errors.
 
-- revenue / `gross_sales`;
-- gross profit / `gross_profit`.
+For executor-returned failures:
 
-Missing or malformed required facts produce an insufficient-data result.
+- action status becomes FAILED, not DONE;
+- task remains ACTIVE rather than falsely completing;
+- pending action is cleared;
+- failed progress is not counted as completed;
+- history records `execution_failed`, not `execution_completed`;
+- feedback records FAILED, not DONE;
+- existing retry policy and retry preparation remain active;
+- `complete_action()` is not reached.
 
-Optional business metrics:
+Successful results preserve the existing DONE completion path.
 
-- business profit;
-- margin percent.
+## Exact branch-SHA CI contract
 
-Missing optional business metrics remain `None`, not zero.
+`Verify` now runs on:
 
-Missing or malformed comparison change produces no trend insight and is not
-treated as stable.
+- pull requests;
+- explicit `main` pushes;
+- all branch pushes;
+- workflow dispatch.
 
-AssistantSalesExecutorService renders unknown metrics as `—`.
+For an open PR, use the branch-push run as exact feature/docs head evidence.
+Use the pull-request run as synthetic merge-ref integration evidence.
 
-## Recommendation semantics
+After squash merge, a separate `main` push run remains mandatory for the exact
+merged SHA.
 
-A sales action remains tied to `sales_down=True`.
+Evidence must not be transferred among:
 
-When no other recommendation exists and
-`sales_evidence_available=False`, the generic fallback says:
+1. feature/docs branch head SHA;
+2. synthetic PR merge SHA;
+3. squash-merge `main` SHA.
 
-`Недостаточно данных для полной оценки бизнеса`
-
-instead of claiming:
-
-`Критичных проблем не найдено`.
+The canonical test report remains bound to the run's actual `GITHUB_SHA` and does
+not by itself prove final workflow completion.
 
 ## Execution safety
 
 This package does not:
 
-- change the sales-decline threshold;
-- alter Product Decision rules;
+- add a new executor or runtime route;
+- change Product Decision rules;
 - execute Product Task Drafts;
-- add an Action Executor route;
-- mutate Ozon;
-- modify persistence;
+- add Ozon mutation;
+- change retry limits;
+- change task persistence format;
 - modify `data/users.json`.
 
-No sales-evidence availability field is business execution authorization.
+The lifecycle change prevents false completion; it does not grant new business
+execution permission.
 
 ## Persistence hardening status
 
@@ -141,7 +182,8 @@ No new persistence layer is planned without a concrete defect or product require
 Choose the next package from a concrete current product, production-correctness,
 operator-usability, observability or release-readiness gap.
 
-Do not extend sales/evidence/provenance layers solely to advance stage numbering.
+Do not extend lifecycle/provenance/evidence layers solely to advance stage
+numbering.
 
 The canonical user-action advisory/checklist chain remains disconnected from
 production Telegram until exact persisted Product Decision verification lineage
@@ -149,26 +191,26 @@ is available there.
 
 ## Verification policy
 
-Every safety-critical or production-wired PR must pass full GitHub Actions
-verification before merge.
+Every production or safety-critical feature branch must receive successful
+exact branch-push verification before merge.
+
+Pull-request merge-ref green status is additional integration evidence and does
+not replace branch-head verification.
 
 Every resulting `main` SHA must receive its own successful push verification
 before becoming the current exact baseline.
 
-A PR-head green run is not proof for the squash-merge SHA.
-
-A failed SHA remains failed evidence even if a later SHA on the same branch passes.
+A failed SHA remains failed evidence even if a later SHA passes.
 
 A canonical test manifest proves suite results for its bound SHA; it does not by
-itself prove final workflow completion.
+itself prove final workflow completion or independent external verification.
 
-## Related implementation
+## Related implementation and evidence
 
-- `app/services/assistant_entry_service.py`
-- `app/services/assistant_recommendation_service.py`
-- `app/services/sales_context_provider.py`
-- `app/services/sales_intelligence_service.py`
-- `app/services/assistant_sales_executor_service.py`
-- `tests/test_sales_evidence_availability_v534_v540.py`
-- `project_brain/SALES_EVIDENCE_AVAILABILITY_HARDENING_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V534_V540.md`
+- `app/services/assistant_action_router_service.py`
+- `.github/workflows/verify.yml`
+- `tests/test_executor_error_result_lifecycle_v541_v547.py`
+- `tests/test_exact_branch_verification_v547.py`
+- `project_brain/EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`
+- `project_brain/EXACT_BRANCH_SHA_VERIFICATION_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V541_V547.md`
