@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from services.assistant_entry_service import AssistantEntryService
 from services.assistant_task_persistence_operational_runtime_service import (
     AssistantTaskPersistenceOperationalRuntimeService,
@@ -302,3 +304,8 @@ def test_v367_telegram_core_composes_read_only_persistence_runtime_with_injected
     assert report["business_execution_ready"] is False
     assert report["mutation_ready"] is False
     assert report["executed"] is False
+
+
+def test_v366_unsafe_task_owner_injection_is_rejected():
+    with pytest.raises(ValueError, match="UNSAFE_TASK_SERVICE_INJECTION"):
+        create_telegram_core(task_service=object())
