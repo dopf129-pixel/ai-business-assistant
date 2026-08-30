@@ -102,14 +102,24 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if (
-            self.user_profile_service
-            and user_id is not None
-        ):
-
-            self.user_profile_service.create_user(
+        profile_failure = (
+            self._admit_user_profile(
                 user_id
             )
+        )
+
+        if profile_failure:
+
+            result = dict(
+                profile_failure
+            )
+
+            result.setdefault(
+                "text",
+                "Профиль пользователя недоступен"
+            )
+
+            return result
 
         return {
             "text":
@@ -126,14 +136,15 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if (
-            self.user_profile_service
-            and user_id is not None
-        ):
-
-            self.user_profile_service.create_user(
+        profile_failure = (
+            self._admit_user_profile(
                 user_id
             )
+        )
+
+        if profile_failure:
+
+            return profile_failure
 
         if (
             self.memory_command_service
@@ -169,14 +180,15 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
-        if (
-            self.user_profile_service
-            and user_id is not None
-        ):
-
-            self.user_profile_service.create_user(
+        profile_failure = (
+            self._admit_user_profile(
                 user_id
             )
+        )
+
+        if profile_failure:
+
+            return profile_failure
 
         result = call_with_legacy_arity(
             self.button_handler
@@ -194,6 +206,78 @@ class AssistantTelegramAdapter:
             callback,
             result,
         )
+
+    def _admit_user_profile(
+        self,
+        user_id
+    ):
+
+        if (
+            not self.user_profile_service
+            or user_id is None
+        ):
+
+            return None
+
+        try:
+
+            result = (
+                self.user_profile_service
+                .create_user(
+                    user_id
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_USER_PROFILE_CREATE_FAILED"
+            }
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_USER_PROFILE_RESULT"
+            }
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return dict(
+                result
+            )
+
+        if not isinstance(
+            result.get(
+                "user"
+            ),
+            dict
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_USER_PROFILE_RESULT"
+            }
+
+        return None
+
 
     def _with_task_draft_freshness(self, callback, result):
         if not isinstance(result, dict):
