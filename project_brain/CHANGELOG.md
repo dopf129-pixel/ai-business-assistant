@@ -2,6 +2,22 @@
 
 ## 2026-08-30
 
+### Project Brain reconciliation after Store Period hardening v509-v513
+
+Reconciled Project Brain to the verified Store Period production-correctness baseline.
+
+- PR #223 head `99da5ec37ebea79fd014675f70b52f66506ebe55`: Verify #69 success, 1328 passed;
+- squash-merge main `37b1b34506da5e7c626ee8a2bd89e3b2148588a1`: push Verify #70 success, 1328 passed;
+- updated CURRENT_STATE, ROADMAP and VERIFICATION_STATUS;
+- added CURRENT_CHECKPOINT_V509_V513.md.
+
+Docs only; no runtime, financial formula, execution, Ozon, mapping, persistence or `data/users.json` change.
+
+---
+
+
+## 2026-08-30
+
 ### Store Period Default Composition Hardening
 
 Corrected a broken default dependency path in Store Period reporting.
