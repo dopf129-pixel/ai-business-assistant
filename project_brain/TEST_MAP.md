@@ -1946,3 +1946,29 @@ Tests:
 - contradictory unavailable context does not create finance action;
 - legacy finance_context-only callers remain compatible;
 - no finance formula/provider-shape change.
+
+---
+
+# Business Planner Result Integrity v1
+
+Services:
+
+- AssistantBusinessPlannerService
+- AssistantRecommendationService
+- AssistantPlanningService
+- AssistantActionPlanExecutorService
+- AssistantTaskService
+
+Tests:
+
+- tests/test_business_planner_result_integrity_v575_v581.py
+- tests/test_action_plan_result_integrity_v568_v574.py
+
+Проверяет:
+
+- сохранение explicit downstream error=True без перепаковки в success;
+- fail-closed malformed recommendation/planning/execution/task-create payloads;
+- exact boolean error contracts;
+- actions/count consistency;
+- отсутствие task creation после downstream failure;
+- сохранение valid plan result и general-only non-actionable path.

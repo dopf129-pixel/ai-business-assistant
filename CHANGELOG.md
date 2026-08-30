@@ -368,3 +368,11 @@ Summary Report теперь включает:
 ---
 
 Конец журнала изменений.
+
+## 2026-08-30 — Business Planner Result Integrity v575-v581
+
+- `AssistantBusinessPlannerService` now preserves downstream failures instead of
+  rewriting them as successful plans;
+- malformed recommendation/planning/execution/task-create results fail closed;
+- valid plans and general-only presentation behavior remain compatible;
+- no new business execution or Ozon mutation path was added.

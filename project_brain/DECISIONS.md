@@ -1715,3 +1715,44 @@ produce an unsupported “no critical problems” conclusion.
 Status:
 
 Implemented
+
+---
+
+## Decision 034
+
+Date:
+
+2026-08-30
+
+Topic:
+
+Business Planner Result Integrity
+
+Decision:
+
+AssistantBusinessPlannerService must preserve downstream failure semantics and
+must not convert malformed or failing recommendation/planning/execution/task
+results into a successful seller-facing plan.
+
+Rules:
+
+- each consumed boundary result must be a dictionary with exact boolean error;
+- explicit error=True is preserved unchanged;
+- recommendation success requires a recommendations list;
+- planning success requires a plan list;
+- Action Plan execution success requires list actions plus a non-boolean,
+  non-negative integer count matching len(actions);
+- task creation errors are not hidden when the optional task-service path is used;
+- malformed boundary payloads fail closed with deterministic non-secret codes;
+- general recommendations remain presentation-only and do not enter planning;
+- no new executor, mutation, action type or execution permission is introduced.
+
+Reason:
+
+The Business Planner previously could wrap an already fail-closed Action Plan
+execution result in a new error=False response, suppressing failure semantics and
+presenting an execution-adjacent planning operation as successful.
+
+Status:
+
+Implemented

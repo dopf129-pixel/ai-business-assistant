@@ -1332,3 +1332,26 @@ Preserved:
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - no data/users.json change.
+
+---
+
+# Business Planner Result Integrity v1 — 2026-08-30
+
+Completed:
+
+[x] downstream recommendation error propagation
+[x] malformed recommendation result fail-closed
+[x] downstream planning error propagation
+[x] malformed planning result fail-closed
+[x] Action Plan execution error propagation
+[x] execution actions/count integrity validation
+[x] optional task-creation result validation
+[x] general-only recommendation remains non-actionable
+
+Preserved:
+
+- existing constructor dependency injection;
+- existing valid plan/action ordering;
+- no Product Decision/Product Task Draft execution;
+- no Ozon mutation;
+- no business-evidence inference.
