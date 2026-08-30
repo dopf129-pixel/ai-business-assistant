@@ -376,3 +376,12 @@ Summary Report теперь включает:
 - malformed recommendation/planning/execution/task-create results fail closed;
 - valid plans and general-only presentation behavior remain compatible;
 - no new business execution or Ozon mutation path was added.
+
+## 2026-08-30 — Business Flow Result Integrity v582-v590
+
+- `AssistantBusinessFlowService` now preserves downstream failure semantics;
+- malformed execution/planner/task/intent results fail closed instead of using
+  optimistic success defaults;
+- task lifecycle success wording is emitted only for validated successful results;
+- committed skip state is reported explicitly if a later next-action read fails;
+- no new business execution or Ozon mutation path was added.
