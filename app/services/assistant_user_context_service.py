@@ -53,6 +53,15 @@ class AssistantUserContextService:
             if not self._valid_save_result(
                 save_result
             ):
+
+                if self._explicit_save_failure(
+                    save_result
+                ):
+                    user.pop(
+                        "context",
+                        None
+                    )
+
                 return self._invalid_result(
                     "INVALID_USER_CONTEXT_SAVE_RESULT"
                 )
@@ -117,8 +126,11 @@ class AssistantUserContextService:
         context = user.get(
             "context"
         )
+        context_created = (
+            context is None
+        )
 
-        if context is None:
+        if context_created:
 
             user["context"] = {}
             context = user["context"]
@@ -132,6 +144,11 @@ class AssistantUserContextService:
                 "INVALID_USER_CONTEXT_DATA"
             )
 
+        existed = key in context
+        previous = context.get(
+            key
+        )
+
         context[key] = value
 
         save_result = (
@@ -142,6 +159,24 @@ class AssistantUserContextService:
         if not self._valid_save_result(
             save_result
         ):
+
+            if self._explicit_save_failure(
+                save_result
+            ):
+
+                if context_created:
+                    user.pop(
+                        "context",
+                        None
+                    )
+                elif existed:
+                    context[key] = previous
+                else:
+                    context.pop(
+                        key,
+                        None
+                    )
+
             return self._invalid_result(
                 "INVALID_USER_CONTEXT_SAVE_RESULT"
             )
@@ -241,6 +276,29 @@ class AssistantUserContextService:
                 "error"
             )
             is False
+        )
+
+
+    @staticmethod
+    def _explicit_save_failure(
+        result
+    ):
+
+        return (
+            isinstance(
+                result,
+                dict
+            )
+            and type(
+                result.get(
+                    "error"
+                )
+            )
+            is bool
+            and result.get(
+                "error"
+            )
+            is True
         )
 
 
