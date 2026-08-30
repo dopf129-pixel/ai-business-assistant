@@ -300,6 +300,7 @@ def test_v366_entry_routes_operator_status_before_business_flow():
     main = _MainFlow()
     runtime = _Runtime(
         {
+            "error": False,
             "status": "TASK_PERSISTENCE_OPERATIONAL_READINESS",
             "read_only": True,
             "executed": False,

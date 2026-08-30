@@ -99,7 +99,10 @@ class AssistantEntryService:
                 )
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_TASK_PERSISTENCE_RUNTIME_RESULT"
+                )
 
         if self.freshness_operational_runtime_service is not None:
             direct_result = (
@@ -107,7 +110,10 @@ class AssistantEntryService:
                 .handle_text(text)
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_FRESHNESS_RUNTIME_RESULT"
+                )
 
         if self.period_profit_mapping_recovery_runtime_service is not None:
             direct_result = (
@@ -115,7 +121,10 @@ class AssistantEntryService:
                 .handle_text(text)
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_MAPPING_RECOVERY_RUNTIME_RESULT"
+                )
 
         if self.period_profit_mapping_admin_runtime_service is not None:
             direct_result = (
@@ -123,7 +132,10 @@ class AssistantEntryService:
                 .handle_text(text)
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_MAPPING_ADMIN_RUNTIME_RESULT"
+                )
 
         if self.return_operation_review_runtime_service is not None:
             direct_result = (
@@ -131,7 +143,10 @@ class AssistantEntryService:
                 .handle_text(text)
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_RETURN_REVIEW_RUNTIME_RESULT"
+                )
 
         if self.period_profit_runtime_service is not None:
             direct_result = (
@@ -139,7 +154,10 @@ class AssistantEntryService:
                 .handle_text(text)
             )
             if direct_result is not None:
-                return direct_result
+                return self._direct_result(
+                    direct_result,
+                    "INVALID_PERIOD_PROFIT_RUNTIME_RESULT"
+                )
 
         report = {
             "sales_down": True,
@@ -289,3 +307,31 @@ class AssistantEntryService:
             self.finance_context_provider
             ._build_finance_data(profits)
         )
+
+
+    @staticmethod
+    def _direct_result(
+        result,
+        invalid_code
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    invalid_code
+            }
+
+        return result

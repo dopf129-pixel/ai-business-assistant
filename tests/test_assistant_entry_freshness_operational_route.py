@@ -38,7 +38,7 @@ def _entry(runtime=None):
 
 
 def test_entry_returns_freshness_runtime_result_before_general_flow():
-    runtime = _Runtime({"status": "FRESHNESS_OPERATIONAL_READINESS_SUMMARY", "read_only": True})
+    runtime = _Runtime({"error": False, "status": "FRESHNESS_OPERATIONAL_READINESS_SUMMARY", "read_only": True})
     entry, main = _entry(runtime)
     result = entry.handle("статус свежести")
     assert result["status"] == "FRESHNESS_OPERATIONAL_READINESS_SUMMARY"

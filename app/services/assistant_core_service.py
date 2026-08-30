@@ -82,6 +82,17 @@ class AssistantCoreService:
         )
 
 
+        if not self._valid_result(
+            result
+        ):
+
+            result = {
+                "error": True,
+                "message":
+                    "INVALID_ORCHESTRATOR_RESULT"
+            }
+
+
 
         if (
             self.user_context_service
@@ -111,3 +122,22 @@ class AssistantCoreService:
 
 
         return result
+
+    @staticmethod
+    def _valid_result(
+        result
+    ):
+
+        return (
+            isinstance(
+                result,
+                dict
+            )
+            and
+            type(
+                result.get(
+                    "error"
+                )
+            )
+            is bool
+        )

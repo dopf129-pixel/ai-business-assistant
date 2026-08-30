@@ -61,6 +61,7 @@ class _EntryRuntime:
     def handle_text(self, text, user_id=None):
         self.user_ids.append(user_id)
         return {
+            "error": False,
             "status": "TASK_PERSISTENCE_OPERATIONAL_READINESS",
             "operator_authorized": True,
             "read_only": True,

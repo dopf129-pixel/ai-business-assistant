@@ -34,7 +34,7 @@ def _entry(runtime):
 
 
 def test_profit_direct_route_bypasses_general_business_flow():
-    runtime = Runtime({"status": "PERIOD_PROFIT_QUERY_READY", "read_only": True, "executed": False})
+    runtime = Runtime({"error": False, "status": "PERIOD_PROFIT_QUERY_READY", "read_only": True, "executed": False})
     entry = _entry(runtime)
     result = entry.handle("прибыль за 7 дней")
     assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
