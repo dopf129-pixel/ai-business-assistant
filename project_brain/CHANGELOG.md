@@ -2,6 +2,23 @@
 
 ## 2026-08-30
 
+### Marketing Evidence Integrity v1
+
+Removed invented success-looking marketing evidence from the existing marketing path.
+
+- marketing recommendation requires explicit evidence availability/context;
+- marketing executor formats supplied evidence only;
+- missing/malformed marketing evidence fails closed;
+- persisted router run uses the existing FAILED lifecycle on executor error;
+- no marketing API, campaign mutation, Product Decision execution or Ozon mutation added.
+
+Architecture Review Required: Yes.
+
+---
+
+
+## 2026-08-30
+
 ### Project Brain reconciliation after Executor Error-Result Lifecycle v541-v547
 
 Reconciled Project Brain to the verified lifecycle/CI baseline.
