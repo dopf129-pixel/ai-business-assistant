@@ -40,6 +40,20 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         self._load_source_state = "LOADED"
         self._reconcile_loaded_tasks()
 
+    def save(self):
+        try:
+            super().save()
+        except Exception:
+            self._last_save_state = "FAILED"
+            self._last_save_issue = "TASK_FILE_WRITE_ERROR"
+            self.load()
+            self._last_save_rolled_back = True
+            raise
+
+        self._last_save_state = "SUCCEEDED"
+        self._last_save_issue = None
+        self._last_save_rolled_back = False
+
     def _validate_loaded_task(self, task):
         if not isinstance(task, dict):
             return "MALFORMED_TASK"
@@ -117,6 +131,19 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
             "source_state": getattr(self, "_load_source_state", "UNKNOWN"),
             "issue_count": len(issues),
             "issues": issues,
+            "loaded_task_count": len(self.tasks),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def get_persistence_diagnostics(self):
+        return {
+            "error": False,
+            "status": "TASK_PERSISTENCE_DIAGNOSTICS",
+            "load_source_state": getattr(self, "_load_source_state", "UNKNOWN"),
+            "last_save_state": getattr(self, "_last_save_state", "NEVER_ATTEMPTED"),
+            "last_save_issue": getattr(self, "_last_save_issue", None),
+            "last_save_rolled_back": getattr(self, "_last_save_rolled_back", False),
             "loaded_task_count": len(self.tasks),
             "read_only": True,
             "executed": False,
