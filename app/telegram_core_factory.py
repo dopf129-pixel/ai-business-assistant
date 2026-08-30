@@ -82,6 +82,14 @@ from services.terminal_safe_assistant_task_service import (
     TerminalSafeAssistantTaskService
 )
 
+from services.task_persistence_operational_service import (
+    TaskPersistenceOperationalService
+)
+
+from services.assistant_task_persistence_operational_runtime_service import (
+    AssistantTaskPersistenceOperationalRuntimeService
+)
+
 from services.assistant_action_router_service import (
     AssistantActionRouterService
 )
@@ -239,6 +247,17 @@ def create_telegram_core(
 
     task_service = (
         TerminalSafeAssistantTaskService()
+    )
+
+
+    task_persistence_operational_runtime = (
+        AssistantTaskPersistenceOperationalRuntimeService(
+            operational_service=(
+                TaskPersistenceOperationalService(
+                    task_service=task_service
+                )
+            )
+        )
     )
 
 
@@ -583,6 +602,9 @@ def create_telegram_core(
             ),
             finance_context_provider=(
                 finance_context_provider
+            ),
+            task_persistence_operational_runtime_service=(
+                task_persistence_operational_runtime
             )
         )
     )
@@ -662,6 +684,9 @@ def create_telegram_core(
 
         "task_service":
             task_service,
+
+        "task_persistence_operational_runtime_service":
+            task_persistence_operational_runtime,
 
         "execution_service":
             execution_service,
