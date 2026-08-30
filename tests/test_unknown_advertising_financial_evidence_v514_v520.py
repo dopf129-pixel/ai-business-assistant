@@ -16,6 +16,9 @@ from services.business_profit_dashboard_service import (
 from services.sales_intelligence_service import (
     SalesIntelligenceService,
 )
+from services.store_analytics_service import (
+    StoreAnalyticsService,
+)
 from services.assistant_sales_executor_service import (
     AssistantSalesExecutorService,
 )
@@ -196,7 +199,7 @@ def test_v518_sales_executor_formats_unknown_profit_metrics_as_dash():
 
 
 def test_v519_sales_intelligence_preserves_unknown_profit_as_none():
-    analytics = BusinessAnalyticsService(
+    analytics = StoreAnalyticsService(
         tax_mode="USN_INCOME",
         tax_rate=6,
         minimum_tax_rate=1,
