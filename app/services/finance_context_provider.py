@@ -3,8 +3,6 @@ from math import isfinite
 
 class FinanceContextProvider:
 
-    PROFIT_SCOPE = "PERIOD_GROSS_PROFIT"
-
     def build(
         self,
         period_data
@@ -108,8 +106,7 @@ class FinanceContextProvider:
             "revenue": round(revenue, 2),
             "expenses": round(expenses, 2),
             "profit": round(profit, 2),
-            "margin": round(margin, 2),
-            "profit_scope": self.PROFIT_SCOPE
+            "margin": round(margin, 2)
         }
 
     def _number(
