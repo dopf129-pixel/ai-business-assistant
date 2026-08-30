@@ -333,17 +333,19 @@ Current hardening queue:
 
 1. Keep full SHA-bound GitHub Actions verification green on every merged `main`.
 
-2. Close the kernel-backed task-persistence hardening track with an explicit release checklist/runbook built from existing canonical diagnostics and evidence.
+2. Treat kernel-backed task-persistence hardening as closed after release closure v463-v472; add more persistence layers only for a concrete discovered failure or product need.
 
-3. Keep workflow-run/test-manifest provenance development-side and explicit; no production runtime GitHub fetch.
+3. Return focus to seller-facing AI Assistant Product Development and select the next unmet product capability from current repository evidence rather than stale historical "Next" notes.
 
-4. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
+4. Keep workflow-run/test-manifest provenance development-side and explicit; no production runtime GitHub fetch.
 
-5. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
+5. Keep persistence diagnostics default-deny unless explicit operator IDs are configured.
 
-6. Continue Project Brain drift cleanup as safety-critical batches land.
+6. Treat the persistent coordination file as inert ownership-wise; do not infer owner, age or stale state from file presence and do not add automatic deletion.
 
-7. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+7. Continue Project Brain drift cleanup when it changes product/safety interpretation.
+
+8. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V458_V462.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V473_V477.md`.

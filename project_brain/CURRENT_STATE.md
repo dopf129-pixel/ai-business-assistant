@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1287 passed on `bfedb5bf096535440ed39a6ddd3d15a60169c9f8`.
+1298 passed on `77ed4ce6335579cdd55259c94e73d0c80d5e076c`.
 
-GitHub Actions push verification run #50 completed successfully for this exact main SHA.
+GitHub Actions push verification run #54 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -410,10 +410,10 @@ Next planned changes:
 1. Поддерживать SHA-bound CI verification на каждом новом main
 
 
-2. Поддерживать release observability и capability provenance для kernel-backed task persistence
+2. Считать kernel-backed task persistence hardening закрытым; поддерживать только regression/release evidence без новых абстракций без конкретной необходимости
 
 
-3. Закрыть task-persistence hardening release checklist/runbook на существующих canonical diagnostics/evidence
+3. Вернуться к seller-facing AI Assistant Product Development и выбрать следующий реальный незакрытый product gap по текущему repo evidence
 
 
 4. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
@@ -725,10 +725,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1287 passed on `bfedb5bf096535440ed39a6ddd3d15a60169c9f8`.
+1298 passed on `77ed4ce6335579cdd55259c94e73d0c80d5e076c`.
 
 Verification source:
-GitHub Actions push run #50, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #54, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -798,18 +798,21 @@ Margin: 36.56%
 Finance sample:
 236 sales / 2 complete days
 
-Important limitation:
+Historical note:
 
-Returns / buyout losses are not included yet because cancelled
-FBO postings cannot currently be reliably separated into
-pre-shipment cancellations and real customer non-buyouts.
+At this checkpoint returns / buyout losses were not yet included because cancelled
+FBO postings could not be reliably separated into pre-shipment cancellations and
+real customer non-buyouts.
 
-Full test suite:
+Current repository state supersedes that old "Next" item: dedicated returns/buyout
+analytics, returns-finance attribution, observed return impact, and authorized return
+financial-evidence services now exist.
 
-217 passed
+Important current limitation:
 
-Next:
-Returns & Buyout Analytics v1
+Financial return-operation evidence and returns/buyout analytics are not equivalent
+to complete return economics. Do not treat the current evidence as proof that all
+return costs/losses are fully modeled in unit economics.
 
 ---
 

@@ -2,121 +2,89 @@
 
 Date: 2026-08-30
 
-## Latest verified baseline entering v458-v462
+## Latest verified baseline entering v473-v477
 
 Latest exact verified `main`:
 
-`bfedb5bf096535440ed39a6ddd3d15a60169c9f8`
+`77ed4ce6335579cdd55259c94e73d0c80d5e076c`
 
-Latest merged persistence-verification batch:
+Latest merged persistence-hardening batch:
 
-`v448-v457: add completed workflow-run evidence binding`
+`v463-v472: add task persistence release closure checklist`
 
 Full-suite verification for this exact SHA:
 
 - GitHub Actions workflow: `Verify`
 - event: `push`
-- run number: **50**
+- run number: **54**
 - conclusion: **success**
-- result: **1287 passed**
+- result: **1298 passed**
 - failed: **0**
 - exact SHA-bound: **yes**
 - canonical JSON test manifest generated: **yes**
 
-## Current evidence layers
+## Persistence hardening closure
 
-The project distinguishes:
+The kernel-backed task-persistence track now includes:
 
-1. implementation-contract evidence;
-2. runtime diagnostic evidence;
-3. canonical SHA-bound pytest manifest evidence;
-4. caller-supplied exact-SHA CI metadata;
-5. explicit completed workflow-run metadata;
-6. external verification.
+1. recovery/load integrity;
+2. exact persisted-byte optimistic concurrency;
+3. kernel-backed exclusive writer coordination;
+4. atomic replace and file fsync;
+5. parent-directory fsync;
+6. inert coordination-file semantics;
+7. operator-only readiness diagnostics;
+8. release observability;
+9. capability provenance;
+10. canonical SHA-bound test manifest;
+11. completed workflow-run evidence;
+12. deterministic release-review closure/checklist/runbook.
 
-The v448-v457 layer binds item 5 to the exact item-3 manifest and capability provenance.
+The final closure state is only:
 
-It still preserves:
+- `READY_FOR_RELEASE_REVIEW`; or
+- `BLOCKED`.
 
-`externally_verified=False`
+It does not deploy, approve or execute anything.
 
-because the repository service validates explicitly supplied completed-run metadata and does not independently fetch GitHub.
+## Current exact release-review evidence semantics
 
-## Current persistence verification coverage
+A clean closure may prove that:
 
-The green suite covers:
+- required persistence capabilities are present;
+- no current runtime blockers/warnings were detected;
+- the canonical test manifest is bound to the exact revision;
+- the completed workflow run is bound to the same SHA/run identity;
+- the test suite and final run both report success.
 
-- load/recovery integrity;
-- atomic persistence rollback;
-- exact persisted-byte optimistic concurrency;
-- POSIX kernel-backed write locking;
-- crash-like fd-close lock release;
-- persistent inert coordination-file compatibility;
-- file fsync, atomic replace and directory fsync;
-- operator readiness/default-deny access;
-- release observability and deterministic audit;
-- capability provenance;
-- canonical JUnit → SHA-bound JSON manifest;
-- manifest tamper validation;
-- test-manifest → capability provenance binding;
-- failed-suite evidence preservation;
-- completed workflow-run evidence;
-- exact SHA/workflow/event/run-id/run-number binding;
-- green-tests + failed-final-run distinction;
-- contradictory final-success/failed-tests rejection;
-- workflow-run capability enrichment and deterministic audit.
+It does **not** prove:
 
-## Current release-hardening target
+- deployment success;
+- external verification;
+- future filesystem/process health;
+- seller business execution.
 
-Persistence runtime and evidence mechanics are now mature enough that the next practical step is a release checklist/runbook rather than another evidence abstraction.
+## Current product-direction implication
 
-The release closure should explain:
+Persistence hardening is closed unless a concrete regression or new product requirement exposes another gap.
 
-- which exact diagnostics an operator checks;
-- which blockers prevent release;
-- how kernel-lock contention is handled;
-- how durability warnings are handled;
-- what evidence proves the exact tested revision;
-- what remains unverified;
-- what must never be auto-retried/deleted/executed.
+The next engineering work should return to seller-facing AI Assistant Product Development.
 
-It must remain read-only and operator-facing.
+Historical Current State notes must not be used blindly as future roadmap. For example, the old `Returns & Buyout Analytics v1` "Next" item is superseded by existing returns/buyout and returns-finance attribution services.
 
-## Verification infrastructure
-
-The `Verify` workflow produces:
-
-- `revision.txt`;
-- `pytest-junit.xml`;
-- `test-report.json`.
-
-A completed workflow run is a separate evidence layer from the earlier test manifest.
-
-No test result or run conclusion transfers to another SHA.
-
-## Historical baselines
-
-Historical exact baselines remain evidence only for their own SHAs, including:
-
-- `11883f901d3bb344816735b834392a59185c0c81` — **982 passed**;
-- `d0286d45f23e6da17b33afbb269ce109f8a72e3b` — **1197 passed**;
-- `3a5bbe9332492073555ef258038e4a4db9e7bf85` — **1234 passed**;
-- `1a31258db514e18842f61d240b9040bbf7eeac46` — **1244 passed**;
-- `95270b66667bd789a120f3efb3afecb4e50a867d` — **1254 passed**;
-- `d18b5a8c5e913477e749c15c3df233cda51d4bc4` — **1265 passed**;
-- `379352ad66cf90debc2cebdf701dc2e4ef1170ed` — **1276 passed**.
+Full return economics is still not proven merely by those evidence services.
 
 ## Verification policy
 
-Every safety-critical PR must pass full GitHub Actions verification before merge.
+Every safety-critical feature PR must pass full GitHub Actions verification before merge.
 
 Every resulting `main` SHA must receive its own successful push verification before becoming the current exact baseline.
 
-Focused regressions supplement but do not replace the full-suite result.
+No test count, test manifest or workflow conclusion transfers to another SHA.
 
 ## Safety
 
-Verification/provenance does not:
+Verification/release closure does not:
 
 - alter Product Decisions;
 - enable Product Task Draft execution;
@@ -129,10 +97,12 @@ Verification/provenance does not:
 ## Related implementation
 
 - `.github/workflows/verify.yml`
+- `app/services/terminal_safe_assistant_task_service.py`
 - `app/services/task_persistence_release_observability_service.py`
 - `app/services/task_persistence_capability_provenance_service.py`
 - `app/services/task_persistence_verification_manifest_provenance_service.py`
 - `app/services/task_persistence_workflow_run_evidence_service.py`
-- `tests/test_task_persistence_workflow_run_evidence_v448_v457.py`
-- `project_brain/TASK_PERSISTENCE_WORKFLOW_RUN_EVIDENCE_V1.md`
-- `project_brain/CURRENT_CHECKPOINT_V458_V462.md`
+- `app/services/task_persistence_release_closure_service.py`
+- `tests/test_task_persistence_release_closure_v463_v472.py`
+- `project_brain/TASK_PERSISTENCE_RELEASE_CLOSURE_V1.md`
+- `project_brain/CURRENT_CHECKPOINT_V473_V477.md`
