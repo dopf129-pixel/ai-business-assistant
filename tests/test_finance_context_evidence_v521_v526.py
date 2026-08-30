@@ -105,7 +105,7 @@ def test_v522_finance_context_rejects_malformed_or_non_finite_fact():
     assert malformed_item is None
 
 
-def test_v523_finance_context_preserves_explicit_zero_and_scope():
+def test_v523_finance_context_preserves_explicit_zero_and_shape():
     result = FinanceContextProvider().build(
         _period_data(
             current=[{
@@ -123,7 +123,6 @@ def test_v523_finance_context_preserves_explicit_zero_and_scope():
         "expenses": 0.0,
         "profit": 0.0,
         "margin": 0,
-        "profit_scope": "PERIOD_GROSS_PROFIT",
     }
 
 
@@ -134,38 +133,38 @@ def test_v524_finance_intelligence_uses_non_accounting_wording():
             "expenses": 700,
             "profit": 300,
             "margin": 30,
-            "profit_scope": "PERIOD_GROSS_PROFIT",
         }
     )
 
     assert result["error"] is False
-    assert result["profit_scope"] == "PERIOD_GROSS_PROFIT"
+    assert result["profit_scope"] == "CALLER_PROVIDED"
     messages = [
         item["message"]
         for item in result["insights"]
     ]
-    assert "Расчётный валовый результат положительный" in messages
+    assert (
+        "Расчётный финансовый результат положительный"
+        in messages
+    )
     assert all(
         "Бизнес работает с положительной прибылью" not in message
         for message in messages
     )
 
 
-def test_v524_decline_wording_stays_within_gross_profit_scope():
+def test_v524_decline_wording_stays_non_accounting():
     result = FinanceIntelligenceService().analyze(
         {
             "revenue": 1000,
             "expenses": 800,
             "profit": 200,
             "margin": 20,
-            "profit_scope": "PERIOD_GROSS_PROFIT",
         },
         previous_data={
             "revenue": 1000,
             "expenses": 600,
             "profit": 400,
             "margin": 40,
-            "profit_scope": "PERIOD_GROSS_PROFIT",
         },
     )
 
@@ -176,12 +175,12 @@ def test_v524_decline_wording_stays_within_gross_profit_scope():
     )
 
     assert decline["message"] == (
-        "Расчётный валовый результат снизился "
+        "Расчётный финансовый результат снизился "
         "относительно предыдущего периода"
     )
 
 
-def test_v525_finance_executor_presents_scoped_result():
+def test_v525_finance_executor_presents_evidence_scoped_result():
     class _Intelligence:
         def analyze(
             self,
@@ -190,7 +189,7 @@ def test_v525_finance_executor_presents_scoped_result():
         ):
             return {
                 "error": False,
-                "profit_scope": "PERIOD_GROSS_PROFIT",
+                "profit_scope": "CALLER_PROVIDED",
                 "metrics": {
                     "revenue": 1000.0,
                     "expenses": 700.0,
@@ -210,7 +209,7 @@ def test_v525_finance_executor_presents_scoped_result():
 
     details = result["result"]["details"]
 
-    assert "Расчётный валовый результат: 300.0" in details
+    assert "Расчётный финансовый результат: 300.0" in details
     assert "Расходы по доступным данным: 700.0" in details
     assert "Маржинальность по доступным данным: 30.0%" in details
     assert all(
