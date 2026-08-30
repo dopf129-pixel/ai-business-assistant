@@ -246,9 +246,21 @@ def create_telegram_core(
     )
 
 
+    if (
+        task_service is not None
+        and not isinstance(
+            task_service,
+            TerminalSafeAssistantTaskService
+        )
+    ):
+        raise ValueError(
+            "UNSAFE_TASK_SERVICE_INJECTION"
+        )
+
     task_service = (
         task_service
-        or TerminalSafeAssistantTaskService()
+        if task_service is not None
+        else TerminalSafeAssistantTaskService()
     )
 
 
