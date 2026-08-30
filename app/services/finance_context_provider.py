@@ -1,10 +1,19 @@
+from math import isfinite
+
+
 class FinanceContextProvider:
+
+    PROFIT_SCOPE = "PERIOD_GROSS_PROFIT"
 
     def build(
         self,
         period_data
     ):
-        period_data = period_data or {}
+        if not isinstance(
+            period_data,
+            dict
+        ):
+            return None
 
         finance_data = self._build_finance_data(
             period_data.get(
