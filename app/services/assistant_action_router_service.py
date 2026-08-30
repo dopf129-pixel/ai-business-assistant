@@ -60,8 +60,59 @@ class AssistantActionRouterService:
         action
     ):
 
-        return (
+        result = (
             self.execute(
                 action
             )
         )
+
+
+        if not isinstance(
+            result,
+            dict
+        ):
+
+            raise RuntimeError(
+                "INVALID_EXECUTOR_RESULT"
+            )
+
+
+        error = result.get(
+            "error"
+        )
+
+
+        if error is True:
+
+            message = result.get(
+                "message"
+            )
+
+            if (
+                not isinstance(
+                    message,
+                    str
+                )
+                or not message.strip()
+            ):
+
+                message = (
+                    "EXECUTOR_RETURNED_ERROR"
+                )
+
+            raise RuntimeError(
+                message
+            )
+
+
+        if error not in (
+            None,
+            False
+        ):
+
+            raise RuntimeError(
+                "INVALID_EXECUTOR_RESULT"
+            )
+
+
+        return result
