@@ -2567,3 +2567,28 @@ SHA-bound evidence:
 - PR #280 synthetic merge `815f154470ad15a8b000fca072c806b6bf310d10`: #408, 1631 passed;
 - squash main `5cf5a9cba19cc0efc171c1eb8d626868bf415d53`: #409, 1631 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Product Task Draft Telegram Result Integrity v731-v742
+
+- hardened Product Task Draft Telegram summary/detail/archive paths against malformed downstream results;
+- lifecycle summary now requires exact DRAFT/STALE/DISMISSED/ARCHIVED counts instead of defaulting missing states to zero;
+- review-queue and readiness results require explicit non-executable contracts before presentation;
+- malformed task-draft detail/readiness results fail closed;
+- archive cannot claim success without matching ARCHIVED draft plus explicit saved/executed/execution_allowed fields;
+- idempotent already-archived saved=False remains a legitimate non-executable success;
+- intermediate SHA `fb64d3deeb5d7bd9a6e42772fe7614630ad6ed03` failed #419 with 1641 passed / 2 failed and remains failed evidence;
+- intermediate SHA `61db8a964cfeed77e0b5caf451c705c6a77e3b51` had cancelled Verify #420 and carries no transferable verification claim;
+- no Product Task Draft execution, Action Executor connection, replenishment quantity inference, price change, business execution authorization or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `5e0f986cf3254ddd0935b40aa1abf2c1f102f529`: #418, 1631 passed;
+- failed intermediate `fb64d3deeb5d7bd9a6e42772fe7614630ad6ed03`: #419, 1641 passed / 2 failed;
+- cancelled intermediate `61db8a964cfeed77e0b5caf451c705c6a77e3b51`: #420 cancelled;
+- final feature `7826eeef2218dfbbef87e012c95f494059a62756`: #421, 1643 passed;
+- PR #282 synthetic merge `0b86beef8f4b25e9012a214def69f86bf3473e13`: #422, 1643 passed;
+- squash main `849be9ce0af83fc163415e5e5538346b13f868c0`: #423, 1643 passed;
+- no independent external-verification claim.
