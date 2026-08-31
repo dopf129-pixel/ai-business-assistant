@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1614 passed on `3929d14ec640d5d8c364a57009480f81bd151468`.
+1622 passed on `a3320cb4611887c40b754cbca9f097784d09bea9`.
 
-GitHub Actions push Verify #394 completed successfully for this exact main SHA.
+GitHub Actions push Verify #401 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2329,4 +2329,32 @@ Tests:
 - internal exceptions are not caught or retried, preserving the no-duplicate-dispatch contract;
 - failed intermediate SHA f990a7cc9abf8b2fd587e8339329d7d3a29e497a remains failed evidence;
 - no business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Product Decision Telegram Result Integrity v1
+
+Boundary:
+
+- AssistantButtonHandlerService Product Decision overview/detail Telegram paths
+
+Tests:
+
+- tests/test_product_decision_telegram_result_integrity_v714_v721.py
+
+Проверяет:
+
+- explicit query_all error=True is not rewritten as empty assortment success;
+- malformed overview results fail closed;
+- overview success requires explicit decisions/counts/total/actionable_proposals_count;
+- overview total must match decisions length;
+- malformed decision items fail closed before keyboard construction;
+- valid empty overview remains a legitimate empty success;
+- malformed detail results fail closed instead of using optimistic error=False;
+- explicit detail failures remain failures without feedback navigation;
+- valid read-only Product Decision cards/navigation remain compatible;
+- failed intermediate SHA d804b6d89fdee8457dd8473ce6923b9c426d29d4 remains failed evidence;
+- no Product Decision rules, thresholds, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation changed;
 - repository data/users.json remains untouched.
