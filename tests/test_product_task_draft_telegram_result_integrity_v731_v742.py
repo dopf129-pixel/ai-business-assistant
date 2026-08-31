@@ -248,37 +248,40 @@ def _archive(
     }
 
 
+_DEFAULT = object()
+
+
 def _handler(
-    summary_result=None,
-    list_result=None,
-    detail_result=None,
-    archive_result=None,
-    queue_result=None,
-    readiness_summary=None,
-    readiness_detail=None,
+    summary_result=_DEFAULT,
+    list_result=_DEFAULT,
+    detail_result=_DEFAULT,
+    archive_result=_DEFAULT,
+    queue_result=_DEFAULT,
+    readiness_summary=_DEFAULT,
+    readiness_detail=_DEFAULT,
 ):
 
     service = _DraftService(
         (
             _summary()
-            if summary_result is None
+            if summary_result is _DEFAULT
             else summary_result
         ),
         (
             [
                 _draft(),
             ]
-            if list_result is None
+            if list_result is _DEFAULT
             else list_result
         ),
         (
             _detail()
-            if detail_result is None
+            if detail_result is _DEFAULT
             else detail_result
         ),
         (
             _archive()
-            if archive_result is None
+            if archive_result is _DEFAULT
             else archive_result
         ),
     )
@@ -286,7 +289,7 @@ def _handler(
         _QueueService(
             (
                 _queue()
-                if queue_result is None
+                if queue_result is _DEFAULT
                 else queue_result
             )
         )
@@ -297,12 +300,12 @@ def _handler(
         _ReadinessService(
             (
                 _readiness_summary()
-                if readiness_summary is None
+                if readiness_summary is _DEFAULT
                 else readiness_summary
             ),
             (
                 _readiness()
-                if readiness_detail is None
+                if readiness_detail is _DEFAULT
                 else readiness_detail
             ),
         )
