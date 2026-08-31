@@ -230,20 +230,171 @@ class AssistantButtonHandlerService:
     ):
 
         if (
-            self.task_context_service
-            and user_id
+            not self.task_context_service
+            or not user_id
         ):
 
-            self.task_context_service.user_context_service.update(
-                user_id,
-                "last_action",
-                action
+            return {
+                "error": False,
+                "prepared": False
+            }
+
+        try:
+
+            last_action_result = (
+                self.task_context_service
+                .user_context_service
+                .update(
+                    user_id,
+                    "last_action",
+                    action
+                )
             )
 
-            self.task_context_service.update_task(
-                user_id,
-                task
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "ASSISTANT_BUTTON_CONTEXT_UPDATE_FAILED",
+                "assistant_started": False,
+                "context_state_unknown": True
+            }
+
+        last_action_failure = (
+            self._validate_context_update_result(
+                last_action_result,
+                partial=False
             )
+        )
+
+        if last_action_failure:
+
+            return last_action_failure
+
+        try:
+
+            task_result = (
+                self.task_context_service
+                .update_task(
+                    user_id,
+                    task
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "ASSISTANT_BUTTON_CONTEXT_UPDATE_FAILED",
+                "assistant_started": False,
+                "context_partially_updated": True,
+                "last_action_updated": True,
+                "current_task_state_unknown": True
+            }
+
+        task_failure = (
+            self._validate_context_update_result(
+                task_result,
+                partial=True
+            )
+        )
+
+        if task_failure:
+
+            return task_failure
+
+        return {
+            "error": False,
+            "prepared": True
+        }
+
+
+    @staticmethod
+    def _validate_context_update_result(
+        result,
+        partial
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            failure = {
+                "error": True,
+                "message":
+                    "INVALID_ASSISTANT_BUTTON_CONTEXT_RESULT",
+                "assistant_started": False,
+                "context_state_unknown": True
+            }
+
+            if partial:
+                failure[
+                    "context_partially_updated"
+                ] = True
+                failure[
+                    "last_action_updated"
+                ] = True
+
+            return failure
+
+        if result.get(
+            "error"
+        ) is True:
+
+            failure = dict(
+                result
+            )
+            failure[
+                "assistant_started"
+            ] = False
+
+            if partial:
+                failure[
+                    "context_partially_updated"
+                ] = True
+                failure[
+                    "last_action_updated"
+                ] = True
+                failure[
+                    "current_task_updated"
+                ] = False
+
+            return failure
+
+        if result.get(
+            "updated"
+        ) is not True:
+
+            failure = {
+                "error": True,
+                "message":
+                    "INVALID_ASSISTANT_BUTTON_CONTEXT_RESULT",
+                "assistant_started": False,
+                "context_state_unknown": True
+            }
+
+            if partial:
+                failure[
+                    "context_partially_updated"
+                ] = True
+                failure[
+                    "last_action_updated"
+                ] = True
+
+            return failure
+
+        return None
 
 
     def handle(
@@ -374,11 +525,19 @@ class AssistantButtonHandlerService:
 
         if button_id == "analyze":
 
-            self.prepare_context(
-                user_id,
-                "analyze",
-                "Анализ продаж"
+            context_result = (
+                self.prepare_context(
+                    user_id,
+                    "analyze",
+                    "Анализ продаж"
+                )
             )
+
+            if context_result.get(
+                "error"
+            ) is True:
+
+                return context_result
 
             return self._run_assistant_button_with_history(
                 prompt="Что нужно сделать с продажами?",
@@ -388,11 +547,19 @@ class AssistantButtonHandlerService:
 
         if button_id == "plan":
 
-            self.prepare_context(
-                user_id,
-                "plan",
-                "Создание плана действий"
+            context_result = (
+                self.prepare_context(
+                    user_id,
+                    "plan",
+                    "Создание плана действий"
+                )
             )
+
+            if context_result.get(
+                "error"
+            ) is True:
+
+                return context_result
 
             return self._run_assistant_button_with_history(
                 prompt="Создай план действий",
