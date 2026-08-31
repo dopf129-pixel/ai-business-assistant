@@ -506,7 +506,12 @@ class StubTaskDrafts:
         return {
             "error": False,
             "total": 1,
-            "counts": {"DRAFT": 1, "DISMISSED": 0},
+            "counts": {
+                "DRAFT": 1,
+                "STALE": 0,
+                "DISMISSED": 0,
+                "ARCHIVED": 0,
+            },
             "drafts": [dict(self.record)],
             "executed_count": 0,
         }
@@ -524,6 +529,7 @@ class StubTaskDrafts:
             "task_draft": dict(self.record),
             "saved": True,
             "executed": False,
+            "execution_allowed": False,
         }
 
     def get(self, draft_id):
@@ -546,6 +552,7 @@ class StubTaskDrafts:
             }],
             "legacy_history_unavailable": False,
             "executed": False,
+            "execution_allowed": False,
         }
 
 
@@ -827,7 +834,12 @@ def test_task_draft_summary_shows_prioritized_review_queue_reasons():
             return {
                 "error": False,
                 "total_reviewable": 1,
-                "priority_counts": {"URGENT": 1},
+                "priority_counts": {
+                    "URGENT": 1,
+                    "HIGH": 0,
+                    "NORMAL": 0,
+                    "LOW": 0,
+                },
                 "items": [item],
                 "executed_count": 0,
             }
