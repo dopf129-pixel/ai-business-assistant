@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
+1674 passed on `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`.
 
-GitHub Actions push verification run #444 completed successfully for this exact main SHA.
+GitHub Actions push verification run #453 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -1413,3 +1413,27 @@ Preserved:
 - no business mutation authorization, quantity/price inference, or Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
+
+
+---
+
+# Telegram Analyze / Plan History Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] assistant result validated before analyze/plan success-history persistence
+[x] explicit assistant failure records no success history
+[x] malformed assistant result fails closed before history side effects
+[x] valid success records exactly one expected history event
+[x] explicit history persistence failure is not hidden
+[x] malformed/exceptional history persistence remains unknown; no rollback is fabricated
+[x] exception text is sanitized
+
+Verified product baseline:
+
+- entering main `9c2f783710e125b183e8a314e1ac4c2eac1754f1`: #449, 1666 passed / 0 failed, digest `sha256:a292cffdbb1309e47f33c028062ce699fd1364f18f3db1007cf50e46295b51fa`
+- final feature `dd6a5984026f591941fa0f2db62fc260a48f9e02`: #451, 1674 passed / 0 failed, digest `sha256:328c9cc03f7b0b8e292ceb1e42cc78895ba5f86bc32875916c4fc5a5d46ecd02`
+- PR #288 synthetic merge `83a8863f79f3ad76d721d4f7fd9eee2ed28a2b20`: #452, 1674 passed / 0 failed, digest `sha256:3c38001164cc6a7eb1b9f2838356843aff9a546ce7f15c5048eed2966251da3c`
+- squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d2d03c2e64aedf648461ec980818c8348fa8d627fca26`
+- no failed/cancelled intermediate production SHA occurred in v766-v773
+- `externally_verified=False`
