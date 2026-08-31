@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1622 passed on `a3320cb4611887c40b754cbca9f097784d09bea9`.
+1631 passed on `5cf5a9cba19cc0efc171c1eb8d626868bf415d53`.
 
-GitHub Actions push Verify #401 completed successfully for this exact main SHA.
+GitHub Actions push Verify #409 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2357,4 +2357,34 @@ Tests:
 - valid read-only Product Decision cards/navigation remain compatible;
 - failed intermediate SHA d804b6d89fdee8457dd8473ce6923b9c426d29d4 remains failed evidence;
 - no Product Decision rules, thresholds, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation changed;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Financial Telegram Result Integrity v1
+
+Boundary:
+
+- AssistantButtonHandlerService Unit Economics / Returns Finance Impact detail paths
+
+Tests:
+
+- tests/test_financial_telegram_result_integrity_v722_v730.py
+- tests/test_product_unit_economics_telegram_ui.py
+- tests/test_observed_returns_impact_production_wiring.py
+
+Проверяет:
+
+- Unit Economics query result requires dict + explicit boolean error;
+- successful Unit Economics result requires availability/source/SKU/missing-fields evidence;
+- legitimate available=False remains evidence-limited success;
+- malformed Unit Economics result fails closed before formatter access;
+- Returns Finance Impact result requires explicit boolean error and safe period/category/missing-data shape;
+- malformed returns categories fail closed before formatter access;
+- explicit financial downstream errors remain errors;
+- valid incomplete observed-return evidence remains seller-visible without false adjusted-profit claims;
+- failed intermediate SHA 64d34b244f790065acb0a636542a5684bd598dec remains failed evidence;
+- cancelled intermediate SHA fdd90ff6368178bf14896cc2d02f3aa57af90291 remains unknown/cancelled evidence and is not reused;
+- no financial formula, tax/fee arithmetic, Product Decision rule, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation changed;
 - repository data/users.json remains untouched.
