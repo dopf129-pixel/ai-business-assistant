@@ -46,6 +46,7 @@ class FakeUnitEconomicsQuery:
         return {
             "error": False,
             "available": True,
+            "source": "historical",
             "sku": sku,
             "unit_price": 1490.0,
             "cost": 520.0,
