@@ -2541,3 +2541,29 @@ SHA-bound evidence:
 - PR #278 synthetic merge `8842af0585f271f69095a3d5cb7554dc2e3a4eb3`: #400, 1622 passed;
 - squash main `a3320cb4611887c40b754cbca9f097784d09bea9`: #401, 1622 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Financial Telegram Result Integrity v722-v730
+
+- hardened Unit Economics and Returns Finance Impact Telegram detail paths against malformed downstream results;
+- Unit Economics success now requires explicit availability/source/SKU/missing-fields evidence;
+- legitimate unavailable Unit Economics remains evidence-limited success;
+- Returns Finance Impact success now requires explicit period/category/missing-data evidence;
+- malformed category payloads fail closed before formatter access;
+- explicit financial errors remain errors;
+- incomplete observed-return evidence preserves incomplete-warning semantics;
+- intermediate SHA `64d34b244f790065acb0a636542a5684bd598dec` failed #405 with 1627 passed / 4 failed and remains failed evidence;
+- intermediate SHA `fdd90ff6368178bf14896cc2d02f3aa57af90291` had cancelled Verify #406 and carries no transferable verification claim;
+- no financial formula, tax/fee arithmetic, Product Decision rule, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `eafc9f19ba9865face765379396ca46ac0a919c3`: #404, 1622 passed;
+- failed intermediate `64d34b244f790065acb0a636542a5684bd598dec`: #405, 1627 passed / 4 failed;
+- cancelled intermediate `fdd90ff6368178bf14896cc2d02f3aa57af90291`: #406 cancelled;
+- final feature `43404cf36f7753dc9701ba561443d7eb6160d037`: #407, 1631 passed;
+- PR #280 synthetic merge `815f154470ad15a8b000fca072c806b6bf310d10`: #408, 1631 passed;
+- squash main `5cf5a9cba19cc0efc171c1eb8d626868bf415d53`: #409, 1631 passed;
+- no independent external-verification claim.
