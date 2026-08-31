@@ -4,62 +4,64 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`1f6668640988125d09d757f68dc697fc861719d3`
+`d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`
 
 Latest merged production-correctness batch:
 
-`v743-v754: Product Decision Interaction Persistence Integrity`
+`v755-v765: Product Decision Learning Telegram Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `6fc5b52aa93899e950af9ed140d2e0d6ee6c6c8e`
-- push Verify #432
+- exact main: `9bfa6a03e50d5c36a874e2ef30088e94efdb104c`
+- push Verify #440
 - conclusion: success
-- tests: 1643 passed / 0 failed
-- artifact: `verification-6fc5b52aa93899e950af9ed140d2e0d6ee6c6c8e`
-- artifact digest: `sha256:ceb927609eb75f40a220e55aff001fe55c728062b12dbc41e37b910e3805ec87`
+- tests: 1655 passed / 0 failed
+- artifact: `verification-9bfa6a03e50d5c36a874e2ef30088e94efdb104c`
+- artifact digest: `sha256:b34831e479e283a17391174e150bf43b07e084510ff82a25eea7269f15f0cd92`
 
 ### Exact final feature-head verification
 
-- branch: `fix/product-decision-interaction-persistence-integrity-v743-v754`
-- exact SHA: `bfe55f51842f61cdf81d33a73841a81b66ad2424`
-- push Verify #434
+- branch: `fix/product-decision-learning-telegram-result-integrity-v755-v765`
+- exact SHA: `7976dbdebdda82660f9fc5bbc7ebffd804990f8f`
+- push Verify #442
 - conclusion: success
-- tests: 1655 passed / 0 failed
-- artifact: `verification-bfe55f51842f61cdf81d33a73841a81b66ad2424`
-- artifact digest: `sha256:fa451b37891da86b182f2b85287107dcba927a1fd002733ec56acf0d82ae5882`
+- tests: 1666 passed / 0 failed
+- artifact: `verification-7976dbdebdda82660f9fc5bbc7ebffd804990f8f`
+- artifact digest: `sha256:95787b366dc1fef928b8ba8f8571bb6053172cd6775ba70c4181901f083965c1`
 
 ### PR merge-ref integration verification
 
-- PR #284
-- branch head: `bfe55f51842f61cdf81d33a73841a81b66ad2424`
-- synthetic merge SHA: `864e989adcda0cc37a93a0ac6883fe034f3eb724`
-- pull_request Verify #435
+- PR #286
+- branch head: `7976dbdebdda82660f9fc5bbc7ebffd804990f8f`
+- synthetic merge SHA: `44ec86f9587831f6560e3e5ca2bbb9819abd4c29`
+- pull_request Verify #443
 - conclusion: success
-- tests: 1655 passed / 0 failed
-- artifact: `verification-864e989adcda0cc37a93a0ac6883fe034f3eb724`
-- artifact digest: `sha256:b835eb4808a0114f07a0582fa99b06d538c92901f0c7ad1dea06cb2bd3c6412d`
+- tests: 1666 passed / 0 failed
+- artifact: `verification-44ec86f9587831f6560e3e5ca2bbb9819abd4c29`
+- artifact digest: `sha256:a46757c2e1baec4ad175c7afc3fcaf2dac5b3b08140d2723fa60f30cc73e6356`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `1f6668640988125d09d757f68dc697fc861719d3`
-- push Verify #436
+- exact main: `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`
+- push Verify #444
 - conclusion: success
-- tests: 1655 passed / 0 failed
-- artifact: `verification-1f6668640988125d09d757f68dc697fc861719d3`
-- artifact digest: `sha256:8e4efdce0addb5152c0ea1435d99f7a6143ab8b6f962a6ed8ba773f130296edc`
+- tests: 1666 passed / 0 failed
+- artifact: `verification-d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`
+- artifact digest: `sha256:67af33c7c3c17dd68d0339edcf58e86fb934925ec2a318fd0615f3f0168fb77c`
 
-## Product Decision Interaction Persistence Integrity
+No failed or cancelled intermediate production SHA was found for v755-v765. Historical failed/cancelled SHAs from earlier packages remain permanent evidence and are not reclassified.
 
-Product Decision feedback and proposal confirmation no longer treat rejected or ambiguous history-storage saves as successful persisted interaction state.
+## Product Decision Learning Telegram Result Integrity
 
-Explicit `save=False` is a proven non-commit for this interaction path and rolls back only the local uncommitted interaction mutation. Storage exceptions and malformed save outcomes remain unknown, do not fabricate rollback, and return stable non-secret failure semantics.
+Product Decision Learning Summary and Decision History Telegram surfaces no longer infer clean zero/empty state from malformed or missing downstream evidence.
 
-Proposal confirmation validates the history-write result before Product Task Draft creation/dismissal, so a failed or ambiguous stored-intent write cannot trigger that downstream side effect. Seller-facing Telegram validates feedback/proposal result contracts before success presentation.
+Learning Summary requires a dictionary with an explicit real boolean `error`; successful summary counts must be non-negative non-booleans and internally consistent. Decision History requires a real list whose records match the requested SKU and carry valid decision, priority, timestamp, feedback, and outcome semantics.
 
-No Product Decision rule/threshold, feedback meaning, proposal meaning, Product Task Draft execution policy, persistence owner/layer, Action Executor connection, business execution authorization, quantity/price inference, or Ozon mutation changed. Repository `data/users.json` was not modified.
+A structurally valid all-zero learning summary and a structurally valid empty history remain legitimate read-only success. Unknown feedback is not relabeled as `NOT_RELEVANT`, and stable failures do not expose internal exception text.
+
+No Product Decision rule/threshold, persistence behavior, feedback/proposal semantics, Product Task Draft execution policy, Action Executor connection, business mutation authorization, quantity/price inference, or Ozon mutation changed. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -74,8 +76,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/product_decision_history_service.py`
-- `app/services/product_action_proposal_confirmation_service.py`
 - `app/services/assistant_button_handler_service.py`
-- `tests/test_product_decision_interaction_persistence_result_integrity_v743_v754.py`
-- `project_brain/CURRENT_CHECKPOINT_V743_V754.md`
+- `tests/test_product_decision_learning_telegram_result_integrity_v755_v765.py`
+- `project_brain/CURRENT_CHECKPOINT_V755_V765.md`

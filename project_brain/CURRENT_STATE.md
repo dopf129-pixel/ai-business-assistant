@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1655 passed on `1f6668640988125d09d757f68dc697fc861719d3`.
+1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
 
-GitHub Actions push verification run #436 completed successfully for this exact main SHA.
+GitHub Actions push verification run #444 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1655 passed on `1f6668640988125d09d757f68dc697fc861719d3`.
+1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
 
 Verification source:
-GitHub Actions push run #436, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #444, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1380,3 +1380,36 @@ Preserved:
 - no Ozon mutation;
 - no automatic rollback or retry;
 - no business-evidence inference.
+
+---
+
+# Product Decision Learning Telegram Result Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] Learning Summary requires dict + explicit real boolean `error`
+[x] Successful summary counts are non-negative non-booleans and internally consistent
+[x] Missing summary evidence cannot become zero through optimistic defaults
+[x] Decision History requires a real list instead of treating `None` or malformed payloads as empty success
+[x] History records must match the requested SKU and carry valid decision, priority, timestamp, feedback and outcome semantics
+[x] Unknown feedback is not mislabeled as `NOT_RELEVANT`
+[x] Legitimate all-zero summary remains read-only success
+[x] Legitimate empty history remains read-only success
+[x] Stable seller-facing failures do not expose internal exception text
+
+Verified product baseline:
+
+- entering main `9bfa6a03e50d5c36a874e2ef30088e94efdb104c`: push Verify #440, 1655 passed / 0 failed, digest `sha256:b34831e479e283a17391174e150bf43b07e084510ff82a25eea7269f15f0cd92`
+- final feature `7976dbdebdda82660f9fc5bbc7ebffd804990f8f`: push Verify #442, 1666 passed / 0 failed, digest `sha256:95787b366dc1fef928b8ba8f8571bb6053172cd6775ba70c4181901f083965c1`
+- PR #286 synthetic merge `44ec86f9587831f6560e3e5ca2bbb9819abd4c29`: Verify #443, 1666 passed / 0 failed, digest `sha256:a46757c2e1baec4ad175c7afc3fcaf2dac5b3b08140d2723fa60f30cc73e6356`
+- squash main `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`: push Verify #444, 1666 passed / 0 failed, digest `sha256:67af33c7c3c17dd68d0339edcf58e86fb934925ec2a318fd0615f3f0168fb77c`
+
+Preserved:
+
+- Product Decision rules and thresholds;
+- persistence behavior and interaction semantics;
+- Product Task Draft remains non-executable;
+- no Action Executor connection;
+- no business mutation authorization, quantity/price inference, or Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
