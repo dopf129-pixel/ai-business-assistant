@@ -380,25 +380,11 @@ class AssistantButtonHandlerService:
                 "Анализ продаж"
             )
 
-            result = (
-                self.assistant
-                .ask(
-                    "Что нужно сделать с продажами?",
-                    user_id
-                )
+            return self._run_assistant_button_with_history(
+                prompt="Что нужно сделать с продажами?",
+                user_id=user_id,
+                history_event="Выполнен анализ"
             )
-
-            if (
-                self.history_service
-                and user_id
-            ):
-
-                self.history_service.add(
-                    user_id,
-                    "Выполнен анализ"
-                )
-
-            return result
 
         if button_id == "plan":
 
@@ -408,25 +394,11 @@ class AssistantButtonHandlerService:
                 "Создание плана действий"
             )
 
-            result = (
-                self.assistant
-                .ask(
-                    "Создай план действий",
-                    user_id
-                )
+            return self._run_assistant_button_with_history(
+                prompt="Создай план действий",
+                user_id=user_id,
+                history_event="Создан план действий"
             )
-
-            if (
-                self.history_service
-                and user_id
-            ):
-
-                self.history_service.add(
-                    user_id,
-                    "Создан план действий"
-                )
-
-            return result
 
         if button_id == "history":
 
@@ -470,6 +442,128 @@ class AssistantButtonHandlerService:
             "error": True,
             "message": "Кнопка неизвестна"
         }
+
+
+    def _run_assistant_button_with_history(
+        self,
+        prompt,
+        user_id,
+        history_event
+    ):
+
+        result = (
+            self.assistant
+            .ask(
+                prompt,
+                user_id
+            )
+        )
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_ASSISTANT_BUTTON_RESULT"
+            }
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return result
+
+        if (
+            not self.history_service
+            or not user_id
+        ):
+
+            return result
+
+        try:
+
+            history_result = (
+                self.history_service
+                .add(
+                    user_id,
+                    history_event
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "ASSISTANT_BUTTON_HISTORY_WRITE_FAILED",
+                "assistant_completed": True,
+                "history_recorded": False,
+                "persistence_state_unknown": True
+            }
+
+        if (
+            not isinstance(
+                history_result,
+                dict
+            )
+            or type(
+                history_result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_ASSISTANT_BUTTON_HISTORY_RESULT",
+                "assistant_completed": True,
+                "history_recorded": False,
+                "persistence_state_unknown": True
+            }
+
+        if history_result.get(
+            "error"
+        ) is True:
+
+            failure = dict(
+                history_result
+            )
+            failure[
+                "assistant_completed"
+            ] = True
+            failure[
+                "history_recorded"
+            ] = False
+
+            return failure
+
+        if history_result.get(
+            "saved"
+        ) is not True:
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_ASSISTANT_BUTTON_HISTORY_RESULT",
+                "assistant_completed": True,
+                "history_recorded": False,
+                "persistence_state_unknown": True
+            }
+
+        return result
 
 
     def _open_product_decisions_menu(
