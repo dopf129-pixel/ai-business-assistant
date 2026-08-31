@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1606 passed on `bfa8f1393e8221900377b124b93bb8bbf882e055`.
+1614 passed on `3929d14ec640d5d8c364a57009480f81bd151468`.
 
-GitHub Actions push Verify #387 completed successfully for this exact main SHA.
+GitHub Actions push Verify #394 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2301,5 +2301,32 @@ Tests:
 - explicit command failures are preserved;
 - successful /start now has explicit error=False;
 - failed intermediate SHA acc3eb4023aa046544056eea2c634e0906bc00b3 remains failed evidence;
+- no business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Telegram Adapter Downstream Result Integrity v1
+
+Boundary:
+
+- AssistantTelegramAdapter
+
+Tests:
+
+- tests/test_telegram_adapter_downstream_result_integrity_v706_v713.py
+
+Проверяет:
+
+- assistant.ask result must be dict with explicit boolean error;
+- malformed assistant results fail closed;
+- explicit assistant failures are preserved;
+- button_handler.handle result must be dict with explicit boolean error;
+- malformed button results fail closed;
+- explicit button failures are returned without freshness enrichment;
+- valid draft-button successes keep existing freshness enrichment;
+- internal exceptions are not caught or retried, preserving the no-duplicate-dispatch contract;
+- failed intermediate SHA f990a7cc9abf8b2fd587e8339329d7d3a29e497a remains failed evidence;
 - no business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation is enabled;
 - repository data/users.json remains untouched.
