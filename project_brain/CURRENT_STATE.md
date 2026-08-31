@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1674 passed on `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`.
+1684 passed on `f432814d74ee4e175d291b69c79767d86d506e0a`.
 
-GitHub Actions push verification run #453 completed successfully for this exact main SHA.
+GitHub Actions push verification run #461 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -1436,4 +1436,29 @@ Verified product baseline:
 - PR #288 synthetic merge `83a8863f79f3ad76d721d4f7fd9eee2ed28a2b20`: #452, 1674 passed / 0 failed, digest `sha256:3c38001164cc6a7eb1b9f2838356843aff9a546ce7f15c5048eed2966251da3c`
 - squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d2d03c2e64aedf648461ec980818c8348fa8d627fca26`
 - no failed/cancelled intermediate production SHA occurred in v766-v773
+- `externally_verified=False`
+
+
+---
+
+# Telegram History / Memory Read Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] missing History service is unavailable, not empty success
+[x] missing Memory service is unavailable, not empty success
+[x] missing user context is failure, not zero/clean evidence
+[x] History/Memory read exceptions are sanitized
+[x] results require dict + real boolean error
+[x] History success requires list; Memory success requires dict
+[x] explicit downstream failure is preserved
+[x] legitimate empty history and memory remain success
+
+Verified product baseline:
+
+- entering main `c889ff8614c589853b3a29b41caf739067672db0`: #457, 1674 passed / 0 failed, digest `sha256:8eac2e70c655e3c8d3974aa05efdbdfa53b47db31acb8f1a70bfc23684bcc0d6`
+- final feature `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`: #459, 1684 passed / 0 failed, digest `sha256:afaafbe46852fe59d83140d69ef0c891db5ebbaeeb55141d83d4b5578427a496`
+- PR #290 synthetic merge `69d5928a49ab871fa845b25362fcd581173db484`: #460, 1684 passed / 0 failed, digest `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`
+- squash main `f432814d74ee4e175d291b69c79767d86d506e0a`: #461, 1684 passed / 0 failed, digest `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`
+- no failed/cancelled intermediate production SHA occurred in v774-v783
 - `externally_verified=False`
