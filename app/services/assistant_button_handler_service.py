@@ -402,46 +402,178 @@ class AssistantButtonHandlerService:
 
         if button_id == "history":
 
-            if (
-                self.history_service
-                and user_id
-            ):
-
-                return (
-                    self.history_service
-                    .get(
-                        user_id
-                    )
-                )
-
-            return {
-                "error": False,
-                "history": []
-            }
+            return self._show_history(
+                user_id
+            )
 
         if button_id == "memory":
 
-            if (
-                self.memory_service
-                and user_id
-            ):
-
-                return (
-                    self.memory_service
-                    .get_memory(
-                        user_id
-                    )
-                )
-
-            return {
-                "error": False,
-                "memory": {}
-            }
+            return self._show_memory(
+                user_id
+            )
 
         return {
             "error": True,
             "message": "Кнопка неизвестна"
         }
+
+
+    def _show_history(
+        self,
+        user_id
+    ):
+
+        if not self.history_service:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_HISTORY_UNAVAILABLE"
+            }
+
+        if not user_id:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_USER_CONTEXT_REQUIRED"
+            }
+
+        try:
+
+            result = (
+                self.history_service
+                .get(
+                    user_id
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_HISTORY_READ_FAILED"
+            }
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_HISTORY_RESULT"
+            }
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return result
+
+        if not isinstance(
+            result.get(
+                "history"
+            ),
+            list
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_HISTORY_RESULT"
+            }
+
+        return result
+
+
+    def _show_memory(
+        self,
+        user_id
+    ):
+
+        if not self.memory_service:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_MEMORY_UNAVAILABLE"
+            }
+
+        if not user_id:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_USER_CONTEXT_REQUIRED"
+            }
+
+        try:
+
+            result = (
+                self.memory_service
+                .get_memory(
+                    user_id
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_MEMORY_READ_FAILED"
+            }
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_MEMORY_RESULT"
+            }
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return result
+
+        if not isinstance(
+            result.get(
+                "memory"
+            ),
+            dict
+        ):
+
+            return {
+                "error": True,
+                "message":
+                    "INVALID_TELEGRAM_MEMORY_RESULT"
+            }
+
+        return result
 
 
     def _run_assistant_button_with_history(
