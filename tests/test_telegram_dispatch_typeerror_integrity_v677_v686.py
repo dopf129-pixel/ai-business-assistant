@@ -300,15 +300,19 @@ def test_v683_internal_button_typeerror_is_not_retried():
         handler,
     )
 
-    with pytest.raises(
-        TypeError,
-        match="internal button failure",
-    ):
-        adapter.handle_button(
-            "analyze",
-            1001,
-        )
+    result = adapter.handle_button(
+        "analyze",
+        1001,
+    )
 
+    assert result == {
+        "error": True,
+        "message":
+            "TELEGRAM_BUTTON_DISPATCH_FAILED",
+    }
+    assert "internal button failure" not in str(
+        result
+    )
     assert handler.calls == 1
 
 
