@@ -2681,3 +2681,36 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-08-31 — Telegram History / Memory Read Integrity v774-v783
+
+- unavailable History/Memory service no longer becomes clean empty success;
+- missing user context no longer becomes zero/clean evidence;
+- History/Memory read exceptions are sanitized;
+- downstream results require dict + explicit boolean error;
+- History success requires list, Memory success requires dict;
+- explicit downstream failures are preserved;
+- legitimate empty History/Memory remains success when structurally valid;
+- no execution authorization, Ozon mutation, quantity/price inference, or persistence-layer change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `c889ff8614c589853b3a29b41caf739067672db0`: #457, 1674 passed / 0 failed, digest `sha256:8eac2e70c655e3c8d3974aa05efdbdfa53b47db31acb8f1a70bfc23684bcc0d6`;
+- final feature `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`: #459, 1684 passed / 0 failed, digest `sha256:afaafbe46852fe59d83140d69ef0c891db5ebbaeeb55141d83d4b5578427a496`;
+- PR #290 synthetic merge `69d5928a49ab871fa845b25362fcd581173db484`: #460, 1684 passed / 0 failed, digest `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`;
+- squash main `f432814d74ee4e175d291b69c79767d86d506e0a`: #461, 1684 passed / 0 failed, digest `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`;
+- no failed/cancelled intermediate production SHA occurred in v774-v783;
+- `externally_verified=False`.
+
+## 2026-08-31 — Project Brain reconciliation after Telegram History / Memory Read Integrity v774-v783
+
+- reconciled CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `f432814d74ee4e175d291b69c79767d86d506e0a`;
+- added `CURRENT_CHECKPOINT_V774_V783.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

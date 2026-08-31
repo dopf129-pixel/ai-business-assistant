@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1674 passed on `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`.
+1684 passed on `f432814d74ee4e175d291b69c79767d86d506e0a`.
 
-GitHub Actions push Verify #453 completed successfully for this exact main SHA.
+GitHub Actions push Verify #461 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2507,4 +2507,31 @@ Tests:
 - no-user / absent-history-service compatibility is preserved;
 - exact-SHA evidence: main #449, feature #451, PR merge-ref #452, squash-main #453;
 - no execution authorization, Ozon mutation, quantity/price inference, or new persistence layer;
+- `data/users.json` untouched; `externally_verified=False`.
+
+
+---
+
+# Telegram History / Memory Read Integrity v1
+
+Boundary:
+
+- `AssistantButtonHandlerService` History / Memory Telegram reads
+
+Tests:
+
+- `tests/test_telegram_history_memory_read_integrity_v774_v783.py`
+
+Проверяет:
+
+- unavailable service cannot become clean empty data;
+- missing user context cannot become zero/clean evidence;
+- read exceptions return stable non-secret failures;
+- result must be dict with exact boolean `error`;
+- History success requires list `history`;
+- Memory success requires dict `memory`;
+- explicit downstream failures are preserved;
+- legitimate empty and non-empty read-only data remain success;
+- exact-SHA evidence: main #457, feature #459, PR merge-ref #460, squash-main #461;
+- no execution authorization, Ozon mutation, quantity/price inference, or persistence-layer change;
 - `data/users.json` untouched; `externally_verified=False`.
