@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1596 passed on `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`.
+1606 passed on `bfa8f1393e8221900377b124b93bb8bbf882e055`.
 
-GitHub Actions push Verify #380 completed successfully for this exact main SHA.
+GitHub Actions push Verify #387 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2273,4 +2273,33 @@ Tests:
 - successful canonical user admission preserves start/text/button behavior;
 - no-user-id legacy flows remain compatible;
 - no persistence owner/layer, Product Decision execution, Product Task Draft execution, or Ozon mutation is enabled;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Telegram Command Result Integrity v1
+
+Services / boundaries:
+
+- AssistantMemoryCommandService
+- AssistantTelegramAdapter
+- TelegramBotService
+
+Tests:
+
+- tests/test_telegram_command_result_integrity_v696_v705.py
+- tests/test_telegram_user_admission_integrity_v687_v695.py
+
+Проверяет:
+
+- unrecognized memory text is explicit handled=False, not an operational failure;
+- recognized memory commands remain handled=True;
+- storage failures from recognized memory commands stop before assistant fallback;
+- malformed/exceptional memory-command results fail closed;
+- TelegramBotService rejects malformed non-None command results;
+- explicit command failures are preserved;
+- successful /start now has explicit error=False;
+- failed intermediate SHA acc3eb4023aa046544056eea2c634e0906bc00b3 remains failed evidence;
+- no business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation is enabled;
 - repository data/users.json remains untouched.

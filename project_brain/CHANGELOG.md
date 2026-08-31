@@ -2473,3 +2473,25 @@ SHA-bound evidence:
 - PR #272 synthetic merge SHA `02362780db074ed45c4ca23bbeacfda12320d504`: Verify #379, 1596 passed;
 - squash main `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`: push Verify #380, 1596 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Telegram Command Result Integrity v696-v705
+
+- separated unhandled memory text from real operational memory-command failure;
+- recognized storage failures now stop before assistant fallback;
+- malformed/exceptional memory-command and Telegram command results fail closed;
+- successful /start now includes explicit error=False;
+- intermediate SHA `acc3eb4023aa046544056eea2c634e0906bc00b3` failed #384 with 1604 passed / 2 failed and remains failed evidence;
+- legacy v687-v695 fake fixture was aligned without weakening production contracts;
+- no persistence owner/layer, autonomous execution, Product Decision/Product Task Draft execution, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `e37e8ac8f79b06bbaf51b1f0dc949f1b2425dc72`: #383, 1596 passed;
+- failed intermediate `acc3eb4023aa046544056eea2c634e0906bc00b3`: #384, 1604 passed / 2 failed;
+- final feature `53ede2e10c3336f2d2da16eceecf6308ef5f39a5`: #385, 1606 passed;
+- PR #274 synthetic merge `d002777d00d64f6bb776ed4bdd52d52898aad2e5`: #386, 1606 passed;
+- squash main `bfa8f1393e8221900377b124b93bb8bbf882e055`: #387, 1606 passed;
+- no independent external-verification claim.
