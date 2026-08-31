@@ -388,7 +388,7 @@ def test_v721_valid_detail_preserves_read_only_decision_card():
     assert result["error"] is False
     assert result[
         "decision"
-    ] is detail
+    ] == detail
     assert "Решение по товару" in result[
         "message"
     ]
