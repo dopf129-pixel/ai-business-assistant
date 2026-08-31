@@ -62,9 +62,12 @@ class _MemoryCommand:
         }
 
 
+_DEFAULT = object()
+
+
 def _adapter(
-    assistant_result=None,
-    button_result=None,
+    assistant_result=_DEFAULT,
+    button_result=_DEFAULT,
 ):
 
     return AssistantTelegramAdapter(
@@ -74,7 +77,7 @@ def _adapter(
                     "error": False,
                     "message": "ok",
                 }
-                if assistant_result is None
+                if assistant_result is _DEFAULT
                 else assistant_result
             )
         ),
@@ -85,7 +88,7 @@ def _adapter(
                     "error": False,
                     "message": "button",
                 }
-                if button_result is None
+                if button_result is _DEFAULT
                 else button_result
             )
         ),
