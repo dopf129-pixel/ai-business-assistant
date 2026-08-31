@@ -963,7 +963,17 @@ class AssistantButtonHandlerService:
             expected_proposal_type=proposal_type,
             status=status,
         )
-        if result.get("error"):
+        if (
+            not isinstance(result, dict)
+            or type(result.get("error")) is not bool
+        ):
+            return {
+                "error": True,
+                "message": "Не удалось сохранить статус шага",
+                "executed": False,
+                "execution_allowed": False,
+            }
+        if result["error"] is True:
             messages = {
                 "DECISION_HISTORY_NOT_FOUND": (
                     "Сначала откройте актуальное решение по товару"
@@ -982,10 +992,43 @@ class AssistantButtonHandlerService:
                     "Не удалось сохранить статус шага",
                 ),
                 "executed": False,
+                "execution_allowed": False,
+            }
+
+        task_draft = result.get("task_draft")
+        if (
+            type(result.get("saved")) is not bool
+            or str(result.get("sku") or "").strip()
+            != str(sku or "").strip()
+            or str(result.get("proposal_type") or "").strip().upper()
+            != proposal_type
+            or str(result.get("proposal_status") or "").strip().upper()
+            != status
+            or result.get("executed") is not False
+            or result.get("execution_allowed") is not False
+            or (
+                task_draft is not None
+                and (
+                    not isinstance(task_draft, dict)
+                    or str(task_draft.get("sku") or "").strip()
+                    != str(sku or "").strip()
+                    or str(
+                        task_draft.get("proposal_type") or ""
+                    ).strip().upper()
+                    != proposal_type
+                    or task_draft.get("executed") is not False
+                    or task_draft.get("execution_allowed") is not False
+                )
+            )
+        ):
+            return {
+                "error": True,
+                "message": "Не удалось сохранить статус шага",
+                "executed": False,
+                "execution_allowed": False,
             }
 
         verb = "подтверждён" if status == "CONFIRMED" else "отклонён"
-        task_draft = result.get("task_draft")
         message = "Шаг " + verb + " и сохранён."
         if status == "CONFIRMED" and task_draft:
             message += " Создан безопасный черновик задачи."
@@ -995,8 +1038,9 @@ class AssistantButtonHandlerService:
             "message": message,
             "proposal_status": status,
             "task_draft": task_draft,
-            "saved": result.get("saved", False),
+            "saved": result["saved"],
             "executed": False,
+            "execution_allowed": False,
         }
 
     def _product_action_task_draft_service(self):
@@ -2128,7 +2172,15 @@ class AssistantButtonHandlerService:
             }
 
         result = history_service.record_feedback(sku, feedback)
-        if result.get("error"):
+        if (
+            not isinstance(result, dict)
+            or type(result.get("error")) is not bool
+        ):
+            return {
+                "error": True,
+                "message": "Не удалось сохранить оценку решения",
+            }
+        if result["error"] is True:
             if result.get("code") == "DECISION_HISTORY_NOT_FOUND":
                 message = "Сначала откройте актуальное решение по товару"
             else:
@@ -2139,9 +2191,22 @@ class AssistantButtonHandlerService:
                 "feedback": result,
             }
 
+        expected_feedback = str(feedback or "").strip().upper()
+        if (
+            expected_feedback not in {"USEFUL", "NOT_RELEVANT"}
+            or str(result.get("sku") or "").strip()
+            != str(sku or "").strip()
+            or result.get("feedback") != expected_feedback
+            or type(result.get("saved")) is not bool
+        ):
+            return {
+                "error": True,
+                "message": "Не удалось сохранить оценку решения",
+            }
+
         label = (
             "решение полезно"
-            if result.get("feedback") == "USEFUL"
+            if result["feedback"] == "USEFUL"
             else "решение неактуально"
         )
         return {

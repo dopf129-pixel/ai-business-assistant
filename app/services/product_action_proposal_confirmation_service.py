@@ -39,12 +39,32 @@ class ProductActionProposalConfirmationService:
             proposal_type=actual,
             status=normalized_status,
         )
-        if saved.get("error"):
+        if (
+            not isinstance(saved, dict)
+            or type(saved.get("error")) is not bool
+        ):
+            return self._unknown_history_result(
+                sku,
+                actual,
+            )
+        if saved["error"] is True:
             return {
                 **saved,
                 "executed": False,
                 "execution_allowed": False,
             }
+        if (
+            type(saved.get("saved")) is not bool
+            or str(saved.get("sku") or "").strip() != sku
+            or str(saved.get("proposal_type") or "").strip().upper()
+            != actual
+            or str(saved.get("proposal_status") or "").strip().upper()
+            != normalized_status
+        ):
+            return self._unknown_history_result(
+                sku,
+                actual,
+            )
         result = {
             **saved,
             "executed": False,
@@ -74,9 +94,43 @@ class ProductActionProposalConfirmationService:
                 )
         except (OSError, ValueError, TypeError):
             return None
-        if result.get("error"):
+        if (
+            not isinstance(result, dict)
+            or type(result.get("error")) is not bool
+            or result["error"] is True
+            or type(result.get("saved")) is not bool
+            or result.get("executed") is not False
+            or result.get("execution_allowed") is not False
+        ):
             return None
-        return result.get("task_draft")
+
+        draft = result.get("task_draft")
+        if draft is None:
+            return None
+        if (
+            not isinstance(draft, dict)
+            or str(draft.get("sku") or "").strip()
+            != str(decision.get("sku") or "").strip()
+            or str(draft.get("proposal_type") or "").strip().upper()
+            != str(proposal.get("proposal_type") or "").strip().upper()
+            or draft.get("executed") is not False
+            or draft.get("execution_allowed") is not False
+        ):
+            return None
+        return draft
+
+    def _unknown_history_result(self, sku, proposal_type):
+        return {
+            "error": True,
+            "code": "INVALID_DECISION_HISTORY_RESULT",
+            "sku": sku or None,
+            "proposal_type": proposal_type or None,
+            "proposal_status": None,
+            "saved": None,
+            "persistence_state": "UNKNOWN",
+            "executed": False,
+            "execution_allowed": False,
+        }
 
     def _error(self, code, sku, expected, actual=None):
         return {
