@@ -2215,6 +2215,61 @@ class AssistantButtonHandlerService:
             "feedback": result,
         }
 
+    @staticmethod
+    def _valid_learning_count(value):
+        return type(value) is int and value >= 0
+
+    def _valid_product_decision_learning_summary(self, summary):
+        if (
+            not isinstance(summary, dict)
+            or summary.get("error") is not False
+        ):
+            return False
+
+        feedback_counts = summary.get("feedback_counts")
+        outcome_counts = summary.get("outcome_counts")
+        if (
+            not isinstance(feedback_counts, dict)
+            or set(feedback_counts) != {"USEFUL", "NOT_RELEVANT"}
+            or not isinstance(outcome_counts, dict)
+            or set(outcome_counts)
+            != {
+                "PRIORITY_DECREASED",
+                "PRIORITY_INCREASED",
+                "DECISION_CHANGED",
+            }
+        ):
+            return False
+
+        counts = [
+            summary.get("products_count"),
+            summary.get("decision_snapshots_count"),
+            summary.get("feedback_count"),
+            summary.get("outcome_count"),
+            feedback_counts.get("USEFUL"),
+            feedback_counts.get("NOT_RELEVANT"),
+            outcome_counts.get("PRIORITY_DECREASED"),
+            outcome_counts.get("PRIORITY_INCREASED"),
+            outcome_counts.get("DECISION_CHANGED"),
+        ]
+        if not all(self._valid_learning_count(value) for value in counts):
+            return False
+
+        snapshots = summary["decision_snapshots_count"]
+        return (
+            summary["feedback_count"]
+            == feedback_counts["USEFUL"] + feedback_counts["NOT_RELEVANT"]
+            and summary["outcome_count"]
+            == (
+                outcome_counts["PRIORITY_DECREASED"]
+                + outcome_counts["PRIORITY_INCREASED"]
+                + outcome_counts["DECISION_CHANGED"]
+            )
+            and summary["products_count"] <= snapshots
+            and summary["feedback_count"] <= snapshots
+            and summary["outcome_count"] <= snapshots
+        )
+
     def _show_product_decision_learning_summary(self):
         history_service = self._product_decision_history_service()
         if history_service is None:
@@ -2223,29 +2278,47 @@ class AssistantButtonHandlerService:
                 "message": "История решений недоступна"
             }
 
-        summary = history_service.learning_summary()
-        feedback = summary.get("feedback_counts") or {}
-        outcomes = summary.get("outcome_counts") or {}
+        try:
+            summary = history_service.learning_summary()
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "error": True,
+                "message": "Итоги обучения решений недоступны",
+            }
+
+        if (
+            not isinstance(summary, dict)
+            or type(summary.get("error")) is not bool
+            or summary["error"] is True
+            or not self._valid_product_decision_learning_summary(summary)
+        ):
+            return {
+                "error": True,
+                "message": "Итоги обучения решений недоступны",
+            }
+
+        feedback = summary["feedback_counts"]
+        outcomes = summary["outcome_counts"]
         message = "\n".join([
             "📚 Итоги обучения решений",
             "",
             "Товаров в памяти: "
-            + str(summary.get("products_count", 0)),
+            + str(summary["products_count"]),
             "Снимков решений: "
-            + str(summary.get("decision_snapshots_count", 0)),
-            "Оценок: " + str(summary.get("feedback_count", 0)),
-            "👍 Полезно: " + str(feedback.get("USEFUL", 0)),
+            + str(summary["decision_snapshots_count"]),
+            "Оценок: " + str(summary["feedback_count"]),
+            "👍 Полезно: " + str(feedback["USEFUL"]),
             "👎 Неактуально: "
-            + str(feedback.get("NOT_RELEVANT", 0)),
+            + str(feedback["NOT_RELEVANT"]),
             "",
             "Наблюдений после оценок: "
-            + str(summary.get("outcome_count", 0)),
+            + str(summary["outcome_count"]),
             "Срочность снизилась: "
-            + str(outcomes.get("PRIORITY_DECREASED", 0)),
+            + str(outcomes["PRIORITY_DECREASED"]),
             "Срочность выросла: "
-            + str(outcomes.get("PRIORITY_INCREASED", 0)),
+            + str(outcomes["PRIORITY_INCREASED"]),
             "Решение изменилось без смены приоритета: "
-            + str(outcomes.get("DECISION_CHANGED", 0)),
+            + str(outcomes["DECISION_CHANGED"]),
             "",
             "Данные являются наблюдениями, а не доказательством причинности.",
         ])
@@ -2634,38 +2707,85 @@ class AssistantButtonHandlerService:
                 "message": "История решений недоступна"
             }
 
-        records = history_service.history(sku, limit=5)
+        requested_sku = str(sku or "").strip()
+        if not requested_sku:
+            return {
+                "error": True,
+                "message": "История решений недоступна",
+            }
+
+        try:
+            records = history_service.history(requested_sku, limit=5)
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "error": True,
+                "message": "История решений недоступна",
+            }
+
+        if not isinstance(records, list):
+            return {
+                "error": True,
+                "message": "История решений недоступна",
+            }
         if not records:
             return {
                 "error": False,
                 "message": "История решений по товару пока пуста",
                 "decision_history": [],
             }
+        if len(records) > 5:
+            return {
+                "error": True,
+                "message": "История решений недоступна",
+            }
+
+        for record in records:
+            if not isinstance(record, dict):
+                return {
+                    "error": True,
+                    "message": "История решений недоступна",
+                }
+            record_sku = str(record.get("sku") or "").strip()
+            decision_type = record.get("decision_type")
+            priority = record.get("priority")
+            recorded_at = record.get("recorded_at")
+            feedback = record.get("feedback")
+            outcome = record.get("outcome")
+            if (
+                record_sku != requested_sku
+                or decision_type not in self.DECISION_LABELS
+                or decision_type == "INSUFFICIENT_DATA"
+                or priority not in self.PRIORITY_LABELS
+                or not isinstance(recorded_at, str)
+                or not recorded_at.strip()
+                or feedback not in {None, "USEFUL", "NOT_RELEVANT"}
+                or (
+                    outcome is not None
+                    and outcome not in self.DECISION_OUTCOME_LABELS
+                )
+            ):
+                return {
+                    "error": True,
+                    "message": "История решений недоступна",
+                }
 
         lines = [
             "📚 История решений",
             "",
-            "Артикул: " + str(sku),
+            "Артикул: " + requested_sku,
         ]
         for index, record in enumerate(records, start=1):
-            decision_type = record.get("decision_type")
-            priority = record.get("priority")
-            recorded_at = str(record.get("recorded_at") or "—")
+            decision_type = record["decision_type"]
+            priority = record["priority"]
+            recorded_at = record["recorded_at"]
             lines.extend([
                 "",
                 str(index) + ". " + recorded_at.split("T", 1)[0],
-                self.DECISION_LABELS.get(
-                    decision_type,
-                    str(decision_type or "—")
-                ),
-                "Приоритет: "
-                + self.PRIORITY_LABELS.get(
-                    priority,
-                    str(priority or "—")
-                ),
+                self.DECISION_LABELS[decision_type],
+                "Приоритет: " + self.PRIORITY_LABELS[priority],
             ])
             feedback = record.get("feedback")
-            if feedback:
+            if feedback is not None:
                 lines.append(
                     "Оценка: "
                     + (
@@ -2675,13 +2795,10 @@ class AssistantButtonHandlerService:
                     )
                 )
             outcome = record.get("outcome")
-            if outcome:
+            if outcome is not None:
                 lines.append(
                     "Наблюдение: "
-                    + self.DECISION_OUTCOME_LABELS.get(
-                        outcome,
-                        str(outcome)
-                    )
+                    + self.DECISION_OUTCOME_LABELS[outcome]
                 )
 
         return {
