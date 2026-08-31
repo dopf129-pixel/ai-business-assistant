@@ -2714,3 +2714,37 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-08-31 — Telegram Context Preparation Integrity v784-v792
+
+- analyze/plan now validate context preparation before assistant execution;
+- failed/malformed first context update stops the second update and all assistant/history side effects;
+- second update failure after proven first success reports partial committed context state;
+- malformed/exceptional second update preserves unknown current-task state and does not fabricate rollback;
+- context exception text is sanitized;
+- internal TypeError is not retried;
+- valid context preparation preserves one assistant call and one success-history write;
+- optional no-service/no-user context behavior remains compatible;
+- no execution authorization, Ozon mutation, quantity/price inference, or new persistence layer;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `656ff93a0cba3194481b007c288f0eeadbaf1441`: #465, 1684 passed / 0 failed, digest `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`;
+- cancelled intermediate `67e08c87de7564dc76c60fe2e9caebf05ba8f793`: #466, conclusion cancelled, test step 1693 passed / 0 failed, digest `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`; cancelled evidence only;
+- final feature `80f85b1b45e1e49279c334078c5991eac2757cc7`: #468, 1693 passed / 0 failed, digest `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`;
+- PR #292 synthetic merge `978b6e0170693ac5d8d39471dd45983ab394c0c3`: #469, 1693 passed / 0 failed, digest `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`;
+- squash main `a7748785341ccea0a459ec06c7de460213cec038`: #470, 1693 passed / 0 failed, digest `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`;
+- `externally_verified=False`.
+
+## 2026-08-31 — Project Brain reconciliation after Telegram Context Preparation Integrity v784-v792
+
+- reconciled CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `a7748785341ccea0a459ec06c7de460213cec038`;
+- added `CURRENT_CHECKPOINT_V784_V792.md`;
+- retained cancelled #466 and all historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

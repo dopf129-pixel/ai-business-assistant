@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1684 passed on `f432814d74ee4e175d291b69c79767d86d506e0a`.
+1693 passed on `a7748785341ccea0a459ec06c7de460213cec038`.
 
-GitHub Actions push verification run #461 completed successfully for this exact main SHA.
+GitHub Actions push verification run #470 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -1461,4 +1461,30 @@ Verified product baseline:
 - PR #290 synthetic merge `69d5928a49ab871fa845b25362fcd581173db484`: #460, 1684 passed / 0 failed, digest `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`
 - squash main `f432814d74ee4e175d291b69c79767d86d506e0a`: #461, 1684 passed / 0 failed, digest `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`
 - no failed/cancelled intermediate production SHA occurred in v774-v783
+- `externally_verified=False`
+
+
+---
+
+# Telegram Context Preparation Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] analyze/plan validate last_action context update before current_task update
+[x] failed/malformed first context update stops assistant and history side effects
+[x] current_task update result is validated independently
+[x] failure after successful last_action reports partial committed context state
+[x] malformed/exceptional second update remains unknown and does not fabricate rollback
+[x] context exception text is sanitized
+[x] internal TypeError is not retried
+[x] valid preparation still invokes assistant once and history once
+[x] optional no-service/no-user context behavior remains compatible
+
+Verified product evidence:
+
+- entering main `656ff93a0cba3194481b007c288f0eeadbaf1441`: push Verify #465, 1684 passed / 0 failed, digest `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`
+- cancelled intermediate `67e08c87de7564dc76c60fe2e9caebf05ba8f793`: push Verify #466, conclusion cancelled; test step completed 1693 passed / 0 failed; digest `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`; cancelled evidence only, not green
+- final feature `80f85b1b45e1e49279c334078c5991eac2757cc7`: push Verify #468, 1693 passed / 0 failed, digest `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
+- PR #292 synthetic merge `978b6e0170693ac5d8d39471dd45983ab394c0c3`: Verify #469, 1693 passed / 0 failed, digest `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
+- squash main `a7748785341ccea0a459ec06c7de460213cec038`: push Verify #470, 1693 passed / 0 failed, digest `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
 - `externally_verified=False`

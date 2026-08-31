@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1684 passed on `f432814d74ee4e175d291b69c79767d86d506e0a`.
+1693 passed on `a7748785341ccea0a459ec06c7de460213cec038`.
 
-GitHub Actions push Verify #461 completed successfully for this exact main SHA.
+GitHub Actions push Verify #470 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2535,3 +2535,32 @@ Tests:
 - exact-SHA evidence: main #457, feature #459, PR merge-ref #460, squash-main #461;
 - no execution authorization, Ozon mutation, quantity/price inference, or persistence-layer change;
 - `data/users.json` untouched; `externally_verified=False`.
+
+
+---
+
+# Telegram Context Preparation Integrity v1
+
+Boundary:
+
+- `AssistantButtonHandlerService.prepare_context`
+- Telegram analyze / plan orchestration before assistant execution
+- existing `AssistantUserContextService.update` / `AssistantTaskContextService.update_task` result contracts
+
+Tests:
+
+- `tests/test_telegram_context_preparation_integrity_v784_v792.py`
+
+Проверяет:
+
+- first context update failure/malformed result stops downstream task update and assistant/history side effects;
+- context exceptions return stable non-secret failures and are not retried;
+- second update failure after proven first success reports partial context state instead of fabricated rollback;
+- malformed/exceptional second update preserves unknown current-task state;
+- valid context preparation invokes assistant once and records history once;
+- absent context service and absent user ID preserve optional-context behavior;
+- exact-SHA evidence: entering main #465, cancelled #466, final feature #468, PR merge-ref #469, squash-main #470;
+- cancelled #466 is not green evidence even though its test/artifact steps completed;
+- no Product Decision/Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, Ozon mutation, or persistence-layer addition;
+- `data/users.json` untouched;
+- `externally_verified=False`.

@@ -4,60 +4,72 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`f432814d74ee4e175d291b69c79767d86d506e0a`
+`a7748785341ccea0a459ec06c7de460213cec038`
 
 Latest merged production-correctness batch:
 
-`v774-v783: Telegram History / Memory Read Integrity`
+`v784-v792: Telegram Context Preparation Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `c889ff8614c589853b3a29b41caf739067672db0`
-- push Verify #457
+- exact main: `656ff93a0cba3194481b007c288f0eeadbaf1441`
+- push Verify #465
 - conclusion: success
-- tests: 1674 passed / 0 failed
-- artifact: `verification-c889ff8614c589853b3a29b41caf739067672db0`
-- artifact digest: `sha256:8eac2e70c655e3c8d3974aa05efdbdfa53b47db31acb8f1a70bfc23684bcc0d6`
+- tests: 1684 passed / 0 failed
+- artifact: `verification-656ff93a0cba3194481b007c288f0eeadbaf1441`
+- artifact digest: `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`
+
+### Cancelled intermediate feature SHA
+
+- exact SHA: `67e08c87de7564dc76c60fe2e9caebf05ba8f793`
+- push Verify #466
+- conclusion: cancelled
+- test step completed: 1693 passed / 0 failed
+- artifact: `verification-67e08c87de7564dc76c60fe2e9caebf05ba8f793`
+- artifact digest: `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`
+- this SHA remains cancelled evidence permanently and is not success evidence
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-history-memory-read-integrity-v774-v783`
-- exact SHA: `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`
-- push Verify #459
+- branch: `fix/telegram-context-preparation-integrity-v784-v792`
+- exact SHA: `80f85b1b45e1e49279c334078c5991eac2757cc7`
+- push Verify #468
 - conclusion: success
-- tests: 1684 passed / 0 failed
-- artifact: `verification-f4b9b2b8c840a9b5245eb19bfe04430196bc565c`
-- artifact digest: `sha256:afaafbe46852fe59d83140d69ef0c891db5ebbaeeb55141d83d4b5578427a496`
+- tests: 1693 passed / 0 failed
+- artifact: `verification-80f85b1b45e1e49279c334078c5991eac2757cc7`
+- artifact digest: `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
 
 ### PR merge-ref integration verification
 
-- PR #290
-- branch head: `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`
-- synthetic merge SHA: `69d5928a49ab871fa845b25362fcd581173db484`
-- pull_request Verify #460
+- PR #292
+- branch head: `80f85b1b45e1e49279c334078c5991eac2757cc7`
+- synthetic merge SHA: `978b6e0170693ac5d8d39471dd45983ab394c0c3`
+- pull_request Verify #469
 - conclusion: success
-- tests: 1684 passed / 0 failed
-- artifact: `verification-69d5928a49ab871fa845b25362fcd581173db484`
-- artifact digest: `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`
+- tests: 1693 passed / 0 failed
+- artifact: `verification-978b6e0170693ac5d8d39471dd45983ab394c0c3`
+- artifact digest: `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `f432814d74ee4e175d291b69c79767d86d506e0a`
-- push Verify #461
+- exact main: `a7748785341ccea0a459ec06c7de460213cec038`
+- push Verify #470
 - conclusion: success
-- tests: 1684 passed / 0 failed
-- artifact: `verification-f432814d74ee4e175d291b69c79767d86d506e0a`
-- artifact digest: `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`
+- tests: 1693 passed / 0 failed
+- artifact: `verification-a7748785341ccea0a459ec06c7de460213cec038`
+- artifact digest: `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
 
-No failed or cancelled intermediate production SHA occurred in v774-v783. Historical failed/cancelled SHAs remain permanent evidence in prior checkpoints and changelog and are not reclassified.
+No failed intermediate production SHA occurred in v784-v792. The cancelled SHA #466 remains cancelled evidence and carries no transferable green claim. Historical failed/cancelled SHAs remain permanent evidence in prior checkpoints and changelog.
 
-## Telegram History / Memory Read Integrity
+## Telegram Context Preparation Integrity
 
-Unavailable service or missing user context is no longer represented as empty History/Memory success. The read boundary validates downstream result shape before presentation and preserves explicit failure. Legitimate empty `history=[]` and `memory={}` remain read-only success only when the real downstream contract provides them.
+Telegram analyze/plan no longer proceed to assistant execution after failed or malformed context preparation. The first `last_action` update is validated before the `current_task` update. If the second update fails after the first was proven successful, the result reports partial committed context state rather than pretending rollback.
 
-Read exceptions are sanitized. No read result enables execution or mutation. No Product Decision/Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, Ozon mutation, or persistence layer changed. Repository `data/users.json` was not modified.
+Malformed/exceptional context updates fail closed. Exception text is sanitized. TypeError is not retried. Optional context behavior without a context service or user ID remains compatible.
+
+No Product Decision/Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, Ozon mutation, or new persistence layer was introduced. Repository `data/users.json` was not modified.
 
 Architecture Review Required: Yes
 Critical Review Required: No
@@ -68,7 +80,7 @@ Exact branch push verification proves only that exact branch head.
 Pull-request runs prove only their synthetic merge refs.
 Every squash-main SHA requires its own exact push verification.
 Failed SHAs remain failed evidence permanently.
-Cancelled SHAs remain unknown/cancelled evidence and carry no transferable claim.
+Cancelled SHAs remain cancelled/unknown evidence and carry no transferable claim.
 Missing evidence remains unknown and is never interpreted as zero/clean.
 Workflow/test-manifest evidence is not independent external verification;
 `externally_verified=False`.
@@ -76,5 +88,5 @@ Workflow/test-manifest evidence is not independent external verification;
 ## Related implementation
 
 - `app/services/assistant_button_handler_service.py`
-- `tests/test_telegram_history_memory_read_integrity_v774_v783.py`
-- `project_brain/CURRENT_CHECKPOINT_V774_V783.md`
+- `tests/test_telegram_context_preparation_integrity_v784_v792.py`
+- `project_brain/CURRENT_CHECKPOINT_V784_V792.md`
