@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1693 passed on `a7748785341ccea0a459ec06c7de460213cec038`.
+1703 passed on `701b5a31575a2e37d76da22af260c206d4a68b50`.
 
-GitHub Actions push Verify #470 completed successfully for this exact main SHA.
+GitHub Actions push Verify #478 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2562,5 +2562,34 @@ Tests:
 - exact-SHA evidence: entering main #465, cancelled #466, final feature #468, PR merge-ref #469, squash-main #470;
 - cancelled #466 is not green evidence even though its test/artifact steps completed;
 - no Product Decision/Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, Ozon mutation, or persistence-layer addition;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Task Draft Freshness Telegram Presentation Integrity v1
+
+Boundary:
+
+- `AssistantTelegramAdapter` Product Task Draft list/detail freshness enrichment
+- read-only presentation only; Product Task Draft execution remains disabled
+
+Tests:
+
+- `tests/test_product_task_draft_freshness_telegram_presentation_integrity_v793_v802.py`
+
+Проверяет:
+
+- malformed readiness summary containers fail closed;
+- partial/negative/boolean freshness count maps cannot invent zero categories;
+- valid all-zero freshness counts remain legitimate success;
+- malformed optional coverage/source-timestamp/refresh maps fail closed when present;
+- absent optional presentation evidence is omitted rather than synthesized;
+- malformed detail readiness/freshness/status/age/reason fails closed before formatter use;
+- malformed coverage components and refresh guidance targets fail closed;
+- legitimate UNKNOWN freshness, observed-only evidence and refresh guidance remain read-only success;
+- exact-SHA evidence: entering main #474, feature #476, PR merge-ref #477, squash-main #478;
+- no Product Decision rule/threshold, Task Draft readiness rule, persistence behavior, Action Executor connection, execution authorization, quantity/price inference, or Ozon mutation changed;
 - `data/users.json` untouched;
 - `externally_verified=False`.

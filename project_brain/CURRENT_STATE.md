@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1693 passed on `a7748785341ccea0a459ec06c7de460213cec038`.
+1703 passed on `701b5a31575a2e37d76da22af260c206d4a68b50`.
 
-GitHub Actions push verification run #470 completed successfully for this exact main SHA.
+GitHub Actions push verification run #478 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -1487,4 +1487,29 @@ Verified product evidence:
 - final feature `80f85b1b45e1e49279c334078c5991eac2757cc7`: push Verify #468, 1693 passed / 0 failed, digest `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
 - PR #292 synthetic merge `978b6e0170693ac5d8d39471dd45983ab394c0c3`: Verify #469, 1693 passed / 0 failed, digest `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
 - squash main `a7748785341ccea0a459ec06c7de460213cec038`: push Verify #470, 1693 passed / 0 failed, digest `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
+- `externally_verified=False`
+
+
+---
+
+# Product Task Draft Freshness Telegram Presentation Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] malformed readiness/freshness metadata fails closed before presentation
+[x] partial freshness count maps cannot invent missing categories as zero
+[x] malformed optional evidence maps do not become seller-facing synthetic zeros
+[x] invalid detail status/age/reasons/coverage/guidance fails closed with stable non-secret result
+[x] unknown enum strings are not surfaced as business facts
+[x] legitimate all-zero freshness counts remain success
+[x] legitimate UNKNOWN freshness and evidence-limited guidance remain read-only success
+[x] Product Task Draft remains non-executable
+
+Verified product evidence:
+
+- entering main `3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`: push Verify #474, 1693 passed / 0 failed, digest `sha256:a334436fd6e357ab6c9948baf907d472e67331442860fdf8fa0c15d5a3afeff0`
+- final feature `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`: push Verify #476, 1703 passed / 0 failed, digest `sha256:b35bb81059445bcc1ca089d5237874461b904ec7795d08db69c2d5383179349a`
+- PR #294 synthetic merge `1fc456087126b0cc91e6b3354a6560477a989b4c`: Verify #477, 1703 passed / 0 failed, digest `sha256:f286f803fc87a2c4a65c4f32afb6d606df31635c5b1ad7be1b1aaae21cc0e231`
+- squash main `701b5a31575a2e37d76da22af260c206d4a68b50`: push Verify #478, 1703 passed / 0 failed, digest `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`
+- no failed/cancelled intermediate production SHA occurred in v793-v802
 - `externally_verified=False`
