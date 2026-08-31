@@ -473,7 +473,6 @@ class StubProposalConfirmation:
             "proposal_status": "CONFIRMED",
             "saved": True,
             "executed": False,
-            "execution_allowed": False,
         }
         self.calls = []
         self.task_draft_service = None
@@ -530,6 +529,7 @@ class StubTaskDrafts:
             "task_draft": dict(self.record),
             "saved": True,
             "executed": False,
+            "execution_allowed": False,
         }
 
     def get(self, draft_id):
