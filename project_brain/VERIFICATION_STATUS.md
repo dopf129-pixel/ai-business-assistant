@@ -4,79 +4,79 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`5cf5a9cba19cc0efc171c1eb8d626868bf415d53`
+`849be9ce0af83fc163415e5e5538346b13f868c0`
 
 Latest merged production-correctness batch:
 
-`v722-v730: Financial Telegram Result Integrity`
+`v731-v742: Product Task Draft Telegram Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `eafc9f19ba9865face765379396ca46ac0a919c3`
-- push Verify #404
+- exact main: `5e0f986cf3254ddd0935b40aa1abf2c1f102f529`
+- push Verify #418
 - conclusion: success
-- tests: 1622 passed / 0 failed
-- artifact: `verification-eafc9f19ba9865face765379396ca46ac0a919c3`
-- artifact digest: `sha256:56f8df7a744bb72a3ecbf7e32e34c72ff903d3a37a4b69bdc68bb56458f184f4`
+- tests: 1631 passed / 0 failed
+- artifact: `verification-5e0f986cf3254ddd0935b40aa1abf2c1f102f529`
+- artifact digest: `sha256:7477913a7a81e2b84ba8a53addf72d1cf929cb63725f22c7abfb852ff5c2b11d`
 
 ### Failed intermediate feature SHA
 
-- exact SHA: `64d34b244f790065acb0a636542a5684bd598dec`
-- push Verify #405
+- exact SHA: `fb64d3deeb5d7bd9a6e42772fe7614630ad6ed03`
+- push Verify #419
 - conclusion: failure
-- tests: 1627 passed / 4 failed
-- artifact: `verification-64d34b244f790065acb0a636542a5684bd598dec`
-- artifact digest: `sha256:145d4d39f1e4374f2386ceb2d00b9473181c932b1d2f1f065b99c94a8c52774e`
+- tests: 1641 passed / 2 failed
+- artifact: `verification-fb64d3deeb5d7bd9a6e42772fe7614630ad6ed03`
+- artifact digest: `sha256:4269d5597aef3089c33a8f4c1a8a84110affb73a7b2d6cc75e00e5fd284150b4`
 
-The failures were fixture-shape issues: a test sentinel and legacy returns-impact fixtures that omitted the already-guaranteed production missing_data field. Production validation was not weakened. This SHA remains failed evidence permanently.
+The failures were fixture issues: the archive stub omitted the existing execution_allowed=False field and a focused test used None as both malformed input and default sentinel. Production validation was not weakened. This SHA remains failed evidence permanently.
 
 ### Cancelled intermediate feature SHA
 
-- exact SHA: `fdd90ff6368178bf14896cc2d02f3aa57af90291`
-- push Verify #406
+- exact SHA: `61db8a964cfeed77e0b5caf451c705c6a77e3b51`
+- push Verify #420
 - conclusion: cancelled
 
-This SHA has no transferable verification claim. It was superseded by the next fixture-alignment commit.
+This SHA carries no transferable verification claim.
 
 ### Exact final feature-head verification
 
-- branch: `fix/financial-telegram-result-integrity-v722-v730`
-- exact SHA: `43404cf36f7753dc9701ba561443d7eb6160d037`
-- push Verify #407
+- branch: `fix/product-task-draft-telegram-result-integrity-v731-v742`
+- exact SHA: `7826eeef2218dfbbef87e012c95f494059a62756`
+- push Verify #421
 - conclusion: success
-- tests: 1631 passed / 0 failed
-- artifact: `verification-43404cf36f7753dc9701ba561443d7eb6160d037`
-- artifact digest: `sha256:b33b6f78e24da61d1b5475ad6aeef87551b8b1c4886440d5b8432aab7ebc7eed`
+- tests: 1643 passed / 0 failed
+- artifact: `verification-7826eeef2218dfbbef87e012c95f494059a62756`
+- artifact digest: `sha256:45f6d956e83620c23c7d63c7995e63ddf9f2ec1a2b1bbf109bd96b9167de86fb`
 
 ### PR merge-ref integration verification
 
-- PR #280
-- branch head: `43404cf36f7753dc9701ba561443d7eb6160d037`
-- synthetic merge SHA: `815f154470ad15a8b000fca072c806b6bf310d10`
-- pull_request Verify #408
+- PR #282
+- branch head: `7826eeef2218dfbbef87e012c95f494059a62756`
+- synthetic merge SHA: `0b86beef8f4b25e9012a214def69f86bf3473e13`
+- pull_request Verify #422
 - conclusion: success
-- tests: 1631 passed / 0 failed
-- artifact: `verification-815f154470ad15a8b000fca072c806b6bf310d10`
-- artifact digest: `sha256:325b6855603b80c8ecec817fd976cf6f05a7edb75c1645ed73bf6a69d475a069`
+- tests: 1643 passed / 0 failed
+- artifact: `verification-0b86beef8f4b25e9012a214def69f86bf3473e13`
+- artifact digest: `sha256:9ca5d99dc0a84d798b6134c8cbe368b311501a15fd57896e71487f4d128831af`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `5cf5a9cba19cc0efc171c1eb8d626868bf415d53`
-- push Verify #409
+- exact main: `849be9ce0af83fc163415e5e5538346b13f868c0`
+- push Verify #423
 - conclusion: success
-- tests: 1631 passed / 0 failed
-- artifact: `verification-5cf5a9cba19cc0efc171c1eb8d626868bf415d53`
-- artifact digest: `sha256:4c439270e095f5e3aab3ec576a45736b387d81720bfe07d73b9ebc94cf9a5070`
+- tests: 1643 passed / 0 failed
+- artifact: `verification-849be9ce0af83fc163415e5e5538346b13f868c0`
+- artifact digest: `sha256:93b2ad801343dae9682a7d6e763e4e904adb38b92a7c5494ccf8d63f9d2112ec`
 
-## Financial Telegram Result Integrity
+## Product Task Draft Telegram Result Integrity
 
-The seller-facing Unit Economics and Returns Finance Impact detail cards now validate downstream result contracts before formatting them.
+The seller-facing Product Task Draft summary/detail/archive paths now validate downstream result contracts before presenting lifecycle state.
 
-Malformed financial payloads fail closed instead of becoming optimistic success or reaching formatter assumptions. Legitimate incomplete evidence remains visible as incomplete evidence; explicit downstream failures remain failures.
+Malformed summary, review-queue, readiness, detail, and archive payloads fail closed instead of becoming optimistic success or zero-filled status. Archive success requires a matching archived draft and explicit non-execution evidence. Existing idempotent archive semantics remain compatible.
 
-No financial formulas, tax/fee arithmetic, Product Decision rules, persistence owner/layer, Product Task Draft execution, business execution authorization, or Ozon mutation changed. Repository `data/users.json` was not modified.
+No Product Task Draft execution, Action Executor connection, business execution authorization, replenishment quantity inference, price change, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -91,5 +91,5 @@ Workflow/test-manifest evidence is not independent external verification;
 ## Related implementation
 
 - `app/services/assistant_button_handler_service.py`
-- `tests/test_financial_telegram_result_integrity_v722_v730.py`
-- `project_brain/CURRENT_CHECKPOINT_V722_V730.md`
+- `tests/test_product_task_draft_telegram_result_integrity_v731_v742.py`
+- `project_brain/CURRENT_CHECKPOINT_V731_V742.md`

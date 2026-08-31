@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1631 passed on `5cf5a9cba19cc0efc171c1eb8d626868bf415d53`.
+1643 passed on `849be9ce0af83fc163415e5e5538346b13f868c0`.
 
-GitHub Actions push Verify #409 completed successfully for this exact main SHA.
+GitHub Actions push Verify #423 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2387,4 +2387,34 @@ Tests:
 - failed intermediate SHA 64d34b244f790065acb0a636542a5684bd598dec remains failed evidence;
 - cancelled intermediate SHA fdd90ff6368178bf14896cc2d02f3aa57af90291 remains unknown/cancelled evidence and is not reused;
 - no financial formula, tax/fee arithmetic, Product Decision rule, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation changed;
+- repository data/users.json remains untouched.
+
+
+---
+
+# Product Task Draft Telegram Result Integrity v1
+
+Boundary:
+
+- AssistantButtonHandlerService Product Task Draft summary/detail/archive Telegram paths
+
+Tests:
+
+- tests/test_product_task_draft_telegram_result_integrity_v731_v742.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- summary result requires explicit boolean error and exact DRAFT/STALE/DISMISSED/ARCHIVED counts;
+- missing lifecycle counts cannot become seller-facing zero evidence;
+- raw task-draft list is validated before review-queue prioritization;
+- review queue requires exact priority counts, valid reviewable items and executed_count=0;
+- readiness summary and per-draft readiness require explicit non-executable contracts;
+- malformed detail result fails closed before rendering task-draft/audit data;
+- malformed detail readiness fails closed;
+- archive cannot claim success without matching ARCHIVED draft, explicit saved bool, executed=False and execution_allowed=False;
+- idempotent saved=False archive remains a legitimate non-executable success;
+- failed intermediate SHA fb64d3deeb5d7bd9a6e42772fe7614630ad6ed03 remains failed evidence;
+- cancelled intermediate SHA 61db8a964cfeed77e0b5caf451c705c6a77e3b51 remains cancelled/unknown evidence;
+- no Product Task Draft execution, Action Executor connection, business execution authorization or Ozon mutation is enabled;
 - repository data/users.json remains untouched.
