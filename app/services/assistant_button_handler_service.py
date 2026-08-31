@@ -493,7 +493,18 @@ class AssistantButtonHandlerService:
             self.product_business_decision_query
             .query_all()
         )
-        decisions = overview.get("decisions") or []
+
+        overview_failure = (
+            self._validate_product_decisions_overview(
+                overview
+            )
+        )
+
+        if overview_failure:
+
+            return overview_failure
+
+        decisions = overview["decisions"]
 
         if not decisions:
 
@@ -558,6 +569,206 @@ class AssistantButtonHandlerService:
             ),
             "overview": overview
         }
+
+    @staticmethod
+    def _invalid_product_decision_result(
+        code
+    ):
+
+        return {
+            "error": True,
+            "message": code
+        }
+
+
+    def _validate_product_decisions_overview(
+        self,
+        overview
+    ):
+
+        if (
+            not isinstance(
+                overview,
+                dict
+            )
+            or type(
+                overview.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+            )
+
+        if overview.get(
+            "error"
+        ) is True:
+
+            failure = dict(
+                overview
+            )
+            failure.setdefault(
+                "message",
+                "Не удалось получить решения по товарам"
+            )
+            return failure
+
+        decisions = overview.get(
+            "decisions"
+        )
+        counts = overview.get(
+            "counts"
+        )
+        total = overview.get(
+            "total"
+        )
+        actionable = overview.get(
+            "actionable_proposals_count"
+        )
+
+        if (
+            not isinstance(
+                decisions,
+                list
+            )
+            or any(
+                not isinstance(
+                    item,
+                    dict
+                )
+                for item in decisions
+            )
+            or not isinstance(
+                counts,
+                dict
+            )
+            or type(
+                total
+            )
+            is not int
+            or total < 0
+            or total != len(
+                decisions
+            )
+            or type(
+                actionable
+            )
+            is not int
+            or actionable < 0
+        ):
+
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+            )
+
+        for decision in decisions:
+
+            if (
+                decision.get(
+                    "sku"
+                )
+                is None
+                or not isinstance(
+                    decision.get(
+                        "decision_type"
+                    ),
+                    str
+                )
+                or not decision.get(
+                    "decision_type"
+                )
+                or not isinstance(
+                    decision.get(
+                        "priority"
+                    ),
+                    str
+                )
+                or not decision.get(
+                    "priority"
+                )
+            ):
+
+                return self._invalid_product_decision_result(
+                    "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+                )
+
+        return None
+
+
+    def _validate_product_decision_detail(
+        self,
+        result
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISION_DETAIL_RESULT"
+            )
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return None
+
+        if (
+            result.get(
+                "sku"
+            )
+            is None
+            or not isinstance(
+                result.get(
+                    "decision_type"
+                ),
+                str
+            )
+            or not result.get(
+                "decision_type"
+            )
+            or not isinstance(
+                result.get(
+                    "priority"
+                ),
+                str
+            )
+            or not result.get(
+                "priority"
+            )
+            or not isinstance(
+                result.get(
+                    "reasons"
+                ),
+                list
+            )
+            or not isinstance(
+                result.get(
+                    "missing_data"
+                ),
+                list
+            )
+        ):
+
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISION_DETAIL_RESULT"
+            )
+
+        return None
+
 
     def _format_product_decisions_overview(
         self,
@@ -635,13 +846,34 @@ class AssistantButtonHandlerService:
                 sku
             )
         )
+
+        result_failure = (
+            self._validate_product_decision_detail(
+                result
+            )
+        )
+
+        if result_failure:
+
+            return result_failure
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return {
+                "error": True,
+                "message":
+                    self._format_product_decision(
+                        result
+                    ),
+                "decision": result
+            }
+
         result = self._with_latest_proposal_status(result, sku)
 
         response = {
-            "error": result.get(
-                "error",
-                False
-            ),
+            "error": False,
             "message": self._format_product_decision(
                 result
             ),
