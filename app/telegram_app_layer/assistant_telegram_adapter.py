@@ -372,8 +372,6 @@ class AssistantTelegramAdapter:
 
 
     def _with_task_draft_freshness(self, callback, result):
-        if not isinstance(result, dict):
-            return result
         if callback == "product_action_task_drafts":
             return self._with_freshness_summary(result)
         if str(callback).startswith("product_task_draft:view:"):
@@ -381,134 +379,242 @@ class AssistantTelegramAdapter:
         return result
 
     def _with_freshness_summary(self, result):
-        summary = result.get("readiness_summary") or {}
-        counts = summary.get("freshness_counts") or {}
-        if not counts:
+        summary = result.get("readiness_summary")
+        if summary is None:
             return result
+        if not isinstance(summary, dict):
+            return self._freshness_presentation_failure()
+
+        counts = summary.get("freshness_counts")
+        if counts is None:
+            return result
+        if not self._valid_count_map(
+            counts,
+            {"FRESH", "STALE", "UNKNOWN"},
+        ):
+            return self._freshness_presentation_failure()
 
         lines = [
             "",
             "Свежесть данных:",
-            "Свежие: " + str(counts.get("FRESH", 0)),
-            "Устарели: " + str(counts.get("STALE", 0)),
-            "Неизвестно: " + str(counts.get("UNKNOWN", 0)),
+            "Свежие: " + str(counts["FRESH"]),
+            "Устарели: " + str(counts["STALE"]),
+            "Неизвестно: " + str(counts["UNKNOWN"]),
         ]
 
-        coverage = summary.get("freshness_coverage_counts") or {}
-        if coverage:
+        coverage = summary.get("freshness_coverage_counts")
+        if coverage is not None:
+            if not self._valid_count_map(
+                coverage,
+                {"SOURCE_PROVEN", "OBSERVED_ONLY", "NO_EVIDENCE"},
+            ):
+                return self._freshness_presentation_failure()
             lines.extend([
                 "",
                 "Доказательства свежести:",
                 "Поле timestamp источника есть: "
-                + str(coverage.get("SOURCE_PROVEN", 0)),
+                + str(coverage["SOURCE_PROVEN"]),
                 "Только наблюдение: "
-                + str(coverage.get("OBSERVED_ONLY", 0)),
+                + str(coverage["OBSERVED_ONLY"]),
                 "Нет временных доказательств: "
-                + str(coverage.get("NO_EVIDENCE", 0)),
+                + str(coverage["NO_EVIDENCE"]),
             ])
 
         source_timestamp_counts = summary.get(
             "freshness_source_timestamp_counts"
-        ) or {}
-        if source_timestamp_counts:
+        )
+        if source_timestamp_counts is not None:
+            if not self._valid_count_map(
+                source_timestamp_counts,
+                {"VERIFIED", "UNVERIFIED", "ABSENT"},
+            ):
+                return self._freshness_presentation_failure()
             lines.extend([
                 "",
                 "Проверка timestamp источника:",
                 "Проверен: "
-                + str(source_timestamp_counts.get("VERIFIED", 0)),
+                + str(source_timestamp_counts["VERIFIED"]),
                 "Требует проверки: "
-                + str(source_timestamp_counts.get("UNVERIFIED", 0)),
+                + str(source_timestamp_counts["UNVERIFIED"]),
                 "Отсутствует: "
-                + str(source_timestamp_counts.get("ABSENT", 0)),
+                + str(source_timestamp_counts["ABSENT"]),
             ])
 
-        refresh_counts = summary.get("freshness_refresh_counts") or {}
-        if refresh_counts:
+        refresh_counts = summary.get("freshness_refresh_counts")
+        if refresh_counts is not None:
+            if not self._valid_count_map(
+                refresh_counts,
+                {
+                    "SOURCE_TIMESTAMP_REQUIRED",
+                    "VERIFY_SOURCE_TIMESTAMP",
+                    "REFRESH_SOURCE_DATA",
+                },
+            ):
+                return self._freshness_presentation_failure()
             lines.extend([
                 "",
                 "Что требуется:",
                 "Нужен timestamp источника: "
-                + str(refresh_counts.get("SOURCE_TIMESTAMP_REQUIRED", 0)),
+                + str(refresh_counts["SOURCE_TIMESTAMP_REQUIRED"]),
                 "Проверить timestamp: "
-                + str(refresh_counts.get("VERIFY_SOURCE_TIMESTAMP", 0)),
+                + str(refresh_counts["VERIFY_SOURCE_TIMESTAMP"]),
                 "Обновить источник: "
-                + str(refresh_counts.get("REFRESH_SOURCE_DATA", 0)),
+                + str(refresh_counts["REFRESH_SOURCE_DATA"]),
             ])
 
         return self._append_message(result, lines)
 
     def _with_freshness_detail(self, result):
-        readiness = result.get("readiness") or {}
-        freshness = readiness.get("freshness") or {}
-        status = freshness.get("status")
-        if not status:
+        readiness = result.get("readiness")
+        if readiness is None:
             return result
+        if not isinstance(readiness, dict):
+            return self._freshness_presentation_failure()
 
-        snapshot = freshness.get("decision_snapshot") or {}
-        age = self._format_freshness_age(snapshot.get("age_seconds"))
+        freshness = readiness.get("freshness")
+        if freshness is None:
+            return result
+        if not isinstance(freshness, dict):
+            return self._freshness_presentation_failure()
+
+        status = freshness.get("status")
+        if status not in self.FRESHNESS_STATUS_LABELS:
+            return self._freshness_presentation_failure()
+
+        snapshot = freshness.get("decision_snapshot")
+        if not isinstance(snapshot, dict):
+            return self._freshness_presentation_failure()
+
+        age_seconds = snapshot.get("age_seconds")
+        if (
+            age_seconds is not None
+            and (
+                isinstance(age_seconds, bool)
+                or not isinstance(age_seconds, (int, float))
+                or age_seconds < 0
+            )
+        ):
+            return self._freshness_presentation_failure()
+
+        reasons = freshness.get("reasons")
+        if (
+            not isinstance(reasons, list)
+            or any(
+                reason not in self.FRESHNESS_REASON_LABELS
+                for reason in reasons
+            )
+        ):
+            return self._freshness_presentation_failure()
+
+        age = self._format_freshness_age(age_seconds)
         lines = [
             "",
             "Свежесть данных:",
-            self.FRESHNESS_STATUS_LABELS.get(status, str(status)),
+            self.FRESHNESS_STATUS_LABELS[status],
             "Возраст снимка решения: " + age,
         ]
 
-        coverage = readiness.get("freshness_coverage") or {}
-        components = coverage.get("components") or {}
-        if components:
-            lines.extend(["", "Доказательства по компонентам:"])
-            for component_name, component in components.items():
-                evidence_state = component.get("evidence_state")
-                component_label = self.FRESHNESS_COMPONENT_LABELS.get(
-                    component_name,
-                    str(component_name),
-                )
-                evidence_label = self.FRESHNESS_EVIDENCE_LABELS.get(
-                    evidence_state,
-                    str(evidence_state),
-                )
-                source_timestamp_state = component.get(
-                    "source_timestamp_state"
-                )
-                if evidence_state == "SOURCE_PROVEN":
-                    evidence_label = (
-                        self.FRESHNESS_SOURCE_TIMESTAMP_LABELS.get(
-                            source_timestamp_state,
-                            evidence_label,
-                        )
+        coverage = readiness.get("freshness_coverage")
+        if coverage is not None:
+            if not isinstance(coverage, dict):
+                return self._freshness_presentation_failure()
+            components = coverage.get("components")
+            if not isinstance(components, dict):
+                return self._freshness_presentation_failure()
+            if components:
+                lines.extend(["", "Доказательства по компонентам:"])
+                for component_name, component in components.items():
+                    if (
+                        component_name not in self.FRESHNESS_COMPONENT_LABELS
+                        or not isinstance(component, dict)
+                    ):
+                        return self._freshness_presentation_failure()
+                    evidence_state = component.get("evidence_state")
+                    if evidence_state not in self.FRESHNESS_EVIDENCE_LABELS:
+                        return self._freshness_presentation_failure()
+                    source_timestamp_state = component.get(
+                        "source_timestamp_state"
                     )
-                lines.append(
-                    "• " + component_label + ": " + evidence_label
-                )
+                    if (
+                        source_timestamp_state is not None
+                        and source_timestamp_state
+                        not in self.FRESHNESS_SOURCE_TIMESTAMP_LABELS
+                    ):
+                        return self._freshness_presentation_failure()
+                    component_label = self.FRESHNESS_COMPONENT_LABELS[
+                        component_name
+                    ]
+                    evidence_label = self.FRESHNESS_EVIDENCE_LABELS[
+                        evidence_state
+                    ]
+                    if evidence_state == "SOURCE_PROVEN":
+                        if source_timestamp_state is None:
+                            return self._freshness_presentation_failure()
+                        evidence_label = (
+                            self.FRESHNESS_SOURCE_TIMESTAMP_LABELS[
+                                source_timestamp_state
+                            ]
+                        )
+                    lines.append(
+                        "• " + component_label + ": " + evidence_label
+                    )
 
-        guidance = readiness.get("freshness_refresh_guidance") or {}
-        targets = guidance.get("targets") or []
-        if targets:
-            lines.extend(["", "Что требуется:"])
-            for target in targets:
-                component_name = target.get("component")
-                action = target.get("action")
-                component_label = self.FRESHNESS_COMPONENT_LABELS.get(
-                    component_name,
-                    str(component_name),
-                )
-                action_label = self.FRESHNESS_REFRESH_ACTION_LABELS.get(
-                    action,
-                    str(action),
-                )
-                lines.append(
-                    "• " + component_label + ": " + action_label
-                )
+        guidance = readiness.get("freshness_refresh_guidance")
+        if guidance is not None:
+            if not isinstance(guidance, dict):
+                return self._freshness_presentation_failure()
+            targets = guidance.get("targets")
+            if not isinstance(targets, list):
+                return self._freshness_presentation_failure()
+            if targets:
+                lines.extend(["", "Что требуется:"])
+                for target in targets:
+                    if not isinstance(target, dict):
+                        return self._freshness_presentation_failure()
+                    component_name = target.get("component")
+                    action = target.get("action")
+                    if (
+                        component_name not in self.FRESHNESS_COMPONENT_LABELS
+                        or action not in self.FRESHNESS_REFRESH_ACTION_LABELS
+                    ):
+                        return self._freshness_presentation_failure()
+                    lines.append(
+                        "• "
+                        + self.FRESHNESS_COMPONENT_LABELS[component_name]
+                        + ": "
+                        + self.FRESHNESS_REFRESH_ACTION_LABELS[action]
+                    )
 
-        reasons = freshness.get("reasons") or []
         if reasons:
             lines.append("Причины:")
             lines.extend(
-                "• " + self.FRESHNESS_REASON_LABELS.get(reason, str(reason))
+                "• " + self.FRESHNESS_REASON_LABELS[reason]
                 for reason in reasons
             )
 
         return self._append_message(result, lines)
+
+    @staticmethod
+    def _valid_count_map(value, states):
+        return (
+            isinstance(value, dict)
+            and set(value) == states
+            and all(
+                type(value[state]) is int
+                and value[state] >= 0
+                for state in states
+            )
+        )
+
+    @staticmethod
+    def _freshness_presentation_failure():
+        return {
+            "error": True,
+            "message":
+                "INVALID_TELEGRAM_TASK_DRAFT_FRESHNESS_RESULT",
+            "executed": False,
+        }
+
 
     def _append_message(self, result, lines):
         enriched = dict(result)
