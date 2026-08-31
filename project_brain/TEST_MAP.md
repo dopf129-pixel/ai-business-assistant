@@ -1291,6 +1291,48 @@ Tests:
 - отсутствие tax configuration сохраняет tax/net profit/margin как None
 - существующие sales, stock и finance executor mappings не изменяются
 - Telegram UI и Action/Executor workflow не затрагиваются
+
+---
+
+# Product Unit Economics Telegram UI v1
+
+
+UI Boundary:
+
+
+- AssistantKeyboardService
+- AssistantButtonHandlerService
+- telegram_assistant_factory.py
+- telegram_api_bot.py
+
+
+Backend:
+
+
+- ProductUnitEconomicsQueryService
+
+
+Tests:
+
+
+- tests/test_product_unit_economics_telegram_ui.py
+- test_assistant_keyboard_flow.py
+
+
+Проверяет:
+
+
+- кнопку «💰 Юнит-экономика товаров» в существующем main keyboard
+- открытие меню выбора SKU
+- получение SKU через существующий ProductService внутри query boundary
+- callback unit_economics:<sku>
+- вызов существующего ProductUnitEconomicsQueryService.query(sku)
+- использование существующего format_response() без UI-расчётов
+- отображение advertising, storage и returns как «—»
+- отсутствие формулировки «Чистая прибыль»
+- безопасный ответ при отсутствии товаров или SKU
+- сохранение существующих analyze/plan/history/memory callbacks
+- отсутствие изменений Sales/Stock/Finance и Action/Executor workflow
 ---
 
 # Current Unit Economics Integration / Polish
