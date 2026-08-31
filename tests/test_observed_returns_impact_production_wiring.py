@@ -48,6 +48,13 @@ def _impact_result(complete=False):
         "requested_sku": "hook-2",
         "period_days": 30,
         "complete": complete,
+        "missing_data": (
+            []
+            if complete
+            else [
+                "finance_postings_unmatched",
+            ]
+        ),
         "categories": {
             "customer_non_buyout": {
                 "label": "Невыкуп",

@@ -2110,11 +2110,20 @@ class AssistantButtonHandlerService:
             )
         )
 
+        validation_error = (
+            self._validate_unit_economics_result(
+                result
+            )
+        )
+
+        if validation_error:
+
+            return validation_error
+
         return {
-            "error": result.get(
-                "error",
-                False
-            ),
+            "error": result[
+                "error"
+            ],
             "message": (
                 self.unit_economics_query
                 .format_response(
@@ -2220,15 +2229,211 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        result = self.returns_finance_impact_query.query(sku)
+        result = (
+            self.returns_finance_impact_query
+            .query(
+                sku
+            )
+        )
+
+        validation_error = (
+            self._validate_returns_finance_impact_result(
+                result
+            )
+        )
+
+        if validation_error:
+
+            return validation_error
 
         return {
-            "error": result.get("error", False),
+            "error": result[
+                "error"
+            ],
             "message": (
-                self._format_returns_finance_impact(result)
+                self._format_returns_finance_impact(
+                    result
+                )
             ),
             "returns_finance_impact": result
         }
+
+
+    @staticmethod
+    def _invalid_financial_telegram_result(
+        code
+    ):
+
+        return {
+            "error": True,
+            "message": code
+        }
+
+
+    def _validate_unit_economics_result(
+        self,
+        result
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._invalid_financial_telegram_result(
+                "INVALID_UNIT_ECONOMICS_RESULT"
+            )
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return None
+
+        source = result.get(
+            "source"
+        )
+        sku = result.get(
+            "sku"
+        )
+        available = result.get(
+            "available"
+        )
+        missing_fields = result.get(
+            "missing_fields"
+        )
+
+        if (
+            type(
+                available
+            )
+            is not bool
+            or source not in {
+                "current",
+                "historical",
+            }
+            or sku is None
+            or not str(
+                sku
+            ).strip()
+            or not isinstance(
+                missing_fields,
+                list
+            )
+            or any(
+                not isinstance(
+                    field,
+                    str
+                )
+                or not field
+                for field in missing_fields
+            )
+        ):
+
+            return self._invalid_financial_telegram_result(
+                "INVALID_UNIT_ECONOMICS_RESULT"
+            )
+
+        return None
+
+
+    def _validate_returns_finance_impact_result(
+        self,
+        result
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._invalid_financial_telegram_result(
+                "INVALID_RETURNS_FINANCE_IMPACT_RESULT"
+            )
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return None
+
+        requested_sku = result.get(
+            "requested_sku"
+        )
+        period_days = result.get(
+            "period_days"
+        )
+        complete = result.get(
+            "complete"
+        )
+        categories = result.get(
+            "categories"
+        )
+        missing_data = result.get(
+            "missing_data"
+        )
+
+        if (
+            not isinstance(
+                requested_sku,
+                str
+            )
+            or not requested_sku.strip()
+            or type(
+                period_days
+            )
+            is not int
+            or period_days <= 0
+            or type(
+                complete
+            )
+            is not bool
+            or not isinstance(
+                categories,
+                dict
+            )
+            or any(
+                not isinstance(
+                    item,
+                    dict
+                )
+                for item in categories.values()
+            )
+            or not isinstance(
+                missing_data,
+                list
+            )
+            or any(
+                not isinstance(
+                    field,
+                    str
+                )
+                or not field
+                for field in missing_data
+            )
+        ):
+
+            return self._invalid_financial_telegram_result(
+                "INVALID_RETURNS_FINANCE_IMPACT_RESULT"
+            )
+
+        return None
 
 
     def _format_returns_finance_impact(
