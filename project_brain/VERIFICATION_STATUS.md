@@ -4,72 +4,62 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`a7748785341ccea0a459ec06c7de460213cec038`
+`701b5a31575a2e37d76da22af260c206d4a68b50`
 
 Latest merged production-correctness batch:
 
-`v784-v792: Telegram Context Preparation Integrity`
+`v793-v802: Product Task Draft Freshness Telegram Presentation Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `656ff93a0cba3194481b007c288f0eeadbaf1441`
-- push Verify #465
+- exact main: `3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`
+- push Verify #474
 - conclusion: success
-- tests: 1684 passed / 0 failed
-- artifact: `verification-656ff93a0cba3194481b007c288f0eeadbaf1441`
-- artifact digest: `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`
-
-### Cancelled intermediate feature SHA
-
-- exact SHA: `67e08c87de7564dc76c60fe2e9caebf05ba8f793`
-- push Verify #466
-- conclusion: cancelled
-- test step completed: 1693 passed / 0 failed
-- artifact: `verification-67e08c87de7564dc76c60fe2e9caebf05ba8f793`
-- artifact digest: `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`
-- this SHA remains cancelled evidence permanently and is not success evidence
+- tests: 1693 passed / 0 failed
+- artifact: `verification-3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`
+- artifact digest: `sha256:a334436fd6e357ab6c9948baf907d472e67331442860fdf8fa0c15d5a3afeff0`
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-context-preparation-integrity-v784-v792`
-- exact SHA: `80f85b1b45e1e49279c334078c5991eac2757cc7`
-- push Verify #468
+- branch: `fix/product-task-draft-freshness-telegram-presentation-integrity-v793-v802`
+- exact SHA: `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`
+- push Verify #476
 - conclusion: success
-- tests: 1693 passed / 0 failed
-- artifact: `verification-80f85b1b45e1e49279c334078c5991eac2757cc7`
-- artifact digest: `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
+- tests: 1703 passed / 0 failed
+- artifact: `verification-e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`
+- artifact digest: `sha256:b35bb81059445bcc1ca089d5237874461b904ec7795d08db69c2d5383179349a`
 
 ### PR merge-ref integration verification
 
-- PR #292
-- branch head: `80f85b1b45e1e49279c334078c5991eac2757cc7`
-- synthetic merge SHA: `978b6e0170693ac5d8d39471dd45983ab394c0c3`
-- pull_request Verify #469
+- PR #294
+- branch head: `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`
+- synthetic merge SHA: `1fc456087126b0cc91e6b3354a6560477a989b4c`
+- pull_request Verify #477
 - conclusion: success
-- tests: 1693 passed / 0 failed
-- artifact: `verification-978b6e0170693ac5d8d39471dd45983ab394c0c3`
-- artifact digest: `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
+- tests: 1703 passed / 0 failed
+- artifact: `verification-1fc456087126b0cc91e6b3354a6560477a989b4c`
+- artifact digest: `sha256:f286f803fc87a2c4a65c4f32afb6d606df31635c5b1ad7be1b1aaae21cc0e231`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `a7748785341ccea0a459ec06c7de460213cec038`
-- push Verify #470
+- exact main: `701b5a31575a2e37d76da22af260c206d4a68b50`
+- push Verify #478
 - conclusion: success
-- tests: 1693 passed / 0 failed
-- artifact: `verification-a7748785341ccea0a459ec06c7de460213cec038`
-- artifact digest: `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
+- tests: 1703 passed / 0 failed
+- artifact: `verification-701b5a31575a2e37d76da22af260c206d4a68b50`
+- artifact digest: `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`
 
-No failed intermediate production SHA occurred in v784-v792. The cancelled SHA #466 remains cancelled evidence and carries no transferable green claim. Historical failed/cancelled SHAs remain permanent evidence in prior checkpoints and changelog.
+No failed or cancelled intermediate production SHA occurred in v793-v802. Historical failed/cancelled SHAs remain permanent evidence in prior checkpoints and changelog.
 
-## Telegram Context Preparation Integrity
+## Product Task Draft Freshness Telegram Presentation Integrity
 
-Telegram analyze/plan no longer proceed to assistant execution after failed or malformed context preparation. The first `last_action` update is validated before the `current_task` update. If the second update fails after the first was proven successful, the result reports partial committed context state rather than pretending rollback.
+The Telegram adapter no longer uses optimistic zero defaults inside present freshness evidence maps. Partial or malformed count maps fail closed rather than inventing missing freshness categories. Malformed detail status, age, reasons, coverage, or refresh guidance fails closed before formatter use.
 
-Malformed/exceptional context updates fail closed. Exception text is sanitized. TypeError is not retried. Optional context behavior without a context service or user ID remains compatible.
+Optional evidence that is truly absent is omitted rather than synthesized. Structurally valid all-zero freshness counts remain legitimate success. Legitimate UNKNOWN freshness, observed-only evidence, and refresh guidance remain read-only seller-facing success.
 
-No Product Decision/Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, Ozon mutation, or new persistence layer was introduced. Repository `data/users.json` was not modified.
+No Product Decision rule/threshold, Product Task Draft readiness semantics, persistence behavior, Product Task Draft execution policy, Action Executor connection, business mutation authorization, quantity/price inference, or Ozon mutation changed. Repository `data/users.json` was not modified.
 
 Architecture Review Required: Yes
 Critical Review Required: No
@@ -87,6 +77,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_button_handler_service.py`
-- `tests/test_telegram_context_preparation_integrity_v784_v792.py`
-- `project_brain/CURRENT_CHECKPOINT_V784_V792.md`
+- `app/telegram_app_layer/assistant_telegram_adapter.py`
+- `tests/test_product_task_draft_freshness_telegram_presentation_integrity_v793_v802.py`
+- `project_brain/CURRENT_CHECKPOINT_V793_V802.md`

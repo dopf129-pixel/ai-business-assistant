@@ -2748,3 +2748,37 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-08-31 — Product Task Draft Freshness Telegram Presentation Integrity v793-v802
+
+- hardened Product Task Draft freshness enrichment at the Telegram presentation boundary;
+- malformed readiness/freshness containers now fail closed;
+- partial freshness count maps can no longer invent missing categories as zero;
+- malformed optional evidence maps fail closed when present;
+- absent optional evidence is omitted instead of synthesized;
+- invalid freshness status/age/reasons/coverage/guidance fails closed before formatting;
+- unknown enum strings are not surfaced as business facts;
+- legitimate all-zero freshness counts and legitimate UNKNOWN evidence remain read-only success;
+- Product Task Draft execution remains disabled;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`: #474, 1693 passed / 0 failed, digest `sha256:a334436fd6e357ab6c9948baf907d472e67331442860fdf8fa0c15d5a3afeff0`;
+- final feature `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`: #476, 1703 passed / 0 failed, digest `sha256:b35bb81059445bcc1ca089d5237874461b904ec7795d08db69c2d5383179349a`;
+- PR #294 synthetic merge `1fc456087126b0cc91e6b3354a6560477a989b4c`: #477, 1703 passed / 0 failed, digest `sha256:f286f803fc87a2c4a65c4f32afb6d606df31635c5b1ad7be1b1aaae21cc0e231`;
+- squash main `701b5a31575a2e37d76da22af260c206d4a68b50`: #478, 1703 passed / 0 failed, digest `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`;
+- no failed/cancelled intermediate production SHA occurred in v793-v802;
+- `externally_verified=False`.
+
+## 2026-08-31 — Project Brain reconciliation after Product Task Draft Freshness Telegram Presentation Integrity v793-v802
+
+- reconciled CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `701b5a31575a2e37d76da22af260c206d4a68b50`;
+- added `CURRENT_CHECKPOINT_V793_V802.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
