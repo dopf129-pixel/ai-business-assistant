@@ -4,71 +4,71 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`bfa8f1393e8221900377b124b93bb8bbf882e055`
+`3929d14ec640d5d8c364a57009480f81bd151468`
 
 Latest merged production-correctness batch:
 
-`v696-v705: Telegram Command Result Integrity`
+`v706-v713: Telegram Adapter Downstream Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `e37e8ac8f79b06bbaf51b1f0dc949f1b2425dc72`
-- push Verify #383
+- exact main: `fcd3a9df94bc40569cab92f343ca249dd44b2010`
+- push Verify #390
 - conclusion: success
-- tests: 1596 passed / 0 failed
-- artifact: `verification-e37e8ac8f79b06bbaf51b1f0dc949f1b2425dc72`
-- artifact digest: `sha256:c5cd244a77666338f3162a0fae60035fadac50517a8893c9df753f2fc8f2cc8e`
+- tests: 1606 passed / 0 failed
+- artifact: `verification-fcd3a9df94bc40569cab92f343ca249dd44b2010`
+- artifact digest: `sha256:f69ff250c0eeb99a63cdc9967eb816d642f6ba5d4d199e1d8b451603f56a1c95`
 
 ### Failed intermediate feature SHA
 
-- exact SHA: `acc3eb4023aa046544056eea2c634e0906bc00b3`
-- push Verify #384
+- exact SHA: `f990a7cc9abf8b2fd587e8339329d7d3a29e497a`
+- push Verify #391
 - conclusion: failure
-- tests: 1604 passed / 2 failed
-- artifact: `verification-acc3eb4023aa046544056eea2c634e0906bc00b3`
-- artifact digest: `sha256:ed5f00d89a65b2423a2fdd2bf93f9fb3980e232c4dca0213b81c544294e2249a`
+- tests: 1612 passed / 2 failed
+- artifact: `verification-f990a7cc9abf8b2fd587e8339329d7d3a29e497a`
+- artifact digest: `sha256:0a40c83903b5065e217a7ba375e3762e10e08a6901099088c9f2af06b02934b5`
 
-The failure came from legacy v687-v695 fake fixtures that did not model the new explicit handled contract. This SHA remains failed evidence permanently.
+The failure was confined to a new test-helper sentinel mistake. Production code was unchanged by the correction. This SHA remains failed evidence permanently.
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-command-result-integrity-v696-v705`
-- exact SHA: `53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
-- push Verify #385
+- branch: `fix/telegram-adapter-downstream-result-integrity-v706-v713`
+- exact SHA: `3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
+- push Verify #392
 - conclusion: success
-- tests: 1606 passed / 0 failed
-- artifact: `verification-53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
-- artifact digest: `sha256:47c54f6dd3047d4c5aebbbb7c6e13ac5c043c75e25f06b0c53a66ce2483204f6`
+- tests: 1614 passed / 0 failed
+- artifact: `verification-3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
+- artifact digest: `sha256:5be7e166e888e4ef62e755eb6dfbef1e2c46e1afe335fb2f9f968e5d84ee927f`
 
 ### PR merge-ref integration verification
 
-- PR #274
-- branch head: `53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
-- synthetic merge SHA: `d002777d00d64f6bb776ed4bdd52d52898aad2e5`
-- pull_request Verify #386
+- PR #276
+- branch head: `3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
+- synthetic merge SHA: `d5418d059fed408d2e733e144e0b93ce7ae71f3a`
+- pull_request Verify #393
 - conclusion: success
-- tests: 1606 passed / 0 failed
-- artifact: `verification-d002777d00d64f6bb776ed4bdd52d52898aad2e5`
-- artifact digest: `sha256:79f8884eb057ecdd22bc70729a50560e5897d12ce42113eae4e40fa2e615f2ab`
+- tests: 1614 passed / 0 failed
+- artifact: `verification-d5418d059fed408d2e733e144e0b93ce7ae71f3a`
+- artifact digest: `sha256:c9cae81e00f851e950e7ba2263b4dd41ddca79a2a9c139b76cc32eb33818a628`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `bfa8f1393e8221900377b124b93bb8bbf882e055`
-- push Verify #387
+- exact main: `3929d14ec640d5d8c364a57009480f81bd151468`
+- push Verify #394
 - conclusion: success
-- tests: 1606 passed / 0 failed
-- artifact: `verification-bfa8f1393e8221900377b124b93bb8bbf882e055`
-- artifact digest: `sha256:f564aebc2220e4f13045dfc2c95e57f8ddd3abc5ee4f91e40b087f8b444db46a`
+- tests: 1614 passed / 0 failed
+- artifact: `verification-3929d14ec640d5d8c364a57009480f81bd151468`
+- artifact digest: `sha256:87b368c635078a57da703e36b23b6d7449de2a33f7c4b5d956b65d6c0b36464e`
 
-## Telegram Command Result Integrity
+## Telegram Adapter Downstream Result Integrity
 
-Telegram text-command dispatch now distinguishes an unhandled command from a real handled failure. Recognized memory persistence errors are preserved and no longer fall through to the general assistant path.
+AssistantTelegramAdapter now validates general-assistant and button-handler result contracts before returning them to Telegram runtime.
 
-Malformed command results and command-service exceptions fail closed. Successful /start responses now expose explicit `error=False`.
+Malformed results fail closed with deterministic codes. Valid explicit downstream failures remain failures and are not freshness-enriched. Valid successful task-draft responses keep the existing read-only freshness presentation.
 
-No persistence owner/layer, autonomous business execution, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No internal exception retry was introduced. No persistence owner/layer, autonomous business execution, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -81,8 +81,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/services/assistant_memory_command_service.py`
 - `app/telegram_app_layer/assistant_telegram_adapter.py`
-- `app/telegram_app_layer/telegram_bot_service.py`
-- `tests/test_telegram_command_result_integrity_v696_v705.py`
-- `project_brain/CURRENT_CHECKPOINT_V696_V705.md`
+- `tests/test_telegram_adapter_downstream_result_integrity_v706_v713.py`
+- `project_brain/CURRENT_CHECKPOINT_V706_V713.md`

@@ -384,6 +384,8 @@ Completed foundation and safety work:
 
 [x] Telegram Command Result Integrity
 
+[x] Telegram Adapter Downstream Result Integrity
+
 Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`, `EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`, `EXACT_BRANCH_SHA_VERIFICATION_V1.md`, `RECOMMENDATION_CONTEXT_INTEGRITY_V1.md`, and `ACTION_PLAN_RESULT_INTEGRITY_V1.md`.
 
 
@@ -409,6 +411,6 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V696_V705.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V706_V713.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V696_V705.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V706_V713.md`

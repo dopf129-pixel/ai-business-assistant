@@ -2495,3 +2495,26 @@ SHA-bound evidence:
 - PR #274 synthetic merge `d002777d00d64f6bb776ed4bdd52d52898aad2e5`: #386, 1606 passed;
 - squash main `bfa8f1393e8221900377b124b93bb8bbf882e055`: #387, 1606 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Telegram Adapter Downstream Result Integrity v706-v713
+
+- validated assistant.ask and button_handler.handle results at the seller-facing Telegram adapter boundary;
+- malformed results now fail closed with deterministic codes;
+- explicit downstream failures remain failures;
+- button failures are not decorated with successful freshness presentation;
+- valid draft successes keep existing freshness enrichment;
+- internal exceptions remain single-invocation failures with no retry;
+- intermediate SHA `f990a7cc9abf8b2fd587e8339329d7d3a29e497a` failed #391 with 1612 passed / 2 failed and remains failed evidence;
+- no persistence owner/layer, autonomous execution, Product Decision/Product Task Draft execution, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `fcd3a9df94bc40569cab92f343ca249dd44b2010`: #390, 1606 passed;
+- failed intermediate `f990a7cc9abf8b2fd587e8339329d7d3a29e497a`: #391, 1612 passed / 2 failed;
+- final feature `3b1cb04e40b34d766a9ae0480dc0cb64ac313116`: #392, 1614 passed;
+- PR #276 synthetic merge `d5418d059fed408d2e733e144e0b93ce7ae71f3a`: #393, 1614 passed;
+- squash main `3929d14ec640d5d8c364a57009480f81bd151468`: #394, 1614 passed;
+- no independent external-verification claim.
