@@ -120,9 +120,21 @@ class ProductDecisionHistoryService:
                 "saved": False,
             }
 
+        previous_record = deepcopy(record)
         record["feedback"] = feedback
         record["feedback_at"] = str(self.clock())
-        self._save_records()
+        persistence = self._save_interaction_records()
+        if persistence["error"]:
+            if persistence["saved"] is False:
+                self.records[index] = previous_record
+            return {
+                "error": True,
+                "code": persistence["code"],
+                "sku": sku,
+                "feedback": None,
+                "saved": persistence["saved"],
+                "persistence_state": persistence["persistence_state"],
+            }
         return {
             "error": False,
             "code": None,
@@ -171,10 +183,23 @@ class ProductDecisionHistoryService:
                 "saved": False,
             }
 
+        previous_record = deepcopy(record)
         record["proposal_type"] = proposal_type
         record["proposal_status"] = status
         record["proposal_status_at"] = str(self.clock())
-        self._save_records()
+        persistence = self._save_interaction_records()
+        if persistence["error"]:
+            if persistence["saved"] is False:
+                self.records[index] = previous_record
+            return {
+                "error": True,
+                "code": persistence["code"],
+                "sku": sku,
+                "proposal_type": proposal_type,
+                "proposal_status": None,
+                "saved": persistence["saved"],
+                "persistence_state": persistence["persistence_state"],
+            }
         return {
             "error": False,
             "code": None,
@@ -319,6 +344,48 @@ class ProductDecisionHistoryService:
         if not isinstance(records, list):
             return []
         return [dict(item) for item in records if isinstance(item, dict)]
+
+    def _save_interaction_records(self):
+        if self.storage_service is None:
+            return {
+                "error": False,
+                "code": None,
+                "saved": True,
+                "persistence_state": "IN_MEMORY",
+            }
+
+        try:
+            saved = self.storage_service.save(self.records)
+        except (OSError, TypeError, ValueError):
+            return {
+                "error": True,
+                "code": "DECISION_HISTORY_SAVE_STATE_UNKNOWN",
+                "saved": None,
+                "persistence_state": "UNKNOWN",
+            }
+
+        if saved is True:
+            return {
+                "error": False,
+                "code": None,
+                "saved": True,
+                "persistence_state": "COMMITTED",
+            }
+
+        if saved is False:
+            return {
+                "error": True,
+                "code": "DECISION_HISTORY_SAVE_REJECTED",
+                "saved": False,
+                "persistence_state": "NOT_COMMITTED",
+            }
+
+        return {
+            "error": True,
+            "code": "DECISION_HISTORY_SAVE_STATE_UNKNOWN",
+            "saved": None,
+            "persistence_state": "UNKNOWN",
+        }
 
     def _save_records(self):
         if self.storage_service is not None:

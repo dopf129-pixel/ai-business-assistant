@@ -479,7 +479,24 @@ class StubProposalConfirmation:
 
     def decide(self, sku, expected_proposal_type, status):
         self.calls.append((sku, expected_proposal_type, status))
-        return dict(self.result)
+        result = dict(self.result)
+        if result.get("error") is False:
+            result["sku"] = sku
+            result["proposal_type"] = expected_proposal_type
+            result["proposal_status"] = status
+            result["execution_allowed"] = False
+            task_draft = result.get("task_draft")
+            if isinstance(task_draft, dict):
+                task_draft = dict(task_draft)
+                task_draft.setdefault("sku", sku)
+                task_draft.setdefault(
+                    "proposal_type",
+                    expected_proposal_type,
+                )
+                task_draft.setdefault("executed", False)
+                task_draft.setdefault("execution_allowed", False)
+                result["task_draft"] = task_draft
+        return result
 
 
 class StubTaskDrafts:
