@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1643 passed on `849be9ce0af83fc163415e5e5538346b13f868c0`.
+1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
 
-GitHub Actions push Verify #423 completed successfully for this exact main SHA.
+GitHub Actions push Verify #444 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -1291,48 +1291,6 @@ Tests:
 - отсутствие tax configuration сохраняет tax/net profit/margin как None
 - существующие sales, stock и finance executor mappings не изменяются
 - Telegram UI и Action/Executor workflow не затрагиваются
-
----
-
-# Product Unit Economics Telegram UI v1
-
-
-UI Boundary:
-
-
-- AssistantKeyboardService
-- AssistantButtonHandlerService
-- telegram_assistant_factory.py
-- telegram_api_bot.py
-
-
-Backend:
-
-
-- ProductUnitEconomicsQueryService
-
-
-Tests:
-
-
-- tests/test_product_unit_economics_telegram_ui.py
-- test_assistant_keyboard_flow.py
-
-
-Проверяет:
-
-
-- кнопку «💰 Юнит-экономика товаров» в существующем main keyboard
-- открытие меню выбора SKU
-- получение SKU через существующий ProductService внутри query boundary
-- callback unit_economics:<sku>
-- вызов существующего ProductUnitEconomicsQueryService.query(sku)
-- использование существующего format_response() без UI-расчётов
-- отображение advertising, storage и returns как «—»
-- отсутствие формулировки «Чистая прибыль»
-- безопасный ответ при отсутствии товаров или SKU
-- сохранение существующих analyze/plan/history/memory callbacks
-- отсутствие изменений Sales/Stock/Finance и Action/Executor workflow
 ---
 
 # Current Unit Economics Integration / Polish
@@ -2450,3 +2408,34 @@ Tests:
 - Product Decision rules, thresholds, feedback meaning, proposal meaning and Product Task Draft execution policy are unchanged;
 - no Action Executor connection, business execution authorization, quantity/price inference or Ozon mutation is enabled;
 - repository data/users.json remains untouched.
+
+
+---
+
+# Product Decision Learning Telegram Result Integrity v1
+
+Boundary:
+
+- AssistantButtonHandlerService Product Decision learning summary/history Telegram paths
+
+Tests:
+
+- tests/test_product_decision_learning_telegram_result_integrity_v755_v765.py
+
+Проверяет:
+
+- learning summary result must be a dict with explicit real boolean `error`;
+- successful summary counts must be non-negative non-booleans;
+- feedback and outcome subtotal counts must be internally consistent;
+- missing summary evidence cannot become seller-facing zero through optimistic defaults;
+- a structurally valid all-zero summary remains legitimate read-only success;
+- decision history must be a real list; `None` or malformed payload cannot become empty success;
+- history records must match the requested SKU and use known decision/priority values plus a non-empty recorded timestamp;
+- optional feedback/outcome values are validated before label formatting;
+- unknown feedback is not mislabeled as `NOT_RELEVANT`;
+- a structurally valid empty history remains legitimate read-only success;
+- stable failures do not expose internal exception text;
+- production evidence is exact-SHA bound: entering main #440, feature #442, PR merge-ref #443, squash-main #444;
+- no Product Decision rule/threshold, persistence behavior, Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, or Ozon mutation changed;
+- repository data/users.json remains untouched;
+- `externally_verified=False`.

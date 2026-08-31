@@ -2615,3 +2615,37 @@ SHA-bound evidence:
 - PR #284 synthetic merge `864e989adcda0cc37a93a0ac6883fe034f3eb724`: #435, 1655 passed / 0 failed, digest `sha256:b835eb4808a0114f07a0582fa99b06d538c92901f0c7ad1dea06cb2bd3c6412d`;
 - squash main `1f6668640988125d09d757f68dc697fc861719d3`: #436, 1655 passed / 0 failed, digest `sha256:8e4efdce0addb5152c0ea1435d99f7a6143ab8b6f962a6ed8ba773f130296edc`;
 - no independent external-verification claim; `externally_verified=False`.
+
+
+## 2026-08-31 — Product Decision Learning Telegram Result Integrity v755-v765
+
+- hardened seller-facing Product Decision learning summary/history result boundaries;
+- malformed or missing summary evidence no longer becomes zero through optimistic defaults;
+- summary success requires explicit boolean error plus non-negative, internally consistent counts;
+- Decision History requires a real list and validates SKU/decision/priority/timestamp plus optional feedback/outcome before presentation;
+- unknown feedback is not mislabeled as `NOT_RELEVANT`;
+- structurally valid zero summary and empty history remain legitimate read-only success;
+- stable failures do not expose internal exception text;
+- no Product Decision rule/threshold, persistence behavior, feedback/proposal meaning, Product Task Draft execution policy, Action Executor connection, business mutation authorization, quantity/price inference or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `9bfa6a03e50d5c36a874e2ef30088e94efdb104c`: #440, 1655 passed / 0 failed, digest `sha256:b34831e479e283a17391174e150bf43b07e084510ff82a25eea7269f15f0cd92`;
+- final feature `7976dbdebdda82660f9fc5bbc7ebffd804990f8f`: #442, 1666 passed / 0 failed, digest `sha256:95787b366dc1fef928b8ba8f8571bb6053172cd6775ba70c4181901f083965c1`;
+- PR #286 synthetic merge `44ec86f9587831f6560e3e5ca2bbb9819abd4c29`: #443, 1666 passed / 0 failed, digest `sha256:a46757c2e1baec4ad175c7afc3fcaf2dac5b3b08140d2723fa60f30cc73e6356`;
+- squash main `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`: #444, 1666 passed / 0 failed, digest `sha256:67af33c7c3c17dd68d0339edcf58e86fb934925ec2a318fd0615f3f0168fb77c`;
+- no failed/cancelled intermediate production SHA was found for v755-v765;
+- no independent external-verification claim; `externally_verified=False`.
+
+
+## 2026-08-31 — Project Brain reconciliation after Product Decision Learning Telegram Result Integrity v755-v765
+
+- reconciled `CURRENT_STATE.md`, `TEST_MAP.md`, `ROADMAP.md`, `VERIFICATION_STATUS.md` and `CHANGELOG.md` to exact verified product main `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`;
+- added `CURRENT_CHECKPOINT_V755_V765.md` with exact entering-main, feature-head, PR merge-ref and squash-main evidence and digests;
+- retained historical failed/cancelled evidence without reclassification;
+- `DECISIONS.md` was not changed because no new architectural decision was introduced;
+- docs only: no runtime code, persistence behavior, Product Decision rules, execution authorization, Ozon mutation, or `data/users.json` change;
+- Architecture Review Required: No; Critical Review Required: No;
+- GitHub Actions remains project CI evidence only; `externally_verified=False`.
