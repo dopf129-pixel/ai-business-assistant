@@ -79,9 +79,12 @@ class _ReturnsQuery:
         return self.result
 
 
+_DEFAULT = object()
+
+
 def _handler(
-    unit_result=None,
-    returns_result=None,
+    unit_result=_DEFAULT,
+    returns_result=_DEFAULT,
 ):
 
     return AssistantButtonHandlerService(
@@ -90,14 +93,14 @@ def _handler(
             _UnitQuery(
                 unit_result
             )
-            if unit_result is not None
+            if unit_result is not _DEFAULT
             else None
         ),
         returns_finance_impact_query=(
             _ReturnsQuery(
                 returns_result
             )
-            if returns_result is not None
+            if returns_result is not _DEFAULT
             else None
         ),
     )
