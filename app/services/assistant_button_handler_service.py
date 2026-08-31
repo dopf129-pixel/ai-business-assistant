@@ -1006,6 +1006,715 @@ class AssistantButtonHandlerService:
             None,
         )
 
+    @staticmethod
+    def _task_draft_result_failure(
+        code
+    ):
+
+        return {
+            "error": True,
+            "message": code,
+            "executed": False,
+        }
+
+
+    @staticmethod
+    def _valid_task_draft_item(
+        draft
+    ):
+
+        if not isinstance(
+            draft,
+            dict
+        ):
+
+            return False
+
+        draft_id = str(
+            draft.get(
+                "draft_id"
+            )
+            or ""
+        ).strip()
+        sku = str(
+            draft.get(
+                "sku"
+            )
+            or ""
+        ).strip()
+        status = draft.get(
+            "status"
+        )
+
+        return (
+            bool(
+                draft_id
+            )
+            and bool(
+                sku
+            )
+            and status in {
+                "DRAFT",
+                "STALE",
+                "DISMISSED",
+                "ARCHIVED",
+            }
+        )
+
+
+    def _validate_task_draft_summary(
+        self,
+        summary
+    ):
+
+        if (
+            not isinstance(
+                summary,
+                dict
+            )
+            or type(
+                summary.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_SUMMARY_RESULT"
+            )
+
+        if summary.get(
+            "error"
+        ) is True:
+
+            return {
+                "error": True,
+                "message": (
+                    summary.get(
+                        "message"
+                    )
+                    or "Черновики задач недоступны"
+                ),
+                "executed": False,
+            }
+
+        counts = summary.get(
+            "counts"
+        )
+        drafts = summary.get(
+            "drafts"
+        )
+        total = summary.get(
+            "total"
+        )
+        executed_count = summary.get(
+            "executed_count"
+        )
+        statuses = {
+            "DRAFT",
+            "STALE",
+            "DISMISSED",
+            "ARCHIVED",
+        }
+
+        if (
+            type(
+                total
+            )
+            is not int
+            or total < 0
+            or not isinstance(
+                counts,
+                dict
+            )
+            or set(
+                counts
+            )
+            != statuses
+            or any(
+                type(
+                    counts.get(
+                        status
+                    )
+                )
+                is not int
+                or counts.get(
+                    status
+                )
+                < 0
+                for status in statuses
+            )
+            or sum(
+                counts.values()
+            )
+            != total
+            or not isinstance(
+                drafts,
+                list
+            )
+            or len(
+                drafts
+            )
+            > total
+            or any(
+                not self._valid_task_draft_item(
+                    draft
+                )
+                for draft in drafts
+            )
+            or type(
+                executed_count
+            )
+            is not int
+            or executed_count != 0
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_SUMMARY_RESULT"
+            )
+
+        return None
+
+
+    def _validate_task_draft_list(
+        self,
+        drafts
+    ):
+
+        if (
+            not isinstance(
+                drafts,
+                list
+            )
+            or any(
+                not self._valid_task_draft_item(
+                    draft
+                )
+                for draft in drafts
+            )
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_LIST_RESULT"
+            )
+
+        return None
+
+
+    def _validate_task_draft_review_queue(
+        self,
+        queue
+    ):
+
+        if (
+            not isinstance(
+                queue,
+                dict
+            )
+            or type(
+                queue.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_REVIEW_QUEUE_RESULT"
+            )
+
+        if queue.get(
+            "error"
+        ) is True:
+
+            return {
+                "error": True,
+                "message": (
+                    queue.get(
+                        "message"
+                    )
+                    or "Очередь проверки черновиков недоступна"
+                ),
+                "executed": False,
+            }
+
+        items = queue.get(
+            "items"
+        )
+        counts = queue.get(
+            "priority_counts"
+        )
+        total = queue.get(
+            "total_reviewable"
+        )
+        executed_count = queue.get(
+            "executed_count"
+        )
+        priorities = {
+            "URGENT",
+            "HIGH",
+            "NORMAL",
+            "LOW",
+        }
+
+        if (
+            type(
+                total
+            )
+            is not int
+            or total < 0
+            or not isinstance(
+                counts,
+                dict
+            )
+            or set(
+                counts
+            )
+            != priorities
+            or any(
+                type(
+                    counts.get(
+                        priority
+                    )
+                )
+                is not int
+                or counts.get(
+                    priority
+                )
+                < 0
+                for priority in priorities
+            )
+            or sum(
+                counts.values()
+            )
+            != total
+            or not isinstance(
+                items,
+                list
+            )
+            or len(
+                items
+            )
+            > total
+            or type(
+                executed_count
+            )
+            is not int
+            or executed_count != 0
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_REVIEW_QUEUE_RESULT"
+            )
+
+        for item in items:
+
+            if (
+                not self._valid_task_draft_item(
+                    item
+                )
+                or item.get(
+                    "status"
+                )
+                not in {
+                    "DRAFT",
+                    "STALE",
+                }
+                or item.get(
+                    "review_priority"
+                )
+                not in priorities
+                or not isinstance(
+                    item.get(
+                        "review_reasons"
+                    ),
+                    list
+                )
+                or any(
+                    not isinstance(
+                        reason,
+                        str
+                    )
+                    or not reason
+                    for reason in item.get(
+                        "review_reasons"
+                    )
+                )
+                or item.get(
+                    "execution_allowed"
+                )
+                is not False
+                or item.get(
+                    "executed"
+                )
+                is not False
+            ):
+
+                return self._task_draft_result_failure(
+                    "INVALID_PRODUCT_TASK_DRAFT_REVIEW_QUEUE_RESULT"
+                )
+
+        return None
+
+
+    def _validate_task_draft_readiness(
+        self,
+        readiness
+    ):
+
+        if (
+            not isinstance(
+                readiness,
+                dict
+            )
+            or type(
+                readiness.get(
+                    "error"
+                )
+            )
+            is not bool
+            or readiness.get(
+                "error"
+            )
+            is not False
+            or readiness.get(
+                "review_status"
+            )
+            not in {
+                "READY_FOR_REVIEW",
+                "NEEDS_DATA_OR_REFRESH",
+            }
+            or type(
+                readiness.get(
+                    "review_ready"
+                )
+            )
+            is not bool
+            or not isinstance(
+                readiness.get(
+                    "missing_fields"
+                ),
+                list
+            )
+            or any(
+                not isinstance(
+                    field,
+                    str
+                )
+                or not field
+                for field in readiness.get(
+                    "missing_fields"
+                )
+            )
+            or readiness.get(
+                "execution_ready"
+            )
+            is not False
+            or not isinstance(
+                readiness.get(
+                    "execution_blockers"
+                ),
+                list
+            )
+            or any(
+                not isinstance(
+                    blocker,
+                    str
+                )
+                or not blocker
+                for blocker in readiness.get(
+                    "execution_blockers"
+                )
+            )
+            or readiness.get(
+                "executed"
+            )
+            is not False
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_READINESS_RESULT"
+            )
+
+        return None
+
+
+    def _validate_task_draft_readiness_summary(
+        self,
+        summary
+    ):
+
+        if (
+            not isinstance(
+                summary,
+                dict
+            )
+            or type(
+                summary.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_READINESS_SUMMARY_RESULT"
+            )
+
+        if summary.get(
+            "error"
+        ) is True:
+
+            return {
+                "error": True,
+                "message": (
+                    summary.get(
+                        "message"
+                    )
+                    or "Готовность черновиков недоступна"
+                ),
+                "executed": False,
+            }
+
+        counts = summary.get(
+            "counts"
+        )
+        items = summary.get(
+            "items"
+        )
+        states = {
+            "READY_FOR_REVIEW",
+            "NEEDS_DATA_OR_REFRESH",
+        }
+
+        if (
+            not isinstance(
+                counts,
+                dict
+            )
+            or set(
+                counts
+            )
+            != states
+            or any(
+                type(
+                    counts.get(
+                        state
+                    )
+                )
+                is not int
+                or counts.get(
+                    state
+                )
+                < 0
+                for state in states
+            )
+            or not isinstance(
+                items,
+                list
+            )
+            or sum(
+                counts.values()
+            )
+            != len(
+                items
+            )
+            or summary.get(
+                "execution_ready_count"
+            )
+            != 0
+            or summary.get(
+                "executed_count"
+            )
+            != 0
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_READINESS_SUMMARY_RESULT"
+            )
+
+        for item in items:
+
+            if not self._valid_task_draft_item(
+                item
+            ):
+
+                return self._task_draft_result_failure(
+                    "INVALID_PRODUCT_TASK_DRAFT_READINESS_SUMMARY_RESULT"
+                )
+
+            readiness_error = (
+                self._validate_task_draft_readiness(
+                    item.get(
+                        "readiness"
+                    )
+                )
+            )
+
+            if readiness_error:
+
+                return self._task_draft_result_failure(
+                    "INVALID_PRODUCT_TASK_DRAFT_READINESS_SUMMARY_RESULT"
+                )
+
+        return None
+
+
+    def _validate_task_draft_detail_result(
+        self,
+        result,
+        draft_id
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_DETAIL_RESULT"
+            )
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return None
+
+        draft = result.get(
+            "task_draft"
+        )
+        events = result.get(
+            "audit_events"
+        )
+
+        if (
+            not self._valid_task_draft_item(
+                draft
+            )
+            or str(
+                draft.get(
+                    "draft_id"
+                )
+            )
+            != str(
+                draft_id
+            )
+            or not isinstance(
+                events,
+                list
+            )
+            or any(
+                not isinstance(
+                    event,
+                    dict
+                )
+                for event in events
+            )
+            or type(
+                result.get(
+                    "legacy_history_unavailable"
+                )
+            )
+            is not bool
+            or result.get(
+                "executed"
+            )
+            is not False
+            or result.get(
+                "execution_allowed"
+            )
+            is not False
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_DETAIL_RESULT"
+            )
+
+        return None
+
+
+    def _validate_task_draft_archive_result(
+        self,
+        result,
+        draft_id
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_ARCHIVE_RESULT"
+            )
+
+        if result.get(
+            "error"
+        ) is True:
+
+            return None
+
+        draft = result.get(
+            "task_draft"
+        )
+
+        if (
+            not self._valid_task_draft_item(
+                draft
+            )
+            or str(
+                draft.get(
+                    "draft_id"
+                )
+            )
+            != str(
+                draft_id
+            )
+            or draft.get(
+                "status"
+            )
+            != "ARCHIVED"
+            or type(
+                result.get(
+                    "saved"
+                )
+            )
+            is not bool
+            or result.get(
+                "executed"
+            )
+            is not False
+            or result.get(
+                "execution_allowed"
+            )
+            is not False
+        ):
+
+            return self._task_draft_result_failure(
+                "INVALID_PRODUCT_TASK_DRAFT_ARCHIVE_RESULT"
+            )
+
+        return None
+
+
     def _show_product_action_task_drafts(self):
         service = self._product_action_task_draft_service()
         if service is None:
@@ -1014,7 +1723,20 @@ class AssistantButtonHandlerService:
                 "message": "Черновики задач недоступны",
             }
         summary = service.summary()
-        counts = summary.get("counts") or {}
+
+        summary_error = (
+            self._validate_task_draft_summary(
+                summary
+            )
+        )
+
+        if summary_error:
+
+            return summary_error
+
+        counts = summary[
+            "counts"
+        ]
         lines = [
             "📋 Черновики задач по товарам",
             "",
@@ -1030,22 +1752,70 @@ class AssistantButtonHandlerService:
             None,
         )
         if review_queue_service is not None:
+
+            source_drafts = (
+                service.list_drafts()
+            )
+
+            source_error = (
+                self._validate_task_draft_list(
+                    source_drafts
+                )
+            )
+
+            if source_error:
+
+                return source_error
+
             queue = review_queue_service.prioritize(
-                service.list_drafts(),
+                source_drafts,
                 limit=10,
             )
-            drafts = queue.get("items") or []
+
+            queue_error = (
+                self._validate_task_draft_review_queue(
+                    queue
+                )
+            )
+
+            if queue_error:
+
+                return queue_error
+
+            drafts = queue[
+                "items"
+            ]
         else:
             queue = None
-            drafts = summary.get("drafts") or []
+            drafts = summary[
+                "drafts"
+            ]
         readiness_service = getattr(
             self.product_business_decision_query,
             "task_draft_readiness_service",
             None,
         )
         if readiness_service is not None:
-            readiness_summary = readiness_service.summarize(drafts)
-            drafts = readiness_summary.get("items") or []
+
+            readiness_summary = (
+                readiness_service.summarize(
+                    drafts
+                )
+            )
+
+            readiness_error = (
+                self._validate_task_draft_readiness_summary(
+                    readiness_summary
+                )
+            )
+
+            if readiness_error:
+
+                return readiness_error
+
+            drafts = readiness_summary[
+                "items"
+            ]
         else:
             readiness_summary = None
         if queue is not None:
@@ -1148,20 +1918,42 @@ class AssistantButtonHandlerService:
                 "message": "Черновики задач недоступны",
                 "executed": False,
             }
-        result = service.archive(draft_id)
-        if result.get("error"):
+        result = service.archive(
+            draft_id
+        )
+
+        validation_error = (
+            self._validate_task_draft_archive_result(
+                result,
+                draft_id,
+            )
+        )
+
+        if validation_error:
+
+            return validation_error
+
+        if result[
+            "error"
+        ] is True:
+
             return {
                 "error": True,
                 "message": "Черновик задачи не найден",
                 "executed": False,
             }
+
         return {
             "error": False,
             "message": (
                 "Черновик архивирован. Выполнение не запускалось."
             ),
-            "task_draft": result.get("task_draft"),
-            "saved": result.get("saved", False),
+            "task_draft": result[
+                "task_draft"
+            ],
+            "saved": result[
+                "saved"
+            ],
             "executed": False,
         }
 
@@ -1173,24 +1965,59 @@ class AssistantButtonHandlerService:
                 "message": "Черновики задач недоступны",
                 "executed": False,
             }
-        result = service.get(draft_id)
-        if result.get("error"):
+        result = service.get(
+            draft_id
+        )
+
+        validation_error = (
+            self._validate_task_draft_detail_result(
+                result,
+                draft_id,
+            )
+        )
+
+        if validation_error:
+
+            return validation_error
+
+        if result[
+            "error"
+        ] is True:
+
             return {
                 "error": True,
                 "message": "Черновик задачи не найден",
                 "executed": False,
             }
-        draft = result.get("task_draft") or {}
+
+        draft = result[
+            "task_draft"
+        ]
         readiness_service = getattr(
             self.product_business_decision_query,
             "task_draft_readiness_service",
             None,
         )
         readiness = (
-            readiness_service.evaluate(draft)
+            readiness_service.evaluate(
+                draft
+            )
             if readiness_service is not None
             else None
         )
+
+        if readiness is not None:
+
+            readiness_error = (
+                self._validate_task_draft_readiness(
+                    readiness
+                )
+            )
+
+            if readiness_error:
+
+                return readiness_error
+
         lines = [
             "📋 Черновик задачи",
             "",
@@ -1218,7 +2045,9 @@ class AssistantButtonHandlerService:
             "",
             "История изменений:",
         ]
-        events = result.get("audit_events") or []
+        events = result[
+            "audit_events"
+        ]
         if not events:
             lines.append("История до внедрения аудита недоступна.")
         for event in events:
