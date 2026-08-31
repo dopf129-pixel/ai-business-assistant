@@ -2418,3 +2418,35 @@ Tests:
 - cancelled intermediate SHA 61db8a964cfeed77e0b5caf451c705c6a77e3b51 remains cancelled/unknown evidence;
 - no Product Task Draft execution, Action Executor connection, business execution authorization or Ozon mutation is enabled;
 - repository data/users.json remains untouched.
+
+
+---
+
+# Product Decision Interaction Persistence Integrity v1
+
+Services / boundaries:
+
+- ProductDecisionHistoryService
+- ProductActionProposalConfirmationService
+- AssistantButtonHandlerService Product Decision feedback / proposal confirmation Telegram paths
+
+Tests:
+
+- tests/test_product_decision_interaction_persistence_result_integrity_v743_v754.py
+- tests/test_product_business_decision_telegram_ui.py
+
+Проверяет:
+
+- explicit storage save=False for feedback/proposal status is treated as a proven non-commit and only that local interaction mutation is rolled back;
+- storage exceptions and malformed save results remain ambiguous persistence state with saved=None and no fabricated rollback;
+- exception text is not leaked through interaction persistence errors;
+- Product Action Proposal Confirmation validates history-write results before any Task Draft create/dismiss side effect;
+- rejected, ambiguous or malformed history-write results cannot create or dismiss Product Task Drafts;
+- seller-facing Telegram feedback and proposal confirmation require dict + explicit boolean error contracts;
+- successful Telegram interaction results require matching SKU/status/type plus real boolean saved;
+- proposal confirmation success requires explicit executed=False and execution_allowed=False;
+- malformed Task Draft result payloads are not promoted into successful created-draft presentation;
+- valid idempotent saved=False feedback/proposal semantics remain supported;
+- Product Decision rules, thresholds, feedback meaning, proposal meaning and Product Task Draft execution policy are unchanged;
+- no Action Executor connection, business execution authorization, quantity/price inference or Ozon mutation is enabled;
+- repository data/users.json remains untouched.

@@ -2592,3 +2592,26 @@ SHA-bound evidence:
 - PR #282 synthetic merge `0b86beef8f4b25e9012a214def69f86bf3473e13`: #422, 1643 passed;
 - squash main `849be9ce0af83fc163415e5e5538346b13f868c0`: #423, 1643 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Product Decision Interaction Persistence Integrity v743-v754
+
+- fixed false-success persistence semantics for Product Decision feedback and proposal-status interactions;
+- explicit storage save=False now rolls back only the local interaction mutation and reports a non-commit;
+- storage exceptions or malformed save outcomes remain UNKNOWN with saved=None and no fabricated rollback;
+- stable errors do not expose storage exception text;
+- Product Action Proposal Confirmation validates history persistence before any Task Draft create/dismiss side effect;
+- malformed/failed/ambiguous history results cannot trigger downstream Task Draft mutation;
+- Telegram feedback/proposal confirmation validates structural and identity/non-execution contracts before seller-facing success;
+- valid idempotent saved=False interaction semantics remain supported;
+- no Product Decision rule/threshold, feedback/proposal meaning, Product Task Draft execution policy, persistence owner/layer, Action Executor connection, business execution authorization, quantity/price inference or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `6fc5b52aa93899e950af9ed140d2e0d6ee6c6c8e`: #432, 1643 passed / 0 failed, digest `sha256:ceb927609eb75f40a220e55aff001fe55c728062b12dbc41e37b910e3805ec87`;
+- final feature `bfe55f51842f61cdf81d33a73841a81b66ad2424`: #434, 1655 passed / 0 failed, digest `sha256:fa451b37891da86b182f2b85287107dcba927a1fd002733ec56acf0d82ae5882`;
+- PR #284 synthetic merge `864e989adcda0cc37a93a0ac6883fe034f3eb724`: #435, 1655 passed / 0 failed, digest `sha256:b835eb4808a0114f07a0582fa99b06d538c92901f0c7ad1dea06cb2bd3c6412d`;
+- squash main `1f6668640988125d09d757f68dc697fc861719d3`: #436, 1655 passed / 0 failed, digest `sha256:8e4efdce0addb5152c0ea1435d99f7a6143ab8b6f962a6ed8ba773f130296edc`;
+- no independent external-verification claim; `externally_verified=False`.
