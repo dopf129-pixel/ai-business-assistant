@@ -213,12 +213,17 @@ class AssistantTelegramAdapter:
                         "Запомнил 👍"
                 }
 
-        return (
+        result = (
             self.assistant
             .ask(
                 text,
                 user_id
             )
+        )
+
+        return self._validated_runtime_result(
+            result,
+            "INVALID_TELEGRAM_ASSISTANT_RESULT",
         )
 
     def handle_button(
@@ -249,10 +254,50 @@ class AssistantTelegramAdapter:
             ),
         )
 
+        validated = (
+            self._validated_runtime_result(
+                result,
+                "INVALID_TELEGRAM_BUTTON_RESULT",
+            )
+        )
+
+        if validated.get(
+            "error"
+        ) is True:
+
+            return validated
+
         return self._with_task_draft_freshness(
             callback,
-            result,
+            validated,
         )
+
+    @staticmethod
+    def _validated_runtime_result(
+        result,
+        invalid_code
+    ):
+
+        if (
+            not isinstance(
+                result,
+                dict
+            )
+            or type(
+                result.get(
+                    "error"
+                )
+            )
+            is not bool
+        ):
+
+            return {
+                "error": True,
+                "message": invalid_code
+            }
+
+        return result
+
 
     def _admit_user_profile(
         self,
