@@ -4,71 +4,85 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
+`bfa8f1393e8221900377b124b93bb8bbf882e055`
 
 Latest merged production-correctness batch:
 
-`v687-v695: Telegram User Admission Integrity`
+`v696-v705: Telegram Command Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `e666eae65467fde17041ac807382fa298ac1e69b`
-- push Verify #377
+- exact main: `e37e8ac8f79b06bbaf51b1f0dc949f1b2425dc72`
+- push Verify #383
 - conclusion: success
-- tests: 1587 passed / 0 failed
-- artifact: `verification-e666eae65467fde17041ac807382fa298ac1e69b`
-- artifact digest: `sha256:e7fcb5fb9ae0c32feac5830f4873d9df1e1e4a7c4b3431a34fca4e24a403ad38`
+- tests: 1596 passed / 0 failed
+- artifact: `verification-e37e8ac8f79b06bbaf51b1f0dc949f1b2425dc72`
+- artifact digest: `sha256:c5cd244a77666338f3162a0fae60035fadac50517a8893c9df753f2fc8f2cc8e`
+
+### Failed intermediate feature SHA
+
+- exact SHA: `acc3eb4023aa046544056eea2c634e0906bc00b3`
+- push Verify #384
+- conclusion: failure
+- tests: 1604 passed / 2 failed
+- artifact: `verification-acc3eb4023aa046544056eea2c634e0906bc00b3`
+- artifact digest: `sha256:ed5f00d89a65b2423a2fdd2bf93f9fb3980e232c4dca0213b81c544294e2249a`
+
+The failure came from legacy v687-v695 fake fixtures that did not model the new explicit handled contract. This SHA remains failed evidence permanently.
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-user-admission-integrity-v687-v695`
-- exact SHA: `9c778fc9911fa956960c17aa03c490a48aee100c`
-- push Verify #378
+- branch: `fix/telegram-command-result-integrity-v696-v705`
+- exact SHA: `53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
+- push Verify #385
 - conclusion: success
-- tests: 1596 passed / 0 failed
-- artifact: `verification-9c778fc9911fa956960c17aa03c490a48aee100c`
-- artifact digest: `sha256:b358d74fbe5906900bf5afb324d646212459ccbc7ded2c33928785bd86b9fdf9`
+- tests: 1606 passed / 0 failed
+- artifact: `verification-53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
+- artifact digest: `sha256:47c54f6dd3047d4c5aebbbb7c6e13ac5c043c75e25f06b0c53a66ce2483204f6`
 
 ### PR merge-ref integration verification
 
-- PR #272
-- branch head: `9c778fc9911fa956960c17aa03c490a48aee100c`
-- synthetic merge SHA: `02362780db074ed45c4ca23bbeacfda12320d504`
-- pull_request Verify #379
+- PR #274
+- branch head: `53ede2e10c3336f2d2da16eceecf6308ef5f39a5`
+- synthetic merge SHA: `d002777d00d64f6bb776ed4bdd52d52898aad2e5`
+- pull_request Verify #386
 - conclusion: success
-- tests: 1596 passed / 0 failed
-- artifact: `verification-02362780db074ed45c4ca23bbeacfda12320d504`
-- artifact digest: `sha256:5004c5540377f6a13d54c4c82f3fcd256949fd5e19addcfae220a9c652c806aa`
+- tests: 1606 passed / 0 failed
+- artifact: `verification-d002777d00d64f6bb776ed4bdd52d52898aad2e5`
+- artifact digest: `sha256:79f8884eb057ecdd22bc70729a50560e5897d12ce42113eae4e40fa2e615f2ab`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
-- push Verify #380
+- exact main: `bfa8f1393e8221900377b124b93bb8bbf882e055`
+- push Verify #387
 - conclusion: success
-- tests: 1596 passed / 0 failed
-- artifact: `verification-4b687f2d00c04f8d00d4a34f9801156639a1cf0b`
-- artifact digest: `sha256:7dc1eddf89b22601fa373d08f6763fd1532b91e383cd9fdc451fe093d6dcd5a7`
+- tests: 1606 passed / 0 failed
+- artifact: `verification-bfa8f1393e8221900377b124b93bb8bbf882e055`
+- artifact digest: `sha256:f564aebc2220e4f13045dfc2c95e57f8ddd3abc5ee4f91e40b087f8b444db46a`
 
-## Telegram User Admission Integrity
+## Telegram Command Result Integrity
 
-AssistantTelegramAdapter now treats canonical persisted-user admission as a fail-closed prerequisite for identified Telegram users.
+Telegram text-command dispatch now distinguishes an unhandled command from a real handled failure. Recognized memory persistence errors are preserved and no longer fall through to the general assistant path.
 
-Explicit user-storage errors, malformed profile results, and profile exceptions stop successful /start, text, and button downstream dispatch. Successful canonical admission preserves existing behavior, while no-user-id compatibility remains unchanged.
+Malformed command results and command-service exceptions fail closed. Successful /start responses now expose explicit `error=False`.
 
-No persistence owner or layer changed. No business execution authorization, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No persistence owner/layer, autonomous business execution, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
 Exact branch push verification proves only that exact branch head.
 Pull-request runs prove only their synthetic merge refs.
 Every squash-main SHA requires its own exact push verification.
+Failed SHAs remain failed evidence permanently.
 Workflow/test-manifest evidence is not independent external verification;
 `externally_verified=False`.
 
 ## Related implementation
 
+- `app/services/assistant_memory_command_service.py`
 - `app/telegram_app_layer/assistant_telegram_adapter.py`
-- `tests/test_telegram_user_admission_integrity_v687_v695.py`
-- `project_brain/CURRENT_CHECKPOINT_V687_V695.md`
+- `app/telegram_app_layer/telegram_bot_service.py`
+- `tests/test_telegram_command_result_integrity_v696_v705.py`
+- `project_brain/CURRENT_CHECKPOINT_V696_V705.md`
