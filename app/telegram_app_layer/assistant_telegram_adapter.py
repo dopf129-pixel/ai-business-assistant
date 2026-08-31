@@ -121,15 +121,28 @@ class AssistantTelegramAdapter:
 
             return result
 
+        try:
+
+            keyboard = (
+                self.keyboard_service
+                .build_main_keyboard()
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_KEYBOARD_BUILD_FAILED"
+            }
+
         return {
             "error": False,
 
             "text":
                 "Привет! Я AI Assistant. Выберите действие:",
 
-            "keyboard":
-                self.keyboard_service
-                .build_main_keyboard()
+            "keyboard": keyboard
         }
 
     def handle_text(
@@ -213,13 +226,23 @@ class AssistantTelegramAdapter:
                         "Запомнил 👍"
                 }
 
-        result = (
-            self.assistant
-            .ask(
-                text,
-                user_id
+        try:
+
+            result = (
+                self.assistant
+                .ask(
+                    text,
+                    user_id
+                )
             )
-        )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_ASSISTANT_DISPATCH_FAILED"
+            }
 
         return self._validated_runtime_result(
             result,
@@ -242,17 +265,27 @@ class AssistantTelegramAdapter:
 
             return profile_failure
 
-        result = call_with_legacy_arity(
-            self.button_handler
-            .handle,
-            (
-                callback,
-                user_id,
-            ),
-            (
-                callback,
-            ),
-        )
+        try:
+
+            result = call_with_legacy_arity(
+                self.button_handler
+                .handle,
+                (
+                    callback,
+                    user_id,
+                ),
+                (
+                    callback,
+                ),
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message":
+                    "TELEGRAM_BUTTON_DISPATCH_FAILED"
+            }
 
         validated = (
             self._validated_runtime_result(
