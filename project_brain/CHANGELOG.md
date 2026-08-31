@@ -2649,3 +2649,35 @@ SHA-bound evidence:
 - docs only: no runtime code, persistence behavior, Product Decision rules, execution authorization, Ozon mutation, or `data/users.json` change;
 - Architecture Review Required: No; Critical Review Required: No;
 - GitHub Actions remains project CI evidence only; `externally_verified=False`.
+
+
+## 2026-08-31 — Telegram Analyze / Plan History Integrity v766-v773
+
+- validated assistant result before analyze/plan success-history persistence;
+- explicit or malformed assistant failure cannot create a success history event;
+- history persistence failure is no longer hidden behind assistant success;
+- malformed/exceptional history persistence remains unknown and does not fabricate rollback;
+- internal exception text is sanitized;
+- valid success records the expected event exactly once;
+- no execution authorization, Ozon mutation, quantity/price inference, or new persistence layer;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `9c2f783710e125b183e8a314e1ac4c2eac1754f1`: #449, 1666 passed / 0 failed, digest `sha256:a292cffdbb1309e47f33c028062ce699fd1364f18f3db1007cf50e46295b51fa`;
+- final feature `dd6a5984026f591941fa0f2db62fc260a48f9e02`: #451, 1674 passed / 0 failed, digest `sha256:328c9cc03f7b0b8e292ceb1e42cc78895ba5f86bc32875916c4fc5a5d46ecd02`;
+- PR #288 synthetic merge `83a8863f79f3ad76d721d4f7fd9eee2ed28a2b20`: #452, 1674 passed / 0 failed, digest `sha256:3c38001164cc6a7eb1b9f2838356843aff9a546ce7f15c5048eed2966251da3c`;
+- squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d2d03c2e64aedf648461ec980818c8348fa8d627fca26`;
+- no failed/cancelled intermediate production SHA occurred in v766-v773;
+- `externally_verified=False`.
+
+## 2026-08-31 — Project Brain reconciliation after Telegram Analyze / Plan History Integrity v766-v773
+
+- reconciled CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`;
+- added `CURRENT_CHECKPOINT_V766_V773.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

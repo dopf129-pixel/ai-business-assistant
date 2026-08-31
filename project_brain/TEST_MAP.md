@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
+1674 passed on `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`.
 
-GitHub Actions push Verify #444 completed successfully for this exact main SHA.
+GitHub Actions push Verify #453 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2481,3 +2481,30 @@ Tests:
 - no Product Decision rule/threshold, persistence behavior, Product Task Draft execution, Action Executor connection, business mutation authorization, quantity/price inference, or Ozon mutation changed;
 - repository data/users.json remains untouched;
 - `externally_verified=False`.
+
+
+---
+
+# Telegram Analyze / Plan History Integrity v1
+
+Boundary:
+
+- `AssistantButtonHandlerService` Telegram `analyze` / `plan` buttons
+- canonical history persistence result boundary
+
+Tests:
+
+- `tests/test_telegram_analyze_plan_history_integrity_v766_v773.py`
+
+Проверяет:
+
+- explicit assistant `error=True` is preserved and does not write success history;
+- malformed assistant result fails closed before history persistence;
+- valid assistant success records the exact event once;
+- explicit history failure is surfaced after assistant completion;
+- malformed history result preserves unknown persistence state;
+- history exceptions are sanitized and do not fabricate rollback;
+- no-user / absent-history-service compatibility is preserved;
+- exact-SHA evidence: main #449, feature #451, PR merge-ref #452, squash-main #453;
+- no execution authorization, Ozon mutation, quantity/price inference, or new persistence layer;
+- `data/users.json` untouched; `externally_verified=False`.
