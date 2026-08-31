@@ -2518,3 +2518,26 @@ SHA-bound evidence:
 - PR #276 synthetic merge `d5418d059fed408d2e733e144e0b93ce7ae71f3a`: #393, 1614 passed;
 - squash main `3929d14ec640d5d8c364a57009480f81bd151468`: #394, 1614 passed;
 - no independent external-verification claim.
+
+
+## 2026-08-31 — Product Decision Telegram Result Integrity v714-v721
+
+- hardened read-only Product Decision overview/detail Telegram paths against malformed or failed downstream results;
+- explicit overview error=True no longer becomes empty-assortment success;
+- successful overview now requires consistent structural evidence before keyboard construction;
+- malformed detail results no longer get optimistic error=False;
+- explicit detail failures keep error state and do not expose feedback navigation;
+- valid empty overview and valid Product Decision cards remain compatible;
+- intermediate SHA `d804b6d89fdee8457dd8473ce6923b9c426d29d4` failed #398 with 1621 passed / 1 failed and remains failed evidence;
+- no Product Decision rules/thresholds/persistence, Product Task Draft execution, business execution authorization, or Ozon mutation change;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+SHA-bound evidence:
+
+- entering main `cbfd81f7e9461195d6211c1ae03f611fa4852f22`: #397, 1614 passed;
+- failed intermediate `d804b6d89fdee8457dd8473ce6923b9c426d29d4`: #398, 1621 passed / 1 failed;
+- final feature `8640e7f6e2bd360a1edc8d2c6c65cd018c361e35`: #399, 1622 passed;
+- PR #278 synthetic merge `8842af0585f271f69095a3d5cb7554dc2e3a4eb3`: #400, 1622 passed;
+- squash main `a3320cb4611887c40b754cbca9f097784d09bea9`: #401, 1622 passed;
+- no independent external-verification claim.

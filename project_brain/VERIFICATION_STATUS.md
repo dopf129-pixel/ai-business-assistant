@@ -4,71 +4,71 @@ Date: 2026-08-31
 
 ## Latest verified product baseline
 
-`3929d14ec640d5d8c364a57009480f81bd151468`
+`a3320cb4611887c40b754cbca9f097784d09bea9`
 
 Latest merged production-correctness batch:
 
-`v706-v713: Telegram Adapter Downstream Result Integrity`
+`v714-v721: Product Decision Telegram Result Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `fcd3a9df94bc40569cab92f343ca249dd44b2010`
-- push Verify #390
+- exact main: `cbfd81f7e9461195d6211c1ae03f611fa4852f22`
+- push Verify #397
 - conclusion: success
-- tests: 1606 passed / 0 failed
-- artifact: `verification-fcd3a9df94bc40569cab92f343ca249dd44b2010`
-- artifact digest: `sha256:f69ff250c0eeb99a63cdc9967eb816d642f6ba5d4d199e1d8b451603f56a1c95`
+- tests: 1614 passed / 0 failed
+- artifact: `verification-cbfd81f7e9461195d6211c1ae03f611fa4852f22`
+- artifact digest: `sha256:6d8dd18194a2cb6d2bc4feb5cb16815adce2b31085cdc6042bfaa4748000b6ef`
 
 ### Failed intermediate feature SHA
 
-- exact SHA: `f990a7cc9abf8b2fd587e8339329d7d3a29e497a`
-- push Verify #391
+- exact SHA: `d804b6d89fdee8457dd8473ce6923b9c426d29d4`
+- push Verify #398
 - conclusion: failure
-- tests: 1612 passed / 2 failed
-- artifact: `verification-f990a7cc9abf8b2fd587e8339329d7d3a29e497a`
-- artifact digest: `sha256:0a40c83903b5065e217a7ba375e3762e10e08a6901099088c9f2af06b02934b5`
+- tests: 1621 passed / 1 failed
+- artifact: `verification-d804b6d89fdee8457dd8473ce6923b9c426d29d4`
+- artifact digest: `sha256:0c990cf8e08605496b4daf7ce99616ba920775574174cae40bcbfb830bf9240b`
 
-The failure was confined to a new test-helper sentinel mistake. Production code was unchanged by the correction. This SHA remains failed evidence permanently.
+The failure was a new-test identity assertion mismatch with pre-existing detail-dictionary copying. Production code was unchanged by the correction. This SHA remains failed evidence permanently.
 
 ### Exact final feature-head verification
 
-- branch: `fix/telegram-adapter-downstream-result-integrity-v706-v713`
-- exact SHA: `3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
-- push Verify #392
+- branch: `fix/product-decision-telegram-result-integrity-v714-v721`
+- exact SHA: `8640e7f6e2bd360a1edc8d2c6c65cd018c361e35`
+- push Verify #399
 - conclusion: success
-- tests: 1614 passed / 0 failed
-- artifact: `verification-3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
-- artifact digest: `sha256:5be7e166e888e4ef62e755eb6dfbef1e2c46e1afe335fb2f9f968e5d84ee927f`
+- tests: 1622 passed / 0 failed
+- artifact: `verification-8640e7f6e2bd360a1edc8d2c6c65cd018c361e35`
+- artifact digest: `sha256:d34a46ef02266e2b0e8e05b4a0ead72d13c9c126a4b362d9d156b52178f6c6f9`
 
 ### PR merge-ref integration verification
 
-- PR #276
-- branch head: `3b1cb04e40b34d766a9ae0480dc0cb64ac313116`
-- synthetic merge SHA: `d5418d059fed408d2e733e144e0b93ce7ae71f3a`
-- pull_request Verify #393
+- PR #278
+- branch head: `8640e7f6e2bd360a1edc8d2c6c65cd018c361e35`
+- synthetic merge SHA: `8842af0585f271f69095a3d5cb7554dc2e3a4eb3`
+- pull_request Verify #400
 - conclusion: success
-- tests: 1614 passed / 0 failed
-- artifact: `verification-d5418d059fed408d2e733e144e0b93ce7ae71f3a`
-- artifact digest: `sha256:c9cae81e00f851e950e7ba2263b4dd41ddca79a2a9c139b76cc32eb33818a628`
+- tests: 1622 passed / 0 failed
+- artifact: `verification-8842af0585f271f69095a3d5cb7554dc2e3a4eb3`
+- artifact digest: `sha256:c7f5be656b3b5e0c9849a8f1d2844eaf53041664a082329a15d30db3525ab23a`
 
 This is synthetic merge-ref integration evidence only.
 
 ### Post-merge exact-main verification
 
-- exact main: `3929d14ec640d5d8c364a57009480f81bd151468`
-- push Verify #394
+- exact main: `a3320cb4611887c40b754cbca9f097784d09bea9`
+- push Verify #401
 - conclusion: success
-- tests: 1614 passed / 0 failed
-- artifact: `verification-3929d14ec640d5d8c364a57009480f81bd151468`
-- artifact digest: `sha256:87b368c635078a57da703e36b23b6d7449de2a33f7c4b5d956b65d6c0b36464e`
+- tests: 1622 passed / 0 failed
+- artifact: `verification-a3320cb4611887c40b754cbca9f097784d09bea9`
+- artifact digest: `sha256:cf72eec34f5faaf481b2413ad654edb2de9d796d7a569e089944538b57077694`
 
-## Telegram Adapter Downstream Result Integrity
+## Product Decision Telegram Result Integrity
 
-AssistantTelegramAdapter now validates general-assistant and button-handler result contracts before returning them to Telegram runtime.
+The seller-facing read-only Product Decision Telegram paths now fail closed on malformed or explicit failed overview/detail results.
 
-Malformed results fail closed with deterministic codes. Valid explicit downstream failures remain failures and are not freshness-enriched. Valid successful task-draft responses keep the existing read-only freshness presentation.
+An overview downstream failure is no longer rewritten as an empty-assortment success. Successful overview payloads require explicit structural evidence before keyboard construction. Detail payloads require an explicit boolean error contract, while valid explicit failures retain existing seller-facing error formatting without feedback navigation.
 
-No internal exception retry was introduced. No persistence owner/layer, autonomous business execution, Product Decision/Product Task Draft execution, or Ozon mutation was introduced. Repository `data/users.json` was not modified.
+No Product Decision rules, thresholds, persistence, Product Task Draft execution, business execution authorization, or Ozon mutation changed. Repository `data/users.json` was not modified.
 
 ## Verification policy
 
@@ -81,6 +81,6 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/telegram_app_layer/assistant_telegram_adapter.py`
-- `tests/test_telegram_adapter_downstream_result_integrity_v706_v713.py`
-- `project_brain/CURRENT_CHECKPOINT_V706_V713.md`
+- `app/services/assistant_button_handler_service.py`
+- `tests/test_product_decision_telegram_result_integrity_v714_v721.py`
+- `project_brain/CURRENT_CHECKPOINT_V714_V721.md`
