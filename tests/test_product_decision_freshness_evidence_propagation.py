@@ -40,7 +40,7 @@ class _DecisionService:
             "sku": metrics.get("sku"),
             "decision_type": "HOLD_STOCK",
             "priority": "LOW",
-            "reasons": [],
+            "reasons": ["POSITIVE_UNIT_PROFIT"],
             "confidence": "HIGH",
             "missing_data": list(metrics.get("missing_data") or []),
         }
