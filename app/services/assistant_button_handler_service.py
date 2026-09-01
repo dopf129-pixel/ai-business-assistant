@@ -3242,6 +3242,9 @@ class AssistantButtonHandlerService:
         if code == "PRODUCT_DECISION_ACTION_PROPOSAL_RESULT_INVALID":
             return "Не удалось подготовить безопасный следующий шаг"
 
+        if code == "PRODUCT_DECISION_RESULT_INVALID":
+            return "Не удалось проверить решение по товару"
+
         if (
             code == "INSUFFICIENT_DATA"
             or result.get("decision_type")
