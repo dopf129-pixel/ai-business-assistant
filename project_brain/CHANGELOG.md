@@ -3211,3 +3211,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Unit Economics Returns Finance Impact Integrity v971-v980
+
+- hardened returns-finance evidence before unit-economics confirmed/estimated returns adjustment;
+- malformed/unknown returns evidence can no longer become truthy completeness, known zero return cost, or confirmed risk-adjusted profit;
+- exact boolean, category, count, finite-cost and completeness consistency checks added;
+- invalid evidence preserves `returns` as missing and exposes deterministic unavailable state;
+- canonical cache fixture preserves stale-fallback semantics under the stricter producer contract;
+- failed intermediate `b4f0d33d163ee0a81d0252e466519169c55fd1f2`: Verify #683, 1880 passed / 1 failed, artifact 9815323464, digest `sha256:56edcc6a74df4a8c97297a7c456f369ff0c9bf7b6f770e2d9524d1c55034b8fa`;
+- failure was a legacy cache fixture using a pre-contract minimal returns-success shape; production validation was not weakened;
+- final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed;
+- PR #330 synthetic `d8e9c3f5fb978cb4ae2d3675d229ad6bbc48b358`: Verify #685, 1881 passed / 0 failed;
+- squash main `db5ab92503f499dfe470402ffefc00b15b9c6e59`: Verify #686, 1881 passed / 0 failed;
+- no Product Decision threshold/rule, persistence owner, Product Task Draft execution, Action Executor connection, Telegram production wiring or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v971-v980
+
+- reconciled Project Brain to exact verified product main `db5ab92503f499dfe470402ffefc00b15b9c6e59` / Verify #686 / 1881 passed;
+- added `CURRENT_CHECKPOINT_V971_V980.md`;
+- retained failed intermediate #683 as failed SHA-bound evidence;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
