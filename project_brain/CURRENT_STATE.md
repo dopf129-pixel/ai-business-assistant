@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
+1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
 
-GitHub Actions push verification run #698 completed successfully for this exact main SHA.
+GitHub Actions push verification run #709 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
+1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
 
 Verification source:
-GitHub Actions push run #698, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #709, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2262,6 +2262,53 @@ Failed intermediate evidence retained:
 - `8a286947bdc5862834a05794e330d87ef370ffe7`: Verify #695, 1889 passed / 2 failed;
 - failure source was a legacy freshness fixture with noncanonical empty reasons;
 - final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision threshold/rule change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Assortment Overview Integrity v991-v1000 — 2026-09-01
+
+Completed:
+
+[x] Overview decision rows require explicit success and unique SKU identity
+
+[x] Decision type → priority pairs are canonical
+
+[x] Decision counts are recomputed and exact
+
+[x] Proposal counts are recomputed and exact
+
+[x] Actionable count is recomputed from exact booleans
+
+[x] Nested proposal execution remains prohibited
+
+[x] Contradictory overview state cannot generate seller keyboard
+
+[x] Valid mixed overview remains deterministic and non-mutating
+
+Verified exact main:
+
+`84d714909d5082958bf2bb21a30b7b097eb17955`
+
+GitHub Actions push Verify #709: 1901 passed / 0 failed.
+
+Preserved failed evidence:
+
+- `3fe8ef0caa6b03a5dabbabae463cb0037a4c9ca5`: Verify #704, 1882 passed / 9 failed;
+- `86b6e9063c1a9cfa500d4e0409ba6668623c5321`: Verify #705, 1892 passed / 9 failed;
+- `0b2da626f71a45adf54f0f9f0dbfd8b5a8e75353`: Verify #706, 1898 passed / 3 failed.
+
+Production validation was not weakened; legacy test fakes were aligned to the canonical producer contract.
 
 Preserved:
 

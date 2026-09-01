@@ -3266,3 +3266,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Assortment Overview Integrity v991-v1000
+
+- hardened seller-facing Product Decision assortment overview integrity before pagination, counts, proposal statistics and Telegram buttons;
+- duplicate SKU rows, noncanonical decision type/priority pairs and contradictory aggregate counts now fail closed;
+- decision counts, proposal counts and actionable counts are recomputed from exact nested evidence;
+- nested proposal execution remains prohibited and unknown proposal types fail closed;
+- failed intermediate `3fe8ef0caa6b03a5dabbabae463cb0037a4c9ca5`: Verify #704, 1882 passed / 9 failed;
+- failed intermediate `86b6e9063c1a9cfa500d4e0409ba6668623c5321`: Verify #705, 1892 passed / 9 failed;
+- failed intermediate `0b2da626f71a45adf54f0f9f0dbfd8b5a8e75353`: Verify #706, 1898 passed / 3 failed;
+- those failures exposed legacy fake-producer shapes; production validation was not weakened;
+- final feature `63870a305972f7b7e8f33cad251fc6f13235d1fc`: Verify #707, 1901 passed / 0 failed;
+- PR #334 synthetic `1bbee7e03477b197a474a6807093d6ee344b7505`: Verify #708, 1901 passed / 0 failed;
+- squash main `84d714909d5082958bf2bb21a30b7b097eb17955`: Verify #709, 1901 passed / 0 failed;
+- no Product Decision threshold/rule, persistence owner, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v991-v1000
+
+- reconciled Project Brain to exact verified product main `84d714909d5082958bf2bb21a30b7b097eb17955` / Verify #709 / 1901 passed;
+- added `CURRENT_CHECKPOINT_V991_V1000.md`;
+- retained failed #704/#705/#706 without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
