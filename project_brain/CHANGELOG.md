@@ -2821,3 +2821,32 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Persistence Verification Integrity v831-v840
+
+- hardened the existing Product Decision durable read-back verification trust boundary;
+- non-mapping application payloads now fail closed;
+- lineage identifiers, draft ID, SKU and recorded-at binding require real non-empty strings rather than coercion;
+- explicit persisted-preview error markers, when present, must be booleans;
+- decision type, priority and confidence require canonical enumerations;
+- reasons require a real non-empty list of non-empty strings and are not normalized from strings into character evidence;
+- malformed durable history snapshots cannot be promoted to successful verification;
+- valid verification remains read-only, non-executable and explicitly `externally_verified=False`;
+- duplicate branch-creation Verify #514 on entering SHA was cancelled and remains cancelled evidence;
+- feature `0f9faa6b55078bc9391d9ef19a8d7d2348cbf4ae`: Verify #516, 1741 passed / 0 failed;
+- PR #302 synthetic merge `97c9f8432fbdd98c6d280226116f6bb2bee8b02d`: Verify #517, 1741 passed / 0 failed;
+- squash main `a3aa88f351985e8519f754923880165f96fb29ad`: Verify #518, 1741 passed / 0 failed;
+- no Product Decision rule/threshold change, persistence-owner change, Product Task Draft execution, Telegram production wiring, Action Executor connection, business execution authorization or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v831-v840
+
+- reconciled PROJECT_STATE, CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `a3aa88f351985e8519f754923880165f96fb29ad` / Verify #518 / 1741 passed;
+- added `CURRENT_CHECKPOINT_V831_V840.md` with entering-main, feature-head, PR merge-ref and squash-main evidence;
+- retained cancelled Verify #514 and historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
