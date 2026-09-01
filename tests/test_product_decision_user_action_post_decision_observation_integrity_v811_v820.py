@@ -4,14 +4,39 @@ from product_decision_user_action_post_decision_observation import (
 
 
 def _status(**values):
+    application_id = "app-1"
+    verification_id = (
+        "product-decision-persistence-verification:" + application_id
+    )
+    guidance_id = (
+        "product-decision-user-action-guidance:" + verification_id
+    )
+    checklist_id = (
+        "product-decision-user-action-checklist:" + guidance_id
+    )
     result = {
         "error": False,
         "status": "PRODUCT_DECISION_USER_ACTION_CHECKLIST_STATUS_READY",
-        "user_action_checklist_id": "check-1",
+        "user_action_checklist_status_id": (
+            "product-decision-user-action-checklist-status:" + checklist_id
+        ),
+        "user_action_checklist_id": checklist_id,
+        "user_action_guidance_id": guidance_id,
+        "decision_persistence_verification_id": verification_id,
+        "decision_persistence_application_id": application_id,
         "sku": "hook-2",
+        "verified_recorded_at": "2026-09-01T12:00:00+00:00",
+        "decision_persistence_verified": True,
         "aggregate_status": "USER_REPORTED_COMPLETE",
+        "item_count": 2,
+        "reported_count": 2,
+        "completed_count": 2,
+        "reported_item_ids": ["manual-step-1", "manual-step-2"],
+        "completed_item_ids": ["manual-step-1", "manual-step-2"],
         "completion_evidence_source": "USER_REPORT",
         "externally_verified": False,
+        "persistent": False,
+        "checklist_mutated": False,
         "ozon_mutation_called": False,
         "execution_allowed": False,
         "execution_ready": False,
@@ -19,7 +44,6 @@ def _status(**values):
     }
     result.update(values)
     return result
-
 
 def _decision(**values):
     result = {
