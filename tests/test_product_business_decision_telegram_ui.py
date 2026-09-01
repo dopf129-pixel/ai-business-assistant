@@ -158,8 +158,8 @@ def test_product_decisions_menu_shows_ranked_decision_overview():
         for item in result["keyboard"]["buttons"]
     ]
     assert labels == [
-        "🟠 hook-2 — Пополнить срочно",
-        "🟠 hook-3 — Пополнить срочно",
+        "🔴 hook-2 — Пополнить срочно",
+        "🔴 hook-3 — Пополнить срочно",
     ]
 
 
@@ -214,7 +214,7 @@ def test_product_decision_callback_calls_query_and_formats_decision():
     assert "Высокий приоритет пополнения" in result["message"]
     assert "Артикул:\nhook-2" in result["message"]
     assert "Тип:" not in result["message"]
-    assert "Приоритет:\nВысокий" in result["message"]
+    assert "Приоритет:\nКритический" in result["message"]
     assert "Скорость продаж: 4 шт./день" in result["message"]
     assert "Остаток: 8 шт." in result["message"]
     assert "Запас: 2 дн." in result["message"]
@@ -352,6 +352,7 @@ def test_product_decisions_overview_counts_manual_reviews():
                 "action_required": True,
                 "requires_confirmation": True,
                 "execution_allowed": False,
+                "automation_status": "PROHIBITED",
             },
         }
     )
