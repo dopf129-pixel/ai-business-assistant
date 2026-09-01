@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1931 passed on `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`.
+1941 passed on `7d53fecac126973122270eacfdfc122e50ae3de3`.
 
-GitHub Actions push Verify #736 completed successfully for this exact main SHA.
+GitHub Actions push Verify #745 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3329,5 +3329,42 @@ Tests:
 - final feature `6af041c39b86791821249058d0632070f2f68685`: Verify #734, 1931 passed / 0 failed;
 - PR #340 synthetic `7e64fcd23df9fb405c8c422359e3703b6a720f56`: Verify #735, 1931 passed / 0 failed;
 - squash main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`: Verify #736, 1931 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Persistence Commit Receipt Integrity v1
+
+Boundaries:
+
+- `ProductDecisionHistoryService.record`
+- `ProductDecisionHistoryService.record_persistent`
+- `ProductDecisionPersistenceApplicationService.apply`
+- `ProductDecisionPersistenceVerificationService.verify`
+
+Tests:
+
+- `tests/test_product_decision_persistence_commit_receipt_v1031_v1040.py`
+- canonicalized persistence application/verification fixtures
+
+Проверяет:
+
+- storage save=False cannot become successful history;
+- storage save state UNKNOWN cannot become successful history;
+- failed history writes do not remain in in-memory state;
+- durable persistence requires storage, not in-memory history;
+- COMMITTED receipt carries exact SKU/recorded_at/count/context;
+- application refuses missing receipt capability;
+- rejected/unknown durable writes never claim product_decision_persisted;
+- application carries defensive committed receipt;
+- verification requires committed receipt before readback;
+- valid receipt + readback verifies without execution;
+- failed `14a0709209228310625dd91871e963a866ab6cc9`: Verify #742, 1940 passed / 1 failed;
+- final feature `88372919c9275a51482703e59fe21d8c4d9c5682`: Verify #743, 1941 passed / 0 failed;
+- PR #342 synthetic `7e54ca702706ad192eb70da63e351e96efdb31b5`: Verify #744, 1941 passed / 0 failed;
+- squash main `7d53fecac126973122270eacfdfc122e50ae3de3`: Verify #745, 1941 passed / 0 failed;
+- Telegram persistence wiring remains disabled;
 - `data/users.json` untouched;
 - `externally_verified=False`.
