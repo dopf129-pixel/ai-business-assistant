@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
+1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
 
-GitHub Actions push verification run #677 completed successfully for this exact main SHA.
+GitHub Actions push verification run #686 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
+1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
 
 Verification source:
-GitHub Actions push run #677, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #686, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2171,6 +2171,53 @@ Preserved failed evidence:
 Preserved:
 
 - no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Unit Economics Returns Finance Impact Integrity v971-v980 — 2026-09-01
+
+Completed:
+
+[x] Returns impact requires explicit success/error contract
+
+[x] Complete/classification/finance markers are exact booleans
+
+[x] Required categories and counts are validated without zero coercion
+
+[x] Observed/matched/event count consistency is enforced
+
+[x] Invalid evidence cannot become known zero return cost
+
+[x] Invalid evidence cannot become confirmed risk-adjusted profit
+
+[x] Invalid evidence cannot remove returns from missing data
+
+[x] Valid estimated and confirmed paths preserve prior numeric behavior
+
+Verified exact main:
+
+`db5ab92503f499dfe470402ffefc00b15b9c6e59`
+
+GitHub Actions push Verify #686: 1881 passed / 0 failed.
+
+Preserved failed evidence:
+
+- `b4f0d33d163ee0a81d0252e466519169c55fd1f2`: Verify #683, 1880 passed / 1 failed;
+- failure was a legacy cache fixture using a pre-contract minimal success shape;
+- production validation remained strict;
+- final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed.
+
+Preserved:
+
+- unknown finance values remain unknown;
+- no Product Decision threshold/rule change;
 - no new persistence owner;
 - no Product Task Draft execution;
 - no Action Executor connection;

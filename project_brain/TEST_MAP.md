@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
+1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
 
-GitHub Actions push Verify #677 completed successfully for this exact main SHA.
+GitHub Actions push Verify #686 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3117,5 +3117,40 @@ Tests:
 - final feature `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed;
 - PR #328 synthetic `85e808a3dcc04ef9197bc673950546445ee15749`: Verify #676, 1871 passed / 0 failed;
 - squash main `10977368ac4179f1f7168943a38fcdbc01ecfd78`: Verify #677, 1871 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Unit Economics Returns Finance Impact Integrity v1
+
+Boundary:
+
+- `ProductUnitEconomicsQueryService._attach_returns_impact`
+- `ProductUnitEconomicsQueryService._estimate_returns_impact`
+- returns-finance evidence → unit economics confirmed/estimated returns adjustment
+
+Tests:
+
+- `tests/test_unit_economics_returns_impact_integrity_v971_v980.py`
+- updated canonical cache fixture in `tests/test_product_unit_economics_query_cache.py`
+
+Проверяет:
+
+- non-mapping returns impact remains unknown;
+- returns impact exceptions are sanitized;
+- missing explicit error marker is invalid;
+- string `complete="false"` cannot become truthy confirmed completeness;
+- categories and required category records must be mappings;
+- counts are exact integers and never string/missing coercions;
+- observed count cannot exceed matched/event counts;
+- complete finance requires complete finance/category state;
+- invalid evidence does not create zero observed cost or confirmed profit;
+- valid estimated and confirmed calculations remain unchanged;
+- failed intermediate `b4f0d33d163ee0a81d0252e466519169c55fd1f2`: Verify #683, 1880 passed / 1 failed;
+- final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed;
+- PR #330 synthetic `d8e9c3f5fb978cb4ae2d3675d229ad6bbc48b358`: Verify #685, 1881 passed / 0 failed;
+- squash main `db5ab92503f499dfe470402ffefc00b15b9c6e59`: Verify #686, 1881 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.

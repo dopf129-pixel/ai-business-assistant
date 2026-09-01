@@ -4,67 +4,69 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`10977368ac4179f1f7168943a38fcdbc01ecfd78`
+`db5ab92503f499dfe470402ffefc00b15b9c6e59`
 
 Latest merged production-correctness batch:
 
-`v961-v970: Product Decision History Context Result Integrity`
+`v971-v980: Unit Economics Returns Finance Impact Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `40f1a28b3515a07879bda369800b65dea8998f7f`
-- push Verify #672
+- exact main: `e606b5020a1300ebb7d5b2edadaa1374d0eaf611`
+- push Verify #681
 - conclusion: success
-- tests: 1861 passed / 0 failed
-- artifact id: 9813910089
-- digest: `sha256:f18af8ad2031e5d3da93b11c81f4d65cf949a691d0933fec3ef4581945d017b9`
+- tests: 1871 passed / 0 failed
+- artifact id: 9815103598
+- digest: `sha256:1931c13743fbaa3d0d670716de4e3d86cba3f5607bcb8139a7849216af2b4853`
 
 ### Failed intermediate feature verification
 
-- exact SHA: `bfcc3551166431288f38ba0c06912133bed56818`
-- push Verify #674
+- exact SHA: `b4f0d33d163ee0a81d0252e466519169c55fd1f2`
+- push Verify #683
 - conclusion: failure
-- tests: 1870 passed / 1 failed
-- artifact id: 9814044437
-- digest: `sha256:e0edfc47ee933e8869dbb76ed0df3ca5a2ba4ba4b2d392e469c21a42ea3c82fc`
-- failure: undeclared `deepcopy` in new Telegram draft-copy path
+- tests: 1880 passed / 1 failed
+- artifact id: 9815323464
+- digest: `sha256:56edcc6a74df4a8c97297a7c456f369ff0c9bf7b6f770e2d9524d1c55034b8fa`
+- failure: legacy cache fixture used a pre-contract minimal returns-success shape
+- production validation was not weakened
 - this SHA remains failed evidence permanently
 
 ### Exact final feature-head verification
 
-- exact SHA: `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`
-- push Verify #675
+- exact SHA: `0a2ece03b60e019b264b5ecda8a010bca873e7bb`
+- push Verify #684
 - conclusion: success
-- tests: 1871 passed / 0 failed
-- artifact id: 9814074739
-- digest: `sha256:5177dc9c3d210ea8f51af5fbf9ddd7633b8c3dc8c7e8f834c75ea68439a58ca0`
+- tests: 1881 passed / 0 failed
+- artifact id: 9815370444
+- digest: `sha256:5671759b8dea4e185f9672a0779f72dbe89e6a60ee371c22c284239e673f361a`
 
 ### PR merge-ref integration verification
 
-- PR #328
-- synthetic merge SHA: `85e808a3dcc04ef9197bc673950546445ee15749`
-- pull_request Verify #676
+- PR #330
+- synthetic merge SHA: `d8e9c3f5fb978cb4ae2d3675d229ad6bbc48b358`
+- pull_request Verify #685
 - conclusion: success
-- tests: 1871 passed / 0 failed
-- artifact id: 9814104003
-- digest: `sha256:4bf39ea34acf67aa9d2b71d014f9537e4dfbd2ee05d9bb664ca774fab0a004de`
+- tests: 1881 passed / 0 failed
+- artifact id: 9815412044
+- digest: `sha256:aa4ada489199dc8cbe616ebd9ac501d1bcc06a6cc154b4cc8b12954a959b618d`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `10977368ac4179f1f7168943a38fcdbc01ecfd78`
-- push Verify #677
+- exact main: `db5ab92503f499dfe470402ffefc00b15b9c6e59`
+- push Verify #686
 - conclusion: success
-- tests: 1871 passed / 0 failed
-- artifact id: 9814938009
-- digest: `sha256:3d0e611601682145f91855cec93724cc9d13b5b241b69e2f1856ad1046996e36`
+- tests: 1881 passed / 0 failed
+- artifact id: 9815447690
+- digest: `sha256:e15ff5518e3cb2d337eec320d5e16dd30d790a7455b2d5470f5c165c3b6f9371`
 
-## Immediately preceding verified product package: v951-v960
+## Immediately preceding verified product package: v961-v970
 
-- feature `70cbcc825fc49ab868ae1ac3c58ff80ea115482a`: Verify #666, 1861 passed / 0 failed
-- PR #326 synthetic `4b8792f73e6f54836d358b4c0215d885d40c2a93`: Verify #667, 1861 passed / 0 failed
-- squash main `7637177202c21d3f2894105e39137efd86855b8c`: Verify #668, 1861 passed / 0 failed
+- feature `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed
+- PR #328 synthetic `85e808a3dcc04ef9197bc673950546445ee15749`: Verify #676, 1871 passed / 0 failed
+- squash main `10977368ac4179f1f7168943a38fcdbc01ecfd78`: Verify #677, 1871 passed / 0 failed
+- failed intermediate `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed
 - `externally_verified=False`
 
 ## Verification policy
