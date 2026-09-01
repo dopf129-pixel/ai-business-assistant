@@ -4,58 +4,58 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`73c349d50dad1a5562a09777df5a69f661869645`
+`3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
 
 Latest merged production-correctness batch:
 
-`v881-v890: Product Decision User Action Completion Revision Predecessor Integrity`
+`v891-v900: Product Decision User Action Checklist Status Persistence Lineage Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `8a88d1188f9ce7b2c2a9a3ddab7a00ca0a14cdad`
-- push Verify #594
+- exact main: `917d04d4bc62258d20f7cb192b5337e06dd90f57`
+- push Verify #610
 - conclusion: success
-- tests: 1781 passed / 0 failed
-- artifact id: 9804055289
-- artifact digest: `sha256:88666d0fe715e72c8b1dd995a3a413f55fe64e919c367b17f51b67adf954548e`
+- tests: 1791 passed / 0 failed
+- artifact id: 9810842262
+- artifact digest: `sha256:6f74a0bad8784e93ee500912097dd8f262aa93ee8c0a676265a49b3ade79e383`
 
 ### Exact final feature-head verification
 
-- exact SHA: `58c1421d432a4a9807b0722f930832f35d1adec1`
-- push Verify #597
+- exact SHA: `681d42d44b718f7c0679c350971b71062567cafd`
+- push Verify #614
 - conclusion: success
-- tests: 1791 passed / 0 failed
-- artifact id: 9810504426
-- artifact digest: `sha256:a9c14531df9a24db85ce876311dc731185ef7c9d4d3d42828f2dec88c8e3ff80`
+- tests: 1801 passed / 0 failed
+- artifact id: 9810963092
+- artifact digest: `sha256:f36fc25129bf6752c04be96ba9b3079d42e4195cf82df43db90f2375bdea574b`
 
 ### PR merge-ref integration verification
 
-- PR #312
-- synthetic merge SHA: `fd79665bdb91c9373c45d001fe7f991309b7eb46`
-- pull_request Verify #598
+- PR #314
+- synthetic merge SHA: `12dd9e8a9372b33ba2f6d866344427e329a622ae`
+- pull_request Verify #615
 - conclusion: success
-- tests: 1791 passed / 0 failed
-- artifact id: 9810533881
-- artifact digest: `sha256:0998c3adab7c41951085504e20d8c1acef826667ee503886b3a48783c1b4d8ae`
+- tests: 1801 passed / 0 failed
+- artifact id: 9811013845
+- artifact digest: `sha256:44bc295fd60d66dac3f96a12c8e1bd2dbf26f78f0bf9121d710bac67c6e760c6`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `73c349d50dad1a5562a09777df5a69f661869645`
-- push Verify #599
+- exact main: `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
+- push Verify #616
 - conclusion: success
-- tests: 1791 passed / 0 failed
-- artifact id: 9810563306
-- artifact digest: `sha256:8ca361c48f5f0516e0a496efc7828c3b993f4f3ac642f979f7783b2319fd09e6`
+- tests: 1801 passed / 0 failed
+- artifact id: 9811043654
+- artifact digest: `sha256:bc3ba1da5432a84470ca239fc5b5f923725c41ea8909630828603a5eeedcfb95`
 
-No failed intermediate production SHA occurred in v881-v890.
+No failed intermediate production SHA occurred in v891-v900.
 
-## Immediately preceding verified product package: v871-v880
+## Immediately preceding verified product package: v881-v890
 
-- exact feature head `381cb421686753aa7e735a693e269b2b27002e5c`: push Verify #582, 1781 passed / 0 failed
-- PR #310 synthetic merge `8b2607178930e3df423084a0d122c6b314141be2`: Verify #583, 1781 passed / 0 failed
-- squash main `834df2a9ded1c3e05731a9c249683d15b188c661`: push Verify #584, 1781 passed / 0 failed
+- exact feature head `58c1421d432a4a9807b0722f930832f35d1adec1`: push Verify #597, 1791 passed / 0 failed
+- PR #312 synthetic merge `fd79665bdb91c9373c45d001fe7f991309b7eb46`: Verify #598, 1791 passed / 0 failed
+- squash main `73c349d50dad1a5562a09777df5a69f661869645`: push Verify #599, 1791 passed / 0 failed
 - `externally_verified=False`
 
 ## Verification policy
@@ -64,14 +64,15 @@ Exact branch push verification proves only that exact branch head.
 Pull-request runs prove only their synthetic merge refs.
 Every squash-main SHA requires its own exact push verification.
 Failed SHAs remain failed evidence permanently.
-Cancelled SHAs remain cancelled/unknown evidence and carry no transferable claim.
+Cancelled/pending SHAs remain cancelled/pending evidence and carry no transferable claim.
 Missing evidence remains unknown and is never interpreted as zero/clean.
 Workflow/test-manifest evidence is not independent external verification;
 `externally_verified=False`.
 
 ## Related implementation
 
-- `app/services/product_decision_user_action_completion_persistence_service.py`
-- `tests/test_product_decision_user_action_completion_predecessor_integrity_v881_v890.py`
-- `project_brain/CURRENT_CHECKPOINT_V871_V880.md`
+- `app/product_decision_user_action_checklist_status.py`
+- `tests/test_product_decision_user_action_checklist_status.py`
+- `tests/test_product_decision_user_action_checklist_status_integrity_v891_v900.py`
 - `project_brain/CURRENT_CHECKPOINT_V881_V890.md`
+- `project_brain/CURRENT_CHECKPOINT_V891_V900.md`

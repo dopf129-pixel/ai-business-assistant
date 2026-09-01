@@ -2997,3 +2997,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Checklist Status Persistence Lineage Integrity v891-v900
+
+- hardened checklist-status aggregation against malformed, coercive, ambiguous and incomplete persisted completion evidence;
+- matching persisted receipts now require exact checklist/guidance/verification/application/SKU/timestamp/item/instruction lineage;
+- matching malformed receipts no longer degrade to NO_USER_REPORTS;
+- string/other completion revisions are not coerced to integers;
+- canonical root/evidence/previous revision IDs and contiguous per-item revision chains are required;
+- duplicate item+revision receipts fail closed as ambiguous;
+- valid aggregate output carries verified persistence lineage and remains USER_REPORT/non-executable;
+- feature `681d42d44b718f7c0679c350971b71062567cafd`: Verify #614, 1801 passed / 0 failed;
+- PR #314 synthetic merge `12dd9e8a9372b33ba2f6d866344427e329a622ae`: Verify #615, 1801 passed / 0 failed;
+- squash main `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`: Verify #616, 1801 passed / 0 failed;
+- no failed intermediate production SHA occurred in v891-v900;
+- no persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v891-v900
+
+- reconciled Project Brain to exact verified product main `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46` / Verify #616 / 1801 passed;
+- added `CURRENT_CHECKPOINT_V891_V900.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

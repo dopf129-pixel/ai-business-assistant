@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
+1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
 
-GitHub Actions push verification run #599 completed successfully for this exact main SHA.
+GitHub Actions push verification run #616 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
+1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
 
 Verification source:
-GitHub Actions push run #599, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #616, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1837,6 +1837,46 @@ Verified exact main:
 `73c349d50dad1a5562a09777df5a69f661869645`
 
 GitHub Actions push Verify #599: 1791 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Status Persistence Lineage Integrity v891-v900 — 2026-09-01
+
+Completed:
+
+[x] Checklist-status input and report collection shapes fail closed
+
+[x] Exact checklist → guidance → verification → application lineage is required
+
+[x] Matching persisted USER_REPORT receipts require canonical verified lineage
+
+[x] Matching malformed receipts cannot degrade into NO_USER_REPORTS
+
+[x] Completion revisions require real integers and canonical root/evidence/previous IDs
+
+[x] Duplicate item+revision receipts fail closed as ambiguous
+
+[x] Per-item persisted revision chains must be contiguous from revision 1
+
+[x] Valid aggregate output carries verified persistence lineage while remaining non-executable
+
+Verified exact main:
+
+`3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
+
+GitHub Actions push Verify #616: 1801 passed / 0 failed.
 
 Preserved:
 
