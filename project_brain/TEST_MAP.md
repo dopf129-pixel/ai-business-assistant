@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1841 passed on `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`.
+1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
 
-GitHub Actions push Verify #652 completed successfully for this exact main SHA.
+GitHub Actions push Verify #660 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3023,3 +3023,34 @@ Tests:
 - exact-SHA evidence: entering main #647, failed intermediate #649, final feature #650, PR merge-ref #651, squash-main #652;
 - failed `849b0d0e78e441f3080631419ecbc0ea192890ec` remains failed evidence;
 - `data/users.json` untouched.
+
+
+---
+
+# Product Decision User Action Learning Confidence Evidence Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_learning_confidence`
+- canonical evidence-quality result → descriptive confidence classification
+
+Tests:
+
+- `tests/test_product_decision_user_action_learning_confidence.py`
+- `tests/test_product_decision_user_action_learning_confidence_integrity_v941_v950.py`
+
+Проверяет:
+
+- non-mapping/missing-success quality fails closed;
+- exact integer observation/SKU counts without coercion;
+- canonical quality name/score;
+- quality/score/sample consistency;
+- canonical outcome/priority/SKU aggregate maps;
+- aggregate sum and SKU-count consistency;
+- exact unique outcome-ID count;
+- unchanged confidence thresholds;
+- safe externally-unverified/non-executable output;
+- exact-SHA evidence: entering main #656, feature #658, PR merge-ref #659, squash-main #660;
+- no failed intermediate production SHA occurred in v941-v950;
+- `data/users.json` untouched;
+- `externally_verified=False`.

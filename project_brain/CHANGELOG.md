@@ -3128,3 +3128,27 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Learning Confidence Evidence Integrity v941-v950
+
+- hardened evidence-quality → descriptive-confidence integrity without changing confidence thresholds;
+- removed coercive count handling;
+- quality name/score must match actual sample shape;
+- aggregate maps and unique outcome IDs remain exact through confidence classification;
+- feature `8aa3a6b6205517c3eb9754976a1140f9633b5220`: Verify #658, 1851 passed / 0 failed;
+- PR #324 synthetic `7e227b17869617711a3f8b277900674eba383745`: Verify #659, 1851 passed / 0 failed;
+- squash main `0671c0a0b06c662e935b4dcbf00e4cad12e32175`: Verify #660, 1851 passed / 0 failed;
+- no failed intermediate production SHA occurred in v941-v950;
+- no Product Decision rule/threshold, persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v941-v950
+
+- reconciled Project Brain to exact verified product main `0671c0a0b06c662e935b4dcbf00e4cad12e32175` / Verify #660 / 1851 passed;
+- added `CURRENT_CHECKPOINT_V941_V950.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
