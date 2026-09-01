@@ -192,15 +192,16 @@ def test_v1019_estimated_returns_profit_requires_exact_readiness_and_evidence():
 
 
 def test_v1020_invalid_economics_is_not_cached_and_valid_result_still_works():
-    invalid = _Economics(_economics(available=False))
+    malformed = _economics()
+    malformed.pop("error")
+    invalid = _Economics(malformed)
     service = _service(invalid, cache_ttl_seconds=600)
 
     first = service.query("hook-2")
     second = service.query("hook-2")
 
-    assert first["error"] is False
-    assert first["code"] == "INSUFFICIENT_DATA"
-    assert second["error"] is False
+    _assert_invalid(first)
+    _assert_invalid(second)
     assert invalid.calls == 2
 
     valid = _service(_Economics(_economics())).query("hook-2")
