@@ -4,13 +4,24 @@ from product_decision_user_action_completion_evidence import build_product_decis
 
 
 def _checklist(**values):
-    guidance_id = "product-decision-user-action-guidance:verify-1"
+    application_id = "app-1"
+    verification_id = "product-decision-persistence-verification:" + application_id
+    guidance_id = "product-decision-user-action-guidance:" + verification_id
     result = {
+        "error": False,
         "status": "PRODUCT_DECISION_USER_ACTION_CHECKLIST_READY",
         "user_action_checklist_id": "product-decision-user-action-checklist:" + guidance_id,
         "user_action_guidance_id": guidance_id,
+        "decision_persistence_verification_id": verification_id,
+        "decision_persistence_application_id": application_id,
         "sku": "hook-2",
-        "items": [{"item_id": "manual-step-1", "instruction": "Проверить остаток.", "completion_source": "USER", "completed": False}],
+        "verified_recorded_at": "2026-09-01T12:00:00+00:00",
+        "decision_persistence_verified": True,
+        "externally_verified": False,
+        "persistent": True,
+        "items": [{"item_id": "manual-step-1", "position": 1, "instruction": "Проверить остаток.", "completion_source": "USER", "completed": False}],
+        "item_count": 1,
+        "completed_count": 0,
         "completion_recording_allowed": False,
         "user_execution_required": True,
         "automatic_execution_prohibited": True,
