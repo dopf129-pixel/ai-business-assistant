@@ -2782,3 +2782,42 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Post-Decision Observation Integrity v811-v820
+
+- malformed checklist/later-decision payloads now fail closed;
+- completion evidence must be explicit USER_REPORT evidence;
+- later Product Decision result requires explicit boolean error and canonical decision/priority/confidence semantics;
+- malformed reasons and numeric identifiers are not coerced into evidence;
+- output remains observation-only, non-causal, non-executable, and not externally verified;
+- PR #298 merged to exact main `cc485098da06834f31fcd09430d83bd96b96f1e1`;
+- exact-main push Verify #496: 1721 passed / 0 failed;
+- no Product Decision/Product Task Draft execution or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Task Persistence Operator Presentation Integrity v821-v830
+
+- operational/release/provenance operator reports now require explicit valid contracts before presentation;
+- malformed list-shaped evidence no longer becomes character-level blocker/warning data;
+- contradictory readiness/incident/provenance claims fail closed;
+- execution/mutation/external-verification overclaims fail closed;
+- failed intermediate `41c289221c100ce4dc1462603b42349434f2f406` / Verify #498 remains failed evidence at 1730 passed / 1 failed;
+- final feature `a0e977595238dd256e9ae0d54e68ac337b04bb91`: Verify #499, 1731 passed / 0 failed;
+- PR #299 synthetic merge `c77df0221826e27e444f3d68150419e4adf9bc8d`: Verify #500, 1731 passed / 0 failed;
+- squash main `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`: Verify #501, 1731 passed / 0 failed;
+- no persistence-owner change, automatic retry, lock removal, business execution or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v803-v830 integrity packages
+
+- reconciled canonical Project Brain baseline to exact verified main `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa` / Verify #501 / 1731 passed;
+- added checkpoints `CURRENT_CHECKPOINT_V811_V820.md` and `CURRENT_CHECKPOINT_V821_V830.md`;
+- backfilled canonical references for already-merged v803-v810 runtime-exception containment;
+- retained failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

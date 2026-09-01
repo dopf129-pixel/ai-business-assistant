@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1703 passed on `701b5a31575a2e37d76da22af260c206d4a68b50`.
+1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
 
-GitHub Actions push verification run #478 completed successfully for this exact main SHA.
+GitHub Actions push verification run #501 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1666 passed on `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`.
+1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
 
 Verification source:
-GitHub Actions push run #444, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #501, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1513,3 +1513,100 @@ Verified product evidence:
 - squash main `701b5a31575a2e37d76da22af260c206d4a68b50`: push Verify #478, 1703 passed / 0 failed, digest `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`
 - no failed/cancelled intermediate production SHA occurred in v793-v802
 - `externally_verified=False`
+
+
+---
+
+# Telegram Adapter Runtime Exception Containment v1 — 2026-08-31
+
+Completed:
+
+[x] assistant dispatch exceptions are contained at the Telegram adapter boundary
+[x] button-handler exceptions are contained without retry-after-exception
+[x] internal TypeError is not retried with legacy arity
+[x] legacy arity selection remains pre-call only
+[x] keyboard-builder exceptions do not claim successful start
+[x] internal exception text is not exposed to sellers
+
+Verified product evidence:
+
+- entering main `ad3692c46e31d4eceeef504e4b55d7cbaa829a09`: push Verify #482, 1703 passed / 0 failed
+- cancelled duplicate branch run #483 remains cancelled evidence only
+- failed intermediate `c3336160fccddbc25a9d8e2b1f7aeccccaa8be70`: push Verify #484, 1710 passed / 1 failed
+- final feature `21776a8cdd61dd35e28a885b5c573a2db3b15c92`: push Verify #485, 1711 passed / 0 failed
+- PR #296 synthetic merge `929a1bd4c8ace607ff0bf6c67924aa14ec84b612`: Verify #486, 1711 passed / 0 failed
+- squash main `01300c69d1ab54731657ea741687cc728c9e5600`: push Verify #487, 1711 passed / 0 failed
+- `externally_verified=False`
+
+Preserved:
+
+- no Product Decision/Product Task Draft execution
+- no Ozon mutation
+- no quantity or price inference
+- `data/users.json` unchanged
+
+
+---
+
+# Post-Decision Observation Integrity v1 — 2026-09-01
+
+Completed:
+
+[x] malformed checklist and later-decision inputs fail closed
+[x] checklist status requires explicit error=False and USER_REPORT evidence
+[x] numeric identifiers are not coerced into canonical identities
+[x] later decision requires explicit boolean error state
+[x] explicit downstream decision failure remains failure
+[x] decision type / priority / confidence are validated against canonical values
+[x] reasons require a real list of non-empty strings
+[x] valid observation remains observation-only and non-causal
+
+Verified product evidence:
+
+- entering main `6d06cca860fbc1b423db02f0166554c562e2b67c`: push Verify #492, 1711 passed / 0 failed, digest `sha256:365511645081a003af4df8d00daf2e78c865d0e81b066d40557ffc2724672064`
+- final feature `68c42c5fe4331d776eefe828263dfb930e9c8cd7`: push Verify #494, 1721 passed / 0 failed, digest `sha256:45f9677ae94b941606bfd4ef99ace1722c100d265e7e4354e15e1d6e8823998f`
+- PR #298 synthetic merge `ffee00d5b609aa8c0e2c547db0e587dd4be93b94`: Verify #495, 1721 passed / 0 failed, digest `sha256:c184f12cabf364705cc115c94fb8bf7a0d2911d1f66a6b93583c7b40e44bdd8f`
+- squash main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed, digest `sha256:9ad01f64be4b80f26bf79cdf8f8127339aa4e88453542d8b27a5b92eba7612c5`
+- no failed intermediate production SHA occurred in v811-v820
+- `externally_verified=False`
+
+Preserved:
+
+- no Product Decision recomputation or mutation
+- no Product Task Draft execution
+- no Action Executor connection
+- no Ozon mutation
+- `data/users.json` unchanged
+
+
+---
+
+# Task Persistence Operator Presentation Integrity v1 — 2026-09-01
+
+Completed:
+
+[x] operator operational/release/provenance presentation requires explicit error=False
+[x] blockers, warnings and incident categories require real unique string lists
+[x] operational counts/state/attention claims are internally consistent
+[x] release-ready / incident / human-review claims are validated
+[x] provenance revision and CI-binding metadata is structurally validated
+[x] external-verification and execution/mutation overclaims fail closed
+[x] valid operator messages remain read-only and non-sensitive
+
+Verified product evidence:
+
+- entering main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed
+- failed intermediate `41c289221c100ce4dc1462603b42349434f2f406`: push Verify #498, 1730 passed / 1 failed; failure was a new test wording expectation and remains failed evidence
+- final feature `a0e977595238dd256e9ae0d54e68ac337b04bb91`: push Verify #499, 1731 passed / 0 failed, digest `sha256:173173c93a222338ef8efd942fcb4a9af425df2e9768d6530f2d957c7b2c1cc6`
+- PR #299 synthetic merge `c77df0221826e27e444f3d68150419e4adf9bc8d`: Verify #500, 1731 passed / 0 failed, digest `sha256:8f80f8bf4a7c0a4c03a912bdd4adeead94198f10b4e262e776eb3f88292b2f95`
+- squash main `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`: push Verify #501, 1731 passed / 0 failed, digest `sha256:30db2fb7e7f68ed1460aee79cafee957467eccfd0468bacaa1953816e0340d09`
+- `externally_verified=False`
+
+Preserved:
+
+- task persistence ownership and storage format
+- no automatic retry or lock deletion
+- no business execution readiness
+- no Product Decision/Product Task Draft execution
+- no Ozon mutation
+- `data/users.json` unchanged
