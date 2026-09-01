@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
+1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
 
-GitHub Actions push verification run #584 completed successfully for this exact main SHA.
+GitHub Actions push verification run #599 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
+1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
 
 Verification source:
-GitHub Actions push run #584, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #599, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1807,6 +1807,44 @@ Preserved:
 - no Product Task Draft execution;
 - no Action Executor connection;
 - no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Revision Predecessor Integrity v881-v890 — 2026-09-01
+
+Completed:
+
+[x] Completion revision 2+ requires exactly one durable predecessor
+
+[x] Duplicate predecessor IDs fail closed as ambiguous
+
+[x] Predecessor exact verified lineage and user-owned safety state are validated
+
+[x] Predecessor status/decision/report consistency is validated
+
+[x] Revision 3+ requires canonical predecessor revision/root/previous-ID lineage
+
+[x] Duplicate current revision IDs fail closed
+
+[x] Valid root → revision 2 → revision 3 requires actual durable predecessor records
+
+Verified exact main:
+
+`73c349d50dad1a5562a09777df5a69f661869645`
+
+GitHub Actions push Verify #599: 1791 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
 - no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
