@@ -125,7 +125,12 @@ class _Query:
         return {
             "error": False,
             "total": len(self.product_service.skus),
-            "counts": {},
+            "counts": (
+                {"HOLD_STOCK": len(self.product_service.skus)}
+                if self.product_service.skus
+                else {}
+            ),
+            "proposal_counts": {},
             "actionable_proposals_count": 0,
             "decisions": [
                 {

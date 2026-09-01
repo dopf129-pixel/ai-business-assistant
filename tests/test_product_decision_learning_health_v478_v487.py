@@ -50,6 +50,7 @@ class _Query:
             "error": False,
             "total": 1,
             "counts": {"HOLD_STOCK": 1},
+            "proposal_counts": {},
             "actionable_proposals_count": 0,
             "decisions": [{
                 "error": False,

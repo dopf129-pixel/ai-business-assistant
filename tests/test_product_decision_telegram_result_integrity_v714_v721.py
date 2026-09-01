@@ -120,12 +120,16 @@ def _valid_overview(
         "total": len(
             items
         ),
-        "counts": {
-            "REPLENISH_NORMAL":
-                len(
-                    items
-                ),
-        },
+        "counts": (
+            {
+                "REPLENISH_NORMAL":
+                    len(
+                        items
+                    ),
+            }
+            if items
+            else {}
+        ),
         "proposal_counts": {},
         "actionable_proposals_count": 0,
         "decisions": items,
