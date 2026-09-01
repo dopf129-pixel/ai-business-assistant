@@ -228,8 +228,26 @@ def test_nested_returns_error_is_not_cached_as_fresh_data():
         {
             "error": False,
             "complete": True,
+            "classification_complete": True,
+            "finance_complete": True,
             "delivered_units": 100,
-            "categories": {},
+            "missing_data": [],
+            "categories": {
+                "customer_non_buyout": {
+                    "event_posting_count": 0,
+                    "finance_matched_posting_count": 0,
+                    "observed_posting_count": 0,
+                    "observed_cost_total": None,
+                    "complete": True,
+                },
+                "customer_return": {
+                    "event_posting_count": 0,
+                    "finance_matched_posting_count": 0,
+                    "observed_posting_count": 0,
+                    "observed_cost_total": None,
+                    "complete": True,
+                },
+            },
         },
         {
             "error": True,

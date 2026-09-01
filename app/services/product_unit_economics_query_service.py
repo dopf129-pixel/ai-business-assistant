@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from time import monotonic
 
 
@@ -9,6 +10,14 @@ class ProductUnitEconomicsQueryService:
         "advertising",
         "storage",
         "returns"
+    )
+
+    RETURNS_FINANCE_CATEGORIES = (
+        "customer_non_buyout",
+        "customer_return",
+    )
+    CODE_RETURNS_FINANCE_IMPACT_INVALID = (
+        "RETURNS_FINANCE_IMPACT_RESULT_INVALID"
     )
 
     MISSING_FIELD_LABELS = {
@@ -534,43 +543,50 @@ class ProductUnitEconomicsQueryService:
         ):
             return result
 
-        impact = self.returns_finance_impact_query.query(sku)
         output = dict(result)
-        output["returns_finance_impact"] = impact
+        empty_fields = self._empty_returns_finance_fields()
 
-        empty_fields = {
-            "returns_finance_complete": False,
-            "returns_observed_cost_total": None,
-            "returns_observed_event_count": None,
-            "returns_delivered_units": None,
-            "returns_cost_per_delivered_unit": None,
-            "risk_adjusted_profit_per_unit": None,
-            "risk_adjusted_margin_percent": None,
-            "returns_estimate_available": False,
-            "estimated_returns_cost_total": None,
-            "estimated_returns_cost_per_unit": None,
-            "estimated_profit_per_unit": None,
-            "estimated_margin_percent": None,
-            "returns_estimate_coverage_percent": None,
-        }
-
-        if not isinstance(impact, dict) or impact.get("error"):
+        try:
+            raw_impact = self.returns_finance_impact_query.query(sku)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            output["returns_finance_impact"] = (
+                self._invalid_returns_finance_impact()
+            )
             output.update(empty_fields)
             return output
 
-        categories = impact.get("categories") or {}
+        if (
+            not isinstance(raw_impact, dict)
+            or type(raw_impact.get("error")) is not bool
+        ):
+            output["returns_finance_impact"] = (
+                self._invalid_returns_finance_impact()
+            )
+            output.update(empty_fields)
+            return output
+
+        if raw_impact["error"] is True:
+            output["returns_finance_impact"] = deepcopy(raw_impact)
+            output.update(empty_fields)
+            return output
+
+        impact = self._validated_returns_finance_impact(raw_impact)
+        if impact is None:
+            output["returns_finance_impact"] = (
+                self._invalid_returns_finance_impact()
+            )
+            output.update(empty_fields)
+            return output
+
+        output["returns_finance_impact"] = deepcopy(impact)
+        categories = impact["categories"]
         costs = []
         event_count = 0
         category_costs_known = True
 
-        for key in (
-            "customer_non_buyout",
-            "customer_return",
-        ):
-            item = categories.get(key) or {}
-            category_events = int(
-                item.get("event_posting_count") or 0
-            )
+        for key in self.RETURNS_FINANCE_CATEGORIES:
+            item = categories[key]
+            category_events = item["event_posting_count"]
             value = item.get("observed_cost_total")
             event_count += category_events
 
@@ -582,7 +598,7 @@ class ProductUnitEconomicsQueryService:
         delivered_units = self._positive_integer(
             impact.get("delivered_units")
         )
-        complete = bool(impact.get("complete"))
+        complete = impact["complete"]
         observed_total = (
             round(sum(costs), 2)
             if costs
@@ -650,6 +666,127 @@ class ProductUnitEconomicsQueryService:
         return output
 
 
+    def _empty_returns_finance_fields(self):
+        return {
+            "returns_finance_complete": False,
+            "returns_observed_cost_total": None,
+            "returns_observed_event_count": None,
+            "returns_delivered_units": None,
+            "returns_cost_per_delivered_unit": None,
+            "risk_adjusted_profit_per_unit": None,
+            "risk_adjusted_margin_percent": None,
+            "returns_estimate_available": False,
+            "estimated_returns_cost_total": None,
+            "estimated_returns_cost_per_unit": None,
+            "estimated_profit_per_unit": None,
+            "estimated_margin_percent": None,
+            "returns_estimate_coverage_percent": None,
+        }
+
+
+    def _invalid_returns_finance_impact(self):
+        return {
+            "error": True,
+            "code": self.CODE_RETURNS_FINANCE_IMPACT_INVALID,
+            "complete": False,
+            "missing_data": ["returns_finance"],
+        }
+
+
+    def _validated_returns_finance_impact(self, impact):
+        if (
+            type(impact.get("complete")) is not bool
+            or type(impact.get("classification_complete")) is not bool
+            or type(impact.get("finance_complete")) is not bool
+            or not isinstance(impact.get("missing_data"), list)
+            or any(
+                not isinstance(item, str) or not item.strip()
+                for item in impact["missing_data"]
+            )
+        ):
+            return None
+
+        delivered_units = impact.get("delivered_units")
+        if (
+            delivered_units is not None
+            and (
+                type(delivered_units) is not int
+                or delivered_units < 0
+            )
+        ):
+            return None
+
+        categories = impact.get("categories")
+        if not isinstance(categories, dict):
+            return None
+
+        for key in self.RETURNS_FINANCE_CATEGORIES:
+            item = categories.get(key)
+            if not self._valid_returns_finance_category(item):
+                return None
+
+        if impact["complete"]:
+            if (
+                impact["classification_complete"] is not True
+                or impact["finance_complete"] is not True
+                or any(
+                    categories[key]["complete"] is not True
+                    for key in self.RETURNS_FINANCE_CATEGORIES
+                )
+            ):
+                return None
+
+        return deepcopy(impact)
+
+
+    def _valid_returns_finance_category(self, item):
+        if not isinstance(item, dict):
+            return False
+
+        if type(item.get("complete")) is not bool:
+            return False
+
+        counts = {}
+        for field in (
+            "event_posting_count",
+            "finance_matched_posting_count",
+            "observed_posting_count",
+        ):
+            value = item.get(field)
+            if type(value) is not int or value < 0:
+                return False
+            counts[field] = value
+
+        events = counts["event_posting_count"]
+        matched = counts["finance_matched_posting_count"]
+        observed = counts["observed_posting_count"]
+
+        if matched > events or observed > matched:
+            return False
+
+        if item["complete"] and matched != events:
+            return False
+
+        observed_cost = item.get("observed_cost_total")
+        if (
+            observed_cost is not None
+            and not self._is_finite_number(observed_cost)
+        ):
+            return False
+
+        if observed > 0 and observed_cost is None:
+            return False
+
+        return True
+
+
+    def _is_finite_number(self, value):
+        return (
+            type(value) in (int, float)
+            and isfinite(float(value))
+        )
+
+
     def _estimate_returns_impact(
         self,
         impact,
@@ -666,7 +803,7 @@ class ProductUnitEconomicsQueryService:
             "estimated_margin_percent": None,
             "returns_estimate_coverage_percent": None,
         }
-        missing_data = set(impact.get("missing_data") or [])
+        missing_data = set(impact["missing_data"])
 
         if (
             "finance_days_unavailable" in missing_data
@@ -679,24 +816,15 @@ class ProductUnitEconomicsQueryService:
         coverages = []
         has_events = False
 
-        for key in (
-            "customer_non_buyout",
-            "customer_return",
-        ):
-            item = categories.get(key) or {}
-            events = int(
-                item.get("event_posting_count") or 0
-            )
+        for key in self.RETURNS_FINANCE_CATEGORIES:
+            item = categories[key]
+            events = item["event_posting_count"]
             if events <= 0:
                 continue
 
             has_events = True
-            observed = int(
-                item.get("observed_posting_count") or 0
-            )
-            observed_total = item.get(
-                "observed_cost_total"
-            )
+            observed = item["observed_posting_count"]
+            observed_total = item.get("observed_cost_total")
             if observed <= 0 or observed_total is None:
                 return empty
 
