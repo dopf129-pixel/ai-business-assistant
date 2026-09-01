@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
+1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
 
-GitHub Actions push Verify #584 completed successfully for this exact main SHA.
+GitHub Actions push Verify #599 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2834,5 +2834,35 @@ Tests:
 - exact-SHA evidence: entering main #577, feature #582, PR merge-ref #583, squash-main #584;
 - no failed intermediate production SHA occurred in v871-v880;
 - no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Revision Predecessor Integrity v1
+
+Boundary:
+
+- `ProductDecisionUserActionCompletionPersistenceService`
+- durable completion revision chain predecessor existence and lineage
+
+Tests:
+
+- `tests/test_product_decision_user_action_completion_predecessor_integrity_v881_v890.py`
+
+Проверяет:
+
+- revision 2+ cannot persist without an actually stored predecessor;
+- duplicate predecessor IDs are ambiguous and fail closed;
+- predecessor exact checklist/guidance/verification/application/SKU/item/instruction lineage;
+- predecessor verified Product Decision and USER_REPORT safety semantics;
+- predecessor status/decision/report consistency;
+- canonical predecessor revision/root/previous-ID lineage for revision 3+;
+- duplicate current revision IDs fail closed;
+- valid root → revision 2 → revision 3 durable chain;
+- exact-SHA evidence: entering main #594, feature #597, PR merge-ref #598, squash-main #599;
+- no failed intermediate production SHA occurred in v881-v890;
+- no runtime execution or Ozon mutation wiring changed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
