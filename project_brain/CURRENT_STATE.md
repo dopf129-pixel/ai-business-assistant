@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
+1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
 
-GitHub Actions push verification run #668 completed successfully for this exact main SHA.
+GitHub Actions push verification run #677 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
+1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
 
 Verification source:
-GitHub Actions push run #668, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #677, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2122,6 +2122,51 @@ Integration finding:
 - verified Product Decision user-action guidance/checklist remains intentionally unwired from Telegram;
 - current durable Product Decision history does not store exact persistence-application receipt lineage;
 - do not synthesize lineage IDs or invoke persistence application as a read side effect.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision History Context Result Integrity v961-v970 — 2026-09-01
+
+Completed:
+
+[x] History record context is mapping-only and whitelisted
+
+[x] History context cannot overwrite Product Decision identity/error fields
+
+[x] Malformed or exceptional history context becomes explicit unknown/unavailable state
+
+[x] Unknown history count remains None and is not coerced to zero
+
+[x] Invalid history context is not cached
+
+[x] Invalid history context cannot enter task-draft lifecycle
+
+[x] Telegram latest history rejects malformed, cross-SKU and unknown-status records
+
+[x] Telegram task draft attachment requires exact SKU/proposal/revision and non-execution safety
+
+Verified exact main:
+
+`10977368ac4179f1f7168943a38fcdbc01ecfd78`
+
+GitHub Actions push Verify #677: 1871 passed / 0 failed.
+
+Preserved failed evidence:
+
+- `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed;
+- failure was a production NameError in the new draft-copy path;
+- final feature head `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed.
 
 Preserved:
 

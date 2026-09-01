@@ -18,25 +18,25 @@ Development Autopilot Layer
 
 Package:
 
-`v951-v960: Product Decision Action Proposal Result Integrity`
+`v961-v970: Product Decision History Context Result Integrity`
 
 Goal:
 
-Protect the seller-facing Product Decision → action proposal → Telegram boundary from malformed, unsafe, contradictory, or exceptional downstream proposal results.
+Protect Product Decision history interaction context from malformed, identity-overwriting, or exceptional downstream state before cache, task-draft lifecycle, and Telegram presentation.
 
 Immediately preceding verified package:
 
-`v941-v950: Product Decision User Action Learning Confidence Evidence Integrity`
+`v951-v960: Product Decision Action Proposal Result Integrity`
 
 ## Stable verification
 
 Latest exact main:
 
-`7637177202c21d3f2894105e39137efd86855b8c`
+`10977368ac4179f1f7168943a38fcdbc01ecfd78`
 
-GitHub Actions push Verify #668:
+GitHub Actions push Verify #677:
 
-1861 passed / 0 failed.
+1871 passed / 0 failed.
 
 Preserved:
 
@@ -47,9 +47,16 @@ Preserved:
 - no automatic business mutation;
 - `externally_verified=False`.
 
+## Preserved failed evidence
+
+Intermediate feature SHA `bfcc3551166431288f38ba0c06912133bed56818` remains failed:
+Verify #674 — 1870 passed / 1 failed.
+
+It was superseded by exact green feature SHA `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`, Verify #675 — 1871 passed / 0 failed.
+
 ## Confirmed integration blocker
 
-Verified Product Decision user-action guidance/checklist is not production-wired into Telegram because the durable decision-history record does not contain the exact persistence-application receipt lineage required for verification.
+Verified Product Decision user-action guidance/checklist is still not production-wired into Telegram because the durable decision-history record does not contain the exact persistence-application receipt lineage required for verification.
 
 Do not synthesize persistence IDs or trigger persistence application from a read-only Telegram view.
 
@@ -58,6 +65,5 @@ Do not synthesize persistence IDs or trigger persistence application from a read
 Next:
 
 - choose the next concrete seller/operator, finance, observability, release-readiness, or integration gap from current repository state;
-- treat verified-guidance Telegram wiring as blocked until a factual durable read-only lineage source exists;
-- do not add a new persistence owner merely to satisfy wiring without a separately reviewed architecture need;
+- do not create a new persistence owner merely to unblock Telegram wiring without a separately reviewed architecture need;
 - keep business execution disabled without separate architecture and authorization.
