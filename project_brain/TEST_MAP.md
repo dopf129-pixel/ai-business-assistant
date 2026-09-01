@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
+1911 passed on `288c6452703eee4082414d1ad36680b4ddf02caa`.
 
-GitHub Actions push Verify #709 completed successfully for this exact main SHA.
+GitHub Actions push Verify #717 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3221,5 +3221,40 @@ Tests:
 - final feature `63870a305972f7b7e8f33cad251fc6f13235d1fc`: Verify #707, 1901 passed / 0 failed;
 - PR #334 synthetic `1bbee7e03477b197a474a6807093d6ee344b7505`: Verify #708, 1901 passed / 0 failed;
 - squash main `84d714909d5082958bf2bb21a30b7b097eb17955`: Verify #709, 1901 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Task Draft Lifecycle Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._with_task_draft_lifecycle`
+- Product Task Draft reconcile result → cached/seller-facing Product Decision / assortment result
+
+Tests:
+
+- `tests/test_product_decision_task_draft_lifecycle_result_integrity_v1001_v1010.py`
+- canonicalized lifecycle fake in `tests/test_product_business_decision_query_service.py`
+
+Проверяет:
+
+- non-mapping lifecycle result fails closed;
+- missing or true error marker is not success;
+- execution overclaim is rejected;
+- stale count/list shape and cardinality are exact;
+- cross-SKU stale drafts are rejected;
+- current revision cannot be classified as stale;
+- stale status/proposal type are canonical;
+- stale drafts remain non-executable;
+- reconcile exceptions are sanitized;
+- invalid lifecycle state is not cached;
+- assortment query propagates lifecycle integrity failure;
+- valid lifecycle is copied defensively;
+- final feature `12e4f1d4f38296b8f46680302478f377121644a8`: Verify #715, 1911 passed / 0 failed;
+- PR #336 synthetic `005ac13b1fbb01bb6e95314d1f8c89b994ba85c6`: Verify #716, 1911 passed / 0 failed;
+- squash main `288c6452703eee4082414d1ad36680b4ddf02caa`: Verify #717, 1911 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.

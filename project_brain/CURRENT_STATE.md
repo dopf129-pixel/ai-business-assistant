@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
+1911 passed on `288c6452703eee4082414d1ad36680b4ddf02caa`.
 
-GitHub Actions push verification run #709 completed successfully for this exact main SHA.
+GitHub Actions push verification run #717 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2316,6 +2316,56 @@ Preserved:
 - no new persistence owner;
 - no Product Task Draft execution;
 - no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Task Draft Lifecycle Result Integrity v1001-v1010 — 2026-09-01
+
+Completed:
+
+[x] Task-draft reconcile result requires an exact explicit mapping contract
+
+[x] Lifecycle error/executed/execution_allowed markers are exact safety booleans
+
+[x] stale_count is a non-negative exact integer and equals stale_drafts length
+
+[x] Stale drafts remain exact-SKU and canonical proposal-bound
+
+[x] Current Product Decision revision cannot be reported as stale
+
+[x] Stale draft status is exactly STALE
+
+[x] Stale drafts remain executed=False and execution_allowed=False
+
+[x] Malformed/exceptional lifecycle result fails closed with deterministic non-secret code
+
+[x] Invalid lifecycle result is not cached and assortment query fails closed
+
+[x] Valid lifecycle is attached as a defensive copy
+
+Verified exact main:
+
+`288c6452703eee4082414d1ad36680b4ddf02caa`
+
+GitHub Actions push Verify #717: 1911 passed / 0 failed.
+
+Feature and integration evidence:
+
+- final feature `12e4f1d4f38296b8f46680302478f377121644a8`: Verify #715, 1911 passed / 0 failed;
+- PR #336 synthetic `005ac13b1fbb01bb6e95314d1f8c89b994ba85c6`: Verify #716, 1911 passed / 0 failed;
+- no failed production SHA in this package.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram user-action persistence wiring;
 - no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
