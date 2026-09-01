@@ -1341,7 +1341,7 @@ class AssistantButtonHandlerService:
                 and draft.get("executed") is False
                 and draft.get("execution_allowed") is False
             ):
-                result["action_task_draft"] = deepcopy(draft)
+                result["action_task_draft"] = dict(draft)
 
         return result
 
