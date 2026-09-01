@@ -562,7 +562,16 @@ def test_query_reconciles_task_drafts_with_current_decision_snapshot():
             return {
                 "error": False,
                 "stale_count": 1,
+                "stale_drafts": [{
+                    "sku": sku,
+                    "proposal_type": "REVIEW_REPLENISHMENT",
+                    "decision_recorded_at": "previous-revision",
+                    "status": "STALE",
+                    "executed": False,
+                    "execution_allowed": False,
+                }],
                 "executed": False,
+                "execution_allowed": False,
             }
 
     drafts = StubDraftLifecycle()

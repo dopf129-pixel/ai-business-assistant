@@ -11,6 +11,9 @@ class ProductBusinessDecisionQueryService:
         "PRODUCT_DECISION_ACTION_PROPOSAL_RESULT_INVALID"
     )
     CODE_DECISION_RESULT_INVALID = "PRODUCT_DECISION_RESULT_INVALID"
+    CODE_TASK_DRAFT_LIFECYCLE_RESULT_INVALID = (
+        "PRODUCT_DECISION_TASK_DRAFT_LIFECYCLE_RESULT_INVALID"
+    )
 
     DECISION_PRIORITY = {
         "REPLENISH_HIGH_PRIORITY": "CRITICAL",
@@ -88,6 +91,18 @@ class ProductBusinessDecisionQueryService:
         "PRIORITY_DECREASED",
         "PRIORITY_INCREASED",
         "DECISION_CHANGED",
+    }
+    TASK_DRAFT_LIFECYCLE_FIELDS = {
+        "error",
+        "stale_count",
+        "stale_drafts",
+        "executed",
+        "execution_allowed",
+    }
+    TASK_DRAFT_PROPOSAL_TYPES = {
+        "REVIEW_REPLENISHMENT",
+        "REVIEW_UNIT_ECONOMICS",
+        "REVIEW_MARGIN",
     }
 
     def __init__(
@@ -624,24 +639,107 @@ class ProductBusinessDecisionQueryService:
             or result.get("decision_history_error") is True
         ):
             return result
+
         proposal = result.get("action_proposal") or {}
         current_proposal_type = (
             proposal.get("proposal_type")
-            if proposal.get("action_required")
+            if proposal.get("action_required") is True
             else None
         )
+        current_decision_recorded_at = result.get(
+            "decision_recorded_at"
+        )
+
         try:
             lifecycle = service.reconcile(
                 sku=result.get("sku"),
                 current_proposal_type=current_proposal_type,
                 current_decision_recorded_at=(
-                    result.get("decision_recorded_at")
+                    current_decision_recorded_at
                 ),
             )
-        except (OSError, ValueError, TypeError):
-            lifecycle = None
-        if lifecycle:
-            result["task_draft_lifecycle"] = lifecycle
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            return self._task_draft_lifecycle_failure(result)
+
+        if not self._valid_task_draft_lifecycle(
+            lifecycle,
+            result,
+            current_proposal_type,
+            current_decision_recorded_at,
+        ):
+            return self._task_draft_lifecycle_failure(result)
+
+        result["task_draft_lifecycle"] = deepcopy(lifecycle)
+        return result
+
+    def _valid_task_draft_lifecycle(
+        self,
+        lifecycle,
+        decision,
+        current_proposal_type,
+        current_decision_recorded_at,
+    ):
+        if not isinstance(lifecycle, dict):
+            return False
+
+        if set(lifecycle) != self.TASK_DRAFT_LIFECYCLE_FIELDS:
+            return False
+
+        if (
+            lifecycle.get("error") is not False
+            or lifecycle.get("executed") is not False
+            or lifecycle.get("execution_allowed") is not False
+        ):
+            return False
+
+        stale_count = lifecycle.get("stale_count")
+        stale_drafts = lifecycle.get("stale_drafts")
+        if (
+            type(stale_count) is not int
+            or stale_count < 0
+            or not isinstance(stale_drafts, list)
+            or len(stale_drafts) != stale_count
+        ):
+            return False
+
+        decision_sku = decision.get("sku")
+        current_recorded_at = (
+            current_decision_recorded_at
+            if isinstance(current_decision_recorded_at, str)
+            else ""
+        )
+
+        for draft in stale_drafts:
+            if not isinstance(draft, dict):
+                return False
+
+            draft_sku = draft.get("sku")
+            proposal_type = draft.get("proposal_type")
+            recorded_at = draft.get("decision_recorded_at")
+            if (
+                draft_sku != decision_sku
+                or proposal_type not in self.TASK_DRAFT_PROPOSAL_TYPES
+                or not isinstance(recorded_at, str)
+                or not recorded_at.strip()
+                or draft.get("status") != "STALE"
+                or draft.get("executed") is not False
+                or draft.get("execution_allowed") is not False
+            ):
+                return False
+
+            if (
+                proposal_type == current_proposal_type
+                and recorded_at == current_recorded_at
+            ):
+                return False
+
+        return True
+
+    def _task_draft_lifecycle_failure(self, decision):
+        result = deepcopy(decision)
+        result["error"] = True
+        result["code"] = self.CODE_TASK_DRAFT_LIFECYCLE_RESULT_INVALID
+        result["task_draft_lifecycle"] = None
         return result
 
     def _extract_sku(self, request):
