@@ -4,66 +4,59 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`c7c864814ec609b0f2c58b4578a522b2e5e8dad1`
+`82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
 
 Latest merged production-correctness batch:
 
-`v901-v910: Product Decision User Action Post-Decision Observation Lineage Integrity`
+`v911-v920: Product Decision User Action Post-Decision Outcome Lineage Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `157e4db46c6a35ed2dbe9415c0daeb8a77cc2ed5`
-- push Verify #620
+- exact main: `fced068dcff9d789a79bb5a38d37de96f0a323e1`
+- push Verify #630
 - conclusion: success
-- tests: 1801 passed / 0 failed
-- artifact id: 9811196220
-- digest: `sha256:00681579472557b22837ce68ebc62f187213ccf31d2623b86da6fdb701abf225`
-
-### Failed intermediate feature SHA
-
-- exact SHA: `0896d8112971966aec9fb61c7a2250436f19d76a`
-- push Verify #623
-- conclusion: failure
-- tests: 1804 passed / 7 failed
-- artifact id: 9811289555
-- digest: `sha256:56f366de5a4f461f70fdcd8414a9d9b7615b2c0e3a6dc7dcd092802b1d2fdbef`
-- historical v811-v820 fixture incompatibility; remains failed evidence.
+- tests: 1811 passed / 0 failed
+- artifact id: 9812055413
+- digest: `sha256:314d28265cb965ab4df1971e4847e67ccf0e637c49a6258c3c150416e06af92c`
 
 ### Exact final feature-head verification
 
-- exact SHA: `9bf89d1fc58464ccd985bf18190632ea180fe75d`
-- push Verify #624
+- exact SHA: `e16dff8f6cc058f4a5725c8139dcd03ec63b71c5`
+- push Verify #632
 - conclusion: success
-- tests: 1811 passed / 0 failed
-- artifact id: 9811326005
-- digest: `sha256:c8d9404ead30c91a628ba5ca82f27f95932ab1769a9659ff744c3c35e48660c0`
+- tests: 1821 passed / 0 failed
+- artifact id: 9812151354
+- digest: `sha256:8191087e2fabc6b0566ab2fd736199b09930ccb515fe9f1ca5f3d35c2cd47fd7`
 
 ### PR merge-ref integration verification
 
-- PR #316
-- synthetic merge SHA: `ee70ea2e581743b3a8ebfbf9446ffb535e109836`
-- pull_request Verify #625
+- PR #318
+- synthetic merge SHA: `f2534a7946eacd94067ab8be5ca3f1340b30beaf`
+- pull_request Verify #633
 - conclusion: success
-- tests: 1811 passed / 0 failed
-- artifact id: 9811358474
-- digest: `sha256:a629d355fc5de5c05e16c7cd51c808c25057f81e516489f404f857a1b916fbf8`
+- tests: 1821 passed / 0 failed
+- artifact id: 9812181190
+- digest: `sha256:8b754b1f9c36fc9bcfadf04b417452f21ed5e0fb59a5c9917353647152bcbc1a`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`
-- push Verify #626
+- exact main: `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
+- push Verify #634
 - conclusion: success
-- tests: 1811 passed / 0 failed
-- artifact id: 9811391089
-- digest: `sha256:c60a3f81cb67ad64290f6ef038ae87f35d58ff68d6b0912b9bbfd2947a5359eb`
+- tests: 1821 passed / 0 failed
+- artifact id: 9812211956
+- digest: `sha256:d4bf050cd902c0dcbd0b0961886d05132ac3bffcff6a2e9240e09f655c71ac65`
 
-## Immediately preceding verified product package: v891-v900
+No failed intermediate production SHA occurred in v911-v920.
 
-- exact feature head `681d42d44b718f7c0679c350971b71062567cafd`: push Verify #614, 1801 passed / 0 failed
-- PR #314 synthetic merge `12dd9e8a9372b33ba2f6d866344427e329a622ae`: Verify #615, 1801 passed / 0 failed
-- squash main `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`: push Verify #616, 1801 passed / 0 failed
+## Immediately preceding verified product package: v901-v910
+
+- final feature `9bf89d1fc58464ccd985bf18190632ea180fe75d`: push Verify #624, 1811 passed / 0 failed
+- PR #316 synthetic merge `ee70ea2e581743b3a8ebfbf9446ffb535e109836`: Verify #625, 1811 passed / 0 failed
+- squash main `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`: push Verify #626, 1811 passed / 0 failed
+- failed intermediate `0896d8112971966aec9fb61c7a2250436f19d76a`: Verify #623, 1804 passed / 7 failed
 - `externally_verified=False`
 
 ## Verification policy
@@ -79,9 +72,8 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/product_decision_user_action_post_decision_observation.py`
-- `tests/test_product_decision_user_action_post_decision_observation.py`
-- `tests/test_product_decision_user_action_post_decision_observation_integrity_v811_v820.py`
-- `tests/test_product_decision_user_action_post_decision_observation_integrity_v901_v910.py`
-- `project_brain/CURRENT_CHECKPOINT_V891_V900.md`
+- `app/product_decision_user_action_post_decision_outcome.py`
+- `tests/test_product_decision_user_action_post_decision_outcome.py`
+- `tests/test_product_decision_user_action_post_decision_outcome_integrity_v911_v920.py`
 - `project_brain/CURRENT_CHECKPOINT_V901_V910.md`
+- `project_brain/CURRENT_CHECKPOINT_V911_V920.md`

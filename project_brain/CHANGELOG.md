@@ -3051,3 +3051,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Post-Decision Outcome Lineage Integrity v911-v920
+
+- hardened post-decision observation → outcome classification lineage;
+- non-mapping observation/prior payloads now fail closed;
+- exact observation/checklist-status/checklist/guidance/verification/application/SKU/timestamp lineage is required;
+- complete USER_REPORT counts and item identities remain exact;
+- prior/later Product Decisions require canonical type, priority, confidence and reasons;
+- noncanonical MEDIUM priority is rejected while canonical NONE is now supported;
+- valid outcome carries verified persistence lineage and remains non-causal/non-executable;
+- feature `e16dff8f6cc058f4a5725c8139dcd03ec63b71c5`: Verify #632, 1821 passed / 0 failed;
+- PR #318 synthetic merge `f2534a7946eacd94067ab8be5ca3f1340b30beaf`: Verify #633, 1821 passed / 0 failed;
+- squash main `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`: Verify #634, 1821 passed / 0 failed;
+- no failed intermediate production SHA occurred in v911-v920;
+- no persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v911-v920
+
+- reconciled Project Brain to exact verified product main `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39` / Verify #634 / 1821 passed;
+- added `CURRENT_CHECKPOINT_V911_V920.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

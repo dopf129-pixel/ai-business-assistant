@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
+1821 passed on `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`.
 
-GitHub Actions push verification run #626 completed successfully for this exact main SHA.
+GitHub Actions push verification run #634 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
+1821 passed on `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`.
 
 Verification source:
-GitHub Actions push run #626, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #634, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1921,6 +1921,44 @@ GitHub Actions push Verify #626: 1811 passed / 0 failed.
 Preserved:
 
 - no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Outcome Lineage Integrity v911-v920 — 2026-09-01
+
+Completed:
+
+[x] Observation → outcome boundary requires exact persisted Product Decision lineage
+
+[x] Complete USER_REPORT counts and item identities remain canonical
+
+[x] Prior/later decision type, priority, confidence and reasons require canonical contracts
+
+[x] Prior SKU must match observed SKU exactly
+
+[x] Noncanonical MEDIUM priority is rejected
+
+[x] Canonical NONE priority is supported for INSUFFICIENT_DATA outcomes
+
+[x] Valid outcome remains non-causal, externally unverified and non-executable
+
+Verified exact main:
+
+`82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
+
+GitHub Actions push Verify #634: 1821 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision threshold/rule change;
 - no persistence-owner change;
 - no Product Task Draft execution;
 - no Action Executor connection;
