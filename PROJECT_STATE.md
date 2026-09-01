@@ -1,59 +1,56 @@
 # AI Assistant Project State
 
-## Stable version
+## Current product state
 
-Task Engine v0.1.2
+AI Business Assistant
 
-## Tests
+## Current architecture level
 
-9 passed
+Task Orchestration Engine
++
+Smart Planning
++
+Autonomous Business Assistant Foundation
++
+Development Autopilot Layer
 
-## Implemented
+## Current verified checkpoint
 
-- task creation
-- next action
-- action execution
-- skip action
-- cancel task
-- history
-- task statuses
-- task state machine
+Package:
 
-## States
+`v803-v810: Telegram Adapter Runtime Exception Containment`
 
-NEW
-ACTIVE
-DONE
-SKIPPED
-CANCELLED
-PAUSED
+Goal:
 
-## Next
+Prevent seller-facing Telegram failures from leaking internal exceptions while preserving fail-closed semantics.
 
-- integrate state machine into TaskService
-- add pause/resume
-- add reminders
+Preserved:
 
-# Project checkpoint
+- no retry after internal exception;
+- one invocation remains one invocation;
+- internal exception text is not exposed to sellers;
+- explicit downstream failures remain failures;
+- no Product Decision execution;
+- no Product Task Draft execution;
+- no Ozon mutation;
+- no quantity or price inference.
 
-Date: 11.08.2026
+Verification evidence is tracked in:
 
-## Tests
-10 passed
+`project_brain/CURRENT_CHECKPOINT_V803_V810.md`
 
-## Task Engine
+## Stable verification
 
-Implemented:
-- create task
-- execute action
-- skip action
-- cancel task
-- history
-- TaskStatus
-- TaskStateMachine
-- pause/resume service layer
+Latest main checkpoint:
+
+SHA-bound verification is active.
+
+Current work must continue from exact repository state after main verification.
+
+## Development direction
 
 Next:
-- pause command
-- resume command
-- assistant dialog integration
+
+- maintain Project Brain consistency;
+- verify current main gap;
+- select next production package only from actual repository state.
