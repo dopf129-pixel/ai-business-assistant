@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1841 passed on `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`.
+1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
 
-GitHub Actions push verification run #652 completed successfully for this exact main SHA.
+GitHub Actions push verification run #660 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1841 passed on `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`.
+1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
 
 Verification source:
-GitHub Actions push run #652, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #660, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2043,6 +2043,44 @@ GitHub Actions push Verify #652: 1841 passed / 0 failed.
 Preserved:
 
 - no Product Decision rule/threshold change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Confidence Evidence Integrity v941-v950 — 2026-09-01
+
+Completed:
+
+[x] Learning evidence-quality input and explicit success are validated
+
+[x] Counts are exact integers and never string/missing coercions
+
+[x] Quality name and score must match actual sample shape
+
+[x] Outcome/priority/SKU aggregate maps remain mathematically consistent
+
+[x] Outcome IDs remain exact, unique and count-bound
+
+[x] Existing confidence thresholds remain unchanged
+
+[x] Confidence output remains descriptive-only and non-executable
+
+Verified exact main:
+
+`0671c0a0b06c662e935b4dcbf00e4cad12e32175`
+
+GitHub Actions push Verify #660: 1851 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
 - no Product Task Draft execution;
 - no Action Executor connection;
 - no Telegram production wiring;
