@@ -3,11 +3,16 @@ from product_decision_user_action_post_decision_observation import build_product
 
 def _status(**values):
     result = {
+        "error": False,
         "status": "PRODUCT_DECISION_USER_ACTION_CHECKLIST_STATUS_READY",
         "user_action_checklist_id": "check-1",
         "sku": "hook-2",
         "aggregate_status": "USER_REPORTED_COMPLETE",
+        "completion_evidence_source": "USER_REPORT",
         "externally_verified": False,
+        "ozon_mutation_called": False,
+        "execution_allowed": False,
+        "execution_ready": False,
         "executed": False,
     }
     result.update(values)
@@ -15,7 +20,14 @@ def _status(**values):
 
 
 def _decision(**values):
-    result = {"sku": "hook-2", "decision_type": "HOLD_STOCK", "priority": "LOW", "confidence": "HIGH", "reasons": ["POSITIVE_UNIT_PROFIT"]}
+    result = {
+        "error": False,
+        "sku": "hook-2",
+        "decision_type": "HOLD_STOCK",
+        "priority": "LOW",
+        "confidence": "HIGH",
+        "reasons": ["POSITIVE_UNIT_PROFIT"],
+    }
     result.update(values)
     return result
 
@@ -44,5 +56,5 @@ def test_external_verification_flag_blocks():
 
 
 def test_invalid_later_decision_blocks():
-    result = build_product_decision_user_action_post_decision_observation(_status(), {"sku": "hook-2"})
+    result = build_product_decision_user_action_post_decision_observation(_status(), {"error": False, "sku": "hook-2"})
     assert result["code"] == "POST_DECISION_OBSERVATION_LATER_DECISION_INVALID"
