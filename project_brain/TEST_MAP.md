@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1941 passed on `7d53fecac126973122270eacfdfc122e50ae3de3`.
+1951 passed on `19851b9d40827b3ca5e3889c3858ca32c5602f67`.
 
-GitHub Actions push Verify #745 completed successfully for this exact main SHA.
+GitHub Actions push Verify #754 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3366,5 +3366,44 @@ Tests:
 - PR #342 synthetic `7e54ca702706ad192eb70da63e351e96efdb31b5`: Verify #744, 1941 passed / 0 failed;
 - squash main `7d53fecac126973122270eacfdfc122e50ae3de3`: Verify #745, 1941 passed / 0 failed;
 - Telegram persistence wiring remains disabled;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Durable Application Lineage v1
+
+Boundaries:
+
+- `ProductDecisionPersistenceApplicationService.apply`
+- `ProductDecisionHistoryService.record_persistent`
+- `ProductDecisionHistoryService._snapshot`
+- `ProductDecisionPersistenceVerificationService.verify`
+- existing `ProductDecisionHistoryStorageService`
+
+Tests:
+
+- `tests/test_product_decision_durable_application_lineage_v1041_v1050.py`
+- canonicalized persistence application/verification fixtures
+
+Проверяет:
+
+- exact application lineage is constructed before durable write;
+- lineage binds application/readiness/authorization/eligibility/review/delta/preview IDs, draft_id and SKU;
+- malformed lineage is rejected before save;
+- cross-SKU lineage is rejected before save;
+- durable snapshot and COMMITTED receipt carry the same lineage;
+- forged receipt lineage blocks persistence application;
+- forged receipt lineage blocks verification before readback;
+- forged durable snapshot lineage blocks verification;
+- JSON storage restart preserves lineage;
+- feedback mutation preserves lineage;
+- restart readback verifies without execution;
+- failed `cfeb3528d5f902625819b6897db192bf794fddda`: Verify #751, 1915 passed / 36 failed;
+- final feature `5e856591925d2288db871ac9632eab5ee7f7a649`: Verify #752, 1951 passed / 0 failed;
+- PR #344 synthetic `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`: Verify #753, 1951 passed / 0 failed;
+- squash main `19851b9d40827b3ca5e3889c3858ca32c5602f67`: Verify #754, 1951 passed / 0 failed;
+- Telegram remains read-only and not persistence-wired;
 - `data/users.json` untouched;
 - `externally_verified=False`.

@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1941 passed on `7d53fecac126973122270eacfdfc122e50ae3de3`.
+1951 passed on `19851b9d40827b3ca5e3889c3858ca32c5602f67`.
 
-GitHub Actions push verification run #745 completed successfully for this exact main SHA.
+GitHub Actions push verification run #754 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2531,6 +2531,65 @@ Preserved:
 - existing Product Decision History storage remains the persistence owner;
 - no Telegram read path invokes persistence application;
 - Telegram verified-guidance blocker remains open because application receipt lineage is not durably embedded in history snapshots;
+- no Product Decision rule/threshold or finance formula change;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Durable Application Lineage v1041-v1050 — 2026-09-01
+
+Completed:
+
+[x] Persistence application constructs exact lineage before durable Product Decision write
+
+[x] Existing Product Decision History owner validates the complete lineage chain
+
+[x] Lineage binds application/readiness/authorization/eligibility/review/delta/preview IDs, draft_id and SKU
+
+[x] Malformed and cross-SKU lineage is rejected before storage mutation
+
+[x] Durable Product Decision snapshot stores the exact application lineage atomically
+
+[x] COMMITTED persistence receipt returns the same lineage
+
+[x] Persistence application rejects forged receipt lineage
+
+[x] Persistence verification requires exact receipt lineage
+
+[x] Persistence verification requires durable history snapshot lineage to match the exact application
+
+[x] JSON storage restart preserves application lineage
+
+[x] Feedback mutation preserves the snapshot lineage
+
+[x] Restart readback verifies without execution or Ozon mutation
+
+Verified exact main:
+
+`19851b9d40827b3ca5e3889c3858ca32c5602f67`
+
+GitHub Actions push Verify #754: 1951 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `cfeb3528d5f902625819b6897db192bf794fddda`: Verify #751, 1915 passed / 36 failed.
+
+Final feature and integration evidence:
+
+- final feature `5e856591925d2288db871ac9632eab5ee7f7a649`: Verify #752, 1951 passed / 0 failed;
+- PR #344 synthetic `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`: Verify #753, 1951 passed / 0 failed;
+- squash main `19851b9d40827b3ca5e3889c3858ca32c5602f67`: Verify #754, 1951 passed / 0 failed.
+
+Preserved:
+
+- Product Decision History remains the only persistence owner;
+- application lineage is written, never inferred after the fact;
+- Telegram read path still does not invoke persistence application;
+- Telegram guidance/checklist wiring is not yet enabled;
 - no Product Decision rule/threshold or finance formula change;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;

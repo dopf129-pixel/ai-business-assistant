@@ -3410,3 +3410,33 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Durable Application Lineage v1041-v1050
+
+- persisted exact Product Decision persistence-application lineage atomically with the durable history snapshot;
+- reused the existing Product Decision History storage owner; no second persistence owner introduced;
+- lineage validates the complete application/readiness/authorization/eligibility/review/delta/preview chain plus draft_id and SKU;
+- malformed/cross-SKU lineage is rejected before storage mutation;
+- COMMITTED receipt and durable snapshot must carry the same exact lineage;
+- persistence application rejects forged receipt lineage;
+- persistence verification requires exact receipt and history-snapshot lineage;
+- JSON restart and feedback mutation preserve lineage;
+- failed intermediate `cfeb3528d5f902625819b6897db192bf794fddda`: Verify #751, 1915 passed / 36 failed, artifact 9821284999, digest `sha256:094c2a223c66afa81f078f606f72c6de0ab6ea594c3d9198ee33e8f9eaa94ca1`;
+- final feature `5e856591925d2288db871ac9632eab5ee7f7a649`: Verify #752, 1951 passed / 0 failed, artifact 9821304515, digest `sha256:98b8cba6e7a80c1063c53de00f9b60aa989a4c6e181af95ddc8b51f0eb81bbfb`;
+- PR #344 synthetic `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`: Verify #753, 1951 passed / 0 failed, artifact 9821329483, digest `sha256:381635fc6256628f30de341e4c4f2d95b5418cf758120a7802a99f46b3b52ebd`;
+- squash main `19851b9d40827b3ca5e3889c3858ca32c5602f67`: Verify #754, 1951 passed / 0 failed, artifact 9821356516, digest `sha256:f23470a2f0ab528fe64569dd7b8e7bcb3fcfee9ff8e783900ffbc3337f6b3317`;
+- Telegram does not invoke persistence application and verified guidance/checklist wiring remains disabled pending read-only reconstruction;
+- no Product Decision threshold, finance formula, execution permission or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1041-v1050
+
+- reconciled Project Brain to exact verified product main `19851b9d40827b3ca5e3889c3858ca32c5602f67` / Verify #754 / 1951 passed;
+- added `CURRENT_CHECKPOINT_V1041_V1050.md`;
+- DECISIONS unchanged: existing Product Decision History remains the sole persistence owner;
+- integration blocker narrowed to read-only reconstruction/verification from durable lineage;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
