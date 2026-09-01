@@ -187,7 +187,10 @@ class AssistantButtonHandlerService:
         product_business_decision_query=None,
         returns_finance_impact_query=None,
         product_decision_learning_health_builder=None,
-        product_decision_learning_coverage_builder=None
+        product_decision_learning_coverage_builder=None,
+        product_decision_persistence_verifier=None,
+        product_decision_user_action_guidance_builder=None,
+        product_decision_user_action_checklist_builder=None
     ):
 
         self.assistant = (
@@ -228,6 +231,18 @@ class AssistantButtonHandlerService:
 
         self.product_decision_learning_coverage_builder = (
             product_decision_learning_coverage_builder
+        )
+
+        self.product_decision_persistence_verifier = (
+            product_decision_persistence_verifier
+        )
+
+        self.product_decision_user_action_guidance_builder = (
+            product_decision_user_action_guidance_builder
+        )
+
+        self.product_decision_user_action_checklist_builder = (
+            product_decision_user_action_checklist_builder
         )
 
 
@@ -1334,7 +1349,290 @@ class AssistantButtonHandlerService:
                 )
             )
 
+        response = (
+            self._with_verified_product_decision_user_action(
+                response,
+                result,
+                sku,
+            )
+        )
+
         return response
+
+    def _with_verified_product_decision_user_action(
+        self,
+        response,
+        decision,
+        sku,
+    ):
+        verifier = self.product_decision_persistence_verifier
+        guidance_builder = (
+            self.product_decision_user_action_guidance_builder
+        )
+        checklist_builder = (
+            self.product_decision_user_action_checklist_builder
+        )
+        if (
+            verifier is None
+            or not callable(guidance_builder)
+            or not callable(checklist_builder)
+        ):
+            return response
+
+        verify_latest = getattr(
+            verifier,
+            "verify_latest",
+            None,
+        )
+        if not callable(verify_latest):
+            return response
+
+        requested_sku = str(sku or "").strip()
+        if not requested_sku:
+            return response
+
+        try:
+            verification = verify_latest(requested_sku)
+        except Exception:
+            return response
+
+        if not self._verified_product_decision_matches_current(
+            verification,
+            decision,
+            requested_sku,
+        ):
+            return response
+
+        try:
+            guidance = guidance_builder(verification)
+        except Exception:
+            return response
+
+        if not self._valid_verified_user_action_guidance(
+            guidance,
+            verification,
+            requested_sku,
+        ):
+            return response
+
+        try:
+            checklist = checklist_builder(guidance)
+        except Exception:
+            return response
+
+        if not self._valid_verified_user_action_checklist(
+            checklist,
+            guidance,
+            requested_sku,
+        ):
+            return response
+
+        enriched = dict(response)
+        enriched["verified_user_action_guidance_available"] = True
+        enriched["decision_persistence_verification"] = dict(
+            verification
+        )
+        enriched["user_action_guidance"] = dict(guidance)
+        enriched["user_action_checklist"] = dict(checklist)
+        enriched["message"] = (
+            str(response.get("message") or "")
+            + "\n\n"
+            + self._format_verified_user_action_checklist(checklist)
+        )
+        return enriched
+
+    @staticmethod
+    def _verified_product_decision_matches_current(
+        verification,
+        decision,
+        sku,
+    ):
+        if (
+            not isinstance(verification, dict)
+            or verification.get("error") is not False
+            or verification.get("status")
+            != "PRODUCT_DECISION_PERSISTENCE_VERIFIED"
+            or verification.get("verification_source")
+            != "DURABLE_HISTORY_READBACK"
+            or verification.get("decision_persistence_verified")
+            is not True
+            or verification.get("externally_verified") is not False
+            or verification.get("persistent") is not True
+            or verification.get("product_decision_persisted") is not True
+            or verification.get("product_decision_mutated") is not False
+            or verification.get("ozon_mutation_called") is not False
+            or verification.get("execution_allowed") is not False
+            or verification.get("execution_ready") is not False
+            or verification.get("executed") is not False
+            or not isinstance(decision, dict)
+            or decision.get("error") is not False
+        ):
+            return False
+
+        verified_snapshot = verification.get("verified_snapshot")
+        if not isinstance(verified_snapshot, dict):
+            return False
+
+        verified_recorded_at = verification.get(
+            "verified_recorded_at"
+        )
+        current_recorded_at = decision.get("decision_recorded_at")
+        if (
+            not isinstance(verified_recorded_at, str)
+            or not verified_recorded_at.strip()
+            or not isinstance(current_recorded_at, str)
+            or current_recorded_at != verified_recorded_at
+            or verification.get("sku") != sku
+            or verified_snapshot.get("sku") != sku
+            or decision.get("sku") != sku
+        ):
+            return False
+
+        for field in (
+            "decision_type",
+            "priority",
+            "confidence",
+        ):
+            if (
+                decision.get(field)
+                != verified_snapshot.get(field)
+            ):
+                return False
+
+        current_reasons = decision.get("reasons")
+        verified_reasons = verified_snapshot.get("reasons")
+        return (
+            isinstance(current_reasons, list)
+            and isinstance(verified_reasons, list)
+            and current_reasons == verified_reasons
+        )
+
+    @staticmethod
+    def _valid_verified_user_action_guidance(
+        guidance,
+        verification,
+        sku,
+    ):
+        if (
+            not isinstance(guidance, dict)
+            or guidance.get("error") is not False
+            or guidance.get("status")
+            != "PRODUCT_DECISION_USER_ACTION_GUIDANCE_READY"
+            or guidance.get("sku") != sku
+            or guidance.get("decision_persistence_verification_id")
+            != verification.get(
+                "decision_persistence_verification_id"
+            )
+            or guidance.get("decision_persistence_application_id")
+            != verification.get(
+                "decision_persistence_application_id"
+            )
+            or guidance.get("verified_recorded_at")
+            != verification.get("verified_recorded_at")
+            or guidance.get("decision_persistence_verified")
+            is not True
+            or guidance.get("externally_verified") is not False
+            or guidance.get("persistent") is not True
+            or guidance.get("user_execution_required") is not True
+            or guidance.get("automatic_execution_prohibited")
+            is not True
+            or guidance.get("ozon_mutation_called") is not False
+            or guidance.get("execution_allowed") is not False
+            or guidance.get("execution_ready") is not False
+            or guidance.get("executed") is not False
+            or not isinstance(guidance.get("title"), str)
+            or not guidance["title"].strip()
+            or not isinstance(guidance.get("steps"), list)
+            or not guidance["steps"]
+            or any(
+                not isinstance(step, str) or not step.strip()
+                for step in guidance["steps"]
+            )
+        ):
+            return False
+        return True
+
+    @staticmethod
+    def _valid_verified_user_action_checklist(
+        checklist,
+        guidance,
+        sku,
+    ):
+        if (
+            not isinstance(checklist, dict)
+            or checklist.get("error") is not False
+            or checklist.get("status")
+            != "PRODUCT_DECISION_USER_ACTION_CHECKLIST_READY"
+            or checklist.get("sku") != sku
+            or checklist.get("user_action_guidance_id")
+            != guidance.get("user_action_guidance_id")
+            or checklist.get("decision_persistence_verification_id")
+            != guidance.get(
+                "decision_persistence_verification_id"
+            )
+            or checklist.get("decision_persistence_application_id")
+            != guidance.get(
+                "decision_persistence_application_id"
+            )
+            or checklist.get("verified_recorded_at")
+            != guidance.get("verified_recorded_at")
+            or checklist.get("decision_persistence_verified")
+            is not True
+            or checklist.get("externally_verified") is not False
+            or checklist.get("persistent") is not True
+            or checklist.get("completion_recording_allowed")
+            is not False
+            or checklist.get("user_execution_required") is not True
+            or checklist.get("automatic_execution_prohibited")
+            is not True
+            or checklist.get("ozon_mutation_called") is not False
+            or checklist.get("execution_allowed") is not False
+            or checklist.get("execution_ready") is not False
+            or checklist.get("executed") is not False
+        ):
+            return False
+
+        items = checklist.get("items")
+        item_count = checklist.get("item_count")
+        if (
+            not isinstance(items, list)
+            or not items
+            or type(item_count) is not int
+            or item_count != len(items)
+            or checklist.get("completed_count") != 0
+        ):
+            return False
+
+        for position, item in enumerate(items, start=1):
+            if (
+                not isinstance(item, dict)
+                or item.get("position") != position
+                or item.get("completion_source") != "USER"
+                or item.get("completed") is not False
+                or not isinstance(item.get("instruction"), str)
+                or not item["instruction"].strip()
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _format_verified_user_action_checklist(checklist):
+        lines = [
+            "✅ Проверенный ручной чек-лист",
+            "",
+            str(checklist["title"]),
+        ]
+        for item in checklist["items"]:
+            lines.append(
+                str(item["position"])
+                + ". "
+                + item["instruction"]
+            )
+        lines.extend([
+            "",
+            "Автоматическое выполнение отключено.",
+        ])
+        return "\n".join(lines)
 
     def _with_latest_proposal_status(self, result, sku):
         result = dict(result or {})
