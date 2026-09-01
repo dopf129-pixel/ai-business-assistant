@@ -212,11 +212,16 @@ class ProductDecisionPersistenceApplicationService:
         history_count = receipt.get("decision_history_count")
 
         if (
+            isinstance(context, dict)
+            and context.get("decision_history_available") is not True
+        ):
+            return "DECISION_HISTORY_WRITE_NOT_CONFIRMED"
+
+        if (
             receipt.get("sku") != sku
             or saved is not True
             or state != "COMMITTED"
             or not isinstance(context, dict)
-            or context.get("decision_history_available") is not True
             or not isinstance(recorded_at, str)
             or not recorded_at.strip()
             or type(history_count) is not int
