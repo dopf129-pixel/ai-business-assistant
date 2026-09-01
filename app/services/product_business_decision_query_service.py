@@ -936,6 +936,18 @@ class ProductBusinessDecisionQueryService:
             current_stock = result.get("current_stock")
             days_of_stock = result.get("days_of_stock")
             priority = result.get("priority")
+            stock_priority = result.get("stock_priority")
+            if (
+                priority is not None
+                and stock_priority is not None
+                and priority != stock_priority
+            ):
+                return False
+            effective_priority = (
+                stock_priority
+                if stock_priority is not None
+                else priority
+            )
             if (
                 current_stock is not None
                 and not self._valid_non_negative_metric(current_stock)
@@ -947,20 +959,20 @@ class ProductBusinessDecisionQueryService:
             ):
                 return False
             if (
-                priority is not None
+                effective_priority is not None
                 and (
-                    not isinstance(priority, str)
-                    or priority not in self.STOCK_PRIORITIES
+                    not isinstance(effective_priority, str)
+                    or effective_priority not in self.STOCK_PRIORITIES
                 )
             ):
                 return False
             if (
-                priority == "NO_SALES"
+                effective_priority == "NO_SALES"
                 and days_of_stock is not None
             ):
                 return False
             if (
-                priority in {
+                effective_priority in {
                     "CRITICAL",
                     "HIGH",
                     "MEDIUM",
@@ -969,7 +981,7 @@ class ProductBusinessDecisionQueryService:
                 and days_of_stock is None
             ):
                 return False
-            if days_of_stock is not None and priority is None:
+            if days_of_stock is not None and effective_priority is None:
                 return False
 
             for field in (

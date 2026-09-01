@@ -202,19 +202,28 @@ def test_v1028_stock_priority_and_days_relationship_is_canonical():
         _stock(priority="CRITICAL", days_of_stock=None),
         _stock(priority=None, days_of_stock=2.0),
         _stock(priority="NO_SALES", days_of_stock=2.0),
+        _stock(priority="HIGH", stock_priority="LOW"),
     )
     for payload in payloads:
         result = _service(stock=_Source(payload)).query("hook-2")
         _assert_invalid(result, "stock")
 
     no_sales = _stock(
-        sales_velocity=0 if False else 0,
         priority="NO_SALES",
         days_of_stock=None,
     )
     valid = _service(stock=_Source(no_sales)).query("hook-2")
     assert valid["error"] is False
     assert valid["code"] == "INSUFFICIENT_DATA"
+
+    legacy_alias = _stock()
+    legacy_alias.pop("priority")
+    legacy_alias["stock_priority"] = "CRITICAL"
+    alias_result = _service(
+        stock=_Source(legacy_alias)
+    ).query("hook-2")
+    assert alias_result["error"] is False
+    assert alias_result["decision_type"] == "REPLENISH_HIGH_PRIORITY"
 
 
 def test_v1029_missing_data_and_evidence_strings_cannot_be_malformed():
