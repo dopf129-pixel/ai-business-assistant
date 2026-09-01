@@ -27,6 +27,17 @@ class ProductDecisionHistoryService:
         "HIGH": 3,
         "CRITICAL": 4,
     }
+    PERSISTENCE_APPLICATION_LINEAGE_FIELDS = (
+        "decision_persistence_application_id",
+        "decision_persistence_application_readiness_id",
+        "decision_persistence_authorization_id",
+        "decision_persistence_eligibility_id",
+        "decision_preview_review_id",
+        "decision_preview_delta_id",
+        "recompute_preview_id",
+        "draft_id",
+        "sku",
+    )
 
     def __init__(
         self,
@@ -41,11 +52,32 @@ class ProductDecisionHistoryService:
         self.max_records_per_sku = max(1, int(max_records_per_sku))
         self.records = self._load_records()
 
-    def record(self, decision):
+    def record(
+        self,
+        decision,
+        persistence_application_lineage=None,
+    ):
         if not self._is_recordable(decision):
             return self._empty_context()
 
         sku = str(decision.get("sku"))
+        if (
+            application_lineage is not None
+            and not self._valid_persistence_application_lineage(
+                application_lineage,
+                sku,
+            )
+        ):
+            return self._persistence_receipt_failure(
+                code=(
+                    "DECISION_HISTORY_PERSISTENCE_APPLICATION_"
+                    "LINEAGE_INVALID"
+                ),
+                sku=sku,
+                saved=False,
+                persistence_state="NOT_COMMITTED",
+            )
+
         previous = self.latest(sku)
         changed = previous is not None and self._signature(
             previous
@@ -53,7 +85,13 @@ class ProductDecisionHistoryService:
 
         if previous is None or changed:
             previous_records = deepcopy(self.records)
-            snapshot = self._snapshot(decision, previous=previous)
+            snapshot = self._snapshot(
+                decision,
+                previous=previous,
+                persistence_application_lineage=(
+                    persistence_application_lineage
+                ),
+            )
             self.records.append(snapshot)
             self._trim(sku)
             persistence = self._save_interaction_records()
@@ -87,7 +125,11 @@ class ProductDecisionHistoryService:
             "decision_outcome": None,
         }
 
-    def record_persistent(self, decision):
+    def record_persistent(
+        self,
+        decision,
+        application_lineage=None,
+    ):
         if self.storage_service is None:
             return self._persistence_receipt_failure(
                 code="DECISION_HISTORY_DURABLE_STORAGE_REQUIRED",
@@ -128,7 +170,10 @@ class ProductDecisionHistoryService:
             )
 
         try:
-            context = self.record(decision)
+            context = self.record(
+                decision,
+                persistence_application_lineage=application_lineage,
+            )
         except OSError as exc:
             code = str(exc)
             if code == "DECISION_HISTORY_SAVE_REJECTED":
@@ -169,6 +214,9 @@ class ProductDecisionHistoryService:
             "decision_recorded_at": context["decision_recorded_at"],
             "decision_history_count": context["decision_history_count"],
             "history_context": deepcopy(context),
+            "persistence_application_lineage": deepcopy(
+                application_lineage
+            ),
         }
 
     def latest(self, sku):
@@ -344,10 +392,15 @@ class ProductDecisionHistoryService:
             "outcome_counts": outcome_counts,
         }
 
-    def _snapshot(self, decision, previous=None):
+    def _snapshot(
+        self,
+        decision,
+        previous=None,
+        persistence_application_lineage=None,
+    ):
         recorded_at = str(self.clock())
         outcome = self._outcome(previous, decision)
-        return {
+        snapshot = {
             "sku": str(decision.get("sku")),
             "product_id": decision.get("product_id"),
             "decision_type": decision.get("decision_type"),
@@ -372,6 +425,73 @@ class ProductDecisionHistoryService:
             "outcome": outcome,
             "outcome_recorded_at": recorded_at if outcome else None,
         }
+        if persistence_application_lineage is not None:
+            snapshot["persistence_application_lineage"] = deepcopy(
+                persistence_application_lineage
+            )
+        return snapshot
+
+    @classmethod
+    def _valid_persistence_application_lineage(
+        cls,
+        lineage,
+        sku,
+    ):
+        if (
+            not isinstance(lineage, dict)
+            or set(lineage)
+            != set(cls.PERSISTENCE_APPLICATION_LINEAGE_FIELDS)
+        ):
+            return False
+
+        values = {}
+        for field in cls.PERSISTENCE_APPLICATION_LINEAGE_FIELDS:
+            value = lineage.get(field)
+            if (
+                not isinstance(value, str)
+                or not value
+                or value.strip() != value
+            ):
+                return False
+            values[field] = value
+
+        return (
+            values["sku"] == sku
+            and values["decision_persistence_application_id"]
+            == (
+                "product-decision-persistence-application:"
+                + values[
+                    "decision_persistence_application_readiness_id"
+                ]
+            )
+            and values[
+                "decision_persistence_application_readiness_id"
+            ]
+            == (
+                "product-decision-persistence-application-readiness:"
+                + values["decision_persistence_authorization_id"]
+            )
+            and values["decision_persistence_authorization_id"]
+            == (
+                "product-decision-persistence-authorization:"
+                + values["decision_persistence_eligibility_id"]
+            )
+            and values["decision_persistence_eligibility_id"]
+            == (
+                "product-decision-persistence-eligibility:"
+                + values["decision_preview_review_id"]
+            )
+            and values["decision_preview_review_id"]
+            == (
+                "product-decision-preview-review:"
+                + values["decision_preview_delta_id"]
+            )
+            and values["decision_preview_delta_id"]
+            == (
+                "product-decision-preview-delta:"
+                + values["recompute_preview_id"]
+            )
+        )
 
     def _outcome(self, previous, current):
         if previous is None or not previous.get("feedback"):

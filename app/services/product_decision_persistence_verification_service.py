@@ -201,6 +201,20 @@ class ProductDecisionPersistenceVerificationService:
                 source,
             )
 
+        expected_application_lineage = {
+            "decision_persistence_application_id": application_id,
+            "decision_persistence_application_readiness_id": (
+                readiness_id
+            ),
+            "decision_persistence_authorization_id": authorization_id,
+            "decision_persistence_eligibility_id": eligibility_id,
+            "decision_preview_review_id": review_id,
+            "decision_preview_delta_id": delta_id,
+            "recompute_preview_id": preview_id,
+            "draft_id": draft_id,
+            "sku": sku,
+        }
+
         persistence_receipt = source.get(
             "history_persistence_receipt"
         )
@@ -209,6 +223,7 @@ class ProductDecisionPersistenceVerificationService:
             sku,
             history_context,
             expected_recorded_at,
+            expected_application_lineage,
         )
         if receipt_error is not None:
             return self._blocked(receipt_error, source)
@@ -253,6 +268,18 @@ class ProductDecisionPersistenceVerificationService:
         if actual_recorded_at != expected_recorded_at:
             return self._blocked(
                 "DECISION_PERSISTENCE_VERIFICATION_RECORDED_AT_MISMATCH",
+                source,
+            )
+
+        if (
+            latest.get("persistence_application_lineage")
+            != expected_application_lineage
+        ):
+            return self._blocked(
+                (
+                    "DECISION_PERSISTENCE_VERIFICATION_"
+                    "HISTORY_LINEAGE_MISMATCH"
+                ),
                 source,
             )
 
@@ -315,6 +342,7 @@ class ProductDecisionPersistenceVerificationService:
         sku,
         history_context,
         expected_recorded_at,
+        expected_application_lineage,
     ):
         if (
             not isinstance(receipt, dict)
@@ -343,6 +371,8 @@ class ProductDecisionPersistenceVerificationService:
             != expected_recorded_at
             or receipt_context.get("decision_history_count")
             != history_count
+            or receipt.get("persistence_application_lineage")
+            != expected_application_lineage
         ):
             return (
                 "DECISION_PERSISTENCE_VERIFICATION_COMMIT_RECEIPT_INVALID"

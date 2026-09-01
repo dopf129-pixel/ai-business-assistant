@@ -29,7 +29,11 @@ class FakeHistoryService:
         self.record_calls.append(deepcopy(decision))
         return deepcopy(self.record_result)
 
-    def record_persistent(self, decision):
+    def record_persistent(
+        self,
+        decision,
+        application_lineage=None,
+    ):
         context = self.record(decision)
         return {
             "error": False,
@@ -44,6 +48,9 @@ class FakeHistoryService:
                 "decision_history_count"
             ),
             "history_context": deepcopy(context),
+            "persistence_application_lineage": deepcopy(
+                application_lineage
+            ),
         }
 
 
