@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1703 passed on `701b5a31575a2e37d76da22af260c206d4a68b50`.
+1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
 
-GitHub Actions push Verify #478 completed successfully for this exact main SHA.
+GitHub Actions push Verify #501 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2591,5 +2591,89 @@ Tests:
 - legitimate UNKNOWN freshness, observed-only evidence and refresh guidance remain read-only success;
 - exact-SHA evidence: entering main #474, feature #476, PR merge-ref #477, squash-main #478;
 - no Product Decision rule/threshold, Task Draft readiness rule, persistence behavior, Action Executor connection, execution authorization, quantity/price inference, or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Telegram Adapter Runtime Exception Containment v1
+
+Boundary:
+
+- `AssistantTelegramAdapter` assistant/button/keyboard runtime exception boundary
+
+Tests:
+
+- `tests/test_telegram_adapter_runtime_exception_containment_v803_v810.py`
+
+Проверяет:
+
+- internal assistant/button/keyboard exceptions are contained;
+- TypeError is not retried after invocation;
+- legacy handler arity remains pre-call selection only;
+- exception text is sanitized;
+- one invocation remains one invocation;
+- exact-SHA evidence: entering main #482, cancelled #483, failed #484, final feature #485, PR merge-ref #486, squash-main #487;
+- no Product Decision/Product Task Draft execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Post-Decision Observation Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_post_decision_observation`
+- user-reported completion evidence to later Product Decision observation
+
+Tests:
+
+- `tests/test_product_decision_user_action_post_decision_observation.py`
+- `tests/test_product_decision_user_action_post_decision_observation_integrity_v811_v820.py`
+
+Проверяет:
+
+- malformed containers fail closed;
+- explicit checklist error=False and USER_REPORT semantics are required;
+- numeric identity coercion is rejected;
+- explicit later-decision failure is preserved;
+- canonical decision/priority/confidence values are required;
+- reasons cannot be synthesized from malformed strings;
+- valid observations remain non-causal, non-executable and not externally verified;
+- exact-SHA evidence: entering main #492, feature #494, PR merge-ref #495, squash-main #496;
+- no Product Decision recomputation, Product Task Draft execution, Action Executor connection or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Task Persistence Operator Presentation Integrity v1
+
+Boundary:
+
+- `TaskPersistenceOperatorPresentationService`
+- operator-only operational / release / provenance presentation
+
+Tests:
+
+- `tests/test_task_persistence_operator_presentation_integrity_v821_v830.py`
+- existing task-persistence operator readiness/access/release/provenance regression suites
+
+Проверяет:
+
+- explicit error=False before presenting trusted operator state;
+- blockers/warnings/categories must be real unique string lists;
+- operational state/count/attention consistency;
+- release-ready/incident/human-review consistency;
+- provenance revision and CI binding shape;
+- external-verification, mutation and execution overclaims fail closed;
+- valid messages never expose paths, user IDs, inferred lock owner or inferred lock age;
+- failed SHA `41c289221c100ce4dc1462603b42349434f2f406` / Verify #498 remains failed evidence;
+- final exact-SHA evidence: feature #499, PR merge-ref #500, squash-main #501;
+- no persistence owner change, automatic retry, lock removal, business execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

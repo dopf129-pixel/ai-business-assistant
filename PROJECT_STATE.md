@@ -18,39 +18,45 @@ Development Autopilot Layer
 
 Package:
 
-`v803-v810: Telegram Adapter Runtime Exception Containment`
+`v821-v830: Task Persistence Operator Presentation Integrity`
 
 Goal:
 
-Prevent seller-facing Telegram failures from leaking internal exceptions while preserving fail-closed semantics.
+Prevent malformed or contradictory persistence diagnostics from being rendered as trusted operator state.
+
+Immediately preceding verified package:
+
+`v811-v820: Post-Decision Observation Integrity`
 
 Preserved:
 
-- no retry after internal exception;
-- one invocation remains one invocation;
-- internal exception text is not exposed to sellers;
-- explicit downstream failures remain failures;
+- no automatic retry or lock deletion;
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Ozon mutation;
-- no quantity or price inference.
+- no quantity or price inference;
+- `externally_verified=False`.
 
 Verification evidence is tracked in:
 
-`project_brain/CURRENT_CHECKPOINT_V803_V810.md`
+- `project_brain/CURRENT_CHECKPOINT_V811_V820.md`
+- `project_brain/CURRENT_CHECKPOINT_V821_V830.md`
 
 ## Stable verification
 
-Latest main checkpoint:
+Latest exact main:
 
-SHA-bound verification is active.
+`c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`
 
-Current work must continue from exact repository state after main verification.
+GitHub Actions push Verify #501:
+
+1731 passed / 0 failed.
 
 ## Development direction
 
 Next:
 
-- maintain Project Brain consistency;
-- verify current main gap;
-- select next production package only from actual repository state.
+- maintain exact-SHA verification;
+- select the next production/product/operational package from the actual repository gap;
+- do not extend evidence/lifecycle wrappers without a concrete failure;
+- keep business mutations disabled without separate architecture and authorization.
