@@ -6,18 +6,25 @@ from product_decision_user_action_guidance import build_product_decision_user_ac
 def _verification(decision_type="REPLENISH_HIGH_PRIORITY", **values):
     application_id = "product-decision-persistence-application:ready-1"
     result = {
+        "error": False,
         "status": "PRODUCT_DECISION_PERSISTENCE_VERIFIED",
         "decision_persistence_verification_id": "product-decision-persistence-verification:" + application_id,
         "decision_persistence_application_id": application_id,
         "sku": "hook-2",
         "decision_persistence_verified": True,
+        "verified_recorded_at": "2026-09-01T12:00:00+00:00",
+        "mismatched_fields": [],
         "verified_snapshot": {
             "sku": "hook-2",
             "decision_type": decision_type,
             "priority": "HIGH",
+            "confidence": "HIGH",
             "reasons": ["LOW_STOCK"],
+            "recorded_at": "2026-09-01T12:00:00+00:00",
         },
+        "externally_verified": False,
         "persistent": True,
+        "product_decision_recomputed": True,
         "product_decision_persisted": True,
         "product_decision_mutated": False,
         "ozon_mutation_called": False,
