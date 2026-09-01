@@ -195,7 +195,8 @@ def test_v830_valid_reports_remain_read_only_and_human_readable():
     assert release["error"] is False
     assert release["message"].startswith("Release-готовность persistence: готово.")
     assert provenance["error"] is False
-    assert "External verification отсутствует" in provenance["message"]
+    assert "revision и CI evidence не привязаны" in provenance["message"]
+    assert provenance["externally_verified"] is False
     for result in (operational, release, provenance):
         assert result["path_exposed"] is False
         assert result["user_id_exposed"] is False
