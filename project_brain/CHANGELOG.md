@@ -2881,3 +2881,33 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Checklist Integrity v851-v860
+
+- hardened the existing Product Decision verified-guidance → checklist boundary;
+- non-mapping guidance payloads now fail closed;
+- guidance / verification / application IDs, SKU and verified-recorded-at require real non-empty strings;
+- checklist requires explicit guidance `error=False`, ready status and persisted-decision verification;
+- verification ID remains bound to its persistence application ID;
+- external-verification, persistence and execution overclaims fail closed;
+- decision/action pairing, priority, confidence, title and reasons require canonical structure;
+- manual checklist steps require real non-empty strings and are not coercively stringified from numbers/objects;
+- valid checklist carries exact verified persistence lineage forward and remains non-executable;
+- feature `349e441c659c2965195a3af4801af3050e8893ca`: Verify #548, 1761 passed / 0 failed;
+- PR #306 synthetic merge `4c0ebaad1691332f9a44871ce1f4fc8cfa52449f`: Verify #549, 1761 passed / 0 failed;
+- squash main `405fdea64008e21173e7851e8b370b63eae7ef73`: Verify #550, 1761 passed / 0 failed;
+- no failed intermediate production SHA occurred in v851-v860;
+- no Product Decision rule/threshold change, persistence-owner change, Product Task Draft execution, Telegram production wiring, Action Executor connection, quantity/price inference or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v851-v860
+
+- reconciled PROJECT_STATE, CURRENT_STATE, TEST_MAP, ROADMAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `405fdea64008e21173e7851e8b370b63eae7ef73` / Verify #550 / 1761 passed;
+- added `CURRENT_CHECKPOINT_V851_V860.md` with entering-main, feature-head, PR merge-ref and squash-main evidence;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

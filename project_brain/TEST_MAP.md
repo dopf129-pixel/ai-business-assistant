@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
+1761 passed on `405fdea64008e21173e7851e8b370b63eae7ef73`.
 
-GitHub Actions push Verify #534 completed successfully for this exact main SHA.
+GitHub Actions push Verify #550 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2738,6 +2738,37 @@ Tests:
 - valid guidance carries read-only verified lineage and remains user-executed/non-automatic;
 - exact-SHA evidence: entering main #528, feature #532, PR merge-ref #533, squash-main #534;
 - no failed intermediate production SHA occurred in v841-v850;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_checklist`
+- verified Product Decision seller guidance to manual user checklist
+
+Tests:
+
+- `tests/test_product_decision_user_action_checklist.py`
+- `tests/test_product_decision_user_action_checklist_integrity_v851_v860.py`
+
+Проверяет:
+
+- non-mapping guidance input fails closed;
+- guidance / verification / application IDs, SKU and verified-recorded-at require real non-empty strings;
+- explicit guidance `error=False`, ready status and decision-persistence verification are required;
+- verification ID remains bound to the persistence application ID;
+- external-verification and persistence/execution overclaims fail closed;
+- decision/action pairing, priority, confidence, title and reasons are canonical;
+- manual checklist steps cannot be synthesized through `str(...)` coercion;
+- valid checklist carries the verified persistence lineage forward and remains user-owned/non-executable;
+- exact-SHA evidence: entering main #544, feature #548, PR merge-ref #549, squash-main #550;
+- no failed intermediate production SHA occurred in v851-v860;
 - no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
