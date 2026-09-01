@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1771 passed on `c788760babc8b0c6becb886f37937f20d5d09028`.
+1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
 
-GitHub Actions push verification run #567 completed successfully for this exact main SHA.
+GitHub Actions push verification run #584 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1771 passed on `c788760babc8b0c6becb886f37937f20d5d09028`.
+1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
 
 Verification source:
-GitHub Actions push run #567, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #584, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1759,6 +1759,46 @@ Verified exact main:
 `c788760babc8b0c6becb886f37937f20d5d09028`
 
 GitHub Actions push Verify #567: 1771 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Persistence Integrity v871-v880 — 2026-09-01
+
+Completed:
+
+[x] Completion persistence accepts only mapping-shaped evidence input
+
+[x] Exact completion → checklist → guidance → verification → application lineage is required
+
+[x] Completion status, decision and user-reported boolean are mutually consistent
+
+[x] Root and revision evidence IDs use canonical deterministic lineage
+
+[x] Malformed storage containers and records fail closed
+
+[x] Explicit save=False is not reported as durable success
+
+[x] Successful persistence carries exact verified lineage and item/revision metadata forward
+
+[x] Completion revisions preserve verified lineage without enabling execution
+
+Verified exact main:
+
+`834df2a9ded1c3e05731a9c249683d15b188c661`
+
+GitHub Actions push Verify #584: 1781 passed / 0 failed.
 
 Preserved:
 
