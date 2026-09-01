@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
+1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
 
-GitHub Actions push Verify #518 completed successfully for this exact main SHA.
+GitHub Actions push Verify #534 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2709,3 +2709,35 @@ Tests:
 - cancelled duplicate branch-creation Verify #514 remains cancelled evidence and is not used as green evidence;
 - no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
 - `data/users.json` untouched.
+
+
+---
+
+# Product Decision User Action Guidance Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_guidance`
+- verified Product Decision persistence lineage to seller manual-action guidance
+
+Tests:
+
+- `tests/test_product_decision_user_action_guidance.py`
+- `tests/test_product_decision_user_action_guidance_integrity_v841_v850.py`
+
+Проверяет:
+
+- non-mapping verification input fails closed;
+- verification/application IDs and SKU require real non-empty strings;
+- explicit verifier `error=False`, verified status and decision-persistence verification are required;
+- non-empty mismatch evidence cannot be presented as trusted guidance;
+- external-verification and execution/persistence overclaims fail closed;
+- verified recorded-at must match the durable snapshot timestamp;
+- priority and confidence require canonical values;
+- reasons cannot be synthesized from malformed strings;
+- valid guidance carries read-only verified lineage and remains user-executed/non-automatic;
+- exact-SHA evidence: entering main #528, feature #532, PR merge-ref #533, squash-main #534;
+- no failed intermediate production SHA occurred in v841-v850;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
