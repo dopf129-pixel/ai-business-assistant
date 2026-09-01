@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
+1761 passed on `405fdea64008e21173e7851e8b370b63eae7ef73`.
 
-GitHub Actions push verification run #534 completed successfully for this exact main SHA.
+GitHub Actions push verification run #550 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -419,7 +419,7 @@ Next planned changes:
 4. Следующий product/operational пакет выбирать по фактическому repo gap после сверки main; не продолжать learning wrappers автоматически
 
 
-5. Не подключать canonical user-action advisory/checklist chain к Telegram, пока exact persisted Product Decision verification не будет явно пронесён через production Telegram lineage; v831-v840 укрепляет verifier, v841-v850 укрепляет guidance consumer, но runtime-подключение по-прежнему не выполнено
+5. Не подключать canonical user-action advisory/checklist chain к Telegram, пока exact persisted Product Decision verification не будет явно пронесён через production Telegram lineage; v831-v840 укрепляет verifier, v841-v850 guidance consumer, v851-v860 checklist consumer, но runtime-подключение по-прежнему не выполнено
 
 
 6. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
+1761 passed on `405fdea64008e21173e7851e8b370b63eae7ef73`.
 
 Verification source:
-GitHub Actions push run #534, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #550, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1679,6 +1679,46 @@ Verified exact main:
 `e793ca7ab241d54a12af8b3b402b1dc862652bf2`
 
 GitHub Actions push Verify #534: 1751 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Integrity v851-v860 — 2026-09-01
+
+Completed:
+
+[x] Checklist accepts only mapping-shaped guidance input
+
+[x] Guidance / verification / application IDs, SKU and verified-recorded-at require canonical non-empty strings
+
+[x] Explicit guidance error=False, ready status and decision-persistence verification are required
+
+[x] Verification remains bound to the persistence application ID
+
+[x] External-verification and persistence/execution overclaims fail closed
+
+[x] Decision/action pairing, priority, confidence, title and reasons are structurally validated
+
+[x] Manual checklist steps require real non-empty strings and are never coercively stringified
+
+[x] Valid checklist carries exact verified persistence lineage forward without enabling execution
+
+Verified exact main:
+
+`405fdea64008e21173e7851e8b370b63eae7ef73`
+
+GitHub Actions push Verify #550: 1761 passed / 0 failed.
 
 Preserved:
 
