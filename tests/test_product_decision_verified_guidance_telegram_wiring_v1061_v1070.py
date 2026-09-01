@@ -415,11 +415,11 @@ def test_v1070_factory_shares_history_with_readonly_verifier(monkeypatch):
         captured["handler_kwargs"][
             "product_decision_user_action_guidance_builder"
         ]
-        is build_product_decision_user_action_guidance
+        is telegram_factory.build_product_decision_user_action_guidance
     )
     assert (
         captured["handler_kwargs"][
             "product_decision_user_action_checklist_builder"
         ]
-        is build_product_decision_user_action_checklist
+        is telegram_factory.build_product_decision_user_action_checklist
     )
