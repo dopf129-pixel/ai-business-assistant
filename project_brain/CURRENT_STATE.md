@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
+1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
 
-GitHub Actions push verification run #660 completed successfully for this exact main SHA.
+GitHub Actions push verification run #668 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
+1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
 
 Verification source:
-GitHub Actions push run #660, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #668, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2084,6 +2084,51 @@ Preserved:
 - no Product Task Draft execution;
 - no Action Executor connection;
 - no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Action Proposal Result Integrity v951-v960 — 2026-09-01
+
+Completed:
+
+[x] Action proposal result must be a mapping
+
+[x] Proposal safety booleans and automation prohibition are exact
+
+[x] Proposal SKU / priority / decision type / reasons remain Product Decision-bound
+
+[x] Proposal type and confirmation semantics are decision-bound
+
+[x] Proposal exceptions fail closed without secret leakage
+
+[x] Malformed proposal is not cached and cannot enter task-draft lifecycle
+
+[x] Assortment query fails closed instead of counting malformed proposal state
+
+[x] Telegram renders neutral failure without proposal controls
+
+Verified exact main:
+
+`7637177202c21d3f2894105e39137efd86855b8c`
+
+GitHub Actions push Verify #668: 1861 passed / 0 failed.
+
+Integration finding:
+
+- verified Product Decision user-action guidance/checklist remains intentionally unwired from Telegram;
+- current durable Product Decision history does not store exact persistence-application receipt lineage;
+- do not synthesize lineage IDs or invoke persistence application as a read side effect.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
 - no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.

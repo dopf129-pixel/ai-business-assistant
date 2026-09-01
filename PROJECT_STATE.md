@@ -18,41 +18,46 @@ Development Autopilot Layer
 
 Package:
 
-`v941-v950: Product Decision User Action Learning Confidence Evidence Integrity`
+`v951-v960: Product Decision Action Proposal Result Integrity`
 
 Goal:
 
-Prevent malformed or contradictory evidence-quality state from becoming trusted descriptive confidence.
+Protect the seller-facing Product Decision → action proposal → Telegram boundary from malformed, unsafe, contradictory, or exceptional downstream proposal results.
 
 Immediately preceding verified package:
 
-`v931-v940: Product Decision User Action Learning Evidence Quality Summary Integrity`
+`v941-v950: Product Decision User Action Learning Confidence Evidence Integrity`
 
 ## Stable verification
 
 Latest exact main:
 
-`0671c0a0b06c662e935b4dcbf00e4cad12e32175`
+`7637177202c21d3f2894105e39137efd86855b8c`
 
-GitHub Actions push Verify #660:
+GitHub Actions push Verify #668:
 
-1851 passed / 0 failed.
+1861 passed / 0 failed.
 
 Preserved:
 
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Action Executor connection;
-- no Telegram production wiring for the newer user-action chain;
 - no Ozon mutation;
-- no production GitHub fetch;
+- no automatic business mutation;
 - `externally_verified=False`.
+
+## Confirmed integration blocker
+
+Verified Product Decision user-action guidance/checklist is not production-wired into Telegram because the durable decision-history record does not contain the exact persistence-application receipt lineage required for verification.
+
+Do not synthesize persistence IDs or trigger persistence application from a read-only Telegram view.
 
 ## Development direction
 
 Next:
 
-- select the next concrete product/operational package from actual repository state;
-- do not continue learning-chain hardening automatically without a factual downstream gap;
-- prioritize seller/operator usability, release readiness, observability, finance correctness, or real integration gaps;
+- choose the next concrete seller/operator, finance, observability, release-readiness, or integration gap from current repository state;
+- treat verified-guidance Telegram wiring as blocked until a factual durable read-only lineage source exists;
+- do not add a new persistence owner merely to satisfy wiring without a separately reviewed architecture need;
 - keep business execution disabled without separate architecture and authorization.

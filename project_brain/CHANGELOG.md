@@ -3152,3 +3152,35 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Action Proposal Result Integrity v951-v960
+
+- hardened seller-facing Product Decision → action-proposal → Telegram result integrity;
+- malformed/unsafe proposal results and proposal-service exceptions now fail closed before cache and task-draft lifecycle;
+- proposal identity, decision semantics, reasons, safety booleans and confirmation requirements are exact;
+- assortment query cannot count malformed proposal state as success;
+- Telegram exposes a neutral failure message with no proposal controls;
+- feature `70cbcc825fc49ab868ae1ac3c58ff80ea115482a`: Verify #666, 1861 passed / 0 failed;
+- PR #326 synthetic `4b8792f73e6f54836d358b4c0215d885d40c2a93`: Verify #667, 1861 passed / 0 failed;
+- squash main `7637177202c21d3f2894105e39137efd86855b8c`: Verify #668, 1861 passed / 0 failed;
+- no failed intermediate production SHA occurred in v951-v960;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Verified-guidance Telegram integration blocker confirmed
+
+- current durable Product Decision history snapshot does not persist exact persistence-application receipt lineage;
+- no separate persistence-application receipt storage exists in current repository;
+- verified guidance/checklist Telegram wiring therefore remains intentionally disabled;
+- no application IDs are synthesized and persistence application is not invoked as a read-side effect.
+
+## 2026-09-01 — Project Brain reconciliation after v951-v960
+
+- reconciled Project Brain to exact verified product main `7637177202c21d3f2894105e39137efd86855b8c` / Verify #668 / 1861 passed;
+- added `CURRENT_CHECKPOINT_V951_V960.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
