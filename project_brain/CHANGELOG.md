@@ -3321,3 +3321,33 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Unit Economics Result Integrity v1011-v1020
+
+- hardened the Product Unit Economics → Product Decision finance boundary;
+- economics query exceptions now return deterministic `PRODUCT_DECISION_UNIT_ECONOMICS_RESULT_INVALID`;
+- success requires exact downstream `error=False` and exact boolean `available`;
+- explicit downstream `error=True` stays unknown economics and is never converted to zero;
+- malformed missing-field collections and non-finite/boolean decision-finance values are rejected;
+- unavailable economics cannot overclaim profit or margin;
+- confirmed returns-adjusted profit requires complete returns finance evidence and known reserve;
+- estimated returns profit requires exact readiness plus required estimate evidence;
+- failed intermediate `c27b1fbfba804d36167855228f1881c08c4ef506`: Verify #723, 1917 passed / 4 failed, artifact 9818770098, digest `sha256:4befff3abaa04a2495c064f894ccbf62e4f351ff4c0dcd788be848ab6de4828e`;
+- failed intermediate `1114863bdc5b23969fe8cf2d3c9166fe5e7cd523`: Verify #724, 1918 passed / 3 failed, artifact 9818796986, digest `sha256:2f1512681c65a5b470a063e260b62f5689c448a68ad891a0a0bd561355009eda`;
+- final feature `fa9cd0e874347ba00320c8e9c36c85d0efb530a0`: Verify #725, 1921 passed / 0 failed, artifact 9818832270, digest `sha256:000475d4668fa695df71c6e226f8f988fad57e9a4703d4c83928c0c74c9b3319`;
+- PR #338 synthetic `8014a74ae903863da672ee4b82f9fb565ad3d6cc`: Verify #726, 1921 passed / 0 failed, artifact 9818861081, digest `sha256:425a071b7d1b996951d6f5ae0cde8858a94c7cf2940155ec582ff81eab8c47fd`;
+- squash main `982dc4f58fec6172a4fa99475ae72800c107981f`: Verify #727, 1921 passed / 0 failed, artifact 9818889552, digest `sha256:ceda4fa16efb58e088edcf5799e82c9b2afa41ac1d2de46a45fa46598b3d6170`;
+- finance formulas, fee accounting and decision thresholds unchanged;
+- no new persistence/execution/mutation path;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1011-v1020
+
+- reconciled Project Brain to exact verified product main `982dc4f58fec6172a4fa99475ae72800c107981f` / Verify #727 / 1921 passed;
+- added `CURRENT_CHECKPOINT_V1011_V1020.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

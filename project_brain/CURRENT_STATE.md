@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1911 passed on `288c6452703eee4082414d1ad36680b4ddf02caa`.
+1921 passed on `982dc4f58fec6172a4fa99475ae72800c107981f`.
 
-GitHub Actions push verification run #717 completed successfully for this exact main SHA.
+GitHub Actions push verification run #727 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2367,5 +2367,60 @@ Preserved:
 - no Action Executor connection;
 - no Telegram user-action persistence wiring;
 - no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Unit Economics Result Integrity v1011-v1020 — 2026-09-01
+
+Completed:
+
+[x] Unit Economics query exceptions are sanitized before Product Decision generation
+
+[x] Downstream `error` must be an exact boolean
+
+[x] Explicit downstream `error=True` remains unknown economics, never zero
+
+[x] Successful economics requires exact boolean `available`
+
+[x] Malformed/duplicate/non-string `missing_fields` is rejected
+
+[x] Boolean, NaN and infinity decision-finance values are rejected
+
+[x] `available=False` cannot claim profit or margin
+
+[x] Confirmed returns-adjusted profit requires complete returns finance evidence and known per-delivered-unit reserve
+
+[x] Estimated returns profit requires exact estimate readiness plus required estimate evidence
+
+[x] Invalid economics result fails closed with deterministic non-secret code and is not cached
+
+Verified exact main:
+
+`982dc4f58fec6172a4fa99475ae72800c107981f`
+
+GitHub Actions push Verify #727: 1921 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `c27b1fbfba804d36167855228f1881c08c4ef506`: Verify #723, 1917 passed / 4 failed;
+- `1114863bdc5b23969fe8cf2d3c9166fe5e7cd523`: Verify #724, 1918 passed / 3 failed.
+
+Final feature and integration evidence:
+
+- final feature `fa9cd0e874347ba00320c8e9c36c85d0efb530a0`: Verify #725, 1921 passed / 0 failed;
+- PR #338 synthetic `8014a74ae903863da672ee4b82f9fb565ad3d6cc`: Verify #726, 1921 passed / 0 failed;
+- squash main `982dc4f58fec6172a4fa99475ae72800c107981f`: Verify #727, 1921 passed / 0 failed.
+
+Preserved:
+
+- no finance formula or fee subtraction changed;
+- unknown finance remains unknown;
+- no Product Decision threshold/rule change;
+- no new persistence owner;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
