@@ -36,6 +36,28 @@ class ProductBusinessDecisionQueryService:
         "unit_economics_observed_at",
     )
 
+    HISTORY_CONTEXT_FIELDS = {
+        "decision_history_available",
+        "decision_changed",
+        "previous_decision_type",
+        "previous_priority",
+        "decision_recorded_at",
+        "decision_history_count",
+        "previous_feedback",
+        "decision_outcome",
+    }
+    HISTORY_FEEDBACK_VALUES = {
+        None,
+        "USEFUL",
+        "NOT_RELEVANT",
+    }
+    HISTORY_OUTCOME_VALUES = {
+        None,
+        "PRIORITY_DECREASED",
+        "PRIORITY_INCREASED",
+        "DECISION_CHANGED",
+    }
+
     def __init__(
         self,
         product_service,
@@ -272,6 +294,7 @@ class ProductBusinessDecisionQueryService:
         return (
             isinstance(decision, dict)
             and not decision.get("error")
+            and decision.get("decision_history_error") is not True
             and decision.get("decision_type")
             != self.CODE_INSUFFICIENT_DATA
         )
@@ -285,14 +308,113 @@ class ProductBusinessDecisionQueryService:
             == self.CODE_INSUFFICIENT_DATA
         ):
             return result
+
         try:
-            context = self.decision_history_service.record(result)
-        except (OSError, ValueError, TypeError):
-            context = {
-                "decision_history_available": False,
-                "decision_changed": False,
-            }
-        result.update(context or {})
+            context = self.decision_history_service.record(
+                deepcopy(result)
+            )
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            return self._history_context_unavailable(
+                result,
+                "DECISION_HISTORY_RECORD_FAILED",
+            )
+
+        if not self._valid_decision_history_context(context):
+            return self._history_context_unavailable(
+                result,
+                "INVALID_DECISION_HISTORY_CONTEXT",
+            )
+
+        for field in self.HISTORY_CONTEXT_FIELDS:
+            if field in context:
+                result[field] = deepcopy(context[field])
+
+        result["decision_history_error"] = False
+        result["decision_history_code"] = None
+        return result
+
+    def _valid_decision_history_context(self, context):
+        if not isinstance(context, dict):
+            return False
+
+        if set(context) - self.HISTORY_CONTEXT_FIELDS:
+            return False
+
+        available = context.get("decision_history_available")
+        changed = context.get("decision_changed")
+
+        if type(available) is not bool or type(changed) is not bool:
+            return False
+
+        if available is False and changed is True:
+            return False
+
+        for field in (
+            "previous_decision_type",
+            "previous_priority",
+            "decision_recorded_at",
+        ):
+            if field not in context or context[field] is None:
+                continue
+            if (
+                not isinstance(context[field], str)
+                or not context[field].strip()
+            ):
+                return False
+
+        if (
+            "decision_history_count" in context
+            and (
+                type(context["decision_history_count"]) is not int
+                or context["decision_history_count"] < 0
+                or (
+                    available is True
+                    and context["decision_history_count"] < 1
+                )
+            )
+        ):
+            return False
+
+        if (
+            context.get("previous_feedback")
+            not in self.HISTORY_FEEDBACK_VALUES
+        ):
+            return False
+
+        if (
+            context.get("decision_outcome")
+            not in self.HISTORY_OUTCOME_VALUES
+        ):
+            return False
+
+        if (
+            changed is True
+            and (
+                not isinstance(
+                    context.get("previous_decision_type"),
+                    str,
+                )
+                or not context["previous_decision_type"].strip()
+            )
+        ):
+            return False
+
+        return True
+
+    def _history_context_unavailable(self, decision, code):
+        result = deepcopy(decision)
+        result.update({
+            "decision_history_available": False,
+            "decision_changed": False,
+            "previous_decision_type": None,
+            "previous_priority": None,
+            "decision_recorded_at": None,
+            "decision_history_count": None,
+            "previous_feedback": None,
+            "decision_outcome": None,
+            "decision_history_error": True,
+            "decision_history_code": code,
+        })
         return result
 
     def _with_action_proposal(self, decision):
@@ -378,7 +500,11 @@ class ProductBusinessDecisionQueryService:
     def _with_task_draft_lifecycle(self, decision):
         result = deepcopy(decision)
         service = self.action_task_draft_service
-        if service is None or result.get("error"):
+        if (
+            service is None
+            or result.get("error")
+            or result.get("decision_history_error") is True
+        ):
             return result
         proposal = result.get("action_proposal") or {}
         current_proposal_type = (

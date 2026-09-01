@@ -1296,31 +1296,53 @@ class AssistantButtonHandlerService:
             "decision_history_service",
             None,
         )
-        if history_service is None or not proposal.get("proposal_type"):
+        if (
+            result.get("decision_history_error") is True
+            or history_service is None
+            or not proposal.get("proposal_type")
+        ):
             return result
+
         try:
             latest = history_service.latest(sku)
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
             return result
+
+        if latest is not None and not isinstance(latest, dict):
+            return result
+
         if (
-            latest
-            and latest.get("proposal_type") == proposal.get("proposal_type")
+            isinstance(latest, dict)
+            and latest.get("sku") == sku
+            and latest.get("proposal_type")
+            == proposal.get("proposal_type")
+            and latest.get("proposal_status")
+            in {None, "CONFIRMED", "DISMISSED"}
         ):
-            proposal["proposal_status"] = latest.get("proposal_status")
-            result["action_proposal"] = proposal
+            proposal_status = latest.get("proposal_status")
+            if proposal_status is not None:
+                proposal["proposal_status"] = proposal_status
+                result["action_proposal"] = proposal
+
         draft_service = self._product_action_task_draft_service()
         if draft_service is not None:
             try:
                 draft = draft_service.latest_for_sku(sku)
-            except (OSError, ValueError, TypeError):
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 draft = None
+
             if (
-                draft
-                and draft.get("proposal_type") == proposal.get("proposal_type")
+                isinstance(draft, dict)
+                and draft.get("sku") == sku
+                and draft.get("proposal_type")
+                == proposal.get("proposal_type")
                 and draft.get("decision_recorded_at")
                 == result.get("decision_recorded_at")
+                and draft.get("executed") is False
+                and draft.get("execution_allowed") is False
             ):
-                result["action_task_draft"] = draft
+                result["action_task_draft"] = deepcopy(draft)
+
         return result
 
     def _record_product_proposal_status(
