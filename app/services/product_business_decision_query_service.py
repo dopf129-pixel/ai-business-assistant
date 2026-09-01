@@ -10,6 +10,38 @@ class ProductBusinessDecisionQueryService:
     CODE_ACTION_PROPOSAL_RESULT_INVALID = (
         "PRODUCT_DECISION_ACTION_PROPOSAL_RESULT_INVALID"
     )
+    CODE_DECISION_RESULT_INVALID = "PRODUCT_DECISION_RESULT_INVALID"
+
+    DECISION_PRIORITY = {
+        "REPLENISH_HIGH_PRIORITY": "CRITICAL",
+        "REPLENISH_NORMAL": "HIGH",
+        "WATCH_LOW_MARGIN": "NORMAL",
+        "INVESTIGATE_LOW_PROFIT": "HIGH",
+        "HOLD_STOCK": "LOW",
+        "INSUFFICIENT_DATA": "NONE",
+    }
+    DECISION_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
+    DECISION_REASONS = {
+        "DAYS_OF_STOCK_CRITICAL",
+        "DAYS_OF_STOCK_LOW",
+        "HIGH_SALES_VELOCITY",
+        "SALES_DECLINING",
+        "POSITIVE_UNIT_PROFIT",
+        "LOW_UNIT_PROFIT",
+        "NEGATIVE_UNIT_PROFIT",
+        "LOW_MARGIN",
+        "ECONOMICS_INCOMPLETE",
+        "IDENTITY_MISMATCH",
+    }
+    DECISION_RESULT_FIELDS = {
+        "product_id",
+        "sku",
+        "decision_type",
+        "priority",
+        "reasons",
+        "confidence",
+        "missing_data",
+    }
 
     DECISION_ACTION_PROPOSAL = {
         "REPLENISH_HIGH_PRIORITY": ("REVIEW_REPLENISHMENT", True),
@@ -151,7 +183,24 @@ class ProductBusinessDecisionQueryService:
             unit_economics=economics_metrics
         )
 
-        decision = self.decision_service.decide(prepared)
+        try:
+            decision = self.decision_service.decide(deepcopy(prepared))
+        except (OSError, TypeError, ValueError, KeyError, AttributeError):
+            return self._decision_result_failure(
+                product_id=product_id,
+                sku=sku,
+            )
+
+        if not self._valid_decision_result(
+            decision,
+            product_id=product_id,
+            sku=sku,
+        ):
+            return self._decision_result_failure(
+                product_id=product_id,
+                sku=sku,
+            )
+
         economics_context = self._economics_context(
             economics_metrics
         )
@@ -175,6 +224,75 @@ class ProductBusinessDecisionQueryService:
             **metrics_context,
             **economics_context,
             **evidence_context,
+        }
+
+    def _valid_decision_result(self, decision, product_id, sku):
+        if not isinstance(decision, dict):
+            return False
+
+        if set(decision) != self.DECISION_RESULT_FIELDS:
+            return False
+
+        if decision.get("product_id") != product_id:
+            return False
+
+        if decision.get("sku") != sku:
+            return False
+
+        decision_type = decision.get("decision_type")
+        priority = decision.get("priority")
+        confidence = decision.get("confidence")
+        reasons = decision.get("reasons")
+        missing_data = decision.get("missing_data")
+
+        if (
+            decision_type not in self.DECISION_PRIORITY
+            or priority != self.DECISION_PRIORITY[decision_type]
+            or confidence not in self.DECISION_CONFIDENCE
+        ):
+            return False
+
+        if not isinstance(reasons, list) or not reasons:
+            return False
+        if any(
+            not isinstance(reason, str)
+            or not reason.strip()
+            or reason not in self.DECISION_REASONS
+            for reason in reasons
+        ):
+            return False
+        if len(set(reasons)) != len(reasons):
+            return False
+
+        if not isinstance(missing_data, list):
+            return False
+        if any(
+            not isinstance(field, str) or not field.strip()
+            for field in missing_data
+        ):
+            return False
+        if len(set(missing_data)) != len(missing_data):
+            return False
+
+        if decision_type == self.CODE_INSUFFICIENT_DATA:
+            return confidence == "LOW" and bool(missing_data)
+
+        if confidence == "LOW":
+            return False
+
+        return True
+
+    def _decision_result_failure(self, product_id, sku):
+        return {
+            "error": True,
+            "code": self.CODE_DECISION_RESULT_INVALID,
+            "product_id": product_id,
+            "sku": sku,
+            "decision_type": self.CODE_INSUFFICIENT_DATA,
+            "priority": "NONE",
+            "reasons": [],
+            "confidence": "LOW",
+            "missing_data": ["decision"],
         }
 
     def query_all(self):
