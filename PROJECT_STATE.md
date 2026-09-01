@@ -18,25 +18,25 @@ Development Autopilot Layer
 
 Package:
 
-`v981-v990: Product Decision Result Integrity`
+`v991-v1000: Product Decision Assortment Overview Integrity`
 
 Goal:
 
-Prevent malformed or contract-inconsistent Product Decision service output from reaching seller-facing history, action proposals, cache, task-draft lifecycle, assortment aggregation, or Telegram.
+Prevent contradictory Product Decision assortment counts, proposal statistics, duplicate seller rows, or unsafe nested proposal state from becoming Telegram overview output or buttons.
 
 Immediately preceding verified package:
 
-`v971-v980: Unit Economics Returns Finance Impact Integrity`
+`v981-v990: Product Decision Result Integrity`
 
 ## Stable verification
 
 Latest exact main:
 
-`5f0534bb72dba2471c3c339a69cd7041552dfb4a`
+`84d714909d5082958bf2bb21a30b7b097eb17955`
 
-GitHub Actions push Verify #698:
+GitHub Actions push Verify #709:
 
-1891 passed / 0 failed.
+1901 passed / 0 failed.
 
 Preserved:
 
@@ -49,17 +49,15 @@ Preserved:
 - no automatic business mutation;
 - `externally_verified=False`.
 
-## Preserved branch evidence
+## Preserved failed evidence
 
-Cancelled intermediate pushes:
-- `f21c1ca4b21b57a634a502ecb754e93fabb78e18` / Verify #693;
-- `689fd2b9db65861f8853251accb0f2a3e0cf86d8` / Verify #694.
-
-Failed intermediate:
-- `8a286947bdc5862834a05794e330d87ef370ffe7` / Verify #695 / 1889 passed / 2 failed.
+- `3fe8ef0caa6b03a5dabbabae463cb0037a4c9ca5` / Verify #704 / 1882 passed / 9 failed;
+- `86b6e9063c1a9cfa500d4e0409ba6668623c5321` / Verify #705 / 1892 passed / 9 failed;
+- `0b2da626f71a45adf54f0f9f0dbfd8b5a8e75353` / Verify #706 / 1898 passed / 3 failed.
 
 Final feature:
-- `8b90c11763622cc413802a488171738cf2332a1a` / Verify #696 / 1891 passed / 0 failed.
+
+- `63870a305972f7b7e8f33cad251fc6f13235d1fc` / Verify #707 / 1901 passed / 0 failed.
 
 ## Confirmed integration blocker
 
@@ -72,5 +70,5 @@ Do not synthesize persistence IDs or trigger persistence application from a read
 Next:
 
 - choose the next factual seller/operator, finance, release-readiness, observability, or integration gap from current repository state;
-- do not continue result/provenance wrappers without a concrete production failure;
+- do not continue overview/provenance hardening without a concrete production failure;
 - keep business execution disabled without separate architecture and authorization.

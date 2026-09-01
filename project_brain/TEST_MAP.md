@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
+1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
 
-GitHub Actions push Verify #698 completed successfully for this exact main SHA.
+GitHub Actions push Verify #709 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3187,5 +3187,39 @@ Tests:
 - final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed;
 - PR #332 synthetic `da5e7689cc87a0597944f371dfe4246082d92806`: Verify #697, 1891 passed / 0 failed;
 - squash main `5f0534bb72dba2471c3c339a69cd7041552dfb4a`: Verify #698, 1891 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Assortment Overview Integrity v1
+
+Boundary:
+
+- `AssistantButtonHandlerService._validate_product_decisions_overview`
+- Product Decision assortment overview → counts / proposal statistics / pagination / Telegram keyboard
+
+Tests:
+
+- `tests/test_product_decision_assortment_overview_integrity_v991_v1000.py`
+- canonicalized legacy overview fakes in Product Decision Telegram/learning tests
+
+Проверяет:
+
+- exact decision-count recomputation;
+- exact positive integer count semantics;
+- unknown count-key rejection;
+- duplicate SKU rejection;
+- canonical decision type → priority pairing;
+- exact proposal-count recomputation;
+- exact actionable proposal count;
+- nested proposal safety and known proposal types;
+- valid mixed overview preserves seller statistics;
+- validator is deterministic and non-mutating;
+- failed intermediates #704/#705/#706 remain failed evidence;
+- final feature `63870a305972f7b7e8f33cad251fc6f13235d1fc`: Verify #707, 1901 passed / 0 failed;
+- PR #334 synthetic `1bbee7e03477b197a474a6807093d6ee344b7505`: Verify #708, 1901 passed / 0 failed;
+- squash main `84d714909d5082958bf2bb21a30b7b097eb17955`: Verify #709, 1901 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
