@@ -3351,3 +3351,32 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Operational Metrics Result Integrity v1021-v1030
+
+- hardened the Sales/Stock operational metrics → Product Decision boundary;
+- sales/stock source exceptions now fail closed with deterministic non-secret `PRODUCT_DECISION_OPERATIONAL_METRICS_RESULT_INVALID`;
+- explicit source `error=True` remains unavailable/unknown data and is not converted to zero;
+- non-mapping results and non-boolean explicit error markers are rejected;
+- sales velocity/current stock/days-of-stock reject booleans, negatives, NaN and infinity;
+- sales trends and stock priorities are constrained to canonical producer semantics;
+- existing `stock_priority` alias support is preserved; contradictory aliases are rejected;
+- malformed missing-data and evidence strings are rejected;
+- invalid operational metrics are not cached;
+- failed intermediate `678739dea2fa85af3f71933f048f9bfb193fdc62`: Verify #733, 1929 passed / 2 failed, artifact 9820082230, digest `sha256:6273094ec34e0f137f34150b0faa8de56a05fd84139a168182fc62463bc1d3d6`;
+- final feature `6af041c39b86791821249058d0632070f2f68685`: Verify #734, 1931 passed / 0 failed, artifact 9820119946, digest `sha256:944e125073a632050d3a9754cf5c4d3f9eee8d08b20d50477d274c9f2dc60851`;
+- PR #340 synthetic `7e64fcd23df9fb405c8c422359e3703b6a720f56`: Verify #735, 1931 passed / 0 failed, artifact 9820146443, digest `sha256:a5c05914cedd5e433179fee0109208032616de8d2920241b4f642d5f15d6138e`;
+- squash main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`: Verify #736, 1931 passed / 0 failed, artifact 9820173379, digest `sha256:617e8d058dbce91302226a2b26f48761b4ebafe5cd5ddd54560c22f962ed4d70`;
+- no Product Decision threshold, finance formula, persistence owner, execution permission or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1021-v1030
+
+- reconciled Project Brain to exact verified product main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df` / Verify #736 / 1931 passed;
+- added `CURRENT_CHECKPOINT_V1021_V1030.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

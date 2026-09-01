@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1921 passed on `982dc4f58fec6172a4fa99475ae72800c107981f`.
+1931 passed on `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`.
 
-GitHub Actions push verification run #727 completed successfully for this exact main SHA.
+GitHub Actions push verification run #736 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2419,6 +2419,64 @@ Preserved:
 - no finance formula or fee subtraction changed;
 - unknown finance remains unknown;
 - no Product Decision threshold/rule change;
+- no new persistence owner;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Operational Metrics Result Integrity v1021-v1030 — 2026-09-01
+
+Completed:
+
+[x] Sales source exceptions are sanitized before Product Decision generation
+
+[x] Stock source exceptions are sanitized before Product Decision generation
+
+[x] Non-mapping operational metrics fail closed
+
+[x] Explicit metrics `error` marker must be boolean when present
+
+[x] Explicit `error=True` remains unavailable/unknown data, never zero
+
+[x] Sales velocity is finite, non-boolean, and non-negative
+
+[x] Sales trend is canonical: GROWING / DECLINING / STABLE
+
+[x] Stock quantity and days-of-stock are finite, non-boolean, and non-negative
+
+[x] Stock priority semantics are canonical, including NO_SALES
+
+[x] Existing `stock_priority` alias contract is preserved and contradictory aliases are rejected
+
+[x] Malformed missing-data/evidence fields fail closed
+
+[x] Invalid operational metrics result is not cached
+
+Verified exact main:
+
+`70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`
+
+GitHub Actions push Verify #736: 1931 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `678739dea2fa85af3f71933f048f9bfb193fdc62`: Verify #733, 1929 passed / 2 failed.
+
+Final feature and integration evidence:
+
+- final feature `6af041c39b86791821249058d0632070f2f68685`: Verify #734, 1931 passed / 0 failed;
+- PR #340 synthetic `7e64fcd23df9fb405c8c422359e3703b6a720f56`: Verify #735, 1931 passed / 0 failed;
+- squash main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`: Verify #736, 1931 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision threshold/rule change;
+- no finance formula change;
+- unknown sales/stock values remain unknown;
 - no new persistence owner;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
