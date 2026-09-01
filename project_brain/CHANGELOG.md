@@ -3440,3 +3440,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Read-Only Persistence Verification v1051-v1060
+
+- added explicit durable read receipt to existing Product Decision History JSON storage;
+- corrupted JSON/non-list/mixed durable data no longer collapses into “no history” for the verification path;
+- added `latest_persistent()` that reads durable storage directly and never relies on in-memory history state;
+- added `verify_latest()` on the existing Product Decision persistence verifier;
+- in-memory-only history cannot claim persistence;
+- verifier validates durable read receipt, decision snapshot semantics, SKU, recorded_at and complete persisted application lineage;
+- valid durable history yields canonical `PRODUCT_DECISION_PERSISTENCE_VERIFIED` output for downstream read-only guidance/checklist consumers;
+- feature `c0da07cbafeb1fe38001729eebca94648149d96b`: Verify #760, 1961 passed / 0 failed, artifact 9821587270, digest `sha256:ae830adf4821e4c3f2d3a9f1ae23a6fd78792658a5a7cfd2bea4e5cb6f56460d`;
+- PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80`: Verify #761, 1961 passed / 0 failed, artifact 9821612474, digest `sha256:a6f1580e2bfbe2e54189c3e7b82585594606a9b26e2267621d8b1089c29a69dc`;
+- squash main `b0bfdd5dd79349244ceaf64d1d4df9899211344a`: Verify #762, 1961 passed / 0 failed, artifact 9821639408, digest `sha256:d4af24b29a66591efc4b5336c07d352cec822b12de36351ea9b0b04431c08030`;
+- no persistence write, Product Decision rule, finance formula, execution permission or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1051-v1060
+
+- reconciled Project Brain to exact verified product main `b0bfdd5dd79349244ceaf64d1d4df9899211344a` / Verify #762 / 1961 passed;
+- added `CURRENT_CHECKPOINT_V1051_V1060.md`;
+- DECISIONS unchanged: no new persistence owner/service/layer;
+- integration blocker narrowed to Telegram verified-guidance/checklist production wiring through read-only verifier;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

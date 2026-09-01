@@ -447,16 +447,16 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1041_V1050.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1051_V1060.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1041_V1050.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1051_V1060.md`
 
 
 ## Current integration blocker
 
-- Exact persistence-application lineage is now durably stored with Product Decision history snapshots.
-- Verified-guidance Telegram wiring is still blocked until a read-only reconstruction path can produce the canonical persistence-verification payload from that durable lineage and snapshot without calling persistence application.
-- Do not infer missing lineage fields and do not call persistence application as a side effect of Telegram read/presentation.
+- Exact persistence-application lineage is durably stored and canonical persistence verification can now be reconstructed read-only from durable history.
+- Remaining blocker: production-wire Product Decision verified guidance/checklist into Telegram through this read-only verifier, preserving fail-closed behavior for old/unverified snapshots.
+- Telegram must never call persistence application as a side effect of presentation.
 
 
 [x] Product Decision Task Draft Lifecycle Result Integrity
@@ -472,3 +472,6 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V1041_V1050.md`
 
 
 [x] Product Decision Durable Application Lineage
+
+
+[x] Product Decision Read-Only Persistence Verification

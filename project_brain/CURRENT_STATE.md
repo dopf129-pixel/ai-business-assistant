@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1951 passed on `19851b9d40827b3ca5e3889c3858ca32c5602f67`.
+1961 passed on `b0bfdd5dd79349244ceaf64d1d4df9899211344a`.
 
-GitHub Actions push verification run #754 completed successfully for this exact main SHA.
+GitHub Actions push verification run #762 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2589,6 +2589,57 @@ Preserved:
 - Product Decision History remains the only persistence owner;
 - application lineage is written, never inferred after the fact;
 - Telegram read path still does not invoke persistence application;
+- Telegram guidance/checklist wiring is not yet enabled;
+- no Product Decision rule/threshold or finance formula change;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Read-Only Persistence Verification v1051-v1060 — 2026-09-01
+
+Completed:
+
+[x] Product Decision History storage exposes explicit durable read receipt
+
+[x] Corrupted JSON/non-list/mixed durable data is distinguishable from no history
+
+[x] latest_persistent() reads storage directly rather than self.records
+
+[x] In-memory-only history cannot become persistence proof
+
+[x] Read-only verifier validates durable read receipt before business semantics
+
+[x] Read-only verifier validates snapshot SKU, recorded_at, decision semantics and stored application lineage
+
+[x] Missing/cross-SKU/broken-chain lineage fails closed
+
+[x] Valid durable history produces canonical PRODUCT_DECISION_PERSISTENCE_VERIFIED payload
+
+[x] Runtime verification ID is produced only after exact persisted application ID validates
+
+[x] verify_latest() performs no save/application/execution/Ozon mutation
+
+Verified exact main:
+
+`b0bfdd5dd79349244ceaf64d1d4df9899211344a`
+
+GitHub Actions push Verify #762: 1961 passed / 0 failed.
+
+Feature and integration evidence:
+
+- final feature `c0da07cbafeb1fe38001729eebca94648149d96b`: Verify #760, 1961 passed / 0 failed;
+- PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80`: Verify #761, 1961 passed / 0 failed;
+- squash main `b0bfdd5dd79349244ceaf64d1d4df9899211344a`: Verify #762, 1961 passed / 0 failed.
+
+Preserved:
+
+- Product Decision History remains the only persistence owner;
+- no persisted application lineage is inferred;
+- read-only verification never calls persistence application;
 - Telegram guidance/checklist wiring is not yet enabled;
 - no Product Decision rule/threshold or finance formula change;
 - no Product Decision/Product Task Draft execution;
