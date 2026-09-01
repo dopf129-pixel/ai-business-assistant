@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
+1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
 
-GitHub Actions push verification run #616 completed successfully for this exact main SHA.
+GitHub Actions push verification run #626 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
+1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
 
 Verification source:
-GitHub Actions push run #616, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #626, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1877,6 +1877,46 @@ Verified exact main:
 `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
 
 GitHub Actions push Verify #616: 1801 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Observation Lineage Integrity v901-v910 — 2026-09-01
+
+Completed:
+
+[x] Canonical checklist-status ID and exact checklist/guidance/verification/application lineage required
+
+[x] Persisted Product Decision verification preserved into observation
+
+[x] USER_REPORTED_COMPLETE requires exact item/reported/completed consistency
+
+[x] Reported/completed item identities remain canonical and non-coercive
+
+[x] Later Product Decision result remains explicit and SKU-bound
+
+[x] Observation carries verified lineage while remaining read-only, non-causal and non-executable
+
+Failed intermediate evidence retained:
+
+`0896d8112971966aec9fb61c7a2250436f19d76a` / Verify #623 / 1804 passed / 7 failed.
+
+Verified exact main:
+
+`c7c864814ec609b0f2c58b4578a522b2e5e8dad1`
+
+GitHub Actions push Verify #626: 1811 passed / 0 failed.
 
 Preserved:
 

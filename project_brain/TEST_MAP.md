@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
+1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
 
-GitHub Actions push Verify #616 completed successfully for this exact main SHA.
+GitHub Actions push Verify #626 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2897,5 +2897,36 @@ Tests:
 - valid aggregate carries persisted-decision verification lineage and remains externally unverified/non-executable;
 - exact-SHA evidence: entering main #610, feature #614, PR merge-ref #615, squash-main #616;
 - no failed intermediate production SHA occurred in v891-v900;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Observation Lineage Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_post_decision_observation`
+- verified checklist-status → read-only later Product Decision observation
+
+Tests:
+
+- `tests/test_product_decision_user_action_post_decision_observation.py`
+- `tests/test_product_decision_user_action_post_decision_observation_integrity_v811_v820.py`
+- `tests/test_product_decision_user_action_post_decision_observation_integrity_v901_v910.py`
+
+Проверяет:
+
+- non-mapping checklist status and later-decision payloads fail closed;
+- canonical checklist-status/checklist/guidance/verification/application/SKU/timestamp lineage;
+- explicit persisted Product Decision verification;
+- exact complete-report count and item-ID consistency;
+- no numeric/coercive item identity;
+- explicit later-decision success marker and canonical fields;
+- matching SKU;
+- safe read-only/non-causal/non-executable observation output;
+- exact-SHA evidence: entering main #620, failed intermediate #623, final feature #624, PR merge-ref #625, squash-main #626;
+- failed intermediate `0896d8112971966aec9fb61c7a2250436f19d76a` remains failed evidence at 1804 passed / 7 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
