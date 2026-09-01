@@ -66,8 +66,11 @@ def test_v932_missing_explicit_summary_error_marker_is_not_success():
 
 
 def test_v933_string_observation_count_is_not_coerced():
+    source = _summary()
+    source["observation_count"] = "3"
+
     result = build_product_decision_user_action_learning_evidence_quality(
-        _summary(observation_count="3")
+        source
     )
 
     assert result["code"] == "LEARNING_EVIDENCE_QUALITY_COUNTS_INVALID"
