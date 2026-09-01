@@ -151,8 +151,11 @@ def test_v925_unsafe_outcome_is_not_silently_excluded():
 
 
 def test_v926_noncanonical_medium_priority_is_not_counted():
+    outcome = _outcome()
+    outcome["later_priority"] = "MEDIUM"
+
     result = build_product_decision_user_action_learning_summary([
-        _outcome(later_priority="MEDIUM")
+        outcome
     ])
 
     assert (
