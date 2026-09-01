@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1951 passed on `19851b9d40827b3ca5e3889c3858ca32c5602f67`.
+1961 passed on `b0bfdd5dd79349244ceaf64d1d4df9899211344a`.
 
-GitHub Actions push Verify #754 completed successfully for this exact main SHA.
+GitHub Actions push Verify #762 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3405,5 +3405,38 @@ Tests:
 - PR #344 synthetic `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`: Verify #753, 1951 passed / 0 failed;
 - squash main `19851b9d40827b3ca5e3889c3858ca32c5602f67`: Verify #754, 1951 passed / 0 failed;
 - Telegram remains read-only and not persistence-wired;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Read-Only Persistence Verification v1
+
+Boundaries:
+
+- `ProductDecisionHistoryStorageService.read_durable`
+- `ProductDecisionHistoryService.latest_persistent`
+- `ProductDecisionPersistenceVerificationService.verify_latest`
+
+Tests:
+
+- `tests/test_product_decision_readonly_persistence_verification_v1051_v1060.py`
+
+Проверяет:
+
+- durable read receipt is explicit;
+- corrupted JSON is invalid, not empty history;
+- non-list/mixed durable data fails closed;
+- latest_persistent reads durable storage rather than memory;
+- in-memory history cannot verify persistence;
+- malformed durable read receipt fails closed;
+- missing/cross-SKU/broken application lineage fails closed;
+- valid restart produces canonical verified persistence payload;
+- verify_latest is read-only and does not mutate file or in-memory state;
+- final feature `c0da07cbafeb1fe38001729eebca94648149d96b`: Verify #760, 1961 passed / 0 failed;
+- PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80`: Verify #761, 1961 passed / 0 failed;
+- squash main `b0bfdd5dd79349244ceaf64d1d4df9899211344a`: Verify #762, 1961 passed / 0 failed;
+- no persistence application side effect;
 - `data/users.json` untouched;
 - `externally_verified=False`.
