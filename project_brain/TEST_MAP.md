@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1761 passed on `405fdea64008e21173e7851e8b370b63eae7ef73`.
+1771 passed on `c788760babc8b0c6becb886f37937f20d5d09028`.
 
-GitHub Actions push Verify #550 completed successfully for this exact main SHA.
+GitHub Actions push Verify #567 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2769,6 +2769,37 @@ Tests:
 - valid checklist carries the verified persistence lineage forward and remains user-owned/non-executable;
 - exact-SHA evidence: entering main #544, feature #548, PR merge-ref #549, squash-main #550;
 - no failed intermediate production SHA occurred in v851-v860;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Evidence Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_completion_evidence`
+- verified Product Decision user checklist to explicit USER_REPORT completion evidence
+
+Tests:
+
+- `tests/test_product_decision_user_action_completion_evidence.py`
+- `tests/test_product_decision_user_action_completion_evidence_integrity_v861_v870.py`
+
+Проверяет:
+
+- non-mapping checklist input fails closed;
+- checklist / guidance / verification / application IDs, SKU, item ID and verified-recorded-at require real non-empty strings;
+- exact guidance → verification → application lineage is retained;
+- explicit checklist `error=False`, ready status and decision-persistence verification are required;
+- non-string completion decisions are not coercively normalized;
+- external-verification and persistence/execution overclaims fail closed;
+- item count, completed count, positions, user ownership and instructions are structurally validated;
+- valid completion evidence remains USER_REPORT, non-persistent before its dedicated persistence step and non-executable;
+- exact-SHA evidence: entering main #560, feature #565, PR merge-ref #566, squash-main #567;
+- no failed intermediate production SHA occurred in v861-v870;
 - no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
