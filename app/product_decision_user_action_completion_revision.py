@@ -55,8 +55,19 @@ def build_product_decision_user_action_completion_revision(previous_persisted, d
         "previous_user_action_completion_evidence_id": evidence_id,
         "user_action_checklist_id": checklist_id,
         "user_action_guidance_id": source.get("user_action_guidance_id"),
+        "decision_persistence_verification_id": source.get(
+            "decision_persistence_verification_id"
+        ),
+        "decision_persistence_application_id": source.get(
+            "decision_persistence_application_id"
+        ),
         "sku": sku,
+        "verified_recorded_at": source.get("verified_recorded_at"),
+        "decision_persistence_verified": source.get(
+            "decision_persistence_verified"
+        ),
         "item_id": source.get("item_id"),
+        "instruction": source.get("instruction"),
         "completion_revision": next_revision,
         "completion_decision": normalized_decision,
         "user_reported_completed": completed,
