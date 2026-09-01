@@ -3105,3 +3105,26 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Learning Evidence Quality Summary Integrity v931-v940
+
+- hardened learning-summary → evidence-quality integrity without changing quality thresholds;
+- removed count/map coercion and require exact aggregate consistency;
+- outcome IDs, SKU counts and aggregate sums are count-bound;
+- zero evidence now requires genuinely empty aggregate evidence;
+- failed intermediate `849b0d0e78e441f3080631419ecbc0ea192890ec`: Verify #649, 1840 passed / 1 failed; v933 test-fixture TypeError; remains failed evidence;
+- final feature `e600b6726a9eadadce65f8b803b74608b79d96d0`: Verify #650, 1841 passed / 0 failed;
+- PR #322 synthetic `5b58b853a5e8b402a4e5b61ffd68f4174416b190`: Verify #651, 1841 passed / 0 failed;
+- squash main `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`: Verify #652, 1841 passed / 0 failed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v931-v940
+
+- reconciled Project Brain to exact verified main `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9` / Verify #652 / 1841 passed;
+- added `CURRENT_CHECKPOINT_V931_V940.md`;
+- DECISIONS unchanged;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
