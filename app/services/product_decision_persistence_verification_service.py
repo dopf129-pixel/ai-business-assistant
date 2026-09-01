@@ -33,6 +33,141 @@ class ProductDecisionPersistenceVerificationService:
     def __init__(self, history_service):
         self.history_service = history_service
 
+    def verify_latest(self, sku):
+        normalized_sku = self._required_string(sku)
+        if (
+            normalized_sku is None
+            or normalized_sku != sku
+        ):
+            return self._blocked(
+                "DECISION_PERSISTENCE_READONLY_SKU_REQUIRED",
+                {},
+            )
+
+        latest_persistent = getattr(
+            self.history_service,
+            "latest_persistent",
+            None,
+        )
+        if not callable(latest_persistent):
+            return self._blocked(
+                (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "DURABLE_READ_RECEIPT_REQUIRED"
+                ),
+                {"sku": normalized_sku},
+            )
+
+        try:
+            read_receipt = latest_persistent(normalized_sku)
+        except Exception:
+            return self._blocked(
+                "DECISION_PERSISTENCE_READONLY_HISTORY_READ_FAILED",
+                {"sku": normalized_sku},
+            )
+
+        read_error = self._readonly_read_receipt_error(
+            read_receipt,
+            normalized_sku,
+        )
+        if read_error is not None:
+            return self._blocked(
+                read_error,
+                {"sku": normalized_sku},
+            )
+
+        snapshot = read_receipt["snapshot"]
+        snapshot_sku = self._required_string(snapshot.get("sku"))
+        if snapshot_sku != normalized_sku:
+            return self._blocked(
+                (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "HISTORY_SKU_MISMATCH"
+                ),
+                {"sku": normalized_sku},
+            )
+
+        if not self._decision_snapshot_semantics_valid(snapshot):
+            return self._blocked(
+                (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "HISTORY_SNAPSHOT_INVALID"
+                ),
+                {"sku": normalized_sku},
+            )
+
+        recorded_at = self._required_string(
+            snapshot.get("recorded_at")
+        )
+        if not recorded_at:
+            return self._blocked(
+                (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "HISTORY_SNAPSHOT_INVALID"
+                ),
+                {"sku": normalized_sku},
+            )
+
+        lineage = snapshot.get(
+            "persistence_application_lineage"
+        )
+        lineage_error = self._readonly_lineage_error(
+            lineage,
+            normalized_sku,
+        )
+        if lineage_error is not None:
+            return self._blocked(
+                lineage_error,
+                {"sku": normalized_sku},
+            )
+
+        application_id = lineage[
+            "decision_persistence_application_id"
+        ]
+        verification_id = (
+            "product-decision-persistence-verification:"
+            + application_id
+        )
+
+        return {
+            "error": False,
+            "status": "PRODUCT_DECISION_PERSISTENCE_VERIFIED",
+            "decision_persistence_verification_id": verification_id,
+            "decision_persistence_application_id": application_id,
+            "decision_persistence_application_readiness_id": lineage[
+                "decision_persistence_application_readiness_id"
+            ],
+            "decision_persistence_authorization_id": lineage[
+                "decision_persistence_authorization_id"
+            ],
+            "decision_persistence_eligibility_id": lineage[
+                "decision_persistence_eligibility_id"
+            ],
+            "decision_preview_review_id": lineage[
+                "decision_preview_review_id"
+            ],
+            "decision_preview_delta_id": lineage[
+                "decision_preview_delta_id"
+            ],
+            "recompute_preview_id": lineage["recompute_preview_id"],
+            "draft_id": lineage["draft_id"],
+            "sku": normalized_sku,
+            "decision_persistence_verified": True,
+            "verified_recorded_at": recorded_at,
+            "verified_snapshot": deepcopy(snapshot),
+            "mismatched_fields": [],
+            "verification_source": "DURABLE_HISTORY_READBACK",
+            "externally_verified": False,
+            "persistent": True,
+            "product_decision_recomputed": True,
+            "product_decision_mutated": False,
+            "product_decision_persisted": True,
+            "ozon_mutation_called": False,
+            "execution_allowed": False,
+            "execution_ready": False,
+            "executed": False,
+        }
+
     def verify(self, application):
         if not isinstance(application, dict):
             return self._blocked(
@@ -334,6 +469,162 @@ class ProductDecisionPersistenceVerificationService:
             "execution_ready": False,
             "executed": False,
         }
+
+    @classmethod
+    def _readonly_read_receipt_error(
+        cls,
+        receipt,
+        sku,
+    ):
+        if (
+            not isinstance(receipt, dict)
+            or type(receipt.get("error")) is not bool
+        ):
+            return (
+                "DECISION_PERSISTENCE_READONLY_"
+                "DURABLE_READ_RECEIPT_INVALID"
+            )
+
+        if receipt["error"] is True:
+            code = receipt.get("code")
+            mapping = {
+                "DECISION_HISTORY_DURABLE_STORAGE_REQUIRED": (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "DURABLE_STORAGE_REQUIRED"
+                ),
+                "DECISION_HISTORY_DURABLE_READ_RECEIPT_REQUIRED": (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "DURABLE_READ_RECEIPT_REQUIRED"
+                ),
+                "DECISION_HISTORY_DURABLE_DATA_INVALID": (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "HISTORY_DATA_INVALID"
+                ),
+                "DECISION_HISTORY_DURABLE_READ_SKU_INVALID": (
+                    "DECISION_PERSISTENCE_READONLY_SKU_REQUIRED"
+                ),
+            }
+            return mapping.get(
+                code,
+                "DECISION_PERSISTENCE_READONLY_HISTORY_READ_FAILED",
+            )
+
+        snapshot = receipt.get("snapshot")
+        history_count = receipt.get("history_count")
+        if (
+            receipt.get("sku") != sku
+            or receipt.get("durable_read") is not True
+            or receipt.get("persistent_snapshot_available") is not True
+            or not isinstance(snapshot, dict)
+            or type(history_count) is not int
+            or history_count < 1
+        ):
+            if (
+                receipt.get("durable_read") is True
+                and receipt.get(
+                    "persistent_snapshot_available"
+                ) is False
+                and snapshot is None
+                and history_count == 0
+            ):
+                return (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "HISTORY_NOT_FOUND"
+                )
+            return (
+                "DECISION_PERSISTENCE_READONLY_"
+                "DURABLE_READ_RECEIPT_INVALID"
+            )
+
+        return None
+
+    @classmethod
+    def _readonly_lineage_error(
+        cls,
+        lineage,
+        sku,
+    ):
+        fields = {
+            "decision_persistence_application_id",
+            "decision_persistence_application_readiness_id",
+            "decision_persistence_authorization_id",
+            "decision_persistence_eligibility_id",
+            "decision_preview_review_id",
+            "decision_preview_delta_id",
+            "recompute_preview_id",
+            "draft_id",
+            "sku",
+        }
+        if (
+            not isinstance(lineage, dict)
+            or set(lineage) != fields
+        ):
+            return (
+                "DECISION_PERSISTENCE_READONLY_"
+                "APPLICATION_LINEAGE_INVALID"
+            )
+
+        values = {}
+        for field in fields:
+            value = cls._required_string(lineage.get(field))
+            if (
+                value is None
+                or value != lineage.get(field)
+            ):
+                return (
+                    "DECISION_PERSISTENCE_READONLY_"
+                    "APPLICATION_LINEAGE_INVALID"
+                )
+            values[field] = value
+
+        if values["sku"] != sku:
+            return (
+                "DECISION_PERSISTENCE_READONLY_"
+                "APPLICATION_LINEAGE_SKU_MISMATCH"
+            )
+
+        valid_chain = (
+            values["decision_persistence_application_id"]
+            == (
+                "product-decision-persistence-application:"
+                + values[
+                    "decision_persistence_application_readiness_id"
+                ]
+            )
+            and values[
+                "decision_persistence_application_readiness_id"
+            ]
+            == (
+                "product-decision-persistence-application-readiness:"
+                + values["decision_persistence_authorization_id"]
+            )
+            and values["decision_persistence_authorization_id"]
+            == (
+                "product-decision-persistence-authorization:"
+                + values["decision_persistence_eligibility_id"]
+            )
+            and values["decision_persistence_eligibility_id"]
+            == (
+                "product-decision-persistence-eligibility:"
+                + values["decision_preview_review_id"]
+            )
+            and values["decision_preview_review_id"]
+            == (
+                "product-decision-preview-review:"
+                + values["decision_preview_delta_id"]
+            )
+            and values["decision_preview_delta_id"]
+            == (
+                "product-decision-preview-delta:"
+                + values["recompute_preview_id"]
+            )
+        )
+        if not valid_chain:
+            return (
+                "DECISION_PERSISTENCE_READONLY_"
+                "APPLICATION_LINEAGE_INVALID"
+            )
+        return None
 
     @classmethod
     def _commit_receipt_error(
