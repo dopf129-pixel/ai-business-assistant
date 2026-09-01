@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1791 passed on `73c349d50dad1a5562a09777df5a69f661869645`.
+1801 passed on `3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`.
 
-GitHub Actions push Verify #599 completed successfully for this exact main SHA.
+GitHub Actions push Verify #616 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2864,5 +2864,38 @@ Tests:
 - exact-SHA evidence: entering main #594, feature #597, PR merge-ref #598, squash-main #599;
 - no failed intermediate production SHA occurred in v881-v890;
 - no runtime execution or Ozon mutation wiring changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Status Persistence Lineage Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_checklist_status`
+- verified Product Decision checklist + persisted USER_REPORT completion receipts → aggregate seller checklist status
+
+Tests:
+
+- `tests/test_product_decision_user_action_checklist_status.py`
+- `tests/test_product_decision_user_action_checklist_status_integrity_v891_v900.py`
+
+Проверяет:
+
+- non-mapping checklist and non-list report collection fail closed;
+- exact checklist/guidance/verification/application/SKU/timestamp lineage;
+- checklist success, verification, item shape and safety contract;
+- matching persisted receipt success/source/persistence/safety contract;
+- matching receipt item/instruction and verified lineage binding;
+- exact integer completion revision without coercion;
+- canonical root/evidence/previous revision IDs;
+- duplicate item+revision ambiguity;
+- contiguous revision chain from 1 through latest;
+- malformed matching report cannot become no-report success;
+- valid aggregate carries persisted-decision verification lineage and remains externally unverified/non-executable;
+- exact-SHA evidence: entering main #610, feature #614, PR merge-ref #615, squash-main #616;
+- no failed intermediate production SHA occurred in v891-v900;
 - `data/users.json` untouched;
 - `externally_verified=False`.
