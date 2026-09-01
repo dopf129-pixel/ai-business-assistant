@@ -311,6 +311,7 @@ def test_confirmed_returns_profit_drives_high_confidence_decision():
     service = _service(
         economics=_economics(
             returns_finance_impact={"error": False},
+            returns_finance_complete=True,
             risk_adjusted_profit_per_unit=15.0,
             risk_adjusted_margin_percent=15.63,
             returns_cost_per_delivered_unit=5.0,

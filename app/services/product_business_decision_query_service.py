@@ -1,4 +1,5 @@
 from copy import deepcopy
+from math import isfinite
 from time import monotonic
 
 
@@ -11,6 +12,9 @@ class ProductBusinessDecisionQueryService:
         "PRODUCT_DECISION_ACTION_PROPOSAL_RESULT_INVALID"
     )
     CODE_DECISION_RESULT_INVALID = "PRODUCT_DECISION_RESULT_INVALID"
+    CODE_UNIT_ECONOMICS_RESULT_INVALID = (
+        "PRODUCT_DECISION_UNIT_ECONOMICS_RESULT_INVALID"
+    )
     CODE_TASK_DRAFT_LIFECYCLE_RESULT_INVALID = (
         "PRODUCT_DECISION_TASK_DRAFT_LIFECYCLE_RESULT_INVALID"
     )
@@ -104,6 +108,17 @@ class ProductBusinessDecisionQueryService:
         "REVIEW_UNIT_ECONOMICS",
         "REVIEW_MARGIN",
     }
+    ECONOMICS_NUMERIC_FIELDS = {
+        "net_profit_per_unit",
+        "margin_percent",
+        "risk_adjusted_profit_per_unit",
+        "risk_adjusted_margin_percent",
+        "returns_cost_per_delivered_unit",
+        "estimated_returns_cost_per_unit",
+        "estimated_profit_per_unit",
+        "estimated_margin_percent",
+        "returns_estimate_coverage_percent",
+    }
 
     def __init__(
         self,
@@ -185,11 +200,28 @@ class ProductBusinessDecisionQueryService:
             self.stock_metrics_source,
             sku
         )
-        economics_result = self.unit_economics_query_service.query(sku)
-        economics_metrics = self._normalize_economics(
-            economics_result,
-            product_id=product_id,
-            sku=sku
+        try:
+            economics_result = self.unit_economics_query_service.query(sku)
+        except (OSError, TypeError, ValueError, KeyError, AttributeError):
+            return self._unit_economics_result_failure(
+                product_id=product_id,
+                sku=sku,
+            )
+
+        if not self._valid_unit_economics_result(economics_result):
+            return self._unit_economics_result_failure(
+                product_id=product_id,
+                sku=sku,
+            )
+
+        economics_metrics = (
+            None
+            if economics_result["error"] is True
+            else self._normalize_economics(
+                economics_result,
+                product_id=product_id,
+                sku=sku,
+            )
         )
 
         prepared = self.decision_input_provider.build(
@@ -805,6 +837,106 @@ class ProductBusinessDecisionQueryService:
             return None
 
         return dict(result)
+
+    def _valid_unit_economics_result(self, result):
+        if not isinstance(result, dict):
+            return False
+
+        if type(result.get("error")) is not bool:
+            return False
+
+        if result["error"] is True:
+            return True
+
+        if type(result.get("available")) is not bool:
+            return False
+
+        missing_fields = result.get("missing_fields")
+        if (
+            not isinstance(missing_fields, list)
+            or any(
+                not isinstance(field, str) or not field.strip()
+                for field in missing_fields
+            )
+            or len(missing_fields) != len(set(missing_fields))
+        ):
+            return False
+
+        for field in self.ECONOMICS_NUMERIC_FIELDS:
+            value = result.get(field)
+            if value is None:
+                continue
+            if (
+                type(value) not in (int, float)
+                or not isfinite(float(value))
+            ):
+                return False
+
+        for field in (
+            "returns_finance_complete",
+            "returns_estimate_available",
+        ):
+            if field in result and type(result.get(field)) is not bool:
+                return False
+
+        impact = result.get("returns_finance_impact")
+        if (
+            impact is not None
+            and (
+                not isinstance(impact, dict)
+                or type(impact.get("error")) is not bool
+            )
+        ):
+            return False
+
+        if result["available"] is False:
+            if any(
+                result.get(field) is not None
+                for field in (
+                    "net_profit_per_unit",
+                    "margin_percent",
+                    "risk_adjusted_profit_per_unit",
+                    "risk_adjusted_margin_percent",
+                    "estimated_profit_per_unit",
+                    "estimated_margin_percent",
+                )
+            ):
+                return False
+            if result.get("returns_estimate_available") is True:
+                return False
+
+        if result.get("risk_adjusted_profit_per_unit") is not None:
+            if (
+                result.get("returns_finance_complete") is not True
+                or result.get("returns_cost_per_delivered_unit") is None
+            ):
+                return False
+
+        if result.get("returns_estimate_available") is True:
+            if any(
+                result.get(field) is None
+                for field in (
+                    "estimated_returns_cost_per_unit",
+                    "estimated_profit_per_unit",
+                    "returns_estimate_coverage_percent",
+                )
+            ):
+                return False
+
+        return True
+
+    def _unit_economics_result_failure(self, product_id, sku):
+        return {
+            "error": True,
+            "code": self.CODE_UNIT_ECONOMICS_RESULT_INVALID,
+            "product_id": product_id,
+            "sku": sku,
+            "decision_type": self.CODE_INSUFFICIENT_DATA,
+            "priority": "NONE",
+            "reasons": [],
+            "confidence": "LOW",
+            "missing_data": ["unit_economics"],
+        }
 
     def _normalize_economics(self, result, product_id, sku):
         if not isinstance(result, dict):
