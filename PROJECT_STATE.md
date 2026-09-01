@@ -18,39 +18,40 @@ Development Autopilot Layer
 
 Package:
 
-`v821-v830: Task Persistence Operator Presentation Integrity`
+`v831-v840: Product Decision Persistence Verification Integrity`
 
 Goal:
 
-Prevent malformed or contradictory persistence diagnostics from being rendered as trusted operator state.
+Prevent malformed Product Decision lineage or durable snapshot data from being promoted into a trusted persistence-verification artifact.
 
 Immediately preceding verified package:
 
-`v811-v820: Post-Decision Observation Integrity`
+`v821-v830: Task Persistence Operator Presentation Integrity`
 
 Preserved:
 
-- no automatic retry or lock deletion;
 - no Product Decision execution;
 - no Product Task Draft execution;
+- no Action Executor connection;
 - no Ozon mutation;
 - no quantity or price inference;
+- no production GitHub fetch;
 - `externally_verified=False`.
 
 Verification evidence is tracked in:
 
-- `project_brain/CURRENT_CHECKPOINT_V811_V820.md`
 - `project_brain/CURRENT_CHECKPOINT_V821_V830.md`
+- `project_brain/CURRENT_CHECKPOINT_V831_V840.md`
 
 ## Stable verification
 
 Latest exact main:
 
-`c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`
+`a3aa88f351985e8519f754923880165f96fb29ad`
 
-GitHub Actions push Verify #501:
+GitHub Actions push Verify #518:
 
-1731 passed / 0 failed.
+1741 passed / 0 failed.
 
 ## Development direction
 
@@ -59,4 +60,5 @@ Next:
 - maintain exact-SHA verification;
 - select the next production/product/operational package from the actual repository gap;
 - do not extend evidence/lifecycle wrappers without a concrete failure;
+- keep the canonical user-action advisory/checklist chain out of Telegram until exact persisted Product Decision verification is explicitly carried through that runtime lineage;
 - keep business mutations disabled without separate architecture and authorization.

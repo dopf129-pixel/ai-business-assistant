@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
+1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
 
-GitHub Actions push Verify #501 completed successfully for this exact main SHA.
+GitHub Actions push Verify #518 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2677,3 +2677,35 @@ Tests:
 - no persistence owner change, automatic retry, lock removal, business execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
+
+
+---
+
+# Product Decision Persistence Verification Integrity v1
+
+Boundary:
+
+- `ProductDecisionPersistenceVerificationService`
+- durable Product Decision read-back trust boundary before downstream user-action guidance
+
+Tests:
+
+- `tests/test_product_decision_persistence_verification_service.py`
+- `tests/test_product_decision_persistence_verification_integrity_v831_v840.py`
+
+Проверяет:
+
+- non-mapping application input fails closed;
+- lineage IDs, draft ID and SKU require real non-empty strings;
+- numeric identity coercion cannot create verified lineage;
+- explicit persisted-preview error markers, when present, must be boolean;
+- decision type, priority and confidence are canonical;
+- reasons are a real non-empty list of non-empty strings;
+- malformed durable history snapshots cannot be promoted to verification success;
+- recorded-at binding requires a real string;
+- matching malformed expected/history values do not become valid through coercive normalization;
+- valid output remains read-only, non-executable and `externally_verified=False`;
+- exact-SHA evidence: entering main #509, feature #516, PR merge-ref #517, squash-main #518;
+- cancelled duplicate branch-creation Verify #514 remains cancelled evidence and is not used as green evidence;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched.
