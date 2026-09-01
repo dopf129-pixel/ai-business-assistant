@@ -2941,3 +2941,32 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Completion Persistence Integrity v871-v880
+
+- hardened the existing USER_REPORT completion evidence → durable persistence boundary;
+- exact checklist/guidance/verification/application lineage is required;
+- root and revision evidence IDs use canonical deterministic lineage;
+- completion status, decision and reported boolean must agree;
+- malformed storage results no longer become clean/empty success;
+- explicit `save(False)` no longer becomes persisted success;
+- persisted output carries verified lineage, item/instruction and revision metadata;
+- completion revision producer propagates verified lineage without adding execution permission;
+- feature `381cb421686753aa7e735a693e269b2b27002e5c`: Verify #582, 1781 passed / 0 failed;
+- PR #310 synthetic merge `8b2607178930e3df423084a0d122c6b314141be2`: Verify #583, 1781 passed / 0 failed;
+- squash main `834df2a9ded1c3e05731a9c249683d15b188c661`: Verify #584, 1781 passed / 0 failed;
+- no failed intermediate production SHA occurred in v871-v880;
+- no Product Decision rule/threshold change, persistence-owner change, Product Task Draft execution, Telegram production wiring, Action Executor connection, quantity/price inference or Ozon mutation;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v871-v880
+
+- reconciled Project Brain to exact verified product main `834df2a9ded1c3e05731a9c249683d15b188c661` / Verify #584 / 1781 passed;
+- added `CURRENT_CHECKPOINT_V871_V880.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
