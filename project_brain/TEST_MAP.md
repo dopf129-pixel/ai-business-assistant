@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1921 passed on `982dc4f58fec6172a4fa99475ae72800c107981f`.
+1931 passed on `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`.
 
-GitHub Actions push Verify #727 completed successfully for this exact main SHA.
+GitHub Actions push Verify #736 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3292,5 +3292,42 @@ Tests:
 - final feature `fa9cd0e874347ba00320c8e9c36c85d0efb530a0`: Verify #725, 1921 passed / 0 failed;
 - PR #338 synthetic `8014a74ae903863da672ee4b82f9fb565ad3d6cc`: Verify #726, 1921 passed / 0 failed;
 - squash main `982dc4f58fec6172a4fa99475ae72800c107981f`: Verify #727, 1921 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Operational Metrics Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._query_operational_metrics_source`
+- `ProductBusinessDecisionQueryService._valid_operational_metrics_result`
+- Sales/Stock operational metrics → Product Decision business facts
+
+Tests:
+
+- `tests/test_product_decision_operational_metrics_result_integrity_v1021_v1030.py`
+- existing freshness propagation tests validate the supported `stock_priority` alias contract
+
+Проверяет:
+
+- sales/stock source exceptions are sanitized;
+- non-mapping source results fail closed;
+- non-boolean explicit error marker is rejected;
+- explicit error=True remains unknown rather than zero;
+- unsafe sales velocity is rejected;
+- noncanonical sales trend is rejected;
+- unsafe stock quantity/days values are rejected;
+- stock priority/day relationship is canonical;
+- `priority` and `stock_priority` aliases cannot contradict;
+- malformed missing-data/evidence fields are rejected;
+- invalid metrics are not cached;
+- valid path still produces a Product Decision;
+- failed `678739dea2fa85af3f71933f048f9bfb193fdc62`: Verify #733, 1929 passed / 2 failed;
+- final feature `6af041c39b86791821249058d0632070f2f68685`: Verify #734, 1931 passed / 0 failed;
+- PR #340 synthetic `7e64fcd23df9fb405c8c422359e3703b6a720f56`: Verify #735, 1931 passed / 0 failed;
+- squash main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`: Verify #736, 1931 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
