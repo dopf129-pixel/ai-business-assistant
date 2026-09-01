@@ -170,11 +170,24 @@ def build_product_decision_user_action_completion_evidence(
             or instruction is None
             or type(position) is not int
             or position != index + 1
-            or item.get("completion_source") != "USER"
-            or item.get("completed") is not False
         ):
             return _blocked(
                 "USER_ACTION_COMPLETION_ITEMS_INVALID",
+                source,
+                normalized_item_id,
+            )
+
+        if (
+            item.get("completion_source") != "USER"
+            or item.get("completed") is not False
+        ):
+            code = (
+                "USER_ACTION_COMPLETION_ITEM_STATE_INVALID"
+                if current_item_id == normalized_item_id
+                else "USER_ACTION_COMPLETION_ITEMS_INVALID"
+            )
+            return _blocked(
+                code,
                 source,
                 normalized_item_id,
             )
