@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1831 passed on `b492b655030791d5e703c8aa607d2763d455e486`.
+1841 passed on `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`.
 
-GitHub Actions push verification run #643 completed successfully for this exact main SHA.
+GitHub Actions push verification run #652 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1831 passed on `b492b655030791d5e703c8aa607d2763d455e486`.
+1841 passed on `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`.
 
 Verification source:
-GitHub Actions push run #643, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #652, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2004,6 +2004,45 @@ Preserved:
 
 - no Product Decision threshold/rule change;
 - no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Evidence Quality Summary Integrity v931-v940 — 2026-09-01
+
+Completed:
+
+[x] Learning summary input and explicit success are validated
+
+[x] Counts are exact integers and never string/missing coercions
+
+[x] Outcome/priority/SKU aggregate maps must be canonical and mathematically consistent
+
+[x] Outcome IDs are exact, unique, and count-bound
+
+[x] Zero evidence requires truly empty aggregates
+
+[x] Existing evidence-quality thresholds remain unchanged
+
+Failed intermediate evidence retained:
+
+`849b0d0e78e441f3080631419ecbc0ea192890ec` / Verify #649 / 1840 passed / 1 failed.
+
+Verified exact main:
+
+`9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`
+
+GitHub Actions push Verify #652: 1841 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
 - no Product Task Draft execution;
 - no Action Executor connection;
 - no Telegram production wiring;
