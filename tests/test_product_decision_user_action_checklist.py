@@ -4,17 +4,26 @@ from product_decision_user_action_checklist import build_product_decision_user_a
 
 
 def _guidance(**values):
-    verification_id = "product-decision-persistence-verification:app-1"
+    application_id = "app-1"
+    verification_id = "product-decision-persistence-verification:" + application_id
     result = {
+        "error": False,
         "status": "PRODUCT_DECISION_USER_ACTION_GUIDANCE_READY",
         "user_action_guidance_id": "product-decision-user-action-guidance:" + verification_id,
         "decision_persistence_verification_id": verification_id,
+        "decision_persistence_application_id": application_id,
         "sku": "hook-2",
         "decision_type": "REPLENISH_HIGH_PRIORITY",
         "priority": "HIGH",
+        "confidence": "HIGH",
         "action_type": "REVIEW_REPLENISHMENT",
         "title": "Проверить пополнение запаса",
         "steps": ["Проверить остаток.", "Определить объём вручную.", "Выполнить действие самостоятельно."],
+        "reasons": ["LOW_STOCK"],
+        "verified_recorded_at": "2026-09-01T12:00:00+00:00",
+        "decision_persistence_verified": True,
+        "externally_verified": False,
+        "persistent": True,
         "user_execution_required": True,
         "automatic_execution_prohibited": True,
         "ozon_mutation_called": False,
