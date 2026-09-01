@@ -35,7 +35,7 @@ class StubDecisionQuery:
             "product_id": "101",
             "sku": "hook-2",
             "decision_type": "REPLENISH_HIGH_PRIORITY",
-            "priority": "HIGH",
+            "priority": "CRITICAL",
             "reasons": [
                 "DAYS_OF_STOCK_CRITICAL",
                 "POSITIVE_UNIT_PROFIT",
@@ -321,6 +321,7 @@ def test_product_decision_card_shows_safe_manual_action_proposal():
                 "action_required": True,
                 "requires_confirmation": True,
                 "execution_allowed": False,
+                "automation_status": "PROHIBITED",
             },
         }
     )
