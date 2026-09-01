@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1911 passed on `288c6452703eee4082414d1ad36680b4ddf02caa`.
+1921 passed on `982dc4f58fec6172a4fa99475ae72800c107981f`.
 
-GitHub Actions push Verify #717 completed successfully for this exact main SHA.
+GitHub Actions push Verify #727 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3256,5 +3256,41 @@ Tests:
 - final feature `12e4f1d4f38296b8f46680302478f377121644a8`: Verify #715, 1911 passed / 0 failed;
 - PR #336 synthetic `005ac13b1fbb01bb6e95314d1f8c89b994ba85c6`: Verify #716, 1911 passed / 0 failed;
 - squash main `288c6452703eee4082414d1ad36680b4ddf02caa`: Verify #717, 1911 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Unit Economics Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._query_product`
+- `ProductBusinessDecisionQueryService._valid_unit_economics_result`
+- Product Unit Economics result → Product Decision finance facts
+
+Tests:
+
+- `tests/test_product_decision_unit_economics_result_integrity_v1011_v1020.py`
+- aligned canonical fixtures in Product Decision and freshness propagation tests
+
+Проверяет:
+
+- non-mapping/missing/non-boolean result markers fail closed;
+- downstream exceptions are sanitized;
+- explicit downstream errors remain unknown, not zero;
+- unavailable economics cannot claim profit/margin;
+- missing-field shape and uniqueness are enforced;
+- NaN/infinity/bool finance values are rejected;
+- confirmed returns-adjusted profit requires complete evidence;
+- estimated returns profit requires exact readiness and evidence;
+- invalid results are not cached;
+- valid producer result still drives decisions;
+- failed `c27b1fbfba804d36167855228f1881c08c4ef506`: Verify #723, 1917 passed / 4 failed;
+- failed `1114863bdc5b23969fe8cf2d3c9166fe5e7cd523`: Verify #724, 1918 passed / 3 failed;
+- final feature `fa9cd0e874347ba00320c8e9c36c85d0efb530a0`: Verify #725, 1921 passed / 0 failed;
+- PR #338 synthetic `8014a74ae903863da672ee4b82f9fb565ad3d6cc`: Verify #726, 1921 passed / 0 failed;
+- squash main `982dc4f58fec6172a4fa99475ae72800c107981f`: Verify #727, 1921 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
