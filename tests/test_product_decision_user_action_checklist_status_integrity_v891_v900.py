@@ -63,10 +63,10 @@ def _checklist(**values):
 
 def _report(item_id, completed, revision=1, **values):
     application_id, verification_id, guidance_id, checklist_id = _ids()
-    instructions = {
+    instruction = {
         "manual-step-1": "Проверить остаток.",
         "manual-step-2": "Определить действие вручную.",
-    }
+    }[item_id]
     root_id = (
         "product-decision-user-action-completion-evidence:%s:%s"
         % (checklist_id, item_id)
@@ -99,7 +99,7 @@ def _report(item_id, completed, revision=1, **values):
         "verified_recorded_at": "2026-09-01T12:00:00+00:00",
         "decision_persistence_verified": True,
         "item_id": item_id,
-        "instruction": instructions[item_id],
+        "instruction": instruction,
         "completion_revision": revision,
         "completion_decision": (
             "CONFIRM_COMPLETED"
@@ -121,39 +121,125 @@ def _report(item_id, completed, revision=1, **values):
     return result
 
 
-def test_no_reports_status():
+def test_v891_non_mapping_checklist_fails_closed():
     result = build_product_decision_user_action_checklist_status(
-        _checklist(),
+        ["not", "a", "mapping"],
         [],
     )
-    assert result["aggregate_status"] == "NO_USER_REPORTS"
-    assert result["reported_count"] == 0
+
+    assert result["error"] is True
+    assert result["code"] == "USER_ACTION_CHECKLIST_STATUS_INPUT_INVALID"
 
 
-def test_partial_status():
+def test_v892_non_list_report_collection_fails_closed():
     result = build_product_decision_user_action_checklist_status(
         _checklist(),
-        [_report("manual-step-1", True)],
+        {"report": "not-a-list"},
     )
-    assert result["aggregate_status"] == "USER_REPORTED_PARTIAL"
-    assert result["completed_count"] == 1
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORTS_INPUT_INVALID"
+    )
 
 
-def test_all_completed_status_is_still_not_external_verification():
+def test_v893_missing_explicit_checklist_success_marker_is_not_trusted():
+    source = _checklist()
+    source.pop("error")
+
+    result = build_product_decision_user_action_checklist_status(
+        source,
+        [],
+    )
+
+    assert result["code"] == "USER_ACTION_CHECKLIST_STATUS_SOURCE_INVALID"
+
+
+def test_v894_numeric_checklist_identity_is_not_coerced():
+    result = build_product_decision_user_action_checklist_status(
+        _checklist(sku=123),
+        [],
+    )
+
+    assert result["code"] == "USER_ACTION_CHECKLIST_STATUS_CONTEXT_REQUIRED"
+
+
+def test_v895_matching_malformed_persisted_report_fails_closed():
+    report = _report("manual-step-1", True)
+    report.pop("error")
+
     result = build_product_decision_user_action_checklist_status(
         _checklist(),
-        [
-            _report("manual-step-1", True),
-            _report("manual-step-2", True),
-        ],
+        [report],
     )
-    assert result["aggregate_status"] == "USER_REPORTED_COMPLETE"
-    assert result["completed_count"] == 2
-    assert result["externally_verified"] is False
-    assert result["executed"] is False
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORT_RESULT_INVALID"
+    )
+    assert result["aggregate_status"] is None
 
 
-def test_latest_revision_wins():
+def test_v896_matching_report_must_preserve_application_lineage():
+    report = _report(
+        "manual-step-1",
+        True,
+        decision_persistence_application_id="other-app",
+    )
+
+    result = build_product_decision_user_action_checklist_status(
+        _checklist(),
+        [report],
+    )
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORT_LINEAGE_MISMATCH"
+    )
+
+
+def test_v897_string_revision_is_not_coerced_to_integer():
+    report = _report("manual-step-1", True)
+    report["completion_revision"] = "1"
+
+    result = build_product_decision_user_action_checklist_status(
+        _checklist(),
+        [report],
+    )
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORT_REVISION_INVALID"
+    )
+
+
+def test_v898_duplicate_item_revision_is_ambiguous():
+    report = _report("manual-step-1", True)
+
+    result = build_product_decision_user_action_checklist_status(
+        _checklist(),
+        [report, dict(report)],
+    )
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORT_REVISION_AMBIGUOUS"
+    )
+
+
+def test_v899_revision_chain_cannot_start_at_revision_two():
+    result = build_product_decision_user_action_checklist_status(
+        _checklist(),
+        [_report("manual-step-1", True, revision=2)],
+    )
+
+    assert (
+        result["code"]
+        == "USER_ACTION_CHECKLIST_STATUS_REPORT_CHAIN_INCOMPLETE"
+    )
+
+
+def test_v900_valid_latest_revision_preserves_verified_lineage():
     result = build_product_decision_user_action_checklist_status(
         _checklist(),
         [
@@ -162,52 +248,26 @@ def test_latest_revision_wins():
             _report("manual-step-2", True, revision=1),
         ],
     )
-    assert result["aggregate_status"] == "USER_REPORTED_COMPLETE"
 
-
-def test_later_not_completed_revision_can_reverse_reported_status():
-    result = build_product_decision_user_action_checklist_status(
-        _checklist(),
-        [
-            _report("manual-step-1", True, revision=1),
-            _report("manual-step-1", False, revision=2),
-            _report("manual-step-2", True, revision=1),
-        ],
-    )
-    assert result["aggregate_status"] == "USER_REPORTED_PARTIAL"
-    assert result["completed_count"] == 1
-
-
-def test_foreign_checklist_reports_are_ignored():
-    result = build_product_decision_user_action_checklist_status(
-        _checklist(),
-        [
-            _report(
-                "manual-step-1",
-                True,
-                user_action_checklist_id="other",
-            )
-        ],
-    )
-    assert result["aggregate_status"] == "NO_USER_REPORTS"
-
-
-def test_unsafe_checklist_blocks():
-    result = build_product_decision_user_action_checklist_status(
-        _checklist(executed=True),
-        [],
-    )
+    assert result["error"] is False
     assert (
-        result["code"]
-        == "USER_ACTION_CHECKLIST_STATUS_SAFETY_BOUNDARY_VIOLATION"
+        result["status"]
+        == "PRODUCT_DECISION_USER_ACTION_CHECKLIST_STATUS_READY"
     )
-
-
-def test_duplicate_item_ids_block():
-    items = _checklist()["items"]
-    items[1]["item_id"] = items[0]["item_id"]
-    result = build_product_decision_user_action_checklist_status(
-        _checklist(items=items),
-        [],
+    assert result["aggregate_status"] == "USER_REPORTED_COMPLETE"
+    assert result["reported_count"] == 2
+    assert result["completed_count"] == 2
+    assert result["decision_persistence_application_id"] == "app-1"
+    assert result["decision_persistence_verified"] is True
+    assert (
+        result["verified_recorded_at"]
+        == "2026-09-01T12:00:00+00:00"
     )
-    assert result["code"] == "USER_ACTION_CHECKLIST_STATUS_ITEMS_INVALID"
+    assert result["completion_evidence_source"] == "USER_REPORT"
+    assert result["externally_verified"] is False
+    assert result["persistent"] is False
+    assert result["checklist_mutated"] is False
+    assert result["ozon_mutation_called"] is False
+    assert result["execution_allowed"] is False
+    assert result["execution_ready"] is False
+    assert result["executed"] is False
