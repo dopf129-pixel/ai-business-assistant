@@ -3079,3 +3079,29 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Learning Summary Outcome Integrity v921-v930
+
+- hardened outcome → learning-summary boundary against malformed, unsafe, contradictory and duplicate outcome evidence;
+- malformed/unsafe outcomes now fail closed instead of silently disappearing from learning counts;
+- exact v911-v920 outcome lineage, persisted Product Decision verification and complete USER_REPORT evidence are required;
+- duplicate outcome IDs cannot inflate learning counts;
+- only an actual empty list can produce a valid zero-observation summary;
+- failed intermediate `21051b20acdfc0036a15d875d01b488283791ff3`: Verify #640, 1830 passed / 1 failed; v926 test-helper failure before production builder; remains failed evidence;
+- final feature `9f33708a8d4db6b80bad880c561ea9d92b504698`: Verify #641, 1831 passed / 0 failed;
+- PR #320 synthetic merge `bbce7d398060c0ec96be84dc8dd10b85ff56495d`: Verify #642, 1831 passed / 0 failed;
+- squash main `b492b655030791d5e703c8aa607d2763d455e486`: Verify #643, 1831 passed / 0 failed;
+- no persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v921-v930
+
+- reconciled Project Brain to exact verified product main `b492b655030791d5e703c8aa607d2763d455e486` / Verify #643 / 1831 passed;
+- added `CURRENT_CHECKPOINT_V921_V930.md`;
+- retained failed intermediate `21051b20acdfc0036a15d875d01b488283791ff3` / Verify #640 as failed evidence;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

@@ -18,15 +18,15 @@ Development Autopilot Layer
 
 Package:
 
-`v911-v920: Product Decision User Action Post-Decision Outcome Lineage Integrity`
+`v921-v930: Product Decision User Action Learning Summary Outcome Integrity`
 
 Goal:
 
-Preserve exact verified seller-completion observation lineage through non-causal Product Decision outcome classification.
+Prevent malformed or unsafe post-decision outcomes from becoming clean or undercounted descriptive learning state.
 
 Immediately preceding verified package:
 
-`v901-v910: Product Decision User Action Post-Decision Observation Lineage Integrity`
+`v911-v920: Product Decision User Action Post-Decision Outcome Lineage Integrity`
 
 Preserved:
 
@@ -41,25 +41,29 @@ Preserved:
 
 Verification evidence is tracked in:
 
-- `project_brain/CURRENT_CHECKPOINT_V901_V910.md`
 - `project_brain/CURRENT_CHECKPOINT_V911_V920.md`
+- `project_brain/CURRENT_CHECKPOINT_V921_V930.md`
 
 ## Stable verification
 
 Latest exact main:
 
-`82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
+`b492b655030791d5e703c8aa607d2763d455e486`
 
-GitHub Actions push Verify #634:
+GitHub Actions push Verify #643:
 
-1821 passed / 0 failed.
+1831 passed / 0 failed.
+
+Failed intermediate evidence retained:
+
+`21051b20acdfc0036a15d875d01b488283791ff3` / Verify #640 / 1830 passed / 1 failed.
 
 ## Development direction
 
 Next:
 
 - maintain exact-SHA verification;
-- select the next concrete consumer/product gap from current repository state;
-- inspect outcome → learning/evidence consumers for lineage loss, malformed-result clean fallback or causal overclaim;
-- do not add lifecycle/provenance wrappers without a concrete failure;
+- harden learning-summary → evidence-quality result/count/map integrity;
+- do not coerce missing or malformed learning values to zero/empty;
+- do not extend lifecycle/provenance wrappers without a concrete failure;
 - keep Product Decision/Product Task Draft execution and Ozon mutations disabled without separate architecture and authorization.

@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1821 passed on `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`.
+1831 passed on `b492b655030791d5e703c8aa607d2763d455e486`.
 
-GitHub Actions push Verify #634 completed successfully for this exact main SHA.
+GitHub Actions push Verify #643 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2960,5 +2960,37 @@ Tests:
 - safe non-causal/non-executable outcome;
 - exact-SHA evidence: entering main #630, feature #632, PR merge-ref #633, squash-main #634;
 - no failed intermediate production SHA occurred in v911-v920;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Summary Outcome Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_learning_summary`
+- verified post-decision outcome list → descriptive learning summary
+
+Tests:
+
+- `tests/test_product_decision_user_action_learning_summary.py`
+- `tests/test_product_decision_user_action_learning_summary_integrity_v921_v930.py`
+
+Проверяет:
+
+- non-list input cannot become a clean empty summary;
+- every row must be a mapping;
+- exact v911-v920 outcome lineage and explicit success;
+- persisted Product Decision verification and complete USER_REPORT evidence;
+- unsafe outcomes fail closed instead of disappearing;
+- canonical prior/later Product Decision classification;
+- contradictory outcome classification;
+- duplicate outcome-ID inflation protection;
+- canonical NONE priority support and MEDIUM rejection;
+- deterministic safe empty/non-empty summary semantics;
+- exact-SHA evidence: entering main #638, failed intermediate #640, final feature #641, PR merge-ref #642, squash-main #643;
+- failed intermediate `21051b20acdfc0036a15d875d01b488283791ff3` remains failed evidence at 1830 passed / 1 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
