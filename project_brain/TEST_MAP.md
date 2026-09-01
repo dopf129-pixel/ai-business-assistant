@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
+1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
 
-GitHub Actions push Verify #686 completed successfully for this exact main SHA.
+GitHub Actions push Verify #698 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3152,5 +3152,40 @@ Tests:
 - final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed;
 - PR #330 synthetic `d8e9c3f5fb978cb4ae2d3675d229ad6bbc48b358`: Verify #685, 1881 passed / 0 failed;
 - squash main `db5ab92503f499dfe470402ffefc00b15b9c6e59`: Verify #686, 1881 passed / 0 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._query_product`
+- Product Decision service output → history / proposal / cache / task-draft lifecycle / Telegram
+
+Tests:
+
+- `tests/test_product_decision_result_integrity_v981_v990.py`
+- canonicalized legacy fixture in `tests/test_product_decision_freshness_evidence_propagation.py`
+
+Проверяет:
+
+- non-mapping decision result fails closed;
+- decision exceptions are sanitized;
+- injected error/code fields are rejected;
+- exact SKU/product identity;
+- exact decision type → priority contract;
+- canonical unique reason list;
+- canonical unique missing-data list;
+- invalid decision has no history/proposal/cache side effects;
+- valid decision remains seller-safe and non-executable;
+- Telegram invalid-decision response has no keyboard;
+- cancelled intermediate #693/#694 have no transferable verification claim;
+- failed intermediate `8a286947bdc5862834a05794e330d87ef370ffe7`: Verify #695, 1889 passed / 2 failed;
+- final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed;
+- PR #332 synthetic `da5e7689cc87a0597944f371dfe4246082d92806`: Verify #697, 1891 passed / 0 failed;
+- squash main `5f0534bb72dba2471c3c339a69cd7041552dfb4a`: Verify #698, 1891 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.

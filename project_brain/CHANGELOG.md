@@ -3238,3 +3238,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Result Integrity v981-v990
+
+- hardened Product Decision service result integrity before seller-facing history, action proposal, cache, draft lifecycle, assortment aggregation and Telegram;
+- malformed/non-mapping/exceptional decision results now fail closed with deterministic `PRODUCT_DECISION_RESULT_INVALID`;
+- exact product/SKU identity, decision type/priority, confidence, reasons and missing-data contracts are enforced;
+- invalid decisions cannot produce history/proposal/cache/draft side effects;
+- Telegram invalid-decision response is neutral and has no action keyboard;
+- intermediate `f21c1ca4b21b57a634a502ecb754e93fabb78e18` / Verify #693 and `689fd2b9db65861f8853251accb0f2a3e0cf86d8` / Verify #694 were cancelled and carry no success claim;
+- failed intermediate `8a286947bdc5862834a05794e330d87ef370ffe7`: Verify #695, 1889 passed / 2 failed, artifact 9816934445, digest `sha256:289d68239b8811b713c72e00e5185759b6b76242e41c9ee47f84fd0b0085ac06`;
+- both failures were legacy freshness fixture mismatch against the canonical non-empty decision-reason contract; production validation was not weakened;
+- final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed;
+- PR #332 synthetic `da5e7689cc87a0597944f371dfe4246082d92806`: Verify #697, 1891 passed / 0 failed;
+- squash main `5f0534bb72dba2471c3c339a69cd7041552dfb4a`: Verify #698, 1891 passed / 0 failed;
+- no Product Decision threshold/rule, persistence owner, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v981-v990
+
+- reconciled Project Brain to exact verified product main `5f0534bb72dba2471c3c339a69cd7041552dfb4a` / Verify #698 / 1891 passed;
+- added `CURRENT_CHECKPOINT_V981_V990.md`;
+- retained cancelled #693/#694 and failed #695 without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

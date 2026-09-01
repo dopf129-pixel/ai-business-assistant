@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
+1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
 
-GitHub Actions push verification run #686 completed successfully for this exact main SHA.
+GitHub Actions push verification run #698 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1881 passed on `db5ab92503f499dfe470402ffefc00b15b9c6e59`.
+1891 passed on `5f0534bb72dba2471c3c339a69cd7041552dfb4a`.
 
 Verification source:
-GitHub Actions push run #686, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #698, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -2217,6 +2217,54 @@ Preserved failed evidence:
 Preserved:
 
 - unknown finance values remain unknown;
+- no Product Decision threshold/rule change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Result Integrity v981-v990 — 2026-09-01
+
+Completed:
+
+[x] Product Decision service result must be a mapping
+
+[x] Unexpected error/code injection is rejected
+
+[x] Product ID and SKU are exact query-bound identity
+
+[x] Decision type and priority pairing is canonical
+
+[x] Confidence, reasons and missing-data contracts are validated
+
+[x] Invalid decision cannot reach history/proposal/cache/draft lifecycle
+
+[x] Invalid decision gets deterministic seller-safe Telegram failure
+
+Verified exact main:
+
+`5f0534bb72dba2471c3c339a69cd7041552dfb4a`
+
+GitHub Actions push Verify #698: 1891 passed / 0 failed.
+
+Cancelled intermediate evidence retained:
+
+- `f21c1ca4b21b57a634a502ecb754e93fabb78e18`: Verify #693 cancelled;
+- `689fd2b9db65861f8853251accb0f2a3e0cf86d8`: Verify #694 cancelled.
+
+Failed intermediate evidence retained:
+
+- `8a286947bdc5862834a05794e330d87ef370ffe7`: Verify #695, 1889 passed / 2 failed;
+- failure source was a legacy freshness fixture with noncanonical empty reasons;
+- final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed.
+
+Preserved:
+
 - no Product Decision threshold/rule change;
 - no new persistence owner;
 - no Product Task Draft execution;
