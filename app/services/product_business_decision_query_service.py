@@ -7,6 +7,17 @@ class ProductBusinessDecisionQueryService:
     CODE_SKU_REQUIRED = "SKU_REQUIRED"
     CODE_SKU_NOT_FOUND = "SKU_NOT_FOUND"
     CODE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    CODE_ACTION_PROPOSAL_RESULT_INVALID = (
+        "PRODUCT_DECISION_ACTION_PROPOSAL_RESULT_INVALID"
+    )
+
+    DECISION_ACTION_PROPOSAL = {
+        "REPLENISH_HIGH_PRIORITY": ("REVIEW_REPLENISHMENT", True),
+        "REPLENISH_NORMAL": ("REVIEW_REPLENISHMENT", True),
+        "INVESTIGATE_LOW_PROFIT": ("REVIEW_UNIT_ECONOMICS", True),
+        "WATCH_LOW_MARGIN": ("REVIEW_MARGIN", True),
+        "HOLD_STOCK": ("MONITOR_ONLY", False),
+    }
 
     PRIORITY_ORDER = {
         "CRITICAL": 0,
@@ -172,6 +183,20 @@ class ProductBusinessDecisionQueryService:
                     )
                 )
                 self._store_decision(sku, decision)
+
+            if (
+                not isinstance(decision, dict)
+                or decision.get("error") is True
+            ):
+                return {
+                    "error": True,
+                    "code": (
+                        decision.get("code")
+                        if isinstance(decision, dict)
+                        else self.CODE_ACTION_PROPOSAL_RESULT_INVALID
+                    ),
+                }
+
             decisions.append(deepcopy(decision))
 
         decisions.sort(key=self._portfolio_sort_key)
@@ -272,11 +297,82 @@ class ProductBusinessDecisionQueryService:
 
     def _with_action_proposal(self, decision):
         result = deepcopy(decision)
-        if self.action_proposal_service is None:
+        if self.action_proposal_service is None or result.get("error"):
             return result
-        result["action_proposal"] = (
-            self.action_proposal_service.propose(result)
+
+        try:
+            proposal = self.action_proposal_service.propose(
+                deepcopy(result)
+            )
+        except (OSError, TypeError, ValueError, KeyError, AttributeError):
+            return self._action_proposal_failure(result)
+
+        if not self._valid_action_proposal(proposal, result):
+            return self._action_proposal_failure(result)
+
+        result["action_proposal"] = deepcopy(proposal)
+        return result
+
+    def _valid_action_proposal(self, proposal, decision):
+        if not isinstance(proposal, dict):
+            return False
+
+        if (
+            type(proposal.get("available")) is not bool
+            or type(proposal.get("action_required")) is not bool
+            or type(proposal.get("requires_confirmation")) is not bool
+            or proposal.get("execution_allowed") is not False
+            or proposal.get("automation_status") != "PROHIBITED"
+        ):
+            return False
+
+        sku = proposal.get("sku")
+        priority = proposal.get("priority")
+        decision_type = proposal.get("decision_type")
+        reasons = proposal.get("reasons")
+
+        if (
+            not isinstance(sku, str)
+            or not sku.strip()
+            or sku != decision.get("sku")
+            or priority != decision.get("priority")
+            or decision_type != decision.get("decision_type")
+            or not isinstance(reasons, list)
+            or reasons != decision.get("reasons")
+            or any(
+                not isinstance(reason, str) or not reason.strip()
+                for reason in reasons
+            )
+        ):
+            return False
+
+        expected = self.DECISION_ACTION_PROPOSAL.get(
+            decision_type
         )
+
+        if expected is None:
+            return (
+                proposal.get("available") is False
+                and proposal.get("proposal_type") is None
+                and proposal.get("action_required") is False
+                and proposal.get("requires_confirmation") is False
+            )
+
+        expected_type, expected_action_required = expected
+        return (
+            proposal.get("available") is True
+            and proposal.get("proposal_type") == expected_type
+            and proposal.get("action_required")
+            is expected_action_required
+            and proposal.get("requires_confirmation")
+            is expected_action_required
+        )
+
+    def _action_proposal_failure(self, decision):
+        result = deepcopy(decision)
+        result["error"] = True
+        result["code"] = self.CODE_ACTION_PROPOSAL_RESULT_INVALID
+        result["action_proposal"] = None
         return result
 
     def _with_task_draft_lifecycle(self, decision):
