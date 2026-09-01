@@ -223,6 +223,111 @@ class ProductDecisionHistoryService:
         items = self.history(sku, limit=1)
         return items[0] if items else None
 
+    def latest_persistent(self, sku):
+        if (
+            not isinstance(sku, str)
+            or not sku
+            or sku.strip() != sku
+        ):
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_READ_SKU_INVALID",
+                sku=None,
+            )
+
+        if self.storage_service is None:
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_STORAGE_REQUIRED",
+                sku=sku,
+            )
+
+        read_durable = getattr(
+            self.storage_service,
+            "read_durable",
+            None,
+        )
+        if not callable(read_durable):
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_READ_RECEIPT_REQUIRED",
+                sku=sku,
+            )
+
+        try:
+            receipt = read_durable()
+        except (OSError, TypeError, ValueError):
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_READ_FAILED",
+                sku=sku,
+            )
+
+        if (
+            not isinstance(receipt, dict)
+            or type(receipt.get("error")) is not bool
+        ):
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_READ_RECEIPT_INVALID",
+                sku=sku,
+            )
+
+        if receipt["error"] is True:
+            code = receipt.get("code")
+            if code not in {
+                "DECISION_HISTORY_DURABLE_READ_FAILED",
+                "DECISION_HISTORY_DURABLE_DATA_INVALID",
+            }:
+                code = "DECISION_HISTORY_DURABLE_READ_RECEIPT_INVALID"
+            return self._persistent_read_failure(
+                code=code,
+                sku=sku,
+                durable_read=(
+                    receipt.get("durable_read")
+                    if type(receipt.get("durable_read")) is bool
+                    else False
+                ),
+            )
+
+        records = receipt.get("records")
+        if (
+            receipt.get("durable_read") is not True
+            or not isinstance(records, list)
+            or any(not isinstance(item, dict) for item in records)
+        ):
+            return self._persistent_read_failure(
+                code="DECISION_HISTORY_DURABLE_READ_RECEIPT_INVALID",
+                sku=sku,
+            )
+
+        matching = [
+            item
+            for item in records
+            if str(item.get("sku")) == sku
+        ]
+        snapshot = matching[-1] if matching else None
+        return {
+            "error": False,
+            "code": None,
+            "sku": sku,
+            "durable_read": True,
+            "persistent_snapshot_available": snapshot is not None,
+            "snapshot": deepcopy(snapshot),
+            "history_count": len(matching),
+        }
+
+    @staticmethod
+    def _persistent_read_failure(
+        code,
+        sku,
+        durable_read=False,
+    ):
+        return {
+            "error": True,
+            "code": code,
+            "sku": sku,
+            "durable_read": durable_read,
+            "persistent_snapshot_available": False,
+            "snapshot": None,
+            "history_count": None,
+        }
+
     def record_feedback(self, sku, feedback):
         sku = str(sku or "").strip()
         feedback = str(feedback or "").strip().upper()
