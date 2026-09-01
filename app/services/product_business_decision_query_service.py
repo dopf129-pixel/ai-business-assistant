@@ -15,6 +15,9 @@ class ProductBusinessDecisionQueryService:
     CODE_UNIT_ECONOMICS_RESULT_INVALID = (
         "PRODUCT_DECISION_UNIT_ECONOMICS_RESULT_INVALID"
     )
+    CODE_OPERATIONAL_METRICS_RESULT_INVALID = (
+        "PRODUCT_DECISION_OPERATIONAL_METRICS_RESULT_INVALID"
+    )
     CODE_TASK_DRAFT_LIFECYCLE_RESULT_INVALID = (
         "PRODUCT_DECISION_TASK_DRAFT_LIFECYCLE_RESULT_INVALID"
     )
@@ -119,6 +122,14 @@ class ProductBusinessDecisionQueryService:
         "estimated_margin_percent",
         "returns_estimate_coverage_percent",
     }
+    SALES_TRENDS = {"GROWING", "DECLINING", "STABLE"}
+    STOCK_PRIORITIES = {
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        "NO_SALES",
+    }
 
     def __init__(
         self,
@@ -192,14 +203,33 @@ class ProductBusinessDecisionQueryService:
     def _query_product(self, sku, product):
         product_id = product.get("product_id")
 
-        sales_metrics = self._query_prepared_source(
-            self.sales_metrics_source,
-            sku
+        sales_metrics, sales_invalid = (
+            self._query_operational_metrics_source(
+                self.sales_metrics_source,
+                sku,
+                source_name="sales",
+            )
         )
-        stock_metrics = self._query_prepared_source(
-            self.stock_metrics_source,
-            sku
+        if sales_invalid:
+            return self._operational_metrics_result_failure(
+                product_id=product_id,
+                sku=sku,
+                source_name="sales",
+            )
+
+        stock_metrics, stock_invalid = (
+            self._query_operational_metrics_source(
+                self.stock_metrics_source,
+                sku,
+                source_name="stock",
+            )
         )
+        if stock_invalid:
+            return self._operational_metrics_result_failure(
+                product_id=product_id,
+                sku=sku,
+                source_name="stock",
+            )
         try:
             economics_result = self.unit_economics_query_service.query(sku)
         except (OSError, TypeError, ValueError, KeyError, AttributeError):
@@ -817,6 +847,178 @@ class ProductBusinessDecisionQueryService:
             }
         except (TypeError, IndexError):
             return None
+
+    def _query_operational_metrics_source(
+        self,
+        source,
+        sku,
+        source_name,
+    ):
+        if source is None:
+            return None, False
+
+        try:
+            if callable(source):
+                result = source(sku)
+            else:
+                query = getattr(source, "query", None)
+                if query is None:
+                    return None, False
+                result = query(sku)
+        except (OSError, TypeError, ValueError, KeyError, AttributeError):
+            return None, True
+
+        if result is None:
+            return None, False
+
+        if not isinstance(result, dict):
+            return None, True
+
+        if "error" in result:
+            if type(result.get("error")) is not bool:
+                return None, True
+            if result["error"] is True:
+                return None, False
+
+        if not self._valid_operational_metrics_result(
+            result,
+            source_name,
+        ):
+            return None, True
+
+        return dict(result), False
+
+    def _valid_operational_metrics_result(
+        self,
+        result,
+        source_name,
+    ):
+        missing_data = result.get("missing_data")
+        if missing_data is not None and (
+            not isinstance(missing_data, list)
+            or any(
+                not isinstance(item, str) or not item.strip()
+                for item in missing_data
+            )
+            or len(missing_data) != len(set(missing_data))
+        ):
+            return False
+
+        if source_name == "sales":
+            velocity = result.get("sales_velocity")
+            if (
+                velocity is not None
+                and not self._valid_non_negative_metric(velocity)
+            ):
+                return False
+
+            trend = result.get("sales_trend")
+            if (
+                trend is not None
+                and (
+                    not isinstance(trend, str)
+                    or trend not in self.SALES_TRENDS
+                )
+            ):
+                return False
+
+            for field in (
+                "sales_source_recorded_at",
+                "sales_observed_at",
+            ):
+                if not self._valid_optional_evidence_string(
+                    result.get(field)
+                ):
+                    return False
+            return True
+
+        if source_name == "stock":
+            current_stock = result.get("current_stock")
+            days_of_stock = result.get("days_of_stock")
+            priority = result.get("priority")
+            if (
+                current_stock is not None
+                and not self._valid_non_negative_metric(current_stock)
+            ):
+                return False
+            if (
+                days_of_stock is not None
+                and not self._valid_non_negative_metric(days_of_stock)
+            ):
+                return False
+            if (
+                priority is not None
+                and (
+                    not isinstance(priority, str)
+                    or priority not in self.STOCK_PRIORITIES
+                )
+            ):
+                return False
+            if (
+                priority == "NO_SALES"
+                and days_of_stock is not None
+            ):
+                return False
+            if (
+                priority in {
+                    "CRITICAL",
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW",
+                }
+                and days_of_stock is None
+            ):
+                return False
+            if days_of_stock is not None and priority is None:
+                return False
+
+            for field in (
+                "stock_source_recorded_at",
+                "stock_observed_at",
+            ):
+                if not self._valid_optional_evidence_string(
+                    result.get(field)
+                ):
+                    return False
+            return True
+
+        return False
+
+    @staticmethod
+    def _valid_non_negative_metric(value):
+        return (
+            type(value) in (int, float)
+            and isfinite(float(value))
+            and float(value) >= 0
+        )
+
+    @staticmethod
+    def _valid_optional_evidence_string(value):
+        return (
+            value is None
+            or (
+                isinstance(value, str)
+                and bool(value.strip())
+            )
+        )
+
+    def _operational_metrics_result_failure(
+        self,
+        product_id,
+        sku,
+        source_name,
+    ):
+        return {
+            "error": True,
+            "code": self.CODE_OPERATIONAL_METRICS_RESULT_INVALID,
+            "product_id": product_id,
+            "sku": sku,
+            "decision_type": self.CODE_INSUFFICIENT_DATA,
+            "priority": "NONE",
+            "reasons": [],
+            "confidence": "LOW",
+            "missing_data": [source_name + "_metrics"],
+        }
 
     def _query_prepared_source(self, source, sku):
         if source is None:
