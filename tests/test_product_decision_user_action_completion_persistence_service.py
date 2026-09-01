@@ -18,11 +18,34 @@ class Storage:
 
 
 def _evidence(**values):
+    application_id = "app-1"
+    verification_id = (
+        "product-decision-persistence-verification:" + application_id
+    )
+    guidance_id = (
+        "product-decision-user-action-guidance:" + verification_id
+    )
+    checklist_id = (
+        "product-decision-user-action-checklist:" + guidance_id
+    )
     result = {
+        "error": False,
         "status": "PRODUCT_DECISION_USER_ACTION_COMPLETION_CONFIRMED",
-        "user_action_completion_evidence_id": "product-decision-user-action-completion-evidence:check-1:manual-step-1",
-        "user_action_checklist_id": "check-1",
+        "user_action_completion_evidence_id": (
+            "product-decision-user-action-completion-evidence:"
+            + checklist_id
+            + ":manual-step-1"
+        ),
+        "user_action_checklist_id": checklist_id,
+        "user_action_guidance_id": guidance_id,
+        "decision_persistence_verification_id": verification_id,
+        "decision_persistence_application_id": application_id,
         "sku": "hook-2",
+        "verified_recorded_at": "2026-09-01T12:00:00+00:00",
+        "decision_persistence_verified": True,
+        "item_id": "manual-step-1",
+        "instruction": "Проверить остаток.",
+        "completion_decision": "CONFIRM_COMPLETED",
         "user_reported_completed": True,
         "completion_evidence_source": "USER_REPORT",
         "externally_verified": False,
@@ -35,7 +58,6 @@ def _evidence(**values):
     }
     result.update(values)
     return result
-
 
 def test_persists_user_report_without_execution():
     storage = Storage()
