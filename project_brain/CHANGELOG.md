@@ -3294,3 +3294,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Task Draft Lifecycle Result Integrity v1001-v1010
+
+- hardened the Product Decision → Product Task Draft reconcile result boundary;
+- malformed/non-mapping lifecycle results now fail closed with deterministic `PRODUCT_DECISION_TASK_DRAFT_LIFECYCLE_RESULT_INVALID`;
+- lifecycle requires exact `error=False`, `executed=False`, and `execution_allowed=False`;
+- stale count/list consistency and exact non-negative integer semantics are enforced;
+- cross-SKU, current-revision, non-STALE, unknown-proposal and executable stale entries are rejected;
+- invalid lifecycle results are not cached and assortment queries propagate failure;
+- valid lifecycle state is attached as a defensive copy;
+- final feature `12e4f1d4f38296b8f46680302478f377121644a8`: Verify #715, 1911 passed / 0 failed, artifact 9818413016, digest `sha256:7bdc75d5c608109484eb0e3f349f60f2f0ba8a167981c7622e82c81ec6f28dc6`;
+- PR #336 synthetic `005ac13b1fbb01bb6e95314d1f8c89b994ba85c6`: Verify #716, 1911 passed / 0 failed, artifact 9818442054, digest `sha256:c873abf6af7d17a6858e8cc5499e5baf3835ca8432d6e01a8df7ee245c7c9071`;
+- squash main `288c6452703eee4082414d1ad36680b4ddf02caa`: Verify #717, 1911 passed / 0 failed, artifact 9818471271, digest `sha256:37b6e301a54fdb3a297b7e648adb9e4e87376d5cbc9ed3fc69ee1d7ffee801c5`;
+- no failed production SHA in this package;
+- no Product Decision threshold/rule, persistence owner, Product Task Draft execution, Action Executor connection, Telegram persistence wiring or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1001-v1010
+
+- reconciled Project Brain to exact verified product main `288c6452703eee4082414d1ad36680b4ddf02caa` / Verify #717 / 1911 passed;
+- added `CURRENT_CHECKPOINT_V1001_V1010.md`;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

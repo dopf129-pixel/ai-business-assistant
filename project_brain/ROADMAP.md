@@ -457,3 +457,6 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V991_V1000.md`
 - Verified-guidance Telegram wiring is blocked by absence of a durable read-only Product Decision persistence-application receipt lineage.
 - Do not infer or synthesize application lineage from Product Decision history snapshots.
 - Do not call persistence application as a side effect of Telegram read/presentation.
+
+
+[x] Product Decision Task Draft Lifecycle Result Integrity
