@@ -52,10 +52,14 @@ class ProductDecisionHistoryService:
         ) != self._signature(decision)
 
         if previous is None or changed:
+            previous_records = deepcopy(self.records)
             snapshot = self._snapshot(decision, previous=previous)
             self.records.append(snapshot)
             self._trim(sku)
-            self._save_records()
+            persistence = self._save_interaction_records()
+            if persistence["error"]:
+                self.records = previous_records
+                raise OSError(persistence["code"])
             history_count = len(self.history(sku))
             return {
                 "decision_history_available": True,
@@ -81,6 +85,90 @@ class ProductDecisionHistoryService:
             "decision_history_count": len(self.history(sku)),
             "previous_feedback": None,
             "decision_outcome": None,
+        }
+
+    def record_persistent(self, decision):
+        if self.storage_service is None:
+            return self._persistence_receipt_failure(
+                code="DECISION_HISTORY_DURABLE_STORAGE_REQUIRED",
+                sku=(
+                    str(decision.get("sku"))
+                    if isinstance(decision, dict)
+                    and decision.get("sku") is not None
+                    else None
+                ),
+                saved=False,
+                persistence_state="NOT_COMMITTED",
+            )
+
+        if not self._is_recordable(decision):
+            return self._persistence_receipt_failure(
+                code="DECISION_HISTORY_RECORD_NOT_APPLICABLE",
+                sku=(
+                    str(decision.get("sku"))
+                    if isinstance(decision, dict)
+                    and decision.get("sku") is not None
+                    else None
+                ),
+                saved=False,
+                persistence_state="NOT_COMMITTED",
+            )
+
+        sku = str(decision.get("sku"))
+        previous = self.latest(sku)
+        if (
+            previous is not None
+            and self._signature(previous) == self._signature(decision)
+        ):
+            return self._persistence_receipt_failure(
+                code="DECISION_HISTORY_SIGNATURE_UNCHANGED",
+                sku=sku,
+                saved=False,
+                persistence_state="NOT_COMMITTED",
+            )
+
+        try:
+            context = self.record(decision)
+        except OSError as exc:
+            code = str(exc)
+            if code == "DECISION_HISTORY_SAVE_REJECTED":
+                return self._persistence_receipt_failure(
+                    code=code,
+                    sku=sku,
+                    saved=False,
+                    persistence_state="NOT_COMMITTED",
+                )
+            return self._persistence_receipt_failure(
+                code="DECISION_HISTORY_SAVE_STATE_UNKNOWN",
+                sku=sku,
+                saved=None,
+                persistence_state="UNKNOWN",
+            )
+
+        if (
+            not isinstance(context, dict)
+            or context.get("decision_history_available") is not True
+            or not isinstance(context.get("decision_recorded_at"), str)
+            or not context["decision_recorded_at"].strip()
+            or type(context.get("decision_history_count")) is not int
+            or context["decision_history_count"] < 1
+        ):
+            return self._persistence_receipt_failure(
+                code="DECISION_HISTORY_COMMIT_RECEIPT_INVALID",
+                sku=sku,
+                saved=None,
+                persistence_state="UNKNOWN",
+            )
+
+        return {
+            "error": False,
+            "code": None,
+            "sku": sku,
+            "saved": True,
+            "persistence_state": "COMMITTED",
+            "decision_recorded_at": context["decision_recorded_at"],
+            "decision_history_count": context["decision_history_count"],
+            "history_context": deepcopy(context),
         }
 
     def latest(self, sku):
@@ -387,9 +475,23 @@ class ProductDecisionHistoryService:
             "persistence_state": "UNKNOWN",
         }
 
-    def _save_records(self):
-        if self.storage_service is not None:
-            self.storage_service.save(self.records)
+    @staticmethod
+    def _persistence_receipt_failure(
+        code,
+        sku,
+        saved,
+        persistence_state,
+    ):
+        return {
+            "error": True,
+            "code": code,
+            "sku": sku,
+            "saved": saved,
+            "persistence_state": persistence_state,
+            "decision_recorded_at": None,
+            "decision_history_count": None,
+            "history_context": None,
+        }
 
     def _empty_context(self):
         return {

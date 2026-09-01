@@ -201,6 +201,18 @@ class ProductDecisionPersistenceVerificationService:
                 source,
             )
 
+        persistence_receipt = source.get(
+            "history_persistence_receipt"
+        )
+        receipt_error = self._commit_receipt_error(
+            persistence_receipt,
+            sku,
+            history_context,
+            expected_recorded_at,
+        )
+        if receipt_error is not None:
+            return self._blocked(receipt_error, source)
+
         try:
             latest = self.history_service.latest(sku)
         except Exception:
@@ -295,6 +307,48 @@ class ProductDecisionPersistenceVerificationService:
             "execution_ready": False,
             "executed": False,
         }
+
+    @classmethod
+    def _commit_receipt_error(
+        cls,
+        receipt,
+        sku,
+        history_context,
+        expected_recorded_at,
+    ):
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("error") is not False
+            or receipt.get("saved") is not True
+            or receipt.get("persistence_state") != "COMMITTED"
+            or cls._required_string(receipt.get("sku")) != sku
+        ):
+            return (
+                "DECISION_PERSISTENCE_VERIFICATION_COMMIT_RECEIPT_REQUIRED"
+            )
+
+        recorded_at = cls._required_string(
+            receipt.get("decision_recorded_at")
+        )
+        history_count = receipt.get("decision_history_count")
+        receipt_context = receipt.get("history_context")
+
+        if (
+            recorded_at != expected_recorded_at
+            or type(history_count) is not int
+            or history_count < 1
+            or not isinstance(receipt_context, dict)
+            or receipt_context != history_context
+            or receipt_context.get("decision_recorded_at")
+            != expected_recorded_at
+            or receipt_context.get("decision_history_count")
+            != history_count
+        ):
+            return (
+                "DECISION_PERSISTENCE_VERIFICATION_COMMIT_RECEIPT_INVALID"
+            )
+
+        return None
 
     @classmethod
     def _decision_snapshot_semantics_valid(cls, snapshot):
