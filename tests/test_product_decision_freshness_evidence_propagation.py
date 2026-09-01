@@ -86,11 +86,12 @@ def _stock(**overrides):
 def _economics(**overrides):
     result = {
         "error": False,
+        "available": True,
         "product_id": "p1",
         "sku": "sku-1",
         "net_profit_per_unit": 30.0,
         "margin_percent": 25.0,
-        "missing_data": [],
+        "missing_fields": [],
     }
     result.update(overrides)
     return result
