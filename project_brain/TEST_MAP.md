@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1851 passed on `0671c0a0b06c662e935b4dcbf00e4cad12e32175`.
+1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
 
-GitHub Actions push Verify #660 completed successfully for this exact main SHA.
+GitHub Actions push Verify #668 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3052,5 +3052,36 @@ Tests:
 - safe externally-unverified/non-executable output;
 - exact-SHA evidence: entering main #656, feature #658, PR merge-ref #659, squash-main #660;
 - no failed intermediate production SHA occurred in v941-v950;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Action Proposal Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._with_action_proposal`
+- seller-facing Product Decision → action proposal → task-draft lifecycle / Telegram presentation
+
+Tests:
+
+- `tests/test_product_decision_action_proposal_result_integrity_v951_v960.py`
+
+Проверяет:
+
+- non-mapping proposal fails closed;
+- proposal exceptions fail closed without exception detail leakage;
+- missing boolean markers cannot become success;
+- execution overclaim is blocked;
+- exact SKU identity;
+- exact proposal type ↔ Product Decision semantics;
+- exact canonical reasons;
+- confirmation/action-required consistency;
+- assortment query fails closed on invalid nested proposal;
+- valid proposal remains non-executable and Telegram-safe;
+- exact-SHA evidence: entering main #664, feature #666, PR merge-ref #667, squash-main #668;
+- no failed intermediate production SHA occurred in v951-v960;
 - `data/users.json` untouched;
 - `externally_verified=False`.

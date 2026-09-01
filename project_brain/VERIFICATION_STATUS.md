@@ -4,51 +4,58 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`0671c0a0b06c662e935b4dcbf00e4cad12e32175`
+`7637177202c21d3f2894105e39137efd86855b8c`
 
 Latest merged production-correctness batch:
 
-`v941-v950: Product Decision User Action Learning Confidence Evidence Integrity`
+`v951-v960: Product Decision Action Proposal Result Integrity`
 
 ### Entering exact-main verification
-- exact main: `df1a2f79b710974bb0b951beb18b76fc559e1bbd`
-- push Verify #656
-- 1841 passed / 0 failed
-- artifact id: 9813227264
-- digest: `sha256:e758e31f1b27ac899e9415d361852a8941f497a6f2be4a73fc7fc35d4030031d`
+
+- exact main: `2c0e9fcce68a25c3518ff8cdb134470bed73e25d`
+- push Verify #664
+- conclusion: success
+- tests: 1851 passed / 0 failed
+- artifact id: 9813494352
+- digest: `sha256:b179cdf1117a663888430b4a7de3f9aa3549e0f807cdfe30812c710ccd7c3531`
 
 ### Exact final feature-head verification
-- exact SHA: `8aa3a6b6205517c3eb9754976a1140f9633b5220`
-- push Verify #658
-- 1851 passed / 0 failed
-- artifact id: 9813305254
-- digest: `sha256:5182f48d2ca345d178dfd239fa4c62c311470b309f5f09cf71cddc97b2946e7f`
+
+- exact SHA: `70cbcc825fc49ab868ae1ac3c58ff80ea115482a`
+- push Verify #666
+- conclusion: success
+- tests: 1861 passed / 0 failed
+- artifact id: 9813694083
+- digest: `sha256:f589a96e408596b8e64294a9608185dd366fb503c0b42050bf22fbcf208fe4d1`
 
 ### PR merge-ref integration verification
-- PR #324
-- synthetic SHA: `7e227b17869617711a3f8b277900674eba383745`
-- Verify #659
-- 1851 passed / 0 failed
-- artifact id: 9813331763
-- digest: `sha256:e6469900516f779458af0dd989a355da0d4039db70cc6c9d648a7c5342ea5266`
+
+- PR #326
+- synthetic merge SHA: `4b8792f73e6f54836d358b4c0215d885d40c2a93`
+- pull_request Verify #667
+- conclusion: success
+- tests: 1861 passed / 0 failed
+- artifact id: 9813722308
+- digest: `sha256:c3283632626262262c73c92e37b3dc5fe6dcad802536169c3a903d2060756602`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `0671c0a0b06c662e935b4dcbf00e4cad12e32175`
-- Verify #660
-- 1851 passed / 0 failed
-- artifact id: 9813358198
-- digest: `sha256:724cd0349abc24f867ed5340aabb3bc3ccea82986c8bf6833b92c981bbcd89d2`
 
-No failed intermediate production SHA occurred in v941-v950.
+- exact main: `7637177202c21d3f2894105e39137efd86855b8c`
+- push Verify #668
+- conclusion: success
+- tests: 1861 passed / 0 failed
+- artifact id: 9813762224
+- digest: `sha256:34ccac02b0cbf26e1a8aa67b90d08b572d7076583a4929c796f9a4c49aa95c63`
 
-## Immediately preceding verified product package: v931-v940
+No failed intermediate production SHA occurred in v951-v960.
 
-- final feature `e600b6726a9eadadce65f8b803b74608b79d96d0`: Verify #650, 1841 passed / 0 failed
-- PR #322 synthetic `5b58b853a5e8b402a4e5b61ffd68f4174416b190`: Verify #651, 1841 passed / 0 failed
-- squash main `9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`: Verify #652, 1841 passed / 0 failed
-- failed intermediate `849b0d0e78e441f3080631419ecbc0ea192890ec`: Verify #649, 1840 passed / 1 failed
+## Immediately preceding verified product package: v941-v950
+
+- feature `8aa3a6b6205517c3eb9754976a1140f9633b5220`: Verify #658, 1851 passed / 0 failed
+- PR #324 synthetic `7e227b17869617711a3f8b277900674eba383745`: Verify #659, 1851 passed / 0 failed
+- squash main `0671c0a0b06c662e935b4dcbf00e4cad12e32175`: Verify #660, 1851 passed / 0 failed
 - `externally_verified=False`
 
 ## Verification policy
