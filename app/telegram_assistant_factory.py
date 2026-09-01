@@ -36,6 +36,18 @@ from product_decision_learning_coverage_queue import (
     build_product_decision_learning_coverage_queue
 )
 
+from services.product_decision_persistence_verification_service import (
+    ProductDecisionPersistenceVerificationService
+)
+
+from product_decision_user_action_guidance import (
+    build_product_decision_user_action_guidance
+)
+
+from product_decision_user_action_checklist import (
+    build_product_decision_user_action_checklist
+)
+
 
 from services.assistant_telegram_memory_service import (
     AssistantTelegramMemoryService
@@ -109,6 +121,11 @@ def create_telegram_assistant():
     )
 
 
+    product_decision_history = (
+        create_product_decision_history()
+    )
+
+
     product_business_decision_query = (
         create_product_business_decision_query(
             core_components=system,
@@ -116,8 +133,15 @@ def create_telegram_assistant():
                 unit_economics_query
             ),
             decision_history_service=(
-                create_product_decision_history()
+                product_decision_history
             )
+        )
+    )
+
+
+    product_decision_persistence_verifier = (
+        ProductDecisionPersistenceVerificationService(
+            product_decision_history
         )
     )
 
@@ -182,6 +206,15 @@ def create_telegram_assistant():
             ),
             product_decision_learning_coverage_builder=(
                 build_product_decision_learning_coverage_queue
+            ),
+            product_decision_persistence_verifier=(
+                product_decision_persistence_verifier
+            ),
+            product_decision_user_action_guidance_builder=(
+                build_product_decision_user_action_guidance
+            ),
+            product_decision_user_action_checklist_builder=(
+                build_product_decision_user_action_checklist
             )
         )
     )
@@ -267,6 +300,16 @@ def create_telegram_assistant():
 
     runner.product_business_decision_query = (
         product_business_decision_query
+    )
+
+
+    runner.product_decision_history_service = (
+        product_decision_history
+    )
+
+
+    runner.product_decision_persistence_verifier = (
+        product_decision_persistence_verifier
     )
 
 
