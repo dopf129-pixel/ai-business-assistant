@@ -215,14 +215,44 @@ class ProductDecisionUserActionCompletionPersistenceService:
                 source,
             )
 
-        existing = next(
-            (
+        if normalized_revision > 1:
+            predecessor_matches = [
                 item for item in records
                 if item.get("user_action_completion_evidence_id")
-                == evidence_id
-            ),
-            None,
-        )
+                == previous_evidence_id
+            ]
+            if len(predecessor_matches) != 1:
+                return self._blocked(
+                    (
+                        "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_REQUIRED"
+                        if not predecessor_matches
+                        else
+                        "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_AMBIGUOUS"
+                    ),
+                    source,
+                )
+
+            predecessor_error = self._validate_predecessor(
+                source=source,
+                predecessor=predecessor_matches[0],
+                root_id=root_id,
+                predecessor_revision=normalized_revision - 1,
+            )
+            if predecessor_error is not None:
+                return self._blocked(predecessor_error, source)
+
+        existing_matches = [
+            item for item in records
+            if item.get("user_action_completion_evidence_id")
+            == evidence_id
+        ]
+        if len(existing_matches) > 1:
+            return self._blocked(
+                "USER_ACTION_COMPLETION_PERSISTENCE_ID_AMBIGUOUS",
+                source,
+            )
+
+        existing = existing_matches[0] if existing_matches else None
         if existing is not None:
             if existing != source:
                 return self._blocked(
@@ -262,6 +292,145 @@ class ProductDecisionUserActionCompletionPersistenceService:
             revision=normalized_revision,
             previous_evidence_id=previous_evidence_id,
         )
+
+    @classmethod
+    def _validate_predecessor(
+        cls,
+        source,
+        predecessor,
+        root_id,
+        predecessor_revision,
+    ):
+        if predecessor.get("error") is not False:
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_RESULT_INVALID"
+            )
+
+        predecessor_id = cls._required_string(
+            predecessor.get("user_action_completion_evidence_id")
+        )
+        expected_predecessor_id = (
+            root_id
+            if predecessor_revision == 1
+            else "%s:revision:%d" % (
+                root_id,
+                predecessor_revision,
+            )
+        )
+        if predecessor_id != expected_predecessor_id:
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_ID_INVALID"
+            )
+
+        identity_fields = (
+            "user_action_checklist_id",
+            "user_action_guidance_id",
+            "decision_persistence_verification_id",
+            "decision_persistence_application_id",
+            "sku",
+            "verified_recorded_at",
+            "item_id",
+            "instruction",
+        )
+        for field in identity_fields:
+            if (
+                cls._required_string(predecessor.get(field))
+                != cls._required_string(source.get(field))
+            ):
+                return (
+                    "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_LINEAGE_MISMATCH"
+                )
+
+        if (
+            predecessor.get("decision_persistence_verified") is not True
+            or predecessor.get("completion_evidence_source") != "USER_REPORT"
+            or predecessor.get("externally_verified") is not False
+            or predecessor.get("persistent") is not False
+            or predecessor.get("checklist_mutated") is not False
+            or predecessor.get("ozon_mutation_called") is not False
+            or predecessor.get("execution_allowed") is not False
+            or predecessor.get("execution_ready") is not False
+            or predecessor.get("executed") is not False
+        ):
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_SAFETY_INVALID"
+            )
+
+        predecessor_completion = VALID_STATUSES.get(
+            predecessor.get("status")
+        )
+        if predecessor_completion is None:
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_STATUS_INVALID"
+            )
+        expected_decision, expected_completed = predecessor_completion
+        if (
+            cls._required_string(
+                predecessor.get("completion_decision")
+            ) != expected_decision
+            or predecessor.get("user_reported_completed")
+            is not expected_completed
+        ):
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_DECISION_INVALID"
+            )
+
+        if predecessor_revision == 1:
+            if predecessor.get("completion_revision") is not None:
+                return (
+                    "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_REVISION_INVALID"
+                )
+            predecessor_root = predecessor.get(
+                "completion_evidence_root_id"
+            )
+            if (
+                predecessor_root is not None
+                and cls._required_string(predecessor_root) != root_id
+            ):
+                return (
+                    "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_ROOT_INVALID"
+                )
+            if (
+                predecessor.get(
+                    "previous_user_action_completion_evidence_id"
+                )
+                is not None
+            ):
+                return (
+                    "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_REVISION_INVALID"
+                )
+            return None
+
+        if (
+            predecessor.get("completion_revision_ready") is not True
+            or predecessor.get("completion_revision")
+            != predecessor_revision
+            or cls._required_string(
+                predecessor.get("completion_evidence_root_id")
+            ) != root_id
+        ):
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_REVISION_INVALID"
+            )
+
+        expected_previous_id = (
+            root_id
+            if predecessor_revision == 2
+            else "%s:revision:%d" % (
+                root_id,
+                predecessor_revision - 1,
+            )
+        )
+        if cls._required_string(
+            predecessor.get(
+                "previous_user_action_completion_evidence_id"
+            )
+        ) != expected_previous_id:
+            return (
+                "USER_ACTION_COMPLETION_PERSISTENCE_PREDECESSOR_REVISION_INVALID"
+            )
+
+        return None
 
     @staticmethod
     def _success(
