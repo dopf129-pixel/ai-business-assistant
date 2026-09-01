@@ -4,51 +4,51 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`7d53fecac126973122270eacfdfc122e50ae3de3`
+`19851b9d40827b3ca5e3889c3858ca32c5602f67`
 
 Latest merged production-correctness batch:
 
-`v1031-v1040: Product Decision Persistence Commit Receipt Integrity`
+`v1041-v1050: Product Decision Durable Application Lineage`
 
 ### Entering exact-main verification
-- exact main: `d62fc3672fda6d227a746ff184fcbda36b19c8ed`
-- Verify #740
-- 1931 passed / 0 failed
-- artifact id: 9820317673
-- digest: `sha256:92dfb14104245179e9841b11dab06a64de6b50c55c100aa9d781581a3b0552fa`
+- exact main: `835b710e2ad7ad37f8b27415064a6900bcb36ada`
+- Verify #749
+- 1941 passed / 0 failed
+- artifact id: 9820823725
+- digest: `sha256:26594c818d43ced50ab12e62a1ff5862f87b9f40e0e0b4bbfdacd83a54d9f4c7`
 
 ### Failed intermediate verification
-- exact SHA: `14a0709209228310625dd91871e963a866ab6cc9`
-- Verify #742
-- 1940 passed / 1 failed
-- artifact id: 9820529167
-- digest: `sha256:1091138eae94c940d4ee0add628a30071df2f547037b379f7b52c62fc33bd0b8`
+- exact SHA: `cfeb3528d5f902625819b6897db192bf794fddda`
+- Verify #751
+- 1915 passed / 36 failed
+- artifact id: 9821284999
+- digest: `sha256:094c2a223c66afa81f078f606f72c6de0ab6ea594c3d9198ee33e8f9eaa94ca1`
 
 This SHA remains failed evidence permanently.
 
 ### Exact final feature-head verification
-- exact SHA: `88372919c9275a51482703e59fe21d8c4d9c5682`
-- Verify #743
-- 1941 passed / 0 failed
-- artifact id: 9820570261
-- digest: `sha256:735bfcb0bf9a44204928ceefb49079347d9c044839d4461872c51720ccc34da5`
+- exact SHA: `5e856591925d2288db871ac9632eab5ee7f7a649`
+- Verify #752
+- 1951 passed / 0 failed
+- artifact id: 9821304515
+- digest: `sha256:98b8cba6e7a80c1063c53de00f9b60aa989a4c6e181af95ddc8b51f0eb81bbfb`
 
 ### PR merge-ref integration verification
-- PR #342
-- synthetic SHA: `7e54ca702706ad192eb70da63e351e96efdb31b5`
-- Verify #744
-- 1941 passed / 0 failed
-- artifact id: 9820601679
-- digest: `sha256:906f36eeae5b1737725880484897f314cbe16ba9231caf86736e90c54fbdeda2`
+- PR #344
+- synthetic SHA: `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`
+- Verify #753
+- 1951 passed / 0 failed
+- artifact id: 9821329483
+- digest: `sha256:381635fc6256628f30de341e4c4f2d95b5418cf758120a7802a99f46b3b52ebd`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `7d53fecac126973122270eacfdfc122e50ae3de3`
-- Verify #745
-- 1941 passed / 0 failed
-- artifact id: 9820633507
-- digest: `sha256:af6b1b1cf03d70b8330d2450653303b088577ef0df6dbb5b1d5a4604a6141715`
+- exact main: `19851b9d40827b3ca5e3889c3858ca32c5602f67`
+- Verify #754
+- 1951 passed / 0 failed
+- artifact id: 9821356516
+- digest: `sha256:f23470a2f0ab528fe64569dd7b8e7bcb3fcfee9ff8e783900ffbc3337f6b3317`
 
 ## Verification policy
 
