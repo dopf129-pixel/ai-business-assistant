@@ -61,23 +61,6 @@ class ProductDecisionHistoryService:
             return self._empty_context()
 
         sku = str(decision.get("sku"))
-        if (
-            application_lineage is not None
-            and not self._valid_persistence_application_lineage(
-                application_lineage,
-                sku,
-            )
-        ):
-            return self._persistence_receipt_failure(
-                code=(
-                    "DECISION_HISTORY_PERSISTENCE_APPLICATION_"
-                    "LINEAGE_INVALID"
-                ),
-                sku=sku,
-                saved=False,
-                persistence_state="NOT_COMMITTED",
-            )
-
         previous = self.latest(sku)
         changed = previous is not None and self._signature(
             previous
@@ -157,6 +140,23 @@ class ProductDecisionHistoryService:
             )
 
         sku = str(decision.get("sku"))
+        if (
+            application_lineage is not None
+            and not self._valid_persistence_application_lineage(
+                application_lineage,
+                sku,
+            )
+        ):
+            return self._persistence_receipt_failure(
+                code=(
+                    "DECISION_HISTORY_PERSISTENCE_APPLICATION_"
+                    "LINEAGE_INVALID"
+                ),
+                sku=sku,
+                saved=False,
+                persistence_state="NOT_COMMITTED",
+            )
+
         previous = self.latest(sku)
         if (
             previous is not None
