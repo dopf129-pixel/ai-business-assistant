@@ -2970,3 +2970,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Completion Revision Predecessor Integrity v881-v890
+
+- hardened durable completion revision persistence against orphan and ambiguous predecessor chains;
+- revision 2+ now requires exactly one actual stored predecessor;
+- predecessor exact verified lineage and user-owned safety semantics are validated;
+- predecessor status/decision/report consistency is validated;
+- revision 3+ requires canonical predecessor revision/root/previous-ID lineage;
+- duplicate current revision IDs fail closed;
+- feature `58c1421d432a4a9807b0722f930832f35d1adec1`: Verify #597, 1791 passed / 0 failed;
+- PR #312 synthetic merge `fd79665bdb91c9373c45d001fe7f991309b7eb46`: Verify #598, 1791 passed / 0 failed;
+- squash main `73c349d50dad1a5562a09777df5a69f661869645`: Verify #599, 1791 passed / 0 failed;
+- no failed intermediate production SHA occurred in v881-v890;
+- no persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v881-v890
+
+- reconciled Project Brain to exact verified product main `73c349d50dad1a5562a09777df5a69f661869645` / Verify #599 / 1791 passed;
+- added `CURRENT_CHECKPOINT_V881_V890.md`;
+- retained historical failed/cancelled evidence without reclassification;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
