@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1811 passed on `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`.
+1821 passed on `82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`.
 
-GitHub Actions push Verify #626 completed successfully for this exact main SHA.
+GitHub Actions push Verify #634 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2928,5 +2928,37 @@ Tests:
 - safe read-only/non-causal/non-executable observation output;
 - exact-SHA evidence: entering main #620, failed intermediate #623, final feature #624, PR merge-ref #625, squash-main #626;
 - failed intermediate `0896d8112971966aec9fb61c7a2250436f19d76a` remains failed evidence at 1804 passed / 7 failed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Outcome Lineage Integrity v1
+
+Boundary:
+
+- `build_product_decision_user_action_post_decision_outcome`
+- verified post-decision observation + prior Product Decision → non-causal outcome classification
+
+Tests:
+
+- `tests/test_product_decision_user_action_post_decision_outcome.py`
+- `tests/test_product_decision_user_action_post_decision_outcome_integrity_v911_v920.py`
+
+Проверяет:
+
+- non-mapping observation/prior inputs fail closed;
+- exact observation/checklist-status/checklist/guidance/verification/application/SKU/timestamp lineage;
+- explicit observation success and persisted Product Decision verification;
+- complete USER_REPORT count/item evidence;
+- no identity/priority coercion;
+- canonical prior/later Product Decision type, priority, confidence and reasons;
+- exact prior SKU binding;
+- rejection of noncanonical MEDIUM priority;
+- support for canonical NONE priority;
+- safe non-causal/non-executable outcome;
+- exact-SHA evidence: entering main #630, feature #632, PR merge-ref #633, squash-main #634;
+- no failed intermediate production SHA occurred in v911-v920;
 - `data/users.json` untouched;
 - `externally_verified=False`.
