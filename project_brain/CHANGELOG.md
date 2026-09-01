@@ -3024,3 +3024,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision User Action Post-Decision Observation Lineage Integrity v901-v910
+
+- hardened checklist-status → post-decision observation lineage;
+- observation now requires canonical checklist-status/checklist/guidance/verification/application/SKU/timestamp identity;
+- persisted Product Decision verification remains explicit;
+- USER_REPORTED_COMPLETE requires exact item/reported/completed consistency;
+- item IDs are canonical, unique and non-coercive;
+- valid observation carries full verified persistence lineage and remains read-only/non-causal/non-executable;
+- failed intermediate `0896d8112971966aec9fb61c7a2250436f19d76a`: Verify #623, 1804 passed / 7 failed; historical v811-v820 fixture mismatch; remains failed evidence;
+- final feature `9bf89d1fc58464ccd985bf18190632ea180fe75d`: Verify #624, 1811 passed / 0 failed;
+- PR #316 synthetic merge `ee70ea2e581743b3a8ebfbf9446ffb535e109836`: Verify #625, 1811 passed / 0 failed;
+- squash main `c7c864814ec609b0f2c58b4578a522b2e5e8dad1`: Verify #626, 1811 passed / 0 failed;
+- no persistence owner, Telegram production wiring, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v901-v910
+
+- reconciled Project Brain to exact verified product main `c7c864814ec609b0f2c58b4578a522b2e5e8dad1` / Verify #626 / 1811 passed;
+- added `CURRENT_CHECKPOINT_V901_V910.md`;
+- retained failed intermediate `0896d8112971966aec9fb61c7a2250436f19d76a` / Verify #623 as failed evidence;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
