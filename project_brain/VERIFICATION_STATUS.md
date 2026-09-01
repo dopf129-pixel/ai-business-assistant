@@ -4,65 +4,58 @@ Date: 2026-09-01
 
 ## Latest verified product baseline
 
-`c788760babc8b0c6becb886f37937f20d5d09028`
+`834df2a9ded1c3e05731a9c249683d15b188c661`
 
 Latest merged production-correctness batch:
 
-`v861-v870: Product Decision User Action Completion Evidence Integrity`
+`v871-v880: Product Decision User Action Completion Persistence Integrity`
 
 ### Entering exact-main verification
 
-- exact main: `16d7b3877a5fb2711b793f68a61263452084f49a`
-- push Verify #560
+- exact main: `5ded44ac37deb19701897425348b81eac0ef0f49`
+- push Verify #577
 - conclusion: success
-- tests: 1761 passed / 0 failed
-- artifact: `verification-16d7b3877a5fb2711b793f68a61263452084f49a`
-- artifact id: 9803278631
-- artifact digest: `sha256:3ab00b39a0d91918abb9092eee8c081cc59e0ef953703bfc70746a63733eb842`
+- tests: 1771 passed / 0 failed
+- artifact id: 9803664551
+- artifact digest: `sha256:aeff85166316e900d67e07aeba0220077fa034d73e5849ce8bda1a569f61ce40`
 
 ### Exact final feature-head verification
 
-- branch: `fix/user-action-completion-evidence-integrity-v861-v870`
-- exact SHA: `8db239ac433d4e53ed1850e04275caeb3105ed68`
-- push Verify #565
+- exact SHA: `381cb421686753aa7e735a693e269b2b27002e5c`
+- push Verify #582
 - conclusion: success
-- tests: 1771 passed / 0 failed
-- artifact: `verification-8db239ac433d4e53ed1850e04275caeb3105ed68`
-- artifact id: 9803396100
-- artifact digest: `sha256:d611a948c8b35731dd44e1a46a192142aa198171a2022a54c72234902ecefe9b`
+- tests: 1781 passed / 0 failed
+- artifact id: 9803822632
+- artifact digest: `sha256:938f4ab6e71a021580530a197f690bc3363bf4fac0cd846c8933e85f795cd75a`
 
 ### PR merge-ref integration verification
 
-- PR #308
-- branch head: `8db239ac433d4e53ed1850e04275caeb3105ed68`
-- synthetic merge SHA: `948c653b686e7b794ee389c1f51085fb3545da38`
-- pull_request Verify #566
+- PR #310
+- synthetic merge SHA: `8b2607178930e3df423084a0d122c6b314141be2`
+- pull_request Verify #583
 - conclusion: success
-- tests: 1771 passed / 0 failed
-- artifact: `verification-948c653b686e7b794ee389c1f51085fb3545da38`
-- artifact id: 9803428303
-- artifact digest: `sha256:31ce08240519b894ea6052170d0c12ac278e00f91e982f09f9248bf6fe4cf61b`
+- tests: 1781 passed / 0 failed
+- artifact id: 9803852021
+- artifact digest: `sha256:8525eed4b1ae43d69dba3f3015eba3260185323f7ea3b2f90325487697a1a915`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
 
-- exact main: `c788760babc8b0c6becb886f37937f20d5d09028`
-- push Verify #567
+- exact main: `834df2a9ded1c3e05731a9c249683d15b188c661`
+- push Verify #584
 - conclusion: success
-- tests: 1771 passed / 0 failed
-- artifact: `verification-c788760babc8b0c6becb886f37937f20d5d09028`
-- artifact id: 9803461966
-- artifact digest: `sha256:01d6fc85c52f2e6783ccf9b073d3bf8bb2d0118affb762a713a5d68908919f2f`
+- tests: 1781 passed / 0 failed
+- artifact id: 9803889303
+- artifact digest: `sha256:a1155363a980ccf73447f9e2cdc635737f7c68c40411bda504c44b996d662c9c`
 
-No failed intermediate production SHA occurred in v861-v870.
+No failed intermediate production SHA occurred in v871-v880.
 
-## Immediately preceding verified product package: v851-v860
+## Immediately preceding verified product package: v861-v870
 
-- entering exact main `4a8978f55739f652b86aa45ad314fa8c0a7f0422`: push Verify #544, 1751 passed / 0 failed
-- exact feature head `349e441c659c2965195a3af4801af3050e8893ca`: push Verify #548, 1761 passed / 0 failed
-- PR #306 synthetic merge `4c0ebaad1691332f9a44871ce1f4fc8cfa52449f`: Verify #549, 1761 passed / 0 failed
-- squash main `405fdea64008e21173e7851e8b370b63eae7ef73`: push Verify #550, 1761 passed / 0 failed
+- exact feature head `8db239ac433d4e53ed1850e04275caeb3105ed68`: push Verify #565, 1771 passed / 0 failed
+- PR #308 synthetic merge `948c653b686e7b794ee389c1f51085fb3545da38`: Verify #566, 1771 passed / 0 failed
+- squash main `c788760babc8b0c6becb886f37937f20d5d09028`: push Verify #567, 1771 passed / 0 failed
 - `externally_verified=False`
 
 ## Verification policy
@@ -78,10 +71,9 @@ Workflow/test-manifest evidence is not independent external verification;
 
 ## Related implementation
 
-- `app/product_decision_user_action_checklist.py`
 - `app/product_decision_user_action_completion_evidence.py`
-- `tests/test_product_decision_user_action_checklist_integrity_v851_v860.py`
-- `tests/test_product_decision_user_action_completion_evidence.py`
-- `tests/test_product_decision_user_action_completion_evidence_integrity_v861_v870.py`
-- `project_brain/CURRENT_CHECKPOINT_V851_V860.md`
+- `app/product_decision_user_action_completion_revision.py`
+- `app/services/product_decision_user_action_completion_persistence_service.py`
+- `tests/test_product_decision_user_action_completion_persistence_integrity_v871_v880.py`
 - `project_brain/CURRENT_CHECKPOINT_V861_V870.md`
+- `project_brain/CURRENT_CHECKPOINT_V871_V880.md`

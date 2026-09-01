@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1771 passed on `c788760babc8b0c6becb886f37937f20d5d09028`.
+1781 passed on `834df2a9ded1c3e05731a9c249683d15b188c661`.
 
-GitHub Actions push Verify #567 completed successfully for this exact main SHA.
+GitHub Actions push Verify #584 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -2800,6 +2800,39 @@ Tests:
 - valid completion evidence remains USER_REPORT, non-persistent before its dedicated persistence step and non-executable;
 - exact-SHA evidence: entering main #560, feature #565, PR merge-ref #566, squash-main #567;
 - no failed intermediate production SHA occurred in v861-v870;
+- no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Persistence Integrity v1
+
+Boundary:
+
+- `ProductDecisionUserActionCompletionPersistenceService`
+- explicit USER_REPORT completion evidence to durable completion storage
+- revision producer lineage propagation compatibility
+
+Tests:
+
+- `tests/test_product_decision_user_action_completion_persistence_service.py`
+- `tests/test_product_decision_user_action_completion_persistence_integrity_v871_v880.py`
+- `tests/test_product_decision_user_action_completion_revision.py`
+
+Проверяет:
+
+- non-mapping evidence fails closed;
+- completion / checklist / guidance / verification / application lineage remains exact;
+- source `error=False`, decision-persistence verification and USER_REPORT source are required;
+- completion status/decision/user boolean consistency;
+- canonical root and revision evidence ID lineage;
+- malformed load result and malformed existing records fail closed;
+- explicit `save(False)` cannot become durable success;
+- root→revision persistence keeps verified lineage, item/instruction and revision metadata;
+- exact-SHA evidence: entering main #577, feature #582, PR merge-ref #583, squash-main #584;
+- no failed intermediate production SHA occurred in v871-v880;
 - no Product Decision rule/threshold, persistence owner, Product Task Draft execution, Telegram production wiring, Action Executor connection or Ozon mutation changed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
