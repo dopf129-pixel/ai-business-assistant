@@ -131,13 +131,32 @@ class ProductDecisionPersistenceApplicationService:
         ):
             return self._blocked("DECISION_HISTORY_SIGNATURE_UNCHANGED", source)
 
+        record_persistent = getattr(
+            self.history_service,
+            "record_persistent",
+            None,
+        )
+        if not callable(record_persistent):
+            return self._blocked(
+                "DECISION_HISTORY_PERSISTENCE_RECEIPT_REQUIRED",
+                source,
+            )
+
         try:
-            history_context = self.history_service.record(deepcopy(decision))
+            persistence_receipt = record_persistent(
+                deepcopy(decision)
+            )
         except Exception:
             return self._blocked("DECISION_HISTORY_WRITE_FAILED", source)
 
-        if not isinstance(history_context, dict) or history_context.get("decision_history_available") is not True:
-            return self._blocked("DECISION_HISTORY_WRITE_NOT_CONFIRMED", source)
+        receipt_error = self._persistence_receipt_error(
+            persistence_receipt,
+            sku,
+        )
+        if receipt_error is not None:
+            return self._blocked(receipt_error, source)
+
+        history_context = persistence_receipt["history_context"]
 
         return {
             "error": False,
@@ -156,6 +175,9 @@ class ProductDecisionPersistenceApplicationService:
             "decision_persistence_application_started": True,
             "decision_persistence_application_completed": True,
             "history_context": deepcopy(history_context),
+            "history_persistence_receipt": deepcopy(
+                persistence_receipt
+            ),
             "persisted_preview_decision": deepcopy(decision),
             "persistent": True,
             "product_decision_recomputed": True,
@@ -166,6 +188,45 @@ class ProductDecisionPersistenceApplicationService:
             "execution_ready": False,
             "executed": False,
         }
+
+    @staticmethod
+    def _persistence_receipt_error(receipt, sku):
+        if (
+            not isinstance(receipt, dict)
+            or type(receipt.get("error")) is not bool
+        ):
+            return "DECISION_HISTORY_PERSISTENCE_RECEIPT_INVALID"
+
+        saved = receipt.get("saved")
+        state = receipt.get("persistence_state")
+
+        if receipt["error"] is True:
+            if saved is False and state == "NOT_COMMITTED":
+                return "DECISION_HISTORY_WRITE_REJECTED"
+            if saved is None and state == "UNKNOWN":
+                return "DECISION_HISTORY_WRITE_STATE_UNKNOWN"
+            return "DECISION_HISTORY_PERSISTENCE_RECEIPT_INVALID"
+
+        context = receipt.get("history_context")
+        recorded_at = receipt.get("decision_recorded_at")
+        history_count = receipt.get("decision_history_count")
+
+        if (
+            receipt.get("sku") != sku
+            or saved is not True
+            or state != "COMMITTED"
+            or not isinstance(context, dict)
+            or context.get("decision_history_available") is not True
+            or not isinstance(recorded_at, str)
+            or not recorded_at.strip()
+            or type(history_count) is not int
+            or history_count < 1
+            or context.get("decision_recorded_at") != recorded_at
+            or context.get("decision_history_count") != history_count
+        ):
+            return "DECISION_HISTORY_PERSISTENCE_RECEIPT_INVALID"
+
+        return None
 
     @staticmethod
     def _normalized_value(field, value):

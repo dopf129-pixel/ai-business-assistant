@@ -29,6 +29,23 @@ class FakeHistoryService:
         self.record_calls.append(deepcopy(decision))
         return deepcopy(self.record_result)
 
+    def record_persistent(self, decision):
+        context = self.record(decision)
+        return {
+            "error": False,
+            "code": None,
+            "sku": decision.get("sku"),
+            "saved": True,
+            "persistence_state": "COMMITTED",
+            "decision_recorded_at": context.get(
+                "decision_recorded_at"
+            ),
+            "decision_history_count": context.get(
+                "decision_history_count"
+            ),
+            "history_context": deepcopy(context),
+        }
+
 
 def _readiness(**values):
     preview_id = "product-decision-recompute-preview:auth-1"
