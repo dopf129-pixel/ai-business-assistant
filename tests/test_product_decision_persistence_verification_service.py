@@ -29,6 +29,29 @@ def _ids():
     return preview_id, delta_id, review_id, eligibility_id, authorization_id, readiness_id, application_id
 
 
+def _lineage():
+    (
+        preview_id,
+        delta_id,
+        review_id,
+        eligibility_id,
+        authorization_id,
+        readiness_id,
+        application_id,
+    ) = _ids()
+    return {
+        "decision_persistence_application_id": application_id,
+        "decision_persistence_application_readiness_id": readiness_id,
+        "decision_persistence_authorization_id": authorization_id,
+        "decision_persistence_eligibility_id": eligibility_id,
+        "decision_preview_review_id": review_id,
+        "decision_preview_delta_id": delta_id,
+        "recompute_preview_id": preview_id,
+        "draft_id": "draft-1",
+        "sku": "hook-2",
+    }
+
+
 def _decision(**values):
     result = {
         "sku": "hook-2",
@@ -63,6 +86,7 @@ def _snapshot(**values):
         "margin_percent": 36.56,
         "economics_basis": "CURRENT_PRICE",
         "recorded_at": "2026-08-29T15:10:00+00:00",
+        "persistence_application_lineage": _lineage(),
     }
     result.update(values)
     return result
@@ -103,6 +127,7 @@ def _application(**values):
                 "decision_recorded_at": "2026-08-29T15:10:00+00:00",
                 "decision_history_count": 2,
             },
+            "persistence_application_lineage": _lineage(),
         },
         "persisted_preview_decision": _decision(),
         "persistent": True,

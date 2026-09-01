@@ -142,9 +142,30 @@ class ProductDecisionPersistenceApplicationService:
                 source,
             )
 
+        application_id = (
+            "product-decision-persistence-application:"
+            + readiness_id
+        )
+        persistence_application_lineage = {
+            "decision_persistence_application_id": application_id,
+            "decision_persistence_application_readiness_id": (
+                readiness_id
+            ),
+            "decision_persistence_authorization_id": authorization_id,
+            "decision_persistence_eligibility_id": eligibility_id,
+            "decision_preview_review_id": review_id,
+            "decision_preview_delta_id": delta_id,
+            "recompute_preview_id": preview_id,
+            "draft_id": draft_id,
+            "sku": sku,
+        }
+
         try:
             persistence_receipt = record_persistent(
-                deepcopy(decision)
+                deepcopy(decision),
+                application_lineage=deepcopy(
+                    persistence_application_lineage
+                ),
             )
         except Exception:
             return self._blocked("DECISION_HISTORY_WRITE_FAILED", source)
@@ -152,6 +173,7 @@ class ProductDecisionPersistenceApplicationService:
         receipt_error = self._persistence_receipt_error(
             persistence_receipt,
             sku,
+            persistence_application_lineage,
         )
         if receipt_error is not None:
             return self._blocked(receipt_error, source)
@@ -161,7 +183,7 @@ class ProductDecisionPersistenceApplicationService:
         return {
             "error": False,
             "status": "PRODUCT_DECISION_PERSISTENCE_APPLIED",
-            "decision_persistence_application_id": "product-decision-persistence-application:" + readiness_id,
+            "decision_persistence_application_id": application_id,
             "decision_persistence_application_readiness_id": readiness_id,
             "decision_persistence_authorization_id": authorization_id,
             "decision_persistence_eligibility_id": eligibility_id,
@@ -190,7 +212,11 @@ class ProductDecisionPersistenceApplicationService:
         }
 
     @staticmethod
-    def _persistence_receipt_error(receipt, sku):
+    def _persistence_receipt_error(
+        receipt,
+        sku,
+        expected_application_lineage,
+    ):
         if (
             not isinstance(receipt, dict)
             or type(receipt.get("error")) is not bool
@@ -228,6 +254,8 @@ class ProductDecisionPersistenceApplicationService:
             or history_count < 1
             or context.get("decision_recorded_at") != recorded_at
             or context.get("decision_history_count") != history_count
+            or receipt.get("persistence_application_lineage")
+            != expected_application_lineage
         ):
             return "DECISION_HISTORY_PERSISTENCE_RECEIPT_INVALID"
 
