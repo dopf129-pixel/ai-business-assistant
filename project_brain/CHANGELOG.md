@@ -3184,3 +3184,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision History Context Result Integrity v961-v970
+
+- hardened Product Decision history record-context and Telegram latest-history result integrity;
+- history context is now mapping-only, whitelisted and cannot overwrite Product Decision identity/error fields;
+- malformed/exceptional history context becomes explicit unknown/unavailable interaction state and is not cached;
+- invalid history context blocks task-draft lifecycle;
+- Telegram latest history/draft attachment is SKU/proposal/revision/safety bound;
+- failed intermediate `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed, artifact 9814044437, digest `sha256:e0edfc47ee933e8869dbb76ed0df3ca5a2ba4ba4b2d392e469c21a42ea3c82fc`;
+- failure was an undeclared `deepcopy` in the new Telegram draft-copy path; SHA remains failed evidence;
+- final feature `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed;
+- PR #328 synthetic `85e808a3dcc04ef9197bc673950546445ee15749`: Verify #676, 1871 passed / 0 failed;
+- squash main `10977368ac4179f1f7168943a38fcdbc01ecfd78`: Verify #677, 1871 passed / 0 failed;
+- no Product Decision threshold/rule, persistence owner, Product Task Draft execution, Action Executor connection or Ozon mutation changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v961-v970
+
+- reconciled Project Brain to exact verified product main `10977368ac4179f1f7168943a38fcdbc01ecfd78` / Verify #677 / 1871 passed;
+- added `CURRENT_CHECKPOINT_V961_V970.md`;
+- retained failed intermediate #674 as failed SHA-bound evidence;
+- DECISIONS unchanged: no new architecture decision;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

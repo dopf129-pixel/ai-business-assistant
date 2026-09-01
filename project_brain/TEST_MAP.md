@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1861 passed on `7637177202c21d3f2894105e39137efd86855b8c`.
+1871 passed on `10977368ac4179f1f7168943a38fcdbc01ecfd78`.
 
-GitHub Actions push Verify #668 completed successfully for this exact main SHA.
+GitHub Actions push Verify #677 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3083,5 +3083,39 @@ Tests:
 - valid proposal remains non-executable and Telegram-safe;
 - exact-SHA evidence: entering main #664, feature #666, PR merge-ref #667, squash-main #668;
 - no failed intermediate production SHA occurred in v951-v960;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision History Context Result Integrity v1
+
+Boundary:
+
+- `ProductBusinessDecisionQueryService._with_decision_history`
+- `AssistantButtonHandlerService._with_latest_proposal_status`
+- Product Decision → history interaction context → cache / draft lifecycle / Telegram
+
+Tests:
+
+- `tests/test_product_decision_history_context_integrity_v961_v970.py`
+
+Проверяет:
+
+- history record context cannot overwrite Product Decision identity;
+- non-mapping history context is unknown, not clean success;
+- required history booleans are exact;
+- history count is exact integer or unknown, never coerced;
+- history exceptions are sanitized;
+- valid history context remains cacheable;
+- invalid history context blocks task-draft lifecycle;
+- Telegram skips latest reads for invalid history context;
+- malformed/cross-SKU/unknown-status latest history cannot enter card;
+- valid safe latest proposal status and task draft remain available;
+- failed intermediate `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed;
+- final feature `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed;
+- PR #328 synthetic `85e808a3dcc04ef9197bc673950546445ee15749`: Verify #676, 1871 passed / 0 failed;
+- squash main `10977368ac4179f1f7168943a38fcdbc01ecfd78`: Verify #677, 1871 passed / 0 failed;
 - `data/users.json` untouched;
 - `externally_verified=False`.
