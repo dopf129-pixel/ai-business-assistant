@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
+1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
 
-GitHub Actions push verification run #518 completed successfully for this exact main SHA.
+GitHub Actions push verification run #534 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -419,7 +419,7 @@ Next planned changes:
 4. Следующий product/operational пакет выбирать по фактическому repo gap после сверки main; не продолжать learning wrappers автоматически
 
 
-5. Не подключать canonical user-action advisory/checklist chain к Telegram, пока exact persisted Product Decision verification не будет явно пронесён через production Telegram lineage; v831-v840 укрепляет verifier, но не выполняет это runtime-подключение
+5. Не подключать canonical user-action advisory/checklist chain к Telegram, пока exact persisted Product Decision verification не будет явно пронесён через production Telegram lineage; v831-v840 укрепляет verifier, v841-v850 укрепляет guidance consumer, но runtime-подключение по-прежнему не выполнено
 
 
 6. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
+1751 passed on `e793ca7ab241d54a12af8b3b402b1dc862652bf2`.
 
 Verification source:
-GitHub Actions push run #518, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #534, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1648,3 +1648,45 @@ Preserved:
 - no Telegram production wiring in this package;
 - no Ozon mutation;
 - `data/users.json` unchanged.
+
+
+---
+
+# Product Decision User Action Guidance Integrity v841-v850 — 2026-09-01
+
+Completed:
+
+[x] Guidance accepts only mapping-shaped verification input
+
+[x] Verification/application IDs and SKU require canonical non-empty strings
+
+[x] Explicit verifier error=False and verified status are required
+
+[x] Non-empty verification mismatch evidence blocks seller guidance
+
+[x] External-verification and execution/persistence overclaims fail closed
+
+[x] Verified recorded-at is bound to the exact durable snapshot timestamp
+
+[x] Priority and confidence use canonical enums
+
+[x] Reasons require real non-empty string-list evidence
+
+[x] Valid guidance carries exact verified lineage forward without enabling execution
+
+Verified exact main:
+
+`e793ca7ab241d54a12af8b3b402b1dc862652bf2`
+
+GitHub Actions push Verify #534: 1751 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
