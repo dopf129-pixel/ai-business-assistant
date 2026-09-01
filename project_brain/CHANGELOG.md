@@ -3380,3 +3380,33 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-01 — Product Decision Persistence Commit Receipt Integrity v1031-v1040
+
+- hardened Product Decision History base-write persistence semantics;
+- base history record no longer ignores storage `save()` result;
+- rejected and unknown writes cannot return successful history availability and are removed from in-memory state;
+- added explicit durable `record_persistent()` receipt API on the existing history persistence owner;
+- in-memory history cannot claim a durable commit;
+- persistence application requires exact `saved=True` / `persistence_state=COMMITTED` receipt before `product_decision_persisted=True`;
+- persistence verification requires the receipt to match history context before readback;
+- failed intermediate `14a0709209228310625dd91871e963a866ab6cc9`: Verify #742, 1940 passed / 1 failed, artifact 9820529167, digest `sha256:1091138eae94c940d4ee0add628a30071df2f547037b379f7b52c62fc33bd0b8`;
+- final feature `88372919c9275a51482703e59fe21d8c4d9c5682`: Verify #743, 1941 passed / 0 failed, artifact 9820570261, digest `sha256:735bfcb0bf9a44204928ceefb49079347d9c044839d4461872c51720ccc34da5`;
+- PR #342 synthetic `7e54ca702706ad192eb70da63e351e96efdb31b5`: Verify #744, 1941 passed / 0 failed, artifact 9820601679, digest `sha256:906f36eeae5b1737725880484897f314cbe16ba9231caf86736e90c54fbdeda2`;
+- squash main `7d53fecac126973122270eacfdfc122e50ae3de3`: Verify #745, 1941 passed / 0 failed, artifact 9820633507, digest `sha256:af6b1b1cf03d70b8330d2450653303b088577ef0df6dbb5b1d5a4604a6141715`;
+- existing history storage remains the persistence owner;
+- Telegram application-lineage blocker remains open; no read-side persistence mutation was introduced;
+- no business thresholds, finance formulas, execution permissions or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-01 — Project Brain reconciliation after v1031-v1040
+
+- reconciled Project Brain to exact verified product main `7d53fecac126973122270eacfdfc122e50ae3de3` / Verify #745 / 1941 passed;
+- added `CURRENT_CHECKPOINT_V1031_V1040.md`;
+- DECISIONS unchanged: no new persistence owner/service/layer;
+- Telegram lineage blocker explicitly remains open;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

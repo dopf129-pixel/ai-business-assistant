@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1931 passed on `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`.
+1941 passed on `7d53fecac126973122270eacfdfc122e50ae3de3`.
 
-GitHub Actions push verification run #736 completed successfully for this exact main SHA.
+GitHub Actions push verification run #745 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2478,6 +2478,60 @@ Preserved:
 - no finance formula change;
 - unknown sales/stock values remain unknown;
 - no new persistence owner;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Persistence Commit Receipt Integrity v1031-v1040 — 2026-09-01
+
+Completed:
+
+[x] Base Product Decision history writes no longer ignore storage save results
+
+[x] Rejected/unknown saves cannot return a successful available history context
+
+[x] Failed base writes are removed from in-memory state and retried from known state
+
+[x] Durable persistence application requires explicit record_persistent() support
+
+[x] In-memory-only history cannot issue a durable commit receipt
+
+[x] Successful receipt requires saved=True and persistence_state=COMMITTED
+
+[x] Receipt binds exact SKU, recorded_at, history count, and history context
+
+[x] Product Decision persistence application requires the committed receipt before product_decision_persisted=True
+
+[x] Product Decision persistence verification requires the same receipt before readback verification
+
+[x] No persistence/application lineage is synthesized into history snapshots
+
+Verified exact main:
+
+`7d53fecac126973122270eacfdfc122e50ae3de3`
+
+GitHub Actions push Verify #745: 1941 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `14a0709209228310625dd91871e963a866ab6cc9`: Verify #742, 1940 passed / 1 failed.
+
+Final feature and integration evidence:
+
+- final feature `88372919c9275a51482703e59fe21d8c4d9c5682`: Verify #743, 1941 passed / 0 failed;
+- PR #342 synthetic `7e54ca702706ad192eb70da63e351e96efdb31b5`: Verify #744, 1941 passed / 0 failed;
+- squash main `7d53fecac126973122270eacfdfc122e50ae3de3`: Verify #745, 1941 passed / 0 failed.
+
+Preserved:
+
+- existing Product Decision History storage remains the persistence owner;
+- no Telegram read path invokes persistence application;
+- Telegram verified-guidance blocker remains open because application receipt lineage is not durably embedded in history snapshots;
+- no Product Decision rule/threshold or finance formula change;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;
