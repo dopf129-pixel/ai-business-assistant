@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
+1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
 
-GitHub Actions push verification run #501 completed successfully for this exact main SHA.
+GitHub Actions push verification run #518 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -419,7 +419,7 @@ Next planned changes:
 4. Следующий product/operational пакет выбирать по фактическому repo gap после сверки main; не продолжать learning wrappers автоматически
 
 
-5. Не подключать canonical user-action advisory/checklist chain к Telegram без exact persisted Product Decision verification lineage
+5. Не подключать canonical user-action advisory/checklist chain к Telegram, пока exact persisted Product Decision verification не будет явно пронесён через production Telegram lineage; v831-v840 укрепляет verifier, но не выполняет это runtime-подключение
 
 
 6. Поддерживать operator-only persistence diagnostics и Project Brain drift cleanup
@@ -731,10 +731,10 @@ Tests:
 SHA-bound verification active.
 
 Latest confirmed full-suite baseline:
-1731 passed on `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`.
+1741 passed on `a3aa88f351985e8519f754923880165f96fb29ad`.
 
 Verification source:
-GitHub Actions push run #501, exact SHA-bound main verification with canonical `test-report.json` artifact.
+GitHub Actions push run #518, exact SHA-bound main verification with canonical `test-report.json` artifact.
 
 
 
@@ -1610,3 +1610,41 @@ Preserved:
 - no Product Decision/Product Task Draft execution
 - no Ozon mutation
 - `data/users.json` unchanged
+
+
+---
+
+# Product Decision Persistence Verification Integrity v831-v840 — 2026-09-01
+
+Completed:
+
+[x] Non-mapping persistence-verification application input fails closed
+
+[x] Product Decision lineage IDs and SKU are not coerced from non-string identities
+
+[x] Explicit persisted-preview error markers are structurally validated
+
+[x] Canonical decision type, priority and confidence are required
+
+[x] Reasons require a real non-empty list of non-empty strings
+
+[x] Durable history snapshot semantics fail closed before verification success
+
+[x] Recorded-at lineage requires an explicit string binding
+
+[x] Valid verification remains read-only, non-executable and externally_verified=False
+
+Verified exact main:
+
+`a3aa88f351985e8519f754923880165f96fb29ad`
+
+GitHub Actions push Verify #518: 1741 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring in this package;
+- no Ozon mutation;
+- `data/users.json` unchanged.
