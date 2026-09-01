@@ -20,6 +20,15 @@ class AssistantButtonHandlerService:
         "NONE": "Нет"
     }
 
+    DECISION_PRIORITY_CONTRACT = {
+        "REPLENISH_HIGH_PRIORITY": "CRITICAL",
+        "REPLENISH_NORMAL": "HIGH",
+        "WATCH_LOW_MARGIN": "NORMAL",
+        "INVESTIGATE_LOW_PROFIT": "HIGH",
+        "HOLD_STOCK": "LOW",
+        "INSUFFICIENT_DATA": "NONE",
+    }
+
     DECISION_BUTTON_LABELS = {
         "REPLENISH_HIGH_PRIORITY": "Пополнить срочно",
         "REPLENISH_NORMAL": "Пополнить",
@@ -980,115 +989,154 @@ class AssistantButtonHandlerService:
     ):
 
         if (
-            not isinstance(
-                overview,
-                dict
-            )
-            or type(
-                overview.get(
-                    "error"
-                )
-            )
-            is not bool
+            not isinstance(overview, dict)
+            or type(overview.get("error")) is not bool
         ):
-
             return self._invalid_product_decision_result(
                 "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
             )
 
-        if overview.get(
-            "error"
-        ) is True:
-
-            failure = dict(
-                overview
-            )
+        if overview.get("error") is True:
+            failure = dict(overview)
             failure.setdefault(
                 "message",
                 "Не удалось получить решения по товарам"
             )
             return failure
 
-        decisions = overview.get(
-            "decisions"
-        )
-        counts = overview.get(
-            "counts"
-        )
-        total = overview.get(
-            "total"
-        )
-        actionable = overview.get(
-            "actionable_proposals_count"
-        )
+        decisions = overview.get("decisions")
+        counts = overview.get("counts")
+        proposal_counts = overview.get("proposal_counts")
+        total = overview.get("total")
+        actionable = overview.get("actionable_proposals_count")
 
         if (
-            not isinstance(
-                decisions,
-                list
-            )
-            or any(
-                not isinstance(
-                    item,
-                    dict
-                )
-                for item in decisions
-            )
-            or not isinstance(
-                counts,
-                dict
-            )
-            or type(
-                total
-            )
-            is not int
+            not isinstance(decisions, list)
+            or not isinstance(counts, dict)
+            or not isinstance(proposal_counts, dict)
+            or type(total) is not int
             or total < 0
-            or total != len(
-                decisions
-            )
-            or type(
-                actionable
-            )
-            is not int
+            or total != len(decisions)
+            or type(actionable) is not int
             or actionable < 0
+            or actionable > total
         ):
-
             return self._invalid_product_decision_result(
                 "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
             )
 
+        expected_counts = {}
+        expected_proposal_counts = {}
+        expected_actionable = 0
+        seen_skus = set()
+
         for decision in decisions:
-
-            if (
-                decision.get(
-                    "sku"
-                )
-                is None
-                or not isinstance(
-                    decision.get(
-                        "decision_type"
-                    ),
-                    str
-                )
-                or not decision.get(
-                    "decision_type"
-                )
-                or not isinstance(
-                    decision.get(
-                        "priority"
-                    ),
-                    str
-                )
-                or not decision.get(
-                    "priority"
-                )
-            ):
-
+            if not isinstance(decision, dict):
                 return self._invalid_product_decision_result(
                     "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
                 )
 
+            sku = decision.get("sku")
+            decision_type = decision.get("decision_type")
+            priority = decision.get("priority")
+
+            if (
+                decision.get("error") is not False
+                or not isinstance(sku, str)
+                or not sku.strip()
+                or sku in seen_skus
+                or decision_type not in self.DECISION_PRIORITY_CONTRACT
+                or priority
+                != self.DECISION_PRIORITY_CONTRACT[decision_type]
+            ):
+                return self._invalid_product_decision_result(
+                    "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+                )
+
+            seen_skus.add(sku)
+            expected_counts[decision_type] = (
+                expected_counts.get(decision_type, 0) + 1
+            )
+
+            proposal = decision.get("action_proposal")
+            if proposal is None:
+                continue
+
+            if not isinstance(proposal, dict):
+                return self._invalid_product_decision_result(
+                    "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+                )
+
+            action_required = proposal.get("action_required")
+            proposal_type = proposal.get("proposal_type")
+
+            if (
+                type(action_required) is not bool
+                or proposal.get("execution_allowed") is not False
+                or proposal.get("automation_status") != "PROHIBITED"
+                or (
+                    proposal_type is not None
+                    and proposal_type not in self.ACTION_PROPOSAL_LABELS
+                )
+                or (
+                    action_required is True
+                    and proposal_type is None
+                )
+            ):
+                return self._invalid_product_decision_result(
+                    "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+                )
+
+            if proposal_type is not None:
+                expected_proposal_counts[proposal_type] = (
+                    expected_proposal_counts.get(proposal_type, 0) + 1
+                )
+
+            if action_required is True:
+                expected_actionable += 1
+
+        if not self._valid_positive_count_map(
+            counts,
+            allowed_keys=set(self.DECISION_PRIORITY_CONTRACT),
+        ):
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+            )
+
+        if not self._valid_positive_count_map(
+            proposal_counts,
+            allowed_keys=set(self.ACTION_PROPOSAL_LABELS),
+        ):
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+            )
+
+        if (
+            counts != expected_counts
+            or proposal_counts != expected_proposal_counts
+            or actionable != expected_actionable
+        ):
+            return self._invalid_product_decision_result(
+                "INVALID_PRODUCT_DECISIONS_OVERVIEW_RESULT"
+            )
+
         return None
+
+
+    @staticmethod
+    def _valid_positive_count_map(values, allowed_keys):
+        if not isinstance(values, dict):
+            return False
+
+        for key, value in values.items():
+            if (
+                key not in allowed_keys
+                or type(value) is not int
+                or value <= 0
+            ):
+                return False
+
+        return True
 
 
     def _validate_product_decision_detail(
