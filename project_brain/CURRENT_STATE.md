@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2031 passed on `87c95cf2eb139cd8782d8df79d43b2313939bba0`.
+2041 passed on `189455bb5b44c47bbf5abf188d1b456dad14b1ba`.
 
-GitHub Actions push verification run #820 completed successfully for this exact main SHA.
+GitHub Actions push verification run #828 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2996,6 +2996,56 @@ Preserved:
 
 - StoreProfitService success schema and missing-field zero defaults;
 - aggregation formulas and margin formula unchanged;
+- no persistence change;
+- no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Business Profit Calculation Result Integrity v1131-v1140 — 2026-09-02
+
+Completed:
+
+[x] Non-mapping store-profit/tax inputs fail closed
+
+[x] Malformed store/tax error/configured markers fail closed
+
+[x] Gross-sales/gross-profit inputs reject boolean, non-numeric and NaN/inf
+
+[x] Advertising/other-expense inputs reject boolean, negative, non-numeric and NaN/inf
+
+[x] Tax amount rejects boolean, negative, non-numeric and NaN/inf
+
+[x] Unknown tax remains unknown rather than zero
+
+[x] Existing tax-error message/presentation contract remains compatible
+
+[x] Business-profit and margin overflow/non-finite results fail closed
+
+[x] Valid numeric strings and existing formulas remain compatible
+
+[x] New BUSINESS_PROFIT_* integrity failures propagate through BusinessAnalytics, SalesIntelligence and AssistantSalesExecutor
+
+Verified exact main:
+
+`189455bb5b44c47bbf5abf188d1b456dad14b1ba`
+
+GitHub Actions push Verify #828: 2041 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `98edb5b5500c25e53b77237016afe3a223360ab8`: Verify #826, 2041 passed / 0 failed;
+- PR #362 synthetic `6e335e508c07903d6e4488f1aac40d28a9e4152f`: Verify #827, 2041 passed / 0 failed;
+- squash main `189455bb5b44c47bbf5abf188d1b456dad14b1ba`: Verify #828, 2041 passed / 0 failed.
+
+Preserved:
+
+- business-profit/margin formulas unchanged;
+- TaxService/tax formulas unchanged;
 - no persistence change;
 - no new retry or execution path;
 - no Product Decision/Product Task Draft execution;

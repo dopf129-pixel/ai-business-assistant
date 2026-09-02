@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2031 passed on `87c95cf2eb139cd8782d8df79d43b2313939bba0`.
+2041 passed on `189455bb5b44c47bbf5abf188d1b456dad14b1ba`.
 
-GitHub Actions push Verify #820 completed successfully for this exact main SHA.
+GitHub Actions push Verify #828 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3700,6 +3700,42 @@ Tests:
 - PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`: Verify #819, 2031 passed / 0 failed;
 - squash main `87c95cf2eb139cd8782d8df79d43b2313939bba0`: Verify #820, 2031 passed / 0 failed;
 - aggregation formulas unchanged;
+- no persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Business Profit Calculation Result Integrity v1
+
+Boundaries:
+
+- `BusinessProfitService.calculate`
+- numeric/cost/result validation helpers
+- `BusinessAnalyticsService.calculate`
+- `SalesIntelligenceService.analyze`
+- `AssistantSalesExecutorService.execute`
+
+Tests:
+
+- `tests/test_business_profit_calculation_result_integrity_v1131_v1140.py`
+
+Проверяет:
+
+- malformed store-profit/tax structures and markers fail closed;
+- gross-sales/gross-profit are finite non-boolean numbers;
+- advertising/other-expense costs are finite and non-negative;
+- tax amount is finite and non-negative;
+- unknown tax remains unknown;
+- existing tax error message contract remains compatible;
+- business-profit/margin overflow fails closed;
+- numeric-string/formula compatibility remains;
+- new integrity failures propagate to the sales executor;
+- final feature `98edb5b5500c25e53b77237016afe3a223360ab8`: Verify #826, 2041 passed / 0 failed;
+- PR #362 synthetic `6e335e508c07903d6e4488f1aac40d28a9e4152f`: Verify #827, 2041 passed / 0 failed;
+- squash main `189455bb5b44c47bbf5abf188d1b456dad14b1ba`: Verify #828, 2041 passed / 0 failed;
+- formulas unchanged;
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

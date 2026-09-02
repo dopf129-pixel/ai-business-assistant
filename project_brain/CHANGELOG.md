@@ -3656,3 +3656,29 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Business Profit Calculation Result Integrity v1131-v1140
+
+- hardened BusinessProfitService against malformed/non-finite store-profit, tax, advertising and other-expense inputs;
+- unknown tax remains unknown rather than zero;
+- negative or non-finite cost/tax inputs fail closed;
+- non-finite business-profit/margin results fail closed;
+- existing business-profit/margin formulas and legacy tax-error presentation remain unchanged;
+- BusinessAnalytics promotes only new BUSINESS_PROFIT_* integrity failures and SalesIntelligence/AssistantSalesExecutor preserve them;
+- final feature `98edb5b5500c25e53b77237016afe3a223360ab8`: Verify #826, 2041 passed / 0 failed, artifact 9850198413, digest `sha256:a28889fed572b8ac4f1a44d06faf567615ac646040eeee9b3faa4616017810fd`;
+- PR #362 synthetic `6e335e508c07903d6e4488f1aac40d28a9e4152f`: Verify #827, 2041 passed / 0 failed, artifact 9850246557, digest `sha256:c490d6b43824bf420dfb2c5d812637a1220016170ec3afc423707f9332da979a`;
+- squash main `189455bb5b44c47bbf5abf188d1b456dad14b1ba`: Verify #828, 2041 passed / 0 failed, artifact 9850316806, digest `sha256:bcaaf2b0b6927472571ab69c9b0e1d1898e19fa43a9adf62f169278867621ff9`;
+- finance formulas, persistence owners, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1131-v1140
+
+- reconciled Project Brain to exact verified product main `189455bb5b44c47bbf5abf188d1b456dad14b1ba` / Verify #828 / 2041 passed;
+- added `CURRENT_CHECKPOINT_V1131_V1140.md`;
+- DECISIONS unchanged: no new finance owner/formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
