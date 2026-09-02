@@ -906,10 +906,17 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        overview = (
-            self.product_business_decision_query
-            .query_all()
-        )
+        try:
+            overview = (
+                self.product_business_decision_query
+                .query_all()
+            )
+        except Exception:
+            return {
+                "error": True,
+                "code": "PRODUCT_DECISION_QUERY_FAILED",
+                "message": "Не удалось получить решения по товарам",
+            }
 
         overview_failure = (
             self._validate_product_decisions_overview(
@@ -1296,12 +1303,19 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        result = (
-            self.product_business_decision_query
-            .query(
-                sku
+        try:
+            result = (
+                self.product_business_decision_query
+                .query(
+                    sku
+                )
             )
-        )
+        except Exception:
+            return {
+                "error": True,
+                "code": "PRODUCT_DECISION_QUERY_FAILED",
+                "message": "Не удалось получить решение по товару",
+            }
 
         result_failure = (
             self._validate_product_decision_detail(
