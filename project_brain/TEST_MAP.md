@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1991 passed on `0f484141713f2452f451e818caf600d113df6ad4`.
+2001 passed on `38e54ddc6d289f0f75121cc63efa0268ef2784f8`.
 
-GitHub Actions push Verify #788 completed successfully for this exact main SHA.
+GitHub Actions push Verify #796 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3551,5 +3551,42 @@ Tests:
 - squash main `0f484141713f2452f451e818caf600d113df6ad4`: Verify #788, 1991 passed / 0 failed;
 - finance formulas unchanged;
 - no retry, persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Tax Configuration Persistence & Result Integrity v1
+
+Boundaries:
+
+- `TaxConfigurationService.get_policy`
+- `TaxConfigurationService.save_policy`
+- `TaxConfigurationService._validate_policy`
+- production `telegram_core_factory.create_telegram_core`
+
+Tests:
+
+- `tests/test_tax_configuration_persistence_result_integrity_v1091_v1100.py`
+- existing `tests/test_tax_configuration_foundation.py`
+
+Проверяет:
+
+- non-mapping persisted root fails closed as unconfigured;
+- non-numeric persisted tax rate fails closed;
+- NaN and positive/negative infinity fail closed;
+- negative, >100% and boolean tax rates are rejected before write;
+- invalid minimum-tax rates are rejected before write;
+- NONE preserves explicit zero-tax normalization;
+- valid policy is normalized and atomically persisted;
+- failed atomic replace preserves the previous durable policy and cleans the temp file;
+- truncated JSON becomes unconfigured instead of a startup exception;
+- production factory starts with malformed tax config while keeping tax unknown;
+- final feature `8cc003f6fa66eb499c67d7d3d74f90c0c75abecf`: Verify #794, 2001 passed / 0 failed;
+- PR #354 synthetic `5167b644bc53edc27a40c7b15c7068e0c669d2fc`: Verify #795, 2001 passed / 0 failed;
+- squash main `38e54ddc6d289f0f75121cc63efa0268ef2784f8`: Verify #796, 2001 passed / 0 failed;
+- TaxService formulas unchanged;
+- no execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

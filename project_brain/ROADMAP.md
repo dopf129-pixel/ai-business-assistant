@@ -447,9 +447,9 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1081_V1090.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1091_V1100.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1081_V1090.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1091_V1100.md`
 
 
 ## Current integration blocker
@@ -484,3 +484,6 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V1081_V1090.md`
 
 
 [x] Financial Telegram Query Exception Containment
+
+
+[x] Tax Configuration Persistence & Result Integrity
