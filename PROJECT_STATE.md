@@ -18,33 +18,33 @@ Development Autopilot Layer
 
 Package:
 
-`v1091-v1100: Tax Configuration Persistence & Result Integrity`
+`v1101-v1110: Tax Calculation Input & Result Integrity`
 
 Goal:
 
-Keep persisted tax configuration finite, bounded, fail-closed and atomically durable without changing tax formulas.
+Keep TaxService runtime inputs finite and explicit and prevent non-finite calculated tax results while preserving existing formula branches.
 
 Immediately preceding verified package:
 
-`v1081-v1090: Financial Telegram Query Exception Containment`
+`v1091-v1100: Tax Configuration Persistence & Result Integrity`
 
 ## Stable verification
 
 Latest exact product main:
 
-`38e54ddc6d289f0f75121cc63efa0268ef2784f8`
+`1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`
 
-GitHub Actions push Verify #796:
+GitHub Actions push Verify #804:
 
-2001 passed / 0 failed.
+2011 passed / 0 failed.
 
 Preserved:
 
 - TaxConfigurationService remains the sole tax-config persistence owner;
-- TaxService formulas and calculation branches unchanged;
-- malformed durable tax config becomes unconfigured rather than a startup exception;
-- valid tax config writes use temporary-file fsync + atomic replace;
-- failed replacement preserves prior durable policy;
+- TaxService formula branches and configured percentages unchanged;
+- missing tax configuration remains explicit unknown/unconfigured;
+- malformed/non-finite runtime tax inputs fail closed;
+- non-finite calculated tax is never returned as success;
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Action Executor connection;
@@ -55,19 +55,19 @@ Preserved:
 
 Entering docs-reconciled verified main:
 
-- `5b2e3ddcc579da318685f3eea4d730119a27f6e9` / Verify #792 / 1991 passed / 0 failed.
+- `13479dc0226ad18fe1fe9ff1c20369c27672e759` / Verify #800 / 2001 passed / 0 failed.
 
 Final feature:
 
-- `8cc003f6fa66eb499c67d7d3d74f90c0c75abecf` / Verify #794 / 2001 passed / 0 failed.
+- `85fc4b76baa725cbc586ca39e8454e30a70fb168` / Verify #802 / 2011 passed / 0 failed.
 
 PR integration:
 
-- PR #354 synthetic `5167b644bc53edc27a40c7b15c7068e0c669d2fc` / Verify #795 / 2001 passed / 0 failed.
+- PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7` / Verify #803 / 2011 passed / 0 failed.
 
 Squash main:
 
-- `38e54ddc6d289f0f75121cc63efa0268ef2784f8` / Verify #796 / 2001 passed / 0 failed.
+- `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b` / Verify #804 / 2011 passed / 0 failed.
 
 ## Current integration blocker
 

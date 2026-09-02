@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2001 passed on `38e54ddc6d289f0f75121cc63efa0268ef2784f8`.
+2011 passed on `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`.
 
-GitHub Actions push Verify #796 completed successfully for this exact main SHA.
+GitHub Actions push Verify #804 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3588,5 +3588,42 @@ Tests:
 - squash main `38e54ddc6d289f0f75121cc63efa0268ef2784f8`: Verify #796, 2001 passed / 0 failed;
 - TaxService formulas unchanged;
 - no execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Tax Calculation Input & Result Integrity v1
+
+Boundaries:
+
+- `TaxService.calculate`
+- `TaxService._normalize_amount`
+- `TaxService._normalize_rate`
+- `ProductUnitEconomicsProvider._calculate_tax`
+
+Tests:
+
+- `tests/test_tax_calculation_input_result_integrity_v1101_v1110.py`
+- existing tax configuration/unit-economics tests
+
+Проверяет:
+
+- missing tax mode preserves the explicit unconfigured result;
+- unsupported tax mode is rejected before numeric conversion;
+- non-numeric revenue/gross-profit inputs fail closed;
+- NaN/inf revenue/gross-profit inputs fail closed;
+- boolean amounts are not accepted as numeric tax inputs;
+- invalid USN_INCOME tax rates fail closed;
+- invalid minimum-tax rates fail closed;
+- overflow/non-finite tax result never returns NaN/inf;
+- numeric-string compatibility and valid formula outputs remain unchanged;
+- negative revenue/profit continue to clip tax base to zero;
+- Unit Economics maps invalid TaxService result to unknown tax rather than fabricated profit;
+- final feature `85fc4b76baa725cbc586ca39e8454e30a70fb168`: Verify #802, 2011 passed / 0 failed;
+- PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7`: Verify #803, 2011 passed / 0 failed;
+- squash main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`: Verify #804, 2011 passed / 0 failed;
+- no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
