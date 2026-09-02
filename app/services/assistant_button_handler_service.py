@@ -3842,11 +3842,18 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        products = (
-            self.unit_economics_query
-            .product_service
-            .load_products()
-        )
+        try:
+            products = (
+                self.unit_economics_query
+                .product_service
+                .load_products()
+            )
+        except Exception:
+            return {
+                "error": True,
+                "code": "UNIT_ECONOMICS_PRODUCTS_QUERY_FAILED",
+                "message": "Юнит-экономика недоступна",
+            }
 
         skus = []
 
@@ -3895,12 +3902,19 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        result = (
-            self.unit_economics_query
-            .query(
-                sku
+        try:
+            result = (
+                self.unit_economics_query
+                .query(
+                    sku
+                )
             )
-        )
+        except Exception:
+            return {
+                "error": True,
+                "code": "UNIT_ECONOMICS_QUERY_FAILED",
+                "message": "Юнит-экономика недоступна",
+            }
 
         validation_error = (
             self._validate_unit_economics_result(
@@ -3912,16 +3926,25 @@ class AssistantButtonHandlerService:
 
             return validation_error
 
-        return {
-            "error": result[
-                "error"
-            ],
-            "message": (
+        try:
+            message = (
                 self.unit_economics_query
                 .format_response(
                     result
                 )
-            ),
+            )
+        except Exception:
+            return {
+                "error": True,
+                "code": "UNIT_ECONOMICS_FORMAT_FAILED",
+                "message": "Юнит-экономика недоступна",
+            }
+
+        return {
+            "error": result[
+                "error"
+            ],
+            "message": message,
             "unit_economics": result
         }
 
@@ -3973,11 +3996,19 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        products = (
-            self.returns_finance_impact_query
-            .product_service
-            .load_products()
-        )
+        try:
+            products = (
+                self.returns_finance_impact_query
+                .product_service
+                .load_products()
+            )
+        except Exception:
+            return {
+                "error": True,
+                "code": "RETURNS_FINANCE_IMPACT_PRODUCTS_QUERY_FAILED",
+                "message": "Расходы на возвраты недоступны",
+            }
+
         skus = []
 
         for product in (products or []):
@@ -4021,12 +4052,19 @@ class AssistantButtonHandlerService:
                 )
             }
 
-        result = (
-            self.returns_finance_impact_query
-            .query(
-                sku
+        try:
+            result = (
+                self.returns_finance_impact_query
+                .query(
+                    sku
+                )
             )
-        )
+        except Exception:
+            return {
+                "error": True,
+                "code": "RETURNS_FINANCE_IMPACT_QUERY_FAILED",
+                "message": "Расходы на возвраты недоступны",
+            }
 
         validation_error = (
             self._validate_returns_finance_impact_result(
