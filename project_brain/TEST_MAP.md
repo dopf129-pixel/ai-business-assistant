@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1961 passed on `b0bfdd5dd79349244ceaf64d1d4df9899211344a`.
+1971 passed on `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`.
 
-GitHub Actions push Verify #762 completed successfully for this exact main SHA.
+GitHub Actions push Verify #771 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3438,5 +3438,44 @@ Tests:
 - PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80`: Verify #761, 1961 passed / 0 failed;
 - squash main `b0bfdd5dd79349244ceaf64d1d4df9899211344a`: Verify #762, 1961 passed / 0 failed;
 - no persistence application side effect;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Telegram Verified Product Decision Guidance / Checklist Wiring v1
+
+Boundaries:
+
+- `telegram_assistant_factory.create_telegram_assistant`
+- `AssistantButtonHandlerService._show_product_decision`
+- `AssistantButtonHandlerService._with_verified_product_decision_user_action`
+- `ProductDecisionPersistenceVerificationService.verify_latest`
+- existing Product Decision guidance/checklist builders
+
+Tests:
+
+- `tests/test_product_decision_verified_guidance_telegram_wiring_v1061_v1070.py`
+- existing Product Decision Telegram UI/result-integrity tests
+
+Проверяет:
+
+- missing verified dependencies preserve the existing decision card;
+- blocked or malformed durable verification never becomes verified UI;
+- verified snapshot must match the current decision by SKU, recorded_at, decision_type, priority, confidence and reasons;
+- malformed guidance prevents checklist presentation;
+- malformed checklist prevents verified presentation;
+- unsafe guidance flags cannot reach verified UI;
+- verifier exceptions are contained without secret leakage;
+- valid durable verification produces a seller-facing manual checklist;
+- automatic execution remains explicitly prohibited;
+- Telegram factory shares the exact Product Decision History owner with the read-only verifier;
+- failed `f449e7d738b56fb72f39e0836eb2ea3464b899a9`: Verify #768, 1970 passed / 1 failed;
+- final feature `09abed3a9db1c1cf90a13d4393bb3771f09c964d`: Verify #769, 1971 passed / 0 failed;
+- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb`: Verify #770, 1971 passed / 0 failed;
+- squash main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`: Verify #771, 1971 passed / 0 failed;
+- no persistence application side effect;
+- no execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

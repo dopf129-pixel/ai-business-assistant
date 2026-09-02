@@ -3467,3 +3467,32 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Telegram Verified Product Decision Guidance / Checklist Wiring v1061-v1070
+
+- production-wired the existing Product Decision verified guidance/checklist into Telegram;
+- Telegram factory now shares one Product Decision History instance with both Product Business Decision query and the read-only persistence verifier;
+- Product Decision detail calls only `verify_latest(sku)` and never invokes persistence application;
+- verified guidance is displayed only when durable verification matches the currently displayed decision by exact SKU, recorded_at, decision type, priority, confidence and reasons;
+- old/unverified/malformed durable state preserves the existing Product Decision card without a false verified claim;
+- malformed or unsafe guidance/checklist results fail closed at the presentation boundary;
+- verified seller guidance is rendered as a manual checklist with automatic execution disabled;
+- failed intermediate `f449e7d738b56fb72f39e0836eb2ea3464b899a9`: Verify #768, 1970 passed / 1 failed, artifact 9821944714, digest `sha256:fee8b3f4e5fcdf83bbea3a81851a25e999b3d2c7e7918637783fe9870ccd40a6`;
+- final feature `09abed3a9db1c1cf90a13d4393bb3771f09c964d`: Verify #769, 1971 passed / 0 failed, artifact 9821981082, digest `sha256:f42a8378a8f9de0bee3533cad6b28e07770734de93ffb2ed30cd490fabbff090`;
+- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb`: Verify #770, 1971 passed / 0 failed, artifact 9822010368, digest `sha256:45c355a300615b37be6193a159342f715a173bc0831ff510931919086405800c`;
+- squash main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`: Verify #771, 1971 passed / 0 failed, artifact 9822044261, digest `sha256:6e9aeaa7de76ee1a29edd23f038516c8a1abaed0618aa29d06a8d2e8ec7690ac`;
+- no Product Decision threshold, finance formula, persistence owner, execution permission or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: Yes; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1061-v1070
+
+- reconciled Project Brain to exact verified product main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb` / Verify #771 / 1971 passed;
+- added `CURRENT_CHECKPOINT_V1061_V1070.md`;
+- DECISIONS unchanged: no new persistence owner/service/layer or execution architecture;
+- removed the obsolete Telegram verified-guidance lineage blocker from the current state;
+- next package must be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
