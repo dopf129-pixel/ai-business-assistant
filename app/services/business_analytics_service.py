@@ -278,6 +278,42 @@ class BusinessAnalyticsService:
             )
         )
 
+        if not isinstance(
+            store_profit,
+            dict
+        ):
+
+            return {
+                "error": True,
+                "code": "STORE_PROFIT_RESULT_INVALID",
+                "message": (
+                    "Некорректный результат прибыли магазина"
+                ),
+                "period": (
+                    self.get_period_info()
+                )
+            }
+
+        if store_profit.get(
+            "error"
+        ):
+
+            return {
+                "error": True,
+                "code": store_profit.get(
+                    "code",
+                    "STORE_PROFIT_CALCULATION_FAILED"
+                ),
+                "message": store_profit.get(
+                    "message",
+                    "Не удалось рассчитать прибыль магазина"
+                ),
+                "period": (
+                    self.get_period_info()
+                ),
+                "store_profit": store_profit
+            }
+
         configured_rate = None
 
         if self.tax_rate > 0:
