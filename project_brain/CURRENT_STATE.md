@@ -3,7 +3,7 @@
 
 Date:
 
-2026-09-01
+2026-09-02
 
 
 
@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1961 passed on `b0bfdd5dd79349244ceaf64d1d4df9899211344a`.
+1971 passed on `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`.
 
-GitHub Actions push verification run #762 completed successfully for this exact main SHA.
+GitHub Actions push verification run #771 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2641,6 +2641,60 @@ Preserved:
 - no persisted application lineage is inferred;
 - read-only verification never calls persistence application;
 - Telegram guidance/checklist wiring is not yet enabled;
+- no Product Decision rule/threshold or finance formula change;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Telegram Verified Product Decision Guidance / Checklist Wiring v1061-v1070 — 2026-09-02
+
+Completed:
+
+[x] Telegram production factory shares one Product Decision History instance between decision query and read-only persistence verifier
+
+[x] Product Decision detail presentation invokes only `verify_latest(sku)`
+
+[x] Telegram never invokes Product Decision persistence application as a read/presentation side effect
+
+[x] Verified durable snapshot must match the currently displayed Product Decision by SKU, recorded_at, decision_type, priority, confidence and reasons
+
+[x] Existing guidance builder is consumed only after canonical durable verification succeeds
+
+[x] Existing checklist builder is consumed only after verified guidance passes safety validation
+
+[x] Malformed/blocked/old/unverified durable state preserves the existing Product Decision card without a false verified claim
+
+[x] Builder/verifier exceptions are contained and do not leak secret error details into Telegram
+
+[x] Valid verified guidance is rendered as a manual checklist with automatic execution explicitly disabled
+
+[x] No Telegram callback/button starts Product Decision execution, Product Task Draft execution or Ozon mutation
+
+Verified exact main:
+
+`dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`
+
+GitHub Actions push Verify #771: 1971 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `f449e7d738b56fb72f39e0836eb2ea3464b899a9`: Verify #768, 1970 passed / 1 failed.
+
+Final feature and integration evidence:
+
+- final feature `09abed3a9db1c1cf90a13d4393bb3771f09c964d`: Verify #769, 1971 passed / 0 failed;
+- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb`: Verify #770, 1971 passed / 0 failed;
+- squash main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`: Verify #771, 1971 passed / 0 failed.
+
+Preserved:
+
+- Product Decision History remains the sole persistence owner;
+- read-only Telegram verification uses durable history and stored application lineage;
+- no missing persistence/application IDs are inferred;
 - no Product Decision rule/threshold or finance formula change;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;

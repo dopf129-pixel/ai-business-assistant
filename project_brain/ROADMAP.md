@@ -436,7 +436,7 @@ Current hardening queue:
 
 4. Select the next package from a concrete current repo/product/operational gap; do not extend the learning, evidence, or lifecycle chain only to advance stage numbering.
 
-5. Do not production-wire the newer canonical user-action advisory/checklist chain until exact persisted Product Decision verification is explicitly carried through the production Telegram lineage; v831-v840 hardens the verifier, v841-v850 the guidance consumer, and v851-v860 the checklist consumer, but none wires that runtime lineage.
+5. Treat Product Decision verified user-action guidance/checklist Telegram wiring as closed after v1061-v1070; any further work must come from a concrete seller/operator or reliability gap rather than extending the lineage chain.
 
 6. Keep workflow-run/test-manifest provenance development-side and explicit; no production runtime GitHub fetch.
 
@@ -447,16 +447,16 @@ Current hardening queue:
 9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1051_V1060.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1061_V1070.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1051_V1060.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1061_V1070.md`
 
 
 ## Current integration blocker
 
-- Exact persistence-application lineage is durably stored and canonical persistence verification can now be reconstructed read-only from durable history.
-- Remaining blocker: production-wire Product Decision verified guidance/checklist into Telegram through this read-only verifier, preserving fail-closed behavior for old/unverified snapshots.
-- Telegram must never call persistence application as a side effect of presentation.
+- No remaining blocker in the Product Decision verified-guidance Telegram lineage: durable lineage, read-only persistence verification, and verified guidance/checklist presentation are production-wired and exact-main verified.
+- Old or malformed snapshots remain fail-closed and do not receive a verified claim.
+- Business execution remains intentionally blocked pending separate architecture and authorization.
 
 
 [x] Product Decision Task Draft Lifecycle Result Integrity
@@ -475,3 +475,6 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V1051_V1060.md`
 
 
 [x] Product Decision Read-Only Persistence Verification
+
+
+[x] Telegram Verified Product Decision Guidance / Checklist Wiring

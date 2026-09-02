@@ -18,31 +18,32 @@ Development Autopilot Layer
 
 Package:
 
-`v1051-v1060: Product Decision Read-Only Persistence Verification`
+`v1061-v1070: Telegram Verified Product Decision Guidance / Checklist Wiring`
 
 Goal:
 
-Reconstruct canonical Product Decision persistence verification from durable history and exact persisted application lineage without persistence side effects.
+Production-wire verified Product Decision seller guidance into Telegram exclusively through canonical read-only durable persistence verification.
 
 Immediately preceding verified package:
 
-`v1041-v1050: Product Decision Durable Application Lineage`
+`v1051-v1060: Product Decision Read-Only Persistence Verification`
 
 ## Stable verification
 
 Latest exact product main:
 
-`b0bfdd5dd79349244ceaf64d1d4df9899211344a`
+`dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`
 
-GitHub Actions push Verify #762:
+GitHub Actions push Verify #771:
 
-1961 passed / 0 failed.
+1971 passed / 0 failed.
 
 Preserved:
 
-- existing Product Decision History storage remains the only persistence owner;
-- durable verification reads storage directly;
-- no persisted application IDs are inferred;
+- Product Decision History remains the only persistence owner;
+- Telegram verification is read-only and uses exact durable application lineage;
+- no persistence application is triggered from Telegram presentation;
+- no missing persistence/application IDs are inferred;
 - Product Decision thresholds/rules unchanged;
 - finance formulas unchanged;
 - no Product Decision execution;
@@ -55,30 +56,36 @@ Preserved:
 
 Entering verified main:
 
-- `6241ecaeeeae9e2a3cc31f6a5406dd3e9f051933` / Verify #758 / 1951 passed / 0 failed.
+- `283ec42d4bb2b9c831801d9155caa3e6c582370f` / Verify #766 / 1961 passed / 0 failed.
+
+Failed intermediate:
+
+- `f449e7d738b56fb72f39e0836eb2ea3464b899a9` / Verify #768 / 1970 passed / 1 failed.
 
 Final feature:
 
-- `c0da07cbafeb1fe38001729eebca94648149d96b` / Verify #760 / 1961 passed / 0 failed.
+- `09abed3a9db1c1cf90a13d4393bb3771f09c964d` / Verify #769 / 1971 passed / 0 failed.
 
 PR integration:
 
-- PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80` / Verify #761 / 1961 passed / 0 failed.
+- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb` / Verify #770 / 1971 passed / 0 failed.
 
 Squash main:
 
-- `b0bfdd5dd79349244ceaf64d1d4df9899211344a` / Verify #762 / 1961 passed / 0 failed.
+- `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb` / Verify #771 / 1971 passed / 0 failed.
 
 ## Current integration blocker
 
-Durable Product Decision history now carries exact application lineage and the persistence verifier can reconstruct canonical verification read-only. The remaining blocker is production Telegram wiring of verified user-action guidance/checklist through that read-only verifier.
+No remaining blocker in the Product Decision verified-guidance Telegram lineage.
 
-Old snapshots without valid lineage must remain fail-closed. Telegram must not invoke persistence application as a presentation side effect.
+Durable application lineage, read-only persistence verification and verified manual guidance/checklist presentation are now production-wired and exact-main verified.
+
+Business execution remains intentionally disabled and requires a separate architecture/authorization decision.
 
 ## Development direction
 
 Next:
 
-- wire the existing Product Decision verified guidance/checklist into Telegram through `verify_latest()`;
-- preserve existing Product Decision presentation when no verified durable guidance is available;
-- keep all business execution disabled without separate architecture and authorization.
+- select a concrete current seller/operator, finance, observability, release-readiness or integration gap from the exact verified main;
+- do not extend Product Decision lineage/lifecycle solely to advance package numbers;
+- keep Product Decision/Product Task Draft execution and Ozon mutation disabled.
