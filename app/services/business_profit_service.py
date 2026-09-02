@@ -1,3 +1,6 @@
+import math
+
+
 class BusinessProfitService:
 
     def calculate(
@@ -17,7 +20,57 @@ class BusinessProfitService:
                 )
             }
 
-        if tax.get("error"):
+        if not isinstance(
+            store_profit,
+            dict
+        ):
+
+            return self._store_profit_invalid()
+
+        store_error = store_profit.get(
+            "error"
+        )
+
+        if (
+            store_error is not None
+            and not isinstance(
+                store_error,
+                bool
+            )
+        ):
+
+            return self._store_profit_invalid()
+
+        if store_error is True:
+
+            return self._store_profit_invalid(
+                store_profit.get(
+                    "message"
+                )
+            )
+
+        if not isinstance(
+            tax,
+            dict
+        ):
+
+            return self._tax_invalid()
+
+        tax_error = tax.get(
+            "error"
+        )
+
+        if (
+            tax_error is not None
+            and not isinstance(
+                tax_error,
+                bool
+            )
+        ):
+
+            return self._tax_invalid()
+
+        if tax_error is True:
 
             return {
                 "error": True,
@@ -27,31 +80,65 @@ class BusinessProfitService:
                 )
             }
 
-        gross_sales = float(
+        configured = tax.get(
+            "configured"
+        )
+
+        if (
+            configured is not None
+            and not isinstance(
+                configured,
+                bool
+            )
+        ):
+
+            return self._tax_invalid()
+
+        gross_sales = self._number(
             store_profit.get(
                 "gross_sales",
                 0
             )
         )
 
-        gross_profit = float(
+        gross_profit = self._number(
             store_profit.get(
                 "gross_profit",
                 0
             )
         )
 
-        advertising_cost = float(
-            advertising_cost or 0
+        advertising_cost = (
+            self._non_negative_cost(
+                advertising_cost
+            )
         )
 
-        other_expenses = float(
-            other_expenses or 0
+        other_expenses = (
+            self._non_negative_cost(
+                other_expenses
+            )
         )
 
         if (
-            tax.get("configured") is False
-            or tax.get("tax_amount") is None
+            gross_sales is None
+            or gross_profit is None
+        ):
+
+            return self._store_profit_invalid()
+
+        if (
+            advertising_cost is None
+            or other_expenses is None
+        ):
+
+            return self._cost_invalid()
+
+        if (
+            configured is False
+            or tax.get(
+                "tax_amount"
+            ) is None
         ):
 
             return {
@@ -78,12 +165,17 @@ class BusinessProfitService:
                 "margin_percent": None
             }
 
-        tax_amount = float(
-            tax.get(
-                "tax_amount",
-                0
+        tax_amount = (
+            self._non_negative_number(
+                tax.get(
+                    "tax_amount"
+                )
             )
         )
+
+        if tax_amount is None:
+
+            return self._tax_invalid()
 
         business_profit = (
             gross_profit
@@ -91,6 +183,12 @@ class BusinessProfitService:
             - advertising_cost
             - other_expenses
         )
+
+        if not math.isfinite(
+            business_profit
+        ):
+
+            return self._result_invalid()
 
         margin_percent = 0.0
 
@@ -101,6 +199,12 @@ class BusinessProfitService:
                 / gross_sales
                 * 100
             )
+
+            if not math.isfinite(
+                margin_percent
+            ):
+
+                return self._result_invalid()
 
         return {
             "error": False,
@@ -132,5 +236,117 @@ class BusinessProfitService:
             "margin_percent": round(
                 margin_percent,
                 2
+            )
+        }
+
+    @staticmethod
+    def _number(
+        value
+    ):
+
+        if isinstance(
+            value,
+            bool
+        ):
+
+            return None
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if not math.isfinite(
+            number
+        ):
+            return None
+
+        return number
+
+    @classmethod
+    def _non_negative_number(
+        cls,
+        value
+    ):
+
+        number = cls._number(
+            value
+        )
+
+        if (
+            number is None
+            or number < 0
+        ):
+
+            return None
+
+        return number
+
+    @classmethod
+    def _non_negative_cost(
+        cls,
+        value
+    ):
+
+        if value in (
+            None,
+            ""
+        ):
+
+            return 0.0
+
+        return cls._non_negative_number(
+            value
+        )
+
+    @staticmethod
+    def _store_profit_invalid(
+        message=None
+    ):
+
+        return {
+            "error": True,
+            "code": "BUSINESS_PROFIT_STORE_PROFIT_INVALID",
+            "message": (
+                message
+                or "Некорректные данные прибыли магазина"
+            )
+        }
+
+    @staticmethod
+    def _tax_invalid():
+
+        return {
+            "error": True,
+            "code": "BUSINESS_PROFIT_TAX_RESULT_INVALID",
+            "message": (
+                "Некорректный результат расчёта налога"
+            )
+        }
+
+    @staticmethod
+    def _cost_invalid():
+
+        return {
+            "error": True,
+            "code": "BUSINESS_PROFIT_COST_INPUT_INVALID",
+            "message": (
+                "Некорректные расходы для расчёта прибыли бизнеса"
+            )
+        }
+
+    @staticmethod
+    def _result_invalid():
+
+        return {
+            "error": True,
+            "code": "BUSINESS_PROFIT_RESULT_INVALID",
+            "message": (
+                "Некорректный результат прибыли бизнеса"
             )
         }

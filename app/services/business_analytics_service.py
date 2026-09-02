@@ -491,6 +491,62 @@ class BusinessAnalyticsService:
                 )
             )
 
+        if not isinstance(
+            business_profit,
+            dict
+        ):
+
+            return {
+                "error": True,
+                "code": "BUSINESS_PROFIT_RESULT_INVALID",
+                "message": (
+                    "Некорректный результат прибыли бизнеса"
+                ),
+                "period": (
+                    self.get_period_info()
+                ),
+                "store_profit": store_profit,
+                "tax": tax,
+                "advertising": advertising,
+                "expenses": expenses
+            }
+
+        business_profit_code = (
+            business_profit.get(
+                "code"
+            )
+        )
+
+        if (
+            business_profit.get(
+                "error"
+            ) is True
+            and isinstance(
+                business_profit_code,
+                str
+            )
+            and business_profit_code.startswith(
+                "BUSINESS_PROFIT_"
+            )
+        ):
+
+            return {
+                "error": True,
+                "code": business_profit_code,
+                "message": business_profit.get(
+                    "message",
+                    "Не удалось рассчитать прибыль бизнеса"
+                ),
+                "period": (
+                    self.get_period_info()
+                ),
+                "store_profit": store_profit,
+                "tax": tax,
+                "advertising": advertising,
+                "expenses": expenses,
+                "business_profit": business_profit
+            }
+
         return {
             "error": False,
             "period": (
