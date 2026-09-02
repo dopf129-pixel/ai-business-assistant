@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2011 passed on `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`.
+2021 passed on `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`.
 
-GitHub Actions push Verify #804 completed successfully for this exact main SHA.
+GitHub Actions push Verify #812 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3624,6 +3624,44 @@ Tests:
 - final feature `85fc4b76baa725cbc586ca39e8454e30a70fb168`: Verify #802, 2011 passed / 0 failed;
 - PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7`: Verify #803, 2011 passed / 0 failed;
 - squash main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`: Verify #804, 2011 passed / 0 failed;
+- no persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Advertising & Expense Finite Result Integrity v1
+
+Boundaries:
+
+- `AdvertisingService.calculate`
+- `AdvertisingService.total`
+- `ExpenseService.calculate`
+- `ExpenseService.calculate_single`
+- `BusinessAnalyticsService.calculate`
+
+Tests:
+
+- `tests/test_advertising_expense_finite_result_integrity_v1111_v1120.py`
+- existing unknown-advertising financial evidence tests
+
+Проверяет:
+
+- advertising NaN/inf inputs fail closed;
+- advertising boolean inputs fail closed;
+- negative advertising preserves existing explicit error;
+- campaign aggregation ignores invalid rows but stays finite;
+- campaign aggregate overflow fails closed;
+- expense aggregation ignores invalid rows but stays finite;
+- expense aggregate overflow fails closed;
+- single expense rejects boolean and NaN/inf inputs;
+- valid numeric-string financial inputs remain compatible;
+- Business Analytics does not emit business profit after invalid advertising or expense overflow;
+- final feature `c45284c99d70a45b1bed2b5f62049a7bb5c40df6`: Verify #810, 2021 passed / 0 failed;
+- PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192`: Verify #811, 2021 passed / 0 failed;
+- squash main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`: Verify #812, 2021 passed / 0 failed;
+- finance formulas unchanged;
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
