@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1971 passed on `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`.
+1981 passed on `41473566a558bb09899f64d581010b72e4053fbd`.
 
-GitHub Actions push Verify #771 completed successfully for this exact main SHA.
+GitHub Actions push Verify #780 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3477,5 +3477,42 @@ Tests:
 - squash main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`: Verify #771, 1971 passed / 0 failed;
 - no persistence application side effect;
 - no execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Telegram Query Exception Containment v1
+
+Boundaries:
+
+- `AssistantButtonHandlerService._open_product_decisions_menu`
+- `AssistantButtonHandlerService._show_product_decision`
+- `AssistantTelegramAdapter.handle_button`
+
+Tests:
+
+- `tests/test_product_decision_telegram_query_exception_containment_v1071_v1080.py`
+- existing Product Decision Telegram result-integrity tests
+- existing Telegram adapter runtime exception-containment tests
+
+Проверяет:
+
+- overview RuntimeError is contained locally and does not leak exception text;
+- overview TypeError is not retried;
+- detail RuntimeError is contained locally and does not leak exception text;
+- detail TypeError is not retried;
+- local domain failure reaches Telegram adapter unchanged;
+- generic `TELEGRAM_BUTTON_DISPATCH_FAILED` is not substituted for contained Product Decision query failure;
+- explicit overview failure semantics remain unchanged;
+- valid overview behavior remains unchanged;
+- explicit detail failure semantics remain unchanged;
+- valid detail behavior remains unchanged with defensive copy;
+- failed `31902d6e4f1302a5fe221e091b54bd5e2c4a8f3d`: Verify #777, 1980 passed / 1 failed;
+- final feature `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8`: Verify #778, 1981 passed / 0 failed;
+- PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e`: Verify #779, 1981 passed / 0 failed;
+- squash main `41473566a558bb09899f64d581010b72e4053fbd`: Verify #780, 1981 passed / 0 failed;
+- no retry, persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

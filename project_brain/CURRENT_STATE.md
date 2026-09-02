@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1971 passed on `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`.
+1981 passed on `41473566a558bb09899f64d581010b72e4053fbd`.
 
-GitHub Actions push verification run #771 completed successfully for this exact main SHA.
+GitHub Actions push verification run #780 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2696,6 +2696,61 @@ Preserved:
 - read-only Telegram verification uses durable history and stored application lineage;
 - no missing persistence/application IDs are inferred;
 - no Product Decision rule/threshold or finance formula change;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Telegram Query Exception Containment v1071-v1080 — 2026-09-02
+
+Completed:
+
+[x] Seller-facing Product Decision overview contains `query_all()` exceptions locally
+
+[x] Seller-facing Product Decision detail contains `query(sku)` exceptions locally
+
+[x] Query exceptions return deterministic `PRODUCT_DECISION_QUERY_FAILED`
+
+[x] Overview and detail return seller-specific messages instead of generic Telegram dispatch failure
+
+[x] Exception details are not exposed to the seller response
+
+[x] Query failures are one-shot and are not retried
+
+[x] Keyboard/feedback presentation is not invoked after query exceptions
+
+[x] Explicit downstream `error=True` semantics remain unchanged
+
+[x] Valid overview remains unchanged
+
+[x] Valid detail remains unchanged and preserves defensive-copy behavior
+
+Verified exact main:
+
+`41473566a558bb09899f64d581010b72e4053fbd`
+
+GitHub Actions push Verify #780: 1981 passed / 0 failed.
+
+Failed evidence preserved:
+
+- `31902d6e4f1302a5fe221e091b54bd5e2c4a8f3d`: Verify #777, 1980 passed / 1 failed.
+
+Final feature and integration evidence:
+
+- final feature `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8`: Verify #778, 1981 passed / 0 failed;
+- PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e`: Verify #779, 1981 passed / 0 failed;
+- squash main `41473566a558bb09899f64d581010b72e4053fbd`: Verify #780, 1981 passed / 0 failed.
+
+Preserved:
+
+- generic Telegram adapter exception containment remains the outer safety net;
+- no retry or duplicate query call introduced;
+- no persistence owner or persistence contract changed;
+- Product Decision thresholds/rules unchanged;
+- finance formulas unchanged;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;

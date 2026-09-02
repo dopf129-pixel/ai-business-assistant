@@ -3496,3 +3496,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Product Decision Telegram Query Exception Containment v1071-v1080
+
+- contained Product Decision `query_all()` and `query(sku)` exceptions at the seller-facing Telegram button layer;
+- runtime exceptions now return deterministic `PRODUCT_DECISION_QUERY_FAILED` with overview/detail-specific seller messages;
+- internal exception details are not leaked;
+- failed queries are not retried, preventing duplicate downstream calls;
+- generic Telegram adapter exception containment remains an outer safety net;
+- explicit downstream failure results and valid result behavior remain unchanged;
+- failed intermediate `31902d6e4f1302a5fe221e091b54bd5e2c4a8f3d`: Verify #777, 1980 passed / 1 failed, artifact 9843687318, digest `sha256:2bfe9053d7dc2d7dac764717034dc1db28d929675235520dbc9b1d88e338de5c`;
+- final feature `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8`: Verify #778, 1981 passed / 0 failed, artifact 9843713042, digest `sha256:3568d4e4b7cab571a44eb108e19395565da4aa1605896cd5ef969f4f410ef6b7`;
+- PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e`: Verify #779, 1981 passed / 0 failed, artifact 9843741080, digest `sha256:bdc23cc1a9c1de9fab7b62fa0b543aeea9e24afaf5f726176d34f3bd7d342466`;
+- squash main `41473566a558bb09899f64d581010b72e4053fbd`: Verify #780, 1981 passed / 0 failed, artifact 9843768969, digest `sha256:5a85d8e4c90d93666faecf8ca9c786386e835078d1ebd817f8ec97556a7e703a`;
+- no retry, Product Decision threshold, finance formula, persistence owner, execution permission or Ozon mutation path changed;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1071-v1080
+
+- reconciled Project Brain to exact verified product main `41473566a558bb09899f64d581010b72e4053fbd` / Verify #780 / 1981 passed;
+- added `CURRENT_CHECKPOINT_V1071_V1080.md`;
+- DECISIONS unchanged: no new architecture/persistence/execution owner;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
