@@ -3575,3 +3575,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Tax Calculation Input & Result Integrity v1101-v1110
+
+- hardened the existing TaxService calculation boundary against malformed and non-finite runtime inputs;
+- unsupported mode is rejected before numeric conversion while missing mode preserves the explicit unconfigured contract;
+- revenue/gross-profit inputs reject booleans, non-numeric values and NaN/inf;
+- tax/minimum-tax rates reject booleans, non-numeric values, NaN/inf, negatives and values above 100%;
+- explicit NONE, numeric-string compatibility and negative tax-base clipping remain unchanged;
+- non-finite/overflow calculated tax fails closed rather than returning NaN/inf;
+- ProductUnitEconomicsProvider continues to treat TaxService failures as unknown tax;
+- final feature `85fc4b76baa725cbc586ca39e8454e30a70fb168`: Verify #802, 2011 passed / 0 failed, artifact 9845836394, digest `sha256:639494d4a4a71112a5530207d4b1ec10b0e528f3d044b60c025f69b333cdce62`;
+- PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7`: Verify #803, 2011 passed / 0 failed, artifact 9845882715, digest `sha256:b6e89d4068a6c2cd19d083715eb8ea2fc21a8984dbdb0cbd8f60b26ecb4fe2cf`;
+- squash main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`: Verify #804, 2011 passed / 0 failed, artifact 9845942947, digest `sha256:5d9178abb2b6e10ade77688e688e17a9fbb7d938b4c80d65018c48540a2db558`;
+- tax formula branches/percentages, persistence owner, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1101-v1110
+
+- reconciled Project Brain to exact verified product main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b` / Verify #804 / 2011 passed;
+- added `CURRENT_CHECKPOINT_V1101_V1110.md`;
+- DECISIONS unchanged: no new finance formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

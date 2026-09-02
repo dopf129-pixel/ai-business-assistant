@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2001 passed on `38e54ddc6d289f0f75121cc63efa0268ef2784f8`.
+2011 passed on `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`.
 
-GitHub Actions push verification run #796 completed successfully for this exact main SHA.
+GitHub Actions push verification run #804 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2848,6 +2848,55 @@ Preserved:
 
 - existing TaxConfigurationService remains the sole tax-config persistence owner;
 - TaxService formulas/calculation semantics unchanged;
+- no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Tax Calculation Input & Result Integrity v1101-v1110 — 2026-09-02
+
+Completed:
+
+[x] Unsupported tax mode is rejected before numeric conversion
+
+[x] Missing tax mode preserves the explicit unconfigured contract
+
+[x] Revenue and gross-profit inputs reject booleans, non-numeric values and NaN/inf
+
+[x] Tax and minimum-tax rates reject booleans, non-numeric values, NaN/inf, negatives and values above 100%
+
+[x] Explicit NONE mode preserves the existing zero-tax result
+
+[x] Numeric-string compatibility remains supported
+
+[x] Existing negative tax-base clipping remains unchanged
+
+[x] Non-finite/overflow tax calculations fail closed instead of returning NaN/inf
+
+[x] ProductUnitEconomicsProvider continues to map TaxService failures to unknown tax rather than inventing a value
+
+[x] Existing tax formula branches and configured percentages remain unchanged
+
+Verified exact main:
+
+`1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`
+
+GitHub Actions push Verify #804: 2011 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `85fc4b76baa725cbc586ca39e8454e30a70fb168`: Verify #802, 2011 passed / 0 failed;
+- PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7`: Verify #803, 2011 passed / 0 failed;
+- squash main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`: Verify #804, 2011 passed / 0 failed.
+
+Preserved:
+
+- TaxConfigurationService persistence contract unchanged;
+- TaxService formula branches/percentages unchanged;
 - no new retry or execution path;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
