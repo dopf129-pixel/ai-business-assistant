@@ -3682,3 +3682,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Finance Period Aggregation Result Integrity v1141-v1150
+
+- hardened FinanceAnalyticsService multi-day aggregation against daily source exceptions, malformed result shapes and invalid error markers;
+- operations/sales_count reject booleans, negatives, fractional, non-numeric and non-finite values;
+- finance amount fields and fee breakdown reject malformed/non-finite values;
+- invalid daily rows no longer partially commit counters, totals or fee breakdown;
+- valid partial-period semantics remain unchanged: fully valid days are retained when another day fails;
+- aggregate amount/fee overflow fails closed with `FINANCE_PERIOD_AGGREGATE_INVALID`;
+- valid numeric-string and signed-fee compatibility remains unchanged;
+- failed intermediate `f54132ebf109240242a87037a81b1db5ed052d5b`: Verify #834, 2050 passed / 1 failed, artifact 9850859003, digest `sha256:d77c828d7efb59395c49ebdd57653bcbf310895019ce710c060db18ac95a1d05`; failed evidence is preserved;
+- final feature `52661a7c37068759d20797644943a3b9e5e5ebcc`: Verify #835, 2051 passed / 0 failed, artifact 9852038669, digest `sha256:87a2b36f89567cb55665f074c5dc72a9184a6d29c8acbbeca97276e195e32a99`;
+- PR #364 synthetic `ef001cc855661041bd3987604496d03e55acaf30`: Verify #836, 2051 passed / 0 failed, artifact 9852074846, digest `sha256:8fb5141ab367708ae19f8a4c7c93e239c3982718ee7f29ad1f6cc3fbb3e5b866`;
+- squash main `d1655adf6719e6000f996b4635253c6b99193ba3`: Verify #837, 2051 passed / 0 failed, artifact 9852118814, digest `sha256:81af0f0d117f40de5532cbb9a6d45878192ff651a2107a6d7090ec90c02adaf6`;
+- finance formulas, persistence owners, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1141-v1150
+
+- reconciled Project Brain to exact verified product main `d1655adf6719e6000f996b4635253c6b99193ba3` / Verify #837 / 2051 passed;
+- added `CURRENT_CHECKPOINT_V1141_V1150.md`;
+- DECISIONS unchanged: no new finance owner/formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

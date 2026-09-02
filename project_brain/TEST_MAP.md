@@ -3739,3 +3739,42 @@ Tests:
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
+
+
+---
+
+# Finance Period Aggregation Result Integrity v1
+
+Boundaries:
+
+- `FinanceAnalyticsService.get_period_finance`
+- `FinanceAnalyticsService._normalize_daily`
+- finance count/number validation helpers
+- period failed-day and aggregate-failure helpers
+- `StoreAnalyticsService.analyze_finance`
+
+Tests:
+
+- `tests/test_finance_period_aggregation_result_integrity_v1141_v1150.py`
+
+Проверяет:
+
+- daily source exceptions are contained and sanitized as failed-day evidence;
+- non-mapping daily results fail closed;
+- malformed explicit error markers fail the day;
+- operations/sales_count reject bool, negative, fractional, non-numeric and NaN/inf values;
+- amount fields reject bool, non-numeric and NaN/inf values;
+- malformed/non-finite fee breakdown fails the whole day;
+- invalid days cannot partially commit period totals;
+- valid partial-period behavior remains compatible;
+- amount and fee-breakdown aggregate overflow fails closed;
+- valid numeric strings and signed fees remain compatible;
+- StoreAnalytics finance path preserves contained source failure;
+- failed intermediate `f54132ebf109240242a87037a81b1db5ed052d5b`: Verify #834, 2050 passed / 1 failed; test-only false positive remains failed evidence;
+- final feature `52661a7c37068759d20797644943a3b9e5e5ebcc`: Verify #835, 2051 passed / 0 failed;
+- PR #364 synthetic `ef001cc855661041bd3987604496d03e55acaf30`: Verify #836, 2051 passed / 0 failed;
+- squash main `d1655adf6719e6000f996b4635253c6b99193ba3`: Verify #837, 2051 passed / 0 failed;
+- finance formulas and partial-period semantics unchanged;
+- no persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
