@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-1991 passed on `0f484141713f2452f451e818caf600d113df6ad4`.
+2001 passed on `38e54ddc6d289f0f75121cc63efa0268ef2784f8`.
 
-GitHub Actions push verification run #788 completed successfully for this exact main SHA.
+GitHub Actions push verification run #796 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2800,6 +2800,55 @@ Preserved:
 - finance formulas and calculations unchanged;
 - no retry or duplicate finance source/query call;
 - no persistence change;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Tax Configuration Persistence & Result Integrity v1091-v1100 — 2026-09-02
+
+Completed:
+
+[x] Persisted tax configuration root must be a mapping
+
+[x] Tax and minimum-tax rates reject booleans, non-numeric values, NaN/inf, negatives and values above 100%
+
+[x] Explicit NONE mode preserves the zero-tax normalization contract
+
+[x] Truncated or malformed persisted tax configuration fails closed as unconfigured instead of raising into startup
+
+[x] Valid tax configuration is serialized before write
+
+[x] Valid tax configuration is written to an fsynced temporary file and atomically replaces the target
+
+[x] Failed atomic replace returns deterministic `TAX_CONFIGURATION_SAVE_FAILED`
+
+[x] Failed write cleans temporary data and preserves the previous durable tax policy
+
+[x] Production `create_telegram_core` survives malformed tax configuration and keeps tax unknown/unconfigured
+
+[x] TaxService formulas and calculation branches are unchanged
+
+Verified exact main:
+
+`38e54ddc6d289f0f75121cc63efa0268ef2784f8`
+
+GitHub Actions push Verify #796: 2001 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `8cc003f6fa66eb499c67d7d3d74f90c0c75abecf`: Verify #794, 2001 passed / 0 failed;
+- PR #354 synthetic `5167b644bc53edc27a40c7b15c7068e0c669d2fc`: Verify #795, 2001 passed / 0 failed;
+- squash main `38e54ddc6d289f0f75121cc63efa0268ef2784f8`: Verify #796, 2001 passed / 0 failed.
+
+Preserved:
+
+- existing TaxConfigurationService remains the sole tax-config persistence owner;
+- TaxService formulas/calculation semantics unchanged;
+- no new retry or execution path;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;

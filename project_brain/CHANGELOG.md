@@ -3547,3 +3547,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Tax Configuration Persistence & Result Integrity v1091-v1100
+
+- hardened the existing TaxConfigurationService persistence owner against malformed durable policy data and partial writes;
+- persisted policy root must be a mapping;
+- tax/minimum-tax rates reject booleans, non-numeric values, NaN/inf, negative values and values above 100%;
+- explicit NONE mode preserves the existing zero-tax normalization;
+- malformed/truncated durable tax config now fails closed as unconfigured instead of escaping into startup;
+- valid writes serialize first, fsync a temporary file and atomically replace the target;
+- failed atomic replace returns `TAX_CONFIGURATION_SAVE_FAILED`, cleans temporary data and preserves the previous file;
+- production `create_telegram_core` remains operational with malformed tax config and keeps tax unknown/unconfigured;
+- final feature `8cc003f6fa66eb499c67d7d3d74f90c0c75abecf`: Verify #794, 2001 passed / 0 failed, artifact 9845404869, digest `sha256:b5fbdff88ec8df18c47b60b0ede4742010b5d9fcc481d3eaba784d24a1a2c364`;
+- PR #354 synthetic `5167b644bc53edc27a40c7b15c7068e0c669d2fc`: Verify #795, 2001 passed / 0 failed, artifact 9845447757, digest `sha256:179121b28a8375c804e9a6d63ba8f30155d473cd9d25a9373b5117f3f58db4df`;
+- squash main `38e54ddc6d289f0f75121cc63efa0268ef2784f8`: Verify #796, 2001 passed / 0 failed, artifact 9845488004, digest `sha256:a5c706c2d9e0f3613a9129506b2ae9fc1d66acbb57d1f3ec21fd06cd64ede38e`;
+- TaxService formulas/calculations, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1091-v1100
+
+- reconciled Project Brain to exact verified product main `38e54ddc6d289f0f75121cc63efa0268ef2784f8` / Verify #796 / 2001 passed;
+- added `CURRENT_CHECKPOINT_V1091_V1100.md`;
+- DECISIONS unchanged: the existing TaxConfigurationService remains the sole owner and no new finance/execution architecture was introduced;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
