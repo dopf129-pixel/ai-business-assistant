@@ -4,42 +4,42 @@ Date: 2026-09-02
 
 ## Latest verified product baseline
 
-`87c95cf2eb139cd8782d8df79d43b2313939bba0`
+`189455bb5b44c47bbf5abf188d1b456dad14b1ba`
 
 Latest merged production-correctness batch:
 
-`v1121-v1130: Store Profit Aggregation Result Integrity`
+`v1131-v1140: Business Profit Calculation Result Integrity`
 
 ### Entering exact-main verification
-- exact main: `e6845f71db21baebe526db78405bec5bd0f641a8`
-- Verify #816
-- 2021 passed / 0 failed
-- artifact id: 9849222849
-- digest: `sha256:72963293649cc86a6e189e95abf3f398b06080ef137db7044f030c43b2a092ec`
+- exact main: `b3063a754aeaa7ba290e9ea6ef6a0690354d4161`
+- Verify #824
+- 2031 passed / 0 failed
+- artifact id: 9849936981
+- digest: `sha256:9fb1c12b1b8a8341346eab20635abadf7337f1ea8b26a0004be754a1dba9fda4`
 
 ### Exact final feature-head verification
-- exact SHA: `a888d3c4aa35aaba7526df186bfdbdd2902f9369`
-- Verify #818
-- 2031 passed / 0 failed
-- artifact id: 9849428477
-- digest: `sha256:219abdf23fc8e4135142937121cd85ea9619b983ae2b9668c3e74d05b9135d5a`
+- exact SHA: `98edb5b5500c25e53b77237016afe3a223360ab8`
+- Verify #826
+- 2041 passed / 0 failed
+- artifact id: 9850198413
+- digest: `sha256:a28889fed572b8ac4f1a44d06faf567615ac646040eeee9b3faa4616017810fd`
 
 ### PR merge-ref integration verification
-- PR #360
-- synthetic SHA: `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`
-- Verify #819
-- 2031 passed / 0 failed
-- artifact id: 9849493222
-- digest: `sha256:84e4ae787b3ff93b30c9ba23f3c7b4032a4a329541922179bff25a660b4c1d40`
+- PR #362
+- synthetic SHA: `6e335e508c07903d6e4488f1aac40d28a9e4152f`
+- Verify #827
+- 2041 passed / 0 failed
+- artifact id: 9850246557
+- digest: `sha256:c490d6b43824bf420dfb2c5d812637a1220016170ec3afc423707f9332da979a`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `87c95cf2eb139cd8782d8df79d43b2313939bba0`
-- Verify #820
-- 2031 passed / 0 failed
-- artifact id: 9849548406
-- digest: `sha256:37853547096138bb851a62399a5ba8c5e3ea54f02c9bb92a9623c155abc5c6b1`
+- exact main: `189455bb5b44c47bbf5abf188d1b456dad14b1ba`
+- Verify #828
+- 2041 passed / 0 failed
+- artifact id: 9850316806
+- digest: `sha256:bcaaf2b0b6927472571ab69c9b0e1d1898e19fa43a9adf62f169278867621ff9`
 
 ## Verification policy
 

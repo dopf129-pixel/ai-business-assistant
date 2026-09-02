@@ -18,33 +18,33 @@ Development Autopilot Layer
 
 Package:
 
-`v1121-v1130: Store Profit Aggregation Result Integrity`
+`v1131-v1140: Business Profit Calculation Result Integrity`
 
 Goal:
 
-Keep store-level profit aggregation finite and fail closed, and preserve aggregation failures before downstream tax/advertising/expense calculations.
+Keep post-tax/expense business-profit inputs and calculated results finite and fail closed while preserving existing finance formulas and legacy tax-error presentation.
 
 Immediately preceding verified package:
 
-`v1111-v1120: Advertising & Expense Finite Result Integrity`
+`v1121-v1130: Store Profit Aggregation Result Integrity`
 
 ## Stable verification
 
 Latest exact product main:
 
-`87c95cf2eb139cd8782d8df79d43b2313939bba0`
+`189455bb5b44c47bbf5abf188d1b456dad14b1ba`
 
-GitHub Actions push Verify #820:
+GitHub Actions push Verify #828:
 
-2031 passed / 0 failed.
+2041 passed / 0 failed.
 
 Preserved:
 
-- StoreProfitService success schema and missing-field zero defaults remain compatible;
-- failed per-product profit rows remain skipped;
-- aggregation formulas and margin formula unchanged;
-- malformed/non-finite aggregates fail closed;
-- BusinessAnalytics stops before downstream finance calculations on store-profit failure;
+- business-profit and margin formulas unchanged;
+- TaxService/tax formulas unchanged;
+- unknown tax remains unknown rather than zero;
+- legacy unsupported-tax nested error presentation remains unchanged;
+- new BUSINESS_PROFIT_* integrity failures are preserved through BusinessAnalytics and Sales Intelligence;
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Action Executor connection;
@@ -55,19 +55,19 @@ Preserved:
 
 Entering docs-reconciled verified main:
 
-- `e6845f71db21baebe526db78405bec5bd0f641a8` / Verify #816 / 2021 passed / 0 failed.
+- `b3063a754aeaa7ba290e9ea6ef6a0690354d4161` / Verify #824 / 2031 passed / 0 failed.
 
 Final feature:
 
-- `a888d3c4aa35aaba7526df186bfdbdd2902f9369` / Verify #818 / 2031 passed / 0 failed.
+- `98edb5b5500c25e53b77237016afe3a223360ab8` / Verify #826 / 2041 passed / 0 failed.
 
 PR integration:
 
-- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b` / Verify #819 / 2031 passed / 0 failed.
+- PR #362 synthetic `6e335e508c07903d6e4488f1aac40d28a9e4152f` / Verify #827 / 2041 passed / 0 failed.
 
 Squash main:
 
-- `87c95cf2eb139cd8782d8df79d43b2313939bba0` / Verify #820 / 2031 passed / 0 failed.
+- `189455bb5b44c47bbf5abf188d1b456dad14b1ba` / Verify #828 / 2041 passed / 0 failed.
 
 ## Current integration blocker
 
@@ -80,5 +80,5 @@ Business execution remains intentionally disabled and requires a separate archit
 Next:
 
 - select a concrete current seller/operator, finance, observability, release-readiness or integration gap from the exact verified main;
-- do not extend closed persistence/evidence/lifecycle chains only to advance package numbers;
+- do not extend closed integrity chains only to advance package numbers;
 - keep Product Decision/Product Task Draft execution and Ozon mutation disabled.
