@@ -14,9 +14,7 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2041 passed on `189455bb5b44c47bbf5abf188d1b456dad14b1ba`.
-
-GitHub Actions push verification run #828 completed successfully for this exact main SHA.
+2051 passed on `d1655adf6719e6000f996b4635253c6b99193ba3`.\n\nGitHub Actions push verification run #837 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3046,6 +3044,58 @@ Preserved:
 
 - business-profit/margin formulas unchanged;
 - TaxService/tax formulas unchanged;
+- no persistence change;
+- no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Finance Period Aggregation Result Integrity v1141-v1150 — 2026-09-02
+
+Completed:
+
+[x] Daily finance source exceptions are contained as failed days with sanitized seller-safe evidence
+
+[x] Non-mapping daily finance results fail closed instead of raising during aggregation
+
+[x] Malformed explicit error markers fail the affected day
+
+[x] Operations and sales counters reject boolean, negative, fractional, non-numeric and NaN/inf values
+
+[x] Finance amount fields reject boolean, non-numeric and NaN/inf values
+
+[x] Malformed or non-finite fee breakdown values fail the whole affected day
+
+[x] Invalid days do not partially commit counters, amount totals or fee breakdown totals
+
+[x] Partial periods retain only fully valid days and preserve the existing partial-success contract
+
+[x] Aggregate amount/fee overflow fails closed with FINANCE_PERIOD_AGGREGATE_INVALID
+
+[x] Valid numeric strings and signed fee values remain compatible
+
+[x] StoreAnalytics finance path preserves contained source failures
+
+Verified exact main:
+
+`d1655adf6719e6000f996b4635253c6b99193ba3`
+
+GitHub Actions push Verify #837: 2051 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- failed intermediate `f54132ebf109240242a87037a81b1db5ed052d5b`: Verify #834, 2050 passed / 1 failed; test-only false positive remains failed evidence;
+- final feature `52661a7c37068759d20797644943a3b9e5e5ebcc`: Verify #835, 2051 passed / 0 failed;
+- PR #364 synthetic `ef001cc855661041bd3987604496d03e55acaf30`: Verify #836, 2051 passed / 0 failed;
+- squash main `d1655adf6719e6000f996b4635253c6b99193ba3`: Verify #837, 2051 passed / 0 failed.
+
+Preserved:
+
+- FinanceAnalyticsService amount/fee formulas unchanged;
+- existing partial-period success semantics unchanged;
 - no persistence change;
 - no new retry or execution path;
 - no Product Decision/Product Task Draft execution;

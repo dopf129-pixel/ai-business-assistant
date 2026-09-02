@@ -499,3 +499,6 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V1131_V1140.md`
 
 
 [x] Business Profit Calculation Result Integrity
+
+
+[x] Finance Period Aggregation Result Integrity

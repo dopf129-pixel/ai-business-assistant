@@ -4,42 +4,50 @@ Date: 2026-09-02
 
 ## Latest verified product baseline
 
-`189455bb5b44c47bbf5abf188d1b456dad14b1ba`
+`d1655adf6719e6000f996b4635253c6b99193ba3`
 
 Latest merged production-correctness batch:
 
-`v1131-v1140: Business Profit Calculation Result Integrity`
+`v1141-v1150: Finance Period Aggregation Result Integrity`
 
 ### Entering exact-main verification
-- exact main: `b3063a754aeaa7ba290e9ea6ef6a0690354d4161`
-- Verify #824
-- 2031 passed / 0 failed
-- artifact id: 9849936981
-- digest: `sha256:9fb1c12b1b8a8341346eab20635abadf7337f1ea8b26a0004be754a1dba9fda4`
+- exact main: `567a1b7e67e78553d78a02511fc2866c315bdb84`
+- Verify #832
+- 2041 passed / 0 failed
+- artifact id: 9850631816
+- digest: `sha256:4f3943a7606ac235967fcbc986847bc25e68afda7e224cb8510a42c3d34120d9`
+
+### Failed intermediate feature evidence
+- exact SHA: `f54132ebf109240242a87037a81b1db5ed052d5b`
+- Verify #834
+- 2050 passed / 1 failed
+- artifact id: 9850859003
+- digest: `sha256:d77c828d7efb59395c49ebdd57653bcbf310895019ce710c060db18ac95a1d05`
+- root cause: test-only false positive from matching `nan` inside `finance`; this SHA remains failed evidence permanently.
 
 ### Exact final feature-head verification
-- exact SHA: `98edb5b5500c25e53b77237016afe3a223360ab8`
-- Verify #826
-- 2041 passed / 0 failed
-- artifact id: 9850198413
-- digest: `sha256:a28889fed572b8ac4f1a44d06faf567615ac646040eeee9b3faa4616017810fd`
+- exact SHA: `52661a7c37068759d20797644943a3b9e5e5ebcc`
+- Verify #835
+- 2051 passed / 0 failed
+- artifact id: 9852038669
+- digest: `sha256:87a2b36f89567cb55665f074c5dc72a9184a6d29c8acbbeca97276e195e32a99`
 
 ### PR merge-ref integration verification
-- PR #362
-- synthetic SHA: `6e335e508c07903d6e4488f1aac40d28a9e4152f`
-- Verify #827
-- 2041 passed / 0 failed
-- artifact id: 9850246557
-- digest: `sha256:c490d6b43824bf420dfb2c5d812637a1220016170ec3afc423707f9332da979a`
+- PR #364
+- synthetic SHA: `ef001cc855661041bd3987604496d03e55acaf30`
+- Verify #836
+- 2051 passed / 0 failed
+- artifact id: 9852074846
+- digest: `sha256:8fb5141ab367708ae19f8a4c7c93e239c3982718ee7f29ad1f6cc3fbb3e5b866`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `189455bb5b44c47bbf5abf188d1b456dad14b1ba`
-- Verify #828
-- 2041 passed / 0 failed
-- artifact id: 9850316806
-- digest: `sha256:bcaaf2b0b6927472571ab69c9b0e1d1898e19fa43a9adf62f169278867621ff9`
+- exact main: `d1655adf6719e6000f996b4635253c6b99193ba3`
+- Verify #837
+- 2051 passed / 0 failed
+- artifact id: 9852118814
+- digest: `sha256:81af0f0d117f40de5532cbb9a6d45878192ff651a2107a6d7090ec90c02adaf6`
 
 ## Verification policy
 
