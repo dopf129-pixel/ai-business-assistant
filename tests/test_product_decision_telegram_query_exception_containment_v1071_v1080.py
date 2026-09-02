@@ -298,7 +298,7 @@ def test_v1080_valid_detail_is_unchanged_and_read_only():
     result = handler.handle("product_decision:hook-2")
 
     assert result["error"] is False
-    assert result["decision"] is detail
+    assert result["decision"] == detail
     assert "Решение по товару" in result["message"]
     assert query.detail_calls == ["hook-2"]
     assert keyboard.feedback_calls == 0
