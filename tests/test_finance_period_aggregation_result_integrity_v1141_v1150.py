@@ -220,11 +220,15 @@ def test_v1148_aggregate_overflow_fails_closed_without_inf_output():
     )
     assert result["days_loaded"] == 1
     assert result["days_failed"] == 1
-    assert math.isfinite(
-        result["gross_sales"]
+    for field in FinanceAnalyticsService.AMOUNT_FIELDS:
+        assert math.isfinite(
+            result[field]
+        )
+
+    assert all(
+        math.isfinite(amount)
+        for amount in result["fee_breakdown"].values()
     )
-    assert "inf" not in str(result).lower()
-    assert "nan" not in str(result).lower()
 
 
 def test_v1149_valid_numeric_strings_and_signed_fees_remain_compatible():
