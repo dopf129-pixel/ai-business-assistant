@@ -3523,3 +3523,27 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Financial Telegram Query Exception Containment v1081-v1090
+
+- contained Unit Economics and Returns Finance Impact product-source/query exceptions at the seller-facing Telegram boundary;
+- contained Unit Economics formatter exceptions locally;
+- failures use deterministic domain codes and non-secret seller messages;
+- financial source/query calls are not retried;
+- generic Telegram adapter exception containment remains the outer safety net;
+- final feature `6cf579771939ceb765a996fa761a406175e003d3`: Verify #786, 1991 passed / 0 failed, artifact 9844000230, digest `sha256:14235f04653929858f72b31c4ff71bf7dc70a282f2911173e44a88db3d8340fc`;
+- PR #352 synthetic `69383b1fcfe87aab31dfb6bb29cd4f73bf051e13`: Verify #787, 1991 passed / 0 failed, artifact 9844035985, digest `sha256:053bb90d398e410a6ff4c8fda33fbcffa7d4a417c6c94daab96266377beda7b5`;
+- squash main `0f484141713f2452f451e818caf600d113df6ad4`: Verify #788, 1991 passed / 0 failed, artifact 9844081811, digest `sha256:165ca2b0cf1ee918561521e22ad6f0e0615c0ea5c4092be697880a780653c92e`;
+- finance formulas/calculations, persistence, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1081-v1090
+
+- reconciled Project Brain to exact verified product main `0f484141713f2452f451e818caf600d113df6ad4` / Verify #788 / 1991 passed;
+- added `CURRENT_CHECKPOINT_V1081_V1090.md`;
+- DECISIONS unchanged: no new finance owner/formula/persistence/execution architecture;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-1981 passed on `41473566a558bb09899f64d581010b72e4053fbd`.
+1991 passed on `0f484141713f2452f451e818caf600d113df6ad4`.
 
-GitHub Actions push Verify #780 completed successfully for this exact main SHA.
+GitHub Actions push Verify #788 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3513,6 +3513,43 @@ Tests:
 - final feature `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8`: Verify #778, 1981 passed / 0 failed;
 - PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e`: Verify #779, 1981 passed / 0 failed;
 - squash main `41473566a558bb09899f64d581010b72e4053fbd`: Verify #780, 1981 passed / 0 failed;
+- no retry, persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Financial Telegram Query Exception Containment v1
+
+Boundaries:
+
+- `AssistantButtonHandlerService._open_unit_economics_menu`
+- `AssistantButtonHandlerService._show_unit_economics`
+- `AssistantButtonHandlerService._open_returns_finance_impact_menu`
+- `AssistantButtonHandlerService._show_returns_finance_impact`
+- `AssistantTelegramAdapter.handle_button`
+
+Tests:
+
+- `tests/test_financial_telegram_query_exception_containment_v1081_v1090.py`
+- existing financial Telegram result-integrity/UI tests
+
+Проверяет:
+
+- Unit Economics product source exceptions fail closed without secret leakage;
+- Returns Finance Impact product source exceptions fail closed;
+- Unit Economics query exceptions are one-shot and skip formatting;
+- Returns Finance Impact query exceptions are one-shot;
+- Unit Economics formatter exceptions are contained locally;
+- TypeError does not trigger retry;
+- domain financial failure reaches Telegram adapter unchanged;
+- valid Unit Economics menu/detail remains compatible;
+- valid Returns Finance Impact menu/detail remains compatible;
+- final feature `6cf579771939ceb765a996fa761a406175e003d3`: Verify #786, 1991 passed / 0 failed;
+- PR #352 synthetic `69383b1fcfe87aab31dfb6bb29cd4f73bf051e13`: Verify #787, 1991 passed / 0 failed;
+- squash main `0f484141713f2452f451e818caf600d113df6ad4`: Verify #788, 1991 passed / 0 failed;
+- finance formulas unchanged;
 - no retry, persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
