@@ -1,7 +1,17 @@
 from datetime import datetime, timedelta
+import math
 
 
 class FinanceAnalyticsService:
+
+    AMOUNT_FIELDS = (
+        "gross_sales",
+        "net_accrual",
+        "commission",
+        "logistics",
+        "acquiring",
+        "other_fees",
+    )
 
     def __init__(
         self,
@@ -149,33 +159,145 @@ class FinanceAnalyticsService:
 
         for current_date in dates:
 
-            daily = (
-                self.finance_service
-                .get_daily_finance(
+            try:
+                daily = (
+                    self.finance_service
+                    .get_daily_finance(
+                        current_date,
+                        sku
+                    )
+                )
+            except Exception:
+                self._mark_failed_day(
+                    result,
                     current_date,
-                    sku
+                    "Финансовые данные дня недоступны"
+                )
+                continue
+
+            if not isinstance(
+                daily,
+                dict
+            ):
+                self._mark_failed_day(
+                    result,
+                    current_date,
+                    "Некорректные финансовые данные дня"
+                )
+                continue
+
+            error_marker = daily.get(
+                "error"
+            )
+
+            if (
+                error_marker is not None
+                and not isinstance(
+                    error_marker,
+                    bool
+                )
+            ):
+                self._mark_failed_day(
+                    result,
+                    current_date,
+                    "Некорректные финансовые данные дня"
+                )
+                continue
+
+            if error_marker is True:
+                message = daily.get(
+                    "message"
+                )
+
+                if not isinstance(
+                    message,
+                    str
+                ) or not message.strip():
+                    message = (
+                        "Неизвестная ошибка"
+                    )
+
+                self._mark_failed_day(
+                    result,
+                    current_date,
+                    message
+                )
+                continue
+
+            normalized = (
+                self._normalize_daily(
+                    daily
                 )
             )
 
-            if daily.get("error"):
+            if normalized is None:
+                self._mark_failed_day(
+                    result,
+                    current_date,
+                    "Некорректные финансовые данные дня"
+                )
+                continue
 
-                result[
-                    "days_failed"
-                ] += 1
+            next_amounts = {}
 
-                result[
-                    "errors"
-                ].append(
-                    {
-                        "date": current_date,
-                        "message": daily.get(
-                            "message",
-                            "Неизвестная ошибка"
-                        )
-                    }
+            for field in self.AMOUNT_FIELDS:
+                next_value = (
+                    result[field]
+                    + normalized[field]
                 )
 
-                continue
+                if not math.isfinite(
+                    next_value
+                ):
+                    self._mark_failed_day(
+                        result,
+                        current_date,
+                        "Некорректный итог финансового периода"
+                    )
+                    return self._aggregate_failure(
+                        result
+                    )
+
+                next_amounts[field] = (
+                    next_value
+                )
+
+            next_fee_breakdown = dict(
+                result[
+                    "fee_breakdown"
+                ]
+            )
+
+            for (
+                name,
+                amount
+            ) in normalized[
+                "fee_breakdown"
+            ].items():
+
+                next_value = (
+                    next_fee_breakdown.get(
+                        name,
+                        0.0
+                    )
+                    + amount
+                )
+
+                if not math.isfinite(
+                    next_value
+                ):
+                    self._mark_failed_day(
+                        result,
+                        current_date,
+                        "Некорректный итог финансового периода"
+                    )
+                    return self._aggregate_failure(
+                        result
+                    )
+
+                next_fee_breakdown[
+                    name
+                ] = next_value
 
             result[
                 "days_loaded"
@@ -183,76 +305,26 @@ class FinanceAnalyticsService:
 
             result[
                 "operations"
-            ] += int(
-                daily.get(
-                    "operations",
-                    0
-                )
-            )
+            ] += normalized[
+                "operations"
+            ]
 
             result[
                 "sales_count"
-            ] += int(
-                daily.get(
-                    "sales_count",
-                    0
-                )
-            )
+            ] += normalized[
+                "sales_count"
+            ]
 
-            for field in (
-                "gross_sales",
-                "net_accrual",
-                "commission",
-                "logistics",
-                "acquiring",
-                "other_fees"
-            ):
-
-                result[
-                    field
-                ] += float(
-                    daily.get(
-                        field,
-                        0
-                    )
-                    or 0
+            for field in self.AMOUNT_FIELDS:
+                result[field] = (
+                    next_amounts[field]
                 )
 
-            fee_breakdown = (
-                daily.get(
-                    "fee_breakdown",
-                    {}
-                )
-                or {}
-            )
+            result[
+                "fee_breakdown"
+            ] = next_fee_breakdown
 
-            for (
-                name,
-                amount
-            ) in fee_breakdown.items():
-
-                result[
-                    "fee_breakdown"
-                ][name] = (
-                    result[
-                        "fee_breakdown"
-                    ].get(
-                        name,
-                        0.0
-                    )
-                    + float(
-                        amount or 0
-                    )
-                )
-
-        for field in (
-            "gross_sales",
-            "net_accrual",
-            "commission",
-            "logistics",
-            "acquiring",
-            "other_fees"
-        ):
+        for field in self.AMOUNT_FIELDS:
 
             result[
                 field
@@ -291,5 +363,205 @@ class FinanceAnalyticsService:
                 "финансовые данные "
                 "ни за один день периода"
             )
+
+        return result
+
+    def _normalize_daily(
+        self,
+        daily
+    ):
+
+        operations = self._count(
+            daily.get(
+                "operations",
+                0
+            )
+        )
+
+        sales_count = self._count(
+            daily.get(
+                "sales_count",
+                0
+            )
+        )
+
+        if (
+            operations is None
+            or sales_count is None
+        ):
+            return None
+
+        normalized = {
+            "operations": operations,
+            "sales_count": sales_count,
+        }
+
+        for field in self.AMOUNT_FIELDS:
+            value = self._number(
+                daily.get(
+                    field,
+                    0
+                )
+            )
+
+            if value is None:
+                return None
+
+            normalized[
+                field
+            ] = value
+
+        fee_breakdown = daily.get(
+            "fee_breakdown",
+            {}
+        )
+
+        if fee_breakdown is None:
+            fee_breakdown = {}
+
+        if not isinstance(
+            fee_breakdown,
+            dict
+        ):
+            return None
+
+        normalized_fees = {}
+
+        for (
+            name,
+            amount
+        ) in fee_breakdown.items():
+
+            value = self._number(
+                amount
+            )
+
+            if value is None:
+                return None
+
+            normalized_fees[
+                name
+            ] = value
+
+        normalized[
+            "fee_breakdown"
+        ] = normalized_fees
+
+        return normalized
+
+    @staticmethod
+    def _count(
+        value
+    ):
+
+        if isinstance(
+            value,
+            bool
+        ):
+            return None
+
+        if isinstance(
+            value,
+            int
+        ):
+            return (
+                value
+                if value >= 0
+                else None
+            )
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if (
+            not math.isfinite(
+                number
+            )
+            or number < 0
+            or not number.is_integer()
+        ):
+            return None
+
+        return int(
+            number
+        )
+
+    @staticmethod
+    def _number(
+        value
+    ):
+
+        if isinstance(
+            value,
+            bool
+        ):
+            return None
+
+        if value in (
+            None,
+            ""
+        ):
+            return 0.0
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if not math.isfinite(
+            number
+        ):
+            return None
+
+        return number
+
+    @staticmethod
+    def _mark_failed_day(
+        result,
+        current_date,
+        message
+    ):
+
+        result[
+            "days_failed"
+        ] += 1
+
+        result[
+            "errors"
+        ].append(
+            {
+                "date": current_date,
+                "message": message,
+            }
+        )
+
+    @staticmethod
+    def _aggregate_failure(
+        result
+    ):
+
+        result["error"] = True
+        result[
+            "code"
+        ] = (
+            "FINANCE_PERIOD_AGGREGATE_INVALID"
+        )
+        result[
+            "message"
+        ] = (
+            "Некорректный итог финансового периода"
+        )
 
         return result
