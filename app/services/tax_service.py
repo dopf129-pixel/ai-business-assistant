@@ -1,3 +1,6 @@
+import math
+
+
 class TaxService:
 
     SUPPORTED_MODES = {
@@ -31,14 +34,6 @@ class TaxService:
 
         mode = str(mode).upper()
 
-        revenue = float(
-            revenue or 0
-        )
-
-        gross_profit = float(
-            gross_profit or 0
-        )
-
         if mode not in self.SUPPORTED_MODES:
 
             return {
@@ -62,13 +57,40 @@ class TaxService:
                 "tax_amount": 0.0
             }
 
+        revenue = self._normalize_amount(
+            revenue
+        )
+        gross_profit = self._normalize_amount(
+            gross_profit
+        )
+
+        if (
+            revenue is None
+            or gross_profit is None
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Некорректные данные для расчёта налога"
+                )
+            }
+
         if mode == "USN_INCOME":
 
-            rate = (
-                6.0
-                if tax_rate is None
-                else float(tax_rate)
+            rate = self._normalize_rate(
+                tax_rate,
+                default=6.0
             )
+
+            if rate is None:
+
+                return {
+                    "error": True,
+                    "message": (
+                        "Некорректная налоговая ставка"
+                    )
+                }
 
             tax_base = max(
                 0.0,
@@ -80,6 +102,12 @@ class TaxService:
                 * rate
                 / 100
             )
+
+            if not math.isfinite(
+                tax_amount
+            ):
+
+                return self._invalid_result()
 
             return {
                 "error": False,
@@ -104,11 +132,35 @@ class TaxService:
 
         if mode == "USN_INCOME_MINUS_EXPENSES":
 
-            rate = (
-                15.0
-                if tax_rate is None
-                else float(tax_rate)
+            rate = self._normalize_rate(
+                tax_rate,
+                default=15.0
             )
+
+            if rate is None:
+
+                return {
+                    "error": True,
+                    "message": (
+                        "Некорректная налоговая ставка"
+                    )
+                }
+
+            normalized_minimum_rate = (
+                self._normalize_rate(
+                    minimum_tax_rate,
+                    default=1.0
+                )
+            )
+
+            if normalized_minimum_rate is None:
+
+                return {
+                    "error": True,
+                    "message": (
+                        "Некорректная минимальная налоговая ставка"
+                    )
+                }
 
             tax_base = max(
                 0.0,
@@ -126,16 +178,31 @@ class TaxService:
                     0.0,
                     revenue
                 )
-                * float(
-                    minimum_tax_rate
-                )
+                * normalized_minimum_rate
                 / 100
             )
+
+            if (
+                not math.isfinite(
+                    regular_tax
+                )
+                or not math.isfinite(
+                    minimum_tax
+                )
+            ):
+
+                return self._invalid_result()
 
             tax_amount = max(
                 regular_tax,
                 minimum_tax
             )
+
+            if not math.isfinite(
+                tax_amount
+            ):
+
+                return self._invalid_result()
 
             return {
                 "error": False,
@@ -153,9 +220,7 @@ class TaxService:
                     2
                 ),
                 "minimum_tax_rate": round(
-                    float(
-                        minimum_tax_rate
-                    ),
+                    normalized_minimum_rate,
                     2
                 ),
                 "regular_tax": round(
@@ -171,3 +236,78 @@ class TaxService:
                     2
                 )
             }
+
+    @staticmethod
+    def _normalize_amount(value):
+        if value in (
+            None,
+            ""
+        ):
+            return 0.0
+
+        if isinstance(
+            value,
+            bool
+        ):
+            return None
+
+        try:
+            number = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if not math.isfinite(
+            number
+        ):
+            return None
+
+        return number
+
+    @staticmethod
+    def _normalize_rate(
+        value,
+        default
+    ):
+        if value is None:
+            value = default
+
+        if isinstance(
+            value,
+            bool
+        ):
+            return None
+
+        try:
+            rate = float(
+                value
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        if (
+            not math.isfinite(
+                rate
+            )
+            or rate < 0.0
+            or rate > 100.0
+        ):
+            return None
+
+        return rate
+
+    @staticmethod
+    def _invalid_result():
+        return {
+            "error": True,
+            "message": (
+                "Некорректный результат расчёта налога"
+            )
+        }
