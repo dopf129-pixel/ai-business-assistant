@@ -3602,3 +3602,29 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Advertising & Expense Finite Result Integrity v1111-v1120
+
+- hardened existing advertising and other-expense finance boundaries against boolean and non-finite values;
+- missing advertising remains explicit unknown, explicit zero remains configured zero, and negative advertising retains its existing error;
+- tolerant campaign/expense list aggregation now excludes bool/NaN/inf/negative rows from totals;
+- aggregate overflow fails closed instead of returning infinity;
+- single expense rejects bool/NaN/inf;
+- BusinessAnalyticsService does not emit business profit after invalid advertising or other-expense overflow;
+- final feature `c45284c99d70a45b1bed2b5f62049a7bb5c40df6`: Verify #810, 2021 passed / 0 failed, artifact 9848781279, digest `sha256:b6f250911b452fe6b92a526efec659ee8388e8936828849fe3abbf41d8af979b`;
+- PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192`: Verify #811, 2021 passed / 0 failed, artifact 9848820350, digest `sha256:6fa1884772e1bc3a1e019ace4126366919d49e1e2f697d38540163d2ff986ba7`;
+- squash main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`: Verify #812, 2021 passed / 0 failed, artifact 9848865274, digest `sha256:0af16c631508c7df09c53de4397ba44e776e568af9e44199ccca338ae41fab38`;
+- finance formulas, persistence owners, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1111-v1120
+
+- reconciled Project Brain to exact verified product main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4` / Verify #812 / 2021 passed;
+- added `CURRENT_CHECKPOINT_V1111_V1120.md`;
+- DECISIONS unchanged: no new finance owner/formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.

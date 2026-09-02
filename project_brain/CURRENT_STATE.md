@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2011 passed on `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`.
+2021 passed on `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`.
 
-GitHub Actions push verification run #804 completed successfully for this exact main SHA.
+GitHub Actions push verification run #812 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2897,6 +2897,56 @@ Preserved:
 
 - TaxConfigurationService persistence contract unchanged;
 - TaxService formula branches/percentages unchanged;
+- no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Advertising & Expense Finite Result Integrity v1111-v1120 — 2026-09-02
+
+Completed:
+
+[x] Advertising cost rejects boolean and NaN/inf values
+
+[x] Missing advertising remains explicit unknown; zero remains explicit configured zero
+
+[x] Negative advertising retains the existing explicit rejection contract
+
+[x] Campaign aggregation ignores malformed/non-finite/negative/bool rows under the existing tolerant list model
+
+[x] Advertising aggregate overflow fails closed instead of returning infinity
+
+[x] Other-expense aggregation ignores malformed/non-finite/negative/bool rows under the existing tolerant list model
+
+[x] Other-expense aggregate overflow fails closed instead of returning infinity
+
+[x] Single expense rejects boolean and NaN/inf values
+
+[x] Existing numeric-string compatibility remains
+
+[x] BusinessAnalyticsService does not emit business profit when advertising is invalid or other-expense aggregation overflows
+
+Verified exact main:
+
+`cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`
+
+GitHub Actions push Verify #812: 2021 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `c45284c99d70a45b1bed2b5f62049a7bb5c40df6`: Verify #810, 2021 passed / 0 failed;
+- PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192`: Verify #811, 2021 passed / 0 failed;
+- squash main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`: Verify #812, 2021 passed / 0 failed.
+
+Preserved:
+
+- finance formulas unchanged;
+- existing AdvertisingService/ExpenseService owners unchanged;
+- no persistence contract change;
 - no new retry or execution path;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
