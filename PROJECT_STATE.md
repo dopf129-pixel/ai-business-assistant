@@ -18,33 +18,33 @@ Development Autopilot Layer
 
 Package:
 
-`v1111-v1120: Advertising & Expense Finite Result Integrity`
+`v1121-v1130: Store Profit Aggregation Result Integrity`
 
 Goal:
 
-Keep advertising and other-expense seller finance inputs/results finite without changing finance formulas or execution boundaries.
+Keep store-level profit aggregation finite and fail closed, and preserve aggregation failures before downstream tax/advertising/expense calculations.
 
 Immediately preceding verified package:
 
-`v1101-v1110: Tax Calculation Input & Result Integrity`
+`v1111-v1120: Advertising & Expense Finite Result Integrity`
 
 ## Stable verification
 
 Latest exact product main:
 
-`cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`
+`87c95cf2eb139cd8782d8df79d43b2313939bba0`
 
-GitHub Actions push Verify #812:
+GitHub Actions push Verify #820:
 
-2021 passed / 0 failed.
+2031 passed / 0 failed.
 
 Preserved:
 
-- existing AdvertisingService and ExpenseService ownership unchanged;
-- finance formulas unchanged;
-- tolerant list aggregation remains tolerant but cannot emit NaN/inf;
-- aggregate overflow fails closed;
-- invalid advertising/expense evidence blocks business-profit presentation;
+- StoreProfitService success schema and missing-field zero defaults remain compatible;
+- failed per-product profit rows remain skipped;
+- aggregation formulas and margin formula unchanged;
+- malformed/non-finite aggregates fail closed;
+- BusinessAnalytics stops before downstream finance calculations on store-profit failure;
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Action Executor connection;
@@ -55,19 +55,19 @@ Preserved:
 
 Entering docs-reconciled verified main:
 
-- `7187f6bea4392e844d9eebb928e94f13f5e39605` / Verify #808 / 2011 passed / 0 failed.
+- `e6845f71db21baebe526db78405bec5bd0f641a8` / Verify #816 / 2021 passed / 0 failed.
 
 Final feature:
 
-- `c45284c99d70a45b1bed2b5f62049a7bb5c40df6` / Verify #810 / 2021 passed / 0 failed.
+- `a888d3c4aa35aaba7526df186bfdbdd2902f9369` / Verify #818 / 2031 passed / 0 failed.
 
 PR integration:
 
-- PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192` / Verify #811 / 2021 passed / 0 failed.
+- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b` / Verify #819 / 2031 passed / 0 failed.
 
 Squash main:
 
-- `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4` / Verify #812 / 2021 passed / 0 failed.
+- `87c95cf2eb139cd8782d8df79d43b2313939bba0` / Verify #820 / 2031 passed / 0 failed.
 
 ## Current integration blocker
 
