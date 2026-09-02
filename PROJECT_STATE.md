@@ -18,32 +18,31 @@ Development Autopilot Layer
 
 Package:
 
-`v1061-v1070: Telegram Verified Product Decision Guidance / Checklist Wiring`
+`v1071-v1080: Product Decision Telegram Query Exception Containment`
 
 Goal:
 
-Production-wire verified Product Decision seller guidance into Telegram exclusively through canonical read-only durable persistence verification.
+Keep Product Decision seller-facing Telegram failures domain-specific and fail-closed when overview/detail query boundaries raise runtime exceptions.
 
 Immediately preceding verified package:
 
-`v1051-v1060: Product Decision Read-Only Persistence Verification`
+`v1061-v1070: Telegram Verified Product Decision Guidance / Checklist Wiring`
 
 ## Stable verification
 
 Latest exact product main:
 
-`dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`
+`41473566a558bb09899f64d581010b72e4053fbd`
 
-GitHub Actions push Verify #771:
+GitHub Actions push Verify #780:
 
-1971 passed / 0 failed.
+1981 passed / 0 failed.
 
 Preserved:
 
+- generic Telegram adapter exception containment remains the outer runtime safety net;
+- Product Decision query exceptions are contained locally and are not retried;
 - Product Decision History remains the only persistence owner;
-- Telegram verification is read-only and uses exact durable application lineage;
-- no persistence application is triggered from Telegram presentation;
-- no missing persistence/application IDs are inferred;
 - Product Decision thresholds/rules unchanged;
 - finance formulas unchanged;
 - no Product Decision execution;
@@ -54,31 +53,29 @@ Preserved:
 
 ## Production evidence
 
-Entering verified main:
+Entering docs-reconciled verified main:
 
-- `283ec42d4bb2b9c831801d9155caa3e6c582370f` / Verify #766 / 1961 passed / 0 failed.
+- `e972a385dbd8082abdaee37ab4178f15db5e8eec` / Verify #775 / 1971 passed / 0 failed.
 
 Failed intermediate:
 
-- `f449e7d738b56fb72f39e0836eb2ea3464b899a9` / Verify #768 / 1970 passed / 1 failed.
+- `31902d6e4f1302a5fe221e091b54bd5e2c4a8f3d` / Verify #777 / 1980 passed / 1 failed.
 
 Final feature:
 
-- `09abed3a9db1c1cf90a13d4393bb3771f09c964d` / Verify #769 / 1971 passed / 0 failed.
+- `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8` / Verify #778 / 1981 passed / 0 failed.
 
 PR integration:
 
-- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb` / Verify #770 / 1971 passed / 0 failed.
+- PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e` / Verify #779 / 1981 passed / 0 failed.
 
 Squash main:
 
-- `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb` / Verify #771 / 1971 passed / 0 failed.
+- `41473566a558bb09899f64d581010b72e4053fbd` / Verify #780 / 1981 passed / 0 failed.
 
 ## Current integration blocker
 
-No remaining blocker in the Product Decision verified-guidance Telegram lineage.
-
-Durable application lineage, read-only persistence verification and verified manual guidance/checklist presentation are now production-wired and exact-main verified.
+No new integration blocker introduced.
 
 Business execution remains intentionally disabled and requires a separate architecture/authorization decision.
 
@@ -87,5 +84,5 @@ Business execution remains intentionally disabled and requires a separate archit
 Next:
 
 - select a concrete current seller/operator, finance, observability, release-readiness or integration gap from the exact verified main;
-- do not extend Product Decision lineage/lifecycle solely to advance package numbers;
+- do not extend Product Decision persistence/lineage/lifecycle only to advance package numbers;
 - keep Product Decision/Product Task Draft execution and Ozon mutation disabled.
