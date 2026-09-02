@@ -1,3 +1,6 @@
+import math
+
+
 class ExpenseService:
 
     def calculate(
@@ -25,12 +28,20 @@ class ExpenseService:
                 )
             )
 
+            raw_amount = expense.get(
+                "amount",
+                0
+            )
+
+            if isinstance(
+                raw_amount,
+                bool
+            ):
+                continue
+
             try:
                 amount = float(
-                    expense.get(
-                        "amount",
-                        0
-                    )
+                    raw_amount
                 )
 
             except (
@@ -39,10 +50,33 @@ class ExpenseService:
             ):
                 continue
 
-            if amount < 0:
+            if (
+                not math.isfinite(
+                    amount
+                )
+                or amount < 0
+            ):
                 continue
 
-            total_expenses += amount
+            next_total = (
+                total_expenses
+                + amount
+            )
+
+            if not math.isfinite(
+                next_total
+            ):
+
+                return {
+                    "error": True,
+                    "message": (
+                        "Некорректный итог прочих расходов"
+                    )
+                }
+
+            total_expenses = (
+                next_total
+            )
 
             valid_expenses.append(
                 {
@@ -72,6 +106,13 @@ class ExpenseService:
         name="Прочие расходы"
     ):
 
+        if isinstance(
+            amount,
+            bool
+        ):
+
+            return self._invalid_amount()
+
         try:
             amount = float(
                 amount or 0
@@ -82,12 +123,13 @@ class ExpenseService:
             ValueError
         ):
 
-            return {
-                "error": True,
-                "message": (
-                    "Некорректная сумма расхода"
-                )
-            }
+            return self._invalid_amount()
+
+        if not math.isfinite(
+            amount
+        ):
+
+            return self._invalid_amount()
 
         if amount < 0:
 
@@ -124,5 +166,15 @@ class ExpenseService:
             "other_expenses": round(
                 amount,
                 2
+            )
+        }
+
+    @staticmethod
+    def _invalid_amount():
+
+        return {
+            "error": True,
+            "message": (
+                "Некорректная сумма расхода"
             )
         }
