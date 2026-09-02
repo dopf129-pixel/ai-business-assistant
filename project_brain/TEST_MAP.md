@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2021 passed on `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`.
+2031 passed on `87c95cf2eb139cd8782d8df79d43b2313939bba0`.
 
-GitHub Actions push Verify #812 completed successfully for this exact main SHA.
+GitHub Actions push Verify #820 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -3662,6 +3662,44 @@ Tests:
 - PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192`: Verify #811, 2021 passed / 0 failed;
 - squash main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`: Verify #812, 2021 passed / 0 failed;
 - finance formulas unchanged;
+- no persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.
+
+
+---
+
+# Store Profit Aggregation Result Integrity v1
+
+Boundaries:
+
+- `StoreProfitService.calculate`
+- `StoreProfitService._count`
+- `StoreProfitService._number`
+- `BusinessAnalyticsService.calculate`
+- `SalesIntelligenceService.analyze`
+- `AssistantSalesExecutorService.execute`
+
+Tests:
+
+- `tests/test_store_profit_aggregation_result_integrity_v1121_v1130.py`
+
+Проверяет:
+
+- non-list/tuple store-profit input fails closed;
+- non-mapping product-profit rows fail closed;
+- sales_count rejects bool, negative, fractional, non-numeric and non-finite values;
+- financial aggregate fields reject bool, non-numeric and NaN/inf values;
+- aggregate overflow and non-finite margin fail closed;
+- failed product rows remain skipped;
+- missing numeric fields retain zero defaults;
+- valid numeric strings and loss classification remain compatible;
+- BusinessAnalytics stops before tax/advertising/expense calculations on store-profit failure;
+- Sales Intelligence and sales executor preserve that failure end-to-end;
+- final feature `a888d3c4aa35aaba7526df186bfdbdd2902f9369`: Verify #818, 2031 passed / 0 failed;
+- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`: Verify #819, 2031 passed / 0 failed;
+- squash main `87c95cf2eb139cd8782d8df79d43b2313939bba0`: Verify #820, 2031 passed / 0 failed;
+- aggregation formulas unchanged;
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.

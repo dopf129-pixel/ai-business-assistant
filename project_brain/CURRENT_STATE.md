@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2021 passed on `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`.
+2031 passed on `87c95cf2eb139cd8782d8df79d43b2313939bba0`.
 
-GitHub Actions push verification run #812 completed successfully for this exact main SHA.
+GitHub Actions push verification run #820 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -2947,6 +2947,56 @@ Preserved:
 - finance formulas unchanged;
 - existing AdvertisingService/ExpenseService owners unchanged;
 - no persistence contract change;
+- no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Store Profit Aggregation Result Integrity v1121-v1130 — 2026-09-02
+
+Completed:
+
+[x] Store-profit input container is validated
+
+[x] Non-mapping product-profit records fail closed
+
+[x] sales_count rejects boolean, negative, fractional, non-numeric and non-finite values
+
+[x] Financial aggregate fields reject boolean, non-numeric and NaN/inf values
+
+[x] Aggregate overflow and non-finite margin fail closed
+
+[x] Failed product-profit rows remain skipped
+
+[x] Missing numeric fields retain existing zero defaults
+
+[x] Numeric-string and loss-product compatibility remain
+
+[x] BusinessAnalytics propagates store-profit failure before downstream finance calculations
+
+[x] SalesIntelligence and AssistantSalesExecutor preserve the failure end-to-end
+
+Verified exact main:
+
+`87c95cf2eb139cd8782d8df79d43b2313939bba0`
+
+GitHub Actions push Verify #820: 2031 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `a888d3c4aa35aaba7526df186bfdbdd2902f9369`: Verify #818, 2031 passed / 0 failed;
+- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`: Verify #819, 2031 passed / 0 failed;
+- squash main `87c95cf2eb139cd8782d8df79d43b2313939bba0`: Verify #820, 2031 passed / 0 failed.
+
+Preserved:
+
+- StoreProfitService success schema and missing-field zero defaults;
+- aggregation formulas and margin formula unchanged;
+- no persistence change;
 - no new retry or execution path;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;

@@ -3628,3 +3628,31 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+
+## 2026-09-02 — Store Profit Aggregation Result Integrity v1121-v1130
+
+- hardened StoreProfitService against malformed/non-finite product-profit records and aggregate overflow;
+- sales_count now rejects booleans, negatives, fractional, non-numeric and non-finite values instead of truncating or subtracting;
+- store financial aggregate fields reject boolean, non-numeric and NaN/inf values;
+- aggregate overflow and non-finite margin fail closed;
+- failed product-profit rows remain skipped and missing numeric fields retain existing zero defaults;
+- valid numeric-string compatibility and loss-product classification remain unchanged;
+- BusinessAnalyticsService now propagates store-profit failure before tax/advertising/expense calculations;
+- SalesIntelligenceService and AssistantSalesExecutorService preserve that error end-to-end;
+- final feature `a888d3c4aa35aaba7526df186bfdbdd2902f9369`: Verify #818, 2031 passed / 0 failed, artifact 9849428477, digest `sha256:219abdf23fc8e4135142937121cd85ea9619b983ae2b9668c3e74d05b9135d5a`;
+- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`: Verify #819, 2031 passed / 0 failed, artifact 9849493222, digest `sha256:84e4ae787b3ff93b30c9ba23f3c7b4032a4a329541922179bff25a660b4c1d40`;
+- squash main `87c95cf2eb139cd8782d8df79d43b2313939bba0`: Verify #820, 2031 passed / 0 failed, artifact 9849548406, digest `sha256:37853547096138bb851a62399a5ba8c5e3ea54f02c9bb92a9623c155abc5c6b1`;
+- aggregation formulas, persistence owners, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-02 — Project Brain reconciliation after v1121-v1130
+
+- reconciled Project Brain to exact verified product main `87c95cf2eb139cd8782d8df79d43b2313939bba0` / Verify #820 / 2031 passed;
+- added `CURRENT_CHECKPOINT_V1121_V1130.md`;
+- DECISIONS unchanged: no new finance owner/formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
