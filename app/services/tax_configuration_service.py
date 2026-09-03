@@ -8,7 +8,11 @@ from services.tax_service import TaxService
 
 class TaxConfigurationService:
 
-    def __init__(self, file_path=None):
+    def __init__(
+        self,
+        file_path=None,
+        environment=None
+    ):
         self.file_path = (
             file_path
             or os.path.join(
@@ -17,14 +21,15 @@ class TaxConfigurationService:
                 "tax_configuration.json"
             )
         )
+        self.environment = (
+            os.environ
+            if environment is None
+            else environment
+        )
 
     def get_policy(self):
         if not os.path.exists(self.file_path):
-            return {
-                "error": False,
-                "configured": False,
-                "policy": None
-            }
+            return self._get_environment_policy()
 
         try:
             with open(
@@ -41,6 +46,50 @@ class TaxConfigurationService:
             }
 
         validated = self._validate_policy(policy)
+
+        if validated.get("error"):
+            return {
+                "error": False,
+                "configured": False,
+                "policy": None
+            }
+
+        return {
+            "error": False,
+            "configured": True,
+            "policy": validated["policy"]
+        }
+
+
+    def _get_environment_policy(self):
+        mode = self.environment.get(
+            "TAX_MODE"
+        )
+
+        if (
+            mode is None
+            or not str(mode).strip()
+        ):
+            return {
+                "error": False,
+                "configured": False,
+                "policy": None
+            }
+
+        validated = self._validate_policy(
+            {
+                "mode": mode,
+                "tax_rate": self.environment.get(
+                    "TAX_RATE"
+                ),
+                "minimum_tax_rate": (
+                    self.environment.get(
+                        "MINIMUM_TAX_RATE",
+                        1.0
+                    )
+                )
+            }
+        )
 
         if validated.get("error"):
             return {
