@@ -3818,3 +3818,49 @@ Tests:
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
+
+---
+
+# Telegram Period Profit Analyst Wiring v1
+
+Boundaries:
+
+- `telegram_core_factory.create_telegram_core`
+- `telegram_assistant_factory.create_telegram_assistant`
+- `AssistantKeyboardService.build_main_keyboard`
+- `AssistantKeyboardService.build_period_profit_keyboard`
+- `AssistantButtonHandlerService.handle`
+- `AssistantButtonHandlerService._open_period_profit_menu`
+- `AssistantButtonHandlerService._show_period_profit`
+- `TelegramResponseFormatter.format`
+- `AssistantPeriodProfitRuntimeService.handle_text`
+- `AssistantPeriodProfitRuntimeService.handle_callback`
+
+Tests:
+
+- `tests/test_telegram_period_profit_analyst_wiring_v1161_v1170.py`
+- compatibility update in `tests/test_product_unit_economics_telegram_ui.py`
+
+Проверяет:
+
+- main Telegram menu exposes period-profit analytics;
+- period menu normalizes safe Today / 7 / 28 / 56 / 90-day callbacks;
+- menu remains read-only and non-executing;
+- callbacks delegate only to the period-profit read-only runtime;
+- runtime exceptions are contained;
+- malformed callback results fail closed;
+- execution-adjacent success payloads fail closed;
+- analytical `text` renders as Telegram text;
+- Telegram core wires the production period-profit runtime/query;
+- natural-language period-profit requests bypass the general action/execution flow;
+- existing partial-core fixtures remain backward compatible;
+- no Ozon mutation path is introduced;
+- `data/users.json` untouched by this package;
+- `externally_verified=False`.
+
+Verification:
+
+- failed intermediate `e7fce70c39f976e97bf78687621ace5125f9d30a`: Verify #866, 2069 passed / 2 failed;
+- final feature `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`: Verify #868, 2071 passed / 0 failed;
+- PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e`: Verify #869, 2071 passed / 0 failed;
+- squash main `d06a5f8cc23814e3177f58f6182bef6fbceb0697`: Verify #870, 2071 passed / 0 failed.
