@@ -3,7 +3,7 @@
 
 Date:
 
-2026-09-02
+2026-09-03
 
 
 
@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2161 passed on `d845c7183ef5a914853a15b788e18b0cebfd1c93`.
+2171 passed on `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`.
 
-GitHub Actions push verification run #1040 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1064 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3602,3 +3602,70 @@ Preserved:
 Next accounting priority:
 - explicit seller-configured non-Ozon operating expenses;
 - unknown external expense remains unknown, never zero.
+
+---
+
+# External Operating Expense Coverage v1261-v1270 — 2026-09-03
+
+Completed:
+
+[x] Decision 038 external operating expense evidence and coverage contract
+
+[x] Existing local `expenses` rows retained as explicit seller-entered external expense evidence
+
+[x] `expense_coverage` intervals added as explicit completeness confirmation
+
+[x] Requested-period coverage is complete only when every calendar day is covered
+
+[x] Empty uncovered period remains unknown, not zero
+
+[x] Empty fully covered period becomes explicit confirmed 0 ₽ external expense
+
+[x] Partial expense rows produce observed adjusted profit only
+
+[x] Complete coverage permits complete profit-after-external-expenses adjustment
+
+[x] Invalid expense dates fail closed
+
+[x] Boolean, NaN and infinite expense amounts fail closed
+
+[x] Period Profit Telegram text distinguishes base profit, entered expenses and coverage completeness
+
+[x] Ozon advertising/storage/return charges already inside account net accrual are never subtracted again
+
+[x] `confirm_expense_coverage.py` provides explicit local coverage confirmation
+
+Derived formula:
+
+`profit_after_external_expenses = period_profit - external_expenses`
+
+The base Period Profit formula and Decision 037 account-level Ozon monetary authority remain unchanged.
+
+Verification:
+
+- entering exact docs-reconciled main `9a29e853727c82abdf75b1992c45c532bd45e3ef`: Verify #1050, 2161 passed / 0 failed;
+- failed `55d8f189dc170cc524aa8798aea42b1b7ae6251c`: Verify #1054, 2150 passed / 11 failed;
+- failed `9f32163739d849dfe3681a9de6358fb64db40100`: Verify #1055, 2150 passed / 11 failed;
+- failed `e788e5110109eb678767313278580989b192f689`: Verify #1060, 2160 passed / 1 failed;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `07f9a35eb238280e95b52bc14d18cc6aba735703`: Verify #1062, 2171 passed / 0 failed;
+- PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6`: Verify #1063, 2171 passed / 0 failed;
+- squash main `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`: Verify #1064, 2171 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- Decision 037;
+- Decision 038;
+- account-level Ozon monetary authority;
+- no double subtraction of Ozon expenses;
+- no automatic return COGS reversal;
+- no accounting net-profit claim;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Next accounting priority:
+- prove return-related COGS recovery with stronger historical cost, sale-period lineage and saleable/restored inventory evidence;
+- keep candidate recovery out of profit until that proof exists;
+- then address taxes/accounting adjustments outside the configured tax policy and any uncovered external-expense periods.
+
