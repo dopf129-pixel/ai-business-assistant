@@ -115,7 +115,9 @@ def create_telegram_assistant():
 
 
     period_profit_runtime_service = (
-        system["period_profit_runtime_service"]
+        system.get(
+            "period_profit_runtime_service"
+        )
     )
 
 
