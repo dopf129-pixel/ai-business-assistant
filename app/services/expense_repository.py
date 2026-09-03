@@ -1,3 +1,4 @@
+import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -199,6 +200,18 @@ class ExpenseRepository:
         description=""
     ):
 
+        if isinstance(
+            amount,
+            bool
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Некорректная сумма расхода"
+                )
+            }
+
         try:
             amount = float(
                 amount
@@ -207,6 +220,17 @@ class ExpenseRepository:
         except (
             TypeError,
             ValueError
+        ):
+
+            return {
+                "error": True,
+                "message": (
+                    "Некорректная сумма расхода"
+                )
+            }
+
+        if not math.isfinite(
+            amount
         ):
 
             return {
@@ -240,9 +264,19 @@ class ExpenseRepository:
                 )
             }
 
-        expense_date = str(
+        expense_date = self._date(
             expense_date
         )
+
+        if expense_date is None:
+
+            return {
+                "error": True,
+                "code": "EXPENSE_DATE_INVALID",
+                "message": (
+                    "Некорректная дата расхода"
+                )
+            }
 
         created_at = (
             datetime.now()
