@@ -27,6 +27,10 @@ class ReturnEvidence:
     def __init__(self, ozon_client): self.ozon_client = ozon_client
 
 
+class ReturnCogsEvidence:
+    def __init__(self, cost_service): self.cost_service = cost_service
+
+
 class Summary:
     def __init__(self, finance_service, cost_service, tax_rate):
         self.finance_service = finance_service
@@ -44,6 +48,7 @@ class Query:
         authorized_advertising_mapping=None,
         authorized_storage_mapping=None,
         mapping_observability_service=None,
+        return_cogs_recovery_evidence_service=None,
     ):
         self.summary_service = summary_service
         self.product_provider = product_provider
@@ -52,6 +57,7 @@ class Query:
         self.authorized_advertising_mapping = authorized_advertising_mapping
         self.authorized_storage_mapping = authorized_storage_mapping
         self.mapping_observability_service = mapping_observability_service
+        self.return_cogs_recovery_evidence_service = return_cogs_recovery_evidence_service
 
 
 def test_factory_wires_existing_production_dependencies(monkeypatch):
@@ -60,6 +66,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ProductCostService", Costs)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnCogsRecoveryEvidenceService",
+        ReturnCogsEvidence,
+    )
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
     monkeypatch.setattr(factory, "TaxConfigurationService", TaxConfig)
@@ -71,6 +82,8 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
+    assert isinstance(query.return_cogs_recovery_evidence_service, ReturnCogsEvidence)
+    assert query.return_cogs_recovery_evidence_service.cost_service is query.summary_service.cost_service
     assert query.authorized_return_mapping is None
     assert query.authorized_advertising_mapping is None
     assert query.authorized_storage_mapping is None
