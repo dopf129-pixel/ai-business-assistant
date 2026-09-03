@@ -51,6 +51,14 @@ class TelegramResponseFormatter:
 
 
 
+        if result.get("text"):
+
+            return (
+                result["text"]
+            )
+
+
+
         if result.get("actions"):
 
             text = (
