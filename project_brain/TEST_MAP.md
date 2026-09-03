@@ -4010,3 +4010,40 @@ Verification:
 - PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a`: Verify #938, 2111 passed / 0 failed;
 - squash main `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`: Verify #939, 2111 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Tax Rate Unit Integrity v1
+
+Boundaries:
+
+- `period_profit_factory._period_profit_tax_fraction`
+- `period_profit_factory.create_period_profit_query`
+- `PeriodProfitSummaryService._tax_fraction`
+- production TaxConfigurationService policy
+
+Tests:
+
+- `tests/test_period_profit_tax_rate_unit_v1211_v1220.py`
+- updated `tests/test_period_profit_factory.py`
+
+Проверяет:
+
+- USN Income 6.0 percent converts to 0.06 fraction;
+- NONE converts to 0.0;
+- unconfigured/invalid/non-finite tax policy fails closed;
+- unsupported USN Income Minus Expenses fails closed;
+- summary rejects percent-scale multiplier 6.0;
+- summary accepts 0.06 as six percent;
+- live seller sample produces tax 80 902.27 ₽, profit 310 701.55 ₽, margin 23.04%;
+- production factory reads repository tax policy and exposes 0.06 to summary;
+- Period Profit tax path remains read-only.
+
+Verification:
+
+- failed `a7d5cead4c7c49907d6d045b54a3cec30d48efad`: Verify #953, 2110 passed / 1 failed;
+- failed `ee463cd1000113998ae5b895da02334bb5a5f495`: Verify #954, 2120 passed / 1 failed;
+- final feature `4c50429bc4c2f6515d80b497b85fe8c9663e24eb`: Verify #955, 2121 passed / 0 failed;
+- PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af`: Verify #956, 2121 passed / 0 failed;
+- squash main `2f438bd6bb739938cee4fe56b83af8f4a563f942`: Verify #957, 2121 passed / 0 failed;
+- `externally_verified=False`.
