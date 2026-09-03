@@ -1904,3 +1904,64 @@ while SKU evidence is still needed to prove product revenue coverage and COGS.
 Status:
 
 Implemented
+
+---
+
+## Decision 038
+
+Date:
+
+2026-09-03
+
+Topic:
+
+External Operating Expense Evidence and Coverage
+
+Decision:
+
+Period Profit may derive a profit view after seller-recorded expenses outside the
+Ozon accrual stream only from explicit local expense rows plus explicit period
+coverage evidence.
+
+Rules:
+
+- existing local `expenses` rows remain the source of seller-entered external
+  operating expenses;
+- expense rows are evidence only when date, category and finite non-negative
+  amount are valid;
+- a missing expense row is never equivalent to a zero expense;
+- explicit `expense_coverage` intervals record seller confirmation that expense
+  accounting is complete for those dates;
+- coverage for a requested Period Profit interval is complete only when the union
+  of confirmed intervals covers every calendar day in the request;
+- an empty covered period is an explicit zero-expense fact;
+- an empty uncovered period remains unknown;
+- partial expense rows may produce an observed profit-after-entered-expenses
+  metric, but that metric must be labelled incomplete;
+- only complete coverage may produce a complete
+  `profit_after_external_expenses` derived value;
+- external expenses are outside Ozon account net accrual and therefore may be
+  subtracted from the account-level Period Profit exactly once;
+- Ozon advertising/storage/return operations already present inside account
+  net accrual remain excluded from this external-expense repository to avoid
+  double subtraction;
+- comparison semantics remain based on the existing Period Profit summary until
+  external-expense coverage is proven for both compared periods;
+- external expense coverage does not resolve return COGS recovery uncertainty,
+  historical cost basis, compensation timing, or other accounting adjustments;
+- accounting net-profit claim remains prohibited;
+- local expense/coverage persistence is seller evidence input and does not
+  authorize or perform any Ozon mutation;
+- Decision 036 and Decision 037 remain unchanged.
+
+Reason:
+
+A local expense table without an explicit completeness marker cannot distinguish
+"seller had no external expense" from "seller has not entered the expense yet".
+Treating both as zero would overstate profit. Explicit coverage intervals make
+zero/complete semantics evidence-bound while allowing known partial expenses to
+be shown without overstating completeness.
+
+Status:
+
+Implemented
