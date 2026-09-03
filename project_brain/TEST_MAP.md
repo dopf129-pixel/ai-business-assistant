@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2171 passed on `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`.
+2185 passed on `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`.
 
-GitHub Actions push Verify #1064 completed successfully for this exact main SHA.
+GitHub Actions push Verify #1085 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -4246,5 +4246,55 @@ Verification:
 - final feature `07f9a35eb238280e95b52bc14d18cc6aba735703`: Verify #1062, 2171 passed / 0 failed, artifact 9894853461, digest `sha256:9d28a3a5ae753f1215fd042622fd62d7e4985fa96eeba0f2f140318166617298`;
 - PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6`: Verify #1063, 2171 passed / 0 failed, artifact 9894897854, digest `sha256:9111b865c015e95c360ba417c3ef68f82377e82f9e2eddfc7c7e7d8c61ae93a0`;
 - squash main `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`: Verify #1064, 2171 passed / 0 failed, artifact 9894942156, digest `sha256:6ba30eda33b5a1315469e4fbf9253058d932cbc756e634b8996b2f31b2158e53`;
+- `externally_verified=False`.
+
+---
+
+# Return Sale-Period Lineage Evidence v1
+
+Boundaries:
+
+- `FinanceService.get_daily_sale_posting_evidence`
+- `PeriodProfitReturnSaleLineageEvidenceService`
+- `PeriodProfitReturnCogsRecoveryEvidenceService`
+- `create_period_profit_query`
+- `build_period_profit_response`
+- `build_period_profit_coverage`
+
+Tests:
+
+- `tests/test_return_sale_lineage_evidence_v1271_v1280.py`
+- updated `tests/test_period_profit_factory.py`
+
+Проверяет:
+
+- only positive POSTING sale accruals become sale-lineage evidence;
+- malformed positive sale records keep finance evidence partial;
+- finance failure stays unavailable rather than becoming an empty zero;
+- return lineage matches by exact `posting_number + SKU`;
+- same posting with another SKU does not match;
+- one unique positive sale-accrual date is a selected-period match;
+- multiple sale dates are ambiguous;
+- missing finance days keep lineage partial even when another day matches;
+- missing return identifiers remain unresolved;
+- incomplete return sample cannot produce aggregate sale-period confirmation;
+- compensated returns never become COGS recovery candidates because lineage exists;
+- sale-lineage service exceptions are contained and do not destroy base candidate evidence;
+- confirmed sale-period lineage does not confirm historical COGS;
+- confirmed sale-period lineage does not prove saleable/restored inventory;
+- `confirmed_cogs_recovery_amount` remains 0;
+- profit adjustment remains forbidden;
+- Telegram distinguishes confirmed lineage from remaining COGS blockers;
+- coverage exposes lineage without accounting-net-profit claim;
+- factory shares the exact FinanceService instance between Period Profit summary and sale-lineage evidence.
+
+Verification:
+
+- entering exact docs-reconciled main `356fa301a9025e15a5a9fbb94da706d10670416a`: Verify #1074, 2171 passed / 0 failed, artifact 9897945762, digest `sha256:9b883028d77316bcabd7634b934f9ab38664a84468eab5622195ff73929c7653`;
+- failed `db2c6c0fa900720c303a8f8face32ef3eec3be11`: Verify #1081, 2170 passed / 1 failed, artifact 9898277377, digest `sha256:2e8365779ec323568d2be3649d17d7a79e8d5a5da745f128cc11555750cd7b2e`;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `e96fb63007647857045f226c9c41fd8157ae962e`: Verify #1083, 2185 passed / 0 failed, artifact 9898333361, digest `sha256:7ac52123e97a821e6fb65fcc7dc15dfb61d68a8be6fd40c9598b7505a174c3f5`;
+- PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc`: Verify #1084, 2185 passed / 0 failed, artifact 9898386674, digest `sha256:a4ac6ad8520a2a0726aff061f5f579a74742f868e17e2ced9d89ac84c3798d47`;
+- squash main `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`: Verify #1085, 2185 passed / 0 failed, artifact 9898420551, digest `sha256:4a187e0b83b0b5950e64aaf749d31b78d7d5435132a77fde2e044667fe06b864`;
 - `externally_verified=False`.
 

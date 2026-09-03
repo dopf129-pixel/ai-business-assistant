@@ -16,101 +16,110 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1261-v1270: External Operating Expense Coverage`
+`v1271-v1280: Return Sale-Period Lineage Evidence`
 
 Goal:
 
-Include explicit seller-recorded operating expenses outside the Ozon accrual stream without treating missing expense evidence as zero.
+Strengthen return COGS recovery evidence by proving whether a candidate return links to a positive sale accrual inside the selected Period Profit interval.
 
 Immediately preceding verified package:
 
-`v1251-v1260: Return COGS Recovery Evidence`
+`v1261-v1270: External Operating Expense Coverage`
 
 ## Stable verification
 
 Latest exact production main:
 
-`875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`
+`5c0ed4bd40207e3f4bcce3770e89e71e163288b1`
 
-GitHub Actions push Verify #1064:
+GitHub Actions push Verify #1085:
 
-2171 passed / 0 failed.
+2185 passed / 0 failed.
 
 ## Seller-facing accounting progress
 
-Period Profit V2 still uses account-level Ozon accruals as the monetary authority for Ozon money.
+Period Profit V2 still uses account-level Ozon daily finance as the monetary authority for Ozon money.
 
 Base formula remains:
 
 `period_profit = account_net_accrual - product_cost - configured_tax`
 
-The external-expense layer now reads explicit local seller expense rows and explicit `expense_coverage` intervals.
-
-Evidence semantics:
-
-- missing external expense rows are never interpreted as zero;
-- an uncovered empty period remains unknown;
-- a fully covered empty period is an explicit confirmed 0 ₽ external expense;
-- partial expense evidence may produce only an observed profit-after-entered-expenses view;
-- complete coverage over every calendar day permits a complete external-expense adjustment;
-- invalid dates, boolean amounts and non-finite amounts fail closed.
-
-Derived external-expense formula:
+The external-expense layer remains evidence-bound:
 
 `profit_after_external_expenses = period_profit - external_expenses`
 
-This subtraction applies only to expenses outside Ozon account net accrual and therefore does not duplicate Ozon advertising, storage, return-operation or other Ozon charges already present in `account_net_accrual`.
+only when seller expense coverage is explicit.
+
+Return COGS evidence now adds selected-period sale lineage:
+
+- positive sale postings are extracted from the same cached Ozon finance read session used by Period Profit;
+- a Return API record is matched to sale evidence by `posting_number + SKU`;
+- exactly one positive sale-accrual date inside the selected period is a matched lineage record;
+- another SKU does not match;
+- multiple positive sale dates are ambiguous;
+- unavailable or malformed finance evidence leaves lineage partial/unavailable;
+- incomplete return pagination prevents aggregate sale-period confirmation.
+
+When every return-place COGS candidate in a complete return sample has a unique finance match and every finance day is complete, `originating_sale_period_confirmed=True`.
+
+This is evidence only. It does not change profit.
 
 ## Explicit boundaries
 
 Accounting net-profit claim remains prohibited.
 
-The following are still not fully proven:
+Still not fully proven:
 
 - historical COGS basis for returned units;
-- saleable-inventory recovery after returns;
-- originating sale-period lineage for return COGS reversal;
+- saleable/restored inventory recovery after returns;
+- originating sale quantity consistency as a separate accounting fact;
 - compensation timing/accounting across periods;
-- taxes or accounting adjustments outside the configured tax policy;
-- completeness of seller external-expense evidence unless explicit coverage exists.
+- taxes/accounting adjustments outside configured tax policy;
+- completeness of external expenses without explicit coverage.
 
-Return COGS candidate evidence remains diagnostic only:
+Return COGS remains conservative:
 
 - `confirmed_cogs_recovery_amount=0`;
 - `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`.
+- `automatic_recovery_allowed=False`;
+- `historical_cost_basis_confirmed=False`;
+- `saleable_inventory_recovery_confirmed=False`.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `9a29e853727c82abdf75b1992c45c532bd45e3ef` / Verify #1050 / 2161 passed / 0 failed / artifact 9894484795 / digest `sha256:0a864e6e4515eb024f13758d13d944907bcd4a72250cb7e5508e900145cab025`.
+- `356fa301a9025e15a5a9fbb94da706d10670416a` / Verify #1074 / 2171 passed / 0 failed / artifact 9897945762 / digest `sha256:9b883028d77316bcabd7634b934f9ab38664a84468eab5622195ff73929c7653`.
 
-Failed intermediate SHAs remain failed evidence:
+Failed intermediate SHA remains failed evidence:
 
-- `55d8f189dc170cc524aa8798aea42b1b7ae6251c` / Verify #1054 / 2150 passed / 11 failed / artifact 9894680388 / digest `sha256:49302f69375d247b9094b7a58f1a16c5671124eb894eef0153edd3dc1276c376`;
-- `9f32163739d849dfe3681a9de6358fb64db40100` / Verify #1055 / 2150 passed / 11 failed / artifact 9894698643 / digest `sha256:e37593e820234269a9230e6be4f8c61fc591d7108f4093201bdb3192e09956d0`;
-- `e788e5110109eb678767313278580989b192f689` / Verify #1060 / 2160 passed / 1 failed / artifact 9894794990 / digest `sha256:af0ffe3ef3fe9ddfce906ac6bbb3a33c10f5ac445f1884705aa3b85e483fb1fc`.
+- `db2c6c0fa900720c303a8f8face32ef3eec3be11` / Verify #1081 / 2170 passed / 1 failed / artifact 9898277377 / digest `sha256:2e8365779ec323568d2be3649d17d7a79e8d5a5da745f128cc11555750cd7b2e`.
+
+Failure cause:
+
+factory regression test double still accepted only the former one-argument Return COGS evidence constructor.
 
 Cancelled intermediate SHAs carry no transferable success evidence.
 
 Final feature:
 
-- `07f9a35eb238280e95b52bc14d18cc6aba735703` / Verify #1062 / 2171 passed / 0 failed / artifact 9894853461 / digest `sha256:9d28a3a5ae753f1215fd042622fd62d7e4985fa96eeba0f2f140318166617298`.
+- `e96fb63007647857045f226c9c41fd8157ae962e` / Verify #1083 / 2185 passed / 0 failed / artifact 9898333361 / digest `sha256:7ac52123e97a821e6fb65fcc7dc15dfb61d68a8be6fd40c9598b7505a174c3f5`.
 
 PR integration:
 
-- PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6` / Verify #1063 / 2171 passed / 0 failed / artifact 9894897854 / digest `sha256:9111b865c015e95c360ba417c3ef68f82377e82f9e2eddfc7c7e7d8c61ae93a0`.
+- PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc` / Verify #1084 / 2185 passed / 0 failed / artifact 9898386674 / digest `sha256:a4ac6ad8520a2a0726aff061f5f579a74742f868e17e2ced9d89ac84c3798d47`.
 
 Squash main:
 
-- `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d` / Verify #1064 / 2171 passed / 0 failed / artifact 9894942156 / digest `sha256:6ba30eda33b5a1315469e4fbf9253058d932cbc756e634b8996b2f31b2158e53`.
+- `5c0ed4bd40207e3f4bcce3770e89e71e163288b1` / Verify #1085 / 2185 passed / 0 failed / artifact 9898420551 / digest `sha256:4a187e0b83b0b5950e64aaf749d31b78d7d5435132a77fde2e044667fe06b864`.
 
 ## Preserved boundaries
 
 - Decision 036 permanent read-only Ozon analyst boundary;
 - Decision 037 account-level Ozon monetary authority;
 - Decision 038 external operating expense evidence/coverage contract;
+- no profit-formula change;
+- no persistence-contract change;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
 - no double subtraction of Ozon expenses;
@@ -119,8 +128,12 @@ Squash main:
 
 ## Remaining path toward accounting net profit
 
-The most material unresolved evidence gap is now return-related COGS recovery proof.
+The strongest remaining return COGS blockers are now:
 
-Candidate return evidence exists, but automatic COGS reversal remains blocked until stronger evidence can prove historical cost basis, sale-period lineage and saleable/restored inventory value.
+1. historical product cost evidence applicable to the originating sale;
+2. evidence that the returned unit restored saleable inventory value or another accounting-equivalent asset value;
+3. compensation treatment without double counting.
 
-After that, remaining accounting gaps include taxes/adjustments outside the configured policy and any external-expense periods that have not been explicitly covered.
+Until those are proven, candidate return value never changes profit.
+
+After return COGS, remaining accounting gaps include taxes/adjustments outside configured policy, recurring external-expense evidence where dated rows are insufficient, and any external-expense periods without explicit coverage.
