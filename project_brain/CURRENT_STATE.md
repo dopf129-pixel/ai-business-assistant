@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2131 passed on `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`.
+2141 passed on `e66125d5e2c737497762178bef86dd36a62721f3`.
 
-GitHub Actions push verification run #972 completed successfully for this exact main SHA.
+GitHub Actions push verification run #993 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3457,6 +3457,47 @@ Preserved:
 
 - Decision 036;
 - presentation-only change;
+- no financial formula changes;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Finance Accrual Pagination & Read Session Integrity v1231-v1240 — 2026-09-03
+
+Completed:
+
+[x] Ozon accrual-by-day first request sends required empty last_id
+
+[x] Finance accrual pages are read until cursor exhaustion
+
+[x] Malformed page responses fail closed
+
+[x] Repeated pagination cursors fail closed
+
+[x] Page-cap exhaustion fails closed instead of returning partial finance as complete
+
+[x] Target SKU evidence on later accrual pages is included
+
+[x] Same calendar day is reused for multiple SKUs inside one read session
+
+[x] Each Period Profit calculation starts a fresh finance read session
+
+[x] Read-session failures are contained without leaking private exception text
+
+Verification:
+
+- entering exact main `400ca040d743dc7db93480605ebd62a7fe9b02f3`: Verify #984, 2131 passed / 0 failed;
+- failed `8d159ed09410ed978bef6cfdb5719a67bc5491b1`: Verify #990, 2140 passed / 1 failed;
+- final feature `ad215b8d86c547e740dcb3583e7b7f580e9fb823`: Verify #991, 2141 passed / 0 failed;
+- PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08`: Verify #992, 2141 passed / 0 failed;
+- squash main `e66125d5e2c737497762178bef86dd36a62721f3`: Verify #993, 2141 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- read-only finance retrieval;
 - no financial formula changes;
 - no Ozon mutation or execution changes;
 - `data/users.json` unchanged;
