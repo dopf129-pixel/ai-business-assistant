@@ -18,34 +18,34 @@ Development Autopilot Layer
 
 Package:
 
-`v1141-v1150: Finance Period Aggregation Result Integrity`
+`v1151-v1160: Period Profit Summary Input & Result Integrity`
 
 Goal:
 
-Keep multi-day finance aggregation finite, deterministic and fail-closed on malformed daily results/source exceptions without changing finance formulas or valid partial-period semantics.
+Keep the seller-facing read-only period-profit summary finite and fail closed on malformed finance, cost, tax-rate and aggregate results while preserving the existing profit formula and execution boundaries.
 
 Immediately preceding verified package:
 
-`v1131-v1140: Business Profit Calculation Result Integrity`
+`v1141-v1150: Finance Period Aggregation Result Integrity`
 
 ## Stable verification
 
 Latest exact product main:
 
-`d1655adf6719e6000f996b4635253c6b99193ba3`
+`0ca4d226f3f75e2b20035a87a13b1a10d6c71581`
 
-GitHub Actions push Verify #837:
+GitHub Actions push Verify #849:
 
-2051 passed / 0 failed.
+2061 passed / 0 failed.
 
 Preserved:
 
-- finance amount/fee aggregation formulas unchanged;
-- valid partial-period behavior remains compatible;
-- valid numeric strings and signed fee values remain supported;
-- source exceptions are contained as failed-day evidence without leaking exception text;
-- malformed daily rows cannot partially commit into period totals;
-- aggregate overflow fails closed with `FINANCE_PERIOD_AGGREGATE_INVALID`;
+- period-profit formula remains `profit = net_accrual - product_cost - tax`;
+- configured tax multiplication semantics remain unchanged;
+- valid numeric-string inputs and signed fee values remain supported;
+- period-profit query/runtime remains read-only;
+- daily finance/cost source exceptions are contained without leaking exception text;
+- malformed/non-finite finance, cost, fee-breakdown and aggregate results fail closed;
 - no Product Decision execution;
 - no Product Task Draft execution;
 - no Action Executor connection;
@@ -56,24 +56,21 @@ Preserved:
 
 Entering docs-reconciled verified main:
 
-- `567a1b7e67e78553d78a02511fc2866c315bdb84` / Verify #832 / 2041 passed / 0 failed.
-
-Failed intermediate feature evidence:
-
-- `f54132ebf109240242a87037a81b1db5ed052d5b` / Verify #834 / 2050 passed / 1 failed.
-- root cause: regression test string-matched `"nan"` inside the word `finance` in `FINANCE_PERIOD_AGGREGATE_INVALID`; this SHA remains failed evidence.
+- `de6f514426b3ed887446fc0003efcad708c637d1` / Verify #845 / 2051 passed / 0 failed.
 
 Final feature:
 
-- `52661a7c37068759d20797644943a3b9e5e5ebcc` / Verify #835 / 2051 passed / 0 failed.
+- `4ab53fe054504c633fbcd6fb708ccb7dc557eaa4` / Verify #847 / 2061 passed / 0 failed.
 
 PR integration:
 
-- PR #364 synthetic `ef001cc855661041bd3987604496d03e55acaf30` / Verify #836 / 2051 passed / 0 failed.
+- PR #367 synthetic `a9030acff2031b118c0c0600c008804c3d6ff08a` / Verify #848 / 2061 passed / 0 failed.
 
 Squash main:
 
-- `d1655adf6719e6000f996b4635253c6b99193ba3` / Verify #837 / 2051 passed / 0 failed.
+- `0ca4d226f3f75e2b20035a87a13b1a10d6c71581` / Verify #849 / 2061 passed / 0 failed.
+
+No failed production SHA occurred in this package.
 
 ## Current integration blocker
 
