@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2091 passed on `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`.
+2101 passed on `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`.
 
-GitHub Actions push verification run #902 completed successfully for this exact main SHA.
+GitHub Actions push verification run #920 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3288,5 +3288,46 @@ Preserved:
 - returns/non-buyout evidence remains separate;
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Period Profit Returns Protobuf Timestamp Compatibility v1191-v1200 — 2026-09-03
+
+Completed:
+
+[x] Reproduced live Ozon protobuf Timestamp failure
+
+[x] Identified Period Profit return-evidence path as source
+
+[x] Date-only Returns API start normalized to RFC3339 UTC start-of-day
+
+[x] Date-only Returns API end normalized to RFC3339 UTC end-of-day
+
+[x] Existing full RFC3339 timestamps preserved
+
+[x] Custom Period Profit ranges reach Returns API with valid timestamps
+
+[x] Preset Period Profit ranges reach Returns API with valid timestamps
+
+[x] Existing Returns filter/pagination/timeout contract preserved
+
+[x] Return evidence remains read-only and non-financial
+
+Verification:
+
+- entering exact main `d3f32e2ca2e30192a59c4551cf5633dfa0941ec6`: Verify #912, 2091 passed / 0 failed;
+- final feature `9e2c5b27a1df9f32c8e950766abc809ba93f7976`: Verify #918, 2101 passed / 0 failed;
+- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5`: Verify #919, 2101 passed / 0 failed;
+- squash main `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`: Verify #920, 2101 passed / 0 failed;
+- no failed production SHA occurred.
+
+Preserved:
+
+- Decision 036;
+- no Ozon mutation;
+- no execution changes;
+- no finance formula changes;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
