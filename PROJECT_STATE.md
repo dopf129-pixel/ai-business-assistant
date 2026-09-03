@@ -16,72 +16,92 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1231-v1240: Finance Accrual Pagination & Read Session Integrity`
+`v1241-v1250: Account-Level Ozon Profit Reconciliation`
 
 Goal:
 
-Fix live Period Profit finance-unavailable failures by honoring the current Ozon `/v1/finance/accrual/by-day` cursor contract, reading all pages, and avoiding duplicate same-day downloads for every SKU.
+Move Period Profit materially closer to seller net profit by making complete account-level Ozon daily accruals the authoritative monetary source while retaining SKU-level evidence for COGS and product revenue reconciliation.
 
 Immediately preceding verified package:
 
-`v1221-v1230: Period Profit Revenue Share Presentation`
+`v1231-v1240: Finance Accrual Pagination & Read Session Integrity`
 
 ## Stable verification
 
 Latest exact production main:
 
-`e66125d5e2c737497762178bef86dd36a62721f3`
+`a359e3d8e68784849caa659dec0123fb15dc6932`
 
-GitHub Actions push Verify #993:
+GitHub Actions push Verify #1012:
 
-2141 passed / 0 failed.
+2151 passed / 0 failed.
 
-## Root causes fixed
+## Decision 037
 
-1. The Ozon accrual-by-day request now requires `last_id`; the first page must send an empty string.
+Period Profit monetary ownership is now:
 
-2. The endpoint is cursor-paginated. Reading only one page could omit finance evidence for products present on later pages.
+- account-level Ozon daily accruals are authoritative for revenue, net accrual, commission, logistics, acquiring, other fees and fee breakdown;
+- SKU-level finance remains product-attribution evidence for unit counts, product revenue reconciliation, COGS and drill-down;
+- summed SKU revenue must reconcile to account-level revenue within 0.01 RUB;
+- mismatch fails closed;
+- mapped Ozon expenses already present inside account net accrual are never subtracted a second time.
 
-3. Period Profit previously re-downloaded the same full day once for each SKU, multiplying API calls and rate-limit pressure on long periods.
+## Verified seller-facing behavior
 
-## Verified behavior
+New V2 scope:
 
-- first finance accrual request sends `last_id=""`;
-- pages are followed until Ozon returns an empty cursor;
-- malformed pages, repeated cursors, and page-limit exhaustion fail closed;
-- second-page SKU evidence is included;
-- one daily accrual payload is reused across all SKUs inside a Period Profit calculation;
-- every Period Profit summary starts a fresh read session, so cached evidence does not leak between calculations.
+`OZON_ACCOUNT_ACCRUALS_COST_AND_CONFIGURED_TAX_V2`
+
+Formula:
+
+`profit = account_net_accrual - product_cost - configured_tax`
+
+Additional evidence:
+
+- `sku_attributed_net_accrual`;
+- `ozon_account_reconciliation`;
+- `product_revenue_reconciled`;
+- `account_level_ozon_accruals_included=True`.
+
+The Telegram response may show the account reconciliation amount when non-zero and explains that account-level Ozon money is already included, so mapped returns/advertising/storage evidence must not be deducted again.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `400ca040d743dc7db93480605ebd62a7fe9b02f3` / Verify #984 / 2131 passed / 0 failed.
-
-Failed intermediate:
-
-- `8d159ed09410ed978bef6cfdb5719a67bc5491b1` / Verify #990 / 2140 passed / 1 failed.
-- failure was test-only: a new test assumed raw Ozon success responses always contain an `error` key.
+- `0aa27a1267b9d54f1207455b05e32db843091d86` / Verify #1003 / 2141 passed / 0 failed.
 
 Final feature:
 
-- `ad215b8d86c547e740dcb3583e7b7f580e9fb823` / Verify #991 / 2141 passed / 0 failed.
+- `a0e528f36b1b4721af0e8d0b419c414d20fabea6` / Verify #1010 / 2151 passed / 0 failed.
 
 PR integration:
 
-- PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08` / Verify #992 / 2141 passed / 0 failed.
+- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f` / Verify #1011 / 2151 passed / 0 failed.
 
 Squash main:
 
-- `e66125d5e2c737497762178bef86dd36a62721f3` / Verify #993 / 2141 passed / 0 failed.
+- `a359e3d8e68784849caa659dec0123fb15dc6932` / Verify #1012 / 2151 passed / 0 failed.
+
+No failed production SHA occurred in this package.
 
 ## Preserved boundaries
 
 - Decision 036 read-only analyst boundary;
-- no profit/tax formula changes;
-- no return-cost inference;
-- no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
+- no Product Decision/Product Task Draft execution;
+- no tax-rate formula change;
+- no return-cost inference;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
+
+## Remaining path toward accounting net profit
+
+The product is now closer to real seller profit, but accounting net-profit claim remains blocked until additional evidence is established for:
+
+- return-related COGS reversal / goods recovery semantics;
+- non-Ozon business expenses and overhead;
+- any taxes/adjustments outside the configured tax policy;
+- full classification coverage for returns, advertising and storage.
+
+Next package should target return/COGS evidence before inventing any external accounting assumptions.
