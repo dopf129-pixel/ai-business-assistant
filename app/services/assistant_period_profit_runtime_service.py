@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 
 class AssistantPeriodProfitRuntimeService:
@@ -14,8 +15,11 @@ class AssistantPeriodProfitRuntimeService:
         if not self._is_profit_request(value):
             return None
 
-        dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", value)
-        if len(dates) == 2:
+        dates = self._extract_custom_dates(value)
+        if dates is not None:
+            if len(dates) != 2:
+                return self._invalid_custom_period()
+
             return self.query_service.query(
                 date_from=dates[0],
                 date_to=dates[1],
@@ -29,7 +33,11 @@ class AssistantPeriodProfitRuntimeService:
                 "error": True,
                 "code": "PERIOD_PROFIT_PERIOD_REQUIRED",
                 "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
-                "message": "Укажите период: сегодня, 7, 28, 56, 90 дней или две даты YYYY-MM-DD.",
+                "message": (
+                    "Укажите период: сегодня, 7, 28, 56, 90 дней "
+                    "или две даты ДД.ММ.ГГГГ (например, "
+                    "01.05.2026 - 03.09.2026)."
+                ),
                 "read_only": True,
                 "executed": False,
             }
@@ -62,7 +70,61 @@ class AssistantPeriodProfitRuntimeService:
 
     @staticmethod
     def _is_profit_request(value):
-        return any(token in value for token in ("прибыль", "заработал", "profit"))
+        return any(
+            token in value
+            for token in ("прибыль", "заработал", "profit")
+        )
+
+    @classmethod
+    def _extract_custom_dates(cls, value):
+        tokens = re.findall(
+            r"(?<!\d)(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})(?!\d)",
+            value,
+        )
+
+        if not tokens:
+            return None
+
+        if len(tokens) != 2:
+            return ()
+
+        normalized = []
+
+        for token in tokens:
+            date_format = (
+                "%d.%m.%Y"
+                if "." in token
+                else "%Y-%m-%d"
+            )
+
+            try:
+                parsed = datetime.strptime(
+                    token,
+                    date_format,
+                ).date()
+            except ValueError:
+                return ()
+
+            normalized.append(
+                parsed.isoformat()
+            )
+
+        return tuple(normalized)
+
+    @staticmethod
+    def _invalid_custom_period():
+        return {
+            "error": True,
+            "code": "PERIOD_PROFIT_CUSTOM_PERIOD_INVALID",
+            "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+            "message": (
+                "Проверьте период. Используйте две корректные даты "
+                "в формате ДД.ММ.ГГГГ, например "
+                "01.05.2026 - 03.09.2026."
+            ),
+            "read_only": True,
+            "executed": False,
+        }
 
     @staticmethod
     def _resolve_period(value):
