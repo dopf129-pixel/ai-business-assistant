@@ -14,27 +14,87 @@ def build_period_profit_response(
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
         return {"error": True, "code": "PERIOD_PROFIT_RESPONSE_SUMMARY_REQUIRED", "status": "PERIOD_PROFIT_RESPONSE_UNAVAILABLE"}
 
+    revenue = float(source.get("revenue") or 0)
+
     lines = [
         f"💰 Прибыль за период {source.get('date_from')} — {source.get('date_to')}",
         "",
-        f"Выручка: {_money(source.get('revenue'))}",
-        f"Начисления Ozon после комиссий/услуг: {_money(source.get('net_accrual'))}",
+        (
+            "Выручка: "
+            + _money_with_revenue_share(
+                source.get("revenue"),
+                revenue,
+            )
+        ),
+        (
+            "Начисления Ozon после комиссий/услуг: "
+            + _money_with_revenue_share(
+                source.get("net_accrual"),
+                revenue,
+            )
+        ),
     ]
 
     if source.get("fee_components_included") is True:
         lines.extend([
             "", "Расшифровка удержаний Ozon:",
-            f"• Комиссия: {_money_abs(source.get('commission'))}",
-            f"• Логистика: {_money_abs(source.get('logistics'))}",
-            f"• Эквайринг: {_money_abs(source.get('acquiring'))}",
-            f"• Прочие начисления/удержания: {_money_abs(source.get('other_fees'))}",
+            (
+                "• Комиссия: "
+                + _money_with_revenue_share(
+                    source.get("commission"),
+                    revenue,
+                    absolute=True,
+                )
+            ),
+            (
+                "• Логистика: "
+                + _money_with_revenue_share(
+                    source.get("logistics"),
+                    revenue,
+                    absolute=True,
+                )
+            ),
+            (
+                "• Эквайринг: "
+                + _money_with_revenue_share(
+                    source.get("acquiring"),
+                    revenue,
+                    absolute=True,
+                )
+            ),
+            (
+                "• Прочие начисления/удержания: "
+                + _money_with_revenue_share(
+                    source.get("other_fees"),
+                    revenue,
+                    absolute=True,
+                )
+            ),
         ])
 
     lines.extend([
         "",
-        f"Себестоимость: {_money(source.get('product_cost'))}",
-        f"Налог: {_money(source.get('tax'))}",
-        f"Прибыль: {_money(source.get('profit'))}",
+        (
+            "Себестоимость: "
+            + _money_with_revenue_share(
+                source.get("product_cost"),
+                revenue,
+            )
+        ),
+        (
+            "Налог: "
+            + _money_with_revenue_share(
+                source.get("tax"),
+                revenue,
+            )
+        ),
+        (
+            "Прибыль: "
+            + _money_with_revenue_share(
+                source.get("profit"),
+                revenue,
+            )
+        ),
         f"Маржа: {_percent(source.get('margin_percent'))}",
     ])
 
@@ -181,6 +241,40 @@ def _append_mapping_observability_warning(lines, observability):
             "⚠️ Активные mapping revisions не являются последними для: " + ", ".join(stale) + ".",
             "Это предупреждение о конфигурации; формула прибыли не изменяется.",
         ])
+
+
+def _money_with_revenue_share(
+    value,
+    revenue,
+    absolute=False,
+):
+    amount = float(value or 0)
+    display_amount = (
+        abs(amount)
+        if absolute
+        else amount
+    )
+    money = _money(display_amount)
+
+    revenue_value = float(revenue or 0)
+    if revenue_value <= 0:
+        return money
+
+    share_value = (
+        abs(amount)
+        if absolute
+        else amount
+    )
+    share = (
+        share_value
+        / revenue_value
+        * 100
+    )
+
+    return (
+        money
+        + f" ({share:.2f}%)"
+    )
 
 
 def _money(value):
