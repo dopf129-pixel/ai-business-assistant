@@ -1846,3 +1846,61 @@ actions on Ozon remain under human control outside the assistant.
 Status:
 
 Implemented
+
+---
+
+## Decision 037
+
+Date:
+
+2026-09-03
+
+Topic:
+
+Account-Level Ozon Monetary Authority for Period Profit
+
+Decision:
+
+Period Profit must use the complete account-level Ozon daily accrual result as the
+authoritative monetary total for revenue, net accrual and Ozon fee components.
+SKU-level finance remains a product-attribution source for unit counts, product
+revenue reconciliation, product cost and drill-down, but must not be summed as
+the authoritative account monetary total.
+
+Rules:
+
+- production Period Profit reads one account-level finance result per day with
+  `sku=None`;
+- account-level `gross_sales`, `net_accrual`, commission, logistics, acquiring,
+  other fees and fee breakdown are authoritative for the period monetary summary;
+- SKU-level finance remains required for product sales counts and COGS attribution;
+- summed SKU revenue must reconcile to account-level Ozon revenue within 0.01 RUB;
+- revenue mismatch fails closed with
+  `PERIOD_PROFIT_PRODUCT_REVENUE_COVERAGE_INCOMPLETE`;
+- period tax is calculated from reconciled account-level revenue using the
+  configured tax fraction;
+- period profit is
+  `account_net_accrual - product_cost - tax`;
+- the difference between account-level net accrual and summed SKU-attributed
+  net accrual is exposed as `ozon_account_reconciliation`;
+- that reconciliation may contain account-level operations without SKU and may
+  also correct SKU-level duplication from multi-SKU postings;
+- account-level Ozon accrual inclusion does not by itself prove complete
+  accounting classification of returns, advertising or storage;
+- known Ozon account-level monetary operations already included in net accrual
+  must never be subtracted a second time;
+- accounting net-profit claim remains prohibited until non-Ozon accounting
+  adjustments and component completeness are separately established;
+- Decision 036 read-only boundary remains unchanged.
+
+Reason:
+
+SKU-filtered daily finance can omit account-level charges without SKU and can
+duplicate a posting-level total when one posting contains multiple SKUs. Summing
+SKU-level net accruals therefore cannot be the authoritative seller-account
+profit source. The account-level Ozon accrual is the safer monetary authority,
+while SKU evidence is still needed to prove product revenue coverage and COGS.
+
+Status:
+
+Implemented

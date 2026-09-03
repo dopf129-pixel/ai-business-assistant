@@ -126,6 +126,84 @@ class PeriodProfitSummaryService:
 
             rows.append(row)
 
+        account_finance = self._calculate_account_period(
+            start,
+            end,
+        )
+        account_level_ozon_accruals_included = False
+        sku_attributed_net_accrual = totals["net_accrual"]
+        ozon_account_reconciliation = 0.0
+        product_revenue_reconciled = None
+
+        if account_finance is not None:
+            if account_finance.get("error"):
+                return account_finance
+
+            product_revenue_reconciled = self._amounts_reconcile(
+                totals["revenue"],
+                account_finance.get("revenue"),
+            )
+            if product_revenue_reconciled is not True:
+                return self._error(
+                    "PERIOD_PROFIT_PRODUCT_REVENUE_COVERAGE_INCOMPLETE",
+                    (
+                        "Выручка товаров не совпадает с "
+                        "итоговой выручкой Ozon за период"
+                    ),
+                )
+
+            account_level_ozon_accruals_included = True
+            ozon_account_reconciliation = (
+                float(account_finance["net_accrual"])
+                - float(sku_attributed_net_accrual)
+            )
+
+            for field in (
+                "revenue",
+                "net_accrual",
+                "commission",
+                "logistics",
+                "acquiring",
+                "other_fees",
+            ):
+                totals[field] = float(
+                    account_finance[field]
+                )
+
+            try:
+                totals["tax"] = (
+                    totals["revenue"]
+                    * self.tax_rate
+                )
+                totals["profit"] = (
+                    totals["net_accrual"]
+                    - totals["product_cost"]
+                    - totals["tax"]
+                )
+            except (
+                OverflowError,
+                TypeError,
+                ValueError,
+            ):
+                return self._aggregate_error()
+
+            if not all(
+                isfinite(value)
+                for value in (
+                    totals["tax"],
+                    totals["profit"],
+                    ozon_account_reconciliation,
+                )
+            ):
+                return self._aggregate_error()
+
+            fee_breakdown = dict(
+                account_finance.get(
+                    "fee_breakdown"
+                )
+                or {}
+            )
+
         rounded = self._rounded_totals(totals)
         if rounded is None:
             return self._aggregate_error()
@@ -156,10 +234,191 @@ class PeriodProfitSummaryService:
             "advertising_included": False,
             "storage_included": False,
             "fee_components_included": True,
+            "account_level_ozon_accruals_included": (
+                account_level_ozon_accruals_included
+            ),
+            "sku_attributed_net_accrual": round(
+                float(sku_attributed_net_accrual),
+                2,
+            ),
+            "ozon_account_reconciliation": round(
+                float(ozon_account_reconciliation),
+                2,
+            ),
+            "product_revenue_reconciled": (
+                product_revenue_reconciled
+            ),
             "profit_scope": (
-                "OZON_ACCRUALS_COST_AND_CONFIGURED_TAX_V1"
+                "OZON_ACCOUNT_ACCRUALS_COST_AND_CONFIGURED_TAX_V2"
+                if account_level_ozon_accruals_included
+                else "OZON_ACCRUALS_COST_AND_CONFIGURED_TAX_V1"
             ),
         }
+
+    def _calculate_account_period(
+        self,
+        start,
+        end,
+    ):
+        getter = getattr(
+            self.finance_service,
+            "get_daily_account_finance",
+            None,
+        )
+        if not callable(getter):
+            return None
+
+        values = {
+            "revenue": 0.0,
+            "net_accrual": 0.0,
+            "commission": 0.0,
+            "logistics": 0.0,
+            "acquiring": 0.0,
+            "other_fees": 0.0,
+        }
+        fee_breakdown = {}
+        current = start
+
+        while current <= end:
+            try:
+                finance = getter(
+                    current.isoformat()
+                )
+            except Exception:
+                return self._error(
+                    "PERIOD_PROFIT_FINANCE_UNAVAILABLE",
+                    (
+                        "Финансовые данные недоступны за "
+                        f"{current.isoformat()}"
+                    ),
+                )
+
+            if not isinstance(finance, dict):
+                return self._finance_invalid(
+                    current
+                )
+
+            error_marker = finance.get(
+                "error"
+            )
+            if (
+                error_marker is not None
+                and type(error_marker) is not bool
+            ):
+                return self._finance_invalid(
+                    current
+                )
+
+            if error_marker is True:
+                return self._error(
+                    "PERIOD_PROFIT_FINANCE_UNAVAILABLE",
+                    (
+                        "Финансовые данные недоступны за "
+                        f"{current.isoformat()}"
+                    ),
+                )
+
+            daily = {}
+            for field in self.DAILY_AMOUNT_FIELDS:
+                amount = self._number(
+                    finance.get(field),
+                    missing_zero=True,
+                )
+                if amount is None:
+                    return self._finance_invalid(
+                        current
+                    )
+                daily[field] = amount
+
+            daily_fee_breakdown = (
+                self._normalize_fee_breakdown(
+                    finance.get(
+                        "fee_breakdown"
+                    )
+                )
+            )
+            if daily_fee_breakdown is None:
+                return self._finance_invalid(
+                    current
+                )
+
+            increments = {
+                "revenue": daily[
+                    "gross_sales"
+                ],
+                "net_accrual": daily[
+                    "net_accrual"
+                ],
+                "commission": daily[
+                    "commission"
+                ],
+                "logistics": daily[
+                    "logistics"
+                ],
+                "acquiring": daily[
+                    "acquiring"
+                ],
+                "other_fees": daily[
+                    "other_fees"
+                ],
+            }
+
+            for field, amount in (
+                increments.items()
+            ):
+                candidate = (
+                    values[field]
+                    + amount
+                )
+                if not isfinite(candidate):
+                    return self._aggregate_error()
+                values[field] = candidate
+
+            if not self._merge_fee_breakdown(
+                fee_breakdown,
+                daily_fee_breakdown,
+            ):
+                return self._aggregate_error()
+
+            current += timedelta(days=1)
+
+        rounded = {
+            key: round(value, 2)
+            for key, value
+            in values.items()
+        }
+        rounded_breakdown = (
+            self._rounded_breakdown(
+                fee_breakdown
+            )
+        )
+        if rounded_breakdown is None:
+            return self._aggregate_error()
+
+        return {
+            "error": False,
+            **rounded,
+            "fee_breakdown": (
+                rounded_breakdown
+            ),
+        }
+
+    @classmethod
+    def _amounts_reconcile(
+        cls,
+        first,
+        second,
+        tolerance=0.01,
+    ):
+        left = cls._number(first)
+        right = cls._number(second)
+        if left is None or right is None:
+            return False
+        return (
+            abs(left - right)
+            <= float(tolerance)
+        )
+
 
     def _calculate_product(
         self,

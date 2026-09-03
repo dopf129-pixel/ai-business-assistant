@@ -35,6 +35,36 @@ def build_period_profit_response(
         ),
     ]
 
+    if (
+        source.get(
+            "account_level_ozon_accruals_included"
+        )
+        is True
+    ):
+        reconciliation = float(
+            source.get(
+                "ozon_account_reconciliation"
+            )
+            or 0
+        )
+        if abs(reconciliation) >= 0.005:
+            lines.extend([
+                "",
+                (
+                    "Корректировка по итоговому "
+                    "кабинету Ozon: "
+                    + _money_with_revenue_share(
+                        reconciliation,
+                        revenue,
+                    )
+                ),
+                (
+                    "Это разница между итоговыми "
+                    "начислениями кабинета и суммой "
+                    "SKU-атрибутированных начислений."
+                ),
+            ])
+
     if source.get("fee_components_included") is True:
         lines.extend([
             "", "Расшифровка удержаний Ozon:",
@@ -203,8 +233,52 @@ def build_period_profit_response(
     if source.get("storage_included") is not True:
         missing.append("хранение")
     if missing:
-        lines.extend(["", "⚠️ В текущую версию прибыли пока не включены полностью: " + ", ".join(missing) + "."])
-        lines.append("Это операционная оценка в указанном составе, а не бухгалтерская чистая прибыль.")
+        if (
+            source.get(
+                "account_level_ozon_accruals_included"
+            )
+            is True
+        ):
+            lines.extend([
+                "",
+                (
+                    "ℹ️ Все денежные начисления и "
+                    "удержания Ozon уровня кабинета "
+                    "уже входят в сумму "
+                    "«Начисления Ozon»."
+                ),
+                (
+                    "Пока не завершена отдельная "
+                    "классификация по категориям: "
+                    + ", ".join(missing)
+                    + "."
+                ),
+                (
+                    "Эти операции не вычитаются "
+                    "повторно из прибыли."
+                ),
+                (
+                    "Показатель учитывает Ozon-начисления, "
+                    "себестоимость и настроенный налог, "
+                    "но ещё не является полной "
+                    "бухгалтерской чистой прибылью "
+                    "вне контура Ozon."
+                ),
+            ])
+        else:
+            lines.extend([
+                "",
+                (
+                    "⚠️ В текущую версию прибыли пока "
+                    "не включены полностью: "
+                    + ", ".join(missing)
+                    + "."
+                ),
+            ])
+            lines.append(
+                "Это операционная оценка в указанном "
+                "составе, а не бухгалтерская чистая прибыль."
+            )
 
     return {"error": False, "status": "PERIOD_PROFIT_RESPONSE_READY", "text": "\n".join(lines), "profit_scope": source.get("profit_scope")}
 
