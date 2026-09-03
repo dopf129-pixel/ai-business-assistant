@@ -54,6 +54,11 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
         cost_index = self._cost_index(
             products
         )
+        product_id_index = (
+            self._product_id_index(
+                products
+            )
+        )
 
         candidate_units = 0
         candidate_value = 0.0
@@ -178,6 +183,12 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             row[
                 "candidate_value_at_current_cost"
             ] = round(value, 2)
+            row["product_id"] = (
+                self._record_product_id(
+                    record,
+                    product_id_index,
+                )
+            )
             candidate_records.append(row)
 
         complete_return_sample = (
@@ -287,6 +298,148 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             == len(candidate_records)
         )
 
+        historical_cost_value = 0.0
+        historical_cost_matched_records = 0
+        historical_cost_missing_records = 0
+        historical_cost_ambiguous_records = 0
+        historical_cost_unavailable_records = 0
+
+        for row in candidate_records:
+            sale_date = row.get(
+                "originating_sale_accrual_date"
+            )
+            if (
+                row.get(
+                    "originating_sale_lineage_status"
+                )
+                != "MATCHED_IN_SELECTED_PERIOD"
+                or not sale_date
+            ):
+                row[
+                    "historical_cost_evidence_status"
+                ] = "SALE_LINEAGE_REQUIRED"
+                row[
+                    "historical_cost_per_unit"
+                ] = None
+                row[
+                    "candidate_value_at_historical_cost"
+                ] = None
+                historical_cost_unavailable_records += 1
+                continue
+
+            historical = (
+                self._historical_cost_evidence(
+                    row,
+                    sale_date,
+                )
+            )
+            status = str(
+                historical.get(
+                    "status"
+                )
+                or ""
+            )
+            row[
+                "historical_cost_evidence_status"
+            ] = status
+            row[
+                "historical_cost_effective_from"
+            ] = historical.get(
+                "effective_from"
+            )
+            row[
+                "historical_cost_source"
+            ] = historical.get(
+                "source"
+            )
+
+            if (
+                historical.get(
+                    "historical_cost_confirmed"
+                )
+                is True
+                and status
+                == "PRODUCT_COST_HISTORY_READY"
+            ):
+                cost = self._cost_number(
+                    historical.get(
+                        "cost_price"
+                    )
+                )
+                quantity = self._quantity(
+                    row.get("quantity")
+                )
+                if (
+                    cost is None
+                    or quantity is None
+                ):
+                    row[
+                        "historical_cost_per_unit"
+                    ] = None
+                    row[
+                        "candidate_value_at_historical_cost"
+                    ] = None
+                    historical_cost_unavailable_records += 1
+                    continue
+
+                value = (
+                    cost
+                    * quantity
+                )
+                if not isfinite(
+                    value
+                ):
+                    return self._unavailable(
+                        "RETURN_HISTORICAL_COGS_VALUE_INVALID"
+                    )
+
+                row[
+                    "historical_cost_per_unit"
+                ] = round(
+                    cost,
+                    2,
+                )
+                row[
+                    "candidate_value_at_historical_cost"
+                ] = round(
+                    value,
+                    2,
+                )
+                historical_cost_value += (
+                    value
+                )
+                historical_cost_matched_records += 1
+                continue
+
+            row[
+                "historical_cost_per_unit"
+            ] = None
+            row[
+                "candidate_value_at_historical_cost"
+            ] = None
+
+            if (
+                status
+                == "PRODUCT_COST_HISTORY_MISSING"
+            ):
+                historical_cost_missing_records += 1
+            elif (
+                status
+                == "PRODUCT_COST_HISTORY_AMBIGUOUS"
+            ):
+                historical_cost_ambiguous_records += 1
+            else:
+                historical_cost_unavailable_records += 1
+
+        historical_cost_basis_confirmed = (
+            originating_sale_period_confirmed
+            and bool(
+                candidate_records
+            )
+            and historical_cost_matched_records
+            == len(candidate_records)
+        )
+
         return {
             "error": False,
             "status": (
@@ -319,8 +472,35 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             "return_sample_complete": (
                 complete_return_sample
             ),
-            "current_cost_basis_only": True,
-            "historical_cost_basis_confirmed": False,
+            "current_cost_basis_only": (
+                not historical_cost_basis_confirmed
+            ),
+            "historical_cost_basis_confirmed": (
+                historical_cost_basis_confirmed
+            ),
+            "candidate_value_at_historical_cost": (
+                round(
+                    historical_cost_value,
+                    2,
+                )
+                if historical_cost_matched_records
+                else None
+            ),
+            "historical_cost_candidate_record_count": (
+                len(candidate_records)
+            ),
+            "historical_cost_matched_candidate_record_count": (
+                historical_cost_matched_records
+            ),
+            "historical_cost_missing_candidate_record_count": (
+                historical_cost_missing_records
+            ),
+            "historical_cost_ambiguous_candidate_record_count": (
+                historical_cost_ambiguous_records
+            ),
+            "historical_cost_unavailable_candidate_record_count": (
+                historical_cost_unavailable_records
+            ),
             "originating_sale_period_confirmed": (
                 originating_sale_period_confirmed
             ),
@@ -470,6 +650,133 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
                 or ""
             ).strip(),
         )
+
+    def _historical_cost_evidence(
+        self,
+        record,
+        sale_date,
+    ):
+        getter = getattr(
+            self.cost_service,
+            "get_historical_cost_evidence",
+            None,
+        )
+        if not callable(
+            getter
+        ):
+            return {
+                "error": True,
+                "status": (
+                    "PRODUCT_COST_HISTORY_UNAVAILABLE"
+                ),
+                "historical_cost_confirmed": False,
+            }
+
+        try:
+            result = getter(
+                at_date=sale_date,
+                product_id=record.get(
+                    "product_id"
+                ),
+                sku=record.get("sku"),
+                offer_id=record.get(
+                    "offer_id"
+                ),
+            )
+        except Exception:
+            return {
+                "error": True,
+                "status": (
+                    "PRODUCT_COST_HISTORY_UNAVAILABLE"
+                ),
+                "historical_cost_confirmed": False,
+            }
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            return {
+                "error": True,
+                "status": (
+                    "PRODUCT_COST_HISTORY_UNAVAILABLE"
+                ),
+                "historical_cost_confirmed": False,
+            }
+
+        return dict(result)
+
+    @classmethod
+    def _product_id_index(
+        cls,
+        products,
+    ):
+        result = {}
+        ambiguous = set()
+
+        for product in products or []:
+            normalized = cls._normalize_product(
+                product
+            )
+            if normalized is None:
+                continue
+
+            product_id = str(
+                normalized.get(
+                    "product_id"
+                )
+                or ""
+            ).strip()
+            if not product_id:
+                continue
+
+            for value in (
+                normalized.get("sku"),
+                normalized.get("offer_id"),
+            ):
+                key = str(
+                    value or ""
+                ).strip()
+                if not key:
+                    continue
+                if (
+                    key in result
+                    and result[key]
+                    != product_id
+                ):
+                    ambiguous.add(
+                        key
+                    )
+                    continue
+                result[key] = (
+                    product_id
+                )
+
+        for key in ambiguous:
+            result.pop(
+                key,
+                None,
+            )
+
+        return result
+
+    @staticmethod
+    def _record_product_id(
+        record,
+        product_id_index,
+    ):
+        for value in (
+            record.get("sku"),
+            record.get("offer_id"),
+        ):
+            key = str(
+                value or ""
+            ).strip()
+            if key in product_id_index:
+                return product_id_index[
+                    key
+                ]
+        return None
 
     def _cost_index(self, products):
         result = {}

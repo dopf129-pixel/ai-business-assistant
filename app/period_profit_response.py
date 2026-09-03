@@ -575,6 +575,27 @@ def _append_return_cogs_recovery_evidence(
         )
         is True
     )
+    historical_candidates = int(
+        source.get(
+            "historical_cost_candidate_record_count"
+        )
+        or 0
+    )
+    historical_matched = int(
+        source.get(
+            "historical_cost_matched_candidate_record_count"
+        )
+        or 0
+    )
+    historical_cost_confirmed = (
+        source.get(
+            "historical_cost_basis_confirmed"
+        )
+        is True
+    )
+    historical_value = source.get(
+        "candidate_value_at_historical_cost"
+    )
 
     lines.extend([
         "",
@@ -622,19 +643,40 @@ def _append_return_cogs_recovery_evidence(
                 "evidence недоступен."
             )
 
+    if historical_candidates > 0:
+        if (
+            historical_cost_confirmed
+            and historical_value is not None
+        ):
+            lines.append(
+                "• Историческая себестоимость исходных продаж: "
+                f"подтверждена для {historical_matched}/"
+                f"{historical_candidates} return-records; "
+                + _money_with_revenue_share(
+                    historical_value,
+                    revenue,
+                )
+                + "."
+            )
+        elif historical_matched > 0:
+            lines.append(
+                "• Историческая себестоимость исходных продаж: "
+                f"подтверждена для {historical_matched}/"
+                f"{historical_candidates} return-records; "
+                "evidence остаётся неполным."
+            )
+        else:
+            lines.append(
+                "• Историческая себестоимость исходных продаж: "
+                "нет полного effective-dated evidence."
+            )
+
     saleable_confirmed = (
         source.get(
             "saleable_inventory_recovery_confirmed"
         )
         is True
     )
-    historical_cost_confirmed = (
-        source.get(
-            "historical_cost_basis_confirmed"
-        )
-        is True
-    )
-
     if (
         not saleable_confirmed
         and not historical_cost_confirmed
