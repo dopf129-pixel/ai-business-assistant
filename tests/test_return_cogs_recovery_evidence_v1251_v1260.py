@@ -208,6 +208,14 @@ def test_v1252_arrived_customer_return_is_candidate_at_current_cost_only():
         ]
         is False
     )
+    assert (
+        result["originating_sale_period_confirmed"]
+        is False
+    )
+    assert (
+        result["period_cogs_recovery_confirmed"]
+        is False
+    )
     assert result["profit_adjustment_allowed"] is False
 
 
@@ -382,6 +390,10 @@ def test_v1257_response_shows_candidate_cogs_but_does_not_change_profit():
     )
     assert (
         "Эта сумма не прибавляется к прибыли"
+        in text
+    )
+    assert (
+        "принадлежность исходной продажи выбранному периоду"
         in text
     )
     assert "Прибыль: 340.00 ₽ (34.00%)" in text
