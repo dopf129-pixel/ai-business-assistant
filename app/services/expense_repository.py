@@ -45,7 +45,151 @@ class ExpenseRepository:
                 """
             )
 
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS expense_coverage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date_from TEXT NOT NULL,
+                    date_to TEXT NOT NULL,
+                    note TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
             connection.commit()
+
+    def confirm_coverage(
+        self,
+        date_from,
+        date_to,
+        note=""
+    ):
+
+        start = self._date(
+            date_from
+        )
+        end = self._date(
+            date_to
+        )
+
+        if (
+            start is None
+            or end is None
+            or start > end
+        ):
+            return {
+                "error": True,
+                "code": "EXPENSE_COVERAGE_PERIOD_INVALID",
+                "message": (
+                    "Некорректный период покрытия расходов"
+                )
+            }
+
+        created_at = (
+            datetime.now()
+            .strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+        )
+
+        with self.get_connection() as connection:
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO expense_coverage (
+                    date_from,
+                    date_to,
+                    note,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    start,
+                    end,
+                    str(note or ""),
+                    created_at,
+                )
+            )
+
+            connection.commit()
+
+            coverage_id = cursor.lastrowid
+
+        return {
+            "error": False,
+            "status": "EXPENSE_COVERAGE_CONFIRMED",
+            "id": coverage_id,
+            "date_from": start,
+            "date_to": end,
+            "note": str(note or ""),
+            "created_at": created_at,
+        }
+
+    def get_coverage_by_period(
+        self,
+        date_from,
+        date_to
+    ):
+
+        with self.get_connection() as connection:
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    date_from,
+                    date_to,
+                    note,
+                    created_at
+                FROM expense_coverage
+                WHERE date_to >= ?
+                  AND date_from <= ?
+                ORDER BY date_from ASC, id ASC
+                """,
+                (
+                    str(date_from),
+                    str(date_to),
+                )
+            )
+
+            rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "date_from": row[1],
+                "date_to": row[2],
+                "note": row[3],
+                "created_at": row[4],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _date(value):
+
+        text = str(
+            value or ""
+        ).strip()
+
+        try:
+            parsed = datetime.strptime(
+                text,
+                "%Y-%m-%d"
+            ).date()
+        except (
+            TypeError,
+            ValueError
+        ):
+            return None
+
+        return parsed.isoformat()
 
     def add_expense(
         self,
