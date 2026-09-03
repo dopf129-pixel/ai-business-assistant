@@ -220,7 +220,8 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             "confirmed_cogs_recovery_amount": 0.0,
             "profit_adjustment_allowed": False,
             "automatic_recovery_allowed": False,
-            "compensation_already_expected_in_account_net_accrual": True,
+            "compensation_accounting_treatment_confirmed": False,
+            "compensation_profit_adjustment_allowed": False,
             "read_only": True,
             "executed": False,
         }
