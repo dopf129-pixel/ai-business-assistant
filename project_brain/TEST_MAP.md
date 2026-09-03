@@ -4155,3 +4155,46 @@ Verification:
 - PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f`: Verify #1011, 2151 passed / 0 failed;
 - squash main `a359e3d8e68784849caa659dec0123fb15dc6932`: Verify #1012, 2151 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Return COGS Recovery Evidence v1
+
+Boundaries:
+
+- `PeriodProfitReturnEvidenceService._normalize_record`
+- `PeriodProfitReturnCogsRecoveryEvidenceService`
+- `PeriodProfitQueryService`
+- `create_period_profit_query`
+- `build_period_profit_response`
+- `build_period_profit_coverage`
+
+Tests:
+
+- `tests/test_return_cogs_recovery_evidence_v1251_v1260.py`
+- updated `tests/test_period_profit_factory.py`
+
+Проверяет:
+
+- nested Returns API product, visual, compensation and logistics fields are preserved;
+- arrived customer-return units become candidate recovery only;
+- candidate value uses current configured product cost;
+- compensated units are separated from recovery candidates;
+- unproven visual status remains unresolved;
+- missing cost remains unknown instead of zero;
+- partial return sample cannot become complete recovery evidence;
+- historical cost basis remains unconfirmed;
+- originating sale-period lineage remains unconfirmed;
+- saleable inventory recovery remains unconfirmed;
+- candidate recovery does not mutate Period Profit;
+- response and coverage expose candidate evidence and limitations;
+- factory wiring shares the ProductCostService dependency;
+- legacy positional PeriodProfitQueryService constructor remains compatible.
+
+Verification:
+
+- failed `2339d8aa8da1ec43c3298be2da8506a1e6dd8b9b`: Verify #1033, 2159 passed / 2 failed;
+- final feature `30f3edafd9d2af603f2277701cb13492a334dd30`: Verify #1038, 2161 passed / 0 failed;
+- PR #387 synthetic `c5947439450297dabb353b3dfd125e3fc6417576`: Verify #1039, 2161 passed / 0 failed;
+- squash main `d845c7183ef5a914853a15b788e18b0cebfd1c93`: Verify #1040, 2161 passed / 0 failed;
+- `externally_verified=False`.

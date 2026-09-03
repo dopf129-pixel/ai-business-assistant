@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2151 passed on `a359e3d8e68784849caa659dec0123fb15dc6932`.
+2161 passed on `d845c7183ef5a914853a15b788e18b0cebfd1c93`.
 
-GitHub Actions push verification run #1012 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1040 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3548,3 +3548,57 @@ Preserved:
 Next accounting gap:
 - return-related COGS reversal / recovered-goods evidence;
 - then non-Ozon overhead/taxes if the seller provides them.
+
+---
+
+# Return COGS Recovery Evidence v1251-v1260 — 2026-09-03
+
+Completed:
+
+[x] Nested Returns API product / status / compensation evidence preserved
+
+[x] Customer-return units at return-place exposed as candidate recovery
+
+[x] Candidate recovery value calculated from current configured product cost
+
+[x] Compensated returns separated from COGS recovery candidates
+
+[x] Unproven return statuses remain unresolved
+
+[x] Missing product cost remains unknown, not zero
+
+[x] Partial return sample cannot become complete recovery evidence
+
+[x] Historical cost basis remains unconfirmed
+
+[x] Originating sale-period lineage remains unconfirmed
+
+[x] Saleable inventory recovery remains unconfirmed
+
+[x] Period/accounting COGS recovery remains unconfirmed
+
+[x] Candidate recovery never changes Period Profit
+
+[x] Telegram and coverage expose candidate evidence and limitations
+
+Verification:
+
+- entering exact main `55942648266e9ca4fbb3d3380180c3a67bfc4c56`: Verify #1022, 2151 passed / 0 failed;
+- failed `2339d8aa8da1ec43c3298be2da8506a1e6dd8b9b`: Verify #1033, 2159 passed / 2 failed;
+- final feature `30f3edafd9d2af603f2277701cb13492a334dd30`: Verify #1038, 2161 passed / 0 failed;
+- PR #387 synthetic `c5947439450297dabb353b3dfd125e3fc6417576`: Verify #1039, 2161 passed / 0 failed;
+- squash main `d845c7183ef5a914853a15b788e18b0cebfd1c93`: Verify #1040, 2161 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- Decision 037;
+- account-level Ozon monetary authority;
+- no automatic return COGS reversal;
+- no accounting net-profit claim;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Next accounting priority:
+- explicit seller-configured non-Ozon operating expenses;
+- unknown external expense remains unknown, never zero.
