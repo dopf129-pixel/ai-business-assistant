@@ -16,83 +16,99 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1201-v1210: Period Profit Data Completeness Integrity`
+`v1211-v1220: Period Profit Tax Rate Unit Integrity`
 
 Goal:
 
-Prevent Period Profit from emitting false-success zero summaries when persisted products are valid SQLite tuples, and make Returns API counts pagination-aware rather than treating the 500-record page cap as an exact total.
+Fix the live Period Profit result where a configured 6% tax rate was passed as multiplier `6.0` instead of fraction `0.06`, while adding fail-closed protection against future percent/fraction unit mismatches.
 
 Immediately preceding verified package:
 
-`v1191-v1200: Period Profit Returns Protobuf Timestamp Compatibility`
+`v1201-v1210: Period Profit Data Completeness Integrity`
 
 ## Stable verification
 
 Latest exact production main:
 
-`7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`
+`2f438bd6bb739938cee4fe56b83af8f4a563f942`
 
-GitHub Actions push Verify #939:
+GitHub Actions push Verify #957:
 
-2111 passed / 0 failed.
+2121 passed / 0 failed.
 
-## Root causes fixed
+## Live issue fixed
 
-1. `ProductService.load_products()` returns persisted products as SQLite tuples `(id, offer_id, sku)`. Period Profit previously accepted only dicts and silently skipped every tuple, producing a misleading 0.00 ₽ summary over zero products.
+Seller output showed:
 
-2. Period Profit return evidence loaded only one `/v1/returns/list` page with `limit=500`, so a displayed count of exactly 500 could merely be the first-page cap.
+- revenue: 1 348 371.10 ₽;
+- tax: 8 090 226.60 ₽;
+- profit: -7 698 622.78 ₽;
+- margin: -570.96%.
+
+Root cause:
+
+- tax configuration stores rates in percentage units, where `6.0 = 6%`;
+- Period Profit summary expects a fractional multiplier, where `0.06 = 6%`;
+- production factory passed the percentage value without conversion.
 
 ## Verified behavior
 
-- persisted product tuples are normalized into Period Profit product records;
-- existing dict product inputs remain compatible;
-- no usable products => `PERIOD_PROFIT_PRODUCTS_UNAVAILABLE`, never a false zero-profit success;
-- Returns evidence paginates with `has_next` + `last_id`;
-- pagination is bounded to 10 pages;
-- complete return counts are marked exact;
-- incomplete return counts are explicitly lower bounds;
-- Telegram wording says `как минимум N` for incomplete return evidence;
-- legacy READY return-evidence response fixtures remain compatible.
+For the seller-provided financial sample at USN Income 6%:
+
+- revenue: 1 348 371.10 ₽;
+- Ozon net accrual: 752 971.82 ₽;
+- product cost: 361 368.00 ₽;
+- tax: 80 902.27 ₽;
+- operational profit before returns/advertising/storage: 310 701.55 ₽;
+- margin: 23.04%.
+
+Additional protections:
+
+- production Period Profit reads the validated TaxConfigurationService policy;
+- `USN_INCOME 6.0%` converts to `0.06`;
+- `NONE` converts to `0.0`;
+- unsupported tax modes fail closed instead of using the wrong formula;
+- PeriodProfitSummaryService rejects tax multipliers outside `0..1`.
 
 ## Production evidence
 
 Entering exact verified docs-main:
 
-- `5e8e74a78e2c5aa41ed59378c27a0f1ed7b55397` / Verify #930 / 2101 passed / 0 failed.
+- `590b068ef46f58e56509ac038759f465975c9a8a` / Verify #949 / 2111 passed / 0 failed.
 
-Failed intermediate:
+Failed intermediates:
 
-- `e3d8b2ed1600e3759135bda4f62865ba38a43ae9` / Verify #935 / 2103 passed / 2 failed.
-- `49c02ae1790b7d395794932e7ac4fa95cbac1644` / Verify #936 / 2109 passed / 2 failed.
-- both failures were legacy return-evidence response compatibility, fixed on final feature head.
+- `a7d5cead4c7c49907d6d045b54a3cec30d48efad` / Verify #953 / 2110 passed / 1 failed.
+- `ee463cd1000113998ae5b895da02334bb5a5f495` / Verify #954 / 2120 passed / 1 failed.
+- both failures were legacy factory-test contract drift after removing direct `TAX_RATE` wiring.
 
 Final feature:
 
-- `16c53622612b72bce2aa43fd97d5ff66d47466c3` / Verify #937 / 2111 passed / 0 failed.
+- `4c50429bc4c2f6515d80b497b85fe8c9663e24eb` / Verify #955 / 2121 passed / 0 failed.
 
 PR integration:
 
-- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a` / Verify #938 / 2111 passed / 0 failed.
+- PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af` / Verify #956 / 2121 passed / 0 failed.
 
 Squash main:
 
-- `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7` / Verify #939 / 2111 passed / 0 failed.
+- `2f438bd6bb739938cee4fe56b83af8f4a563f942` / Verify #957 / 2121 passed / 0 failed.
 
 ## Preserved boundaries
 
 - Decision 036 read-only analyst boundary;
-- no finance formula change;
+- no finance source change;
 - no return-cost inference;
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
-## Next analytical priorities
+## Next analytical priority
 
-- validate live Period Profit figures after local redeploy;
-- distinguish known base unit profit from unavailable return-adjusted profit in Telegram;
-- seller-facing daily attention summary;
-- stock/out-of-stock risk;
-- advertising-efficiency analysis;
-- returns/non-buyout impact.
+Seller-requested Period Profit presentation improvement:
+
+- show each monetary line with its percentage of revenue in parentheses;
+- revenue itself = 100%;
+- if revenue is zero, do not invent percentages;
+- keep all calculations read-only and preserve existing amounts.
