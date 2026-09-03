@@ -96,9 +96,11 @@ class Recovery:
         self,
         values,
     ):
-        self.values = dict(
-            values
-        )
+        self.values = {
+            str(key): value
+            for key, value
+            in dict(values).items()
+        }
         self.calls = []
 
     def get_latest_recovery(
@@ -109,7 +111,9 @@ class Recovery:
             dict(kwargs)
         )
         value = self.values.get(
-            kwargs.get("return_id")
+            str(
+                kwargs.get("return_id")
+            )
         )
         if isinstance(
             value,
