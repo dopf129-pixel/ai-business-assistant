@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1231_V1240.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1241_V1250.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1231_V1240.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1241_V1250.md`
 
 
 ## Current integration blocker
@@ -544,3 +544,11 @@ Next seller-facing analyst priority:
 [x] Period Profit Revenue Share Presentation
 
 [x] Finance Accrual Pagination & Read Session Integrity
+
+[x] Account-Level Ozon Profit Reconciliation
+
+Next seller-facing accounting priority:
+- return-related COGS reversal / recovered-goods evidence;
+- preserve account-level Ozon monetary authority;
+- do not subtract mapped Ozon expenses twice;
+- keep accounting-net-profit claim blocked until external/non-Ozon adjustments are known.
