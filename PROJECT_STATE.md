@@ -16,68 +16,67 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1161-v1170: Telegram Period Profit Analyst Wiring`
+`v1171-v1180: Telegram Custom Period Date Input`
 
 Goal:
 
-Expose hardened period-profit analytics through the production Telegram assistant with natural-language and menu access while preserving a strict read-only, non-executing boundary.
+Let sellers request Period Profit for a concrete calendar range using familiar `ДД.ММ.ГГГГ` input while preserving the existing ISO path and strict read-only analytics boundary.
 
 Immediately preceding verified package:
 
-`v1151-v1160: Period Profit Summary Input & Result Integrity`
+`v1161-v1170: Telegram Period Profit Analyst Wiring`
 
 ## Stable verification
 
 Latest exact production main:
 
-`d06a5f8cc23814e3177f58f6182bef6fbceb0697`
+`05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
 
-GitHub Actions push Verify #870:
+GitHub Actions push Verify #886:
 
-2071 passed / 0 failed.
+2081 passed / 0 failed.
 
 Preserved product boundary:
 
 - assistant is an analyst/advisor, not an Ozon executor;
-- Ozon API mutations are out of scope;
-- no price changes;
-- no advertising budget/bid changes;
-- no replenishment/stock mutations;
-- no product-card mutations;
-- Product Decision and Product Task Draft remain advisory/non-executable;
+- localized dates are normalized to ISO before the existing Period Profit query layer;
+- no finance formula change;
+- no Product Decision execution;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
 - `externally_verified=False`.
 
 ## Production evidence
 
 Entering exact verified docs-main:
 
-- `bb2e444b5a7ee6caa9cc4e39adccc5df64949835` / Verify #859 / 2061 passed / 0 failed.
-
-Failed intermediate feature:
-
-- `e7fce70c39f976e97bf78687621ace5125f9d30a` / Verify #866 / 2069 passed / 2 failed.
-- failure was compatibility-test drift, not transferred as success evidence.
+- `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607` / Verify #881 / 2071 passed / 0 failed.
 
 Final feature:
 
-- `9c5d14f0220e5f13ee0a7d834855f7e07db58cab` / Verify #868 / 2071 passed / 0 failed.
+- `62b040e392514bc410b34d82eccb8e0385b9c548` / Verify #884 / 2081 passed / 0 failed.
 
 PR integration:
 
-- PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e` / Verify #869 / 2071 passed / 0 failed.
+- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61` / Verify #885 / 2081 passed / 0 failed.
 
 Squash main:
 
-- `d06a5f8cc23814e3177f58f6182bef6fbceb0697` / Verify #870 / 2071 passed / 0 failed.
+- `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77` / Verify #886 / 2081 passed / 0 failed.
 
-## Telegram analyst capabilities added
+No failed production SHA occurred in this package.
 
-- main menu: `💵 Прибыль за период`;
-- Today / 7 / 28 / 56 / 90-day period selection;
-- natural-language requests such as `прибыль за 28 дней`;
-- period-profit analytical text renders directly in Telegram;
-- successful period-profit Telegram results require `read_only=True` and `executed=False`;
-- unsafe execution-adjacent success payloads fail closed.
+## Telegram analyst capability added
+
+Supported examples:
+
+- `прибыль 01.05.2026 - 03.09.2026`;
+- `прибыль 1.5.2026 - 3.9.2026`;
+- en dash / em dash between dates;
+- existing `прибыль 2026-05-01 - 2026-09-03` remains supported.
+
+Invalid or incomplete custom calendar dates fail closed without querying finance.
 
 ## Development direction
 

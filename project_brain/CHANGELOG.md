@@ -3769,3 +3769,32 @@ SHA-bound evidence:
 - next product work should increase analytical usefulness rather than add autonomous execution;
 - Architecture Review Required: Yes — product boundary explicitly changed from future execution-capable wording to permanent read-only analyst scope;
 - `externally_verified=False`.
+
+## 2026-09-03 — Telegram Custom Period Date Input v1171-v1180
+
+- added seller-friendly custom Period Profit input in `ДД.ММ.ГГГГ`;
+- `прибыль 01.05.2026 - 03.09.2026` now routes through the production read-only Period Profit runtime;
+- single-digit day/month input is accepted;
+- en dash and em dash separators are accepted because the parser extracts and normalizes the two date tokens independently;
+- existing ISO `YYYY-MM-DD` custom periods remain compatible;
+- localized dates normalize to ISO before the existing Period Profit query layer;
+- invalid calendar dates fail closed without a finance query;
+- incomplete custom-period input fails closed;
+- missing-period guidance now shows the localized seller-facing example;
+- explicit custom-period requests bypass the general action/execution flow;
+- no finance formula, Product Decision/Product Task Draft execution, Action Executor or Ozon mutation changes;
+- final feature `62b040e392514bc410b34d82eccb8e0385b9c548`: Verify #884, 2081 passed / 0 failed, artifact 9884220127, digest `sha256:18f9ac90e9a8d05bd01a76db6955afa578c951390018b504cae8374663e185be`;
+- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61`: Verify #885, 2081 passed / 0 failed, artifact 9884251146, digest `sha256:04099f259682c0e84daa67dd74d3328081855cf86418b299336c16f38f2b0312`;
+- squash main `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`: Verify #886, 2081 passed / 0 failed, artifact 9884281842, digest `sha256:a3f889420b898d65c8ef0f027b199ec6c23ebc8bb345933efe9d74c65b686344`;
+- no failed production SHA occurred in this package;
+- `data/users.json` unchanged;
+- Decision 036 remains unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1171-v1180
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1171_V1180.md`;
+- reconciled exact product baseline to `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77` / Verify #886 / 2081 passed;
+- retained permanent read-only analyst boundary from Decision 036;
+- docs only; no runtime/data change in reconciliation;
+- `externally_verified=False`.

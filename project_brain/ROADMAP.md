@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1161_V1170.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1171_V1180.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1161_V1170.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1171_V1180.md`
 
 
 ## Current integration blocker
@@ -514,3 +514,5 @@ Next seller-facing analyst priorities:
 - advertising-efficiency analysis from read-only evidence;
 - returns/non-buyout impact;
 - explainable SKU prioritization.
+
+[x] Telegram Custom Period Date Input
