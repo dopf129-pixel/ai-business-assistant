@@ -3742,3 +3742,30 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+## 2026-09-03 — Telegram Period Profit Analyst Wiring v1161-v1170
+
+- wired the hardened Period Profit runtime into the production Telegram core;
+- added a seller-facing "💵 Прибыль за период" main-menu entry;
+- added Today / 7 / 28 / 56 / 90-day period callbacks;
+- enabled natural-language period-profit requests such as "прибыль за 28 дней";
+- Telegram response formatting now renders direct analytical `text` payloads;
+- period-profit callback success requires `read_only=True` and `executed=False`;
+- malformed, exception-throwing or execution-adjacent success payloads fail closed;
+- preserved compatibility with older partial-core factory fixtures;
+- updated the exact Telegram main-menu contract test;
+- failed intermediate `e7fce70c39f976e97bf78687621ace5125f9d30a`: Verify #866, 2069 passed / 2 failed, artifact 9883777834, digest `sha256:bf6bd18f7a8286de371506b91facbce73d874214ce4cc97c2d46cb16123ddb6b`;
+- final feature `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`: Verify #868, 2071 passed / 0 failed, artifact 9883814622, digest `sha256:11377f17edbcefa550f753fa4fe9ace40ddb4273f2fbc28abf51ea9420ac5eb8`;
+- PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e`: Verify #869, 2071 passed / 0 failed, artifact 9883849757, digest `sha256:b9c5b5bee9ba6d162f80e5a3cf4bd49ea3244e23f0f51eb81ee04c973ef9ee8c`;
+- squash main `d06a5f8cc23814e3177f58f6182bef6fbceb0697`: Verify #870, 2071 passed / 0 failed, artifact 9883879151, digest `sha256:ca8b45d7ea5b7b5651393d3aa57839c2ad8f87a7eaa904401aac31656cbdc7ed`;
+- no Product Decision/Product Task Draft execution or Ozon mutation was added;
+- `data/users.json` unchanged by the package.
+
+## 2026-09-03 — Product role boundary clarification
+
+- recorded Decision 036: AI Business Assistant is a read-only Ozon analyst/advisor;
+- Ozon price, advertising budget/bid, replenishment/stock, product-card and other seller mutations are out of product scope;
+- recommendations, confirmations, drafts and checklists do not grant execution permission;
+- next product work should increase analytical usefulness rather than add autonomous execution;
+- Architecture Review Required: Yes — product boundary explicitly changed from future execution-capable wording to permanent read-only analyst scope;
+- `externally_verified=False`.
