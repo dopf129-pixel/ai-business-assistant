@@ -46,6 +46,20 @@ class PeriodProfitSummaryService:
                 "Некорректная ставка налога для расчёта периода",
             )
 
+        begin_read_session = getattr(
+            self.finance_service,
+            "begin_read_session",
+            None,
+        )
+        if callable(begin_read_session):
+            try:
+                begin_read_session()
+            except Exception:
+                return self._error(
+                    "PERIOD_PROFIT_FINANCE_UNAVAILABLE",
+                    "Финансовые данные недоступны",
+                )
+
         normalized_products = []
 
         for product in products or []:

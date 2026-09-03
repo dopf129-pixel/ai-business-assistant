@@ -404,19 +404,128 @@ class OzonClient:
 
     def get_accruals_by_day(
         self,
-        accrual_date
+        accrual_date,
+        max_pages=200
     ):
 
-        return self._post(
-            "/v1/finance/accrual/by-day",
-            {
-                "date": str(
-                    accrual_date
+        all_accruals = []
+        last_id = ""
+        seen_last_ids = set()
+        final_response = {}
+
+        for page_number in range(
+            1,
+            int(max_pages) + 1
+        ):
+            response = self._post(
+                "/v1/finance/accrual/by-day",
+                {
+                    "date": str(
+                        accrual_date
+                    ),
+                    "last_id": str(
+                        last_id
+                    )
+                },
+                timeout=30,
+                max_attempts=3
+            )
+
+            if not isinstance(
+                response,
+                dict
+            ):
+                return {
+                    "error": True,
+                    "code": (
+                        "OZON_FINANCE_ACCRUAL_RESPONSE_INVALID"
+                    ),
+                    "message": (
+                        "Некорректный ответ Ozon "
+                        "по начислениям за день"
+                    )
+                }
+
+            if response.get(
+                "error"
+            ):
+                return response
+
+            accruals = response.get(
+                "accruals"
+            )
+            if not isinstance(
+                accruals,
+                list
+            ):
+                return {
+                    "error": True,
+                    "code": (
+                        "OZON_FINANCE_ACCRUAL_RESPONSE_INVALID"
+                    ),
+                    "message": (
+                        "Некорректный ответ Ozon "
+                        "по начислениям за день"
+                    )
+                }
+
+            all_accruals.extend(
+                accruals
+            )
+            final_response = dict(
+                response
+            )
+
+            next_last_id = str(
+                response.get(
+                    "last_id"
                 )
-            },
-            timeout=30,
-            max_attempts=3
-        )
+                or ""
+            )
+
+            if not next_last_id:
+                final_response[
+                    "accruals"
+                ] = all_accruals
+                final_response[
+                    "last_id"
+                ] = ""
+                final_response[
+                    "pages_loaded"
+                ] = page_number
+                return final_response
+
+            if (
+                next_last_id == last_id
+                or next_last_id
+                in seen_last_ids
+            ):
+                return {
+                    "error": True,
+                    "code": (
+                        "OZON_FINANCE_ACCRUAL_CURSOR_INVALID"
+                    ),
+                    "message": (
+                        "Некорректная пагинация "
+                        "начислений Ozon"
+                    )
+                }
+
+            seen_last_ids.add(
+                next_last_id
+            )
+            last_id = next_last_id
+
+        return {
+            "error": True,
+            "code": (
+                "OZON_FINANCE_ACCRUAL_PAGE_LIMIT_REACHED"
+            ),
+            "message": (
+                "Не удалось дочитать "
+                "начисления Ozon за день"
+            )
+        }
 
     def get_accrual_types(self):
 
