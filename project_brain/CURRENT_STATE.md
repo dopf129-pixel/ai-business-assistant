@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2081 passed on `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`.
+2091 passed on `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`.
 
-GitHub Actions push verification run #886 completed successfully for this exact main SHA.
+GitHub Actions push verification run #902 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3243,6 +3243,50 @@ Preserved:
 - no finance formula changes;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Tax Policy Production Availability v1181-v1190 — 2026-09-03
+
+Completed:
+
+[x] Restored repository production tax policy `USN_INCOME / 6%`
+
+[x] Clean Telegram deployment receives configured tax policy
+
+[x] Explicit environment tax fallback when persisted file is absent
+
+[x] Environment fallback requires explicit `TAX_MODE`
+
+[x] Missing policy remains unknown rather than zero
+
+[x] Invalid environment policy fails closed
+
+[x] Persisted policy has precedence over environment
+
+[x] Malformed persisted policy does not silently fall back
+
+[x] hook-2-like current economics calculates 6.00 ₽ tax at 100 ₽ tax base
+
+[x] hook-2-like base net profit calculates to 35.83 ₽ before returns adjustment
+
+Verification:
+
+- entering exact main `8ca28c36249a052fdf83cfd5ab86a13d986cbb1c`: Verify #896, 2081 passed / 0 failed;
+- final feature `1d0df2799fb87b57d916843a96a080389e2ac07b`: Verify #900, 2091 passed / 0 failed;
+- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1`: Verify #901, 2091 passed / 0 failed;
+- squash main `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`: Verify #902, 2091 passed / 0 failed;
+- no failed production SHA occurred in this package.
+
+Preserved:
+
+- Decision 036 read-only analyst boundary;
+- missing tax is never interpreted as zero;
+- returns/non-buyout evidence remains separate;
+- no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.

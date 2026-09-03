@@ -16,34 +16,36 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1171-v1180: Telegram Custom Period Date Input`
+`v1181-v1190: Tax Policy Production Availability`
 
 Goal:
 
-Let sellers request Period Profit for a concrete calendar range using familiar `ДД.ММ.ГГГГ` input while preserving the existing ISO path and strict read-only analytics boundary.
+Restore the validated production tax policy for clean Telegram deployments so current unit economics can calculate tax and base profit, while preserving fail-closed unknown-tax semantics when no explicit policy exists.
 
 Immediately preceding verified package:
 
-`v1161-v1170: Telegram Period Profit Analyst Wiring`
+`v1171-v1180: Telegram Custom Period Date Input`
 
 ## Stable verification
 
 Latest exact production main:
 
-`05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
+`9c9d379e36edf2123a466ad2b3cd1d000d81bae3`
 
-GitHub Actions push Verify #886:
+GitHub Actions push Verify #902:
 
-2081 passed / 0 failed.
+2091 passed / 0 failed.
 
 Preserved product boundary:
 
-- assistant is an analyst/advisor, not an Ozon executor;
-- localized dates are normalized to ISO before the existing Period Profit query layer;
+- assistant remains read-only analyst/advisor;
+- validated production policy is USN Income 6%;
+- persisted tax configuration is explicit and non-secret;
+- explicit environment tax policy is accepted only when `TAX_MODE` is actually present;
+- missing tax policy remains unknown and is never converted to zero;
+- malformed persisted tax policy remains fail-closed;
 - no finance formula change;
-- no Product Decision execution;
-- no Product Task Draft execution;
-- no Action Executor connection;
+- no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
 - `externally_verified=False`.
 
@@ -51,37 +53,41 @@ Preserved product boundary:
 
 Entering exact verified docs-main:
 
-- `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607` / Verify #881 / 2071 passed / 0 failed.
+- `8ca28c36249a052fdf83cfd5ab86a13d986cbb1c` / Verify #896 / 2081 passed / 0 failed.
 
 Final feature:
 
-- `62b040e392514bc410b34d82eccb8e0385b9c548` / Verify #884 / 2081 passed / 0 failed.
+- `1d0df2799fb87b57d916843a96a080389e2ac07b` / Verify #900 / 2091 passed / 0 failed.
 
 PR integration:
 
-- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61` / Verify #885 / 2081 passed / 0 failed.
+- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1` / Verify #901 / 2091 passed / 0 failed.
 
 Squash main:
 
-- `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77` / Verify #886 / 2081 passed / 0 failed.
+- `9c9d379e36edf2123a466ad2b3cd1d000d81bae3` / Verify #902 / 2091 passed / 0 failed.
 
 No failed production SHA occurred in this package.
 
-## Telegram analyst capability added
+## Seller-facing result
 
-Supported examples:
+For the verified hook-2-like current-economics sample at 100 ₽:
 
-- `прибыль 01.05.2026 - 03.09.2026`;
-- `прибыль 1.5.2026 - 3.9.2026`;
-- en dash / em dash between dates;
-- existing `прибыль 2026-05-01 - 2026-09-03` remains supported.
+- commission: 17.00 ₽;
+- logistics: 17.54 ₽;
+- last mile: 1.54 ₽;
+- acquiring: 1.09 ₽;
+- product cost: 21.00 ₽;
+- tax: 6.00 ₽;
+- base net profit before return-risk adjustment: 35.83 ₽.
 
-Invalid or incomplete custom calendar dates fail closed without querying finance.
+Returns/non-buyout evidence remains a separate completeness boundary and is not assumed to be zero.
 
 ## Development direction
 
 Next analytical priorities:
 
+- improve unit-economics presentation when base profit is known but returns evidence is incomplete;
 - seller-facing "what needs attention today" summary;
 - sales and profit period comparison;
 - stock/out-of-stock risk;
