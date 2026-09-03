@@ -9,6 +9,12 @@ class FinanceService:
 
         self.ozon = OzonClient()
         self.accrual_types = {}
+        self._daily_accrual_cache = {}
+
+    def begin_read_session(self):
+
+        self._daily_accrual_cache = {}
+
 
     def to_decimal(
         self,
@@ -104,11 +110,8 @@ class FinanceService:
             if load_result.get("error"):
                 return load_result
 
-        response = (
-            self.ozon
-            .get_accruals_by_day(
-                accrual_date
-            )
+        response = self._get_accruals_by_day(
+            accrual_date
         )
 
         if response.get("error"):
@@ -193,6 +196,48 @@ class FinanceService:
         return self._serialize_result(
             result
         )
+
+    def _get_accruals_by_day(
+        self,
+        accrual_date
+    ):
+
+        cache_key = str(
+            accrual_date
+        )
+
+        if (
+            cache_key
+            in self._daily_accrual_cache
+        ):
+            return (
+                self._daily_accrual_cache[
+                    cache_key
+                ]
+            )
+
+        response = (
+            self.ozon
+            .get_accruals_by_day(
+                accrual_date
+            )
+        )
+
+        if (
+            isinstance(
+                response,
+                dict
+            )
+            and response.get(
+                "error"
+            ) is not True
+        ):
+            self._daily_accrual_cache[
+                cache_key
+            ] = response
+
+        return response
+
 
     def _matches_sku(
         self,
