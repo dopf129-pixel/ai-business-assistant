@@ -171,12 +171,94 @@ class PeriodProfitReturnEvidenceService:
             "return_date",
             "visual_status_change_moment",
             "quantity",
+            "type",
+            "schema",
         )
         result = {
             key: item.get(key)
             for key in fields
             if key in item
         }
+
+        product = item.get("product")
+        if isinstance(product, dict):
+            if product.get("sku") is not None:
+                result["sku"] = product.get("sku")
+            if product.get("offer_id") is not None:
+                result["offer_id"] = product.get("offer_id")
+            if product.get("quantity") is not None:
+                result["quantity"] = product.get("quantity")
+
+        visual = item.get("visual")
+        if isinstance(visual, dict):
+            visual_status = visual.get("status")
+            if isinstance(visual_status, dict):
+                result["visual_status_sys_name"] = (
+                    visual_status.get("sys_name")
+                )
+                result["visual_status_display_name"] = (
+                    visual_status.get("display_name")
+                )
+            if visual.get("change_moment") is not None:
+                result["visual_status_change_moment"] = (
+                    visual.get("change_moment")
+                )
+
+        compensation = item.get(
+            "compensation_status"
+        )
+        if isinstance(compensation, dict):
+            compensation_status = compensation.get(
+                "status"
+            )
+            if isinstance(
+                compensation_status,
+                dict,
+            ):
+                result[
+                    "compensation_status_sys_name"
+                ] = compensation_status.get(
+                    "sys_name"
+                )
+                result[
+                    "compensation_status_display_name"
+                ] = compensation_status.get(
+                    "display_name"
+                )
+            if compensation.get(
+                "change_moment"
+            ) is not None:
+                result[
+                    "compensation_status_change_moment"
+                ] = compensation.get(
+                    "change_moment"
+                )
+
+        logistic = item.get("logistic")
+        if isinstance(logistic, dict):
+            for source_key, target_key in (
+                (
+                    "return_date",
+                    "logistic_return_date",
+                ),
+                (
+                    "technical_return_moment",
+                    "technical_return_moment",
+                ),
+                (
+                    "final_moment",
+                    "return_final_moment",
+                ),
+                (
+                    "cancelled_with_compensation_moment",
+                    "cancelled_with_compensation_moment",
+                ),
+            ):
+                if logistic.get(source_key) is not None:
+                    result[target_key] = logistic.get(
+                        source_key
+                    )
+
         result["source"] = (
             "OZON_RETURNS_API"
         )

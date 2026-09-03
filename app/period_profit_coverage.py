@@ -11,6 +11,7 @@ def build_period_profit_coverage(
     return_financial_evidence=None,
     advertising_financial_evidence=None,
     storage_financial_evidence=None,
+    return_cogs_recovery_evidence=None,
 ):
     source = dict(summary or {})
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
@@ -34,6 +35,14 @@ def build_period_profit_coverage(
 
     advertising = _expense_status(advertising_financial_evidence)
     storage = _expense_status(storage_financial_evidence)
+    return_cogs = dict(
+        return_cogs_recovery_evidence or {}
+    )
+    return_cogs_ready = (
+        return_cogs.get("status")
+        == "PERIOD_PROFIT_RETURN_COGS_RECOVERY_EVIDENCE_READY"
+        and return_cogs.get("error") is False
+    )
     all_tracked_components_included = not missing
     return {
         "error": False,
@@ -63,6 +72,32 @@ def build_period_profit_coverage(
         "ozon_account_reconciliation": source.get(
             "ozon_account_reconciliation"
         ),
+        "return_cogs_recovery_evidence_status": (
+            "READY"
+            if return_cogs_ready
+            else "UNAVAILABLE"
+        ),
+        "return_cogs_candidate_units": (
+            int(
+                return_cogs.get(
+                    "candidate_recovery_units"
+                )
+                or 0
+            )
+            if return_cogs_ready
+            else 0
+        ),
+        "return_cogs_candidate_value": (
+            float(
+                return_cogs.get(
+                    "candidate_value_at_current_cost"
+                )
+                or 0
+            )
+            if return_cogs_ready
+            else 0.0
+        ),
+        "return_cogs_profit_adjustment_allowed": False,
         "accounting_net_profit_claim_allowed": False,
         "read_only": True,
         "executed": False,

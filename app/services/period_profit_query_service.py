@@ -19,10 +19,14 @@ class PeriodProfitQueryService:
         authorized_advertising_mapping=None,
         authorized_storage_mapping=None,
         mapping_observability_service=None,
+        return_cogs_recovery_evidence_service=None,
     ):
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
+        self.return_cogs_recovery_evidence_service = (
+            return_cogs_recovery_evidence_service
+        )
         self.return_financial_operation_names = tuple(return_financial_operation_names or ())
         self.authorized_return_mapping = dict(authorized_return_mapping or {})
         self.authorized_advertising_mapping = dict(authorized_advertising_mapping or {})
@@ -48,6 +52,20 @@ class PeriodProfitQueryService:
             if return_evidence.get("error"):
                 return return_evidence
 
+        return_cogs_recovery_evidence = None
+        if (
+            self.return_cogs_recovery_evidence_service
+            is not None
+            and return_evidence is not None
+        ):
+            return_cogs_recovery_evidence = (
+                self.return_cogs_recovery_evidence_service
+                .analyze(
+                    return_evidence,
+                    products,
+                )
+            )
+
         operation_names, mapping = self._return_financial_mapping()
         return_financial_evidence = build_period_profit_return_financial_evidence(
             [{"fee_breakdown": summary.get("fee_breakdown")}], operation_names
@@ -63,6 +81,7 @@ class PeriodProfitQueryService:
             return_financial_evidence,
             advertising_evidence,
             storage_evidence,
+            return_cogs_recovery_evidence,
         )
         if coverage.get("error"):
             return coverage
@@ -92,6 +111,7 @@ class PeriodProfitQueryService:
             advertising_evidence,
             storage_evidence,
             mapping_observability,
+            return_cogs_recovery_evidence,
         )
         if response.get("error"):
             return response
@@ -104,6 +124,9 @@ class PeriodProfitQueryService:
             "coverage": coverage,
             "return_evidence": return_evidence,
             "return_financial_evidence": return_financial_evidence,
+            "return_cogs_recovery_evidence": (
+                return_cogs_recovery_evidence
+            ),
             "advertising_financial_evidence": advertising_evidence,
             "storage_financial_evidence": storage_evidence,
             "mapping_observability": mapping_observability,

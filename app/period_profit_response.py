@@ -9,6 +9,7 @@ def build_period_profit_response(
     advertising_financial_evidence=None,
     storage_financial_evidence=None,
     mapping_observability=None,
+    return_cogs_recovery_evidence=None,
 ):
     source = deepcopy(dict(summary or {}))
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
@@ -178,10 +179,23 @@ def build_period_profit_response(
                     ),
                 ])
 
-            lines.append(
-                "Их денежное влияние пока не включено "
-                "в прибыль как отдельная корректировка."
-            )
+            if (
+                source.get(
+                    "account_level_ozon_accruals_included"
+                )
+                is True
+            ):
+                lines.append(
+                    "Денежные начисления и удержания Ozon "
+                    "уровня кабинета уже входят в итоговые "
+                    "начисления; отдельно проверяется "
+                    "восстановление товарной себестоимости."
+                )
+            else:
+                lines.append(
+                    "Их денежное влияние пока не включено "
+                    "в прибыль как отдельная корректировка."
+                )
         elif exact:
             lines.extend([
                 "",
@@ -213,6 +227,12 @@ def build_period_profit_response(
         if mapping_id:
             lines.append(f"• Mapping ID: {mapping_id}")
         lines.append("Эти операции уже входят в net_accrual и повторно из прибыли не вычитаются.")
+
+    _append_return_cogs_recovery_evidence(
+        lines,
+        return_cogs_recovery_evidence,
+        revenue,
+    )
 
     _append_expense_evidence(lines, "📣 Подтверждённые операции рекламы", advertising_financial_evidence)
     _append_expense_evidence(lines, "🏬 Подтверждённые операции хранения", storage_financial_evidence)
@@ -281,6 +301,68 @@ def build_period_profit_response(
             )
 
     return {"error": False, "status": "PERIOD_PROFIT_RESPONSE_READY", "text": "\n".join(lines), "profit_scope": source.get("profit_scope")}
+
+
+def _append_return_cogs_recovery_evidence(
+    lines,
+    evidence,
+    revenue,
+):
+    source = dict(evidence or {})
+    if (
+        source.get("status")
+        != "PERIOD_PROFIT_RETURN_COGS_RECOVERY_EVIDENCE_READY"
+        or source.get("error") is not False
+    ):
+        return
+
+    candidate_units = int(
+        source.get("candidate_recovery_units")
+        or 0
+    )
+    candidate_value = float(
+        source.get("candidate_value_at_current_cost")
+        or 0
+    )
+    compensated_units = int(
+        source.get("compensated_units")
+        or 0
+    )
+    unresolved_units = int(
+        source.get("unresolved_units")
+        or 0
+    )
+
+    lines.extend([
+        "",
+        "📦 Возвратная себестоимость — evidence:",
+        (
+            "• Возвраты на return-place: "
+            f"{candidate_units} шт."
+        ),
+        (
+            "• Потенциальная стоимость по текущей "
+            "себестоимости: "
+            + _money_with_revenue_share(
+                candidate_value,
+                revenue,
+            )
+        ),
+        (
+            "• Возвраты с компенсацией Ozon: "
+            f"{compensated_units} шт."
+        ),
+        (
+            "• Неопределённый recovery-статус: "
+            f"{unresolved_units} шт."
+        ),
+        (
+            "Эта сумма не прибавляется к прибыли: "
+            "не подтверждены продаваемый остаток, "
+            "историческая себестоимость и принадлежность "
+            "исходной продажи выбранному периоду."
+        ),
+    ])
 
 
 def _append_expense_evidence(lines, title, evidence):

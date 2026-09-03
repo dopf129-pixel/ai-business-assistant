@@ -11,6 +11,9 @@ from services.period_profit_mapping_observability_service import (
 )
 from services.period_profit_query_service import PeriodProfitQueryService
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
+from services.period_profit_return_cogs_recovery_evidence_service import (
+    PeriodProfitReturnCogsRecoveryEvidenceService,
+)
 from services.period_profit_summary_service import PeriodProfitSummaryService
 from services.product_service import ProductService
 from services.tax_configuration_service import TaxConfigurationService
@@ -22,9 +25,10 @@ def create_period_profit_query(mapping_registry=None):
         TaxConfigurationService()
         .get_policy()
     )
+    cost_service = ProductCostService()
     summary_service = PeriodProfitSummaryService(
         finance_service=FinanceService(),
-        cost_service=ProductCostService(),
+        cost_service=cost_service,
         tax_rate=_period_profit_tax_fraction(
             tax_policy
         ),
@@ -39,6 +43,11 @@ def create_period_profit_query(mapping_registry=None):
         summary_service=summary_service,
         product_provider=product_service.load_products,
         return_evidence_service=PeriodProfitReturnEvidenceService(OzonClient()),
+        return_cogs_recovery_evidence_service=(
+            PeriodProfitReturnCogsRecoveryEvidenceService(
+                cost_service
+            )
+        ),
         authorized_return_mapping=mappings.get("RETURN"),
         authorized_advertising_mapping=mappings.get("ADVERTISING"),
         authorized_storage_mapping=mappings.get("STORAGE"),
