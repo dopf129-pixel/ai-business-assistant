@@ -148,3 +148,98 @@ def test_v1197_timestamp_normalization_keeps_return_response_unchanged():
 
     assert result is source
     assert result["returns"][0]["id"] == 10
+
+
+from services.period_profit_query_service import (
+    PeriodProfitQueryService,
+)
+
+
+class Summary:
+    def calculate(
+        self,
+        date_from,
+        date_to,
+        products
+    ):
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_SUMMARY_READY",
+            "date_from": date_from,
+            "date_to": date_to,
+            "revenue": 1000.0,
+            "net_accrual": 800.0,
+            "product_cost": 300.0,
+            "tax": 60.0,
+            "profit": 440.0,
+            "margin_percent": 44.0,
+            "products": [],
+            "fee_breakdown": {},
+            "fee_components_included": True,
+            "returns_included": False,
+            "advertising_included": False,
+            "storage_included": False,
+            "profit_scope": "V1",
+        }
+
+
+def _query(client):
+    return PeriodProfitQueryService(
+        summary_service=Summary(),
+        product_provider=lambda: [{"sku": "1"}],
+        return_evidence_service=(
+            PeriodProfitReturnEvidenceService(
+                client
+            )
+        ),
+    )
+
+
+def test_v1198_custom_period_query_reaches_returns_as_timestamps():
+    client = CaptureClient()
+
+    result = _query(client).query(
+        date_from="2026-05-01",
+        date_to="2026-09-03",
+        compare_previous=False,
+    )
+
+    assert result["error"] is False
+    assert result["read_only"] is True
+    assert result["executed"] is False
+    assert _period(client) == {
+        "time_from": "2026-05-01T00:00:00Z",
+        "time_to": "2026-09-03T23:59:59.999999999Z",
+    }
+
+
+def test_v1199_preset_period_query_reaches_returns_as_timestamps():
+    client = CaptureClient()
+
+    result = _query(client).query(
+        period_code="7D",
+        today="2026-09-03",
+        compare_previous=False,
+    )
+
+    assert result["error"] is False
+    assert _period(client) == {
+        "time_from": "2026-08-28T00:00:00Z",
+        "time_to": "2026-09-03T23:59:59.999999999Z",
+    }
+
+
+def test_v1200_timestamp_fix_does_not_enable_return_profit_adjustment():
+    client = CaptureClient()
+
+    result = PeriodProfitReturnEvidenceService(
+        client
+    ).load(
+        "2026-05-01",
+        "2026-09-03",
+    )
+
+    assert result["financial_impact_supported"] is False
+    assert result["returns_profit_adjustment_allowed"] is False
+    assert result["read_only"] is True
+    assert result["executed"] is False
