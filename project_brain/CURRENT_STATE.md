@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2185 passed on `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`.
+2195 passed on `9ca4497dda61615076b8203d0404502630ab7e81`.
 
-GitHub Actions push verification run #1085 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1105 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3731,4 +3731,69 @@ Next accounting priority:
 - separately prove saleable/restored inventory recovery;
 - keep COGS reversal blocked until both are proven;
 - then resolve compensation timing/accounting and remaining external tax/expense gaps.
+
+---
+
+# Historical Product Cost Evidence v1281-v1290 — 2026-09-03
+
+Completed:
+
+[x] Decision 039 versioned historical product cost evidence contract
+
+[x] Separate append-only `product_cost_history` table
+
+[x] Existing mutable `product_costs` current-cost contract preserved
+
+[x] No automatic migration/backfill from current cost into history
+
+[x] Explicit `effective_from` required for historical cost versions
+
+[x] Duplicate `product_id + effective_from` versions rejected
+
+[x] Historical lookup selects latest explicit version effective on sale date
+
+[x] Identifier ambiguity remains unconfirmed
+
+[x] Dates before first explicit version remain unknown
+
+[x] `record_product_cost_history.py` added for explicit local evidence input
+
+[x] Return COGS candidates resolve historical cost only after matched sale lineage
+
+[x] Historical candidate value exposed without changing Period Profit
+
+[x] Telegram distinguishes current-cost diagnostic value from historical-cost evidence
+
+[x] Coverage exposes historical cost confirmation state
+
+Preserved:
+
+- `saleable_inventory_recovery_confirmed=False`;
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- Decision 036;
+- Decision 037;
+- Decision 038;
+- no Period Profit formula change;
+- no Ozon mutation;
+- no Product Decision/Product Task Draft execution;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Verification:
+
+- entering exact docs-reconciled main `212df575cc60a809032954d425902fad86623956`: Verify #1095, 2185 passed / 0 failed;
+- no failed production SHA occurred;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `f3fcb80588f394eb05e5944ca2812ed59adf7649`: Verify #1103, 2195 passed / 0 failed;
+- PR #393 synthetic `672e18f904768742917df9c808c48ec476d9fd3e`: Verify #1104, 2195 passed / 0 failed;
+- squash main `9ca4497dda61615076b8203d0404502630ab7e81`: Verify #1105, 2195 passed / 0 failed.
+
+Next accounting priority:
+
+- prove saleable/restored inventory recovery after customer returns;
+- distinguish saleable recovery, unresolved/non-saleable outcomes and compensation;
+- prevent double counting between inventory recovery and Ozon compensation;
+- keep automatic COGS reversal blocked until recovery-state evidence is complete.
 
