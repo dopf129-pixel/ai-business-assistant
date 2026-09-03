@@ -3778,3 +3778,43 @@ Tests:
 - no persistence mutation, execution or Ozon mutation;
 - `data/users.json` untouched;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Summary Input & Result Integrity v1
+
+Boundaries:
+
+- `PeriodProfitSummaryService.calculate`
+- `PeriodProfitSummaryService._calculate_product`
+- finance count/amount/fee normalization helpers
+- cost resolution and tax-rate validation
+- product/day/period aggregate finiteness
+- `PeriodProfitQueryService.query`
+- `AssistantPeriodProfitRuntimeService.handle_text`
+
+Tests:
+
+- `tests/test_period_profit_summary_input_result_integrity_v1151_v1160.py`
+
+Проверяет:
+
+- daily finance source exceptions are contained and sanitized;
+- non-mapping finance results and malformed error markers fail closed;
+- sales_count rejects bool, negative, fractional, non-numeric and NaN/inf values;
+- finance amount fields reject bool, non-numeric and NaN/inf values;
+- fee_breakdown requires finite numeric values;
+- direct/stored cost inputs reject bool, negative, malformed and non-finite values;
+- cost-source exceptions are contained;
+- malformed/non-finite/negative tax rates fail closed without constructor exception;
+- amount and fee aggregate overflow fails closed;
+- valid numeric strings and signed fees remain compatible;
+- existing period-profit formula remains unchanged;
+- query/runtime preserve the integrity failure end-to-end;
+- final feature `4ab53fe054504c633fbcd6fb708ccb7dc557eaa4`: Verify #847, 2061 passed / 0 failed;
+- PR #367 synthetic `a9030acff2031b118c0c0600c008804c3d6ff08a`: Verify #848, 2061 passed / 0 failed;
+- squash main `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`: Verify #849, 2061 passed / 0 failed;
+- no failed production SHA occurred in v1151-v1160;
+- no persistence mutation, execution or Ozon mutation;
+- `data/users.json` untouched;
+- `externally_verified=False`.

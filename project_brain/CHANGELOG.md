@@ -3710,3 +3710,35 @@ SHA-bound evidence:
 - docs only; `data/users.json` unchanged;
 - Architecture Review Required: No; Critical Review Required: No;
 - `externally_verified=False`.
+
+## 2026-09-02 — Period Profit Summary Input & Result Integrity v1151-v1160
+
+- hardened the production-wired seller-facing PeriodProfitSummaryService against daily FinanceService exceptions and malformed finance results;
+- sales_count now rejects boolean, negative, fractional, non-numeric and non-finite values;
+- finance amount fields and fee breakdown reject malformed/non-finite values;
+- direct/stored cost inputs reject boolean, negative, malformed and non-finite values;
+- cost-source exceptions are contained with deterministic seller-safe failure;
+- invalid tax-rate configuration now fails closed at calculation time instead of raising during service construction;
+- non-finite product/day/period amount and fee aggregates fail closed;
+- valid numeric-string and signed-fee compatibility remains unchanged;
+- existing formula `profit = net_accrual - product_cost - tax` remains unchanged;
+- PeriodProfitQueryService/AssistantPeriodProfitRuntimeService preserve integrity failures end-to-end;
+- final feature `4ab53fe054504c633fbcd6fb708ccb7dc557eaa4`: Verify #847, 2061 passed / 0 failed, artifact 9852891478, digest `sha256:f74260f869cd01d6ec59c17bd183d4eda80dabb0cdf0a51347d662f7b6ac0c49`;
+- PR #367 synthetic `a9030acff2031b118c0c0600c008804c3d6ff08a`: Verify #848, 2061 passed / 0 failed, artifact 9852935558, digest `sha256:a66d3d8aebb72039c9305583ea390f8ed599410011671b36c6e34fc99fc9bd1f`;
+- squash main `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`: Verify #849, 2061 passed / 0 failed, artifact 9852981757, digest `sha256:ba05065a96af339ea3f49dfb08115c15556e478be099460657f23e3f6f1d5543`;
+- no failed production SHA occurred in this package;
+- finance formulas, persistence owners, execution permissions and Ozon mutation paths unchanged;
+- `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No.
+
+## 2026-09-03 — Project Brain reconciliation after v1151-v1160
+
+- reconciled Project Brain to exact verified product main `0ca4d226f3f75e2b20035a87a13b1a10d6c71581` / Verify #849 / 2061 passed;
+- added `CURRENT_CHECKPOINT_V1151_V1160.md`;
+- corrected the literal escaped-newline artifact in CURRENT_STATE baseline text;
+- ROADMAP current-checkpoint pointers updated to v1151-v1160;
+- DECISIONS unchanged: no new finance owner/formula, persistence owner or execution architecture;
+- next package must again be selected from a concrete current seller/operator, finance, observability, release-readiness or integration gap;
+- docs only; `data/users.json` unchanged;
+- Architecture Review Required: No; Critical Review Required: No;
+- `externally_verified=False`.
