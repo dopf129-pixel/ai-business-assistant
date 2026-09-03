@@ -14,7 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2051 passed on `d1655adf6719e6000f996b4635253c6b99193ba3`.\n\nGitHub Actions push verification run #837 completed successfully for this exact main SHA.
+2061 passed on `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`.
+
+GitHub Actions push verification run #849 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3098,6 +3100,61 @@ Preserved:
 - existing partial-period success semantics unchanged;
 - no persistence change;
 - no new retry or execution path;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor/Ozon mutation wiring;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Period Profit Summary Input & Result Integrity v1151-v1160 — 2026-09-02
+
+Completed:
+
+[x] Daily FinanceService exceptions are contained as seller-safe period-profit failures
+
+[x] Non-mapping daily finance results fail closed
+
+[x] Malformed explicit daily error markers fail closed
+
+[x] sales_count rejects boolean, negative, fractional, non-numeric and NaN/inf values
+
+[x] Period-profit finance amount fields reject boolean, non-numeric and NaN/inf values
+
+[x] fee_breakdown requires a mapping with finite numeric amounts
+
+[x] Cost inputs reject boolean, negative, non-numeric and NaN/inf values
+
+[x] Cost source exceptions are contained without leaking exception text
+
+[x] Invalid tax-rate configuration fails closed instead of raising during service construction
+
+[x] Product/day/period amount and fee aggregate overflow fails closed
+
+[x] Valid numeric strings and signed fee values remain compatible
+
+[x] PeriodProfitQueryService and AssistantPeriodProfitRuntimeService preserve integrity failures end-to-end
+
+Verified exact main:
+
+`0ca4d226f3f75e2b20035a87a13b1a10d6c71581`
+
+GitHub Actions push Verify #849: 2061 passed / 0 failed.
+
+Final feature and integration evidence:
+
+- final feature `4ab53fe054504c633fbcd6fb708ccb7dc557eaa4`: Verify #847, 2061 passed / 0 failed;
+- PR #367 synthetic `a9030acff2031b118c0c0600c008804c3d6ff08a`: Verify #848, 2061 passed / 0 failed;
+- squash main `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`: Verify #849, 2061 passed / 0 failed;
+- no failed production SHA occurred in this package.
+
+Preserved:
+
+- period-profit formula `profit = net_accrual - product_cost - tax` unchanged;
+- configured tax multiplication semantics unchanged;
+- no persistence change;
+- no new retry or execution path;
+- Period Profit route remains read-only;
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;
