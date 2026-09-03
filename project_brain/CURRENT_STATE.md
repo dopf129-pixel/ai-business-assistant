@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2195 passed on `9ca4497dda61615076b8203d0404502630ab7e81`.
+2208 passed on `3f82b65054a2a7a48b9918803c197377bdb3557f`.
 
-GitHub Actions push verification run #1105 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1131 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3796,4 +3796,65 @@ Next accounting priority:
 - distinguish saleable recovery, unresolved/non-saleable outcomes and compensation;
 - prevent double counting between inventory recovery and Ozon compensation;
 - keep automatic COGS reversal blocked until recovery-state evidence is complete.
+
+---
+
+# Return Inventory Recovery Evidence v1291-v1300 — 2026-09-03
+
+Completed:
+
+[x] Decision 040 explicit return-level inventory recovery evidence contract
+
+[x] Append-only `return_inventory_recovery_history`
+
+[x] Explicit `SALEABLE_RESTORED` and `NON_SALEABLE` states
+
+[x] Exact return_id + posting_number + SKU identity required
+
+[x] Candidate quantity must exactly match recovery evidence quantity
+
+[x] Missing recovery evidence remains unknown
+
+[x] Identity drift remains conflicting/unconfirmed evidence
+
+[x] Stock snapshots/deltas are not accepted as automatic recovery proof
+
+[x] Compensated returns remain outside automatic saleable recovery
+
+[x] Return COGS candidate rows expose recovery state/source/date
+
+[x] Coverage exposes inventory recovery state
+
+[x] Telegram explains confirmed/partial recovery state
+
+Preserved:
+
+- `recovery_period_attribution_confirmed=False`;
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- Decision 036/037/038/039;
+- no Period Profit formula change;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Verification:
+
+- entering exact docs-reconciled main `7f859d1073338c5c0144edea8fe15574460e5210`: Verify #1115, 2195 passed / 0 failed;
+- failed `41b409edcd2a96016bf49e8e8303a7aec00c1886`: Verify #1125, compile failure;
+- failed `4643126328c9e461712aae30f5f7a694a7549e89`: Verify #1126, compile failure;
+- failed `d90549d21c8fb46b0a9012c205520c68e012dbfa`: Verify #1127, compile failure;
+- failed `13e4cfbacf617bb60c5b897137b619f079c3d500`: Verify #1128, 2203 passed / 5 failed;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `1a83e5466bfebd79370e9576ce00b43b79bb668d`: Verify #1129, 2208 passed / 0 failed;
+- PR #395 synthetic `7d7b3a5e180a2505850345cc753a7d40ba391cbf`: Verify #1130, 2208 passed / 0 failed;
+- squash main `3f82b65054a2a7a48b9918803c197377bdb3557f`: Verify #1131, 2208 passed / 0 failed.
+
+Next accounting priority:
+
+- prove the accounting period in which a confirmed saleable return recovery should reverse COGS;
+- verify originating-sale quantity consistency;
+- keep compensation treatment separate and prevent double counting;
+- keep automatic COGS reversal blocked until these remaining facts are complete.
 
