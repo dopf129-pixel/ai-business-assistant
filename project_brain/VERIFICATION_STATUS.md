@@ -4,51 +4,44 @@ Date: 2026-09-03
 
 ## Latest verified product baseline
 
-`d06a5f8cc23814e3177f58f6182bef6fbceb0697`
+`05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
 
 Latest merged production batch:
 
-`v1161-v1170: Telegram Period Profit Analyst Wiring`
+`v1171-v1180: Telegram Custom Period Date Input`
 
 ### Entering exact-main verification
-- exact main: `bb2e444b5a7ee6caa9cc4e39adccc5df64949835`
-- Verify #859
-- 2061 passed / 0 failed
-- artifact id: 9883235366
-- digest: `sha256:87ac10f53b0baf234342e9966c6f3892d436564bc99351968b22513b6f65f71a`
-
-### Failed intermediate feature evidence
-- exact SHA: `e7fce70c39f976e97bf78687621ace5125f9d30a`
-- Verify #866
-- 2069 passed / 2 failed
-- artifact id: 9883777834
-- digest: `sha256:bf6bd18f7a8286de371506b91facbce73d874214ce4cc97c2d46cb16123ddb6b`
-- root cause: backward-compat partial-core fixture and exact pre-feature keyboard expectation were stale after the new Telegram wiring.
-- this SHA remains failed evidence permanently.
+- exact main: `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607`
+- Verify #881
+- 2071 passed / 0 failed
+- artifact id: 9884075851
+- digest: `sha256:8bb0274a95fa48b01e315a2c4a7190fcae33c9a4eee11ebdb3c2db49a2303f72`
 
 ### Exact final feature-head verification
-- exact SHA: `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`
-- Verify #868
-- 2071 passed / 0 failed
-- artifact id: 9883814622
-- digest: `sha256:11377f17edbcefa550f753fa4fe9ace40ddb4273f2fbc28abf51ea9420ac5eb8`
+- exact SHA: `62b040e392514bc410b34d82eccb8e0385b9c548`
+- Verify #884
+- 2081 passed / 0 failed
+- artifact id: 9884220127
+- digest: `sha256:18f9ac90e9a8d05bd01a76db6955afa578c951390018b504cae8374663e185be`
 
 ### PR merge-ref integration verification
-- PR #369
-- synthetic SHA: `04b20cc49a253bfb357626cf62a71b779a75112e`
-- Verify #869
-- 2071 passed / 0 failed
-- artifact id: 9883849757
-- digest: `sha256:b9c5b5bee9ba6d162f80e5a3cf4bd49ea3244e23f0f51eb81ee04c973ef9ee8c`
+- PR #371
+- synthetic SHA: `b865b551289ba4592d8d32594323ea8a6dc64c61`
+- Verify #885
+- 2081 passed / 0 failed
+- artifact id: 9884251146
+- digest: `sha256:04099f259682c0e84daa67dd74d3328081855cf86418b299336c16f38f2b0312`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `d06a5f8cc23814e3177f58f6182bef6fbceb0697`
-- Verify #870
-- 2071 passed / 0 failed
-- artifact id: 9883879151
-- digest: `sha256:ca8b45d7ea5b7b5651393d3aa57839c2ad8f87a7eaa904401aac31656cbdc7ed`
+- exact main: `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
+- Verify #886
+- 2081 passed / 0 failed
+- artifact id: 9884281842
+- digest: `sha256:a3f889420b898d65c8ef0f027b199ec6c23ebc8bb345933efe9d74c65b686344`
+
+No failed production SHA occurred in v1171-v1180.
 
 ## Verification policy
 
