@@ -221,6 +221,100 @@ def build_period_profit_coverage(
             if return_cogs_ready
             else None
         ),
+        "return_cogs_inventory_recovery_status": (
+            "SALEABLE_CONFIRMED"
+            if (
+                return_cogs_ready
+                and return_cogs.get(
+                    "saleable_inventory_recovery_confirmed"
+                )
+                is True
+            )
+            else (
+                "STATE_COMPLETE"
+                if (
+                    return_cogs_ready
+                    and return_cogs.get(
+                        "inventory_recovery_state_complete"
+                    )
+                    is True
+                )
+                else (
+                    "PARTIAL"
+                    if (
+                        return_cogs_ready
+                        and return_cogs.get(
+                            "inventory_recovery_evidence_available"
+                        )
+                        is True
+                    )
+                    else "UNAVAILABLE"
+                )
+            )
+        ),
+        "return_cogs_inventory_recovery_state_complete": (
+            return_cogs.get(
+                "inventory_recovery_state_complete"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_saleable_inventory_recovery_confirmed": (
+            return_cogs.get(
+                "saleable_inventory_recovery_confirmed"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_candidate_records": (
+            return_cogs.get(
+                "inventory_recovery_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_saleable_records": (
+            return_cogs.get(
+                "inventory_recovery_saleable_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_non_saleable_records": (
+            return_cogs.get(
+                "inventory_recovery_non_saleable_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_missing_records": (
+            return_cogs.get(
+                "inventory_recovery_missing_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_conflict_records": (
+            return_cogs.get(
+                "inventory_recovery_conflict_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_inventory_recovery_quantity_mismatch_records": (
+            return_cogs.get(
+                "inventory_recovery_quantity_mismatch_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_recovery_period_attribution_confirmed": (
+            return_cogs.get(
+                "recovery_period_attribution_confirmed"
+            )
+            if return_cogs_ready
+            else None
+        ),
         "return_cogs_profit_adjustment_allowed": False,
         "external_expense_evidence_status": (
             "COMPLETE"
