@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2071 passed on `d06a5f8cc23814e3177f58f6182bef6fbceb0697`.
+2081 passed on `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`.
 
-GitHub Actions push verification run #870 completed successfully for this exact main SHA.
+GitHub Actions push verification run #886 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3201,4 +3201,48 @@ Current product boundary:
 - Ozon price, advertising budget/bid, stock/replenishment, product-card and other seller mutations are out of scope;
 - recommendations, checklists and drafts do not grant execution permission;
 - `data/users.json` unchanged by this package;
+- `externally_verified=False`.
+
+---
+
+# Telegram Custom Period Date Input v1171-v1180 — 2026-09-03
+
+Completed:
+
+[x] Localized custom Period Profit input in `ДД.ММ.ГГГГ`
+
+[x] Example `01.05.2026 - 03.09.2026` routes through production Period Profit
+
+[x] Single-digit day/month input remains accepted
+
+[x] En dash and em dash separators remain accepted
+
+[x] Existing ISO `YYYY-MM-DD` input remains supported
+
+[x] Localized dates normalize to ISO before the Period Profit query layer
+
+[x] Invalid calendar dates fail closed without finance query
+
+[x] Incomplete custom date input fails closed
+
+[x] Missing-period help now shows seller-friendly localized date format
+
+[x] Localized custom Period Profit bypasses the general execution flow
+
+Verification:
+
+- entering exact main `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607`: Verify #881, 2071 passed / 0 failed;
+- final feature `62b040e392514bc410b34d82eccb8e0385b9c548`: Verify #884, 2081 passed / 0 failed;
+- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61`: Verify #885, 2081 passed / 0 failed;
+- squash main `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`: Verify #886, 2081 passed / 0 failed;
+- no failed production SHA occurred in this package.
+
+Preserved:
+
+- Decision 036 read-only Ozon analyst boundary;
+- no finance formula changes;
+- no Product Decision/Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
 - `externally_verified=False`.
