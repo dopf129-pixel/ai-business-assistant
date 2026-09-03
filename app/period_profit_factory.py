@@ -1,5 +1,4 @@
 from api.ozon_client import OzonClient
-from config import TAX_RATE
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
@@ -12,14 +11,21 @@ from services.period_profit_query_service import PeriodProfitQueryService
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
 from services.period_profit_summary_service import PeriodProfitSummaryService
 from services.product_service import ProductService
+from services.tax_configuration_service import TaxConfigurationService
 
 
 def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
+    tax_policy = (
+        TaxConfigurationService()
+        .get_policy()
+    )
     summary_service = PeriodProfitSummaryService(
         finance_service=FinanceService(),
         cost_service=ProductCostService(),
-        tax_rate=TAX_RATE,
+        tax_rate=_period_profit_tax_fraction(
+            tax_policy
+        ),
     )
     mappings = load_active_period_profit_mappings(mapping_registry)
     observability = (
@@ -36,3 +42,43 @@ def create_period_profit_query(mapping_registry=None):
         authorized_storage_mapping=mappings.get("STORAGE"),
         mapping_observability_service=observability,
     )
+
+
+
+def _period_profit_tax_fraction(policy_result):
+    if not isinstance(policy_result, dict):
+        return None
+
+    if (
+        policy_result.get("error") is not False
+        or policy_result.get("configured") is not True
+    ):
+        return None
+
+    policy = policy_result.get("policy")
+    if not isinstance(policy, dict):
+        return None
+
+    mode = str(
+        policy.get("mode") or ""
+    ).upper()
+
+    if mode == "NONE":
+        return 0.0
+
+    if mode != "USN_INCOME":
+        return None
+
+    rate = policy.get("tax_rate")
+    if isinstance(rate, bool):
+        return None
+
+    try:
+        rate = float(rate)
+    except (TypeError, ValueError):
+        return None
+
+    if rate < 0.0 or rate > 100.0:
+        return None
+
+    return rate / 100.0
