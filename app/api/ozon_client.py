@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import time
 
 import requests
@@ -323,8 +325,14 @@ class OzonClient:
 
         if since is not None and to is not None:
             filter_data["visual_status_change_moment"] = {
-                "time_from": str(since),
-                "time_to": str(to)
+                "time_from": self._returns_timestamp(
+                    since,
+                    end_of_day=False
+                ),
+                "time_to": self._returns_timestamp(
+                    to,
+                    end_of_day=True
+                )
             }
 
         return self._post(
@@ -337,6 +345,34 @@ class OzonClient:
             timeout=30,
             max_attempts=3
         )
+
+    @staticmethod
+    def _returns_timestamp(
+        value,
+        end_of_day=False
+    ):
+
+        text = str(value or "").strip()
+
+        try:
+            datetime.strptime(
+                text,
+                "%Y-%m-%d"
+            )
+        except ValueError:
+            return text
+
+        if end_of_day:
+            return (
+                text
+                + "T23:59:59.999999999Z"
+            )
+
+        return (
+            text
+            + "T00:00:00Z"
+        )
+
 
     def get_fbo_cancel_reasons(self):
 
