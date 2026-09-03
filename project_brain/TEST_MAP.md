@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2041 passed on `189455bb5b44c47bbf5abf188d1b456dad14b1ba`.
+2171 passed on `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`.
 
-GitHub Actions push Verify #828 completed successfully for this exact main SHA.
+GitHub Actions push Verify #1064 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -4198,3 +4198,53 @@ Verification:
 - PR #387 synthetic `c5947439450297dabb353b3dfd125e3fc6417576`: Verify #1039, 2161 passed / 0 failed;
 - squash main `d845c7183ef5a914853a15b788e18b0cebfd1c93`: Verify #1040, 2161 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# External Operating Expense Coverage v1
+
+Boundaries:
+
+- `ExpenseRepository`
+- `PeriodProfitExternalExpenseEvidenceService`
+- `PeriodProfitQueryService`
+- `create_period_profit_query`
+- `build_period_profit_response`
+- `build_period_profit_coverage`
+- `confirm_expense_coverage.py`
+- Decision 038
+
+Tests:
+
+- `tests/test_external_operating_expense_coverage_v1261_v1270.py`
+- updated `tests/test_period_profit_factory.py`
+
+Проверяет:
+
+- explicit external expense coverage intervals are persisted and read by period;
+- coverage is complete only when confirmed intervals cover every requested calendar day;
+- empty uncovered periods remain unknown rather than zero;
+- empty fully covered periods are explicit confirmed zero expense;
+- partial expense evidence is labelled incomplete;
+- complete coverage permits a complete derived profit-after-external-expenses value;
+- invalid dates are rejected;
+- bool, NaN and infinite amounts are rejected;
+- external expense evidence is wired into the production Period Profit query;
+- Telegram distinguishes base profit from external-expense-adjusted views;
+- coverage exposes external expense completeness and totals;
+- comparison semantics stay on base Period Profit;
+- Ozon-account expenses already included in account net accrual are not deducted again;
+- return COGS recovery uncertainty and accounting-net-profit boundary remain unchanged;
+- factory wiring includes the external expense evidence service.
+
+Verification:
+
+- failed `55d8f189dc170cc524aa8798aea42b1b7ae6251c`: Verify #1054, 2150 passed / 11 failed, artifact 9894680388, digest `sha256:49302f69375d247b9094b7a58f1a16c5671124eb894eef0153edd3dc1276c376`;
+- failed `9f32163739d849dfe3681a9de6358fb64db40100`: Verify #1055, 2150 passed / 11 failed, artifact 9894698643, digest `sha256:e37593e820234269a9230e6be4f8c61fc591d7108f4093201bdb3192e09956d0`;
+- failed `e788e5110109eb678767313278580989b192f689`: Verify #1060, 2160 passed / 1 failed, artifact 9894794990, digest `sha256:af0ffe3ef3fe9ddfce906ac6bbb3a33c10f5ac445f1884705aa3b85e483fb1fc`;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `07f9a35eb238280e95b52bc14d18cc6aba735703`: Verify #1062, 2171 passed / 0 failed, artifact 9894853461, digest `sha256:9d28a3a5ae753f1215fd042622fd62d7e4985fa96eeba0f2f140318166617298`;
+- PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6`: Verify #1063, 2171 passed / 0 failed, artifact 9894897854, digest `sha256:9111b865c015e95c360ba417c3ef68f82377e82f9e2eddfc7c7e7d8c61ae93a0`;
+- squash main `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`: Verify #1064, 2171 passed / 0 failed, artifact 9894942156, digest `sha256:6ba30eda33b5a1315469e4fbf9253058d932cbc756e634b8996b2f31b2158e53`;
+- `externally_verified=False`.
+

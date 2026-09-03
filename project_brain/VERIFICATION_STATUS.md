@@ -4,52 +4,69 @@ Date: 2026-09-03
 
 ## Latest verified product baseline
 
-`d845c7183ef5a914853a15b788e18b0cebfd1c93`
+`875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`
 
 Latest merged production batch:
 
-`v1251-v1260: Return COGS Recovery Evidence`
+`v1261-v1270: External Operating Expense Coverage`
 
 ### Entering exact-main verification
-- exact main: `55942648266e9ca4fbb3d3380180c3a67bfc4c56`
-- Verify #1022
-- 2151 passed / 0 failed
-- artifact id: 9892287935
-- digest: `sha256:ed019db51ad4ac1660271bf36ff514010c02f507b85ebd95bea0057738b1396b`
+- exact main: `9a29e853727c82abdf75b1992c45c532bd45e3ef`
+- Verify #1050
+- 2161 passed / 0 failed
+- artifact id: 9894484795
+- digest: `sha256:0a864e6e4515eb024f13758d13d944907bcd4a72250cb7e5508e900145cab025`
 
 ### Failed intermediate evidence
-- exact SHA: `2339d8aa8da1ec43c3298be2da8506a1e6dd8b9b`
-- Verify #1033
-- 2159 passed / 2 failed
-- artifact id: 9894124132
-- digest: `sha256:aebeb9bd10d18a552aad913ac6389952dc54b96735ced94417e31777f3d4706b`
-- failures were test-contract issues only.
 
-This SHA remains failed evidence permanently.
+- exact SHA: `55d8f189dc170cc524aa8798aea42b1b7ae6251c`
+- Verify #1054
+- 2150 passed / 11 failed
+- artifact id: 9894680388
+- digest: `sha256:49302f69375d247b9094b7a58f1a16c5671124eb894eef0153edd3dc1276c376`
+- failure cause: external-expense coverage argument was wired before the coverage builder signature was extended.
+
+- exact SHA: `9f32163739d849dfe3681a9de6358fb64db40100`
+- Verify #1055
+- 2150 passed / 11 failed
+- artifact id: 9894698643
+- digest: `sha256:e37593e820234269a9230e6be4f8c61fc591d7108f4093201bdb3192e09956d0`
+- failure cause: response call wiring advanced before the response builder signature was extended.
+
+- exact SHA: `e788e5110109eb678767313278580989b192f689`
+- Verify #1060
+- 2160 passed / 1 failed
+- artifact id: 9894794990
+- digest: `sha256:af0ffe3ef3fe9ddfce906ac6bbb3a33c10f5ac445f1884705aa3b85e483fb1fc`
+- failure cause: factory test double had not yet accepted the external expense evidence dependency.
+
+These SHAs remain failed evidence permanently.
+
+Cancelled intermediate SHAs from this feature branch carry no transferable success claim.
 
 ### Exact final feature-head verification
-- exact SHA: `30f3edafd9d2af603f2277701cb13492a334dd30`
-- Verify #1038
-- 2161 passed / 0 failed
-- artifact id: 9894214090
-- digest: `sha256:1a438369ed77017cfb871ed31b8e4e6a8f1645789088bab1c0f792d0b1aaa1c3`
+- exact SHA: `07f9a35eb238280e95b52bc14d18cc6aba735703`
+- Verify #1062
+- 2171 passed / 0 failed
+- artifact id: 9894853461
+- digest: `sha256:9d28a3a5ae753f1215fd042622fd62d7e4985fa96eeba0f2f140318166617298`
 
 ### PR merge-ref integration verification
-- PR #387
-- synthetic SHA: `c5947439450297dabb353b3dfd125e3fc6417576`
-- Verify #1039
-- 2161 passed / 0 failed
-- artifact id: 9894260067
-- digest: `sha256:4395fe30324b1557496fd20f3bbeea103e3629581bd988144ded0bec7e03ac63`
+- PR #389
+- synthetic SHA: `77dd43cfeb36ebe0066f8747c6c51580083848a6`
+- Verify #1063
+- 2171 passed / 0 failed
+- artifact id: 9894897854
+- digest: `sha256:9111b865c015e95c360ba417c3ef68f82377e82f9e2eddfc7c7e7d8c61ae93a0`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `d845c7183ef5a914853a15b788e18b0cebfd1c93`
-- Verify #1040
-- 2161 passed / 0 failed
-- artifact id: 9894294668
-- digest: `sha256:a32f8b63ef84938477d4852fe0fcd0104206a38ae8962fa789926a3674dc94f6`
+- exact main: `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`
+- Verify #1064
+- 2171 passed / 0 failed
+- artifact id: 9894942156
+- digest: `sha256:6ba30eda33b5a1315469e4fbf9253058d932cbc756e634b8996b2f31b2158e53`
 
 ## Verification policy
 
