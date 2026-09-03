@@ -14,12 +14,12 @@ class PeriodProfitQueryService:
         summary_service,
         product_provider,
         return_evidence_service=None,
-        return_cogs_recovery_evidence_service=None,
         return_financial_operation_names=None,
         authorized_return_mapping=None,
         authorized_advertising_mapping=None,
         authorized_storage_mapping=None,
         mapping_observability_service=None,
+        return_cogs_recovery_evidence_service=None,
     ):
         self.summary_service = summary_service
         self.product_provider = product_provider
