@@ -1,0 +1,37 @@
+
+## 2026-09-04 — Return Inventory Recovery Evidence v1291-v1300
+
+- added Decision 040 for explicit return-inventory recovery evidence;
+- added append-only `return_inventory_recovery_history` with exact return ID, posting number, SKU, positive quantity, explicit recovery state, confirmation date and source;
+- supported recovery states are exactly `SALEABLE_RESTORED` and `NON_SALEABLE`;
+- missing recovery evidence remains unknown rather than becoming saleable, non-saleable or zero;
+- duplicate return/date evidence is rejected and identity drift becomes conflict/unconfirmed;
+- saleable recovery requires exact candidate quantity match;
+- compensated returns remain outside automatic saleable-recovery candidacy;
+- current Ozon stock snapshot or stock delta is never automatic proof of return recovery;
+- explicit saleable recovery may now be confirmed independently from sale lineage and historical cost basis;
+- recovery accounting-period attribution, originating sale quantity and compensation accounting treatment remain unconfirmed;
+- `confirmed_cogs_recovery_amount=0.0`, `profit_adjustment_allowed=False`, `automatic_recovery_allowed=False`;
+- Period Profit formula remains unchanged;
+- failed `41b409edcd2a96016bf49e8e8303a7aec00c1886`: Verify #1125 compile failure, no verification artifact;
+- failed `4643126328c9e461712aae30f5f7a694a7549e89`: Verify #1126 compile failure, no verification artifact;
+- failed `d90549d21c8fb46b0a9012c205520c68e012dbfa`: Verify #1127 compile failure, no verification artifact;
+- failed `13e4cfbacf617bb60c5b897137b619f079c3d500`: Verify #1128, 2203 passed / 5 failed, artifact 9906768012, digest `sha256:59dd7f0d342951b258bdef1d45b934cd107a858fc986d9326d1f06df016c2944`;
+- final feature `1a83e5466bfebd79370e9576ce00b43b79bb668d`: Verify #1129, 2208 passed / 0 failed, artifact 9906795648, digest `sha256:a20b8f66b8d28365b7c9d887250782e7ab01d7885ddcca75c5bfab90541bd875`;
+- PR #395 synthetic `7d7b3a5e180a2505850345cc753a7d40ba391cbf`: Verify #1130, 2208 passed / 0 failed, artifact 9906847145, digest `sha256:36f7babc92f4f0d39e708927a61e95122eada8b76892dc4eb7da8912f3e01fa4`;
+- squash main `3f82b65054a2a7a48b9918803c197377bdb3557f`: Verify #1131, 2208 passed / 0 failed, artifact 9906878610, digest `sha256:45eb967f32521ae3c7a2007663f6acfffcf6fa2f1fbdddb58bc332f56a02311d`;
+- Decision 036/037/038/039 remain unchanged;
+- no Ozon mutation or Product Decision/Product Task Draft execution;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-04 — Project Brain reconciliation after v1291-v1300
+
+- reconciles PROJECT_STATE, CURRENT_STATE, ROADMAP, TEST_MAP, VERIFICATION_STATUS and CHANGELOG to exact verified product main `3f82b65054a2a7a48b9918803c197377bdb3557f` / Verify #1131 / 2208 passed;
+- adds `CURRENT_CHECKPOINT_V1291_V1300.md` with Decision 040 and exact SHA-bound product verification evidence;
+- preserves all failed #1125-#1128 evidence without reclassification;
+- DECISIONS is not changed in the docs package because Decision 040 is already part of the production commit;
+- next material accounting gap is recovery period attribution + originating sale quantity consistency + compensation double-count protection;
+- docs only; no runtime/data change in reconciliation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
