@@ -53,6 +53,16 @@ def build_period_profit_coverage(
         "storage_financial_evidence_status": storage["status"],
         "storage_financial_evidence_available": storage["available"],
         "storage_financial_evidence_changes_profit": False,
+        "account_level_ozon_accruals_included": (
+            source.get("account_level_ozon_accruals_included")
+            is True
+        ),
+        "product_revenue_reconciled": source.get(
+            "product_revenue_reconciled"
+        ),
+        "ozon_account_reconciliation": source.get(
+            "ozon_account_reconciliation"
+        ),
         "accounting_net_profit_claim_allowed": False,
         "read_only": True,
         "executed": False,
