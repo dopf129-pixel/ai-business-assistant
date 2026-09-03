@@ -3886,3 +3886,30 @@ SHA-bound evidence:
 - next live validation target is the seller's Period Profit output after local redeploy;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Period Profit Tax Rate Unit Integrity v1211-v1220
+
+- fixed live Period Profit tax where configured 6% was applied as multiplier 6.0;
+- production Period Profit now reads validated TaxConfigurationService policy instead of direct config.TAX_RATE;
+- USN Income percent values convert explicitly from percentage units to fractional multipliers;
+- NONE converts to zero;
+- unsupported tax modes and invalid/non-finite values fail closed;
+- PeriodProfitSummaryService rejects multipliers above 1.0 so 600% tax cannot silently recur;
+- seller live sample regression now expects 80 902.27 ₽ tax, 310 701.55 ₽ operational profit and 23.04% margin;
+- failed `a7d5cead4c7c49907d6d045b54a3cec30d48efad`: Verify #953, 2110 passed / 1 failed, artifact 9887077119, digest `sha256:51184585e794907d4c730305e2af0cfb98e895ed6153babb75ec997a803c0809`;
+- failed `ee463cd1000113998ae5b895da02334bb5a5f495`: Verify #954, 2120 passed / 1 failed, artifact 9887087702, digest `sha256:118d2dad053f08adabe6605aa1790a2600628b9a9ece50c53b62f012ac2e0689`;
+- final feature `4c50429bc4c2f6515d80b497b85fe8c9663e24eb`: Verify #955, 2121 passed / 0 failed, artifact 9887122511, digest `sha256:ea8eeeb352ab0309dda2fca54573b6211c052dbbf51996699084edfc68811a58`;
+- PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af`: Verify #956, 2121 passed / 0 failed, artifact 9887163034, digest `sha256:5f6b8d4487c21eee14d87b245881dfe8686ac4467514b84e750da4851cb81f69`;
+- squash main `2f438bd6bb739938cee4fe56b83af8f4a563f942`: Verify #957, 2121 passed / 0 failed, artifact 9887195049, digest `sha256:414836b82a65d5a73a08ad2622e5b7b579262361319c384272f0863cbd45b976`;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- Decision 036 unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1211-v1220
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1211_V1220.md`;
+- reconciled exact product baseline to `2f438bd6bb739938cee4fe56b83af8f4a563f942` / Verify #957 / 2121 passed;
+- next seller-requested task: show percent-of-revenue for each Period Profit monetary line;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
