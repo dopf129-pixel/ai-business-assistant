@@ -596,6 +596,36 @@ def _append_return_cogs_recovery_evidence(
     historical_value = source.get(
         "candidate_value_at_historical_cost"
     )
+    inventory_candidates = int(
+        source.get(
+            "inventory_recovery_candidate_record_count"
+        )
+        or 0
+    )
+    inventory_saleable = int(
+        source.get(
+            "inventory_recovery_saleable_candidate_record_count"
+        )
+        or 0
+    )
+    inventory_non_saleable = int(
+        source.get(
+            "inventory_recovery_non_saleable_candidate_record_count"
+        )
+        or 0
+    )
+    inventory_state_complete = (
+        source.get(
+            "inventory_recovery_state_complete"
+        )
+        is True
+    )
+    inventory_available = (
+        source.get(
+            "inventory_recovery_evidence_available"
+        )
+        is True
+    )
 
     lines.extend([
         "",
@@ -677,40 +707,69 @@ def _append_return_cogs_recovery_evidence(
         )
         is True
     )
-    if (
-        not saleable_confirmed
-        and not historical_cost_confirmed
-        and not sale_period_confirmed
-    ):
-        limitation = (
-            "не подтверждены продаваемый остаток, "
-            "историческая себестоимость и принадлежность "
-            "исходной продажи выбранному периоду."
+
+    if inventory_candidates > 0:
+        if saleable_confirmed:
+            lines.append(
+                "• Восстановление продаваемого остатка: "
+                f"подтверждено для {inventory_saleable}/"
+                f"{inventory_candidates} return-records."
+            )
+        elif inventory_state_complete:
+            lines.append(
+                "• Recovery-state возвратов: "
+                f"продаваемый остаток {inventory_saleable}/"
+                f"{inventory_candidates}, "
+                f"непродаваемый {inventory_non_saleable}/"
+                f"{inventory_candidates}; "
+                "полное saleable recovery не подтверждено."
+            )
+        elif inventory_available:
+            lines.append(
+                "• Recovery-state возвратов: "
+                "explicit evidence неполный; "
+                "отсутствующие подтверждения не считаются "
+                "восстановленным остатком."
+            )
+        else:
+            lines.append(
+                "• Recovery-state возвратов: "
+                "explicit evidence недоступен."
+            )
+
+        source.get(
+            "saleable_inventory_recovery_confirmed"
         )
-    else:
-        blockers = []
-        if not saleable_confirmed:
-            blockers.append(
-                "продаваемый/восстановленный остаток"
-            )
-        if not historical_cost_confirmed:
-            blockers.append(
-                "историческая себестоимость"
-            )
-        if not sale_period_confirmed:
-            blockers.append(
-                "принадлежность исходной продажи "
-                "выбранному периоду"
-            )
+        is True
+    )
+    blockers = []
+    if not saleable_confirmed:
+        blockers.append(
+            "продаваемый/восстановленный остаток"
+        )
+    if not historical_cost_confirmed:
+        blockers.append(
+            "историческая себестоимость"
+        )
+    if not sale_period_confirmed:
+        blockers.append(
+            "принадлежность исходной продажи "
+            "выбранному периоду"
+        )
+
+    if blockers:
         limitation = (
             "остаются неподтверждёнными: "
             + ", ".join(blockers)
             + "."
-            if blockers
-            else (
-                "автоматический COGS reversal "
-                "по-прежнему не разрешён."
-            )
+        )
+    else:
+        limitation = (
+            "sale-lineage, историческая себестоимость "
+            "и saleable recovery подтверждены, но ещё "
+            "не доказаны период признания recovery, "
+            "количество исходной продажи и "
+            "compensation accounting."
         )
 
     lines.append(
