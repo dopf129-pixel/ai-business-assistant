@@ -3900,3 +3900,42 @@ Verification:
 - PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61`: Verify #885, 2081 passed / 0 failed;
 - squash main `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`: Verify #886, 2081 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Tax Policy Production Availability v1
+
+Boundaries:
+
+- `TaxConfigurationService.get_policy`
+- `TaxConfigurationService._get_environment_policy`
+- `TaxConfigurationService._validate_policy`
+- repository `data/tax_configuration.json`
+- `telegram_core_factory.create_telegram_core`
+- `ProductUnitEconomicsProvider.build_current`
+
+Tests:
+
+- `tests/test_tax_policy_production_availability_v1181_v1190.py`
+
+Проверяет:
+
+- repository production policy is explicit USN Income 6%;
+- explicit env policy is used only when persisted file is absent;
+- missing file + missing env remains unconfigured;
+- invalid env policy fails closed;
+- explicit NONE env is a real configured zero-tax policy;
+- persisted policy wins over env;
+- malformed persisted policy does not silently fall back;
+- production Telegram core receives repository tax policy;
+- hook-2-like current economics calculates 6.00 ₽ tax;
+- hook-2-like base unit profit is 35.83 ₽ before return-risk adjustment;
+- unconfigured tax still blocks profit instead of assuming zero;
+- no Ozon mutation or execution changes.
+
+Verification:
+
+- feature `1d0df2799fb87b57d916843a96a080389e2ac07b`: Verify #900, 2091 passed / 0 failed;
+- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1`: Verify #901, 2091 passed / 0 failed;
+- squash main `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`: Verify #902, 2091 passed / 0 failed;
+- `externally_verified=False`.
