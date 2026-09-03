@@ -16,79 +16,83 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1191-v1200: Period Profit Returns Protobuf Timestamp Compatibility`
+`v1201-v1210: Period Profit Data Completeness Integrity`
 
 Goal:
 
-Fix live Period Profit failure caused by sending date-only values to Ozon Returns API protobuf Timestamp fields.
+Prevent Period Profit from emitting false-success zero summaries when persisted products are valid SQLite tuples, and make Returns API counts pagination-aware rather than treating the 500-record page cap as an exact total.
 
 Immediately preceding verified package:
 
-`v1181-v1190: Tax Policy Production Availability`
+`v1191-v1200: Period Profit Returns Protobuf Timestamp Compatibility`
 
 ## Stable verification
 
 Latest exact production main:
 
-`c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`
+`7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`
 
-GitHub Actions push Verify #920:
+GitHub Actions push Verify #939:
 
-2101 passed / 0 failed.
+2111 passed / 0 failed.
 
-## Root cause and fix
+## Root causes fixed
 
-Period Profit loads read-only return evidence via `POST /v1/returns/list`.
+1. `ProductService.load_products()` returns persisted products as SQLite tuples `(id, offer_id, sku)`. Period Profit previously accepted only dicts and silently skipped every tuple, producing a misleading 0.00 ₽ summary over zero products.
 
-The filter `visual_status_change_moment.time_from/time_to` was receiving date-only values such as `2026-09-03`, but Ozon expects RFC3339/protobuf Timestamp values.
+2. Period Profit return evidence loaded only one `/v1/returns/list` page with `limit=500`, so a displayed count of exactly 500 could merely be the first-page cap.
 
-Now:
+## Verified behavior
 
-- date-only start becomes `YYYY-MM-DDT00:00:00Z`;
-- date-only end becomes `YYYY-MM-DDT23:59:59.999999999Z`;
-- full RFC3339 timestamps are preserved unchanged;
-- custom and preset Period Profit ranges use the corrected API boundary;
-- return evidence remains read-only and non-financial.
+- persisted product tuples are normalized into Period Profit product records;
+- existing dict product inputs remain compatible;
+- no usable products => `PERIOD_PROFIT_PRODUCTS_UNAVAILABLE`, never a false zero-profit success;
+- Returns evidence paginates with `has_next` + `last_id`;
+- pagination is bounded to 10 pages;
+- complete return counts are marked exact;
+- incomplete return counts are explicitly lower bounds;
+- Telegram wording says `как минимум N` for incomplete return evidence;
+- legacy READY return-evidence response fixtures remain compatible.
 
 ## Production evidence
 
 Entering exact verified docs-main:
 
-- `d3f32e2ca2e30192a59c4551cf5633dfa0941ec6` / Verify #912 / 2091 passed / 0 failed.
+- `5e8e74a78e2c5aa41ed59378c27a0f1ed7b55397` / Verify #930 / 2101 passed / 0 failed.
+
+Failed intermediate:
+
+- `e3d8b2ed1600e3759135bda4f62865ba38a43ae9` / Verify #935 / 2103 passed / 2 failed.
+- `49c02ae1790b7d395794932e7ac4fa95cbac1644` / Verify #936 / 2109 passed / 2 failed.
+- both failures were legacy return-evidence response compatibility, fixed on final feature head.
 
 Final feature:
 
-- `9e2c5b27a1df9f32c8e950766abc809ba93f7976` / Verify #918 / 2101 passed / 0 failed.
+- `16c53622612b72bce2aa43fd97d5ff66d47466c3` / Verify #937 / 2111 passed / 0 failed.
 
 PR integration:
 
-- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5` / Verify #919 / 2101 passed / 0 failed.
+- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a` / Verify #938 / 2111 passed / 0 failed.
 
 Squash main:
 
-- `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89` / Verify #920 / 2101 passed / 0 failed.
-
-No failed production SHA occurred in this package.
+- `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7` / Verify #939 / 2111 passed / 0 failed.
 
 ## Preserved boundaries
 
 - Decision 036 read-only analyst boundary;
-- no Product Decision execution;
-- no Product Task Draft execution;
-- no Ozon mutation;
 - no finance formula change;
-- no return-cost extrapolation;
+- no return-cost inference;
+- no Product Decision/Product Task Draft execution;
+- no Ozon mutation;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
-## Development direction
+## Next analytical priorities
 
-Next analytical priorities:
-
+- validate live Period Profit figures after local redeploy;
 - distinguish known base unit profit from unavailable return-adjusted profit in Telegram;
-- seller-facing "what needs attention today" summary;
-- sales/profit period comparison;
+- seller-facing daily attention summary;
 - stock/out-of-stock risk;
 - advertising-efficiency analysis;
-- returns/non-buyout impact;
-- explainable SKU prioritization.
+- returns/non-buyout impact.
