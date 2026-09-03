@@ -1,3 +1,8 @@
+from period_profit_telegram_contract import (
+    build_period_profit_telegram_menu,
+)
+
+
 class AssistantButtonHandlerService:
 
     PRODUCT_DECISIONS_PAGE_SIZE = 8
@@ -190,7 +195,8 @@ class AssistantButtonHandlerService:
         product_decision_learning_coverage_builder=None,
         product_decision_persistence_verifier=None,
         product_decision_user_action_guidance_builder=None,
-        product_decision_user_action_checklist_builder=None
+        product_decision_user_action_checklist_builder=None,
+        period_profit_runtime_service=None
     ):
 
         self.assistant = (
@@ -243,6 +249,11 @@ class AssistantButtonHandlerService:
 
         self.product_decision_user_action_checklist_builder = (
             product_decision_user_action_checklist_builder
+        )
+
+
+        self.period_profit_runtime_service = (
+            period_profit_runtime_service
         )
 
 
@@ -427,6 +438,22 @@ class AssistantButtonHandlerService:
         user_id=None
     ):
 
+        if button_id == "period_profit":
+
+            return (
+                self._open_period_profit_menu()
+            )
+
+        if button_id.startswith(
+            "period_profit:"
+        ):
+
+            return (
+                self._show_period_profit(
+                    button_id
+                )
+            )
+
         if button_id == "returns_finance_impact":
 
             return (
@@ -607,6 +634,129 @@ class AssistantButtonHandlerService:
             "error": True,
             "message": "Кнопка неизвестна"
         }
+
+
+    def _open_period_profit_menu(
+        self
+    ):
+
+        if (
+            not self.period_profit_runtime_service
+            or not self.keyboard_service
+        ):
+
+            return {
+                "error": True,
+                "message": "Прибыль за период недоступна",
+                "executed": False
+            }
+
+        menu = (
+            build_period_profit_telegram_menu()
+        )
+
+        if (
+            not isinstance(menu, dict)
+            or menu.get("read_only") is not True
+            or menu.get("executed") is not False
+            or not isinstance(menu.get("buttons"), list)
+        ):
+
+            return {
+                "error": True,
+                "message": "INVALID_PERIOD_PROFIT_TELEGRAM_MENU",
+                "executed": False
+            }
+
+        keyboard = (
+            self.keyboard_service
+            .build_period_profit_keyboard(
+                menu["buttons"]
+            )
+        )
+
+        if (
+            not isinstance(keyboard, dict)
+            or keyboard.get("error") is not False
+            or keyboard.get("type") != "inline_keyboard"
+        ):
+
+            return {
+                "error": True,
+                "message": "INVALID_PERIOD_PROFIT_TELEGRAM_KEYBOARD",
+                "executed": False
+            }
+
+        return {
+            "error": False,
+            "message": menu.get(
+                "text",
+                "За какой период показать прибыль?"
+            ),
+            "keyboard": keyboard,
+            "read_only": True,
+            "executed": False
+        }
+
+
+    def _show_period_profit(
+        self,
+        callback
+    ):
+
+        if not self.period_profit_runtime_service:
+
+            return {
+                "error": True,
+                "message": "Прибыль за период недоступна",
+                "executed": False
+            }
+
+        try:
+
+            result = (
+                self.period_profit_runtime_service
+                .handle_callback(
+                    callback
+                )
+            )
+
+        except Exception:
+
+            return {
+                "error": True,
+                "message": "PERIOD_PROFIT_TELEGRAM_QUERY_FAILED",
+                "executed": False
+            }
+
+        if (
+            not isinstance(result, dict)
+            or type(result.get("error")) is not bool
+        ):
+
+            return {
+                "error": True,
+                "message": "INVALID_PERIOD_PROFIT_TELEGRAM_RESULT",
+                "executed": False
+            }
+
+        if result.get("error") is True:
+            return dict(result)
+
+        if (
+            result.get("read_only") is not True
+            or result.get("executed") is not False
+            or not isinstance(result.get("text"), str)
+            or not result.get("text").strip()
+        ):
+
+            return {
+                "error": True,
+                "message": "INVALID_PERIOD_PROFIT_TELEGRAM_RESULT",
+                "executed": False
+            }
+
+        return dict(result)
 
 
     def _show_history(

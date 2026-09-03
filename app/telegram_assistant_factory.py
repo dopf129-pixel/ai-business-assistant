@@ -114,6 +114,13 @@ def create_telegram_assistant():
     )
 
 
+    period_profit_runtime_service = (
+        system.get(
+            "period_profit_runtime_service"
+        )
+    )
+
+
     unit_economics_query = (
         create_current_unit_economics_query(
             core_components=system
@@ -216,6 +223,10 @@ def create_telegram_assistant():
             product_decision_user_action_checklist_builder=(
                 build_product_decision_user_action_checklist
             )
+,
+            period_profit_runtime_service=(
+                period_profit_runtime_service
+            )
         )
     )
 
@@ -295,6 +306,11 @@ def create_telegram_assistant():
 
     runner.unit_economics_query = (
         unit_economics_query
+    )
+
+
+    runner.period_profit_runtime_service = (
+        period_profit_runtime_service
     )
 
 

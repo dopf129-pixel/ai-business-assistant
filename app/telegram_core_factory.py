@@ -210,6 +210,18 @@ from services.assistant_memory_service import (
     AssistantMemoryService
 )
 
+from period_profit_factory import (
+    create_period_profit_query
+)
+
+from period_profit_mapping_registry_factory import (
+    create_period_profit_mapping_registry
+)
+
+from services.assistant_period_profit_runtime_service import (
+    AssistantPeriodProfitRuntimeService
+)
+
 
 
 def create_telegram_core(
@@ -668,6 +680,25 @@ def create_telegram_core(
     )
 
 
+    period_profit_mapping_registry = (
+        create_period_profit_mapping_registry()
+    )
+
+
+    period_profit_query = (
+        create_period_profit_query(
+            mapping_registry=period_profit_mapping_registry
+        )
+    )
+
+
+    period_profit_runtime = (
+        AssistantPeriodProfitRuntimeService(
+            query_service=period_profit_query
+        )
+    )
+
+
     entry = (
         AssistantEntryService(
             main_flow_service=main_flow,
@@ -682,6 +713,9 @@ def create_telegram_core(
             ),
             task_persistence_operational_runtime_service=(
                 task_persistence_operational_runtime
+            ),
+            period_profit_runtime_service=(
+                period_profit_runtime
             )
         )
     )
@@ -802,6 +836,12 @@ def create_telegram_core(
             tax_configuration,
 
         "unit_economics_query":
-            unit_economics_query
+            unit_economics_query,
+
+        "period_profit_query":
+            period_profit_query,
+
+        "period_profit_runtime_service":
+            period_profit_runtime
 
     }
