@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1201_V1210.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1211_V1220.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1201_V1210.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1211_V1220.md`
 
 
 ## Current integration blocker
@@ -532,3 +532,11 @@ Next seller-facing analyst priority:
 - validate live Period Profit totals after local redeploy;
 - distinguish known base unit profit from unavailable return-adjusted profit;
 - continue read-only daily attention and operational analytics.
+
+[x] Period Profit Tax Rate Unit Integrity
+
+Next seller-facing analyst priority:
+- add percent-of-revenue in parentheses for each Period Profit monetary line;
+- revenue = 100%;
+- when revenue is zero, suppress percentage rather than inventing it;
+- keep amount values and read-only semantics unchanged.
