@@ -208,6 +208,198 @@ class FinanceService:
             result
         )
 
+    def get_daily_sale_posting_evidence(
+        self,
+        accrual_date
+    ):
+
+        response = self._get_accruals_by_day(
+            accrual_date
+        )
+
+        if (
+            not isinstance(response, dict)
+            or response.get("error") is True
+        ):
+            return {
+                "error": True,
+                "code": (
+                    "FINANCE_SALE_POSTING_EVIDENCE_UNAVAILABLE"
+                ),
+                "date": str(accrual_date),
+                "complete": False,
+                "records": [],
+            }
+
+        accruals = response.get(
+            "accruals"
+        )
+        if not isinstance(
+            accruals,
+            list
+        ):
+            return {
+                "error": True,
+                "code": (
+                    "FINANCE_SALE_POSTING_EVIDENCE_INVALID"
+                ),
+                "date": str(accrual_date),
+                "complete": False,
+                "records": [],
+            }
+
+        records = []
+        malformed_sale_records = 0
+
+        for accrual in accruals:
+
+            if not isinstance(
+                accrual,
+                dict
+            ):
+                malformed_sale_records += 1
+                continue
+
+            if accrual.get(
+                "accrued_category"
+            ) != "POSTING":
+                continue
+
+            posting = accrual.get(
+                "posting"
+            )
+            if posting is None:
+                continue
+
+            if not isinstance(
+                posting,
+                dict
+            ):
+                malformed_sale_records += 1
+                continue
+
+            products = posting.get(
+                "products"
+            )
+            if products is None:
+                continue
+
+            if not isinstance(
+                products,
+                list
+            ):
+                malformed_sale_records += 1
+                continue
+
+            posting_number = str(
+                accrual.get(
+                    "unit_number"
+                )
+                or ""
+            ).strip()
+
+            for product in products:
+
+                if not isinstance(
+                    product,
+                    dict
+                ):
+                    malformed_sale_records += 1
+                    continue
+
+                commission = product.get(
+                    "commission"
+                )
+                if commission is None:
+                    continue
+
+                if not isinstance(
+                    commission,
+                    dict
+                ):
+                    malformed_sale_records += 1
+                    continue
+
+                sale_amount = commission.get(
+                    "sale_amount"
+                )
+                if sale_amount is None:
+                    continue
+
+                if not isinstance(
+                    sale_amount,
+                    dict
+                ):
+                    malformed_sale_records += 1
+                    continue
+
+                raw_amount = sale_amount.get(
+                    "amount"
+                )
+                if raw_amount is None:
+                    continue
+
+                try:
+                    amount = Decimal(
+                        str(raw_amount)
+                    )
+                except (
+                    InvalidOperation,
+                    TypeError,
+                    ValueError
+                ):
+                    malformed_sale_records += 1
+                    continue
+
+                if not amount.is_finite():
+                    malformed_sale_records += 1
+                    continue
+
+                if amount <= Decimal("0"):
+                    continue
+
+                sku = str(
+                    product.get("sku")
+                    or ""
+                ).strip()
+
+                if (
+                    not posting_number
+                    or not sku
+                ):
+                    malformed_sale_records += 1
+                    continue
+
+                records.append({
+                    "posting_number": posting_number,
+                    "sku": sku,
+                    "accrual_date": str(
+                        accrual_date
+                    ),
+                    "source": (
+                        "OZON_FINANCE_ACCRUAL_BY_DAY"
+                    ),
+                })
+
+        return {
+            "error": False,
+            "status": (
+                "FINANCE_SALE_POSTING_EVIDENCE_READY"
+                if malformed_sale_records == 0
+                else "FINANCE_SALE_POSTING_EVIDENCE_PARTIAL"
+            ),
+            "date": str(accrual_date),
+            "complete": (
+                malformed_sale_records == 0
+            ),
+            "record_count": len(records),
+            "malformed_sale_record_count": (
+                malformed_sale_records
+            ),
+            "records": records,
+        }
+
+
     def _get_accruals_by_day(
         self,
         accrual_date
