@@ -38,7 +38,7 @@ def test_v1231_first_accrual_page_sends_required_empty_last_id():
         "2026-06-06"
     )
 
-    assert result["error"] is not True
+    assert result.get("error") is not True
     assert client.calls[0]["endpoint"] == (
         "/v1/finance/accrual/by-day"
     )
