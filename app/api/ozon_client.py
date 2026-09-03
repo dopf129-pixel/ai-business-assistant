@@ -431,14 +431,23 @@ class OzonClient:
                 max_attempts=3
             )
 
-            if (
-                not isinstance(
-                    response,
-                    dict
-                )
-                or response.get(
-                    "error"
-                )
+            if not isinstance(
+                response,
+                dict
+            ):
+                return {
+                    "error": True,
+                    "code": (
+                        "OZON_FINANCE_ACCRUAL_RESPONSE_INVALID"
+                    ),
+                    "message": (
+                        "Некорректный ответ Ozon "
+                        "по начислениям за день"
+                    )
+                }
+
+            if response.get(
+                "error"
             ):
                 return response
 
