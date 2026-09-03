@@ -1802,3 +1802,47 @@ Action Plan and Business Planner result integrity had been hardened.
 Status:
 
 Implemented
+
+---
+
+## Decision 036
+
+Date:
+
+2026-09-03
+
+Topic:
+
+Permanent Read-Only Ozon Analyst Product Boundary
+
+Decision:
+
+AI Business Assistant is a seller-facing analyst and advisor, not an autonomous
+executor of Ozon business mutations.
+
+Rules:
+
+- production Ozon integration is read-only from the assistant's product boundary;
+- the assistant may analyze seller/business evidence, compare periods, detect
+  anomalies, rank priorities, explain reasons, recommend actions and prepare
+  non-executable drafts/checklists;
+- the assistant must not change prices;
+- the assistant must not change advertising budgets, bids or campaign state;
+- the assistant must not create replenishment/stock mutations;
+- the assistant must not mutate product-card content or other seller state;
+- Product Decision confirmation remains stored advisory intent, not execution permission;
+- Product Task Draft remains a review artifact and never becomes executable;
+- no future package may add Ozon mutation merely by adding authorization or a new
+  execution workflow; changing this product boundary requires an explicit product
+  decision that supersedes this Decision;
+- fail-closed validation must reject execution-adjacent success claims on
+  read-only analytical surfaces.
+
+Reason:
+
+The intended product role is an analytical assistant for the seller. Operational
+actions on Ozon remain under human control outside the assistant.
+
+Status:
+
+Implemented
