@@ -16,83 +16,79 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1181-v1190: Tax Policy Production Availability`
+`v1191-v1200: Period Profit Returns Protobuf Timestamp Compatibility`
 
 Goal:
 
-Restore the validated production tax policy for clean Telegram deployments so current unit economics can calculate tax and base profit, while preserving fail-closed unknown-tax semantics when no explicit policy exists.
+Fix live Period Profit failure caused by sending date-only values to Ozon Returns API protobuf Timestamp fields.
 
 Immediately preceding verified package:
 
-`v1171-v1180: Telegram Custom Period Date Input`
+`v1181-v1190: Tax Policy Production Availability`
 
 ## Stable verification
 
 Latest exact production main:
 
-`9c9d379e36edf2123a466ad2b3cd1d000d81bae3`
+`c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`
 
-GitHub Actions push Verify #902:
+GitHub Actions push Verify #920:
 
-2091 passed / 0 failed.
+2101 passed / 0 failed.
 
-Preserved product boundary:
+## Root cause and fix
 
-- assistant remains read-only analyst/advisor;
-- validated production policy is USN Income 6%;
-- persisted tax configuration is explicit and non-secret;
-- explicit environment tax policy is accepted only when `TAX_MODE` is actually present;
-- missing tax policy remains unknown and is never converted to zero;
-- malformed persisted tax policy remains fail-closed;
-- no finance formula change;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- `externally_verified=False`.
+Period Profit loads read-only return evidence via `POST /v1/returns/list`.
+
+The filter `visual_status_change_moment.time_from/time_to` was receiving date-only values such as `2026-09-03`, but Ozon expects RFC3339/protobuf Timestamp values.
+
+Now:
+
+- date-only start becomes `YYYY-MM-DDT00:00:00Z`;
+- date-only end becomes `YYYY-MM-DDT23:59:59.999999999Z`;
+- full RFC3339 timestamps are preserved unchanged;
+- custom and preset Period Profit ranges use the corrected API boundary;
+- return evidence remains read-only and non-financial.
 
 ## Production evidence
 
 Entering exact verified docs-main:
 
-- `8ca28c36249a052fdf83cfd5ab86a13d986cbb1c` / Verify #896 / 2081 passed / 0 failed.
+- `d3f32e2ca2e30192a59c4551cf5633dfa0941ec6` / Verify #912 / 2091 passed / 0 failed.
 
 Final feature:
 
-- `1d0df2799fb87b57d916843a96a080389e2ac07b` / Verify #900 / 2091 passed / 0 failed.
+- `9e2c5b27a1df9f32c8e950766abc809ba93f7976` / Verify #918 / 2101 passed / 0 failed.
 
 PR integration:
 
-- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1` / Verify #901 / 2091 passed / 0 failed.
+- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5` / Verify #919 / 2101 passed / 0 failed.
 
 Squash main:
 
-- `9c9d379e36edf2123a466ad2b3cd1d000d81bae3` / Verify #902 / 2091 passed / 0 failed.
+- `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89` / Verify #920 / 2101 passed / 0 failed.
 
 No failed production SHA occurred in this package.
 
-## Seller-facing result
+## Preserved boundaries
 
-For the verified hook-2-like current-economics sample at 100 ₽:
-
-- commission: 17.00 ₽;
-- logistics: 17.54 ₽;
-- last mile: 1.54 ₽;
-- acquiring: 1.09 ₽;
-- product cost: 21.00 ₽;
-- tax: 6.00 ₽;
-- base net profit before return-risk adjustment: 35.83 ₽.
-
-Returns/non-buyout evidence remains a separate completeness boundary and is not assumed to be zero.
+- Decision 036 read-only analyst boundary;
+- no Product Decision execution;
+- no Product Task Draft execution;
+- no Ozon mutation;
+- no finance formula change;
+- no return-cost extrapolation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
 
 ## Development direction
 
 Next analytical priorities:
 
-- improve unit-economics presentation when base profit is known but returns evidence is incomplete;
+- distinguish known base unit profit from unavailable return-adjusted profit in Telegram;
 - seller-facing "what needs attention today" summary;
-- sales and profit period comparison;
+- sales/profit period comparison;
 - stock/out-of-stock risk;
-- advertising-efficiency analysis from read-only evidence;
+- advertising-efficiency analysis;
 - returns/non-buyout impact;
 - explainable SKU prioritization.
-
-Do not add Ozon mutation/execution capability.
