@@ -10,6 +10,19 @@ class Costs: pass
 class Ozon: pass
 
 
+class TaxConfig:
+    def get_policy(self):
+        return {
+            "error": False,
+            "configured": True,
+            "policy": {
+                "mode": "USN_INCOME",
+                "tax_rate": 6.0,
+                "minimum_tax_rate": 1.0,
+            },
+        }
+
+
 class ReturnEvidence:
     def __init__(self, ozon_client): self.ozon_client = ozon_client
 
@@ -49,7 +62,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
-    monkeypatch.setattr(factory, "TAX_RATE", 0.06)
+    monkeypatch.setattr(factory, "TaxConfigurationService", TaxConfig)
 
     query = factory.create_period_profit_query()
     assert isinstance(query.summary_service.finance_service, Finance)

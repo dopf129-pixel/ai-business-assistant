@@ -29,7 +29,7 @@ class PeriodProfitSummaryService:
     def __init__(self, finance_service, cost_service, tax_rate=0.06):
         self.finance_service = finance_service
         self.cost_service = cost_service
-        self.tax_rate = self._non_negative_number(tax_rate)
+        self.tax_rate = self._tax_fraction(tax_rate)
 
     def calculate(self, date_from, date_to, products):
         start = self._date(date_from)
@@ -500,6 +500,17 @@ class PeriodProfitSummaryService:
         if not isfinite(number):
             return None
 
+        return number
+
+    @classmethod
+    def _tax_fraction(cls, value):
+        number = cls._number(value)
+        if (
+            number is None
+            or number < 0.0
+            or number > 1.0
+        ):
+            return None
         return number
 
     @classmethod
