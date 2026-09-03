@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2121 passed on `2f438bd6bb739938cee4fe56b83af8f4a563f942`.
+2131 passed on `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`.
 
-GitHub Actions push verification run #957 completed successfully for this exact main SHA.
+GitHub Actions push verification run #972 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3419,3 +3419,45 @@ Preserved:
 
 Next seller-requested presentation work:
 - add percent-of-revenue in parentheses for each Period Profit monetary line.
+
+---
+
+# Period Profit Revenue Share Presentation v1221-v1230 — 2026-09-03
+
+Completed:
+
+[x] Revenue line shows 100.00%
+
+[x] Ozon net accrual shows share of revenue
+
+[x] Commission / logistics / acquiring / other fees show share of revenue
+
+[x] Product cost shows share of revenue
+
+[x] Tax shows share of revenue
+
+[x] Profit shows share of revenue
+
+[x] Negative profit keeps negative share
+
+[x] Zero revenue suppresses derived shares
+
+[x] Existing comparison percentage meaning preserved
+
+[x] Existing margin and scope warnings preserved
+
+Verification:
+
+- entering exact main `5cb69fed7bc44fcd5f66a8a004e625bee9993953`: Verify #967, 2121 passed / 0 failed;
+- final feature `77994ccb67c060f7c01694ac65eea5c8aec24e1d`: Verify #970, 2131 passed / 0 failed;
+- PR #381 synthetic `b9a72b875081d6f12fe7f5b50d4b0c6f6af13e89`: Verify #971, 2131 passed / 0 failed;
+- squash main `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`: Verify #972, 2131 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- presentation-only change;
+- no financial formula changes;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
