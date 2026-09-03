@@ -81,6 +81,7 @@ class PeriodProfitQueryService:
             return_financial_evidence,
             advertising_evidence,
             storage_evidence,
+            return_cogs_recovery_evidence,
         )
         if coverage.get("error"):
             return coverage
