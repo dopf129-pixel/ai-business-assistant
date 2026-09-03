@@ -3855,3 +3855,34 @@ SHA-bound evidence:
 - retained permanent read-only analyst boundary from Decision 036;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Period Profit Data Completeness Integrity v1201-v1210
+
+- fixed live Period Profit false-success output where all finance values were 0.00 ₽ despite seller activity;
+- root cause: SQLite products are returned as tuples `(id, offer_id, sku)`, while Period Profit previously accepted only dicts and silently skipped them;
+- persisted tuples are now normalized into Period Profit product records;
+- empty or unusable product sets now fail closed with `PERIOD_PROFIT_PRODUCTS_UNAVAILABLE` instead of a zero-profit success;
+- existing dict product inputs remain compatible;
+- fixed Returns evidence single-page behavior where exactly 500 records could be the API page cap rather than the true count;
+- return evidence now paginates with `has_next` and `last_id`, bounded to 10 pages;
+- incomplete return counts are marked non-exact and shown as `как минимум N`;
+- later-page failures preserve partial evidence without pretending it is complete;
+- legacy READY return-evidence response fixtures remain compatible;
+- failed `e3d8b2ed1600e3759135bda4f62865ba38a43ae9`: Verify #935, 2103 passed / 2 failed, artifact 9886500028, digest `sha256:3d92acbe35ea2c4aab44beed55707f6edf0667e8c08376db82993617fd51dfad`;
+- failed `49c02ae1790b7d395794932e7ac4fa95cbac1644`: Verify #936, 2109 passed / 2 failed, artifact 9886515012, digest `sha256:179b93cff72ed7316f5aed922b25de95a84f2a3447b09d67b956d237a2074345`;
+- final feature `16c53622612b72bce2aa43fd97d5ff66d47466c3`: Verify #937, 2111 passed / 0 failed, artifact 9886550033, digest `sha256:cd5485dd1d5c8b1dd49355f1de14795445055b11e6127d2ae4fe4010fb55defb`;
+- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a`: Verify #938, 2111 passed / 0 failed, artifact 9886596735, digest `sha256:6a1599d927da9f77e928ed321e0de92fa14b8b4bd938974e7199e107da9e8d98`;
+- squash main `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`: Verify #939, 2111 passed / 0 failed, artifact 9886631604, digest `sha256:51ab9910779fa0141662aafc5e90738299ef13b3f0ee95d25b25a034fcc358ad`;
+- no finance formula, Product Decision/Product Task Draft execution or Ozon mutation changes;
+- `data/users.json` unchanged;
+- Decision 036 unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1201-v1210
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1201_V1210.md`;
+- reconciled exact product baseline to `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7` / Verify #939 / 2111 passed;
+- retained permanent read-only analyst boundary from Decision 036;
+- next live validation target is the seller's Period Profit output after local redeploy;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
