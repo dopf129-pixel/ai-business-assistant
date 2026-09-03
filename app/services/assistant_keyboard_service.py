@@ -28,6 +28,10 @@ class AssistantKeyboardService:
                     "callback": "memory"
                 },
                 {
+                    "text": "💵 Прибыль за период",
+                    "callback": "period_profit"
+                },
+                {
                     "text": "💰 Юнит-экономика товаров",
                     "callback": "unit_economics"
                 },
@@ -40,6 +44,35 @@ class AssistantKeyboardService:
                     "callback": "returns_finance_impact"
                 }
             ]
+        }
+
+
+    def build_period_profit_keyboard(
+        self,
+        buttons
+    ):
+
+        normalized = []
+
+        for item in (buttons or []):
+            if not isinstance(item, dict):
+                continue
+
+            text = item.get("text")
+            callback = item.get("callback_data")
+
+            if not text or not callback:
+                continue
+
+            normalized.append({
+                "text": str(text),
+                "callback": str(callback)
+            })
+
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": normalized
         }
 
 
