@@ -737,11 +737,6 @@ def _append_return_cogs_recovery_evidence(
                 "explicit evidence недоступен."
             )
 
-        source.get(
-            "saleable_inventory_recovery_confirmed"
-        )
-        is True
-    )
     blockers = []
     if not saleable_confirmed:
         blockers.append(
