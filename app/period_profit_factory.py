@@ -7,6 +7,9 @@ from period_profit_mapping_registry_factory import (
 from services.cost_service import ProductCostService
 from services.expense_repository import ExpenseRepository
 from services.finance_service import FinanceService
+from services.return_inventory_recovery_repository import (
+    ReturnInventoryRecoveryRepository,
+)
 from services.period_profit_mapping_observability_service import (
     PeriodProfitMappingObservabilityService,
 )
@@ -34,6 +37,9 @@ def create_period_profit_query(mapping_registry=None):
     )
     cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
+    inventory_recovery_repository = (
+        ReturnInventoryRecoveryRepository()
+    )
     finance_service = FinanceService()
     summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
@@ -58,6 +64,7 @@ def create_period_profit_query(mapping_registry=None):
                 PeriodProfitReturnSaleLineageEvidenceService(
                     finance_service
                 ),
+                inventory_recovery_repository,
             )
         ),
         external_expense_evidence_service=(
