@@ -3970,3 +3970,43 @@ Verification:
 - PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5`: Verify #919, 2101 passed / 0 failed;
 - squash main `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`: Verify #920, 2101 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Data Completeness Integrity v1
+
+Boundaries:
+
+- `PeriodProfitSummaryService.calculate`
+- `PeriodProfitSummaryService._normalize_product`
+- `PeriodProfitReturnEvidenceService.load`
+- `PeriodProfitReturnEvidenceService._has_next`
+- `PeriodProfitReturnEvidenceService._next_id`
+- `build_period_profit_response`
+
+Tests:
+
+- `tests/test_period_profit_data_completeness_v1201_v1210.py`
+
+Проверяет:
+
+- persisted SQLite tuple `(id, offer_id, sku)` is normalized and included in Period Profit;
+- empty/malformed product sets fail closed instead of returning 0.00 ₽ success;
+- existing dict product contract remains compatible;
+- Returns evidence paginates past the first 500 records;
+- `last_id` advances across pages;
+- bounded pagination marks capped results incomplete;
+- later-page failures preserve partial evidence without claiming exact totals;
+- incomplete return counts are presented as `как минимум N`;
+- exact return counts retain existing presentation;
+- legacy READY response fixtures remain compatible;
+- no finance formula, return-cost inference, execution or Ozon mutation changes.
+
+Verification:
+
+- failed `e3d8b2ed1600e3759135bda4f62865ba38a43ae9`: Verify #935, 2103 passed / 2 failed;
+- failed `49c02ae1790b7d395794932e7ac4fa95cbac1644`: Verify #936, 2109 passed / 2 failed;
+- final feature `16c53622612b72bce2aa43fd97d5ff66d47466c3`: Verify #937, 2111 passed / 0 failed;
+- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a`: Verify #938, 2111 passed / 0 failed;
+- squash main `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`: Verify #939, 2111 passed / 0 failed;
+- `externally_verified=False`.
