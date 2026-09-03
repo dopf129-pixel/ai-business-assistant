@@ -95,6 +95,17 @@ class FinanceService:
             or f"Тип {type_id}"
         )
 
+    def get_daily_account_finance(
+        self,
+        accrual_date
+    ):
+
+        return self.get_daily_finance(
+            accrual_date,
+            sku=None
+        )
+
+
     def get_daily_finance(
         self,
         accrual_date,
