@@ -4063,3 +4063,47 @@ SHA-bound evidence:
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
 
+## 2026-09-03 — Return Sale-Period Lineage Evidence v1271-v1280
+
+- added positive sale-posting evidence over the existing Ozon daily finance read session;
+- added `PeriodProfitReturnSaleLineageEvidenceService`;
+- linked Return API evidence to selected-period positive sale accruals by `posting_number + SKU`;
+- same posting with another SKU does not match;
+- exactly one positive sale-accrual date is a matched selected-period lineage record;
+- multiple positive sale dates remain ambiguous;
+- unavailable finance days keep lineage partial;
+- malformed positive-sale records cannot become clean evidence;
+- incomplete Returns pagination prevents aggregate sale-period confirmation;
+- Return COGS candidate records expose lineage status and matched sale accrual date;
+- aggregate `originating_sale_period_confirmed` requires complete return sample, complete finance period and all COGS candidates matched;
+- Period Profit factory shares one FinanceService between summary calculation and sale-lineage evidence, preserving read-session cache reuse;
+- Telegram explains confirmed/partial sale lineage;
+- Period Profit coverage exposes lineage status;
+- historical cost basis remains unconfirmed;
+- saleable/restored inventory recovery remains unconfirmed;
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- failed `db2c6c0fa900720c303a8f8face32ef3eec3be11`: Verify #1081, 2170 passed / 1 failed, artifact 9898277377, digest `sha256:2e8365779ec323568d2be3649d17d7a79e8d5a5da745f128cc11555750cd7b2e`;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `e96fb63007647857045f226c9c41fd8157ae962e`: Verify #1083, 2185 passed / 0 failed, artifact 9898333361, digest `sha256:7ac52123e97a821e6fb65fcc7dc15dfb61d68a8be6fd40c9598b7505a174c3f5`;
+- PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc`: Verify #1084, 2185 passed / 0 failed, artifact 9898386674, digest `sha256:a4ac6ad8520a2a0726aff061f5f579a74742f868e17e2ced9d89ac84c3798d47`;
+- squash main `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`: Verify #1085, 2185 passed / 0 failed, artifact 9898420551, digest `sha256:4a187e0b83b0b5950e64aaf749d31b78d7d5435132a77fde2e044667fe06b864`;
+- Decision 036 unchanged;
+- Decision 037 unchanged;
+- Decision 038 unchanged;
+- no profit-formula or persistence-contract change;
+- no Ozon mutation or Product Decision/Product Task Draft execution;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1271-v1280
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1271_V1280.md`;
+- reconciled exact product baseline to `5c0ed4bd40207e3f4bcce3770e89e71e163288b1` / Verify #1085 / 2185 passed;
+- recorded sale-lineage matching and fail-closed ambiguity semantics;
+- retained current-cost candidate value as diagnostic only;
+- next material accounting gap is versioned historical product cost evidence plus saleable/restored inventory proof;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
+
