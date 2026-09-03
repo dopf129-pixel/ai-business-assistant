@@ -3939,3 +3939,34 @@ Verification:
 - PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1`: Verify #901, 2091 passed / 0 failed;
 - squash main `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`: Verify #902, 2091 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Returns Protobuf Timestamp Compatibility v1
+
+Boundaries:
+
+- `OzonClient.get_returns`
+- `OzonClient._returns_timestamp`
+- `PeriodProfitReturnEvidenceService.load`
+- `PeriodProfitQueryService.query`
+
+Tests:
+
+- `tests/test_period_profit_returns_timestamp_v1191_v1200.py`
+
+Проверяет:
+
+- date-only start/end normalize to RFC3339 protobuf timestamps;
+- full RFC3339/offset timestamps remain unchanged;
+- Returns filter/pagination/timeout contract remains unchanged;
+- custom and preset Period Profit ranges use valid timestamps;
+- return evidence remains read-only/non-financial;
+- no Ozon mutation or execution changes.
+
+Verification:
+
+- feature `9e2c5b27a1df9f32c8e950766abc809ba93f7976`: Verify #918, 2101 passed / 0 failed;
+- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5`: Verify #919, 2101 passed / 0 failed;
+- squash main `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`: Verify #920, 2101 passed / 0 failed;
+- `externally_verified=False`.
