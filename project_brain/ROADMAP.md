@@ -444,12 +444,12 @@ Current hardening queue:
 
 8. Continue Project Brain drift cleanup when it changes product/safety interpretation.
 
-9. Do not enable any Product Decision/Product Task Draft execution or Ozon mutation without a separate explicit architecture and authorization boundary.
+9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1151_V1160.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1161_V1170.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1151_V1160.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1161_V1170.md`
 
 
 ## Current integration blocker
@@ -504,3 +504,13 @@ Current verified checkpoint: `CURRENT_CHECKPOINT_V1151_V1160.md`
 [x] Finance Period Aggregation Result Integrity
 
 [x] Period Profit Summary Input & Result Integrity
+
+[x] Telegram Period Profit Analyst Wiring
+
+Next seller-facing analyst priorities:
+- daily attention summary;
+- period sales/profit comparison;
+- stock and out-of-stock risk;
+- advertising-efficiency analysis from read-only evidence;
+- returns/non-buyout impact;
+- explainable SKU prioritization.
