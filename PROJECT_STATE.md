@@ -16,72 +16,70 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1221-v1230: Period Profit Revenue Share Presentation`
+`v1231-v1240: Finance Accrual Pagination & Read Session Integrity`
 
 Goal:
 
-Show the percentage of revenue in parentheses next to each main Period Profit monetary line without changing any financial calculation.
+Fix live Period Profit finance-unavailable failures by honoring the current Ozon `/v1/finance/accrual/by-day` cursor contract, reading all pages, and avoiding duplicate same-day downloads for every SKU.
 
 Immediately preceding verified package:
 
-`v1211-v1220: Period Profit Tax Rate Unit Integrity`
+`v1221-v1230: Period Profit Revenue Share Presentation`
 
 ## Stable verification
 
 Latest exact production main:
 
-`08d0d0fa6860101921ead603ec4a00b95c9ee8bf`
+`e66125d5e2c737497762178bef86dd36a62721f3`
 
-GitHub Actions push Verify #972:
+GitHub Actions push Verify #993:
 
-2131 passed / 0 failed.
+2141 passed / 0 failed.
 
-## Seller-facing presentation
+## Root causes fixed
 
-For the verified seller sample:
+1. The Ozon accrual-by-day request now requires `last_id`; the first page must send an empty string.
 
-- Revenue: 1 348 371.10 ₽ (100.00%);
-- Ozon net accrual: 752 971.82 ₽ (55.84%);
-- Commission: 190 333.00 ₽ (14.12%);
-- Logistics: 369 353.19 ₽ (27.39%);
-- Acquiring: 15 778.95 ₽ (1.17%);
-- Other fees: 19 934.14 ₽ (1.48%);
-- Product cost: 361 368.00 ₽ (26.80%);
-- Tax: 80 902.27 ₽ (6.00%);
-- Profit: 310 701.55 ₽ (23.04%).
+2. The endpoint is cursor-paginated. Reading only one page could omit finance evidence for products present on later pages.
 
-Behavior:
+3. Period Profit previously re-downloaded the same full day once for each SKU, multiplying API calls and rate-limit pressure on long periods.
 
-- negative profit keeps a negative revenue share;
-- fee lines use the same absolute monetary presentation as before and therefore show positive deduction shares;
-- when revenue is zero, percent-of-revenue is omitted;
-- the existing margin line and previous-period comparison percentage keep their original meaning.
+## Verified behavior
+
+- first finance accrual request sends `last_id=""`;
+- pages are followed until Ozon returns an empty cursor;
+- malformed pages, repeated cursors, and page-limit exhaustion fail closed;
+- second-page SKU evidence is included;
+- one daily accrual payload is reused across all SKUs inside a Period Profit calculation;
+- every Period Profit summary starts a fresh read session, so cached evidence does not leak between calculations.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `5cb69fed7bc44fcd5f66a8a004e625bee9993953` / Verify #967 / 2121 passed / 0 failed.
+- `400ca040d743dc7db93480605ebd62a7fe9b02f3` / Verify #984 / 2131 passed / 0 failed.
+
+Failed intermediate:
+
+- `8d159ed09410ed978bef6cfdb5719a67bc5491b1` / Verify #990 / 2140 passed / 1 failed.
+- failure was test-only: a new test assumed raw Ozon success responses always contain an `error` key.
 
 Final feature:
 
-- `77994ccb67c060f7c01694ac65eea5c8aec24e1d` / Verify #970 / 2131 passed / 0 failed.
+- `ad215b8d86c547e740dcb3583e7b7f580e9fb823` / Verify #991 / 2141 passed / 0 failed.
 
 PR integration:
 
-- PR #381 synthetic `b9a72b875081d6f12fe7f5b50d4b0c6f6af13e89` / Verify #971 / 2131 passed / 0 failed.
+- PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08` / Verify #992 / 2141 passed / 0 failed.
 
 Squash main:
 
-- `08d0d0fa6860101921ead603ec4a00b95c9ee8bf` / Verify #972 / 2131 passed / 0 failed.
-
-No failed production SHA occurred in this package.
+- `e66125d5e2c737497762178bef86dd36a62721f3` / Verify #993 / 2141 passed / 0 failed.
 
 ## Preserved boundaries
 
 - Decision 036 read-only analyst boundary;
-- no finance formula change;
-- no tax formula change;
+- no profit/tax formula changes;
 - no return-cost inference;
 - no Product Decision/Product Task Draft execution;
 - no Ozon mutation;
