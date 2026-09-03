@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2111 passed on `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`.
+2121 passed on `2f438bd6bb739938cee4fe56b83af8f4a563f942`.
 
-GitHub Actions push verification run #939 completed successfully for this exact main SHA.
+GitHub Actions push verification run #957 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3377,3 +3377,45 @@ Preserved:
 - no Ozon mutation or execution changes;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Tax Rate Unit Integrity v1211-v1220 — 2026-09-03
+
+Completed:
+
+[x] Live 600% Period Profit tax bug reproduced
+
+[x] Production Period Profit now reads validated TaxConfigurationService policy
+
+[x] USN Income 6.0% converts to 0.06 fraction
+
+[x] NONE converts to zero fraction
+
+[x] Unsupported USN Income Minus Expenses fails closed
+
+[x] Non-finite/invalid tax percentages fail closed
+
+[x] PeriodProfitSummaryService rejects tax multipliers above 1.0
+
+[x] Seller live sample regression: tax 80 902.27 ₽, profit 310 701.55 ₽, margin 23.04%
+
+Verification:
+
+- entering exact main `590b068ef46f58e56509ac038759f465975c9a8a`: Verify #949, 2111 passed / 0 failed;
+- failed `a7d5cead4c7c49907d6d045b54a3cec30d48efad`: Verify #953, 2110 passed / 1 failed;
+- failed `ee463cd1000113998ae5b895da02334bb5a5f495`: Verify #954, 2120 passed / 1 failed;
+- final feature `4c50429bc4c2f6515d80b497b85fe8c9663e24eb`: Verify #955, 2121 passed / 0 failed;
+- PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af`: Verify #956, 2121 passed / 0 failed;
+- squash main `2f438bd6bb739938cee4fe56b83af8f4a563f942`: Verify #957, 2121 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- read-only Period Profit;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Next seller-requested presentation work:
+- add percent-of-revenue in parentheses for each Period Profit monetary line.
