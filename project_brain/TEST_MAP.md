@@ -3864,3 +3864,39 @@ Verification:
 - final feature `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`: Verify #868, 2071 passed / 0 failed;
 - PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e`: Verify #869, 2071 passed / 0 failed;
 - squash main `d06a5f8cc23814e3177f58f6182bef6fbceb0697`: Verify #870, 2071 passed / 0 failed.
+
+---
+
+# Telegram Custom Period Date Input v1
+
+Boundaries:
+
+- `AssistantPeriodProfitRuntimeService.handle_text`
+- `AssistantPeriodProfitRuntimeService._extract_custom_dates`
+- `AssistantPeriodProfitRuntimeService._invalid_custom_period`
+- `AssistantEntryService.handle`
+
+Tests:
+
+- `tests/test_telegram_custom_period_date_input_v1171_v1180.py`
+
+Проверяет:
+
+- `ДД.ММ.ГГГГ - ДД.ММ.ГГГГ` routes as normalized ISO dates;
+- en dash and em dash separators;
+- single-digit day/month input;
+- existing ISO custom-period compatibility;
+- mixed supported date formats normalize consistently;
+- invalid calendar dates fail closed without query;
+- incomplete custom date input fails closed;
+- seller-facing missing-period prompt includes localized example;
+- localized custom Period Profit bypasses general execution flow;
+- all successful downstream Period Profit results remain read-only/non-executing;
+- no Ozon mutation or finance formula changes.
+
+Verification:
+
+- feature `62b040e392514bc410b34d82eccb8e0385b9c548`: Verify #884, 2081 passed / 0 failed;
+- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61`: Verify #885, 2081 passed / 0 failed;
+- squash main `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`: Verify #886, 2081 passed / 0 failed;
+- `externally_verified=False`.
