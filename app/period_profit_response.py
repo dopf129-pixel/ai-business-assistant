@@ -702,11 +702,6 @@ def _append_return_cogs_recovery_evidence(
             )
 
     saleable_confirmed = (
-        source.get(
-            "saleable_inventory_recovery_confirmed"
-        )
-        is True
-    )
 
     if inventory_candidates > 0:
         if saleable_confirmed:
