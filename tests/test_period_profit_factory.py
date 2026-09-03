@@ -8,6 +8,7 @@ class Products:
 class Finance: pass
 class Costs: pass
 class Expenses: pass
+class InventoryRecovery: pass
 class Ozon: pass
 
 
@@ -38,10 +39,14 @@ class ReturnCogsEvidence:
         self,
         cost_service,
         sale_lineage_evidence_service=None,
+        inventory_recovery_repository=None,
     ):
         self.cost_service = cost_service
         self.sale_lineage_evidence_service = (
             sale_lineage_evidence_service
+        )
+        self.inventory_recovery_repository = (
+            inventory_recovery_repository
         )
 
 
@@ -85,6 +90,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "FinanceService", Finance)
     monkeypatch.setattr(factory, "ProductCostService", Costs)
     monkeypatch.setattr(factory, "ExpenseRepository", Expenses)
+    monkeypatch.setattr(
+        factory,
+        "ReturnInventoryRecoveryRepository",
+        InventoryRecovery,
+    )
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(
@@ -122,6 +132,10 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert (
         query.return_cogs_recovery_evidence_service.sale_lineage_evidence_service.finance_service
         is query.summary_service.finance_service
+    )
+    assert isinstance(
+        query.return_cogs_recovery_evidence_service.inventory_recovery_repository,
+        InventoryRecovery,
     )
     assert isinstance(query.external_expense_evidence_service, ExternalExpenseEvidence)
     assert isinstance(query.external_expense_evidence_service.repository, Expenses)
