@@ -46,13 +46,28 @@ class PeriodProfitSummaryService:
                 "Некорректная ставка налога для расчёта периода",
             )
 
+        normalized_products = []
+
+        for product in products or []:
+            normalized = self._normalize_product(
+                product
+            )
+            if normalized is not None:
+                normalized_products.append(
+                    normalized
+                )
+
+        if not normalized_products:
+            return self._error(
+                "PERIOD_PROFIT_PRODUCTS_UNAVAILABLE",
+                "Нет пригодных товаров для расчёта периода",
+            )
+
         rows = []
         totals = self._empty_totals()
         fee_breakdown = {}
 
-        for product in products or []:
-            if not isinstance(product, dict):
-                continue
+        for product in normalized_products:
 
             sku = product.get("sku")
             offer_id = product.get("offer_id") or sku
@@ -362,6 +377,41 @@ class PeriodProfitSummaryService:
             result[str(name)] = value
 
         return result
+
+    @staticmethod
+    def _normalize_product(product):
+        if isinstance(product, dict):
+            if (
+                product.get("product_id") is None
+                and product.get("sku") is None
+                and product.get("offer_id") is None
+            ):
+                return None
+            return dict(product)
+
+        if isinstance(product, (tuple, list)):
+            if len(product) < 3:
+                return None
+
+            product_id = product[0]
+            offer_id = product[1]
+            sku = product[2]
+
+            if (
+                product_id is None
+                and offer_id is None
+                and sku is None
+            ):
+                return None
+
+            return {
+                "product_id": product_id,
+                "offer_id": offer_id,
+                "sku": sku,
+            }
+
+        return None
+
 
     def _resolve_cost(self, product):
         for field in ("cost", "cost_price"):
