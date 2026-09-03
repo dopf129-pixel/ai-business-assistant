@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2061 passed on `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`.
+2071 passed on `d06a5f8cc23814e3177f58f6182bef6fbceb0697`.
 
-GitHub Actions push verification run #849 completed successfully for this exact main SHA.
+GitHub Actions push verification run #870 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -71,10 +71,11 @@ AI Business Assistant
 Цель проекта:
 
 
-Создание автономного бизнес-ассистента,
-который помогает управлять бизнес-процессами,
-анализировать данные,
-создавать планы и выполнять действия.
+Создание бизнес-ассистента-аналитика,
+который читает и анализирует данные Ozon,
+сравнивает периоды, объясняет риски,
+приоритизирует проблемы и рекомендует действия,
+но не изменяет состояние Ozon и не выполняет business mutations.
 
 
 
@@ -3158,4 +3159,46 @@ Preserved:
 - no Product Decision/Product Task Draft execution;
 - no Action Executor/Ozon mutation wiring;
 - `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Telegram Period Profit Analyst Wiring v1161-v1170 — 2026-09-03
+
+Completed:
+
+[x] Period-profit runtime wired into production Telegram core
+
+[x] Telegram main menu exposes "💵 Прибыль за период"
+
+[x] Today / 7 / 28 / 56 / 90-day read-only period menu
+
+[x] Natural-language requests such as "прибыль за 28 дней"
+
+[x] Direct analytical text is rendered as Telegram text instead of Python dict output
+
+[x] Period-profit callback success requires read_only=True
+
+[x] Period-profit callback success requires executed=False
+
+[x] Runtime exceptions are contained with seller-safe failure
+
+[x] Malformed or execution-adjacent callback results fail closed
+
+[x] Existing partial-core test fixtures remain backward compatible
+
+Verification:
+
+- entering exact main `bb2e444b5a7ee6caa9cc4e39adccc5df64949835`: Verify #859, 2061 passed / 0 failed;
+- failed intermediate `e7fce70c39f976e97bf78687621ace5125f9d30a`: Verify #866, 2069 passed / 2 failed;
+- final feature `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`: Verify #868, 2071 passed / 0 failed;
+- PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e`: Verify #869, 2071 passed / 0 failed;
+- squash main `d06a5f8cc23814e3177f58f6182bef6fbceb0697`: Verify #870, 2071 passed / 0 failed.
+
+Current product boundary:
+
+- assistant is a read-only analyst/advisor;
+- Ozon price, advertising budget/bid, stock/replenishment, product-card and other seller mutations are out of scope;
+- recommendations, checklists and drafts do not grant execution permission;
+- `data/users.json` unchanged by this package;
 - `externally_verified=False`.
