@@ -1965,3 +1965,65 @@ be shown without overstating completeness.
 Status:
 
 Implemented
+
+---
+
+## Decision 039
+
+Date:
+
+2026-09-03
+
+Topic:
+
+Versioned Historical Product Cost Evidence
+
+Decision:
+
+Historical product cost used for return COGS evidence must come only from explicit,
+effective-dated seller cost versions. The mutable current `product_costs` row is
+not historical evidence and must never be backfilled into prior periods by
+assumption.
+
+Rules:
+
+- existing `product_costs` remains the current product-cost configuration used
+  by existing current calculations;
+- a separate append-only `product_cost_history` evidence table stores explicit
+  cost versions;
+- every historical cost version requires `product_id`, at least one seller/Ozon
+  product identifier (`sku` or `offer_id`), finite non-negative cost,
+  currency, source and explicit `effective_from` date;
+- no migration or automatic backfill from existing current cost rows is allowed;
+- a current-cost update without explicit historical evidence does not create a
+  historical cost version;
+- duplicate versions for the same `product_id + effective_from` are rejected
+  rather than silently overwritten;
+- historical lookup for a sale date selects the latest explicit version whose
+  `effective_from` is not later than that sale date;
+- when product identity cannot be resolved uniquely, historical cost evidence is
+  ambiguous and remains unconfirmed;
+- missing historical cost remains unknown and is never replaced by current cost,
+  zero or an inferred earlier value;
+- deleting/changing the mutable current cost does not erase append-only historical
+  evidence;
+- confirmed historical cost may strengthen Return COGS evidence but does not by
+  itself authorize COGS recovery or change Period Profit;
+- return COGS recovery still requires independent sale-period lineage and
+  saleable/restored inventory evidence, with compensation treatment kept
+  separate;
+- Decision 036 read-only Ozon boundary, Decision 037 monetary authority and
+  Decision 038 external-expense contract remain unchanged.
+
+Reason:
+
+A single mutable current cost cannot prove the unit cost that applied when an
+earlier sale occurred. Using today's cost for a historical return would create an
+accounting claim from an assumption. Explicit effective-dated versions preserve
+what the seller actually confirmed, allow future cost changes to be represented,
+and keep unknown historical periods fail-closed.
+
+Status:
+
+Implemented
+
