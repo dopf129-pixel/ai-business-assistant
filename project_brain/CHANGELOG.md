@@ -4107,3 +4107,44 @@ SHA-bound evidence:
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
 
+## 2026-09-03 — Historical Product Cost Evidence v1281-v1290
+
+- added Decision 039 for versioned historical product cost evidence;
+- kept mutable `product_costs` as current configuration;
+- added append-only `product_cost_history` with explicit `effective_from`;
+- no automatic migration/backfill from current cost into historical evidence;
+- duplicate `product_id + effective_from` versions are rejected rather than overwritten;
+- historical lookup uses the latest explicit version effective on the originating sale date;
+- ambiguous identity remains unconfirmed;
+- dates before the first explicit version remain unknown;
+- added `record_product_cost_history.py` for explicit local seller evidence input;
+- Return COGS resolves historical cost only after selected-period sale lineage is matched;
+- candidate rows expose historical cost/effective date/source;
+- aggregate historical cost basis requires every candidate to resolve;
+- Telegram distinguishes current-cost diagnostic value from confirmed historical-cost evidence;
+- coverage exposes historical cost confirmation;
+- saleable/restored inventory recovery remains unconfirmed;
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- no failed production SHA occurred;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `f3fcb80588f394eb05e5944ca2812ed59adf7649`: Verify #1103, 2195 passed / 0 failed, artifact 9906200014, digest `sha256:c776260a5026572cbe27c2bab5212d2a64d92d95f7a9170a433a2d5b12b46af7`;
+- PR #393 synthetic `672e18f904768742917df9c808c48ec476d9fd3e`: Verify #1104, 2195 passed / 0 failed, artifact 9906235551, digest `sha256:d849f4a6413df1de6c6b3e28ed4f5c45465b292266db2c31dbac3602251fcfb0`;
+- squash main `9ca4497dda61615076b8203d0404502630ab7e81`: Verify #1105, 2195 passed / 0 failed, artifact 9906262083, digest `sha256:6bc9ab6699976e56572a216dab839e96c8921f484047c522eb00535163626987`;
+- Decision 036/037/038 unchanged;
+- no Period Profit formula change;
+- no Ozon mutation or Product Decision/Product Task Draft execution;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1281-v1290
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1281_V1290.md`;
+- reconciled exact product baseline to `9ca4497dda61615076b8203d0404502630ab7e81` / Verify #1105 / 2195 passed;
+- recorded Decision 039 persistence/evidence contract;
+- recorded no-backfill historical-cost semantics;
+- next material accounting gap is saleable/restored inventory recovery evidence with compensation double-count protection;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
+
