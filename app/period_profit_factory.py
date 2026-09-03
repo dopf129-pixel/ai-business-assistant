@@ -1,3 +1,5 @@
+from math import isfinite
+
 from api.ozon_client import OzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
@@ -78,7 +80,11 @@ def _period_profit_tax_fraction(policy_result):
     except (TypeError, ValueError):
         return None
 
-    if rate < 0.0 or rate > 100.0:
+    if (
+        not isfinite(rate)
+        or rate < 0.0
+        or rate > 100.0
+    ):
         return None
 
     return rate / 100.0
