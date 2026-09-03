@@ -3963,3 +3963,34 @@ SHA-bound evidence:
 - reconciled exact product baseline to `e66125d5e2c737497762178bef86dd36a62721f3` / Verify #993 / 2141 passed;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Account-Level Ozon Profit Reconciliation v1241-v1250
+
+- added Decision 037: account-level Ozon daily accrual is the authoritative Period Profit monetary source;
+- SKU-level finance remains product sales / COGS / revenue-reconciliation evidence;
+- account-level revenue, net accrual, commission, logistics, acquiring, other fees and fee breakdown now drive the V2 period summary;
+- summed SKU revenue must reconcile to account revenue within 0.01 RUB;
+- mismatch fails closed with `PERIOD_PROFIT_PRODUCT_REVENUE_COVERAGE_INCOMPLETE`;
+- account-minus-SKU net difference is exposed as `ozon_account_reconciliation`;
+- account-level operations without SKU are included once;
+- posting-level net duplicated across multiple SKU filters is corrected by the account total;
+- mapped Ozon expenses already present in account net accrual remain evidence and are never deducted twice;
+- Telegram explains account reconciliation and that account-level Ozon money is already included;
+- accounting net-profit claim remains blocked because return COGS recovery and non-Ozon expenses are not yet proven;
+- final feature `a0e528f36b1b4721af0e8d0b419c414d20fabea6`: Verify #1010, 2151 passed / 0 failed, artifact 9891989048, digest `sha256:4e28915675e1e8a6acf32600fe4e0294ba5a8a378c986b10a70a56bb06302d7a`;
+- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f`: Verify #1011, 2151 passed / 0 failed, artifact 9892029109, digest `sha256:3c5196c966a250b5bd54e6b558be085680f352fcc156d25d8562ffd172f8869f`;
+- squash main `a359e3d8e68784849caa659dec0123fb15dc6932`: Verify #1012, 2151 passed / 0 failed, artifact 9892074726, digest `sha256:212517f2c06aec43f7c089df382d111436dfa8b17bbaf9f19b719779c6d9d072`;
+- no failed production SHA occurred;
+- Decision 036 unchanged;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1241-v1250
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1241_V1250.md`;
+- reconciled exact product baseline to `a359e3d8e68784849caa659dec0123fb15dc6932` / Verify #1012 / 2151 passed;
+- retained Decision 037 monetary ownership and Decision 036 read-only boundary;
+- next accounting gap is return-related COGS reversal / recovered-goods evidence;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
