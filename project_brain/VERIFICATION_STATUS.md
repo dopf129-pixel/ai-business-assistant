@@ -4,59 +4,59 @@ Date: 2026-09-03
 
 ## Latest verified product baseline
 
-`7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`
+`2f438bd6bb739938cee4fe56b83af8f4a563f942`
 
 Latest merged production batch:
 
-`v1201-v1210: Period Profit Data Completeness Integrity`
+`v1211-v1220: Period Profit Tax Rate Unit Integrity`
 
 ### Entering exact-main verification
-- exact main: `5e8e74a78e2c5aa41ed59378c27a0f1ed7b55397`
-- Verify #930
-- 2101 passed / 0 failed
-- artifact id: 9885946944
-- digest: `sha256:9d4245aa4460358cadfb38a9887dd8bacf212394a995182bd1afd55754c6829b`
+- exact main: `590b068ef46f58e56509ac038759f465975c9a8a`
+- Verify #949
+- 2111 passed / 0 failed
+- artifact id: 9886812170
+- digest: `sha256:83cdf8fe62a670cacee5ab69cf07e2baaab324d7c6437d3c65175d3dc6102bf5`
 
 ### Failed intermediate evidence
-- exact SHA: `e3d8b2ed1600e3759135bda4f62865ba38a43ae9`
-- Verify #935
-- 2103 passed / 2 failed
-- artifact id: 9886500028
-- digest: `sha256:3d92acbe35ea2c4aab44beed55707f6edf0667e8c08376db82993617fd51dfad`
-- root cause: legacy READY return-evidence response compatibility.
+- exact SHA: `a7d5cead4c7c49907d6d045b54a3cec30d48efad`
+- Verify #953
+- 2110 passed / 1 failed
+- artifact id: 9887077119
+- digest: `sha256:51184585e794907d4c730305e2af0cfb98e895ed6153babb75ec997a803c0809`
+- failure: legacy factory test expected removed direct TAX_RATE module attribute.
 
-- exact SHA: `49c02ae1790b7d395794932e7ac4fa95cbac1644`
-- Verify #936
-- 2109 passed / 2 failed
-- artifact id: 9886515012
-- digest: `sha256:179b93cff72ed7316f5aed922b25de95a84f2a3447b09d67b956d237a2074345`
-- same compatibility issue after the full regression package was added.
+- exact SHA: `ee463cd1000113998ae5b895da02334bb5a5f495`
+- Verify #954
+- 2120 passed / 1 failed
+- artifact id: 9887087702
+- digest: `sha256:118d2dad053f08adabe6605aa1790a2600628b9a9ece50c53b62f012ac2e0689`
+- same legacy factory-test contract drift after regression coverage was added.
 
 These SHAs remain failed evidence permanently.
 
 ### Exact final feature-head verification
-- exact SHA: `16c53622612b72bce2aa43fd97d5ff66d47466c3`
-- Verify #937
-- 2111 passed / 0 failed
-- artifact id: 9886550033
-- digest: `sha256:cd5485dd1d5c8b1dd49355f1de14795445055b11e6127d2ae4fe4010fb55defb`
+- exact SHA: `4c50429bc4c2f6515d80b497b85fe8c9663e24eb`
+- Verify #955
+- 2121 passed / 0 failed
+- artifact id: 9887122511
+- digest: `sha256:ea8eeeb352ab0309dda2fca54573b6211c052dbbf51996699084edfc68811a58`
 
 ### PR merge-ref integration verification
-- PR #377
-- synthetic SHA: `f1593267f67339f2dd68d235056cdbc69960160a`
-- Verify #938
-- 2111 passed / 0 failed
-- artifact id: 9886596735
-- digest: `sha256:6a1599d927da9f77e928ed321e0de92fa14b8b4bd938974e7199e107da9e8d98`
+- PR #379
+- synthetic SHA: `68c0f7360dd93738377f7111f5f4732d0b4d48af`
+- Verify #956
+- 2121 passed / 0 failed
+- artifact id: 9887163034
+- digest: `sha256:5f6b8d4487c21eee14d87b245881dfe8686ac4467514b84e750da4851cb81f69`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`
-- Verify #939
-- 2111 passed / 0 failed
-- artifact id: 9886631604
-- digest: `sha256:51ab9910779fa0141662aafc5e90738299ef13b3f0ee95d25b25a034fcc358ad`
+- exact main: `2f438bd6bb739938cee4fe56b83af8f4a563f942`
+- Verify #957
+- 2121 passed / 0 failed
+- artifact id: 9887195049
+- digest: `sha256:414836b82a65d5a73a08ad2622e5b7b579262361319c384272f0863cbd45b976`
 
 ## Verification policy
 
