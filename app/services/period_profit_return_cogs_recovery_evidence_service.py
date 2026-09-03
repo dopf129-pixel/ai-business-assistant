@@ -17,10 +17,14 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
         self,
         cost_service,
         sale_lineage_evidence_service=None,
+        inventory_recovery_repository=None,
     ):
         self.cost_service = cost_service
         self.sale_lineage_evidence_service = (
             sale_lineage_evidence_service
+        )
+        self.inventory_recovery_repository = (
+            inventory_recovery_repository
         )
 
     def analyze(
@@ -440,6 +444,132 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             == len(candidate_records)
         )
 
+        inventory_saleable_records = 0
+        inventory_non_saleable_records = 0
+        inventory_missing_records = 0
+        inventory_conflict_records = 0
+        inventory_quantity_mismatch_records = 0
+        inventory_unavailable_records = 0
+
+        for row in candidate_records:
+            recovery = (
+                self._inventory_recovery_evidence(
+                    row
+                )
+            )
+            status = str(
+                recovery.get(
+                    "status"
+                )
+                or ""
+            )
+            row[
+                "inventory_recovery_evidence_status"
+            ] = status
+            row[
+                "inventory_recovery_state"
+            ] = recovery.get(
+                "recovery_state"
+            )
+            row[
+                "inventory_recovery_confirmed_on"
+            ] = recovery.get(
+                "confirmed_on"
+            )
+            row[
+                "inventory_recovery_source"
+            ] = recovery.get(
+                "source"
+            )
+
+            if (
+                recovery.get(
+                    "inventory_recovery_confirmed"
+                )
+                is True
+                and status
+                == "RETURN_INVENTORY_RECOVERY_READY"
+            ):
+                confirmed_quantity = (
+                    self._quantity(
+                        recovery.get(
+                            "quantity"
+                        )
+                    )
+                )
+                candidate_quantity = (
+                    self._quantity(
+                        row.get(
+                            "quantity"
+                        )
+                    )
+                )
+
+                if (
+                    confirmed_quantity is None
+                    or candidate_quantity is None
+                    or confirmed_quantity
+                    != candidate_quantity
+                ):
+                    row[
+                        "inventory_recovery_evidence_status"
+                    ] = (
+                        "RETURN_INVENTORY_RECOVERY_QUANTITY_MISMATCH"
+                    )
+                    inventory_quantity_mismatch_records += 1
+                    continue
+
+                state = str(
+                    recovery.get(
+                        "recovery_state"
+                    )
+                    or ""
+                ).upper()
+
+                if (
+                    state
+                    == "SALEABLE_RESTORED"
+                ):
+                    inventory_saleable_records += 1
+                elif (
+                    state
+                    == "NON_SALEABLE"
+                ):
+                    inventory_non_saleable_records += 1
+                else:
+                    inventory_unavailable_records += 1
+                continue
+
+            if (
+                status
+                == "RETURN_INVENTORY_RECOVERY_MISSING"
+            ):
+                inventory_missing_records += 1
+            elif (
+                status
+                == "RETURN_INVENTORY_RECOVERY_IDENTITY_CONFLICT"
+            ):
+                inventory_conflict_records += 1
+            else:
+                inventory_unavailable_records += 1
+
+        inventory_recovery_state_complete = (
+            complete_return_sample
+            and bool(
+                candidate_records
+            )
+            and (
+                inventory_saleable_records
+                + inventory_non_saleable_records
+            )
+            == len(candidate_records)
+        )
+        saleable_inventory_recovery_confirmed = (
+            inventory_recovery_state_complete
+            and inventory_saleable_records
+            == len(candidate_records)
+        )
+
         return {
             "error": False,
             "status": (
@@ -538,7 +668,38 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
                 if sale_lineage_ready
                 else None
             ),
-            "saleable_inventory_recovery_confirmed": False,
+            "inventory_recovery_evidence_available": (
+                self.inventory_recovery_repository
+                is not None
+            ),
+            "inventory_recovery_state_complete": (
+                inventory_recovery_state_complete
+            ),
+            "inventory_recovery_candidate_record_count": (
+                len(candidate_records)
+            ),
+            "inventory_recovery_saleable_candidate_record_count": (
+                inventory_saleable_records
+            ),
+            "inventory_recovery_non_saleable_candidate_record_count": (
+                inventory_non_saleable_records
+            ),
+            "inventory_recovery_missing_candidate_record_count": (
+                inventory_missing_records
+            ),
+            "inventory_recovery_conflict_candidate_record_count": (
+                inventory_conflict_records
+            ),
+            "inventory_recovery_quantity_mismatch_candidate_record_count": (
+                inventory_quantity_mismatch_records
+            ),
+            "inventory_recovery_unavailable_candidate_record_count": (
+                inventory_unavailable_records
+            ),
+            "saleable_inventory_recovery_confirmed": (
+                saleable_inventory_recovery_confirmed
+            ),
+            "recovery_period_attribution_confirmed": False,
             "period_cogs_recovery_confirmed": False,
             "accounting_cogs_recovery_confirmed": False,
             "confirmed_cogs_recovery_amount": 0.0,
@@ -649,6 +810,75 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
                 record.get("sku")
                 or ""
             ).strip(),
+        )
+
+    def _inventory_recovery_evidence(
+        self,
+        record,
+    ):
+        repository = (
+            self.inventory_recovery_repository
+        )
+        if repository is None:
+            return {
+                "error": True,
+                "status": (
+                    "RETURN_INVENTORY_RECOVERY_UNAVAILABLE"
+                ),
+                "inventory_recovery_confirmed": False,
+            }
+
+        getter = getattr(
+            repository,
+            "get_latest_recovery",
+            None,
+        )
+        if not callable(
+            getter
+        ):
+            return {
+                "error": True,
+                "status": (
+                    "RETURN_INVENTORY_RECOVERY_UNAVAILABLE"
+                ),
+                "inventory_recovery_confirmed": False,
+            }
+
+        try:
+            result = getter(
+                return_id=record.get(
+                    "return_id"
+                ),
+                posting_number=record.get(
+                    "posting_number"
+                ),
+                sku=record.get(
+                    "sku"
+                ),
+            )
+        except Exception:
+            return {
+                "error": True,
+                "status": (
+                    "RETURN_INVENTORY_RECOVERY_UNAVAILABLE"
+                ),
+                "inventory_recovery_confirmed": False,
+            }
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            return {
+                "error": True,
+                "status": (
+                    "RETURN_INVENTORY_RECOVERY_UNAVAILABLE"
+                ),
+                "inventory_recovery_confirmed": False,
+            }
+
+        return dict(
+            result
         )
 
     def _historical_cost_evidence(

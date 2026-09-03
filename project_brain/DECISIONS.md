@@ -2027,3 +2027,62 @@ Status:
 
 Implemented
 
+---
+
+## Decision 040
+
+Date:
+
+2026-09-03
+
+Topic:
+
+Explicit Return Inventory Recovery Evidence
+
+Decision:
+
+Saleable/restored inventory recovery for Return COGS must be based on explicit
+return-level evidence. Current stock snapshots, stock deltas, or the Returns API
+visual placement status are not sufficient by themselves to prove that a returned
+unit restored saleable inventory value.
+
+Rules:
+
+- a separate append-only `return_inventory_recovery_history` evidence table
+  stores explicit return-level recovery confirmations;
+- every evidence row requires exact return_id, posting_number, SKU, positive
+  quantity, explicit recovery state, confirmation date and source;
+- allowed recovery states are `SALEABLE_RESTORED` and `NON_SALEABLE`;
+- absence of a recovery row remains unknown and is never treated as saleable,
+  non-saleable or zero-value recovery;
+- duplicate `return_id + confirmed_on` versions are rejected rather than
+  overwritten;
+- all versions for one return_id must preserve posting_number + SKU identity;
+  identity drift makes the evidence conflicting and unconfirmed;
+- the latest explicit confirmation may describe the current known recovery state,
+  but its confirmation date does not by itself establish the accounting period in
+  which COGS recovery should be recognized;
+- recorded recovery quantity must exactly match the candidate return quantity
+  before that candidate may be considered saleable-restored;
+- compensated returns remain outside automatic saleable-recovery treatment;
+- current Ozon stock observation or a positive stock delta must never be used as
+  automatic proof of return recovery because other stock movements can produce the
+  same change;
+- confirmed saleable inventory recovery may strengthen Return COGS evidence but
+  does not by itself authorize Period Profit adjustment;
+- period attribution, originating sale quantity consistency and compensation
+  accounting must remain independently proven before any COGS reversal;
+- Decision 036, Decision 037, Decision 038 and Decision 039 remain unchanged.
+
+Reason:
+
+A stock snapshot shows only current quantity and cannot prove which movement
+created it. A return being present at a return location likewise does not prove
+that it became saleable inventory. Explicit return-level recovery evidence avoids
+turning correlated stock movement into an accounting fact and preserves
+fail-closed behavior.
+
+Status:
+
+Implemented
+
