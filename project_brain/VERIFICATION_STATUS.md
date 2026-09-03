@@ -4,44 +4,44 @@ Date: 2026-09-03
 
 ## Latest verified product baseline
 
-`05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
+`9c9d379e36edf2123a466ad2b3cd1d000d81bae3`
 
 Latest merged production batch:
 
-`v1171-v1180: Telegram Custom Period Date Input`
+`v1181-v1190: Tax Policy Production Availability`
 
 ### Entering exact-main verification
-- exact main: `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607`
-- Verify #881
-- 2071 passed / 0 failed
-- artifact id: 9884075851
-- digest: `sha256:8bb0274a95fa48b01e315a2c4a7190fcae33c9a4eee11ebdb3c2db49a2303f72`
+- exact main: `8ca28c36249a052fdf83cfd5ab86a13d986cbb1c`
+- Verify #896
+- 2081 passed / 0 failed
+- artifact id: 9884443694
+- digest: `sha256:a5d997dde52609adc1511d794a654e5af5d30dfdad1193bb4398d9c5f11117e3`
 
 ### Exact final feature-head verification
-- exact SHA: `62b040e392514bc410b34d82eccb8e0385b9c548`
-- Verify #884
-- 2081 passed / 0 failed
-- artifact id: 9884220127
-- digest: `sha256:18f9ac90e9a8d05bd01a76db6955afa578c951390018b504cae8374663e185be`
+- exact SHA: `1d0df2799fb87b57d916843a96a080389e2ac07b`
+- Verify #900
+- 2091 passed / 0 failed
+- artifact id: 9884824274
+- digest: `sha256:8a54d841f9b6b18c7e0184365da0995bee4b09c57ffffe464acb17df41c6f0b0`
 
 ### PR merge-ref integration verification
-- PR #371
-- synthetic SHA: `b865b551289ba4592d8d32594323ea8a6dc64c61`
-- Verify #885
-- 2081 passed / 0 failed
-- artifact id: 9884251146
-- digest: `sha256:04099f259682c0e84daa67dd74d3328081855cf86418b299336c16f38f2b0312`
+- PR #373
+- synthetic SHA: `a6493407f0bb915f366573404fcffd220e6757a1`
+- Verify #901
+- 2091 passed / 0 failed
+- artifact id: 9884854745
+- digest: `sha256:3327e51b96a4c4ad376e21f524b578caa6709d20336b52c430adef277603f8b0`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`
-- Verify #886
-- 2081 passed / 0 failed
-- artifact id: 9884281842
-- digest: `sha256:a3f889420b898d65c8ef0f027b199ec6c23ebc8bb345933efe9d74c65b686344`
+- exact main: `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`
+- Verify #902
+- 2091 passed / 0 failed
+- artifact id: 9884888892
+- digest: `sha256:f50357c3d1ef309fc7be702b6807406677a733fe7a5102aff67b3c7405676d60`
 
-No failed production SHA occurred in v1171-v1180.
+No failed production SHA occurred in v1181-v1190.
 
 ## Verification policy
 
