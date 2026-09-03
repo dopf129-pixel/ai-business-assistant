@@ -165,6 +165,62 @@ def build_period_profit_coverage(
             if return_cogs_ready
             else None
         ),
+        "return_cogs_historical_cost_status": (
+            "CONFIRMED"
+            if (
+                return_cogs_ready
+                and return_cogs.get(
+                    "historical_cost_basis_confirmed"
+                )
+                is True
+            )
+            else (
+                "PARTIAL"
+                if (
+                    return_cogs_ready
+                    and int(
+                        return_cogs.get(
+                            "historical_cost_matched_candidate_record_count"
+                        )
+                        or 0
+                    )
+                    > 0
+                )
+                else (
+                    "MISSING"
+                    if return_cogs_ready
+                    else "UNAVAILABLE"
+                )
+            )
+        ),
+        "return_cogs_historical_cost_basis_confirmed": (
+            return_cogs.get(
+                "historical_cost_basis_confirmed"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_historical_cost_candidate_value": (
+            return_cogs.get(
+                "candidate_value_at_historical_cost"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_historical_cost_candidate_records": (
+            return_cogs.get(
+                "historical_cost_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_historical_cost_matched_records": (
+            return_cogs.get(
+                "historical_cost_matched_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
         "return_cogs_profit_adjustment_allowed": False,
         "external_expense_evidence_status": (
             "COMPLETE"
