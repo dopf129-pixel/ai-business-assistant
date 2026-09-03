@@ -3828,3 +3828,30 @@ SHA-bound evidence:
 - recorded next seller-facing UX gap: distinguish known base unit profit from unavailable return-adjusted profit;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Period Profit Returns Protobuf Timestamp Compatibility v1191-v1200
+
+- fixed live Period Profit failure `invalid google.protobuf.Timestamp value "2026-09-03"`;
+- root cause was date-only values sent to `/v1/returns/list` timestamp filter;
+- date-only start now becomes RFC3339 UTC start-of-day;
+- date-only end now becomes RFC3339 UTC full end-of-day;
+- existing full RFC3339 timestamps remain unchanged;
+- custom and preset Period Profit ranges now use valid Returns API timestamps;
+- Returns filter/pagination/timeout behavior unchanged;
+- return evidence remains descriptive/read-only and does not authorize profit adjustment;
+- final feature `9e2c5b27a1df9f32c8e950766abc809ba93f7976`: Verify #918, 2101 passed / 0 failed, artifact 9885588430, digest `sha256:b4d51f1a5df4889e9f068732ed744a98660ae15fb45900827acb1679990e2e6c`;
+- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5`: Verify #919, 2101 passed / 0 failed, artifact 9885621112, digest `sha256:10cb2f8e871457a75fcd666b4f873c6fc45746d5efe95f463d93ac9f18d07973`;
+- squash main `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`: Verify #920, 2101 passed / 0 failed, artifact 9885660481, digest `sha256:bc16fce014476d23c6ead3d2435b199ae2ce48af108dfa64501eed3ba82c7dc6`;
+- no failed production SHA occurred;
+- Decision 036 unchanged;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1191-v1200
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1191_V1200.md`;
+- reconciled exact product baseline to `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89` / Verify #920 / 2101 passed;
+- retained permanent read-only analyst boundary from Decision 036;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
