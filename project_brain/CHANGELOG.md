@@ -4023,3 +4023,43 @@ SHA-bound evidence:
 - next accounting gap is explicit seller-configured non-Ozon operating expense evidence;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — External Operating Expense Coverage v1261-v1270
+
+- added Decision 038 for evidence-bound seller operating expenses outside the Ozon accrual stream;
+- retained local `expenses` rows as explicit seller-entered expense evidence;
+- added `expense_coverage` intervals to distinguish complete zero from missing expense evidence;
+- requested-period coverage is complete only when confirmed intervals cover every calendar day;
+- empty uncovered period remains unknown, not zero;
+- empty fully covered period becomes explicit confirmed 0 ₽ external expense;
+- partial evidence produces only observed profit-after-entered-expenses;
+- complete coverage permits complete `profit_after_external_expenses`;
+- derived formula is `period_profit - external_expenses`, while base Period Profit remains unchanged;
+- Ozon expenses already included in account-level `net_accrual` are never deducted again;
+- invalid dates, boolean amounts, NaN and infinity fail closed;
+- Telegram distinguishes profit before external expenses, entered expenses, partial observed adjustment and complete adjustment;
+- `confirm_expense_coverage.py` adds explicit local coverage confirmation;
+- recurring expense schedules are not inferred by this package; only explicit dated rows are evidence;
+- return COGS recovery remains unconfirmed and does not change profit;
+- failed `55d8f189dc170cc524aa8798aea42b1b7ae6251c`: Verify #1054, 2150 passed / 11 failed, artifact 9894680388, digest `sha256:49302f69375d247b9094b7a58f1a16c5671124eb894eef0153edd3dc1276c376`;
+- failed `9f32163739d849dfe3681a9de6358fb64db40100`: Verify #1055, 2150 passed / 11 failed, artifact 9894698643, digest `sha256:e37593e820234269a9230e6be4f8c61fc591d7108f4093201bdb3192e09956d0`;
+- failed `e788e5110109eb678767313278580989b192f689`: Verify #1060, 2160 passed / 1 failed, artifact 9894794990, digest `sha256:af0ffe3ef3fe9ddfce906ac6bbb3a33c10f5ac445f1884705aa3b85e483fb1fc`;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `07f9a35eb238280e95b52bc14d18cc6aba735703`: Verify #1062, 2171 passed / 0 failed, artifact 9894853461, digest `sha256:9d28a3a5ae753f1215fd042622fd62d7e4985fa96eeba0f2f140318166617298`;
+- PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6`: Verify #1063, 2171 passed / 0 failed, artifact 9894897854, digest `sha256:9111b865c015e95c360ba417c3ef68f82377e82f9e2eddfc7c7e7d8c61ae93a0`;
+- squash main `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`: Verify #1064, 2171 passed / 0 failed, artifact 9894942156, digest `sha256:6ba30eda33b5a1315469e4fbf9253058d932cbc756e634b8996b2f31b2158e53`;
+- Decision 036 and Decision 037 unchanged;
+- no Ozon mutation or Product Decision/Product Task Draft execution;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1261-v1270
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1261_V1270.md`;
+- reconciled exact product baseline to `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d` / Verify #1064 / 2171 passed;
+- recorded Decision 038 external expense coverage semantics and explicit no-double-subtraction boundary;
+- recorded recurring-expense inference as not implemented;
+- next material accounting gap is stronger return COGS recovery proof;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
+
