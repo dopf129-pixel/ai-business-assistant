@@ -10,9 +10,9 @@ SHA-bound.
 
 Latest confirmed full-suite baseline:
 
-2185 passed on `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`.
+2195 passed on `9ca4497dda61615076b8203d0404502630ab7e81`.
 
-GitHub Actions push Verify #1085 completed successfully for this exact main SHA.
+GitHub Actions push Verify #1105 completed successfully for this exact main SHA.
 
 Canonical status:
 
@@ -4296,5 +4296,51 @@ Verification:
 - final feature `e96fb63007647857045f226c9c41fd8157ae962e`: Verify #1083, 2185 passed / 0 failed, artifact 9898333361, digest `sha256:7ac52123e97a821e6fb65fcc7dc15dfb61d68a8be6fd40c9598b7505a174c3f5`;
 - PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc`: Verify #1084, 2185 passed / 0 failed, artifact 9898386674, digest `sha256:a4ac6ad8520a2a0726aff061f5f579a74742f868e17e2ced9d89ac84c3798d47`;
 - squash main `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`: Verify #1085, 2185 passed / 0 failed, artifact 9898420551, digest `sha256:4a187e0b83b0b5950e64aaf749d31b78d7d5435132a77fde2e044667fe06b864`;
+- `externally_verified=False`.
+
+---
+
+# Historical Product Cost Evidence v1
+
+Boundaries:
+
+- `ProductCostService.create_table`
+- `ProductCostService.record_historical_cost`
+- `ProductCostService.get_historical_cost_evidence`
+- `PeriodProfitReturnCogsRecoveryEvidenceService`
+- `build_period_profit_response`
+- `build_period_profit_coverage`
+- `record_product_cost_history.py`
+- Decision 039
+
+Tests:
+
+- `tests/test_historical_product_cost_evidence_v1281_v1290.py`
+
+Проверяет:
+
+- mutable current cost does not backfill historical evidence;
+- explicit effective-dated versions resolve for later sale dates;
+- latest effective version applies without rewriting earlier versions;
+- duplicate product/date version conflicts do not silently overwrite evidence;
+- ambiguous product identity remains unconfirmed;
+- dates before first historical version remain missing rather than falling back to current cost;
+- Return COGS historical lookup uses the matched originating sale date;
+- historical candidate value may differ from current-cost diagnostic value;
+- all candidate rows must resolve for aggregate historical cost confirmation;
+- missing one historical version keeps aggregate basis unconfirmed;
+- Telegram shows confirmed historical cost while retaining inventory-recovery blocker;
+- coverage exposes historical cost confirmation without accounting-net-profit claim;
+- `confirmed_cogs_recovery_amount` remains 0;
+- profit adjustment remains forbidden.
+
+Verification:
+
+- entering exact docs-reconciled main `212df575cc60a809032954d425902fad86623956`: Verify #1095, 2185 passed / 0 failed, artifact 9906001699, digest `sha256:a50fb08552d73f187bbacc608751655880f293578a7ac4408154808d82a16f79`;
+- no failed production SHA occurred;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `f3fcb80588f394eb05e5944ca2812ed59adf7649`: Verify #1103, 2195 passed / 0 failed, artifact 9906200014, digest `sha256:c776260a5026572cbe27c2bab5212d2a64d92d95f7a9170a433a2d5b12b46af7`;
+- PR #393 synthetic `672e18f904768742917df9c808c48ec476d9fd3e`: Verify #1104, 2195 passed / 0 failed, artifact 9906235551, digest `sha256:d849f4a6413df1de6c6b3e28ed4f5c45465b292266db2c31dbac3602251fcfb0`;
+- squash main `9ca4497dda61615076b8203d0404502630ab7e81`: Verify #1105, 2195 passed / 0 failed, artifact 9906262083, digest `sha256:6bc9ab6699976e56572a216dab839e96c8921f484047c522eb00535163626987`;
 - `externally_verified=False`.
 
