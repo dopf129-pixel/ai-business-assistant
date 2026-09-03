@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1181_V1190.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1191_V1200.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1181_V1190.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1191_V1200.md`
 
 
 ## Current integration blocker
@@ -523,3 +523,5 @@ Next seller-facing analyst priority:
 - distinguish known base unit profit from unavailable return-adjusted profit in Telegram;
 - never present incomplete returns evidence as zero cost;
 - keep both values explicitly scoped and read-only.
+
+[x] Period Profit Returns Protobuf Timestamp Compatibility
