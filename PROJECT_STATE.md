@@ -16,92 +16,107 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1241-v1250: Account-Level Ozon Profit Reconciliation`
+`v1251-v1260: Return COGS Recovery Evidence`
 
 Goal:
 
-Move Period Profit materially closer to seller net profit by making complete account-level Ozon daily accruals the authoritative monetary source while retaining SKU-level evidence for COGS and product revenue reconciliation.
+Expose conservative evidence for potential return-related COGS recovery without increasing Period Profit from unsupported assumptions.
 
 Immediately preceding verified package:
 
-`v1231-v1240: Finance Accrual Pagination & Read Session Integrity`
+`v1241-v1250: Account-Level Ozon Profit Reconciliation`
 
 ## Stable verification
 
 Latest exact production main:
 
-`a359e3d8e68784849caa659dec0123fb15dc6932`
+`d845c7183ef5a914853a15b788e18b0cebfd1c93`
 
-GitHub Actions push Verify #1012:
+GitHub Actions push Verify #1040:
 
-2151 passed / 0 failed.
+2161 passed / 0 failed.
 
-## Decision 037
+## Seller-facing accounting progress
 
-Period Profit monetary ownership is now:
+Period Profit V2 continues to use account-level Ozon accruals as monetary authority.
 
-- account-level Ozon daily accruals are authoritative for revenue, net accrual, commission, logistics, acquiring, other fees and fee breakdown;
-- SKU-level finance remains product-attribution evidence for unit counts, product revenue reconciliation, COGS and drill-down;
-- summed SKU revenue must reconcile to account-level revenue within 0.01 RUB;
-- mismatch fails closed;
-- mapped Ozon expenses already present inside account net accrual are never subtracted a second time.
+Return evidence now additionally preserves:
 
-## Verified seller-facing behavior
+- product SKU / offer / quantity;
+- return type;
+- visual return status;
+- compensation status;
+- return logistics moments.
 
-New V2 scope:
+The new Return COGS Recovery Evidence classifies:
 
-`OZON_ACCOUNT_ACCRUALS_COST_AND_CONFIGURED_TAX_V2`
+- customer-return units that reached return-place as candidate recovery;
+- compensated units separately;
+- unresolved return/recovery status separately;
+- missing current product cost as unresolved rather than zero.
 
-Formula:
+Candidate recovery value is shown only at current configured product cost.
 
-`profit = account_net_accrual - product_cost - configured_tax`
+It does **not** change profit.
 
-Additional evidence:
+## Explicit boundaries
 
-- `sku_attributed_net_accrual`;
-- `ozon_account_reconciliation`;
-- `product_revenue_reconciled`;
-- `account_level_ozon_accruals_included=True`.
+The following remain unproven:
 
-The Telegram response may show the account reconciliation amount when non-zero and explains that account-level Ozon money is already included, so mapped returns/advertising/storage evidence must not be deducted again.
+- historical cost basis of each returned unit;
+- saleability / restored inventory value;
+- originating sale belonging to the selected profit period;
+- accounting treatment of compensation in the selected period.
+
+Therefore:
+
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- accounting net-profit claim remains prohibited.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `0aa27a1267b9d54f1207455b05e32db843091d86` / Verify #1003 / 2141 passed / 0 failed.
+- `55942648266e9ca4fbb3d3380180c3a67bfc4c56` / Verify #1022 / 2151 passed / 0 failed.
+
+Failed intermediate:
+
+- `2339d8aa8da1ec43c3298be2da8506a1e6dd8b9b` / Verify #1033 / 2159 passed / 2 failed.
+- failures were test-contract issues only.
 
 Final feature:
 
-- `a0e528f36b1b4721af0e8d0b419c414d20fabea6` / Verify #1010 / 2151 passed / 0 failed.
+- `30f3edafd9d2af603f2277701cb13492a334dd30` / Verify #1038 / 2161 passed / 0 failed.
 
 PR integration:
 
-- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f` / Verify #1011 / 2151 passed / 0 failed.
+- PR #387 synthetic `c5947439450297dabb353b3dfd125e3fc6417576` / Verify #1039 / 2161 passed / 0 failed.
 
 Squash main:
 
-- `a359e3d8e68784849caa659dec0123fb15dc6932` / Verify #1012 / 2151 passed / 0 failed.
-
-No failed production SHA occurred in this package.
+- `d845c7183ef5a914853a15b788e18b0cebfd1c93` / Verify #1040 / 2161 passed / 0 failed.
 
 ## Preserved boundaries
 
 - Decision 036 read-only analyst boundary;
+- Decision 037 account-level Ozon monetary authority;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
-- no tax-rate formula change;
-- no return-cost inference;
+- no profit formula change in this package;
+- no automatic return COGS reversal;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
 ## Remaining path toward accounting net profit
 
-The product is now closer to real seller profit, but accounting net-profit claim remains blocked until additional evidence is established for:
+The next material gap is seller/business expense evidence outside the Ozon account accrual stream:
 
-- return-related COGS reversal / goods recovery semantics;
-- non-Ozon business expenses and overhead;
-- any taxes/adjustments outside the configured tax policy;
-- full classification coverage for returns, advertising and storage.
+- payroll / contractor costs;
+- external packaging / fulfilment expenses not charged through Ozon;
+- software / subscriptions;
+- rent / accounting / services;
+- other seller-configured operating expenses.
 
-Next package should target return/COGS evidence before inventing any external accounting assumptions.
+Those expenses must be explicit evidence, never inferred as zero.
