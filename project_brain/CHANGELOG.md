@@ -3938,3 +3938,28 @@ SHA-bound evidence:
 - reconciled exact product baseline to `08d0d0fa6860101921ead603ec4a00b95c9ee8bf` / Verify #972 / 2131 passed;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Finance Accrual Pagination & Read Session Integrity v1231-v1240
+
+- fixed live Period Profit failure `Финансовые данные недоступны за 2026-06-06`;
+- Ozon `/v1/finance/accrual/by-day` requests now send required first-page `last_id=""`;
+- accrual pages are read until cursor exhaustion;
+- malformed pages, repeated cursors and page-cap exhaustion fail closed;
+- later-page SKU evidence is included in FinanceService;
+- one daily accrual response is reused across all SKUs inside a Period Profit read session;
+- every Period Profit summary begins a fresh read session to avoid stale cross-calculation cache;
+- failed `8d159ed09410ed978bef6cfdb5719a67bc5491b1`: Verify #990, 2140 passed / 1 failed, artifact 9888518874, digest `sha256:428c75b168488fa3f7c415751d2622917aee6d32c4474e2c8da7ada5757fde81`;
+- final feature `ad215b8d86c547e740dcb3583e7b7f580e9fb823`: Verify #991, 2141 passed / 0 failed, artifact 9888545229, digest `sha256:64a52c5115d3ebd12f0988c0c36ae2b04e11463b56ec4c9d792b93e5bc2d832c`;
+- PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08`: Verify #992, 2141 passed / 0 failed, artifact 9888577950, digest `sha256:1eb510792dc9693d39d425ed1b178f113dffa4ee9a054ab518a2a18c73981d92`;
+- squash main `e66125d5e2c737497762178bef86dd36a62721f3`: Verify #993, 2141 passed / 0 failed, artifact 9888609599, digest `sha256:c42afb3d6c2beb970d7e46a610abf0c59be8712482fdc6b5eee05c525da32cee`;
+- no profit/tax formula, Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- Decision 036 unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1231-v1240
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1231_V1240.md`;
+- reconciled exact product baseline to `e66125d5e2c737497762178bef86dd36a62721f3` / Verify #993 / 2141 passed;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
