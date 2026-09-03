@@ -4116,3 +4116,42 @@ Verification:
 - PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08`: Verify #992, 2141 passed / 0 failed;
 - squash main `e66125d5e2c737497762178bef86dd36a62721f3`: Verify #993, 2141 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Account-Level Ozon Profit Reconciliation v1
+
+Boundaries:
+
+- `FinanceService.get_daily_account_finance`
+- `PeriodProfitSummaryService.calculate`
+- `PeriodProfitSummaryService._calculate_account_period`
+- `PeriodProfitSummaryService._amounts_reconcile`
+- `build_period_profit_response`
+- `build_period_profit_coverage`
+- Decision 037
+
+Tests:
+
+- `tests/test_account_level_period_profit_reconciliation_v1241_v1250.py`
+
+Проверяет:
+
+- account-level Ozon net accrual is the authoritative period monetary total;
+- account-level non-SKU money changes profit exactly once;
+- SKU revenue must reconcile to account revenue;
+- mismatched revenue coverage fails closed;
+- account total corrects duplicated SKU-attributed posting net;
+- account fee breakdown replaces summed SKU fee breakdown;
+- account finance failure blocks Period Profit;
+- Telegram explains account reconciliation and no-double-subtract semantics;
+- coverage exposes account-level inclusion/reconciliation;
+- legacy finance without account boundary keeps V1 compatibility;
+- authorized mapped account expense remains evidence and is not deducted again.
+
+Verification:
+
+- feature `a0e528f36b1b4721af0e8d0b419c414d20fabea6`: Verify #1010, 2151 passed / 0 failed;
+- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f`: Verify #1011, 2151 passed / 0 failed;
+- squash main `a359e3d8e68784849caa659dec0123fb15dc6932`: Verify #1012, 2151 passed / 0 failed;
+- `externally_verified=False`.
