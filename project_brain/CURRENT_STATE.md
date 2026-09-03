@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2101 passed on `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`.
+2111 passed on `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`.
 
-GitHub Actions push verification run #920 completed successfully for this exact main SHA.
+GitHub Actions push verification run #939 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3329,5 +3329,51 @@ Preserved:
 - no Ozon mutation;
 - no execution changes;
 - no finance formula changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+---
+
+# Period Profit Data Completeness Integrity v1201-v1210 — 2026-09-03
+
+Completed:
+
+[x] Persisted SQLite product tuples normalized for Period Profit
+
+[x] False-success zero summary over zero usable products blocked
+
+[x] Empty/malformed product sets fail with PERIOD_PROFIT_PRODUCTS_UNAVAILABLE
+
+[x] Existing dict product contract preserved
+
+[x] Returns evidence paginates beyond the 500-record first page
+
+[x] Pagination advances via has_next + last_id
+
+[x] Pagination bounded to 10 pages
+
+[x] Complete return counts marked exact
+
+[x] Incomplete return counts marked as lower bounds
+
+[x] Telegram partial-return wording uses "как минимум N"
+
+[x] Legacy READY return-evidence response compatibility preserved
+
+Verification:
+
+- entering exact main `5e8e74a78e2c5aa41ed59378c27a0f1ed7b55397`: Verify #930, 2101 passed / 0 failed;
+- failed intermediate `e3d8b2ed1600e3759135bda4f62865ba38a43ae9`: Verify #935, 2103 passed / 2 failed;
+- failed intermediate `49c02ae1790b7d395794932e7ac4fa95cbac1644`: Verify #936, 2109 passed / 2 failed;
+- final feature `16c53622612b72bce2aa43fd97d5ff66d47466c3`: Verify #937, 2111 passed / 0 failed;
+- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a`: Verify #938, 2111 passed / 0 failed;
+- squash main `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`: Verify #939, 2111 passed / 0 failed.
+
+Preserved:
+
+- Decision 036 read-only analyst boundary;
+- no finance formula change;
+- no return-cost inference;
+- no Ozon mutation or execution changes;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
