@@ -16,123 +16,112 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1281-v1290: Historical Product Cost Evidence`
+`v1291-v1300: Return Inventory Recovery Evidence`
 
 Goal:
 
-Provide explicit effective-dated product cost evidence for originating sales without treating the mutable current cost as historical fact.
+Add explicit return-level evidence for whether a returned unit restored saleable inventory, without inferring recovery from stock snapshots, stock deltas, or Returns API placement status.
 
 Immediately preceding verified package:
 
-`v1271-v1280: Return Sale-Period Lineage Evidence`
+`v1281-v1290: Historical Product Cost Evidence`
 
 ## Stable verification
 
 Latest exact production main:
 
-`9ca4497dda61615076b8203d0404502630ab7e81`
+`3f82b65054a2a7a48b9918803c197377bdb3557f`
 
-GitHub Actions push Verify #1105:
+GitHub Actions push Verify #1131:
 
-2195 passed / 0 failed.
+2208 passed / 0 failed.
 
 ## Seller-facing accounting progress
 
-Period Profit V2 continues to use account-level Ozon daily finance as the monetary authority.
+Period Profit V2 keeps Decision 037 account-level Ozon monetary authority.
 
 Base formula remains:
 
 `period_profit = account_net_accrual - product_cost - configured_tax`
 
-External expense adjustment remains:
+External expense adjustment remains evidence-bound:
 
 `profit_after_external_expenses = period_profit - external_expenses`
 
-only with explicit external-expense coverage.
+Return COGS evidence can now independently establish:
 
-Return COGS evidence now has two independently proven layers:
+1. originating sale lineage in the selected period by positive Ozon sale accrual matched on `posting_number + SKU`;
+2. effective-dated historical product cost for that matched sale date;
+3. explicit return-level inventory recovery state from `return_inventory_recovery_history`.
 
-1. selected-period originating sale lineage by positive Ozon sale accrual matched on `posting_number + SKU`;
-2. effective-dated historical product cost evidence applicable to that matched sale date.
+Decision 040 forbids using stock snapshots, stock deltas, or Returns API return-location status as automatic proof of saleable inventory restoration.
 
-Decision 039 establishes a separate append-only `product_cost_history` evidence contract.
+Explicit recovery states:
 
-Important semantics:
+- `SALEABLE_RESTORED`;
+- `NON_SALEABLE`.
 
-- existing `product_costs` remains mutable current configuration;
-- current cost rows are not migrated/backfilled into history;
-- current-cost updates without explicit history do not create historical evidence;
-- each historical version requires an explicit `effective_from`;
-- duplicate `product_id + effective_from` versions are rejected;
-- lookup uses the latest explicit version effective on the originating sale date;
-- ambiguous product identity remains unconfirmed;
-- dates before the first explicit version remain unknown.
+Missing recovery evidence remains unknown.
 
-When every Return COGS candidate has complete sale lineage and a unique applicable historical version, `historical_cost_basis_confirmed=True`.
-
-Historical candidate value is evidence only and still does not change Period Profit.
+Aggregate `saleable_inventory_recovery_confirmed=True` requires a complete return sample, exact identity, exact quantity match and `SALEABLE_RESTORED` for every Return COGS candidate.
 
 ## Explicit boundaries
 
-Accounting net-profit claim remains prohibited.
+Even when sale lineage, historical cost and saleable recovery are all confirmed:
 
-Still not fully proven:
-
-- saleable/restored inventory recovery after returns;
-- originating sale quantity consistency as a separate accounting fact;
-- compensation timing/accounting across periods;
-- taxes/accounting adjustments outside configured tax policy;
-- completeness of seller external expenses without explicit coverage.
-
-Return COGS remains conservative:
-
+- recovery accounting-period attribution remains unconfirmed;
+- originating sale quantity consistency remains unconfirmed as a separate accounting fact;
+- compensation accounting treatment remains unconfirmed;
+- compensated returns remain outside automatic saleable recovery;
 - `confirmed_cogs_recovery_amount=0`;
 - `profit_adjustment_allowed=False`;
 - `automatic_recovery_allowed=False`;
-- `saleable_inventory_recovery_confirmed=False`.
+- accounting net-profit claim remains prohibited.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `212df575cc60a809032954d425902fad86623956` / Verify #1095 / 2185 passed / 0 failed / artifact 9906001699 / digest `sha256:a50fb08552d73f187bbacc608751655880f293578a7ac4408154808d82a16f79`.
+- `7f859d1073338c5c0144edea8fe15574460e5210` / Verify #1115 / 2195 passed / 0 failed / artifact 9906440691 / digest `sha256:42618c7cd0f12fdd9b1c49f2231c990c71c6931727af3a09e1035719f248929a`.
 
-No failed production SHA occurred in v1281-v1290.
+Failed intermediate SHAs remain failed evidence:
+
+- `41b409edcd2a96016bf49e8e8303a7aec00c1886` / Verify #1125 / compile failure / no verification artifact;
+- `4643126328c9e461712aae30f5f7a694a7549e89` / Verify #1126 / compile failure at Period Profit response / no verification artifact;
+- `d90549d21c8fb46b0a9012c205520c68e012dbfa` / Verify #1127 / compile failure due unmatched response parenthesis / no verification artifact;
+- `13e4cfbacf617bb60c5b897137b619f079c3d500` / Verify #1128 / 2203 passed / 5 failed / artifact 9906768012 / digest `sha256:59dd7f0d342951b258bdef1d45b934cd107a858fc986d9326d1f06df016c2944`.
 
 Cancelled intermediate SHAs carry no transferable success evidence.
 
 Final feature:
 
-- `f3fcb80588f394eb05e5944ca2812ed59adf7649` / Verify #1103 / 2195 passed / 0 failed / artifact 9906200014 / digest `sha256:c776260a5026572cbe27c2bab5212d2a64d92d95f7a9170a433a2d5b12b46af7`.
+- `1a83e5466bfebd79370e9576ce00b43b79bb668d` / Verify #1129 / 2208 passed / 0 failed / artifact 9906795648 / digest `sha256:a20b8f66b8d28365b7c9d887250782e7ab01d7885ddcca75c5bfab90541bd875`.
 
 PR integration:
 
-- PR #393 synthetic `672e18f904768742917df9c808c48ec476d9fd3e` / Verify #1104 / 2195 passed / 0 failed / artifact 9906235551 / digest `sha256:d849f4a6413df1de6c6b3e28ed4f5c45465b292266db2c31dbac3602251fcfb0`.
+- PR #395 synthetic `7d7b3a5e180a2505850345cc753a7d40ba391cbf` / Verify #1130 / 2208 passed / 0 failed / artifact 9906847145 / digest `sha256:36f7babc92f4f0d39e708927a61e95122eada8b76892dc4eb7da8912f3e01fa4`.
 
 Squash main:
 
-- `9ca4497dda61615076b8203d0404502630ab7e81` / Verify #1105 / 2195 passed / 0 failed / artifact 9906262083 / digest `sha256:6bc9ab6699976e56572a216dab839e96c8921f484047c522eb00535163626987`.
+- `3f82b65054a2a7a48b9918803c197377bdb3557f` / Verify #1131 / 2208 passed / 0 failed / artifact 9906878610 / digest `sha256:45eb967f32521ae3c7a2007663f6acfffcf6fa2f1fbdddb58bc332f56a02311d`.
 
 ## Preserved boundaries
 
-- Decision 036 permanent read-only Ozon analyst boundary;
+- Decision 036 read-only Ozon analyst boundary;
 - Decision 037 account-level Ozon monetary authority;
-- Decision 038 external operating expense evidence/coverage contract;
-- Decision 039 versioned historical product cost evidence contract;
+- Decision 038 external operating expense coverage contract;
+- Decision 039 versioned historical product cost evidence;
+- Decision 040 explicit return inventory recovery evidence;
 - no Period Profit formula change;
+- no stock-delta inference;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
 - no double subtraction;
-- current cost behavior preserved;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
-## Remaining path toward accounting net profit
+## Remaining path toward return COGS recovery
 
-The most material return COGS blocker is now proof that returned units actually restored saleable inventory value or another accounting-equivalent asset value.
+The next material blocker is accounting-period attribution of an already confirmed saleable recovery, together with originating-sale quantity consistency and compensation double-count prevention.
 
-Historical cost and selected-period lineage can now be confirmed independently, but neither proves inventory recovery.
-
-A future package must keep missing recovery evidence unknown, distinguish compensated/non-saleable outcomes, and prevent double counting between recovered inventory value and Ozon compensation.
-
-Only after inventory recovery is proven should automatic return COGS reversal be reconsidered.
+Until those facts are independently proven, Return COGS remains evidence-only and cannot change profit.
