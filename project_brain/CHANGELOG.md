@@ -3913,3 +3913,28 @@ SHA-bound evidence:
 - next seller-requested task: show percent-of-revenue for each Period Profit monetary line;
 - docs only; no runtime/data changes in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Period Profit Revenue Share Presentation v1221-v1230
+
+- added percent-of-revenue in parentheses to each main Period Profit monetary line;
+- revenue displays 100.00%;
+- Ozon net accrual, commission, logistics, acquiring, other fees, product cost, tax and profit display their share of revenue;
+- fee shares follow existing absolute deduction presentation;
+- negative profit keeps a negative revenue share;
+- zero revenue suppresses derived percentages;
+- existing margin and previous-period comparison percentage retain their original meanings;
+- final feature `77994ccb67c060f7c01694ac65eea5c8aec24e1d`: Verify #970, 2131 passed / 0 failed, artifact 9887454837, digest `sha256:1d0b3d4481b8c3b7db1574c937f204b5c9bf50b95faa6ad6302d8a3178c5392b`;
+- PR #381 synthetic `b9a72b875081d6f12fe7f5b50d4b0c6f6af13e89`: Verify #971, 2131 passed / 0 failed, artifact 9887485384, digest `sha256:a2fdc18398338989d9dffa1a782741d947f2eb0c2e94e623d2f9e121a656dddc`;
+- squash main `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`: Verify #972, 2131 passed / 0 failed, artifact 9887518565, digest `sha256:ff0b6adc775f02a7454d785ad4b7815719ca11254e3f67836bf1fc29c17636b9`;
+- no failed production SHA occurred;
+- no finance/tax formula, Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- Decision 036 unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1221-v1230
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1221_V1230.md`;
+- reconciled exact product baseline to `08d0d0fa6860101921ead603ec4a00b95c9ee8bf` / Verify #972 / 2131 passed;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.

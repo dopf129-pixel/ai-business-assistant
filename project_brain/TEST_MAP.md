@@ -4047,3 +4047,35 @@ Verification:
 - PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af`: Verify #956, 2121 passed / 0 failed;
 - squash main `2f438bd6bb739938cee4fe56b83af8f4a563f942`: Verify #957, 2121 passed / 0 failed;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Revenue Share Presentation v1
+
+Boundaries:
+
+- `build_period_profit_response`
+- `_money_with_revenue_share`
+
+Tests:
+
+- `tests/test_period_profit_revenue_share_presentation_v1221_v1230.py`
+
+Проверяет:
+
+- revenue displays 100.00%;
+- net Ozon accrual displays revenue share;
+- commission/logistics/acquiring/other fees display absolute deduction shares;
+- product cost, tax and profit display revenue shares;
+- negative profit keeps negative share;
+- zero revenue suppresses derived percentages;
+- existing comparison percentage keeps previous-period meaning;
+- existing margin and scope warning remain unchanged;
+- no finance/tax formula or execution changes.
+
+Verification:
+
+- feature `77994ccb67c060f7c01694ac65eea5c8aec24e1d`: Verify #970, 2131 passed / 0 failed;
+- PR #381 synthetic `b9a72b875081d6f12fe7f5b50d4b0c6f6af13e89`: Verify #971, 2131 passed / 0 failed;
+- squash main `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`: Verify #972, 2131 passed / 0 failed;
+- `externally_verified=False`.
