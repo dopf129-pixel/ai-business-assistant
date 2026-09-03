@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1191_V1200.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1201_V1210.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1191_V1200.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1201_V1210.md`
 
 
 ## Current integration blocker
@@ -525,3 +525,10 @@ Next seller-facing analyst priority:
 - keep both values explicitly scoped and read-only.
 
 [x] Period Profit Returns Protobuf Timestamp Compatibility
+
+[x] Period Profit Data Completeness Integrity
+
+Next seller-facing analyst priority:
+- validate live Period Profit totals after local redeploy;
+- distinguish known base unit profit from unavailable return-adjusted profit;
+- continue read-only daily attention and operational analytics.
