@@ -10,12 +10,28 @@ def build_period_profit_response(
     storage_financial_evidence=None,
     mapping_observability=None,
     return_cogs_recovery_evidence=None,
+    external_expense_evidence=None,
+    external_expense_adjustment=None,
 ):
     source = deepcopy(dict(summary or {}))
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
         return {"error": True, "code": "PERIOD_PROFIT_RESPONSE_SUMMARY_REQUIRED", "status": "PERIOD_PROFIT_RESPONSE_UNAVAILABLE"}
 
     revenue = float(source.get("revenue") or 0)
+    external_expense_layer_active = (
+        external_expense_evidence
+        is not None
+    )
+    profit_label = (
+        "Прибыль до внешних расходов"
+        if external_expense_layer_active
+        else "Прибыль"
+    )
+    margin_label = (
+        "Маржа до внешних расходов"
+        if external_expense_layer_active
+        else "Маржа"
+    )
 
     lines = [
         f"💰 Прибыль за период {source.get('date_from')} — {source.get('date_to')}",
@@ -120,14 +136,27 @@ def build_period_profit_response(
             )
         ),
         (
-            "Прибыль: "
+            profit_label + ": "
             + _money_with_revenue_share(
                 source.get("profit"),
                 revenue,
             )
         ),
-        f"Маржа: {_percent(source.get('margin_percent'))}",
+        (
+            margin_label
+            + ": "
+            + _percent(
+                source.get("margin_percent")
+            )
+        ),
     ])
+
+    _append_external_expense_evidence(
+        lines,
+        external_expense_evidence,
+        external_expense_adjustment,
+        revenue,
+    )
 
     if (
         isinstance(return_evidence, dict)
@@ -278,11 +307,29 @@ def build_period_profit_response(
                     "повторно из прибыли."
                 ),
                 (
-                    "Показатель учитывает Ozon-начисления, "
-                    "себестоимость и настроенный налог, "
-                    "но ещё не является полной "
-                    "бухгалтерской чистой прибылью "
-                    "вне контура Ozon."
+                    (
+                        "Показатель учитывает Ozon-начисления, "
+                        "себестоимость, настроенный налог и "
+                        "подтверждённые внешние расходы за период, "
+                        "но ещё не является полной бухгалтерской "
+                        "чистой прибылью."
+                    )
+                    if (
+                        isinstance(
+                            external_expense_evidence,
+                            dict,
+                        )
+                        and external_expense_evidence.get(
+                            "coverage_complete"
+                        )
+                        is True
+                    )
+                    else (
+                        "Показатель учитывает Ozon-начисления, "
+                        "себестоимость и настроенный налог; "
+                        "учёт внешних расходов ещё неполный, "
+                        "поэтому это не бухгалтерская чистая прибыль."
+                    )
                 ),
             ])
         else:
@@ -301,6 +348,178 @@ def build_period_profit_response(
             )
 
     return {"error": False, "status": "PERIOD_PROFIT_RESPONSE_READY", "text": "\n".join(lines), "profit_scope": source.get("profit_scope")}
+
+
+def _append_external_expense_evidence(
+    lines,
+    evidence,
+    adjustment,
+    revenue,
+):
+    source = dict(evidence or {})
+    derived = dict(adjustment or {})
+
+    if source.get("error") is True:
+        lines.extend([
+            "",
+            "🏢 Внешние расходы: —",
+            (
+                "Источник внешних расходов недоступен; "
+                "они не считаются нулевыми."
+            ),
+        ])
+        return
+
+    if source.get("status") not in {
+        "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_READY",
+        "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_PARTIAL",
+    }:
+        return
+
+    count = int(
+        source.get("expense_count")
+        or 0
+    )
+    total = float(
+        source.get("observed_expense_total")
+        or 0
+    )
+    complete = (
+        source.get("coverage_complete")
+        is True
+    )
+
+    lines.extend([
+        "",
+        (
+            "🏢 Внешние расходы"
+            + (
+                ""
+                if complete
+                else " — внесённые"
+            )
+            + ": "
+            + _money_with_revenue_share(
+                total,
+                revenue,
+            )
+        ),
+        (
+            "• Записей: "
+            f"{count}"
+        ),
+    ])
+
+    categories = source.get(
+        "category_breakdown"
+    )
+    if isinstance(categories, dict):
+        for category, amount in (
+            categories.items()
+        ):
+            lines.append(
+                "• "
+                + str(category)
+                + ": "
+                + _money_with_revenue_share(
+                    amount,
+                    revenue,
+                )
+            )
+
+    if complete:
+        lines.append(
+            "• Coverage расходов: полный "
+            "за выбранный период."
+        )
+        adjusted_profit = derived.get(
+            "complete_profit_after_external_expenses"
+        )
+        adjusted_margin = derived.get(
+            "complete_margin_percent"
+        )
+        if (
+            adjusted_profit is not None
+            and adjusted_margin is not None
+        ):
+            lines.extend([
+                (
+                    "Прибыль после внешних расходов: "
+                    + _money_with_revenue_share(
+                        adjusted_profit,
+                        revenue,
+                    )
+                ),
+                (
+                    "Маржа после внешних расходов: "
+                    + _percent(
+                        adjusted_margin
+                    )
+                ),
+            ])
+        return
+
+    gaps = source.get(
+        "coverage_gaps"
+    )
+    if isinstance(gaps, list) and gaps:
+        rendered = []
+        for gap in gaps[:3]:
+            if not isinstance(gap, dict):
+                continue
+            start = gap.get("date_from")
+            end = gap.get("date_to")
+            if start and end:
+                rendered.append(
+                    (
+                        str(start)
+                        if start == end
+                        else f"{start} — {end}"
+                    )
+                )
+        if rendered:
+            lines.append(
+                "• Нет подтверждённого coverage: "
+                + "; ".join(rendered)
+                + (
+                    "; …"
+                    if len(gaps) > 3
+                    else ""
+                )
+            )
+
+    if count > 0:
+        observed_profit = derived.get(
+            "observed_profit_after_external_expenses"
+        )
+        observed_margin = derived.get(
+            "observed_margin_percent"
+        )
+        if (
+            observed_profit is not None
+            and observed_margin is not None
+        ):
+            lines.extend([
+                (
+                    "Наблюдаемая прибыль после внесённых "
+                    "внешних расходов: "
+                    + _money_with_revenue_share(
+                        observed_profit,
+                        revenue,
+                    )
+                ),
+                (
+                    "Наблюдаемая маржа: "
+                    + _percent(
+                        observed_margin
+                    )
+                ),
+            ])
+
+    lines.append(
+        "Учёт внешних расходов не покрывает весь "
+        "период; отсутствующие записи не считаются нулём."
+    )
 
 
 def _append_return_cogs_recovery_evidence(
