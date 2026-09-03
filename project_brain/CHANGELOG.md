@@ -3798,3 +3798,33 @@ SHA-bound evidence:
 - retained permanent read-only analyst boundary from Decision 036;
 - docs only; no runtime/data change in reconciliation;
 - `externally_verified=False`.
+
+## 2026-09-03 — Tax Policy Production Availability v1181-v1190
+
+- fixed clean-deployment unit economics showing `Налог: —` because `data/tax_configuration.json` was absent;
+- restored the previously validated production policy `USN_INCOME / 6%` as explicit repository configuration;
+- added explicit environment fallback only when `TAX_MODE` is actually present;
+- environment policy uses the same fail-closed validator as persisted policy;
+- missing policy remains unknown and is never converted to zero;
+- invalid environment policy remains unconfigured;
+- persisted policy has precedence over environment;
+- malformed persisted policy does not silently fall back to environment;
+- hook-2-like current economics at 100 ₽ tax base now calculates 6.00 ₽ tax and 35.83 ₽ base net profit before returns adjustment;
+- returns/non-buyout incompleteness remains a separate evidence boundary and is not assumed to be zero;
+- final feature `1d0df2799fb87b57d916843a96a080389e2ac07b`: Verify #900, 2091 passed / 0 failed, artifact 9884824274, digest `sha256:8a54d841f9b6b18c7e0184365da0995bee4b09c57ffffe464acb17df41c6f0b0`;
+- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1`: Verify #901, 2091 passed / 0 failed, artifact 9884854745, digest `sha256:3327e51b96a4c4ad376e21f524b578caa6709d20336b52c430adef277603f8b0`;
+- squash main `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`: Verify #902, 2091 passed / 0 failed, artifact 9884888892, digest `sha256:f50357c3d1ef309fc7be702b6807406677a733fe7a5102aff67b3c7405676d60`;
+- no failed production SHA occurred in this package;
+- Decision 036 unchanged;
+- no Ozon mutation or execution changes;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+## 2026-09-03 — Project Brain reconciliation after v1181-v1190
+
+- advanced current checkpoint to `CURRENT_CHECKPOINT_V1181_V1190.md`;
+- reconciled exact product baseline to `9c9d379e36edf2123a466ad2b3cd1d000d81bae3` / Verify #902 / 2091 passed;
+- retained permanent read-only analyst boundary from Decision 036;
+- recorded next seller-facing UX gap: distinguish known base unit profit from unavailable return-adjusted profit;
+- docs only; no runtime/data changes in reconciliation;
+- `externally_verified=False`.
