@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2171 passed on `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`.
+2185 passed on `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`.
 
-GitHub Actions push verification run #1064 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1085 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3668,4 +3668,67 @@ Next accounting priority:
 - prove return-related COGS recovery with stronger historical cost, sale-period lineage and saleable/restored inventory evidence;
 - keep candidate recovery out of profit until that proof exists;
 - then address taxes/accounting adjustments outside the configured tax policy and any uncovered external-expense periods.
+
+---
+
+# Return Sale-Period Lineage Evidence v1271-v1280 — 2026-09-03
+
+Completed:
+
+[x] Positive sale posting evidence extracted from Ozon daily finance
+
+[x] Sale evidence reuses the Period Profit FinanceService read-session cache
+
+[x] Return records matched to positive sale evidence by posting_number + SKU
+
+[x] Same posting with a different SKU does not confirm lineage
+
+[x] One unique positive sale-accrual date inside the selected period is matched lineage
+
+[x] Multiple positive sale dates remain ambiguous
+
+[x] Missing finance days keep lineage partial
+
+[x] Malformed positive-sale evidence cannot become clean evidence
+
+[x] Incomplete Returns pagination prevents aggregate sale-period confirmation
+
+[x] Return COGS candidate records expose lineage status and matched accrual date
+
+[x] Telegram explains confirmed or partial selected-period lineage
+
+[x] Period Profit coverage exposes sale-lineage confirmation without changing profit
+
+Preserved:
+
+- `confirmed_cogs_recovery_amount=0`;
+- `profit_adjustment_allowed=False`;
+- `automatic_recovery_allowed=False`;
+- `historical_cost_basis_confirmed=False`;
+- `saleable_inventory_recovery_confirmed=False`;
+- Decision 036;
+- Decision 037;
+- Decision 038;
+- no Ozon mutation;
+- no profit-formula change;
+- no persistence-contract change;
+- no double subtraction;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Verification:
+
+- entering exact docs-reconciled main `356fa301a9025e15a5a9fbb94da706d10670416a`: Verify #1074, 2171 passed / 0 failed;
+- failed `db2c6c0fa900720c303a8f8face32ef3eec3be11`: Verify #1081, 2170 passed / 1 failed;
+- cancelled intermediate SHAs carry no transferable success evidence;
+- final feature `e96fb63007647857045f226c9c41fd8157ae962e`: Verify #1083, 2185 passed / 0 failed;
+- PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc`: Verify #1084, 2185 passed / 0 failed;
+- squash main `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`: Verify #1085, 2185 passed / 0 failed.
+
+Next accounting priority:
+
+- add evidence-bound historical product cost history applicable to originating sales without backfilling unknown history by assumption;
+- separately prove saleable/restored inventory recovery;
+- keep COGS reversal blocked until both are proven;
+- then resolve compensation timing/accounting and remaining external tax/expense gaps.
 
