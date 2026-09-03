@@ -17,16 +17,20 @@ from services.period_profit_return_evidence_service import (
 
 class Costs:
     def __init__(self, values=None):
-        self.values = values or {
-            "10": (
-                "10",
-                "100",
-                "hook-2",
-                21.0,
-                "RUB",
-                None,
-            ),
-        }
+        self.values = (
+            {
+                "10": (
+                    "10",
+                    "100",
+                    "hook-2",
+                    21.0,
+                    "RUB",
+                    None,
+                ),
+            }
+            if values is None
+            else values
+        )
 
     def get_cost(self, product_id):
         return self.values.get(
