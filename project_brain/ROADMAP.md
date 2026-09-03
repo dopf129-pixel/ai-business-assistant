@@ -447,9 +447,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1251_V1260.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1261_V1270.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1251_V1260.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1261_V1270.md`
 
 
 ## Current integration blocker
@@ -560,3 +560,13 @@ Next seller-facing accounting priority:
 - support period-scoped recurring and one-off expenses;
 - never treat missing expense configuration as zero;
 - keep accounting-net-profit claim blocked until external expense coverage is explicit.
+
+[x] External Operating Expense Coverage
+
+Next seller-facing accounting priority:
+- strengthen return-related COGS recovery evidence beyond candidate current-cost estimates;
+- require historical cost basis, originating sale-period lineage and saleable/restored inventory evidence before any COGS reversal;
+- keep `confirmed_cogs_recovery_amount=0` and profit adjustment blocked until that proof exists;
+- then address taxes/accounting adjustments outside the configured policy and uncovered external-expense periods;
+- preserve Decision 036 read-only Ozon boundary and Decision 037/038 no-double-counting contracts.
+
