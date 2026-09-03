@@ -14,9 +14,9 @@ Verification model: SHA-bound.
 
 Latest full-suite baseline confirmed:
 
-2141 passed on `e66125d5e2c737497762178bef86dd36a62721f3`.
+2151 passed on `a359e3d8e68784849caa659dec0123fb15dc6932`.
 
-GitHub Actions push verification run #993 completed successfully for this exact main SHA.
+GitHub Actions push verification run #1012 completed successfully for this exact main SHA.
 
 See `project_brain/VERIFICATION_STATUS.md`.
 
@@ -3502,3 +3502,49 @@ Preserved:
 - no Ozon mutation or execution changes;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
+
+---
+
+# Account-Level Ozon Profit Reconciliation v1241-v1250 — 2026-09-03
+
+Completed:
+
+[x] Decision 037 account-level Ozon monetary authority
+
+[x] Account-level daily revenue/net accrual/fee totals drive Period Profit V2
+
+[x] SKU-level finance remains COGS and product-revenue evidence
+
+[x] Product revenue must reconcile to account revenue within 0.01 RUB
+
+[x] Revenue coverage mismatch fails closed
+
+[x] Account-minus-SKU net reconciliation is exposed
+
+[x] Account-level charges without SKU are included once
+
+[x] Multi-SKU posting-level net duplication is corrected by account total
+
+[x] Account-level fee breakdown replaces summed SKU fee breakdown
+
+[x] Mapped Ozon expenses remain evidence and are never deducted twice
+
+Verification:
+
+- entering exact main `0aa27a1267b9d54f1207455b05e32db843091d86`: Verify #1003, 2141 passed / 0 failed;
+- final feature `a0e528f36b1b4721af0e8d0b419c414d20fabea6`: Verify #1010, 2151 passed / 0 failed;
+- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f`: Verify #1011, 2151 passed / 0 failed;
+- squash main `a359e3d8e68784849caa659dec0123fb15dc6932`: Verify #1012, 2151 passed / 0 failed.
+
+Preserved:
+
+- Decision 036;
+- read-only analytics;
+- no Ozon mutation;
+- no unsupported accounting-net-profit claim;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+Next accounting gap:
+- return-related COGS reversal / recovered-goods evidence;
+- then non-Ozon overhead/taxes if the seller provides them.
