@@ -116,6 +116,55 @@ def build_period_profit_coverage(
             if return_cogs_ready
             else 0.0
         ),
+        "return_cogs_sale_lineage_status": (
+            "CONFIRMED"
+            if (
+                return_cogs_ready
+                and return_cogs.get(
+                    "originating_sale_period_confirmed"
+                )
+                is True
+            )
+            else (
+                "PARTIAL"
+                if (
+                    return_cogs_ready
+                    and return_cogs.get(
+                        "sale_lineage_evidence_available"
+                    )
+                    is True
+                )
+                else "UNAVAILABLE"
+            )
+        ),
+        "return_cogs_originating_sale_period_confirmed": (
+            return_cogs.get(
+                "originating_sale_period_confirmed"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_sale_lineage_candidate_records": (
+            return_cogs.get(
+                "sale_lineage_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_sale_lineage_matched_records": (
+            return_cogs.get(
+                "sale_lineage_matched_candidate_record_count"
+            )
+            if return_cogs_ready
+            else None
+        ),
+        "return_cogs_sale_lineage_finance_period_complete": (
+            return_cogs.get(
+                "sale_lineage_finance_period_complete"
+            )
+            if return_cogs_ready
+            else None
+        ),
         "return_cogs_profit_adjustment_allowed": False,
         "external_expense_evidence_status": (
             "COMPLETE"

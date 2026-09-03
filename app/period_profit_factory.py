@@ -18,6 +18,9 @@ from services.period_profit_return_evidence_service import PeriodProfitReturnEvi
 from services.period_profit_return_cogs_recovery_evidence_service import (
     PeriodProfitReturnCogsRecoveryEvidenceService,
 )
+from services.period_profit_return_sale_lineage_evidence_service import (
+    PeriodProfitReturnSaleLineageEvidenceService,
+)
 from services.period_profit_summary_service import PeriodProfitSummaryService
 from services.product_service import ProductService
 from services.tax_configuration_service import TaxConfigurationService
@@ -31,8 +34,9 @@ def create_period_profit_query(mapping_registry=None):
     )
     cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
+    finance_service = FinanceService()
     summary_service = PeriodProfitSummaryService(
-        finance_service=FinanceService(),
+        finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=_period_profit_tax_fraction(
             tax_policy
@@ -50,7 +54,10 @@ def create_period_profit_query(mapping_registry=None):
         return_evidence_service=PeriodProfitReturnEvidenceService(OzonClient()),
         return_cogs_recovery_evidence_service=(
             PeriodProfitReturnCogsRecoveryEvidenceService(
-                cost_service
+                cost_service,
+                PeriodProfitReturnSaleLineageEvidenceService(
+                    finance_service
+                ),
             )
         ),
         external_expense_evidence_service=(

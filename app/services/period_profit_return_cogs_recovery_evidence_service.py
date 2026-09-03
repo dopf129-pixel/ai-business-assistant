@@ -13,8 +13,15 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
     )
     COMPENSATED_STATUS = "Received"
 
-    def __init__(self, cost_service):
+    def __init__(
+        self,
+        cost_service,
+        sale_lineage_evidence_service=None,
+    ):
         self.cost_service = cost_service
+        self.sale_lineage_evidence_service = (
+            sale_lineage_evidence_service
+        )
 
     def analyze(
         self,
@@ -181,6 +188,105 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             is True
         )
 
+        sale_lineage_evidence = (
+            self._sale_lineage_evidence(
+                source
+            )
+        )
+        lineage_index = (
+            self._sale_lineage_index(
+                sale_lineage_evidence
+            )
+        )
+        matched_lineage_records = 0
+        unmatched_lineage_records = 0
+        ambiguous_lineage_records = 0
+        unresolved_lineage_records = 0
+
+        for row in candidate_records:
+            lineage = lineage_index.get(
+                self._lineage_key(
+                    row
+                )
+            )
+            if lineage is None:
+                row[
+                    "originating_sale_lineage_status"
+                ] = (
+                    "LINEAGE_EVIDENCE_UNAVAILABLE"
+                    if not lineage_index
+                    else "LINEAGE_RECORD_NOT_FOUND"
+                )
+                row[
+                    "originating_sale_accrual_date"
+                ] = None
+                unresolved_lineage_records += 1
+                continue
+
+            status = str(
+                lineage.get(
+                    "lineage_status"
+                )
+                or ""
+            )
+            row[
+                "originating_sale_lineage_status"
+            ] = status
+            row[
+                "originating_sale_accrual_date"
+            ] = lineage.get(
+                "matched_sale_accrual_date"
+            )
+
+            if (
+                status
+                == "MATCHED_IN_SELECTED_PERIOD"
+            ):
+                matched_lineage_records += 1
+            elif (
+                status
+                == "MULTIPLE_SALE_DATES_AMBIGUOUS"
+            ):
+                ambiguous_lineage_records += 1
+            elif (
+                status
+                == "SALE_NOT_FOUND_IN_SELECTED_PERIOD"
+            ):
+                unmatched_lineage_records += 1
+            else:
+                unresolved_lineage_records += 1
+
+        sale_lineage_ready = (
+            isinstance(
+                sale_lineage_evidence,
+                dict,
+            )
+            and sale_lineage_evidence.get(
+                "error"
+            )
+            is False
+            and sale_lineage_evidence.get(
+                "status"
+            )
+            in {
+                "PERIOD_PROFIT_RETURN_SALE_LINEAGE_EVIDENCE_READY",
+                "PERIOD_PROFIT_RETURN_SALE_LINEAGE_EVIDENCE_PARTIAL",
+            }
+        )
+        originating_sale_period_confirmed = (
+            complete_return_sample
+            and sale_lineage_ready
+            and sale_lineage_evidence.get(
+                "finance_period_complete"
+            )
+            is True
+            and bool(
+                candidate_records
+            )
+            and matched_lineage_records
+            == len(candidate_records)
+        )
+
         return {
             "error": False,
             "status": (
@@ -215,7 +321,43 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             ),
             "current_cost_basis_only": True,
             "historical_cost_basis_confirmed": False,
-            "originating_sale_period_confirmed": False,
+            "originating_sale_period_confirmed": (
+                originating_sale_period_confirmed
+            ),
+            "originating_sale_quantity_confirmed": False,
+            "sale_lineage_evidence_available": (
+                sale_lineage_ready
+            ),
+            "sale_lineage_finance_period_complete": (
+                sale_lineage_evidence.get(
+                    "finance_period_complete"
+                )
+                is True
+                if sale_lineage_ready
+                else False
+            ),
+            "sale_lineage_candidate_record_count": (
+                len(candidate_records)
+            ),
+            "sale_lineage_matched_candidate_record_count": (
+                matched_lineage_records
+            ),
+            "sale_lineage_unmatched_candidate_record_count": (
+                unmatched_lineage_records
+            ),
+            "sale_lineage_ambiguous_candidate_record_count": (
+                ambiguous_lineage_records
+            ),
+            "sale_lineage_unresolved_candidate_record_count": (
+                unresolved_lineage_records
+            ),
+            "sale_lineage_matching_basis": (
+                sale_lineage_evidence.get(
+                    "matching_basis"
+                )
+                if sale_lineage_ready
+                else None
+            ),
             "saleable_inventory_recovery_confirmed": False,
             "period_cogs_recovery_confirmed": False,
             "accounting_cogs_recovery_confirmed": False,
@@ -227,6 +369,107 @@ class PeriodProfitReturnCogsRecoveryEvidenceService:
             "read_only": True,
             "executed": False,
         }
+
+    def _sale_lineage_evidence(
+        self,
+        return_evidence,
+    ):
+        service = (
+            self.sale_lineage_evidence_service
+        )
+        if service is None:
+            return None
+
+        analyzer = getattr(
+            service,
+            "analyze",
+            None,
+        )
+        if not callable(analyzer):
+            return None
+
+        try:
+            result = analyzer(
+                return_evidence
+            )
+        except Exception:
+            return {
+                "error": True,
+                "status": (
+                    "PERIOD_PROFIT_RETURN_SALE_LINEAGE_EVIDENCE_UNAVAILABLE"
+                ),
+                "finance_period_complete": False,
+            }
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            return {
+                "error": True,
+                "status": (
+                    "PERIOD_PROFIT_RETURN_SALE_LINEAGE_EVIDENCE_UNAVAILABLE"
+                ),
+                "finance_period_complete": False,
+            }
+
+        return dict(result)
+
+    @classmethod
+    def _sale_lineage_index(
+        cls,
+        evidence,
+    ):
+        source = dict(
+            evidence
+            or {}
+        )
+        if source.get("error") is True:
+            return {}
+
+        records = source.get(
+            "lineage_records"
+        )
+        if not isinstance(
+            records,
+            list,
+        ):
+            return {}
+
+        result = {}
+        for record in records:
+            if not isinstance(
+                record,
+                dict,
+            ):
+                continue
+            result[
+                cls._lineage_key(
+                    record
+                )
+            ] = dict(record)
+        return result
+
+    @staticmethod
+    def _lineage_key(record):
+        return (
+            str(
+                record.get(
+                    "return_id"
+                )
+                or ""
+            ),
+            str(
+                record.get(
+                    "posting_number"
+                )
+                or ""
+            ).strip(),
+            str(
+                record.get("sku")
+                or ""
+            ).strip(),
+        )
 
     def _cost_index(self, products):
         result = {}

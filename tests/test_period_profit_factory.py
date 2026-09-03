@@ -28,8 +28,21 @@ class ReturnEvidence:
     def __init__(self, ozon_client): self.ozon_client = ozon_client
 
 
+class SaleLineageEvidence:
+    def __init__(self, finance_service):
+        self.finance_service = finance_service
+
+
 class ReturnCogsEvidence:
-    def __init__(self, cost_service): self.cost_service = cost_service
+    def __init__(
+        self,
+        cost_service,
+        sale_lineage_evidence_service=None,
+    ):
+        self.cost_service = cost_service
+        self.sale_lineage_evidence_service = (
+            sale_lineage_evidence_service
+        )
 
 
 class ExternalExpenseEvidence:
@@ -81,6 +94,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     )
     monkeypatch.setattr(
         factory,
+        "PeriodProfitReturnSaleLineageEvidenceService",
+        SaleLineageEvidence,
+    )
+    monkeypatch.setattr(
+        factory,
         "PeriodProfitExternalExpenseEvidenceService",
         ExternalExpenseEvidence,
     )
@@ -97,6 +115,14 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
     assert isinstance(query.return_cogs_recovery_evidence_service, ReturnCogsEvidence)
     assert query.return_cogs_recovery_evidence_service.cost_service is query.summary_service.cost_service
+    assert isinstance(
+        query.return_cogs_recovery_evidence_service.sale_lineage_evidence_service,
+        SaleLineageEvidence,
+    )
+    assert (
+        query.return_cogs_recovery_evidence_service.sale_lineage_evidence_service.finance_service
+        is query.summary_service.finance_service
+    )
     assert isinstance(query.external_expense_evidence_service, ExternalExpenseEvidence)
     assert isinstance(query.external_expense_evidence_service.repository, Expenses)
     assert query.authorized_return_mapping is None

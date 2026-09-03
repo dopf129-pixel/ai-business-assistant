@@ -551,6 +551,30 @@ def _append_return_cogs_recovery_evidence(
         source.get("unresolved_units")
         or 0
     )
+    lineage_candidates = int(
+        source.get(
+            "sale_lineage_candidate_record_count"
+        )
+        or 0
+    )
+    lineage_matched = int(
+        source.get(
+            "sale_lineage_matched_candidate_record_count"
+        )
+        or 0
+    )
+    lineage_available = (
+        source.get(
+            "sale_lineage_evidence_available"
+        )
+        is True
+    )
+    sale_period_confirmed = (
+        source.get(
+            "originating_sale_period_confirmed"
+        )
+        is True
+    )
 
     lines.extend([
         "",
@@ -575,14 +599,82 @@ def _append_return_cogs_recovery_evidence(
             "• Неопределённый recovery-статус: "
             f"{unresolved_units} шт."
         ),
-        (
-            "Эта сумма не прибавляется к прибыли: "
+    ])
+
+    if lineage_candidates > 0:
+        if sale_period_confirmed:
+            lines.append(
+                "• Исходная продажа в выбранном периоде: "
+                f"подтверждена для {lineage_matched}/"
+                f"{lineage_candidates} return-records "
+                "по posting_number + SKU."
+            )
+        elif lineage_available:
+            lines.append(
+                "• Исходная продажа в выбранном периоде: "
+                f"подтверждена для {lineage_matched}/"
+                f"{lineage_candidates} return-records; "
+                "lineage остаётся неполным."
+            )
+        else:
+            lines.append(
+                "• Исходная продажа в выбранном периоде: "
+                "evidence недоступен."
+            )
+
+    saleable_confirmed = (
+        source.get(
+            "saleable_inventory_recovery_confirmed"
+        )
+        is True
+    )
+    historical_cost_confirmed = (
+        source.get(
+            "historical_cost_basis_confirmed"
+        )
+        is True
+    )
+
+    if (
+        not saleable_confirmed
+        and not historical_cost_confirmed
+        and not sale_period_confirmed
+    ):
+        limitation = (
             "не подтверждены продаваемый остаток, "
             "историческая себестоимость и принадлежность "
             "исходной продажи выбранному периоду."
-        ),
-    ])
+        )
+    else:
+        blockers = []
+        if not saleable_confirmed:
+            blockers.append(
+                "продаваемый/восстановленный остаток"
+            )
+        if not historical_cost_confirmed:
+            blockers.append(
+                "историческая себестоимость"
+            )
+        if not sale_period_confirmed:
+            blockers.append(
+                "принадлежность исходной продажи "
+                "выбранному периоду"
+            )
+        limitation = (
+            "остаются неподтверждёнными: "
+            + ", ".join(blockers)
+            + "."
+            if blockers
+            else (
+                "автоматический COGS reversal "
+                "по-прежнему не разрешён."
+            )
+        )
 
+    lines.append(
+        "Эта сумма не прибавляется к прибыли: "
+        + limitation
+    )
 
 def _append_expense_evidence(lines, title, evidence):
     source = dict(evidence or {})
