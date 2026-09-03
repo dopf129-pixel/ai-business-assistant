@@ -5,9 +5,13 @@ from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
 from services.cost_service import ProductCostService
+from services.expense_repository import ExpenseRepository
 from services.finance_service import FinanceService
 from services.period_profit_mapping_observability_service import (
     PeriodProfitMappingObservabilityService,
+)
+from services.period_profit_external_expense_evidence_service import (
+    PeriodProfitExternalExpenseEvidenceService,
 )
 from services.period_profit_query_service import PeriodProfitQueryService
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
@@ -26,6 +30,7 @@ def create_period_profit_query(mapping_registry=None):
         .get_policy()
     )
     cost_service = ProductCostService()
+    expense_repository = ExpenseRepository()
     summary_service = PeriodProfitSummaryService(
         finance_service=FinanceService(),
         cost_service=cost_service,
@@ -46,6 +51,11 @@ def create_period_profit_query(mapping_registry=None):
         return_cogs_recovery_evidence_service=(
             PeriodProfitReturnCogsRecoveryEvidenceService(
                 cost_service
+            )
+        ),
+        external_expense_evidence_service=(
+            PeriodProfitExternalExpenseEvidenceService(
+                expense_repository
             )
         ),
         authorized_return_mapping=mappings.get("RETURN"),

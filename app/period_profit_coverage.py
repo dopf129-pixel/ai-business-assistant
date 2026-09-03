@@ -12,6 +12,7 @@ def build_period_profit_coverage(
     advertising_financial_evidence=None,
     storage_financial_evidence=None,
     return_cogs_recovery_evidence=None,
+    external_expense_evidence=None,
 ):
     source = dict(summary or {})
     if source.get("status") != "PERIOD_PROFIT_SUMMARY_READY" or source.get("error") is not False:
@@ -42,6 +43,24 @@ def build_period_profit_coverage(
         return_cogs.get("status")
         == "PERIOD_PROFIT_RETURN_COGS_RECOVERY_EVIDENCE_READY"
         and return_cogs.get("error") is False
+    )
+    external = dict(
+        external_expense_evidence or {}
+    )
+    external_valid = (
+        external.get("error") is False
+        and external.get("status")
+        in {
+            "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_READY",
+            "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_PARTIAL",
+        }
+    )
+    external_complete = (
+        external_valid
+        and external.get(
+            "coverage_complete"
+        )
+        is True
     )
     all_tracked_components_included = not missing
     return {
@@ -98,6 +117,35 @@ def build_period_profit_coverage(
             else 0.0
         ),
         "return_cogs_profit_adjustment_allowed": False,
+        "external_expense_evidence_status": (
+            "COMPLETE"
+            if external_complete
+            else (
+                "PARTIAL"
+                if external_valid
+                else "UNAVAILABLE"
+            )
+        ),
+        "external_expense_coverage_complete": (
+            external_complete
+        ),
+        "external_expense_observed_total": (
+            external.get(
+                "observed_expense_total"
+            )
+            if external_valid
+            else None
+        ),
+        "external_expense_complete_total": (
+            external.get(
+                "complete_expense_total"
+            )
+            if external_complete
+            else None
+        ),
+        "external_expense_adjustment_complete": (
+            external_complete
+        ),
         "accounting_net_profit_claim_allowed": False,
         "read_only": True,
         "executed": False,
