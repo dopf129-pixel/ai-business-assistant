@@ -14,6 +14,7 @@ class PeriodProfitQueryService:
         summary_service,
         product_provider,
         return_evidence_service=None,
+        return_cogs_recovery_evidence_service=None,
         return_financial_operation_names=None,
         authorized_return_mapping=None,
         authorized_advertising_mapping=None,
@@ -23,6 +24,9 @@ class PeriodProfitQueryService:
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
+        self.return_cogs_recovery_evidence_service = (
+            return_cogs_recovery_evidence_service
+        )
         self.return_financial_operation_names = tuple(return_financial_operation_names or ())
         self.authorized_return_mapping = dict(authorized_return_mapping or {})
         self.authorized_advertising_mapping = dict(authorized_advertising_mapping or {})
@@ -47,6 +51,20 @@ class PeriodProfitQueryService:
             return_evidence = self.return_evidence_service.load(request["date_from"], request["date_to"])
             if return_evidence.get("error"):
                 return return_evidence
+
+        return_cogs_recovery_evidence = None
+        if (
+            self.return_cogs_recovery_evidence_service
+            is not None
+            and return_evidence is not None
+        ):
+            return_cogs_recovery_evidence = (
+                self.return_cogs_recovery_evidence_service
+                .analyze(
+                    return_evidence,
+                    products,
+                )
+            )
 
         operation_names, mapping = self._return_financial_mapping()
         return_financial_evidence = build_period_profit_return_financial_evidence(
@@ -92,6 +110,7 @@ class PeriodProfitQueryService:
             advertising_evidence,
             storage_evidence,
             mapping_observability,
+            return_cogs_recovery_evidence,
         )
         if response.get("error"):
             return response
@@ -104,6 +123,9 @@ class PeriodProfitQueryService:
             "coverage": coverage,
             "return_evidence": return_evidence,
             "return_financial_evidence": return_financial_evidence,
+            "return_cogs_recovery_evidence": (
+                return_cogs_recovery_evidence
+            ),
             "advertising_financial_evidence": advertising_evidence,
             "storage_financial_evidence": storage_evidence,
             "mapping_observability": mapping_observability,
