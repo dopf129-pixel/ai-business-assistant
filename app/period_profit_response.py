@@ -52,12 +52,18 @@ def build_period_profit_response(
             )
             or 0
         )
-        exact = (
+        exact_marker = (
             return_evidence.get(
                 "return_record_count_exact"
             )
-            is True
         )
+        if type(exact_marker) is bool:
+            exact = exact_marker
+        else:
+            exact = (
+                return_evidence.get("status")
+                == "PERIOD_PROFIT_RETURN_EVIDENCE_READY"
+            )
 
         if return_evidence.get("returns_observed") is True:
             if exact:
