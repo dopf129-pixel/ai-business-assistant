@@ -18,11 +18,7 @@ class TaxConfig:
         return {
             "error": False,
             "configured": True,
-            "policy": {
-                "mode": "USN_INCOME",
-                "tax_rate": 6.0,
-                "minimum_tax_rate": 1.0,
-            },
+            "policy": {"mode": "USN_INCOME", "tax_rate": 6.0, "minimum_tax_rate": 1.0},
         }
 
 
@@ -31,53 +27,34 @@ class ReturnEvidence:
 
 
 class SaleLineageEvidence:
-    def __init__(self, finance_service):
-        self.finance_service = finance_service
+    def __init__(self, finance_service): self.finance_service = finance_service
 
 
 class SaleQuantityEvidence:
-    def __init__(self, ozon_client):
-        self.ozon_client = ozon_client
+    def __init__(self, ozon_client): self.ozon_client = ozon_client
 
 
 class ReturnCogsEvidence:
-    def __init__(
-        self,
-        cost_service,
-        sale_lineage_evidence_service=None,
-        inventory_recovery_repository=None,
-    ):
+    def __init__(self, cost_service, sale_lineage_evidence_service=None, inventory_recovery_repository=None):
         self.cost_service = cost_service
-        self.sale_lineage_evidence_service = (
-            sale_lineage_evidence_service
-        )
-        self.inventory_recovery_repository = (
-            inventory_recovery_repository
-        )
+        self.sale_lineage_evidence_service = sale_lineage_evidence_service
+        self.inventory_recovery_repository = inventory_recovery_repository
 
 
 class ReturnCogsQuantityEvidence:
-    def __init__(
-        self,
-        base_service,
-        sale_quantity_evidence_service,
-    ):
+    def __init__(self, base_service, sale_quantity_evidence_service):
         self.base_service = base_service
-        self.sale_quantity_evidence_service = (
-            sale_quantity_evidence_service
-        )
+        self.sale_quantity_evidence_service = sale_quantity_evidence_service
 
 
 class ReturnCogsAccountingEvidence:
-    def __init__(
-        self,
-        base_service,
-        accounting_attribution_repository,
-    ):
+    def __init__(self, base_service, accounting_attribution_repository):
         self.base_service = base_service
-        self.accounting_attribution_repository = (
-            accounting_attribution_repository
-        )
+        self.accounting_attribution_repository = accounting_attribution_repository
+
+
+class ReturnCogsAccountingReadiness:
+    def __init__(self, base_service): self.base_service = base_service
 
 
 class ExternalExpenseEvidence:
@@ -92,18 +69,11 @@ class Summary:
 
 
 class Query:
-    def __init__(
-        self,
-        summary_service,
-        product_provider,
-        return_evidence_service=None,
-        authorized_return_mapping=None,
-        authorized_advertising_mapping=None,
-        authorized_storage_mapping=None,
-        mapping_observability_service=None,
-        return_cogs_recovery_evidence_service=None,
-        external_expense_evidence_service=None,
-    ):
+    def __init__(self, summary_service, product_provider, return_evidence_service=None,
+                 authorized_return_mapping=None, authorized_advertising_mapping=None,
+                 authorized_storage_mapping=None, mapping_observability_service=None,
+                 return_cogs_recovery_evidence_service=None,
+                 external_expense_evidence_service=None):
         self.summary_service = summary_service
         self.product_provider = product_provider
         self.return_evidence_service = return_evidence_service
@@ -120,48 +90,17 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "FinanceService", Finance)
     monkeypatch.setattr(factory, "ProductCostService", Costs)
     monkeypatch.setattr(factory, "ExpenseRepository", Expenses)
-    monkeypatch.setattr(
-        factory,
-        "ReturnInventoryRecoveryRepository",
-        InventoryRecovery,
-    )
-    monkeypatch.setattr(
-        factory,
-        "ReturnCogsAccountingAttributionRepository",
-        AccountingAttribution,
-    )
+    monkeypatch.setattr(factory, "ReturnInventoryRecoveryRepository", InventoryRecovery)
+    monkeypatch.setattr(factory, "ReturnCogsAccountingAttributionRepository", AccountingAttribution)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsRecoveryEvidenceService",
-        ReturnCogsEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsQuantityEvidenceService",
-        ReturnCogsQuantityEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsAccountingEvidenceService",
-        ReturnCogsAccountingEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnSaleLineageEvidenceService",
-        SaleLineageEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnSaleQuantityEvidenceService",
-        SaleQuantityEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitExternalExpenseEvidenceService",
-        ExternalExpenseEvidence,
-    )
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryEvidenceService", ReturnCogsEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsQuantityEvidenceService", ReturnCogsQuantityEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingEvidenceService", ReturnCogsAccountingEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingReadinessService", ReturnCogsAccountingReadiness)
+    monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
     monkeypatch.setattr(factory, "TaxConfigurationService", TaxConfig)
@@ -173,34 +112,23 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
-    assert isinstance(
-        query.return_cogs_recovery_evidence_service,
-        ReturnCogsAccountingEvidence,
-    )
-    quantity_wrapper = query.return_cogs_recovery_evidence_service.base_service
+
+    readiness = query.return_cogs_recovery_evidence_service
+    assert isinstance(readiness, ReturnCogsAccountingReadiness)
+    accounting = readiness.base_service
+    assert isinstance(accounting, ReturnCogsAccountingEvidence)
+    quantity_wrapper = accounting.base_service
     assert isinstance(quantity_wrapper, ReturnCogsQuantityEvidence)
     base = quantity_wrapper.base_service
     assert isinstance(base, ReturnCogsEvidence)
     assert base.cost_service is query.summary_service.cost_service
-    assert isinstance(
-        base.sale_lineage_evidence_service,
-        SaleLineageEvidence,
-    )
-    assert (
-        base.sale_lineage_evidence_service.finance_service
-        is query.summary_service.finance_service
-    )
-    assert isinstance(
-        base.inventory_recovery_repository,
-        InventoryRecovery,
-    )
+    assert isinstance(base.sale_lineage_evidence_service, SaleLineageEvidence)
+    assert base.sale_lineage_evidence_service.finance_service is query.summary_service.finance_service
+    assert isinstance(base.inventory_recovery_repository, InventoryRecovery)
     quantity = quantity_wrapper.sale_quantity_evidence_service
     assert isinstance(quantity, SaleQuantityEvidence)
     assert quantity.ozon_client is query.return_evidence_service.ozon_client
-    assert isinstance(
-        query.return_cogs_recovery_evidence_service.accounting_attribution_repository,
-        AccountingAttribution,
-    )
+    assert isinstance(accounting.accounting_attribution_repository, AccountingAttribution)
     assert isinstance(query.external_expense_evidence_service, ExternalExpenseEvidence)
     assert isinstance(query.external_expense_evidence_service.repository, Expenses)
     assert query.authorized_return_mapping is None
