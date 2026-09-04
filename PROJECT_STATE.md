@@ -6,11 +6,11 @@ AI Business Assistant is a read-only Ozon business analyst and advisor. Ozon bus
 
 ## Current verified checkpoint
 
-Package: `v1321-v1330: Return COGS Accounting Readiness`
+Package: `v1331-v1340: Return COGS Recovery Amount Evidence`
 
-Exact production main: `ea92d314b81b80878d5127ed261b448b7cf7abd0`
+Exact production main: `2213e693fc1c99dde853e41c6145c227c411a21a`
 
-GitHub Actions push Verify #1168: 2238 passed / 0 failed.
+GitHub Actions push Verify #1178: 2248 passed / 0 failed.
 
 ## Period Profit accounting boundary
 
@@ -20,66 +20,47 @@ Base formula remains unchanged:
 
 `period_profit = account_net_accrual - product_cost - configured_tax`
 
-External expense adjustment remains separately evidence-bound under Decision 038.
+Return COGS evidence now supports a staged monetary evidence amount after the full accounting-readiness contract passes.
 
-Return COGS evidence now has an explicit accounting-readiness layer. Readiness requires all of the following to be independently confirmed:
+The staged amount is derived only from each accounting-ready candidate's explicit effective-dated historical cost multiplied by explicit return quantity. The service cross-checks that value against the existing candidate historical-cost value and fails closed on missing, malformed, negative, non-finite, boolean or mismatched evidence.
 
-- complete return sample;
-- originating sale period;
-- historical cost basis;
-- saleable inventory recovery;
-- explicit originating-sale quantity evidence;
-- explicit recovery accounting-period attribution;
-- explicit compensation accounting treatment;
-- explicit compensation double-count clearance;
-- complete accounting-attribution evidence.
+Explicit historical cost zero may prove a zero staged amount. Missing cost or amount remains unknown and is never converted to zero.
 
-## Promoted readiness gates
+## Monetary evidence versus recognition
 
-When the source evidence is explicit and complete:
+`return_cogs_recovery_amount_evidence_confirmed=True` means the candidate set has a finite, internally consistent historical-cost recovery amount supported by already-confirmed accounting readiness.
 
-- `originating_sale_quantity_confirmed=True`;
-- `originating_sale_quantity_gate_promoted=True`;
-- `recovery_period_attribution_confirmed=True`;
-- `compensation_accounting_treatment_confirmed=True`;
-- `return_cogs_accounting_readiness_confirmed=True`.
+It does not recognize the amount in Period Profit.
 
-Each missing or ambiguous prerequisite remains fail-closed and appears in `return_cogs_accounting_readiness_blockers`.
+In v1331-v1340:
 
-## Monetary recovery remains closed
-
-v1321-v1330 does not create or apply a Return COGS amount. Even when readiness is confirmed:
-
+- `return_cogs_recovery_amount_evidence_amount` may be a confirmed staged RUB amount;
 - `period_cogs_recovery_confirmed=False`;
 - `accounting_cogs_recovery_confirmed=False`;
 - `confirmed_cogs_recovery_amount=0.0`;
 - `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- `compensation_profit_adjustment_allowed=False`.
-
-This separates accounting readiness from monetary recognition and prevents source evidence from silently changing Period Profit.
+- `automatic_recovery_allowed=False`.
 
 ## Production verification
 
-No failed production SHA occurred in v1321-v1330.
+No failed production SHA occurred in v1331-v1340.
 
-- feature `137940e12eb9b3671f580b091a26bf45101aee8c` — Verify #1166 — 2238 passed / 0 failed — artifact 9932839687 — digest `sha256:a89bcb223c2f34dbea2e6f47d2b03d45de4bff176bb38c54f1e2883e0d36cd06`;
-- PR #401 synthetic `adc169fc389fda629bd0f923f2ddb05400aa8993` — Verify #1167 — 2238 passed / 0 failed — artifact 9933152845 — digest `sha256:a1db974d7671e94e3c86cb1263da1b96342c20661dc1e1e94349cd5e599cbd59`;
-- squash main `ea92d314b81b80878d5127ed261b448b7cf7abd0` — Verify #1168 — 2238 passed / 0 failed — artifact 9933178755 — digest `sha256:5a0fc7d1f42b4ac4f23af1fa0a89e9279beea45dac4caf72ccd91f4df9df6021`.
+- feature `fad2903b3b28a2f2edb270d33a0d327ca3fd42d7` — Verify #1176 — 2248 passed / 0 failed — artifact 9933505069 — digest `sha256:3eeeeb6a3b4bd7dffd6b75136bcd5a74cfdcc639ab5336caa1a2ba9b1a9b6b68`;
+- PR #403 synthetic `0be4583b0e9248cd7e497e4e3419063abeb7fd19` — Verify #1177 — 2248 passed / 0 failed — artifact 9933534778 — digest `sha256:42d7cecc82a0278e6238f8a21f766b545f5395ce7e61dd54e62219cbb237c7b9`;
+- squash main `2213e693fc1c99dde853e41c6145c227c411a21a` — Verify #1178 — 2248 passed / 0 failed — artifact 9933562627 — digest `sha256:03d474d8ca625593d52f4cd2943d0ec92e293666a26f9287331e00a10010f216`.
 
 ## Preserved boundaries
 
-- Decisions 036-041 remain unchanged;
-- Decision 042 records readiness-gate promotion while monetary recovery stays separate;
+- Decisions 036-042 remain unchanged;
+- Decision 043 records the staged monetary-evidence boundary;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
 - no Period Profit formula change;
-- no non-zero COGS recovery;
-- no compensation inference from operational status absence;
-- no accounting-date inference from confirmation provenance;
+- no recognized Return COGS recovery amount;
+- no compensation double counting;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
 ## Next accounting package
 
-Define the monetary Return COGS recognition contract only from candidate-level evidence that already passes accounting readiness. The next package must prove amount construction and period ownership without double-counting Ozon account-level finance, and should continue to stage the amount before enabling any Period Profit adjustment.
+Define recognition eligibility for a staged Return COGS amount as a separate contract. Recognition must remain period-bound, evidence-complete and no-double-count safe before any later package can consider changing Period Profit output.
