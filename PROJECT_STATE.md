@@ -6,11 +6,11 @@ AI Business Assistant is a read-only Ozon business analyst and advisor. Ozon bus
 
 ## Current verified checkpoint
 
-Package: `v1311-v1320: Return COGS Accounting Attribution Evidence`
+Package: `v1321-v1330: Return COGS Accounting Readiness`
 
-Exact production main: `defcab860609086fe2cd5df98000ca75fd173cee`
+Exact production main: `ea92d314b81b80878d5127ed261b448b7cf7abd0`
 
-GitHub Actions push Verify #1160: 2228 passed / 0 failed.
+GitHub Actions push Verify #1168: 2238 passed / 0 failed.
 
 ## Period Profit accounting boundary
 
@@ -22,72 +22,64 @@ Base formula remains unchanged:
 
 External expense adjustment remains separately evidence-bound under Decision 038.
 
-Return COGS evidence can now independently stage:
+Return COGS evidence now has an explicit accounting-readiness layer. Readiness requires all of the following to be independently confirmed:
 
-1. originating sale-period lineage;
-2. effective-dated historical cost;
-3. explicit saleable/non-saleable inventory recovery;
-4. explicit FBO originating-sale quantity evidence;
-5. explicit recovery accounting date;
-6. explicit compensation accounting treatment and no-double-count evidence.
+- complete return sample;
+- originating sale period;
+- historical cost basis;
+- saleable inventory recovery;
+- explicit originating-sale quantity evidence;
+- explicit recovery accounting-period attribution;
+- explicit compensation accounting treatment;
+- explicit compensation double-count clearance;
+- complete accounting-attribution evidence.
 
-## v1311-v1320 accounting attribution contract
+## Promoted readiness gates
 
-A new append-only `return_cogs_accounting_attribution_history` evidence table stores exact return identity (`return_id + posting_number + SKU`), dedicated `recovery_accounting_date`, explicit compensation state, explicit double-count clearance, confirmation date and source.
+When the source evidence is explicit and complete:
 
-Allowed compensation states are:
+- `originating_sale_quantity_confirmed=True`;
+- `originating_sale_quantity_gate_promoted=True`;
+- `recovery_period_attribution_confirmed=True`;
+- `compensation_accounting_treatment_confirmed=True`;
+- `return_cogs_accounting_readiness_confirmed=True`.
 
-- `NO_COMPENSATION_CONFIRMED`;
-- `COMPENSATION_PRESENT`.
+Each missing or ambiguous prerequisite remains fail-closed and appears in `return_cogs_accounting_readiness_blockers`.
 
-`confirmed_on` is provenance only and is never treated as the accounting recognition date.
+## Monetary recovery remains closed
 
-Missing evidence remains unknown. Identity drift is conflicting evidence. Duplicate `return_id + confirmed_on` versions are rejected. Malformed accounting dates and non-boolean double-count markers fail closed.
+v1321-v1330 does not create or apply a Return COGS amount. Even when readiness is confirmed:
 
-The service may expose source-evidence markers such as:
-
-- `recovery_period_attribution_evidence_confirmed`;
-- `compensation_accounting_treatment_evidence_confirmed`;
-- `compensation_double_count_clear`;
-- `accounting_attribution_evidence_confirmed`.
-
-These markers do not promote the established accounting gates in this package.
-
-## Gates intentionally still closed
-
-- `originating_sale_quantity_confirmed=False`;
-- `originating_sale_quantity_gate_promoted=False`;
-- `recovery_period_attribution_confirmed=False`;
-- `compensation_accounting_treatment_confirmed=False`;
 - `period_cogs_recovery_confirmed=False`;
 - `accounting_cogs_recovery_confirmed=False`;
 - `confirmed_cogs_recovery_amount=0.0`;
 - `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`.
+- `automatic_recovery_allowed=False`;
+- `compensation_profit_adjustment_allowed=False`.
+
+This separates accounting readiness from monetary recognition and prevents source evidence from silently changing Period Profit.
 
 ## Production verification
 
-No failed production SHA occurred in v1311-v1320.
+No failed production SHA occurred in v1321-v1330.
 
-- feature `8909eb222671039142f85b2182a914b7065732c1` — Verify #1158 — 2228 passed / 0 failed — artifact 9932424171 — digest `sha256:9cbc491d0456e5dc9e400eea51c056032a414dfe07aa2de557614da2dd4c6a8a`;
-- PR #399 synthetic `ca3e98f2173d2d483eab48990317cc4de89e5523` — Verify #1159 — 2228 passed / 0 failed — artifact 9932457274 — digest `sha256:dd9e1e0d0f32d5eea0d02082687c78c28b1e3920c1cdb6f17fe832da07a7233c`;
-- squash main `defcab860609086fe2cd5df98000ca75fd173cee` — Verify #1160 — 2228 passed / 0 failed — artifact 9932497883 — digest `sha256:17bbaa40dce658718fd7b59fcdde239a393759e8fcc5a150e7f0dfce3ce02d23`.
-
-All three reports are SHA-bound, read-only evidence, with `ozon_mutation=false` and `business_execution=false`.
+- feature `137940e12eb9b3671f580b091a26bf45101aee8c` — Verify #1166 — 2238 passed / 0 failed — artifact 9932839687 — digest `sha256:a89bcb223c2f34dbea2e6f47d2b03d45de4bff176bb38c54f1e2883e0d36cd06`;
+- PR #401 synthetic `adc169fc389fda629bd0f923f2ddb05400aa8993` — Verify #1167 — 2238 passed / 0 failed — artifact 9933152845 — digest `sha256:a1db974d7671e94e3c86cb1263da1b96342c20661dc1e1e94349cd5e599cbd59`;
+- squash main `ea92d314b81b80878d5127ed261b448b7cf7abd0` — Verify #1168 — 2238 passed / 0 failed — artifact 9933178755 — digest `sha256:5a0fc7d1f42b4ac4f23af1fa0a89e9279beea45dac4caf72ccd91f4df9df6021`.
 
 ## Preserved boundaries
 
-- Decisions 036-040 remain unchanged;
-- Decision 041 records explicit Return COGS accounting-attribution persistence semantics;
+- Decisions 036-041 remain unchanged;
+- Decision 042 records readiness-gate promotion while monetary recovery stays separate;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
 - no Period Profit formula change;
-- no automatic COGS recovery;
+- no non-zero COGS recovery;
 - no compensation inference from operational status absence;
-- no accounting-date inference from inventory confirmation time;
+- no accounting-date inference from confirmation provenance;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
 ## Next accounting package
 
-The next package may evaluate promotion of the independently proven quantity, recovery-period and compensation gates into one accounting readiness contract. Any promotion must remain fail-closed, must prevent compensation double counting, and must not produce a non-zero Period Profit adjustment until the complete recovery amount and recognition contract are explicit.
+Define the monetary Return COGS recognition contract only from candidate-level evidence that already passes accounting readiness. The next package must prove amount construction and period ownership without double-counting Ozon account-level finance, and should continue to stage the amount before enabling any Period Profit adjustment.
