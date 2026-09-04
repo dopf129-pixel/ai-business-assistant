@@ -10,6 +10,7 @@ class PeriodProfitTaxPolicySummaryService:
         self.base_service = base_service
         self.tax_service = tax_service
         self.tax_policy_result = tax_policy_result
+        self.tax_rate = self._compatibility_tax_fraction()
 
     def calculate(self, date_from, date_to, products):
         calculator = getattr(self.base_service, "calculate", None)
@@ -117,6 +118,20 @@ class PeriodProfitTaxPolicySummaryService:
             return None
         policy = source.get("policy")
         return dict(policy) if isinstance(policy, dict) else None
+
+    def _compatibility_tax_fraction(self):
+        policy = self._policy()
+        if policy is None:
+            return None
+        mode = self._text(policy.get("mode")).upper()
+        if mode == "NONE":
+            return 0.0
+        if mode != "USN_INCOME":
+            return None
+        rate = self._number(policy.get("tax_rate"))
+        if rate is None or rate < 0.0 or rate > 100.0:
+            return None
+        return rate / 100.0
 
     @staticmethod
     def _number(value):
