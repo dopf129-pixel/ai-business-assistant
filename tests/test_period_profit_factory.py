@@ -14,6 +14,7 @@ class AccountingRecognition: pass
 class ApplicationAuthorization: pass
 class ApplicationCommit: pass
 class Ozon: pass
+class Tax: pass
 
 
 class TaxConfig:
@@ -86,6 +87,12 @@ class ReturnCogsApplicationCommitReadiness:
         self.application_commit_repository = application_commit_repository
 
 
+class ReturnCogsFinalApplication:
+    def __init__(self, tax_service, tax_policy):
+        self.tax_service = tax_service
+        self.tax_policy = tax_policy
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -95,6 +102,13 @@ class Summary:
         self.finance_service = finance_service
         self.cost_service = cost_service
         self.tax_rate = tax_rate
+
+
+class TaxSummary:
+    def __init__(self, base_service, tax_service, tax_policy):
+        self.base_service = base_service
+        self.tax_service = tax_service
+        self.tax_policy = tax_policy
 
 
 class Query:
@@ -114,6 +128,12 @@ class Query:
         self.external_expense_evidence_service = external_expense_evidence_service
 
 
+class FinalQuery:
+    def __init__(self, base_service, return_cogs_application_service):
+        self.base_service = base_service
+        self.return_cogs_application_service = return_cogs_application_service
+
+
 def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ProductService", Products)
     monkeypatch.setattr(factory, "FinanceService", Finance)
@@ -125,6 +145,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ReturnCogsProfitApplicationAuthorizationRepository", ApplicationAuthorization)
     monkeypatch.setattr(factory, "ReturnCogsProfitApplicationCommitRepository", ApplicationCommit)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
+    monkeypatch.setattr(factory, "TaxService", Tax)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryEvidenceService", ReturnCogsEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsQuantityEvidenceService", ReturnCogsQuantityEvidence)
@@ -135,20 +156,31 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingRecognitionService", ReturnCogsAccountingRecognition)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationEligibilityService", ReturnCogsApplicationEligibility)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationCommitReadinessService", ReturnCogsApplicationCommitReadiness)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsFinalApplicationService", ReturnCogsFinalApplication)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
     monkeypatch.setattr(factory, "PeriodProfitSummaryService", Summary)
+    monkeypatch.setattr(factory, "PeriodProfitTaxPolicySummaryService", TaxSummary)
     monkeypatch.setattr(factory, "PeriodProfitQueryService", Query)
+    monkeypatch.setattr(factory, "PeriodProfitFinalApplicationQueryService", FinalQuery)
     monkeypatch.setattr(factory, "TaxConfigurationService", TaxConfig)
 
-    query = factory.create_period_profit_query()
-    assert isinstance(query.summary_service.finance_service, Finance)
-    assert isinstance(query.summary_service.cost_service, Costs)
-    assert query.summary_service.tax_rate == 0.06
+    final_query = factory.create_period_profit_query()
+    assert isinstance(final_query, FinalQuery)
+    query = final_query.base_service
+    tax_summary = query.summary_service
+    assert isinstance(tax_summary, TaxSummary)
+    assert isinstance(tax_summary.tax_service, Tax)
+    assert tax_summary.tax_policy["policy"]["mode"] == "USN_INCOME"
+    assert isinstance(tax_summary.base_service.finance_service, Finance)
+    assert isinstance(tax_summary.base_service.cost_service, Costs)
+    assert tax_summary.base_service.tax_rate == 0.0
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
+    assert isinstance(final_query.return_cogs_application_service, ReturnCogsFinalApplication)
+    assert final_query.return_cogs_application_service.tax_service is tax_summary.tax_service
 
     commit_readiness = query.return_cogs_recovery_evidence_service
     assert isinstance(commit_readiness, ReturnCogsApplicationCommitReadiness)
@@ -171,9 +203,9 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(quantity_wrapper, ReturnCogsQuantityEvidence)
     base = quantity_wrapper.base_service
     assert isinstance(base, ReturnCogsEvidence)
-    assert base.cost_service is query.summary_service.cost_service
+    assert base.cost_service is tax_summary.base_service.cost_service
     assert isinstance(base.sale_lineage_evidence_service, SaleLineageEvidence)
-    assert base.sale_lineage_evidence_service.finance_service is query.summary_service.finance_service
+    assert base.sale_lineage_evidence_service.finance_service is tax_summary.base_service.finance_service
     assert isinstance(base.inventory_recovery_repository, InventoryRecovery)
     quantity = quantity_wrapper.sale_quantity_evidence_service
     assert isinstance(quantity, SaleQuantityEvidence)
