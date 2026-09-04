@@ -6,11 +6,11 @@ AI Business Assistant is a read-only Ozon business analyst and advisor. Ozon bus
 
 ## Current verified checkpoint
 
-Package: `v1341-v1350: Return COGS Recognition Eligibility`
+Package: `v1351-v1360: Return COGS Accounting Recognition`
 
-Exact production main: `5e579797ffbb78480445d90bbd9c8bb6f8f8b07d`
+Exact production main: `08d407f045e588b83b1c2096c5f652e663781b2d`
 
-GitHub Actions push Verify #1186: 2258 passed / 0 failed.
+GitHub Actions push Verify #1195: 2268 passed / 0 failed.
 
 ## Period Profit accounting boundary
 
@@ -20,46 +20,45 @@ Base formula remains unchanged:
 
 `period_profit = account_net_accrual - product_cost - configured_tax`
 
-Return COGS evidence now has an explicit recognition-eligibility layer after accounting readiness and staged monetary evidence.
+Return COGS now has an explicit append-only accounting-recognition layer after recognition eligibility. Recognition is accepted only when seller accounting evidence exactly reconciles `return_id + posting_number + SKU`, accounting date, RUB amount, and recognition state with the already-eligible candidate set.
 
-Recognition eligibility requires exact identity coverage across candidate records, staged amount records and accounting-attribution records using `return_id + posting_number + SKU`. The staged aggregate must reconcile to the per-candidate amount records, currency must be RUB, every accounting attribution must belong to the requested period, compensation treatment must be explicit, and compensation double-count clearance must be true.
+A later append-only revocation supersedes earlier recognition and fails closed.
 
-## Eligibility is not recognition
+## Recognition is not yet profit application
 
-When all prerequisites are proven:
+When all recognition evidence is exact:
 
-- `return_cogs_recognition_eligibility_confirmed=True`;
-- `return_cogs_recognition_eligible_amount` may expose the staged RUB amount;
-- `return_cogs_recognition_eligible_currency="RUB"`.
+- `period_cogs_recovery_confirmed=True`;
+- `accounting_cogs_recovery_confirmed=True`;
+- `confirmed_cogs_recovery_amount` may equal the recognized eligible RUB amount.
 
-This does not book or apply the amount. In v1341-v1350:
+In v1351-v1360 this still does not change seller-facing Period Profit:
 
-- `period_cogs_recovery_confirmed=False`;
-- `accounting_cogs_recovery_confirmed=False`;
-- `confirmed_cogs_recovery_amount=0.0`;
 - `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`.
+- `automatic_recovery_allowed=False`;
+- the canonical Period Profit formula remains unchanged.
 
 ## Production verification
 
-No failed production SHA occurred in v1341-v1350.
+The first feature candidate `5ec279e5da0581af8fb79b726476324ac3309cb8` failed Verify #1192 with one package-test assertion outside the intended one-cent reconciliation contract. That SHA remains failed evidence permanently and no success evidence is transferred from it.
 
-- feature `92c1e0b61cea965d848cbb79a125c05f02f5ef77` — Verify #1184 — 2258 passed / 0 failed — artifact 9933760826 — digest `sha256:04259a0faabf1743f590b12ba25cab5187248e50688111ab6e49ac2bfd8350cc`;
-- PR #405 synthetic `3b053dad64370a8e1f796c0c2f4097ab4a7b1eec` — Verify #1185 — 2258 passed / 0 failed — artifact 9933811873 — digest `sha256:da1c3c105d8ee93443bcd1f4ed87fd632c6a535fefa63e378b2601b852a201f3`;
-- squash main `5e579797ffbb78480445d90bbd9c8bb6f8f8b07d` — Verify #1186 — 2258 passed / 0 failed — artifact 9933829424 — digest `sha256:7d69f91bb3bfc14ae95a1c2a6299bcf85f840e936a9e5c958e69adc29fa10033`.
+Successful lifecycle:
+
+- feature `e311c2faec20d4236cb5ee5bf6e1799cbdbad7e3` — Verify #1193 — 2268 passed / 0 failed — artifact 9936817042 — digest `sha256:fdedfbf5bcaf5aca554bd052fc99d6b2377325fab31558c841eebc2a663d3e56`;
+- PR #407 synthetic `555c977d64d0a3613a820e7efe8b2eaabb8114d8` — Verify #1194 — 2268 passed / 0 failed — artifact 9936855181 — digest `sha256:5fa6954544b93fa3ca8da3814df524a93cc80eb7a04881a16470bbaef64613e0`;
+- squash main `08d407f045e588b83b1c2096c5f652e663781b2d` — Verify #1195 — 2268 passed / 0 failed — artifact 9936912356 — digest `sha256:bbe069338654fcfac72ad782de2e14d07e8e9d370835d738f5f332d0adf1aa90`.
 
 ## Preserved boundaries
 
-- Decisions 036-043 remain unchanged;
-- Decision 044 records the recognition-eligibility boundary;
+- Decisions 036-040 remain historical baseline contracts;
+- additive `project_brain/DECISIONS_041_045.md` records Return COGS accounting gates through explicit recognition;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
-- no Period Profit formula change;
-- no accounting-recognized Return COGS amount;
+- no Period Profit formula change in this package;
 - no compensation double counting;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
 ## Next accounting package
 
-Define an explicit accounting-recognition evidence layer for an already-eligible amount. Recognition evidence must remain separate from Period Profit application so that booking semantics can be proven before any seller-facing profit value changes.
+Apply an already-accounting-recognized Return COGS amount to Period Profit only through an explicit fail-closed application contract, preserving all existing evidence and no-double-counting gates.
