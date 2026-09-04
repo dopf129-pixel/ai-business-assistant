@@ -4,61 +4,66 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`5e579797ffbb78480445d90bbd9c8bb6f8f8b07d`
+`08d407f045e588b83b1c2096c5f652e663781b2d`
 
 Latest merged production batch:
 
-`v1341-v1350: Return COGS Recognition Eligibility`
+`v1351-v1360: Return COGS Accounting Recognition`
 
 ### Entering exact docs-reconciled main
 
-- exact main: `3b384ce8fd6820e00e412c3b0d75e78ffb231192`;
+- exact main: `ba6346473a8e7dd9d1d3124408f901efc5a860d4`;
 - no verification evidence is transferred from this predecessor to later revisions.
 
 ### Failed intermediate evidence
 
-No failed production SHA occurred in v1341-v1350. Failed SHAs from earlier packages remain failed evidence permanently.
+- SHA `5ec279e5da0581af8fb79b726476324ac3309cb8` — Verify #1192 — 2267 passed / 1 failed;
+- failure was a package-test assertion using a one-cent difference where the service contract intentionally accepts differences up to and including one cent;
+- this SHA remains failed evidence permanently and no success evidence is transferred from it.
 
 ### Exact feature-head verification
 
-- SHA `92c1e0b61cea965d848cbb79a125c05f02f5ef77`;
-- Verify #1184;
-- 2258 passed / 0 failed;
-- artifact 9933760826;
-- digest `sha256:04259a0faabf1743f590b12ba25cab5187248e50688111ab6e49ac2bfd8350cc`.
+- SHA `e311c2faec20d4236cb5ee5bf6e1799cbdbad7e3`;
+- Verify #1193;
+- 2268 passed / 0 failed;
+- artifact 9936817042;
+- digest `sha256:fdedfbf5bcaf5aca554bd052fc99d6b2377325fab31558c841eebc2a663d3e56`.
 
 ### PR merge-ref integration verification
 
-- PR #405;
-- synthetic SHA `3b053dad64370a8e1f796c0c2f4097ab4a7b1eec`;
-- Verify #1185;
-- 2258 passed / 0 failed;
-- artifact 9933811873;
-- digest `sha256:da1c3c105d8ee93443bcd1f4ed87fd632c6a535fefa63e378b2601b852a201f3`.
+- PR #407;
+- synthetic SHA `555c977d64d0a3613a820e7efe8b2eaabb8114d8`;
+- Verify #1194;
+- 2268 passed / 0 failed;
+- artifact 9936855181;
+- digest `sha256:5fa6954544b93fa3ca8da3814df524a93cc80eb7a04881a16470bbaef64613e0`;
+- CI checkout explicitly used `refs/pull/407/merge` at the synthetic SHA.
 
 ### Post-merge exact-main verification
 
-- exact main `5e579797ffbb78480445d90bbd9c8bb6f8f8b07d`;
-- Verify #1186;
-- 2258 passed / 0 failed;
-- artifact 9933829424;
-- digest `sha256:7d69f91bb3bfc14ae95a1c2a6299bcf85f840e936a9e5c958e69adc29fa10033`.
+- exact main `08d407f045e588b83b1c2096c5f652e663781b2d`;
+- Verify #1195;
+- 2268 passed / 0 failed;
+- artifact 9936912356;
+- digest `sha256:bbe069338654fcfac72ad782de2e14d07e8e9d370835d738f5f332d0adf1aa90`;
+- CI checkout explicitly used `refs/heads/main` at the exact SHA.
 
-## Current Return COGS recognition-eligibility boundary
+## Current Return COGS recognition boundary
 
-Eligibility requires accounting readiness, staged monetary evidence, exact identity coverage, RUB amount reconciliation, requested-period accounting attribution, explicit compensation state and explicit double-count clearance.
+Accounting recognition is now a separate explicit evidence layer after recognition eligibility.
 
-`return_cogs_recognition_eligibility_confirmed=True` is recognition eligibility only.
+Recognition requires exact identity coverage and exact reconciliation with the eligible candidate set for:
 
-Accounting recognition and application remain closed:
+- `return_id + posting_number + SKU`;
+- accounting recognition date;
+- recognized amount;
+- RUB currency;
+- explicit recognition state;
+- append-only versioned confirmation evidence.
 
-- `period_cogs_recovery_confirmed=False`;
-- `accounting_cogs_recovery_confirmed=False`;
-- `confirmed_cogs_recovery_amount=0.0`;
-- `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`.
+A later revocation supersedes an earlier recognition. Missing, malformed, conflicting, mismatched, or revoked evidence fails closed.
 
-Period Profit formula is unchanged. No Ozon mutation is authorized or performed.
+When exact recognition is confirmed, `period_cogs_recovery_confirmed`, `accounting_cogs_recovery_confirmed`, and `confirmed_cogs_recovery_amount` may be promoted. Period Profit application remains closed: `profit_adjustment_allowed=False`, `automatic_recovery_allowed=False`, and the canonical Period Profit formula is unchanged.
 
 ## Verification policy
 
