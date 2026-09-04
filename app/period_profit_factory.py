@@ -10,6 +10,9 @@ from services.finance_service import FinanceService
 from services.return_inventory_recovery_repository import (
     ReturnInventoryRecoveryRepository,
 )
+from services.return_cogs_accounting_attribution_repository import (
+    ReturnCogsAccountingAttributionRepository,
+)
 from services.period_profit_mapping_observability_service import (
     PeriodProfitMappingObservabilityService,
 )
@@ -23,6 +26,9 @@ from services.period_profit_return_cogs_recovery_evidence_service import (
 )
 from services.period_profit_return_cogs_quantity_evidence_service import (
     PeriodProfitReturnCogsQuantityEvidenceService,
+)
+from services.period_profit_return_cogs_accounting_evidence_service import (
+    PeriodProfitReturnCogsAccountingEvidenceService,
 )
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
@@ -45,6 +51,9 @@ def create_period_profit_query(mapping_registry=None):
     expense_repository = ExpenseRepository()
     inventory_recovery_repository = (
         ReturnInventoryRecoveryRepository()
+    )
+    accounting_attribution_repository = (
+        ReturnCogsAccountingAttributionRepository()
     )
     finance_service = FinanceService()
     ozon_client = OzonClient()
@@ -70,6 +79,14 @@ def create_period_profit_query(mapping_registry=None):
             inventory_recovery_repository,
         )
     )
+    quantity_return_cogs_evidence = (
+        PeriodProfitReturnCogsQuantityEvidenceService(
+            base_return_cogs_evidence,
+            PeriodProfitReturnSaleQuantityEvidenceService(
+                ozon_client
+            ),
+        )
+    )
     return PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
@@ -77,11 +94,9 @@ def create_period_profit_query(mapping_registry=None):
             ozon_client
         ),
         return_cogs_recovery_evidence_service=(
-            PeriodProfitReturnCogsQuantityEvidenceService(
-                base_return_cogs_evidence,
-                PeriodProfitReturnSaleQuantityEvidenceService(
-                    ozon_client
-                ),
+            PeriodProfitReturnCogsAccountingEvidenceService(
+                quantity_return_cogs_evidence,
+                accounting_attribution_repository,
             )
         ),
         external_expense_evidence_service=(

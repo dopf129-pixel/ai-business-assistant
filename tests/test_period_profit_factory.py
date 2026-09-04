@@ -9,6 +9,7 @@ class Finance: pass
 class Costs: pass
 class Expenses: pass
 class InventoryRecovery: pass
+class AccountingAttribution: pass
 class Ozon: pass
 
 
@@ -67,6 +68,18 @@ class ReturnCogsQuantityEvidence:
         )
 
 
+class ReturnCogsAccountingEvidence:
+    def __init__(
+        self,
+        base_service,
+        accounting_attribution_repository,
+    ):
+        self.base_service = base_service
+        self.accounting_attribution_repository = (
+            accounting_attribution_repository
+        )
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -112,6 +125,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
         "ReturnInventoryRecoveryRepository",
         InventoryRecovery,
     )
+    monkeypatch.setattr(
+        factory,
+        "ReturnCogsAccountingAttributionRepository",
+        AccountingAttribution,
+    )
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(
@@ -123,6 +141,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
         factory,
         "PeriodProfitReturnCogsQuantityEvidenceService",
         ReturnCogsQuantityEvidence,
+    )
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnCogsAccountingEvidenceService",
+        ReturnCogsAccountingEvidence,
     )
     monkeypatch.setattr(
         factory,
@@ -152,9 +175,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
     assert isinstance(
         query.return_cogs_recovery_evidence_service,
-        ReturnCogsQuantityEvidence,
+        ReturnCogsAccountingEvidence,
     )
-    base = query.return_cogs_recovery_evidence_service.base_service
+    quantity_wrapper = query.return_cogs_recovery_evidence_service.base_service
+    assert isinstance(quantity_wrapper, ReturnCogsQuantityEvidence)
+    base = quantity_wrapper.base_service
     assert isinstance(base, ReturnCogsEvidence)
     assert base.cost_service is query.summary_service.cost_service
     assert isinstance(
@@ -169,17 +194,12 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
         base.inventory_recovery_repository,
         InventoryRecovery,
     )
-    quantity = (
-        query.return_cogs_recovery_evidence_service
-        .sale_quantity_evidence_service
-    )
+    quantity = quantity_wrapper.sale_quantity_evidence_service
+    assert isinstance(quantity, SaleQuantityEvidence)
+    assert quantity.ozon_client is query.return_evidence_service.ozon_client
     assert isinstance(
-        quantity,
-        SaleQuantityEvidence,
-    )
-    assert (
-        quantity.ozon_client
-        is query.return_evidence_service.ozon_client
+        query.return_cogs_recovery_evidence_service.accounting_attribution_repository,
+        AccountingAttribution,
     )
     assert isinstance(query.external_expense_evidence_service, ExternalExpenseEvidence)
     assert isinstance(query.external_expense_evidence_service.repository, Expenses)
