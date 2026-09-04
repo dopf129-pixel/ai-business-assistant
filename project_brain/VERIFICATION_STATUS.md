@@ -4,53 +4,53 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`2213e693fc1c99dde853e41c6145c227c411a21a`
+`5e579797ffbb78480445d90bbd9c8bb6f8f8b07d`
 
 Latest merged production batch:
 
-`v1331-v1340: Return COGS Recovery Amount Evidence`
+`v1341-v1350: Return COGS Recognition Eligibility`
 
 ### Entering exact docs-reconciled main
 
-- exact main: `6c3836b15d0cc54f258aee1f40d6c36d31126375`;
+- exact main: `3b384ce8fd6820e00e412c3b0d75e78ffb231192`;
 - no verification evidence is transferred from this predecessor to later revisions.
 
 ### Failed intermediate evidence
 
-No failed production SHA occurred in v1331-v1340. Failed SHAs from earlier packages remain failed evidence permanently.
+No failed production SHA occurred in v1341-v1350. Failed SHAs from earlier packages remain failed evidence permanently.
 
 ### Exact feature-head verification
 
-- SHA `fad2903b3b28a2f2edb270d33a0d327ca3fd42d7`;
-- Verify #1176;
-- 2248 passed / 0 failed;
-- artifact 9933505069;
-- digest `sha256:3eeeeb6a3b4bd7dffd6b75136bcd5a74cfdcc639ab5336caa1a2ba9b1a9b6b68`.
+- SHA `92c1e0b61cea965d848cbb79a125c05f02f5ef77`;
+- Verify #1184;
+- 2258 passed / 0 failed;
+- artifact 9933760826;
+- digest `sha256:04259a0faabf1743f590b12ba25cab5187248e50688111ab6e49ac2bfd8350cc`.
 
 ### PR merge-ref integration verification
 
-- PR #403;
-- synthetic SHA `0be4583b0e9248cd7e497e4e3419063abeb7fd19`;
-- Verify #1177;
-- 2248 passed / 0 failed;
-- artifact 9933534778;
-- digest `sha256:42d7cecc82a0278e6238f8a21f766b545f5395ce7e61dd54e62219cbb237c7b9`.
+- PR #405;
+- synthetic SHA `3b053dad64370a8e1f796c0c2f4097ab4a7b1eec`;
+- Verify #1185;
+- 2258 passed / 0 failed;
+- artifact 9933811873;
+- digest `sha256:da1c3c105d8ee93443bcd1f4ed87fd632c6a535fefa63e378b2601b852a201f3`.
 
 ### Post-merge exact-main verification
 
-- exact main `2213e693fc1c99dde853e41c6145c227c411a21a`;
-- Verify #1178;
-- 2248 passed / 0 failed;
-- artifact 9933562627;
-- digest `sha256:03d474d8ca625593d52f4cd2943d0ec92e293666a26f9287331e00a10010f216`.
+- exact main `5e579797ffbb78480445d90bbd9c8bb6f8f8b07d`;
+- Verify #1186;
+- 2258 passed / 0 failed;
+- artifact 9933829424;
+- digest `sha256:7d69f91bb3bfc14ae95a1c2a6299bcf85f840e936a9e5c958e69adc29fa10033`.
 
-## Current Return COGS monetary-evidence boundary
+## Current Return COGS recognition-eligibility boundary
 
-A staged recovery amount may be exposed only when the full candidate set is accounting-ready and each candidate has explicit valid historical cost, explicit positive return quantity, exact identity, and a reconciled historical candidate value.
+Eligibility requires accounting readiness, staged monetary evidence, exact identity coverage, RUB amount reconciliation, requested-period accounting attribution, explicit compensation state and explicit double-count clearance.
 
-`return_cogs_recovery_amount_evidence_confirmed=True` is monetary source evidence only.
+`return_cogs_recognition_eligibility_confirmed=True` is recognition eligibility only.
 
-Recognition remains closed:
+Accounting recognition and application remain closed:
 
 - `period_cogs_recovery_confirmed=False`;
 - `accounting_cogs_recovery_confirmed=False`;
