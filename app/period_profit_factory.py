@@ -19,6 +19,9 @@ from services.return_cogs_accounting_recognition_repository import (
 from services.return_cogs_profit_application_authorization_repository import (
     ReturnCogsProfitApplicationAuthorizationRepository,
 )
+from services.return_cogs_profit_application_commit_repository import (
+    ReturnCogsProfitApplicationCommitRepository,
+)
 from services.period_profit_mapping_observability_service import (
     PeriodProfitMappingObservabilityService,
 )
@@ -51,6 +54,9 @@ from services.period_profit_return_cogs_accounting_recognition_service import (
 from services.period_profit_return_cogs_application_eligibility_service import (
     PeriodProfitReturnCogsApplicationEligibilityService,
 )
+from services.period_profit_return_cogs_application_commit_readiness_service import (
+    PeriodProfitReturnCogsApplicationCommitReadinessService,
+)
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
 )
@@ -71,6 +77,7 @@ def create_period_profit_query(mapping_registry=None):
     accounting_attribution_repository = ReturnCogsAccountingAttributionRepository()
     accounting_recognition_repository = ReturnCogsAccountingRecognitionRepository()
     application_authorization_repository = ReturnCogsProfitApplicationAuthorizationRepository()
+    application_commit_repository = ReturnCogsProfitApplicationCommitRepository()
     finance_service = FinanceService()
     ozon_client = OzonClient()
     summary_service = PeriodProfitSummaryService(
@@ -114,11 +121,15 @@ def create_period_profit_query(mapping_registry=None):
         recognition_return_cogs_evidence,
         application_authorization_repository,
     )
+    application_commit_return_cogs_evidence = PeriodProfitReturnCogsApplicationCommitReadinessService(
+        application_return_cogs_evidence,
+        application_commit_repository,
+    )
     return PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
-        return_cogs_recovery_evidence_service=application_return_cogs_evidence,
+        return_cogs_recovery_evidence_service=application_commit_return_cogs_evidence,
         external_expense_evidence_service=(
             PeriodProfitExternalExpenseEvidenceService(expense_repository)
         ),
