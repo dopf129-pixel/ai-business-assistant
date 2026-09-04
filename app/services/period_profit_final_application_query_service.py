@@ -10,6 +10,16 @@ class PeriodProfitFinalApplicationQueryService:
     def __init__(self, base_service, return_cogs_application_service):
         self.base_service = base_service
         self.return_cogs_application_service = return_cogs_application_service
+        # Preserve the established PeriodProfitQueryService compatibility surface.
+        self.summary_service = getattr(base_service, "summary_service", None)
+        self.product_provider = getattr(base_service, "product_provider", None)
+        self.return_evidence_service = getattr(base_service, "return_evidence_service", None)
+        self.return_cogs_recovery_evidence_service = getattr(
+            base_service, "return_cogs_recovery_evidence_service", None
+        )
+        self.external_expense_evidence_service = getattr(
+            base_service, "external_expense_evidence_service", None
+        )
 
     def query(self, period_code=None, date_from=None, date_to=None, compare_previous=False, today=None):
         query = getattr(self.base_service, "query", None)
@@ -62,7 +72,7 @@ class PeriodProfitFinalApplicationQueryService:
         previous_summary = result.get("previous_summary")
         comparison = result.get("comparison")
         if compare_previous:
-            previous = self._previous_summary(result.get("request"), today)
+            previous = self._previous_summary(result.get("request"))
             if previous.get("error") is True:
                 return previous
             previous_summary = previous.get("summary")
@@ -105,7 +115,7 @@ class PeriodProfitFinalApplicationQueryService:
         result["executed"] = False
         return result
 
-    def _previous_summary(self, current_request, today):
+    def _previous_summary(self, current_request):
         if not isinstance(current_request, dict):
             return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_REQUEST_INVALID")
         previous_request = build_previous_period_profit_request(current_request)
