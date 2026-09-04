@@ -30,6 +30,9 @@ from services.period_profit_return_cogs_quantity_evidence_service import (
 from services.period_profit_return_cogs_accounting_evidence_service import (
     PeriodProfitReturnCogsAccountingEvidenceService,
 )
+from services.period_profit_return_cogs_accounting_readiness_service import (
+    PeriodProfitReturnCogsAccountingReadinessService,
+)
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
 )
@@ -43,26 +46,17 @@ from services.tax_configuration_service import TaxConfigurationService
 
 def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
-    tax_policy = (
-        TaxConfigurationService()
-        .get_policy()
-    )
+    tax_policy = TaxConfigurationService().get_policy()
     cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
-    inventory_recovery_repository = (
-        ReturnInventoryRecoveryRepository()
-    )
-    accounting_attribution_repository = (
-        ReturnCogsAccountingAttributionRepository()
-    )
+    inventory_recovery_repository = ReturnInventoryRecoveryRepository()
+    accounting_attribution_repository = ReturnCogsAccountingAttributionRepository()
     finance_service = FinanceService()
     ozon_client = OzonClient()
     summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
-        tax_rate=_period_profit_tax_fraction(
-            tax_policy
-        ),
+        tax_rate=_period_profit_tax_fraction(tax_policy),
     )
     mappings = load_active_period_profit_mappings(mapping_registry)
     observability = (
@@ -70,39 +64,30 @@ def create_period_profit_query(mapping_registry=None):
         if mapping_registry is not None
         else None
     )
-    base_return_cogs_evidence = (
-        PeriodProfitReturnCogsRecoveryEvidenceService(
-            cost_service,
-            PeriodProfitReturnSaleLineageEvidenceService(
-                finance_service
-            ),
-            inventory_recovery_repository,
-        )
+    base_return_cogs_evidence = PeriodProfitReturnCogsRecoveryEvidenceService(
+        cost_service,
+        PeriodProfitReturnSaleLineageEvidenceService(finance_service),
+        inventory_recovery_repository,
     )
-    quantity_return_cogs_evidence = (
-        PeriodProfitReturnCogsQuantityEvidenceService(
-            base_return_cogs_evidence,
-            PeriodProfitReturnSaleQuantityEvidenceService(
-                ozon_client
-            ),
-        )
+    quantity_return_cogs_evidence = PeriodProfitReturnCogsQuantityEvidenceService(
+        base_return_cogs_evidence,
+        PeriodProfitReturnSaleQuantityEvidenceService(ozon_client),
+    )
+    accounting_return_cogs_evidence = PeriodProfitReturnCogsAccountingEvidenceService(
+        quantity_return_cogs_evidence,
+        accounting_attribution_repository,
     )
     return PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
-        return_evidence_service=PeriodProfitReturnEvidenceService(
-            ozon_client
-        ),
+        return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
         return_cogs_recovery_evidence_service=(
-            PeriodProfitReturnCogsAccountingEvidenceService(
-                quantity_return_cogs_evidence,
-                accounting_attribution_repository,
+            PeriodProfitReturnCogsAccountingReadinessService(
+                accounting_return_cogs_evidence
             )
         ),
         external_expense_evidence_service=(
-            PeriodProfitExternalExpenseEvidenceService(
-                expense_repository
-            )
+            PeriodProfitExternalExpenseEvidenceService(expense_repository)
         ),
         authorized_return_mapping=mappings.get("RETURN"),
         authorized_advertising_mapping=mappings.get("ADVERTISING"),
@@ -111,45 +96,26 @@ def create_period_profit_query(mapping_registry=None):
     )
 
 
-
 def _period_profit_tax_fraction(policy_result):
     if not isinstance(policy_result, dict):
         return None
-
-    if (
-        policy_result.get("error") is not False
-        or policy_result.get("configured") is not True
-    ):
+    if policy_result.get("error") is not False or policy_result.get("configured") is not True:
         return None
-
     policy = policy_result.get("policy")
     if not isinstance(policy, dict):
         return None
-
-    mode = str(
-        policy.get("mode") or ""
-    ).upper()
-
+    mode = str(policy.get("mode") or "").upper()
     if mode == "NONE":
         return 0.0
-
     if mode != "USN_INCOME":
         return None
-
     rate = policy.get("tax_rate")
     if isinstance(rate, bool):
         return None
-
     try:
         rate = float(rate)
     except (TypeError, ValueError):
         return None
-
-    if (
-        not isfinite(rate)
-        or rate < 0.0
-        or rate > 100.0
-    ):
+    if not isfinite(rate) or rate < 0.0 or rate > 100.0:
         return None
-
     return rate / 100.0
