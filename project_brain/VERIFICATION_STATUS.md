@@ -4,67 +4,77 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`08d407f045e588b83b1c2096c5f652e663781b2d`
+`539fb53cbdbea2295d5dfc29799bb93d08a6ddf6`
 
 Latest merged production batch:
 
-`v1351-v1360: Return COGS Accounting Recognition`
+`v1361-v1370: Return COGS Period Profit Application Eligibility`
 
 ### Entering exact docs-reconciled main
 
-- exact main: `ba6346473a8e7dd9d1d3124408f901efc5a860d4`;
+- exact predecessor docs-main: `6c21ed593bd42183b8bf029245bdfaf683557e0e`;
+- Verify #1199 succeeded for that exact SHA;
+- artifact 9937084027;
+- digest `sha256:8ddc8635e6a8e3476170c64cd3f7639d88a2d47978117218bd071828a136366a`;
 - no verification evidence is transferred from this predecessor to later revisions.
 
 ### Failed intermediate evidence
 
-- SHA `5ec279e5da0581af8fb79b726476324ac3309cb8` — Verify #1192 — 2267 passed / 1 failed;
-- failure was a package-test assertion using a one-cent difference where the service contract intentionally accepts differences up to and including one cent;
-- this SHA remains failed evidence permanently and no success evidence is transferred from it.
+- SHA `c5260a1e5f8ee043481ed04f923d4add8a54e725` — Verify #1201 — 2277 passed / 1 failed;
+- artifact 9937610024;
+- digest `sha256:28f286a17f975329afcb658e0e4d84fdc86bd18bdaef8d48ce0ea0d3dbffe000`;
+- failure was the legacy `tests/test_period_profit_factory.py` assertion that still required `PeriodProfitReturnCogsAccountingRecognitionService` to be the terminal factory service;
+- this SHA remains failed evidence permanently and no later success evidence is transferred to it.
+
+Earlier failed SHA `5ec279e5da0581af8fb79b726476324ac3309cb8` from v1351-v1360 also remains failed evidence permanently.
 
 ### Exact feature-head verification
 
-- SHA `e311c2faec20d4236cb5ee5bf6e1799cbdbad7e3`;
-- Verify #1193;
-- 2268 passed / 0 failed;
-- artifact 9936817042;
-- digest `sha256:fdedfbf5bcaf5aca554bd052fc99d6b2377325fab31558c841eebc2a663d3e56`.
+- SHA `d19476ce387d8e0a1855abd3167cfc4677cb76c2`;
+- Verify #1202;
+- 2278 passed / 0 failed;
+- artifact 9937768191;
+- digest `sha256:e26290a10f168ec74d6e01ae9e37a1655b1264f9fc0735c6c4db8e31014ead60`.
 
 ### PR merge-ref integration verification
 
-- PR #407;
-- synthetic SHA `555c977d64d0a3613a820e7efe8b2eaabb8114d8`;
-- Verify #1194;
-- 2268 passed / 0 failed;
-- artifact 9936855181;
-- digest `sha256:5fa6954544b93fa3ca8da3814df524a93cc80eb7a04881a16470bbaef64613e0`;
-- CI checkout explicitly used `refs/pull/407/merge` at the synthetic SHA.
+- PR #409;
+- synthetic SHA `adb63eb2ea2c3813f461b60ace604cd899277b42`;
+- Verify #1203;
+- 2278 passed / 0 failed;
+- artifact 9937809222;
+- digest `sha256:96b7247d2659f02fcbd834cbb5144fe785d8cff0db320cb8e2154a2dbc24197e`;
+- CI artifact revision explicitly records `refs/pull/409/merge` at the synthetic SHA.
 
 ### Post-merge exact-main verification
 
-- exact main `08d407f045e588b83b1c2096c5f652e663781b2d`;
-- Verify #1195;
-- 2268 passed / 0 failed;
-- artifact 9936912356;
-- digest `sha256:bbe069338654fcfac72ad782de2e14d07e8e9d370835d738f5f332d0adf1aa90`;
-- CI checkout explicitly used `refs/heads/main` at the exact SHA.
+- exact main `539fb53cbdbea2295d5dfc29799bb93d08a6ddf6`;
+- Verify #1204;
+- 2278 passed / 0 failed;
+- artifact 9937835931;
+- digest `sha256:ee36649698d29ea297144e763eb6f07a02662df0843c56c53a014ab435fc73f9`;
+- CI artifact revision explicitly records `refs/heads/main` at the exact SHA.
 
-## Current Return COGS recognition boundary
+## Current Return COGS application boundary
 
-Accounting recognition is now a separate explicit evidence layer after recognition eligibility.
+Accounting recognition remains a separate explicit layer and does not itself authorize Period Profit application.
 
-Recognition requires exact identity coverage and exact reconciliation with the eligible candidate set for:
+The new application-eligibility layer requires exact coverage and reconciliation for:
 
+- exact accounting-recognition history version;
 - `return_id + posting_number + SKU`;
-- accounting recognition date;
-- recognized amount;
+- recognized accounting date and selected requested period;
+- recognized/authorized amount within the established monetary tolerance;
 - RUB currency;
-- explicit recognition state;
-- append-only versioned confirmation evidence.
+- explicit compensation non-overlap;
+- explicit proof that the recovery is excluded from account-level Ozon `net_accrual`;
+- append-only explicit application authorization;
+- no prior `PROFIT_APPLICATION_APPLIED` state for the recognition version.
 
-A later revocation supersedes an earlier recognition. Missing, malformed, conflicting, mismatched, or revoked evidence fails closed.
+Missing, malformed, conflicting, mismatched, revoked, already-applied, or monetary-authority-ambiguous evidence fails closed.
 
-When exact recognition is confirmed, `period_cogs_recovery_confirmed`, `accounting_cogs_recovery_confirmed`, and `confirmed_cogs_recovery_amount` may be promoted. Period Profit application remains closed: `profit_adjustment_allowed=False`, `automatic_recovery_allowed=False`, and the canonical Period Profit formula is unchanged.
+Even when application eligibility is confirmed, v1361-v1370 deliberately keeps `return_cogs_profit_applied=False`, `return_cogs_profit_application_amount=None`, `profit_adjustment_allowed=False`, and `automatic_recovery_allowed=False`. The canonical Period Profit formula is unchanged.
 
 ## Verification policy
 
-Exact branch push verification proves only that exact branch head. Pull-request verification proves only the synthetic merge ref. Every squash-main SHA requires its own exact push verification. Failed SHAs remain failed evidence permanently. Cancelled/pending SHAs carry no transferable success claim. Missing evidence remains unknown and is never interpreted as zero or clean. Workflow evidence is project CI evidence only; `externally_verified=False`.
+Exact branch push verification proves only that exact branch head. Pull-request verification proves only the actual synthetic merge checkout. Every squash-main SHA requires its own exact push verification. Failed SHAs remain failed evidence permanently. Cancelled/pending SHAs carry no transferable success claim. Missing evidence remains unknown and is never interpreted as zero or clean. Workflow evidence is project CI evidence only; `externally_verified=False`.
