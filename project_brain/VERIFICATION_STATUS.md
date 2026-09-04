@@ -4,59 +4,53 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`ea92d314b81b80878d5127ed261b448b7cf7abd0`
+`2213e693fc1c99dde853e41c6145c227c411a21a`
 
 Latest merged production batch:
 
-`v1321-v1330: Return COGS Accounting Readiness`
+`v1331-v1340: Return COGS Recovery Amount Evidence`
 
 ### Entering exact docs-reconciled main
 
-- exact main: `54a38e4650d5c6952c202b6ca866892ecc20fdc6`;
+- exact main: `6c3836b15d0cc54f258aee1f40d6c36d31126375`;
 - no verification evidence is transferred from this predecessor to later revisions.
 
 ### Failed intermediate evidence
 
-No failed production SHA occurred in v1321-v1330. Failed SHAs from earlier packages remain failed evidence permanently.
+No failed production SHA occurred in v1331-v1340. Failed SHAs from earlier packages remain failed evidence permanently.
 
 ### Exact feature-head verification
 
-- SHA: `137940e12eb9b3671f580b091a26bf45101aee8c`;
-- Verify #1166;
-- 2238 passed / 0 failed;
-- artifact 9932839687;
-- digest `sha256:a89bcb223c2f34dbea2e6f47d2b03d45de4bff176bb38c54f1e2883e0d36cd06`.
+- SHA `fad2903b3b28a2f2edb270d33a0d327ca3fd42d7`;
+- Verify #1176;
+- 2248 passed / 0 failed;
+- artifact 9933505069;
+- digest `sha256:3eeeeb6a3b4bd7dffd6b75136bcd5a74cfdcc639ab5336caa1a2ba9b1a9b6b68`.
 
 ### PR merge-ref integration verification
 
-- PR #401;
-- synthetic SHA: `adc169fc389fda629bd0f923f2ddb05400aa8993`;
-- Verify #1167;
-- 2238 passed / 0 failed;
-- artifact 9933152845;
-- digest `sha256:a1db974d7671e94e3c86cb1263da1b96342c20661dc1e1e94349cd5e599cbd59`.
+- PR #403;
+- synthetic SHA `0be4583b0e9248cd7e497e4e3419063abeb7fd19`;
+- Verify #1177;
+- 2248 passed / 0 failed;
+- artifact 9933534778;
+- digest `sha256:42d7cecc82a0278e6238f8a21f766b545f5395ce7e61dd54e62219cbb237c7b9`.
 
 ### Post-merge exact-main verification
 
-- exact main: `ea92d314b81b80878d5127ed261b448b7cf7abd0`;
-- Verify #1168;
-- 2238 passed / 0 failed;
-- artifact 9933178755;
-- digest `sha256:5a0fc7d1f42b4ac4f23af1fa0a89e9279beea45dac4caf72ccd91f4df9df6021`.
+- exact main `2213e693fc1c99dde853e41c6145c227c411a21a`;
+- Verify #1178;
+- 2248 passed / 0 failed;
+- artifact 9933562627;
+- digest `sha256:03d474d8ca625593d52f4cd2943d0ec92e293666a26f9287331e00a10010f216`.
 
-## Current Return COGS accounting-readiness boundary
+## Current Return COGS monetary-evidence boundary
 
-The readiness layer may promote explicit source evidence to:
+A staged recovery amount may be exposed only when the full candidate set is accounting-ready and each candidate has explicit valid historical cost, explicit positive return quantity, exact identity, and a reconciled historical candidate value.
 
-- `originating_sale_quantity_confirmed=True`;
-- `originating_sale_quantity_gate_promoted=True`;
-- `recovery_period_attribution_confirmed=True`;
-- `compensation_accounting_treatment_confirmed=True`;
-- `return_cogs_accounting_readiness_confirmed=True`.
+`return_cogs_recovery_amount_evidence_confirmed=True` is monetary source evidence only.
 
-Readiness requires a complete return sample, confirmed sale period, historical cost basis, saleable inventory recovery, quantity evidence, accounting-period attribution, compensation treatment, double-count clearance and complete accounting-attribution evidence.
-
-Monetary recovery remains blocked:
+Recognition remains closed:
 
 - `period_cogs_recovery_confirmed=False`;
 - `accounting_cogs_recovery_confirmed=False`;
