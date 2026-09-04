@@ -175,7 +175,7 @@ def test_v1353_missing_explicit_booking_fails_closed_unknown_is_not_zero_evidenc
 
 def test_v1354_recognized_amount_must_match_staged_historical_cost_amount():
     result = _analyze(
-        repository=RecognitionRepository(_recognition_record(amount=149.99))
+        repository=RecognitionRepository(_recognition_record(amount=149.98))
     )
 
     assert result["return_cogs_accounting_recognition_evidence_confirmed"] is False
