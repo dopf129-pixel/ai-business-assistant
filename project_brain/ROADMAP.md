@@ -420,7 +420,29 @@ Completed foundation and safety work:
 
 [x] Product Decision User Action Completion Persistence Integrity
 
-[x] Product Decision User Action Completion Revision Predecessor Integrity\n\n[x] Product Decision User Action Checklist Status Persistence Lineage Integrity\n\n[x] Product Decision User Action Post-Decision Observation Lineage Integrity\n\n[x] Product Decision User Action Post-Decision Outcome Lineage Integrity\n\n[x] Product Decision User Action Learning Summary Outcome Integrity\n\n[x] Product Decision User Action Learning Evidence Quality Summary Integrity\n\n[x] Product Decision User Action Learning Confidence Evidence Integrity\n\n[x] Product Decision Action Proposal Result Integrity\n\n[x] Product Decision History Context Result Integrity\n\n[x] Unit Economics Returns Finance Impact Integrity\n\n[x] Product Decision Result Integrity\n\n[x] Product Decision Assortment Overview Integrity
+[x] Product Decision User Action Completion Revision Predecessor Integrity
+
+[x] Product Decision User Action Checklist Status Persistence Lineage Integrity
+
+[x] Product Decision User Action Post-Decision Observation Lineage Integrity
+
+[x] Product Decision User Action Post-Decision Outcome Lineage Integrity
+
+[x] Product Decision User Action Learning Summary Outcome Integrity
+
+[x] Product Decision User Action Learning Evidence Quality Summary Integrity
+
+[x] Product Decision User Action Learning Confidence Evidence Integrity
+
+[x] Product Decision Action Proposal Result Integrity
+
+[x] Product Decision History Context Result Integrity
+
+[x] Unit Economics Returns Finance Impact Integrity
+
+[x] Product Decision Result Integrity
+
+[x] Product Decision Assortment Overview Integrity
 
 Project Brain appendices include `AUTONOMOUS_ASSISTANT_V8_FRESHNESS.md`, `FRESHNESS_EVIDENCE_CONTRACT.md`, `FRESHNESS_EVIDENCE_PROPAGATION.md`, `SALES_FRESHNESS_PERIOD_EVIDENCE.md`, `STOCK_FRESHNESS_OBSERVATION_EVIDENCE.md`, `FRESHNESS_COVERAGE_SUMMARY.md`, `FRESHNESS_REFRESH_GUIDANCE.md`, `TASK_PERSISTENCE_INTEGRITY_V1.md`, `TASK_LIFECYCLE_COMPLETION_INTEGRITY_V1.md`, `EXECUTOR_ERROR_RESULT_LIFECYCLE_INTEGRITY_V1.md`, `EXACT_BRANCH_SHA_VERIFICATION_V1.md`, `RECOMMENDATION_CONTEXT_INTEGRITY_V1.md`, and `ACTION_PLAN_RESULT_INTEGRITY_V1.md`.
 
@@ -447,9 +469,9 @@ Current hardening queue:
 9. Keep the product permanently read-only toward Ozon business state: analysis, comparison, prioritization, recommendations and non-executable drafts are allowed; price, advertising, replenishment, product-card and other Ozon mutations are out of scope.
 
 
-Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1291_V1300.md`.
+Current checkpoint: `project_brain/CURRENT_CHECKPOINT_V1301_V1310.md`.
 
-Current verified checkpoint: `CURRENT_CHECKPOINT_V1291_V1300.md`
+Current verified checkpoint: `CURRENT_CHECKPOINT_V1301_V1310.md`
 
 
 ## Current integration blocker
@@ -597,3 +619,11 @@ Next seller-facing accounting priority:
 - keep `confirmed_cogs_recovery_amount=0` until remaining accounting attribution is complete;
 - preserve Decision 036/037/038/039/040 contracts.
 
+[x] Originating Sale Quantity Evidence
+
+Next seller-facing accounting priority:
+- establish explicit recovery accounting-period attribution for saleable-restored returns;
+- define explicit compensation accounting treatment and double-count prevention independently from inventory recovery;
+- consume/promote originating-sale quantity evidence only after those independent accounting facts are bound;
+- keep `confirmed_cogs_recovery_amount=0` and profit adjustment blocked until the complete accounting gate is explicit;
+- preserve Decision 036/037/038/039/040 contracts and introduce a new decision only if accounting semantics or persistence ownership changes.

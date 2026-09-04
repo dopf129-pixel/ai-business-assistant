@@ -16,25 +16,25 @@ The assistant must not mutate Ozon business state.
 
 Package:
 
-`v1291-v1300: Return Inventory Recovery Evidence`
+`v1301-v1310: Originating Sale Quantity Evidence`
 
 Goal:
 
-Add explicit return-level evidence for whether a returned unit restored saleable inventory, without inferring recovery from stock snapshots, stock deltas, or Returns API placement status.
+Add explicit read-only evidence for originating FBO sale quantity behind Return COGS candidates without deriving quantity from money, stock deltas, or return-state assumptions.
 
 Immediately preceding verified package:
 
-`v1281-v1290: Historical Product Cost Evidence`
+`v1291-v1300: Return Inventory Recovery Evidence`
 
 ## Stable verification
 
 Latest exact production main:
 
-`3f82b65054a2a7a48b9918803c197377bdb3557f`
+`e9b56773bd1dea7c4ac6b97f0c948d49f319bb51`
 
-GitHub Actions push Verify #1131:
+GitHub Actions push Verify #1150:
 
-2208 passed / 0 failed.
+2218 passed / 0 failed.
 
 ## Seller-facing accounting progress
 
@@ -52,58 +52,52 @@ Return COGS evidence can now independently establish:
 
 1. originating sale lineage in the selected period by positive Ozon sale accrual matched on `posting_number + SKU`;
 2. effective-dated historical product cost for that matched sale date;
-3. explicit return-level inventory recovery state from `return_inventory_recovery_history`.
+3. explicit return-level inventory recovery state from `return_inventory_recovery_history`;
+4. originating FBO sale-quantity evidence from exact posting detail `products[].quantity` matched on `posting_number + SKU`.
 
-Decision 040 forbids using stock snapshots, stock deltas, or Returns API return-location status as automatic proof of saleable inventory restoration.
+For quantity evidence, all Return COGS candidates sharing the same `posting_number + SKU` consume one originating sale quantity budget. Aggregate candidate return quantity must not exceed the explicit FBO posting product quantity.
 
-Explicit recovery states:
+Missing SKU evidence remains unknown. Duplicate matching SKU rows are ambiguous rather than silently summed. Malformed/non-positive quantities remain unconfirmed. FBS quantity evidence is unsupported in this package and fails closed.
 
-- `SALEABLE_RESTORED`;
-- `NON_SALEABLE`.
+## Explicit evidence/accounting distinction
 
-Missing recovery evidence remains unknown.
+`originating_sale_quantity_evidence_confirmed=True` means the explicit FBO posting evidence is quantity-consistent for all candidates.
 
-Aggregate `saleable_inventory_recovery_confirmed=True` requires a complete return sample, exact identity, exact quantity match and `SALEABLE_RESTORED` for every Return COGS candidate.
+It does **not** mean the Return COGS accounting gate has been promoted.
 
-## Explicit boundaries
+In v1301-v1310:
 
-Even when sale lineage, historical cost and saleable recovery are all confirmed:
-
-- recovery accounting-period attribution remains unconfirmed;
-- originating sale quantity consistency remains unconfirmed as a separate accounting fact;
-- compensation accounting treatment remains unconfirmed;
-- compensated returns remain outside automatic saleable recovery;
-- `confirmed_cogs_recovery_amount=0`;
+- `originating_sale_quantity_confirmed=False`;
+- `originating_sale_quantity_gate_promoted=False`;
+- `recovery_period_attribution_confirmed=False`;
+- `compensation_accounting_treatment_confirmed=False`;
+- `period_cogs_recovery_confirmed=False`;
+- `accounting_cogs_recovery_confirmed=False`;
+- `confirmed_cogs_recovery_amount=0.0`;
 - `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- accounting net-profit claim remains prohibited.
+- `automatic_recovery_allowed=False`.
+
+This prevents a source-evidence improvement from silently becoming accounting authorization.
 
 ## Production evidence
 
 Entering exact docs-reconciled main:
 
-- `7f859d1073338c5c0144edea8fe15574460e5210` / Verify #1115 / 2195 passed / 0 failed / artifact 9906440691 / digest `sha256:42618c7cd0f12fdd9b1c49f2231c990c71c6931727af3a09e1035719f248929a`.
+- `9bceb0a9cedd5db2a42eef653f5822af21dd4cee`.
 
-Failed intermediate SHAs remain failed evidence:
-
-- `41b409edcd2a96016bf49e8e8303a7aec00c1886` / Verify #1125 / compile failure / no verification artifact;
-- `4643126328c9e461712aae30f5f7a694a7549e89` / Verify #1126 / compile failure at Period Profit response / no verification artifact;
-- `d90549d21c8fb46b0a9012c205520c68e012dbfa` / Verify #1127 / compile failure due unmatched response parenthesis / no verification artifact;
-- `13e4cfbacf617bb60c5b897137b619f079c3d500` / Verify #1128 / 2203 passed / 5 failed / artifact 9906768012 / digest `sha256:59dd7f0d342951b258bdef1d45b934cd107a858fc986d9326d1f06df016c2944`.
-
-Cancelled intermediate SHAs carry no transferable success evidence.
+No failed production SHA occurred in v1301-v1310.
 
 Final feature:
 
-- `1a83e5466bfebd79370e9576ce00b43b79bb668d` / Verify #1129 / 2208 passed / 0 failed / artifact 9906795648 / digest `sha256:a20b8f66b8d28365b7c9d887250782e7ab01d7885ddcca75c5bfab90541bd875`.
+- `44b9cf3f0e794d7b17527fad8de5dc7ec3ae1e3b` / Verify #1148 / 2218 passed / 0 failed / artifact 9929146444 / digest `sha256:f104a0d1a0676b2252185dd52bb4ce47c591461ce1f5fde7e0be0571b2968ce2`.
 
 PR integration:
 
-- PR #395 synthetic `7d7b3a5e180a2505850345cc753a7d40ba391cbf` / Verify #1130 / 2208 passed / 0 failed / artifact 9906847145 / digest `sha256:36f7babc92f4f0d39e708927a61e95122eada8b76892dc4eb7da8912f3e01fa4`.
+- PR #397 synthetic `3299575f706866dc214d88f65ba18d6663f2743d` / Verify #1149 / 2218 passed / 0 failed / artifact 9929197649 / digest `sha256:4271c9cba87a6310c1e0cd1175aeaec6769f1f2837beb9b7e9698a92bb555dd7`.
 
 Squash main:
 
-- `3f82b65054a2a7a48b9918803c197377bdb3557f` / Verify #1131 / 2208 passed / 0 failed / artifact 9906878610 / digest `sha256:45eb967f32521ae3c7a2007663f6acfffcf6fa2f1fbdddb58bc332f56a02311d`.
+- `e9b56773bd1dea7c4ac6b97f0c948d49f319bb51` / Verify #1150 / 2218 passed / 0 failed / artifact 9929225518 / digest `sha256:77b4c9c9e1a25cfb4a9bcc31ffec4076c542aa6f0204c30cdbd3a9221e5a6747`.
 
 ## Preserved boundaries
 
@@ -112,8 +106,10 @@ Squash main:
 - Decision 038 external operating expense coverage contract;
 - Decision 039 versioned historical product cost evidence;
 - Decision 040 explicit return inventory recovery evidence;
+- no new architecture decision in v1301-v1310 because accounting semantics/persistence were not changed;
 - no Period Profit formula change;
 - no stock-delta inference;
+- no monetary-to-quantity inference;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
 - no double subtraction;
@@ -122,6 +118,6 @@ Squash main:
 
 ## Remaining path toward return COGS recovery
 
-The next material blocker is accounting-period attribution of an already confirmed saleable recovery, together with originating-sale quantity consistency and compensation double-count prevention.
+The next material blockers are explicit recovery accounting-period attribution and compensation accounting treatment/double-count prevention.
 
-Until those facts are independently proven, Return COGS remains evidence-only and cannot change profit.
+The newly proven sale-quantity source evidence must remain separate until those independent accounting facts are bound. Only a later explicit accounting contract may promote the quantity gate and determine whether any Return COGS recovery belongs in a selected Period Profit period.

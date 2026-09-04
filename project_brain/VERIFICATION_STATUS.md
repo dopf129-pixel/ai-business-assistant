@@ -4,73 +4,70 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`3f82b65054a2a7a48b9918803c197377bdb3557f`
+`e9b56773bd1dea7c4ac6b97f0c948d49f319bb51`
 
 Latest merged production batch:
 
-`v1291-v1300: Return Inventory Recovery Evidence`
+`v1301-v1310: Originating Sale Quantity Evidence`
 
-### Entering exact-main verification
-- exact main: `7f859d1073338c5c0144edea8fe15574460e5210`
-- Verify #1115
-- 2195 passed / 0 failed
-- artifact id: 9906440691
-- digest: `sha256:42618c7cd0f12fdd9b1c49f2231c990c71c6931727af3a09e1035719f248929a`
+### Entering exact docs-reconciled main
+- exact main: `9bceb0a9cedd5db2a42eef653f5822af21dd4cee`
+- this SHA is the docs-reconciled predecessor used as the exact feature branch base
+- no verification evidence is transferred from this SHA to later revisions
 
 ### Failed intermediate evidence
 
-Failed SHA evidence is permanent and cannot be promoted by later green runs.
+No failed production SHA occurred in v1301-v1310.
 
-- exact SHA: `41b409edcd2a96016bf49e8e8303a7aec00c1886`
-  - Verify #1125
-  - compile failed (`SyntaxError`)
-  - no verification artifact
-- exact SHA: `4643126328c9e461712aae30f5f7a694a7549e89`
-  - Verify #1126
-  - compile failed at `app/period_profit_response.py:706`
-  - no verification artifact
-- exact SHA: `d90549d21c8fb46b0a9012c205520c68e012dbfa`
-  - Verify #1127
-  - compile failed with unmatched `)` at `app/period_profit_response.py:744`
-  - no verification artifact
-- exact SHA: `13e4cfbacf617bb60c5b897137b619f079c3d500`
-  - Verify #1128
-  - 2203 passed / 5 failed
-  - artifact id: 9906768012
-  - digest: `sha256:59dd7f0d342951b258bdef1d45b934cd107a858fc986d9326d1f06df016c2944`
-  - failure cause: test-double return IDs were string-keyed while production preserved numeric Ozon Return API IDs; the test stub was corrected without weakening production identity semantics
+Failed SHAs from earlier packages remain failed evidence permanently and are not reclassified by this package.
 
 ### Exact final feature-head verification
-- exact SHA: `1a83e5466bfebd79370e9576ce00b43b79bb668d`
-- Verify #1129
-- 2208 passed / 0 failed
-- artifact id: 9906795648
-- digest: `sha256:a20b8f66b8d28365b7c9d887250782e7ab01d7885ddcca75c5bfab90541bd875`
+- exact SHA: `44b9cf3f0e794d7b17527fad8de5dc7ec3ae1e3b`
+- Verify #1148
+- 2218 passed / 0 failed
+- artifact id: 9929146444
+- digest: `sha256:f104a0d1a0676b2252185dd52bb4ce47c591461ce1f5fde7e0be0571b2968ce2`
+- SHA-bound report: `read_only_evidence=true`, `ozon_mutation=false`
 
 ### PR merge-ref integration verification
-- PR #395
-- synthetic SHA: `7d7b3a5e180a2505850345cc753a7d40ba391cbf`
-- Verify #1130
-- 2208 passed / 0 failed
-- artifact id: 9906847145
-- digest: `sha256:36f7babc92f4f0d39e708927a61e95122eada8b76892dc4eb7da8912f3e01fa4`
+- PR #397
+- synthetic SHA: `3299575f706866dc214d88f65ba18d6663f2743d`
+- Verify #1149
+- 2218 passed / 0 failed
+- artifact id: 9929197649
+- digest: `sha256:4271c9cba87a6310c1e0cd1175aeaec6769f1f2837beb9b7e9698a92bb555dd7`
 
 This proves only the PR synthetic integration revision.
 
 ### Post-merge exact-main verification
-- exact main: `3f82b65054a2a7a48b9918803c197377bdb3557f`
-- Verify #1131
-- 2208 passed / 0 failed
-- artifact id: 9906878610
-- digest: `sha256:45eb967f32521ae3c7a2007663f6acfffcf6fa2f1fbdddb58bc332f56a02311d`
+- exact main: `e9b56773bd1dea7c4ac6b97f0c948d49f319bb51`
+- Verify #1150
+- 2218 passed / 0 failed
+- artifact id: 9929225518
+- digest: `sha256:77b4c9c9e1a25cfb4a9bcc31ffec4076c542aa6f0204c30cdbd3a9221e5a6747`
 
-## Current accounting safety boundary
+## Current quantity evidence boundary
 
-Decision 040 adds explicit return-inventory recovery evidence only.
+v1301-v1310 adds explicit originating-sale quantity source evidence for FBO Return COGS candidates.
 
-Even when originating sale period, historical cost basis and saleable inventory recovery are confirmed:
+Evidence contract:
+
+- source is read-only FBO posting detail;
+- matching identity is exact `posting_number + SKU`;
+- quantity is explicit `products[].quantity`;
+- all return candidates for the same posting+SKU share one originating sale quantity budget;
+- cumulative candidate return quantity must not exceed that sale quantity;
+- duplicate matching SKU rows are ambiguous rather than summed;
+- missing/malformed/non-positive quantity remains unconfirmed;
+- FBS quantity evidence is unsupported in this package and fails closed;
+- quantity is never inferred from money, current stock or stock deltas.
+
+`originating_sale_quantity_evidence_confirmed=True` is source evidence only.
+
+The accounting gate remains intentionally unpromoted:
 
 - `originating_sale_quantity_confirmed=False`
+- `originating_sale_quantity_gate_promoted=False`
 - `recovery_period_attribution_confirmed=False`
 - `compensation_accounting_treatment_confirmed=False`
 - `period_cogs_recovery_confirmed=False`
@@ -79,8 +76,14 @@ Even when originating sale period, historical cost basis and saleable inventory 
 - `profit_adjustment_allowed=False`
 - `automatic_recovery_allowed=False`
 
-Current Ozon stock snapshots or stock deltas are not proof of return recovery.
 Period Profit formula is unchanged.
+No Ozon mutation is authorized or performed.
+
+## Next accounting gap
+
+Bind explicit recovery accounting-period attribution and compensation accounting treatment/double-count prevention as independent fail-closed evidence.
+
+Only after those facts are explicit may a later architecture decision consider promoting quantity evidence into an accounting COGS-recovery gate.
 
 ## Verification policy
 
