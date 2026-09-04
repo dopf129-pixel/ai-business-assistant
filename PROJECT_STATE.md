@@ -6,61 +6,66 @@ AI Business Assistant remains a read-only Ozon business analyst and advisor. Ozo
 
 ## Current verified checkpoint
 
-Package: `v1371-v1380: Return COGS Profit Application Commit Readiness`
+Package: `v1381-v1390: Final Period Profit Application`
 
-Exact production main: `9d8824d3847ed80575f0b7ac126316dff77b42d9`
+Exact production main: `767b3e99d4439d1cbbe7b441a19914a366e62e22`
 
-Verify #1216: success.
+Verify #1235: success.
 
-Artifact: `9939566781`.
+Artifact: `9940791251`.
 
-Digest: `sha256:a596fff205f62f924a1d22fda1cfca5d7bd85a04ceb7462fe8b1846794169aa2`.
+Digest: `sha256:c9f3a9e84c37cb9792dec169d3ca50632784d54ecdd9837b4c891f1b6d1d4b9b`.
 
-## Period Profit accounting boundary
+## Period Profit is seller-facing complete
 
-Canonical formula remains unchanged:
+The read-only seller-facing Period Profit path now consumes durable committed Return COGS when, and only when, the full accounting chain is still valid:
 
-`period_profit = account_net_accrual - product_cost - configured_tax`
+`evidence -> readiness -> staged amount -> recognition eligibility -> accounting recognition -> profit application eligibility -> exact-once commit -> final Period Profit application`
 
-The Return COGS chain is now:
+The final calculation preserves account-level Ozon `net_accrual` as monetary authority. A committed Return COGS amount is added as a separately proven recovery only after explicit exclusion/no-double-count evidence and exact recognition/authorization/commit reconciliation.
 
-`evidence -> readiness -> staged amount -> recognition eligibility -> accounting recognition -> profit application eligibility -> application commit readiness`
+Repeated queries are idempotent: every query starts from the current account-level summary and reads the same append-only exact-once commit. The committed amount is not accumulated again.
 
-The new package adds an append-only exact-once commit ledger keyed by exact `recognition_history_id`. The first successful writer wins; later attempts for that recognition version return the already-committed evidence instead of creating another commit.
+If no valid commit exists, Return COGS is not applied and the adjustment amount remains `None`; missing evidence is never converted to zero.
 
-Commit readiness and commit evidence still do not change Period Profit:
+## Tax semantics
 
-- `return_cogs_profit_applied=False`;
-- `return_cogs_profit_application_amount=None`;
-- `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- `read_only=True`;
-- `executed=False`.
+Configured tax is now evaluated through `TaxService` for all supported Period Profit modes:
 
-A committed record must reconcile the exact recognition identity, accounting date, RUB amount and exact authorization-history version. Missing, conflicting or malformed evidence fails closed. Unknown money remains `None`, never inferred zero.
+- `NONE`: no tax;
+- `USN_INCOME`: tax remains based on revenue, so committed Return COGS changes profit but not the revenue tax base;
+- `USN_INCOME_MINUS_EXPENSES`: tax is recalculated from pre-tax profit after committed Return COGS recovery, while the configured minimum tax on revenue is still enforced.
 
-## Exact-once boundary
+The final seller-facing calculation therefore uses account `net_accrual`, product cost, any exact committed Return COGS recovery, and the configured tax policy without double counting.
 
-`ReturnCogsProfitApplicationCommitRepository` uses an append-only SQLite ledger with a unique `recognition_history_id`, transactional `BEGIN IMMEDIATE`, and no UPDATE/DELETE semantics. This resolves first-writer-wins/no-repeat commitment evidence, but it does not yet authorize seller-facing Period Profit arithmetic.
+## Telegram/runtime boundary
+
+The production factory returns the final Period Profit query layer. After final Return COGS application it rebuilds coverage, comparison, external-expense observation and response text, so the Telegram Period Profit route receives the final adjusted seller-facing profit.
+
+The whole path remains read-only: `read_only=True`, `executed=False`; no Ozon mutation or automatic business execution is introduced.
 
 ## Verification lifecycle
 
-- feature head `481ec0830163b2dee965afd58bd72fd9f52c6dea` — Verify #1214 succeeded;
-- PR #411 synthetic merge `460ba8512b755306b3d4b5cdd84c49e4bc233a23` — Verify #1215 succeeded; artifact `9939537819`, digest `sha256:15cd33a80d92c63e442526f2d63afddd0efedab2cbc64e4a60ed75ca54bd98cd`;
-- squash production main `9d8824d3847ed80575f0b7ac126316dff77b42d9` — Verify #1216 succeeded; artifact `9939566781`, digest `sha256:a596fff205f62f924a1d22fda1cfca5d7bd85a04ceb7462fe8b1846794169aa2`.
+Failed precursor, permanently failed evidence:
 
-Historical failed SHAs remain failed evidence permanently and receive no transferred success claims.
+- `f6e9d9af0e93dec0f9d425b6666f99f2d736d0ca` — Verify #1230 failed; later success is not transferred to this SHA.
+
+Successful lifecycle:
+
+- feature head `986d9ffed2b348890a57bac37362388d08be8780` — Verify #1233 succeeded; artifact `9940720378`, digest `sha256:03e7d16f62eee2af88130b68f09952e4549098eff7f086bd11f69c75a943fe71`;
+- PR #413 synthetic merge `8ac09b60672bd4f8823547d542f274a4cf609d13` — Verify #1234 succeeded; artifact `9940750283`, digest `sha256:730d36be4d902331838213dc6464a5ca7a3c7b22aa2eeb2d422c4af40fde6697`;
+- squash production main `767b3e99d4439d1cbbe7b441a19914a366e62e22` — Verify #1235 succeeded; artifact `9940791251`, digest `sha256:c9f3a9e84c37cb9792dec169d3ca50632784d54ecdd9837b4c891f1b6d1d4b9b`.
 
 ## Preserved boundaries
 
 - account-level Ozon finance remains the monetary authority;
 - no Ozon mutation;
 - no compensation double counting;
-- no account-level monetary-authority double counting;
-- no Period Profit formula change;
-- application eligibility, commitment and application remain separate states;
+- exact-once Return COGS commitment remains append-only;
+- active recognition/application eligibility remains required at read time;
+- unknown money remains `None`, not zero;
 - `externally_verified=False`.
 
-## Next accounting package
+## Next product work
 
-The next package may design actual one-time Period Profit consumption only after proving atomic binding between the still-active recognition, its exact authorization, its exact commit, selected-period ownership, and explicit tax treatment. Until then `profit_adjustment_allowed` must remain false.
+Period Profit itself is ready for user validation in Telegram. Further work can focus on observed production data/UX issues found during that validation rather than another prerequisite accounting gate.
