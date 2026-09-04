@@ -57,6 +57,10 @@ class ReturnCogsAccountingReadiness:
     def __init__(self, base_service): self.base_service = base_service
 
 
+class ReturnCogsRecoveryAmountEvidence:
+    def __init__(self, base_service): self.base_service = base_service
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -98,6 +102,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsQuantityEvidenceService", ReturnCogsQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingEvidenceService", ReturnCogsAccountingEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingReadinessService", ReturnCogsAccountingReadiness)
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnCogsRecoveryAmountEvidenceService",
+        ReturnCogsRecoveryAmountEvidence,
+    )
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
@@ -113,7 +122,9 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
 
-    readiness = query.return_cogs_recovery_evidence_service
+    amount = query.return_cogs_recovery_evidence_service
+    assert isinstance(amount, ReturnCogsRecoveryAmountEvidence)
+    readiness = amount.base_service
     assert isinstance(readiness, ReturnCogsAccountingReadiness)
     accounting = readiness.base_service
     assert isinstance(accounting, ReturnCogsAccountingEvidence)
