@@ -36,6 +36,9 @@ from services.period_profit_return_cogs_accounting_readiness_service import (
 from services.period_profit_return_cogs_recovery_amount_evidence_service import (
     PeriodProfitReturnCogsRecoveryAmountEvidenceService,
 )
+from services.period_profit_return_cogs_recognition_eligibility_service import (
+    PeriodProfitReturnCogsRecognitionEligibilityService,
+)
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
 )
@@ -83,13 +86,16 @@ def create_period_profit_query(mapping_registry=None):
     readiness_return_cogs_evidence = PeriodProfitReturnCogsAccountingReadinessService(
         accounting_return_cogs_evidence
     )
+    amount_return_cogs_evidence = PeriodProfitReturnCogsRecoveryAmountEvidenceService(
+        readiness_return_cogs_evidence
+    )
     return PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
         return_cogs_recovery_evidence_service=(
-            PeriodProfitReturnCogsRecoveryAmountEvidenceService(
-                readiness_return_cogs_evidence
+            PeriodProfitReturnCogsRecognitionEligibilityService(
+                amount_return_cogs_evidence
             )
         ),
         external_expense_evidence_service=(
