@@ -11,6 +11,7 @@ class Expenses: pass
 class InventoryRecovery: pass
 class AccountingAttribution: pass
 class AccountingRecognition: pass
+class ApplicationAuthorization: pass
 class Ozon: pass
 
 
@@ -72,6 +73,12 @@ class ReturnCogsAccountingRecognition:
         self.accounting_recognition_repository = accounting_recognition_repository
 
 
+class ReturnCogsApplicationEligibility:
+    def __init__(self, base_service, application_authorization_repository):
+        self.base_service = base_service
+        self.application_authorization_repository = application_authorization_repository
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -108,6 +115,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ReturnInventoryRecoveryRepository", InventoryRecovery)
     monkeypatch.setattr(factory, "ReturnCogsAccountingAttributionRepository", AccountingAttribution)
     monkeypatch.setattr(factory, "ReturnCogsAccountingRecognitionRepository", AccountingRecognition)
+    monkeypatch.setattr(factory, "ReturnCogsProfitApplicationAuthorizationRepository", ApplicationAuthorization)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryEvidenceService", ReturnCogsEvidence)
@@ -129,6 +137,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
         "PeriodProfitReturnCogsAccountingRecognitionService",
         ReturnCogsAccountingRecognition,
     )
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnCogsApplicationEligibilityService",
+        ReturnCogsApplicationEligibility,
+    )
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
@@ -144,7 +157,10 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
 
-    recognition = query.return_cogs_recovery_evidence_service
+    application = query.return_cogs_recovery_evidence_service
+    assert isinstance(application, ReturnCogsApplicationEligibility)
+    assert isinstance(application.application_authorization_repository, ApplicationAuthorization)
+    recognition = application.base_service
     assert isinstance(recognition, ReturnCogsAccountingRecognition)
     assert isinstance(recognition.accounting_recognition_repository, AccountingRecognition)
     eligibility = recognition.base_service

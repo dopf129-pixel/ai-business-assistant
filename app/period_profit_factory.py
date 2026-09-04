@@ -16,6 +16,9 @@ from services.return_cogs_accounting_attribution_repository import (
 from services.return_cogs_accounting_recognition_repository import (
     ReturnCogsAccountingRecognitionRepository,
 )
+from services.return_cogs_profit_application_authorization_repository import (
+    ReturnCogsProfitApplicationAuthorizationRepository,
+)
 from services.period_profit_mapping_observability_service import (
     PeriodProfitMappingObservabilityService,
 )
@@ -45,6 +48,9 @@ from services.period_profit_return_cogs_recognition_eligibility_service import (
 from services.period_profit_return_cogs_accounting_recognition_service import (
     PeriodProfitReturnCogsAccountingRecognitionService,
 )
+from services.period_profit_return_cogs_application_eligibility_service import (
+    PeriodProfitReturnCogsApplicationEligibilityService,
+)
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
 )
@@ -64,6 +70,7 @@ def create_period_profit_query(mapping_registry=None):
     inventory_recovery_repository = ReturnInventoryRecoveryRepository()
     accounting_attribution_repository = ReturnCogsAccountingAttributionRepository()
     accounting_recognition_repository = ReturnCogsAccountingRecognitionRepository()
+    application_authorization_repository = ReturnCogsProfitApplicationAuthorizationRepository()
     finance_service = FinanceService()
     ozon_client = OzonClient()
     summary_service = PeriodProfitSummaryService(
@@ -99,16 +106,19 @@ def create_period_profit_query(mapping_registry=None):
     eligibility_return_cogs_evidence = PeriodProfitReturnCogsRecognitionEligibilityService(
         amount_return_cogs_evidence
     )
+    recognition_return_cogs_evidence = PeriodProfitReturnCogsAccountingRecognitionService(
+        eligibility_return_cogs_evidence,
+        accounting_recognition_repository,
+    )
+    application_return_cogs_evidence = PeriodProfitReturnCogsApplicationEligibilityService(
+        recognition_return_cogs_evidence,
+        application_authorization_repository,
+    )
     return PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
-        return_cogs_recovery_evidence_service=(
-            PeriodProfitReturnCogsAccountingRecognitionService(
-                eligibility_return_cogs_evidence,
-                accounting_recognition_repository,
-            )
-        ),
+        return_cogs_recovery_evidence_service=application_return_cogs_evidence,
         external_expense_evidence_service=(
             PeriodProfitExternalExpenseEvidenceService(expense_repository)
         ),
