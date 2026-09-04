@@ -10,6 +10,7 @@ class Costs: pass
 class Expenses: pass
 class InventoryRecovery: pass
 class AccountingAttribution: pass
+class AccountingRecognition: pass
 class Ozon: pass
 
 
@@ -65,6 +66,12 @@ class ReturnCogsRecognitionEligibility:
     def __init__(self, base_service): self.base_service = base_service
 
 
+class ReturnCogsAccountingRecognition:
+    def __init__(self, base_service, accounting_recognition_repository):
+        self.base_service = base_service
+        self.accounting_recognition_repository = accounting_recognition_repository
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -100,6 +107,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ExpenseRepository", Expenses)
     monkeypatch.setattr(factory, "ReturnInventoryRecoveryRepository", InventoryRecovery)
     monkeypatch.setattr(factory, "ReturnCogsAccountingAttributionRepository", AccountingAttribution)
+    monkeypatch.setattr(factory, "ReturnCogsAccountingRecognitionRepository", AccountingRecognition)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryEvidenceService", ReturnCogsEvidence)
@@ -115,6 +123,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
         factory,
         "PeriodProfitReturnCogsRecognitionEligibilityService",
         ReturnCogsRecognitionEligibility,
+    )
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnCogsAccountingRecognitionService",
+        ReturnCogsAccountingRecognition,
     )
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
@@ -132,8 +145,11 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
 
     recognition = query.return_cogs_recovery_evidence_service
-    assert isinstance(recognition, ReturnCogsRecognitionEligibility)
-    amount = recognition.base_service
+    assert isinstance(recognition, ReturnCogsAccountingRecognition)
+    assert isinstance(recognition.accounting_recognition_repository, AccountingRecognition)
+    eligibility = recognition.base_service
+    assert isinstance(eligibility, ReturnCogsRecognitionEligibility)
+    amount = eligibility.base_service
     assert isinstance(amount, ReturnCogsRecoveryAmountEvidence)
     readiness = amount.base_service
     assert isinstance(readiness, ReturnCogsAccountingReadiness)
