@@ -143,7 +143,7 @@ def create_period_profit_query(mapping_registry=None):
     )
     base_query = PeriodProfitQueryService(
         summary_service=summary_service,
-        product_provider=product_service.load_products,
+        product_provider=lambda: _load_period_profit_products(product_service),
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
         return_cogs_recovery_evidence_service=application_commit_return_cogs_evidence,
         external_expense_evidence_service=(
@@ -161,6 +161,33 @@ def create_period_profit_query(mapping_registry=None):
             tax_policy,
         ),
     )
+
+
+def _load_period_profit_products(product_service):
+    """Refresh the complete Ozon catalog before using local product identities."""
+    refresher = getattr(
+        product_service,
+        "refresh_products_for_period_profit",
+        None,
+    )
+    if callable(refresher):
+        try:
+            refresh_result = refresher()
+        except Exception:
+            return []
+        if not isinstance(refresh_result, dict) or refresh_result.get("error") is not False:
+            return []
+        if refresh_result.get("complete") is not True:
+            return []
+
+    loader = getattr(product_service, "load_products", None)
+    if not callable(loader):
+        return []
+    try:
+        products = loader()
+    except Exception:
+        return []
+    return products if isinstance(products, list) else []
 
 
 def _period_profit_tax_fraction(policy_result):
