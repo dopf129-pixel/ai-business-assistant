@@ -1,5 +1,3 @@
-from math import isfinite
-
 from api.ozon_client import OzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
@@ -29,6 +27,9 @@ from services.period_profit_external_expense_evidence_service import (
     PeriodProfitExternalExpenseEvidenceService,
 )
 from services.period_profit_query_service import PeriodProfitQueryService
+from services.period_profit_final_application_query_service import (
+    PeriodProfitFinalApplicationQueryService,
+)
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
 from services.period_profit_return_cogs_recovery_evidence_service import (
     PeriodProfitReturnCogsRecoveryEvidenceService,
@@ -57,6 +58,9 @@ from services.period_profit_return_cogs_application_eligibility_service import (
 from services.period_profit_return_cogs_application_commit_readiness_service import (
     PeriodProfitReturnCogsApplicationCommitReadinessService,
 )
+from services.period_profit_return_cogs_final_application_service import (
+    PeriodProfitReturnCogsFinalApplicationService,
+)
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
 )
@@ -64,13 +68,18 @@ from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
 from services.period_profit_summary_service import PeriodProfitSummaryService
+from services.period_profit_tax_policy_summary_service import (
+    PeriodProfitTaxPolicySummaryService,
+)
 from services.product_service import ProductService
 from services.tax_configuration_service import TaxConfigurationService
+from services.tax_service import TaxService
 
 
 def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
     tax_policy = TaxConfigurationService().get_policy()
+    tax_service = TaxService()
     cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
     inventory_recovery_repository = ReturnInventoryRecoveryRepository()
@@ -80,10 +89,15 @@ def create_period_profit_query(mapping_registry=None):
     application_commit_repository = ReturnCogsProfitApplicationCommitRepository()
     finance_service = FinanceService()
     ozon_client = OzonClient()
-    summary_service = PeriodProfitSummaryService(
+    base_summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
-        tax_rate=_period_profit_tax_fraction(tax_policy),
+        tax_rate=0.0,
+    )
+    summary_service = PeriodProfitTaxPolicySummaryService(
+        base_summary_service,
+        tax_service,
+        tax_policy,
     )
     mappings = load_active_period_profit_mappings(mapping_registry)
     observability = (
@@ -125,7 +139,7 @@ def create_period_profit_query(mapping_registry=None):
         application_return_cogs_evidence,
         application_commit_repository,
     )
-    return PeriodProfitQueryService(
+    base_query = PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=product_service.load_products,
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
@@ -138,9 +152,17 @@ def create_period_profit_query(mapping_registry=None):
         authorized_storage_mapping=mappings.get("STORAGE"),
         mapping_observability_service=observability,
     )
+    return PeriodProfitFinalApplicationQueryService(
+        base_query,
+        PeriodProfitReturnCogsFinalApplicationService(
+            tax_service,
+            tax_policy,
+        ),
+    )
 
 
 def _period_profit_tax_fraction(policy_result):
+    """Compatibility helper retained for older callers/tests."""
     if not isinstance(policy_result, dict):
         return None
     if policy_result.get("error") is not False or policy_result.get("configured") is not True:
@@ -160,6 +182,6 @@ def _period_profit_tax_fraction(policy_result):
         rate = float(rate)
     except (TypeError, ValueError):
         return None
-    if not isfinite(rate) or rate < 0.0 or rate > 100.0:
+    if rate < 0.0 or rate > 100.0:
         return None
     return rate / 100.0
