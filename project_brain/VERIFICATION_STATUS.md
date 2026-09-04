@@ -4,49 +4,42 @@ Date: 2026-09-04
 
 ## Latest verified product baseline
 
-`767b3e99d4439d1cbbe7b441a19914a366e62e22`
+`d2695fe7863b8c27c66e3ba14055bc5e3d8bb35b`
 
-Package: `v1381-v1390: Final Period Profit Application`
+Package: `v1391-v1400: Period Profit Product Catalog Pagination`
 
-### Failed intermediate evidence
+### Exact clean feature head
 
-- SHA `f6e9d9af0e93dec0f9d425b6666f99f2d736d0ca` — Verify #1230 failed;
-- this SHA remains failed permanently and receives no transferred success claim.
-
-### Exact feature head
-
-- SHA `986d9ffed2b348890a57bac37362388d08be8780`;
-- Verify #1233 succeeded;
-- artifact `9940720378`;
-- digest `sha256:03e7d16f62eee2af88130b68f09952e4549098eff7f086bd11f69c75a943fe71`.
+- SHA `829e9eaa6538771d370f6beaa7ba55f609ac2e4d`;
+- Verify #1250 succeeded.
 
 ### PR integration checkout
 
-- PR #413;
-- synthetic merge SHA `8ac09b60672bd4f8823547d542f274a4cf609d13`;
-- Verify #1234 succeeded;
-- artifact `9940750283`;
-- digest `sha256:730d36be4d902331838213dc6464a5ca7a3c7b22aa2eeb2d422c4af40fde6697`;
+- PR #415;
+- synthetic merge SHA `9513770de2ef9375eab7ee7a41ea2b37cc12a970`;
+- Verify #1253 succeeded;
+- artifact `9941759808`;
+- digest `sha256:1d9f3f1eca2453ab945c363602fd1debca210942ee4de0b19c995f61bd819836`;
 - artifact name is SHA-bound to the synthetic merge revision.
 
 ### Exact production main
 
-- squash SHA `767b3e99d4439d1cbbe7b441a19914a366e62e22`;
-- Verify #1235 succeeded;
-- artifact `9940791251`;
-- digest `sha256:c9f3a9e84c37cb9792dec169d3ca50632784d54ecdd9837b4c891f1b6d1d4b9b`;
+- squash SHA `d2695fe7863b8c27c66e3ba14055bc5e3d8bb35b`;
+- Verify #1254 succeeded;
+- artifact `9941790704`;
+- digest `sha256:4f7eaf157be726f96bdc6e24794f29036f6a00374c79d98d7b23160cdb9c4717`;
 - artifact name is SHA-bound to exact main.
 
-## Current Period Profit boundary
+## Runtime defect closed
 
-Seller-facing Period Profit may now consume Return COGS only from an exact durable commit whose recognition/application eligibility remains valid at query time. The adjustment is read-only and recomputed from the unadjusted account summary on every query, so repeated reads do not accumulate the same recovery twice.
+Telegram production validation reported `Выручка товаров не совпадает с итоговой выручкой Ozon за период`.
 
-Missing or uncommitted Return COGS remains unapplied with monetary adjustment `None`; unknown is not zero.
+The mismatch was caused by incomplete product identity coverage: the local catalog refresh consumed only the first `/v3/product/list` page. Period Profit now performs complete read-only cursor pagination before loading the local product cache.
 
-Tax is explicit for all supported configured modes: `NONE`, `USN_INCOME`, and `USN_INCOME_MINUS_EXPENSES`. Revenue tax remains revenue-based for `USN_INCOME`; income-minus-expenses tax is recalculated after committed Return COGS and still applies the configured minimum revenue tax.
+The product/account revenue reconciliation guard remains mandatory. The fix corrects catalog coverage rather than relaxing the guard. Account-level Ozon finance remains the monetary authority.
 
-The response text is rebuilt after final application, so the Telegram Period Profit runtime receives the final seller-facing summary.
+Incomplete, malformed or ambiguous catalog pagination fails closed and stale local subsets are not silently used.
 
 ## Verification policy
 
-Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. Ozon mutation remains prohibited. `externally_verified=False`.
+Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. Ozon mutation remains prohibited. `externally_verified=False` until Telegram production validation confirms the repaired path.
