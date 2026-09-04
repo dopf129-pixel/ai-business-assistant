@@ -34,6 +34,11 @@ class SaleLineageEvidence:
         self.finance_service = finance_service
 
 
+class SaleQuantityEvidence:
+    def __init__(self, ozon_client):
+        self.ozon_client = ozon_client
+
+
 class ReturnCogsEvidence:
     def __init__(
         self,
@@ -47,6 +52,18 @@ class ReturnCogsEvidence:
         )
         self.inventory_recovery_repository = (
             inventory_recovery_repository
+        )
+
+
+class ReturnCogsQuantityEvidence:
+    def __init__(
+        self,
+        base_service,
+        sale_quantity_evidence_service,
+    ):
+        self.base_service = base_service
+        self.sale_quantity_evidence_service = (
+            sale_quantity_evidence_service
         )
 
 
@@ -104,8 +121,18 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     )
     monkeypatch.setattr(
         factory,
+        "PeriodProfitReturnCogsQuantityEvidenceService",
+        ReturnCogsQuantityEvidence,
+    )
+    monkeypatch.setattr(
+        factory,
         "PeriodProfitReturnSaleLineageEvidenceService",
         SaleLineageEvidence,
+    )
+    monkeypatch.setattr(
+        factory,
+        "PeriodProfitReturnSaleQuantityEvidenceService",
+        SaleQuantityEvidence,
     )
     monkeypatch.setattr(
         factory,
@@ -123,19 +150,36 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
-    assert isinstance(query.return_cogs_recovery_evidence_service, ReturnCogsEvidence)
-    assert query.return_cogs_recovery_evidence_service.cost_service is query.summary_service.cost_service
     assert isinstance(
-        query.return_cogs_recovery_evidence_service.sale_lineage_evidence_service,
+        query.return_cogs_recovery_evidence_service,
+        ReturnCogsQuantityEvidence,
+    )
+    base = query.return_cogs_recovery_evidence_service.base_service
+    assert isinstance(base, ReturnCogsEvidence)
+    assert base.cost_service is query.summary_service.cost_service
+    assert isinstance(
+        base.sale_lineage_evidence_service,
         SaleLineageEvidence,
     )
     assert (
-        query.return_cogs_recovery_evidence_service.sale_lineage_evidence_service.finance_service
+        base.sale_lineage_evidence_service.finance_service
         is query.summary_service.finance_service
     )
     assert isinstance(
-        query.return_cogs_recovery_evidence_service.inventory_recovery_repository,
+        base.inventory_recovery_repository,
         InventoryRecovery,
+    )
+    quantity = (
+        query.return_cogs_recovery_evidence_service
+        .sale_quantity_evidence_service
+    )
+    assert isinstance(
+        quantity,
+        SaleQuantityEvidence,
+    )
+    assert (
+        quantity.ozon_client
+        is query.return_evidence_service.ozon_client
     )
     assert isinstance(query.external_expense_evidence_service, ExternalExpenseEvidence)
     assert isinstance(query.external_expense_evidence_service.repository, Expenses)
