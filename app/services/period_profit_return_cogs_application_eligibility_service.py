@@ -286,7 +286,7 @@ class PeriodProfitReturnCogsApplicationEligibilityService:
             "return_cogs_profit_application_amount": None,
             "period_cogs_recovery_confirmed": False,
             "accounting_cogs_recovery_confirmed": False,
-            "confirmed_cogs_recovery_amount": 0.0,
+            "confirmed_cogs_recovery_amount": None,
             "profit_adjustment_allowed": False,
             "automatic_recovery_allowed": False,
             "read_only": True,
