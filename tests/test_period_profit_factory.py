@@ -12,6 +12,7 @@ class InventoryRecovery: pass
 class AccountingAttribution: pass
 class AccountingRecognition: pass
 class ApplicationAuthorization: pass
+class ApplicationCommit: pass
 class Ozon: pass
 
 
@@ -79,6 +80,12 @@ class ReturnCogsApplicationEligibility:
         self.application_authorization_repository = application_authorization_repository
 
 
+class ReturnCogsApplicationCommitReadiness:
+    def __init__(self, base_service, application_commit_repository):
+        self.base_service = base_service
+        self.application_commit_repository = application_commit_repository
+
+
 class ExternalExpenseEvidence:
     def __init__(self, repository): self.repository = repository
 
@@ -116,32 +123,18 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "ReturnCogsAccountingAttributionRepository", AccountingAttribution)
     monkeypatch.setattr(factory, "ReturnCogsAccountingRecognitionRepository", AccountingRecognition)
     monkeypatch.setattr(factory, "ReturnCogsProfitApplicationAuthorizationRepository", ApplicationAuthorization)
+    monkeypatch.setattr(factory, "ReturnCogsProfitApplicationCommitRepository", ApplicationCommit)
     monkeypatch.setattr(factory, "OzonClient", Ozon)
     monkeypatch.setattr(factory, "PeriodProfitReturnEvidenceService", ReturnEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryEvidenceService", ReturnCogsEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsQuantityEvidenceService", ReturnCogsQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingEvidenceService", ReturnCogsAccountingEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingReadinessService", ReturnCogsAccountingReadiness)
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsRecoveryAmountEvidenceService",
-        ReturnCogsRecoveryAmountEvidence,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsRecognitionEligibilityService",
-        ReturnCogsRecognitionEligibility,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsAccountingRecognitionService",
-        ReturnCogsAccountingRecognition,
-    )
-    monkeypatch.setattr(
-        factory,
-        "PeriodProfitReturnCogsApplicationEligibilityService",
-        ReturnCogsApplicationEligibility,
-    )
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecoveryAmountEvidenceService", ReturnCogsRecoveryAmountEvidence)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsRecognitionEligibilityService", ReturnCogsRecognitionEligibility)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingRecognitionService", ReturnCogsAccountingRecognition)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationEligibilityService", ReturnCogsApplicationEligibility)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationCommitReadinessService", ReturnCogsApplicationCommitReadiness)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
@@ -157,7 +150,10 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
 
-    application = query.return_cogs_recovery_evidence_service
+    commit_readiness = query.return_cogs_recovery_evidence_service
+    assert isinstance(commit_readiness, ReturnCogsApplicationCommitReadiness)
+    assert isinstance(commit_readiness.application_commit_repository, ApplicationCommit)
+    application = commit_readiness.base_service
     assert isinstance(application, ReturnCogsApplicationEligibility)
     assert isinstance(application.application_authorization_repository, ApplicationAuthorization)
     recognition = application.base_service
