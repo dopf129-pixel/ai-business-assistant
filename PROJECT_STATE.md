@@ -2,70 +2,58 @@
 
 ## Current product state
 
-AI Business Assistant
-
-## Product role
-
-Read-only Ozon business analyst and advisor.
-
-The assistant may read seller/business evidence, analyze it, compare periods, explain risks, rank priorities, recommend next steps, and prepare non-executable drafts/checklists.
-
-The assistant must not mutate Ozon business state.
+AI Business Assistant is a read-only Ozon business analyst and advisor. Ozon business mutations remain prohibited by Decision 036.
 
 ## Current verified checkpoint
 
-Package:
+Package: `v1311-v1320: Return COGS Accounting Attribution Evidence`
 
-`v1301-v1310: Originating Sale Quantity Evidence`
+Exact production main: `defcab860609086fe2cd5df98000ca75fd173cee`
 
-Goal:
+GitHub Actions push Verify #1160: 2228 passed / 0 failed.
 
-Add explicit read-only evidence for originating FBO sale quantity behind Return COGS candidates without deriving quantity from money, stock deltas, or return-state assumptions.
+## Period Profit accounting boundary
 
-Immediately preceding verified package:
+Decision 037 account-level Ozon finance remains the monetary authority.
 
-`v1291-v1300: Return Inventory Recovery Evidence`
-
-## Stable verification
-
-Latest exact production main:
-
-`e9b56773bd1dea7c4ac6b97f0c948d49f319bb51`
-
-GitHub Actions push Verify #1150:
-
-2218 passed / 0 failed.
-
-## Seller-facing accounting progress
-
-Period Profit V2 keeps Decision 037 account-level Ozon monetary authority.
-
-Base formula remains:
+Base formula remains unchanged:
 
 `period_profit = account_net_accrual - product_cost - configured_tax`
 
-External expense adjustment remains evidence-bound:
+External expense adjustment remains separately evidence-bound under Decision 038.
 
-`profit_after_external_expenses = period_profit - external_expenses`
+Return COGS evidence can now independently stage:
 
-Return COGS evidence can now independently establish:
+1. originating sale-period lineage;
+2. effective-dated historical cost;
+3. explicit saleable/non-saleable inventory recovery;
+4. explicit FBO originating-sale quantity evidence;
+5. explicit recovery accounting date;
+6. explicit compensation accounting treatment and no-double-count evidence.
 
-1. originating sale lineage in the selected period by positive Ozon sale accrual matched on `posting_number + SKU`;
-2. effective-dated historical product cost for that matched sale date;
-3. explicit return-level inventory recovery state from `return_inventory_recovery_history`;
-4. originating FBO sale-quantity evidence from exact posting detail `products[].quantity` matched on `posting_number + SKU`.
+## v1311-v1320 accounting attribution contract
 
-For quantity evidence, all Return COGS candidates sharing the same `posting_number + SKU` consume one originating sale quantity budget. Aggregate candidate return quantity must not exceed the explicit FBO posting product quantity.
+A new append-only `return_cogs_accounting_attribution_history` evidence table stores exact return identity (`return_id + posting_number + SKU`), dedicated `recovery_accounting_date`, explicit compensation state, explicit double-count clearance, confirmation date and source.
 
-Missing SKU evidence remains unknown. Duplicate matching SKU rows are ambiguous rather than silently summed. Malformed/non-positive quantities remain unconfirmed. FBS quantity evidence is unsupported in this package and fails closed.
+Allowed compensation states are:
 
-## Explicit evidence/accounting distinction
+- `NO_COMPENSATION_CONFIRMED`;
+- `COMPENSATION_PRESENT`.
 
-`originating_sale_quantity_evidence_confirmed=True` means the explicit FBO posting evidence is quantity-consistent for all candidates.
+`confirmed_on` is provenance only and is never treated as the accounting recognition date.
 
-It does **not** mean the Return COGS accounting gate has been promoted.
+Missing evidence remains unknown. Identity drift is conflicting evidence. Duplicate `return_id + confirmed_on` versions are rejected. Malformed accounting dates and non-boolean double-count markers fail closed.
 
-In v1301-v1310:
+The service may expose source-evidence markers such as:
+
+- `recovery_period_attribution_evidence_confirmed`;
+- `compensation_accounting_treatment_evidence_confirmed`;
+- `compensation_double_count_clear`;
+- `accounting_attribution_evidence_confirmed`.
+
+These markers do not promote the established accounting gates in this package.
+
+## Gates intentionally still closed
 
 - `originating_sale_quantity_confirmed=False`;
 - `originating_sale_quantity_gate_promoted=False`;
@@ -77,47 +65,29 @@ In v1301-v1310:
 - `profit_adjustment_allowed=False`;
 - `automatic_recovery_allowed=False`.
 
-This prevents a source-evidence improvement from silently becoming accounting authorization.
+## Production verification
 
-## Production evidence
+No failed production SHA occurred in v1311-v1320.
 
-Entering exact docs-reconciled main:
+- feature `8909eb222671039142f85b2182a914b7065732c1` — Verify #1158 — 2228 passed / 0 failed — artifact 9932424171 — digest `sha256:9cbc491d0456e5dc9e400eea51c056032a414dfe07aa2de557614da2dd4c6a8a`;
+- PR #399 synthetic `ca3e98f2173d2d483eab48990317cc4de89e5523` — Verify #1159 — 2228 passed / 0 failed — artifact 9932457274 — digest `sha256:dd9e1e0d0f32d5eea0d02082687c78c28b1e3920c1cdb6f17fe832da07a7233c`;
+- squash main `defcab860609086fe2cd5df98000ca75fd173cee` — Verify #1160 — 2228 passed / 0 failed — artifact 9932497883 — digest `sha256:17bbaa40dce658718fd7b59fcdde239a393759e8fcc5a150e7f0dfce3ce02d23`.
 
-- `9bceb0a9cedd5db2a42eef653f5822af21dd4cee`.
-
-No failed production SHA occurred in v1301-v1310.
-
-Final feature:
-
-- `44b9cf3f0e794d7b17527fad8de5dc7ec3ae1e3b` / Verify #1148 / 2218 passed / 0 failed / artifact 9929146444 / digest `sha256:f104a0d1a0676b2252185dd52bb4ce47c591461ce1f5fde7e0be0571b2968ce2`.
-
-PR integration:
-
-- PR #397 synthetic `3299575f706866dc214d88f65ba18d6663f2743d` / Verify #1149 / 2218 passed / 0 failed / artifact 9929197649 / digest `sha256:4271c9cba87a6310c1e0cd1175aeaec6769f1f2837beb9b7e9698a92bb555dd7`.
-
-Squash main:
-
-- `e9b56773bd1dea7c4ac6b97f0c948d49f319bb51` / Verify #1150 / 2218 passed / 0 failed / artifact 9929225518 / digest `sha256:77b4c9c9e1a25cfb4a9bcc31ffec4076c542aa6f0204c30cdbd3a9221e5a6747`.
+All three reports are SHA-bound, read-only evidence, with `ozon_mutation=false` and `business_execution=false`.
 
 ## Preserved boundaries
 
-- Decision 036 read-only Ozon analyst boundary;
-- Decision 037 account-level Ozon monetary authority;
-- Decision 038 external operating expense coverage contract;
-- Decision 039 versioned historical product cost evidence;
-- Decision 040 explicit return inventory recovery evidence;
-- no new architecture decision in v1301-v1310 because accounting semantics/persistence were not changed;
-- no Period Profit formula change;
-- no stock-delta inference;
-- no monetary-to-quantity inference;
+- Decisions 036-040 remain unchanged;
+- Decision 041 records explicit Return COGS accounting-attribution persistence semantics;
 - no Ozon mutation;
 - no Product Decision/Product Task Draft execution;
-- no double subtraction;
+- no Period Profit formula change;
+- no automatic COGS recovery;
+- no compensation inference from operational status absence;
+- no accounting-date inference from inventory confirmation time;
 - `data/users.json` unchanged;
 - `externally_verified=False`.
 
-## Remaining path toward return COGS recovery
+## Next accounting package
 
-The next material blockers are explicit recovery accounting-period attribution and compensation accounting treatment/double-count prevention.
-
-The newly proven sale-quantity source evidence must remain separate until those independent accounting facts are bound. Only a later explicit accounting contract may promote the quantity gate and determine whether any Return COGS recovery belongs in a selected Period Profit period.
+The next package may evaluate promotion of the independently proven quantity, recovery-period and compensation gates into one accounting readiness contract. Any promotion must remain fail-closed, must prevent compensation double counting, and must not produce a non-zero Period Profit adjustment until the complete recovery amount and recognition contract are explicit.
