@@ -86,11 +86,6 @@ def compact_period_profit_result(result):
     if comparison_line is not None:
         lines.extend(["", comparison_line])
 
-    diagnostic_lines = _revenue_diagnostic_lines(summary.get("revenue_diagnostics"))
-    if diagnostic_lines:
-        lines.append("")
-        lines.extend(diagnostic_lines)
-
     warnings = _warnings(output)
     if warnings:
         lines.append("")
@@ -101,51 +96,6 @@ def compact_period_profit_result(result):
     output["read_only"] = True
     output["executed"] = False
     return output
-
-
-def _revenue_diagnostic_lines(diagnostics):
-    if not isinstance(diagnostics, dict):
-        return []
-
-    fields = diagnostics.get("fields")
-    if not isinstance(fields, dict):
-        return []
-
-    lines = ["🔎 Диагностика выручки Ozon:"]
-    for field in (
-        "sale_amount",
-        "seller_price",
-        "sale_price",
-        "bonus",
-        "coinvestment",
-    ):
-        item = fields.get(field)
-        if not isinstance(item, dict):
-            lines.append(field + ": —")
-            continue
-
-        if item.get("complete") is True:
-            lines.append(field + ": " + _money(item.get("amount")))
-            continue
-
-        observed = _money(item.get("observed_amount"))
-        missing = item.get("missing_records")
-        if isinstance(missing, int) and not isinstance(missing, bool) and missing >= 0:
-            lines.append(
-                field
-                + ": "
-                + observed
-                + " (частично; пропусков: "
-                + str(missing)
-                + ")"
-            )
-        else:
-            lines.append(field + ": — (неполные данные)")
-
-    missing_days = diagnostics.get("missing_days")
-    if isinstance(missing_days, int) and not isinstance(missing_days, bool) and missing_days > 0:
-        lines.append("Диагностика неполна по дням: " + str(missing_days))
-    return lines
 
 
 def _warnings(result):

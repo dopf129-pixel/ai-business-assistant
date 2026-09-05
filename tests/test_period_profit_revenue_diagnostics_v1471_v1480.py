@@ -11,6 +11,7 @@ def _raw_finance():
         "accruals": [
             {
                 "accrued_category": "POSTING",
+                "total_amount": {"amount": "55.00"},
                 "posting": {
                     "products": [
                         {
@@ -21,6 +22,7 @@ def _raw_finance():
                                 "sale_price": {"amount": "80.00"},
                                 "bonus": {"amount": "20.00"},
                                 "coinvestment": {"amount": "5.00"},
+                                "sale_commission": {"amount": "-10.00"},
                             },
                         }
                     ]
@@ -110,7 +112,7 @@ def test_summary_diagnostics_do_not_change_profit_fields():
     assert result["revenue_diagnostics"]["fields"]["seller_price"]["amount"] == 90.0
 
 
-def test_compact_response_shows_diagnostic_block_without_changing_financial_values():
+def test_compact_response_keeps_diagnostics_internal_without_changing_financial_values():
     result = {
         "error": False,
         "status": "PERIOD_PROFIT_QUERY_READY",
@@ -143,7 +145,6 @@ def test_compact_response_shows_diagnostic_block_without_changing_financial_valu
 
     assert output["summary"]["revenue"] == 90.0
     assert output["summary"]["profit"] == 29.6
-    assert "🔎 Диагностика выручки Ozon:" in output["text"]
-    assert "sale_amount: 110 ₽" in output["text"]
-    assert "seller_price: 90 ₽" in output["text"]
-    assert "bonus: 20 ₽" in output["text"]
+    assert output["summary"]["revenue_diagnostics"] == result["summary"]["revenue_diagnostics"]
+    assert "Диагностика выручки Ozon" not in output["text"]
+    assert "sale_amount" not in output["text"]
