@@ -50,6 +50,11 @@ from telegram_app_layer.telegram_history_formatter import (
 )
 
 
+from telegram_app_layer.telegram_progress_feedback import (
+    begin_progress,
+    finish_progress,
+)
+
 
 runner = (
     create_telegram_assistant()
@@ -213,12 +218,28 @@ async def message_handler(
     )
 
 
-    result = (
-        runner.receive_message(
-            user_id,
-            text
-        )
+    progress_message = await begin_progress(
+        update.message,
+        bot=context.bot,
+        chat_id=update.effective_chat.id,
+        text=text,
     )
+
+
+    try:
+        result = (
+            runner.receive_message(
+                user_id,
+                text
+            )
+        )
+    except Exception:
+        await finish_progress(
+            update.message,
+            progress_message,
+            "⚠️ Не удалось обработать запрос. Попробуйте ещё раз.",
+        )
+        raise
 
 
     response = (
@@ -228,8 +249,16 @@ async def message_handler(
     )
 
 
-    await update.message.reply_text(
-        response
+    keyboard = build_keyboard(
+        result.get("keyboard")
+    )
+
+
+    await finish_progress(
+        update.message,
+        progress_message,
+        response,
+        reply_markup=keyboard,
     )
 
 
@@ -258,12 +287,29 @@ async def callback_handler(
     )
 
 
-    result = (
-        runner.receive_callback(
-            user_id,
-            callback
-        )
+    progress_message = await begin_progress(
+        query.message,
+        bot=context.bot,
+        chat_id=query.message.chat_id,
+        text=callback,
+        force=True,
     )
+
+
+    try:
+        result = (
+            runner.receive_callback(
+                user_id,
+                callback
+            )
+        )
+    except Exception:
+        await finish_progress(
+            query.message,
+            progress_message,
+            "⚠️ Не удалось обработать запрос. Попробуйте ещё раз.",
+        )
+        raise
 
 
     response = (
@@ -278,7 +324,9 @@ async def callback_handler(
     )
 
 
-    await query.message.reply_text(
+    await finish_progress(
+        query.message,
+        progress_message,
         response,
         reply_markup=keyboard
     )
