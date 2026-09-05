@@ -1,5 +1,9 @@
 from math import isfinite
 
+from services.period_profit_revenue_diagnostics_summary_service import (
+    build_period_profit_revenue_diagnostics,
+)
+
 
 class PeriodProfitTaxPolicySummaryService:
     """Recompute Period Profit tax from the configured tax policy, read-only."""
@@ -56,6 +60,16 @@ class PeriodProfitTaxPolicySummaryService:
             if adjusted_total.get("account_level_ozon_accruals_included") is True
             else "OZON_ACCRUALS_COST_AND_CONFIGURED_TAX_V3"
         )
+
+        finance_service = getattr(self, "finance_service", None)
+        if finance_service is not None:
+            adjusted_total["revenue_diagnostics"] = (
+                build_period_profit_revenue_diagnostics(
+                    finance_service,
+                    date_from,
+                    date_to,
+                )
+            )
         return adjusted_total
 
     def _recalculate_record(self, record, policy):
