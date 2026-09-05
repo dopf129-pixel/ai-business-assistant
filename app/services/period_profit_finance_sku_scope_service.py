@@ -82,6 +82,11 @@ class PeriodProfitFinanceSkuScopeService:
             preview = ", ".join(unresolved[:5])
             if len(unresolved) > 5:
                 preview += ", ..."
+            if self.cost_service is None:
+                return self._error(
+                    "PERIOD_PROFIT_FINANCE_SKU_CATALOG_COVERAGE_INCOMPLETE",
+                    "Не найдены товары для SKU из финансов Ozon: " + preview,
+                )
             return self._error(
                 "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
                 "Не найдена подтвержденная себестоимость для SKU из финансов Ozon: " + preview,
