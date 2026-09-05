@@ -21,6 +21,47 @@ def test_profit_7_days_routes_with_comparison():
     assert query.calls == [{"period_code": "7D", "compare_previous": True, "today": "2026-08-29"}]
 
 
+def test_profit_today_routes_account_level_period_profit():
+    query = Query()
+    result = AssistantPeriodProfitRuntimeService(query).handle_text(
+        "прибыль за сегодня",
+        today="2026-09-05",
+    )
+    assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
+    assert result["read_only"] is True
+    assert result["executed"] is False
+    assert query.calls == [{"period_code": "TODAY", "compare_previous": True, "today": "2026-09-05"}]
+
+
+def test_margin_today_routes_account_level_period_profit():
+    query = Query()
+    result = AssistantPeriodProfitRuntimeService(query).handle_text(
+        "какая маржа сегодня?",
+        today="2026-09-05",
+    )
+    assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
+    assert query.calls == [{"period_code": "TODAY", "compare_previous": True, "today": "2026-09-05"}]
+
+
+def test_margin_period_routes_account_level_period_profit():
+    query = Query()
+    AssistantPeriodProfitRuntimeService(query).handle_text(
+        "маржинальность за 28 дней",
+        today="2026-09-05",
+    )
+    assert query.calls == [{"period_code": "28D", "compare_previous": True, "today": "2026-09-05"}]
+
+
+def test_explicit_unit_economics_margin_falls_through():
+    query = Query()
+    result = AssistantPeriodProfitRuntimeService(query).handle_text(
+        "юнит-экономика: какая маржа сегодня?",
+        today="2026-09-05",
+    )
+    assert result is None
+    assert query.calls == []
+
+
 def test_custom_dates_route():
     query = Query()
     AssistantPeriodProfitRuntimeService(query).handle_text("прибыль 2026-08-01 2026-08-20")
