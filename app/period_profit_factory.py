@@ -110,6 +110,7 @@ def create_period_profit_query(mapping_registry=None):
         tax_service,
         tax_policy,
     )
+    summary_service.finance_service = finance_service
     mappings = load_active_period_profit_mappings(mapping_registry)
     observability = (
         PeriodProfitMappingObservabilityService(mapping_registry)

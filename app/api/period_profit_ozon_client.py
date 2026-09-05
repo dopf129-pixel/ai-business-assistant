@@ -10,6 +10,13 @@ class PeriodProfitOzonClient(OzonClient):
 
     TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
     FINANCE_ACCRUAL_BY_DAY = "/v1/finance/accrual/by-day"
+    REVENUE_DIAGNOSTIC_FIELDS = (
+        "sale_amount",
+        "seller_price",
+        "sale_price",
+        "bonus",
+        "coinvestment",
+    )
 
     def _post(self, endpoint, data, timeout=20, max_attempts=3):
         result = None
@@ -48,6 +55,7 @@ class PeriodProfitOzonClient(OzonClient):
             return self._seller_revenue_error()
 
         normalized = copy.deepcopy(result)
+        diagnostics = self._empty_revenue_diagnostics()
 
         for accrual in normalized.get("accruals", []):
             if not isinstance(accrual, dict):
@@ -78,6 +86,8 @@ class PeriodProfitOzonClient(OzonClient):
                 if not isinstance(commission, dict):
                     return self._seller_revenue_error()
 
+                self._observe_revenue_diagnostics(diagnostics, commission)
+
                 seller_price = commission.get("seller_price")
                 if not self._valid_money(seller_price):
                     return self._seller_revenue_error()
@@ -87,23 +97,78 @@ class PeriodProfitOzonClient(OzonClient):
                 # Bonus/coinvestment are intentionally not added separately.
                 commission["sale_amount"] = copy.deepcopy(seller_price)
 
+        if diagnostics["record_count"] > 0:
+            normalized["_period_profit_revenue_diagnostics"] = (
+                self._serialize_revenue_diagnostics(diagnostics)
+            )
         return normalized
 
-    @staticmethod
-    def _valid_money(value):
+    @classmethod
+    def _empty_revenue_diagnostics(cls):
+        return {
+            "record_count": 0,
+            "fields": {
+                field: {
+                    "observed_amount": Decimal("0"),
+                    "observed_records": 0,
+                    "missing_records": 0,
+                }
+                for field in cls.REVENUE_DIAGNOSTIC_FIELDS
+            },
+        }
+
+    @classmethod
+    def _observe_revenue_diagnostics(cls, diagnostics, commission):
+        diagnostics["record_count"] += 1
+        for field in cls.REVENUE_DIAGNOSTIC_FIELDS:
+            money = commission.get(field)
+            amount = cls._money_decimal(money)
+            state = diagnostics["fields"][field]
+            if amount is None:
+                state["missing_records"] += 1
+                continue
+            state["observed_amount"] += amount
+            state["observed_records"] += 1
+
+    @classmethod
+    def _serialize_revenue_diagnostics(cls, diagnostics):
+        fields = {}
+        for field in cls.REVENUE_DIAGNOSTIC_FIELDS:
+            source = diagnostics["fields"][field]
+            missing = int(source["missing_records"])
+            observed_amount = source["observed_amount"].quantize(Decimal("0.01"))
+            fields[field] = {
+                "amount": str(observed_amount) if missing == 0 else None,
+                "observed_amount": str(observed_amount),
+                "complete": missing == 0,
+                "observed_records": int(source["observed_records"]),
+                "missing_records": missing,
+            }
+        return {
+            "complete": all(item["complete"] for item in fields.values()),
+            "record_count": int(diagnostics["record_count"]),
+            "fields": fields,
+        }
+
+    @classmethod
+    def _money_decimal(cls, value):
         if not isinstance(value, dict):
-            return False
+            return None
 
         raw_amount = value.get("amount")
         if raw_amount is None:
-            return False
+            return None
 
         try:
             amount = Decimal(str(raw_amount))
         except (InvalidOperation, TypeError, ValueError):
-            return False
+            return None
 
-        return amount.is_finite()
+        return amount if amount.is_finite() else None
+
+    @classmethod
+    def _valid_money(cls, value):
+        return cls._money_decimal(value) is not None
 
     @staticmethod
     def _seller_revenue_error():
