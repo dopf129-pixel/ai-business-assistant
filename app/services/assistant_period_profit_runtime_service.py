@@ -1,6 +1,8 @@
 import re
 from datetime import datetime
 
+from period_profit_compact_response import compact_period_profit_result
+
 
 class AssistantPeriodProfitRuntimeService:
     """Narrow read-only route for explicit period-profit requests."""
@@ -20,11 +22,13 @@ class AssistantPeriodProfitRuntimeService:
             if len(dates) != 2:
                 return self._invalid_custom_period()
 
-            return self.query_service.query(
-                date_from=dates[0],
-                date_to=dates[1],
-                compare_previous=True,
-                today=today,
+            return self._present(
+                self.query_service.query(
+                    date_from=dates[0],
+                    date_to=dates[1],
+                    compare_previous=True,
+                    today=today,
+                )
             )
 
         period = self._resolve_period(value)
@@ -42,10 +46,12 @@ class AssistantPeriodProfitRuntimeService:
                 "executed": False,
             }
 
-        return self.query_service.query(
-            period_code=period,
-            compare_previous=True,
-            today=today,
+        return self._present(
+            self.query_service.query(
+                period_code=period,
+                compare_previous=True,
+                today=today,
+            )
         )
 
     def handle_callback(self, callback_data, today=None):
@@ -62,11 +68,17 @@ class AssistantPeriodProfitRuntimeService:
                 "read_only": True,
                 "executed": False,
             }
-        return self.query_service.query(
-            period_code=period,
-            compare_previous=True,
-            today=today,
+        return self._present(
+            self.query_service.query(
+                period_code=period,
+                compare_previous=True,
+                today=today,
+            )
         )
+
+    @staticmethod
+    def _present(result):
+        return compact_period_profit_result(result)
 
     @staticmethod
     def _is_profit_request(value):
