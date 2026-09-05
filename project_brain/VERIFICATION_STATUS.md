@@ -4,42 +4,40 @@ Date: 2026-09-05
 
 ## Latest verified product baseline
 
-`91cba3362c67253cfb938458d716e5651471b5c9`
+`5c869fff0ea69c0e6dff979c639f0e0e1cf15cd3`
 
-Package: `v1421-v1430: Period Profit Historical SKU Cost Input`
-
-### Failed precursor
-
-- SHA `8b0deeef6032b7f9d6732c9df323b3926b08b205`;
-- Verify #1296 failed;
-- this SHA remains failed permanently and receives no transferred success claim.
+Package: `v1431-v1440: Compact Period Profit Telegram Report`
 
 ### Exact feature head
 
-- SHA `148fde8d62caa158a85258b49ead954ca498b5f6`;
-- Verify #1299 succeeded.
+- SHA `da88353db080fea2ae21b8ac87d6430c7273772c`;
+- Verify #1316 succeeded;
+- artifact `9968812453`;
+- digest `sha256:d9b341ae7ab901b4b3563d708c33660d4fb0f7915a7f3b45dd46b4ffd05e0f6b`.
 
 ### PR integration checkout
 
-- PR #421;
-- synthetic merge SHA `91800bd8537cd964dbc8864752435b7a5e5deb99`;
-- Verify #1300 succeeded;
-- artifact `9968493971`;
-- digest `sha256:c4ea23a745bba85e1bc85355d9a1bc4c9fa2ffe1d243a42287f15bc7cc28bbbf`.
+- PR #423;
+- synthetic merge SHA `cccc6eaed915aa8d627c40d96a8d08714ac4e990`;
+- Verify #1317 succeeded;
+- artifact `9968811117`;
+- digest `sha256:002960648649a83f3bc765436b61222c85046d98c9ff4588d8ecdc01ce7bcde9`.
 
 ### Exact production main
 
-- squash SHA `91cba3362c67253cfb938458d716e5651471b5c9`;
-- Verify #1301 succeeded;
-- artifact `9968500427`;
-- digest `sha256:791b5d2bfac7f0720b253c69eeca29c873edcb16a5589f399ecd08ec9add6d9d`.
+- squash SHA `5c869fff0ea69c0e6dff979c639f0e0e1cf15cd3`;
+- Verify #1318 succeeded;
+- artifact `9968899898`;
+- digest `sha256:5fb6ce4f27c7bab94819380dc6c3f0e6dc789df4f1b2a67b488a878151bcd264`.
 
-## Runtime defect boundary
+## Product behavior verified
 
-Finance SKU `3398133813` is present in the selected Ozon finance period but has no seller-confirmed local COGS evidence. Telegram therefore exposes `/costsku SKU COST` to store a local RUB cost without mutating Ozon. The resulting unique local SKU cost can be consumed by the existing historical finance-SKU recovery path.
+Telegram Period Profit now uses a compact management-facing presentation while preserving the full prior diagnostic text as `details_text`. The compact text adds sold quantity from exact `units_sold` evidence and does not modify any profit calculation.
 
-Unknown, invalid, ambiguous or unavailable cost remains unavailable and fails closed. Account-level Ozon finance remains monetary authority, product/account revenue reconciliation remains mandatory, and Ozon mutation remains prohibited.
+Production runtime has also externally validated the local seller-confirmed historical SKU COGS path: finance SKU `3398133813` no longer blocks the selected period after the seller supplied its real local cost.
+
+Unknown external expenses and unresolved Return COGS evidence remain unknown and are surfaced as short warnings rather than coerced to zero.
 
 ## Verification policy
 
-Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. `externally_verified=False` until Telegram production validation confirms a seller-entered real COGS and successful Period Profit calculation.
+Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. Ozon remains read-only.
