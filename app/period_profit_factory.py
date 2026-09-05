@@ -1,6 +1,7 @@
 from math import isfinite
 
 from api.ozon_client import OzonClient
+from api.period_profit_ozon_client import PeriodProfitOzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
@@ -93,6 +94,7 @@ def create_period_profit_query(mapping_registry=None):
     application_authorization_repository = ReturnCogsProfitApplicationAuthorizationRepository()
     application_commit_repository = ReturnCogsProfitApplicationCommitRepository()
     finance_service = FinanceService()
+    finance_service.ozon = PeriodProfitOzonClient()
     ozon_client = OzonClient()
     raw_summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
