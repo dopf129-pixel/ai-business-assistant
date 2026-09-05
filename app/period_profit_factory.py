@@ -77,6 +77,9 @@ from services.period_profit_finance_sku_scope_service import (
 from services.period_profit_tax_policy_summary_service import (
     PeriodProfitTaxPolicySummaryService,
 )
+from services.period_profit_revenue_diagnostics_summary_service import (
+    PeriodProfitRevenueDiagnosticsSummaryService,
+)
 from services.product_service import ProductService
 from services.tax_configuration_service import TaxConfigurationService
 from services.tax_service import TaxService
@@ -105,10 +108,14 @@ def create_period_profit_query(mapping_registry=None):
         raw_summary_service,
         finance_service,
     )
-    summary_service = PeriodProfitTaxPolicySummaryService(
+    tax_summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
         tax_service,
         tax_policy,
+    )
+    summary_service = PeriodProfitRevenueDiagnosticsSummaryService(
+        tax_summary_service,
+        finance_service,
     )
     mappings = load_active_period_profit_mappings(mapping_registry)
     observability = (
