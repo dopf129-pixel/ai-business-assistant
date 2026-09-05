@@ -97,9 +97,10 @@ class PeriodProfitOzonClient(OzonClient):
                 # Bonus/coinvestment are intentionally not added separately.
                 commission["sale_amount"] = copy.deepcopy(seller_price)
 
-        normalized["_period_profit_revenue_diagnostics"] = (
-            self._serialize_revenue_diagnostics(diagnostics)
-        )
+        if diagnostics["record_count"] > 0:
+            normalized["_period_profit_revenue_diagnostics"] = (
+                self._serialize_revenue_diagnostics(diagnostics)
+            )
         return normalized
 
     @classmethod
