@@ -7,6 +7,8 @@ class PeriodProfitFinanceSkuScopeService:
     def __init__(self, summary_service, finance_service):
         self.summary_service = summary_service
         self.finance_service = finance_service
+        self.cost_service = getattr(summary_service, "cost_service", None)
+        self.tax_rate = getattr(summary_service, "tax_rate", None)
 
     def calculate(self, date_from, date_to, products):
         scoped = self._scope_products(date_from, date_to, products)
