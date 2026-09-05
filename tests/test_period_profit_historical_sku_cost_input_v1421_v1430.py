@@ -16,6 +16,10 @@ class CostStorage:
         self.calls.append((product_id, sku, offer_id, cost_price, currency))
 
 
+class UnavailableCostStorage:
+    pass
+
+
 class Summary:
     def __init__(self, cost_service):
         self.cost_service = cost_service
@@ -105,8 +109,11 @@ def test_v1423_costsku_rejects_invalid_or_negative_cost_without_write():
     assert storage.calls == []
 
 
-def test_v1424_missing_cost_storage_fails_closed():
-    service = TelegramCommandService(Adapter())
+def test_v1424_unavailable_cost_storage_fails_closed():
+    service = TelegramCommandService(
+        Adapter(),
+        cost_service=UnavailableCostStorage(),
+    )
 
     result = service.handle(1, "/costsku 3398133813 450")
 
