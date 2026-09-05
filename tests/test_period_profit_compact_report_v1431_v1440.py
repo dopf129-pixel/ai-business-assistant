@@ -17,6 +17,7 @@ def _result(**overrides):
             "date_from": "2026-08-09",
             "date_to": "2026-09-05",
             "revenue": 454034.93,
+            "units_sold": 64,
             "net_accrual": 175004.50,
             "product_cost": 121212.00,
             "tax": 27242.10,
@@ -55,6 +56,7 @@ def test_compact_report_matches_approved_management_format():
         "💰 Прибыль за период 09.08–05.09\n"
         "\n"
         "Выручка: 454 035 ₽\n"
+        "Продано SKU: 64 шт.\n"
         "Начисления Ozon: 175 005 ₽\n"
         "Себестоимость: 121 212 ₽\n"
         "Налог: 27 242 ₽\n"
@@ -70,6 +72,16 @@ def test_compact_report_matches_approved_management_format():
     assert result["presentation"] == "compact"
     assert result["read_only"] is True
     assert result["executed"] is False
+
+
+def test_missing_units_sold_remains_unknown_not_zero():
+    source = _result()
+    source["summary"].pop("units_sold")
+
+    result = compact_period_profit_result(source)
+
+    assert "Продано SKU: —" in result["text"]
+    assert "Продано SKU: 0 шт." not in result["text"]
 
 
 def test_verbose_report_is_preserved_as_details_not_main_text():
@@ -134,6 +146,7 @@ def test_runtime_applies_compact_presentation_to_period_profit_only():
 
     assert result["presentation"] == "compact"
     assert result["text"].startswith("💰 Прибыль за период 09.08–05.09")
+    assert "Продано SKU: 64 шт." in result["text"]
     assert result["details_text"].startswith("old verbose report")
 
 
