@@ -6,62 +6,61 @@ AI Business Assistant remains a read-only Ozon business analyst and advisor. Ozo
 
 ## Current verified checkpoint
 
-Package: `v1401-v1410: Period Profit Finance SKU Scope`
+Package: `v1411-v1420: Period Profit Historical SKU Cost Recovery`
 
-Exact production main: `cb6f3fd3341debf52617688350a3c6d7cab336fd`
+Exact production main: `f96e291a8bd8b19c8b68e618b160cdca13fd31c4`
 
-Verify #1272: success.
+Verify #1285: success.
 
-Artifact: `9967892096`.
+Artifact: `9968055763`.
 
-Digest: `sha256:fb2a8fa99482e86d2c70e7e9a40547f71065899c1162e7916999511c585a4e7a`.
+Digest: `sha256:6ce330fb8775d0ff2b2c85150b6110f17cd6a98acbb300f6c74492a261bb6791`.
 
 ## Period Profit runtime fix
 
-Repeated Telegram validation showed that complete current catalog pagination alone was insufficient. Period Profit had been using catalog rows as the SKU scope for a historical period, while Ozon finance defines the actual SKU participation for that period.
+Telegram validation exposed a finance SKU (`3398133813`) that participated in the selected historical period but no longer existed in the current Ozon catalog.
 
-Period Profit now derives the unique SKU scope from Ozon finance `POSTING` accruals for the exact selected interval. The catalog is used only to resolve product identity and configured cost. Duplicate catalog rows for the same SKU are deduplicated before product-cost calculation.
+Period Profit now keeps finance-period SKU evidence as the scope authority and recovers missing current-catalog SKUs only from exact local cost evidence: confirmed historical cost by SKU at the selected period end, or a unique existing local cost record for that same SKU. Ambiguous, non-RUB, invalid or unknown cost still fails closed.
 
-If a SKU observed in finance has no catalog/cost mapping, the calculation fails closed with a specific coverage error. Unknown cost is never converted to zero.
-
-The product/account revenue reconciliation guard remains intact as a final integrity check.
+The current catalog is no longer required to contain every historical SKU. It remains an identity/cost mapping source for current products only.
 
 ## Period Profit accounting boundary
 
-Account-level Ozon revenue and `net_accrual` remain the monetary authority.
+Account-level Ozon revenue and `net_accrual` remain the monetary authority. Product/account revenue reconciliation remains mandatory.
 
 The canonical seller-facing calculation remains:
 
 `period_profit = account_net_accrual + exact_committed_return_cogs_if_valid - product_cost - configured_tax`
 
-Return COGS application remains exact-once, read-only and no-double-count. Unknown monetary evidence remains `None`, never inferred zero.
+Unknown monetary evidence remains `None`, never inferred zero. Ozon remains read-only.
 
 ## Verification lifecycle
 
-Failed feature precursor remains failed permanently:
+Failed precursor remains failed permanently:
 
-- `6650f02f255a07765ee8a53d518c16d3f34acc7d` — Verify #1268 failed; later success is not transferred to it.
+- `898ef3cc3a59939b2b9d97939b267ccccb54178a` — Verify #1282 failed due to a compatibility assertion; later success is not transferred to it.
 
 Successful lifecycle:
 
-- feature head `2737896a5def0d058a946c4edcbc69b07906d344` — Verify #1269 succeeded;
-- PR #417 synthetic merge `962810cf789e62b16d287addbc182d7e9917576b` — Verify #1271 succeeded; artifact `9967881438`, digest `sha256:3534e8cbb49340a7157c3b9e33dd0ed4bddf60954a084af58f6f501ed50effbf`;
-- squash production main `cb6f3fd3341debf52617688350a3c6d7cab336fd` — Verify #1272 succeeded; artifact `9967892096`, digest `sha256:fb2a8fa99482e86d2c70e7e9a40547f71065899c1162e7916999511c585a4e7a`.
+- feature head `7db015ae85326a2210e49162413ea6563a932c4d` — Verify #1283 succeeded;
+- PR #419 synthetic merge `a40e207c4e55a80c041643b93877d9806c0e30fc` — Verify #1284 succeeded; artifact `9968047432`, digest `sha256:e8927c2c4c6bb2fba49ff2ce4bdced5d2412876103dccc6b577d83b99f37c537`;
+- squash production main `f96e291a8bd8b19c8b68e618b160cdca13fd31c4` — Verify #1285 succeeded; artifact `9968055763`, digest `sha256:6ce330fb8775d0ff2b2c85150b6110f17cd6a98acbb300f6c74492a261bb6791`.
 
 ## Preserved boundaries
 
-- account-level Ozon finance remains the monetary authority;
+- account-level Ozon finance remains monetary authority;
 - finance-period SKU evidence defines product-cost scope;
-- catalog provides identity/cost mapping only;
+- current catalog is not treated as historical truth;
+- historical SKU recovery requires exact local cost evidence;
+- ambiguous or unknown cost fails closed;
 - duplicate SKU rows are not double counted;
-- missing finance SKU mapping fails closed;
 - product revenue reconciliation remains required;
 - no Ozon mutation;
 - no compensation double counting;
 - exact-once Return COGS commitment remains append-only;
 - unknown money remains `None`, not zero;
-- `externally_verified=False` until the user validates the new runtime path in Telegram.
+- `externally_verified=False` until the user validates the repaired runtime path in Telegram.
 
 ## Next product work
 
-Repeat production validation of `Прибыль за период` in Telegram. If a historical finance SKU lacks a current/local product mapping, surface that exact SKU coverage blocker instead of the previous generic revenue mismatch.
+Repeat production validation of `Прибыль за период` in Telegram. If SKU `3398133813` has a confirmed historical or unique local cost record, it should now be included even though it is absent from the current Ozon catalog.
