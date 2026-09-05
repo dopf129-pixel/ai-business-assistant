@@ -4,42 +4,42 @@ Date: 2026-09-05
 
 ## Latest verified product baseline
 
-`cb6f3fd3341debf52617688350a3c6d7cab336fd`
+`f96e291a8bd8b19c8b68e618b160cdca13fd31c4`
 
-Package: `v1401-v1410: Period Profit Finance SKU Scope`
+Package: `v1411-v1420: Period Profit Historical SKU Cost Recovery`
 
 ### Failed precursor
 
-- SHA `6650f02f255a07765ee8a53d518c16d3f34acc7d`;
-- Verify #1268 failed;
+- SHA `898ef3cc3a59939b2b9d97939b267ccccb54178a`;
+- Verify #1282 failed;
 - this SHA remains failed permanently and receives no transferred success claim.
 
 ### Exact feature head
 
-- SHA `2737896a5def0d058a946c4edcbc69b07906d344`;
-- Verify #1269 succeeded.
+- SHA `7db015ae85326a2210e49162413ea6563a932c4d`;
+- Verify #1283 succeeded.
 
 ### PR integration checkout
 
-- PR #417;
-- synthetic merge SHA `962810cf789e62b16d287addbc182d7e9917576b`;
-- Verify #1271 succeeded;
-- artifact `9967881438`;
-- digest `sha256:3534e8cbb49340a7157c3b9e33dd0ed4bddf60954a084af58f6f501ed50effbf`.
+- PR #419;
+- synthetic merge SHA `a40e207c4e55a80c041643b93877d9806c0e30fc`;
+- Verify #1284 succeeded;
+- artifact `9968047432`;
+- digest `sha256:e8927c2c4c6bb2fba49ff2ce4bdced5d2412876103dccc6b577d83b99f37c537`.
 
 ### Exact production main
 
-- squash SHA `cb6f3fd3341debf52617688350a3c6d7cab336fd`;
-- Verify #1272 succeeded;
-- artifact `9967892096`;
-- digest `sha256:fb2a8fa99482e86d2c70e7e9a40547f71065899c1162e7916999511c585a4e7a`.
+- squash SHA `f96e291a8bd8b19c8b68e618b160cdca13fd31c4`;
+- Verify #1285 succeeded;
+- artifact `9968055763`;
+- digest `sha256:6ce330fb8775d0ff2b2c85150b6110f17cd6a98acbb300f6c74492a261bb6791`.
 
 ## Runtime defect boundary
 
-The selected-period SKU scope now comes from unique SKUs observed in Ozon finance `POSTING` accruals. Current catalog rows are used only for identity/cost mapping and are deduplicated by SKU.
+Historical finance SKUs are no longer required to exist in the current Ozon catalog. A missing current-catalog SKU may be recovered only from confirmed historical cost evidence at the selected period end or from a unique existing local cost record for the exact SKU.
 
-A finance SKU without catalog/cost mapping fails closed. Account-level Ozon revenue and `net_accrual` remain monetary authority, and product/account revenue reconciliation remains mandatory as the final integrity guard.
+Ambiguous, invalid, non-RUB or unknown cost remains unavailable and fails closed. Account-level Ozon finance remains monetary authority, product/account revenue reconciliation remains mandatory, and Ozon mutation remains prohibited.
 
 ## Verification policy
 
-Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. Ozon mutation remains prohibited. `externally_verified=False` until Telegram production validation confirms the repaired path.
+Exact branch verification proves only that branch head. PR verification proves only the synthetic integration checkout. Every squash-main SHA requires its own exact verification. Failed SHAs remain failed permanently. Missing evidence is unknown, not zero. `externally_verified=False` until Telegram production validation confirms the repaired path.
