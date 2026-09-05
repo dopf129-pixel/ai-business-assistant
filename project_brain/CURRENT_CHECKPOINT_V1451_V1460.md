@@ -13,3 +13,5 @@ Production feature main: `cd399c3322203b1bc6d6b2f30bd22dc58fb7930c`.
 - This package changes presentation/transport only. Period Profit formulas, unknown-vs-zero semantics, no-double-counting, and the read-only Ozon boundary are unchanged.
 
 Verification: feature head and PR synthetic merge passed; exact production main Verify #1342 passed.
+
+Docs reconciliation is tied to the verified production main above and must pass its own exact-head and PR synthetic-merge verification before merge.
