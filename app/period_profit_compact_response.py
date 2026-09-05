@@ -86,6 +86,11 @@ def compact_period_profit_result(result):
     if comparison_line is not None:
         lines.extend(["", comparison_line])
 
+    ozon_breakdown_lines = _ozon_accrual_breakdown_lines(summary)
+    if ozon_breakdown_lines:
+        lines.append("")
+        lines.extend(ozon_breakdown_lines)
+
     diagnostic_lines = _revenue_diagnostic_lines(summary.get("revenue_diagnostics"))
     if diagnostic_lines:
         lines.append("")
@@ -101,6 +106,51 @@ def compact_period_profit_result(result):
     output["read_only"] = True
     output["executed"] = False
     return output
+
+
+def _ozon_accrual_breakdown_lines(summary):
+    if not isinstance(summary, dict):
+        return []
+
+    required = (
+        "revenue",
+        "net_accrual",
+        "commission",
+        "logistics",
+        "acquiring",
+        "other_fees",
+    )
+    values = {}
+    for field in required:
+        value = _finite_number(summary.get(field))
+        if value is None:
+            return []
+        values[field] = value
+
+    calculated = (
+        values["revenue"]
+        + values["commission"]
+        + values["logistics"]
+        + values["acquiring"]
+        + values["other_fees"]
+    )
+    difference = values["net_accrual"] - calculated
+
+    lines = [
+        "🧾 Разложение начислений Ozon:",
+        "Выручка: " + _signed_money(values["revenue"]),
+        "Комиссия: " + _signed_money(values["commission"]),
+        "Логистика: " + _signed_money(values["logistics"]),
+        "Эквайринг: " + _signed_money(values["acquiring"]),
+        "Прочие операции: " + _signed_money(values["other_fees"]),
+        "= Начисления Ozon: " + _money(values["net_accrual"]),
+    ]
+
+    if abs(difference) <= 0.05:
+        lines.append("Контроль: сходится")
+    else:
+        lines.append("Контрольная разница: " + _signed_money(difference))
+    return lines
 
 
 def _revenue_diagnostic_lines(diagnostics):
@@ -239,6 +289,14 @@ def _money(value):
         return "—"
     integer = int(rounded)
     return f"{integer:,}".replace(",", " ") + " ₽"
+
+
+def _signed_money(value):
+    number = _finite_number(value)
+    if number is None:
+        return "—"
+    sign = "+" if number > 0 else ("−" if number < 0 else "")
+    return sign + _money(abs(number))
 
 
 def _units(value):
