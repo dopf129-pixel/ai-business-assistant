@@ -113,6 +113,17 @@ class PeriodProfitOzonClient(OzonClient):
             )
         return normalized
 
+    def _normalize_period_profit_revenue(self, endpoint, result):
+        """Compatibility entry point kept for earlier seller-revenue tests/callers."""
+        normalized = self._normalize_period_profit_finance(endpoint, result)
+        if (
+            endpoint == self.FINANCE_ACCRUAL_BY_DAY
+            and isinstance(normalized, dict)
+            and normalized.get("code") == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
+        ):
+            return self._seller_revenue_error()
+        return normalized
+
     @classmethod
     def _validate_delivery(cls, delivery):
         if delivery is None:
@@ -236,5 +247,10 @@ class PeriodProfitOzonClient(OzonClient):
             "complete": False,
         }
 
-    # Compatibility alias retained for existing callers/tests.
-    _seller_revenue_error = _finance_money_error
+    @staticmethod
+    def _seller_revenue_error():
+        return {
+            "error": True,
+            "code": "FINANCE_SELLER_REVENUE_UNAVAILABLE",
+            "complete": False,
+        }
