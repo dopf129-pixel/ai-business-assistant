@@ -27,11 +27,6 @@ from services.assistant_button_handler_service import (
 )
 
 
-from services.cost_service import (
-    ProductCostService
-)
-
-
 from product_decision_learning_health import (
     build_product_decision_learning_health
 )
@@ -251,8 +246,7 @@ def create_telegram_assistant():
 
     command_service = (
         TelegramCommandService(
-            adapter,
-            cost_service=ProductCostService(),
+            adapter
         )
     )
 
