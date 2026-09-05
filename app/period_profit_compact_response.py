@@ -67,6 +67,7 @@ def compact_period_profit_result(result):
         + _period(summary.get("date_from"), summary.get("date_to")),
         "",
         "Выручка: " + _money(summary.get("revenue")),
+        "Продано SKU: " + _units(summary.get("units_sold")),
         "Начисления Ozon: " + _money(summary.get("net_accrual")),
         "Себестоимость: " + _money(summary.get("product_cost")),
         "Налог: " + _money(summary.get("tax")),
@@ -188,6 +189,12 @@ def _money(value):
         return "—"
     integer = int(rounded)
     return f"{integer:,}".replace(",", " ") + " ₽"
+
+
+def _units(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return "—"
+    return f"{value:,}".replace(",", " ") + " шт."
 
 
 def _percent(value):
