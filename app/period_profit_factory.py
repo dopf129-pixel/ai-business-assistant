@@ -70,6 +70,9 @@ from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
 from services.period_profit_summary_service import PeriodProfitSummaryService
+from services.period_profit_finance_sku_scope_service import (
+    PeriodProfitFinanceSkuScopeService,
+)
 from services.period_profit_tax_policy_summary_service import (
     PeriodProfitTaxPolicySummaryService,
 )
@@ -91,10 +94,14 @@ def create_period_profit_query(mapping_registry=None):
     application_commit_repository = ReturnCogsProfitApplicationCommitRepository()
     finance_service = FinanceService()
     ozon_client = OzonClient()
-    base_summary_service = PeriodProfitSummaryService(
+    raw_summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=0.0,
+    )
+    base_summary_service = PeriodProfitFinanceSkuScopeService(
+        raw_summary_service,
+        finance_service,
     )
     summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
