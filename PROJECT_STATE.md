@@ -6,23 +6,23 @@ AI Business Assistant remains a read-only Ozon business analyst and advisor. Ozo
 
 ## Current verified checkpoint
 
-Package: `v1411-v1420: Period Profit Historical SKU Cost Recovery`
+Package: `v1421-v1430: Period Profit Historical SKU Cost Input`
 
-Exact production main: `f96e291a8bd8b19c8b68e618b160cdca13fd31c4`
+Exact production main: `91cba3362c67253cfb938458d716e5651471b5c9`
 
-Verify #1285: success.
+Verify #1301: success.
 
-Artifact: `9968055763`.
+Artifact: `9968500427`.
 
-Digest: `sha256:6ce330fb8775d0ff2b2c85150b6110f17cd6a98acbb300f6c74492a261bb6791`.
+Digest: `sha256:791b5d2bfac7f0720b253c69eeca29c873edcb16a5589f399ecd08ec9add6d9d`.
 
 ## Period Profit runtime fix
 
-Telegram validation exposed a finance SKU (`3398133813`) that participated in the selected historical period but no longer existed in the current Ozon catalog.
+Telegram production validation confirmed that finance SKU `3398133813` has no confirmed local cost evidence. This is not an Ozon retrieval defect: seller COGS is local seller-confirmed data and must not be inferred from finance or replaced with zero.
 
-Period Profit now keeps finance-period SKU evidence as the scope authority and recovers missing current-catalog SKUs only from exact local cost evidence: confirmed historical cost by SKU at the selected period end, or a unique existing local cost record for that same SKU. Ambiguous, non-RUB, invalid or unknown cost still fails closed.
+Telegram now supports `/costsku SKU СЕБЕСТОИМОСТЬ`. The command stores only a local seller-confirmed RUB cost under a finance-SKU identity. It never writes to Ozon. Period Profit can then recover that historical finance SKU from the unique local cost record and recompute the selected period.
 
-The current catalog is no longer required to contain every historical SKU. It remains an identity/cost mapping source for current products only.
+Invalid, negative, ambiguous, missing or unavailable cost still fails closed.
 
 ## Period Profit accounting boundary
 
@@ -36,31 +36,31 @@ Unknown monetary evidence remains `None`, never inferred zero. Ozon remains read
 
 ## Verification lifecycle
 
-Failed precursor remains failed permanently:
+Failed feature precursor remains failed permanently:
 
-- `898ef3cc3a59939b2b9d97939b267ccccb54178a` — Verify #1282 failed due to a compatibility assertion; later success is not transferred to it.
+- `8b0deeef6032b7f9d6732c9df323b3926b08b205` — Verify #1296 failed due to Telegram factory compatibility; later success is not transferred to it.
 
 Successful lifecycle:
 
-- feature head `7db015ae85326a2210e49162413ea6563a932c4d` — Verify #1283 succeeded;
-- PR #419 synthetic merge `a40e207c4e55a80c041643b93877d9806c0e30fc` — Verify #1284 succeeded; artifact `9968047432`, digest `sha256:e8927c2c4c6bb2fba49ff2ce4bdced5d2412876103dccc6b577d83b99f37c537`;
-- squash production main `f96e291a8bd8b19c8b68e618b160cdca13fd31c4` — Verify #1285 succeeded; artifact `9968055763`, digest `sha256:6ce330fb8775d0ff2b2c85150b6110f17cd6a98acbb300f6c74492a261bb6791`.
+- feature head `148fde8d62caa158a85258b49ead954ca498b5f6` — Verify #1299 succeeded;
+- PR #421 synthetic merge `91800bd8537cd964dbc8864752435b7a5e5deb99` — Verify #1300 succeeded; artifact `9968493971`, digest `sha256:c4ea23a745bba85e1bc85355d9a1bc4c9fa2ffe1d243a42287f15bc7cc28bbbf`;
+- squash production main `91cba3362c67253cfb938458d716e5651471b5c9` — Verify #1301 succeeded; artifact `9968500427`, digest `sha256:791b5d2bfac7f0720b253c69eeca29c873edcb16a5589f399ecd08ec9add6d9d`.
 
 ## Preserved boundaries
 
 - account-level Ozon finance remains monetary authority;
 - finance-period SKU evidence defines product-cost scope;
 - current catalog is not treated as historical truth;
-- historical SKU recovery requires exact local cost evidence;
+- seller COGS is never inferred from Ozon finance;
+- `/costsku` mutates only local cost storage, never Ozon;
 - ambiguous or unknown cost fails closed;
 - duplicate SKU rows are not double counted;
 - product revenue reconciliation remains required;
-- no Ozon mutation;
 - no compensation double counting;
 - exact-once Return COGS commitment remains append-only;
 - unknown money remains `None`, not zero;
-- `externally_verified=False` until the user validates the repaired runtime path in Telegram.
+- `externally_verified=False` until the user enters the real COGS and validates Period Profit in Telegram.
 
 ## Next product work
 
-Repeat production validation of `Прибыль за период` in Telegram. If SKU `3398133813` has a confirmed historical or unique local cost record, it should now be included even though it is absent from the current Ozon catalog.
+After `git pull`, enter the real seller-confirmed cost for the blocked SKU, for example `/costsku 3398133813 450`, then repeat `Прибыль за период`. The numeric example is syntax only and must be replaced by the real COGS.
