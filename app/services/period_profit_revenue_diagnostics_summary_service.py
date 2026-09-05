@@ -68,12 +68,8 @@ class PeriodProfitRevenueDiagnosticsSummaryService:
 
         while current <= end:
             response = cache.get(current.isoformat())
-            daily = (
-                response.get("_period_profit_revenue_diagnostics")
-                if isinstance(response, dict)
-                else None
-            )
-            if not isinstance(daily, dict):
+            daily = self._daily_diagnostics(response)
+            if daily is None:
                 missing_days += 1
                 for state in fields.values():
                     state["complete"] = False
@@ -155,6 +151,52 @@ class PeriodProfitRevenueDiagnosticsSummaryService:
             "read_only": True,
         }
 
+    def _daily_diagnostics(self, response):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return None
+
+        diagnostics = response.get("_period_profit_revenue_diagnostics")
+        if isinstance(diagnostics, dict):
+            return diagnostics
+
+        accruals = response.get("accruals")
+        if not isinstance(accruals, list):
+            return None
+
+        if self._contains_commission_record(accruals):
+            return None
+
+        return {
+            "record_count": 0,
+            "fields": {
+                field: {
+                    "observed_amount": "0.00",
+                    "observed_records": 0,
+                    "missing_records": 0,
+                    "complete": True,
+                }
+                for field in self.FIELDS
+            },
+        }
+
+    @staticmethod
+    def _contains_commission_record(accruals):
+        for accrual in accruals:
+            if not isinstance(accrual, dict):
+                continue
+            if accrual.get("accrued_category") != "POSTING":
+                continue
+            posting = accrual.get("posting")
+            if not isinstance(posting, dict):
+                continue
+            products = posting.get("products")
+            if not isinstance(products, list):
+                continue
+            for product in products:
+                if isinstance(product, dict) and isinstance(product.get("commission"), dict):
+                    return True
+        return False
+
     def _unavailable(self, code):
         return {
             "error": False,
@@ -202,3 +244,8 @@ class PeriodProfitRevenueDiagnosticsSummaryService:
         except (TypeError, ValueError, OverflowError):
             return None
         return number if number >= 0 else None
+
+
+def build_period_profit_revenue_diagnostics(finance_service, date_from, date_to):
+    service = PeriodProfitRevenueDiagnosticsSummaryService(None, finance_service)
+    return service._aggregate(date_from, date_to)
