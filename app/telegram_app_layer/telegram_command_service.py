@@ -90,13 +90,18 @@ class TelegramCommandService:
         if not isfinite(cost) or cost < 0:
             return self._costsku_usage()
 
-        if self.cost_service is None:
-            return {
-                "error": True,
-                "message": "Локальное хранилище себестоимости недоступно",
-            }
+        cost_service = self.cost_service
+        if cost_service is None:
+            try:
+                from services.cost_service import ProductCostService
+                cost_service = ProductCostService()
+            except Exception:
+                return {
+                    "error": True,
+                    "message": "Локальное хранилище себестоимости недоступно",
+                }
 
-        setter = getattr(self.cost_service, "set_cost", None)
+        setter = getattr(cost_service, "set_cost", None)
         if not callable(setter):
             return {
                 "error": True,
