@@ -82,9 +82,21 @@ class AssistantPeriodProfitRuntimeService:
 
     @staticmethod
     def _is_profit_request(value):
+        # Explicit unit-economics questions keep their existing estimated route.
+        # Period Profit is the account-level source for seller-facing profit/margin.
+        if "юнит" in value or "unit econom" in value:
+            return False
+
         return any(
             token in value
-            for token in ("прибыль", "заработал", "profit")
+            for token in (
+                "прибыль",
+                "заработал",
+                "profit",
+                "маржа",
+                "маржин",
+                "margin",
+            )
         )
 
     @classmethod
