@@ -49,7 +49,7 @@ def _finance_response():
     }
 
 
-def test_period_profit_finance_validation_preserves_seller_price_mapping():
+def test_period_profit_finance_validation_preserves_sale_amount_mapping():
     client = PeriodProfitOzonClient()
     result = client._normalize_period_profit_finance(
         client.FINANCE_ACCRUAL_BY_DAY,
@@ -58,7 +58,8 @@ def test_period_profit_finance_validation_preserves_seller_price_mapping():
 
     assert result["error"] is False
     commission = result["accruals"][0]["posting"]["products"][0]["commission"]
-    assert commission["sale_amount"]["amount"] == "90.00"
+    assert commission["sale_amount"]["amount"] == "100.00"
+    assert commission["seller_price"]["amount"] == "90.00"
     assert result["_period_profit_revenue_diagnostics"]["fields"]["sale_amount"]["amount"] == "100.00"
 
 
@@ -77,6 +78,21 @@ def test_period_profit_finance_fails_closed_when_total_amount_missing():
         "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
         "complete": False,
     }
+
+
+def test_period_profit_finance_fails_closed_when_sale_amount_missing():
+    client = PeriodProfitOzonClient()
+    response = _finance_response()
+    commission = response["accruals"][0]["posting"]["products"][0]["commission"]
+    commission.pop("sale_amount")
+
+    result = client._normalize_period_profit_finance(
+        client.FINANCE_ACCRUAL_BY_DAY,
+        response,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
 
 
 def test_period_profit_finance_fails_closed_when_sale_commission_missing():
@@ -119,13 +135,13 @@ def test_compact_report_does_not_expose_internal_revenue_diagnostics():
         "summary": {
             "date_from": "2026-08-09",
             "date_to": "2026-08-31",
-            "revenue": 374325.0,
-            "units_sold": 4811,
+            "revenue": 374329.0,
+            "units_sold": 4072,
             "net_accrual": 141707.0,
-            "product_cost": 101031.0,
+            "product_cost": 85512.0,
             "tax": 22460.0,
-            "profit": 18217.0,
-            "margin_percent": 4.87,
+            "profit": 33735.0,
+            "margin_percent": 9.01,
             "revenue_diagnostics": {
                 "fields": {
                     "sale_amount": {"complete": True, "amount": 374329.0}
