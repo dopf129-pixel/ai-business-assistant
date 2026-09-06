@@ -306,6 +306,51 @@ class OzonClient:
             }
         )
 
+    def get_fbo_posting(self, posting_number):
+
+        return self._post(
+            "/v2/posting/fbo/get",
+            {
+                "posting_number": str(posting_number),
+                "translit": False,
+                "with": {
+                    "analytics_data": False,
+                    "financial_data": False
+                }
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
+    def get_fbs_posting(self, posting_number):
+
+        return self._post(
+            "/v3/posting/fbs/get",
+            {
+                "posting_number": str(posting_number),
+                "with": {
+                    "analytics_data": False,
+                    "barcodes": False,
+                    "financial_data": False,
+                    "translit": False
+                }
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
+    def get_realization_posting(self, year, month):
+
+        return self._post(
+            "/v1/finance/realization/posting",
+            {
+                "year": int(year),
+                "month": int(month)
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_returns(
         self,
         offer_id=None,
