@@ -545,7 +545,8 @@ class FinanceService:
                 )
             )
 
-            result["sales_count"] += 1
+            if sale_amount > Decimal("0"):
+                result["sales_count"] += 1
             result["gross_sales"] += (
                 sale_amount
             )
