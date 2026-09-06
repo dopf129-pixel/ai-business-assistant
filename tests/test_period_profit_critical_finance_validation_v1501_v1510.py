@@ -36,7 +36,7 @@ def _posting(commission=None, delivery=None, item_fees=None):
 
 
 def _normalize(accrual):
-    return PeriodProfitOzonClient()._normalize_period_profit_finance(
+    return PeriodProfitOzonClient()._normalize_period_profit_canonical_finance(
         ENDPOINT,
         {"error": False, "accruals": [accrual]},
     )
@@ -48,7 +48,7 @@ def test_v1501_diagnostic_seller_price_does_not_block_canonical_finance():
     assert result.get("error") is not True
     diagnostics = result["_period_profit_revenue_diagnostics"]
     assert diagnostics["fields"]["seller_price"]["complete"] is False
-    assert result["_period_profit_finance_completeness"]["fee_components_included"] is True
+    assert "_period_profit_finance_completeness" not in result
 
 
 def test_v1502_missing_ancillary_fee_money_is_parser_safe_and_explicitly_incomplete():
@@ -99,9 +99,11 @@ def test_v1504_unknown_total_amount_still_fails_closed():
 
     result = _normalize(accrual)
 
-    assert result["error"] is True
-    assert result["code"] == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
-    assert result["internal_field"].endswith("total_amount")
+    assert result == {
+        "error": True,
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "complete": False,
+    }
 
 
 def test_v1505_unrecoverable_sale_amount_still_fails_closed():
@@ -111,14 +113,16 @@ def test_v1505_unrecoverable_sale_amount_still_fails_closed():
                 "sale_amount": None,
                 "sale_price": _money("60"),
                 "bonus": _money("30"),
-                # coinvestment deliberately unknown
                 "sale_commission": _money("-12"),
             }
         )
     )
 
-    assert result["error"] is True
-    assert result["internal_field"].endswith("commission.sale_amount")
+    assert result == {
+        "error": True,
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "complete": False,
+    }
 
 
 def test_v1506_sale_amount_recovery_uses_only_exact_three_components():
@@ -164,8 +168,11 @@ def test_v1508_malformed_formula_structure_still_fails_closed():
 
     result = _normalize(accrual)
 
-    assert result["error"] is True
-    assert result["internal_field"].endswith("commission")
+    assert result == {
+        "error": True,
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "complete": False,
+    }
 
 
 class _Ozon:
