@@ -110,3 +110,29 @@ Production main `32a740c6341feadf67979e43cba8fea47f2f75f5` implements a narrow r
 - squash-merged production main `32a740c6341feadf67979e43cba8fea47f2f75f5`: Verify #1431 — SUCCESS.
 
 This follow-up fixes availability of the reconciled finance path without changing the proven seller-facing revenue semantics or treating unknown money as zero.
+
+## Second runtime regression: SKU discovery coupled to strict money validation
+
+The live seller-facing query still returned `Финансовые данные SKU недоступны` after the aggregate `sale_amount` compatibility fix. Code-path tracing showed the remaining problem was architectural rather than a new revenue formula error.
+
+`PeriodProfitFinanceSkuScopeService` discovered period SKUs through `FinanceService._get_accruals_by_day`. In production that finance service is backed by the strict `PeriodProfitOzonClient`, so any strict money-field validation failure in a `POSTING` product could abort SKU discovery before the actual Period Profit calculation ran. The SKU layer therefore surfaced a generic SKU-unavailable message even when the response still contained structurally valid product SKUs.
+
+Production main `ac15ec34a32fff6408f1bb2711647d460a574b77` separates those concerns:
+
+- SKU discovery receives a separate raw `OzonClient` and reads `/v1/finance/accrual/by-day` in READ-ONLY mode;
+- SKU discovery validates only the structure needed to collect SKUs from `POSTING` products;
+- the actual Period Profit summary still uses the strict `PeriodProfitOzonClient`, so required unknown or malformed money remains fail-closed at the finance-calculation layer;
+- no Ozon state is modified;
+- no Telegram diagnostic fields were added;
+- legacy dependency-injection behavior is preserved for existing tests and callers.
+
+Regression coverage proves that raw SKU discovery succeeds even when a strict finance reader for the same day would return `FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE`, while raw transport errors still fail closed.
+
+### Verification evidence for SKU transport decoupling
+
+- `298b13d0de857cc0387387e62277d1267c9b9148`: Verify #1440 — FAILED (`15 failed, 2353 passed`); this intermediate SHA is permanently failed and not evidence for release;
+- exact corrected feature head `8e3119f0a163b4a61e8b3588aa378fd6c2dabd84`: Verify #1442 — SUCCESS;
+- PR #441 actual synthetic merge `f93c2d5ff244db95af327acf64b8cba19bca77cd`: Verify #1443 — SUCCESS, `2368 passed`;
+- squash-merged production main `ac15ec34a32fff6408f1bb2711647d460a574b77`: Verify #1444 — SUCCESS.
+
+The correction changes only which READ-ONLY transport is used for SKU discovery. It does not relax the monetary authority, return-COGS gates, tax policy, or Period Profit execution contract.
