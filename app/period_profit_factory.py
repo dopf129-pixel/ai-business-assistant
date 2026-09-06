@@ -104,6 +104,7 @@ def create_period_profit_query(mapping_registry=None):
     base_summary_service = PeriodProfitFinanceSkuScopeService(
         raw_summary_service,
         finance_service,
+        sku_ozon_client=ozon_client,
     )
     summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
