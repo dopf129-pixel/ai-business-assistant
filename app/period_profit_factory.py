@@ -7,7 +7,9 @@ from period_profit_mapping_registry_factory import (
 )
 from services.cost_service import ProductCostService
 from services.expense_repository import ExpenseRepository
-from services.finance_service import FinanceService
+from services.period_profit_finance_service import (
+    PeriodProfitFinanceService as FinanceService,
+)
 from services.return_inventory_recovery_repository import (
     ReturnInventoryRecoveryRepository,
 )
@@ -70,7 +72,9 @@ from services.period_profit_return_sale_lineage_evidence_service import (
 from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
-from services.period_profit_summary_service import PeriodProfitSummaryService
+from services.period_profit_critical_finance_summary_service import (
+    PeriodProfitCriticalFinanceSummaryService as PeriodProfitSummaryService,
+)
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
 )
