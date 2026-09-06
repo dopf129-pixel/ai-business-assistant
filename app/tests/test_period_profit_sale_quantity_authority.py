@@ -28,17 +28,34 @@ class FakeFinance:
 
 
 class FakeOzon:
-    def __init__(self, realization=None, fbo=None, fbs=None):
+    def __init__(self, realization=None, fbo=None, fbs=None, fbo_lists=None):
         self.realization = realization or {}
         self.fbo = fbo or {}
         self.fbs = fbs or {}
+        self.fbo_lists = list(fbo_lists or [])
         self.realization_calls = []
         self.fbo_calls = []
         self.fbs_calls = []
+        self.fbo_list_calls = []
 
     def get_realization_posting(self, year, month):
         self.realization_calls.append((year, month))
         return self.realization.get((year, month), {"rows": []})
+
+    def get_fbo_postings(
+        self,
+        since,
+        to,
+        limit=1000,
+        offset=0,
+        direction="DESC",
+        status="",
+    ):
+        self.fbo_list_calls.append((since, to, limit, offset, direction, status))
+        index = len(self.fbo_list_calls) - 1
+        if index < len(self.fbo_lists):
+            return self.fbo_lists[index]
+        return {"result": [], "has_next": False}
 
     def get_fbo_posting(self, posting_number):
         self.fbo_calls.append(posting_number)
@@ -49,11 +66,11 @@ class FakeOzon:
         return self.fbs.get(posting_number, {"error": True})
 
 
-def sale_record(posting_number, sku):
+def sale_record(posting_number, sku, accrual_date="2026-05-01"):
     return {
         "posting_number": posting_number,
         "sku": sku,
-        "accrual_date": "2026-05-01",
+        "accrual_date": accrual_date,
         "source": "OZON_FINANCE_ACCRUAL_BY_DAY",
     }
 
@@ -63,6 +80,16 @@ def realization_row(posting_number, sku, quantity):
         "order": {"posting_number": posting_number},
         "item": {"sku": sku},
         "delivery_commission": {"quantity": quantity},
+    }
+
+
+def fbo_posting(posting_number, sku, quantity):
+    return {
+        "posting_number": posting_number,
+        "products": [{
+            "sku": sku,
+            "quantity": quantity,
+        }],
     }
 
 
@@ -114,6 +141,7 @@ class PeriodProfitSaleQuantityAuthorityTests(unittest.TestCase):
         service.sale_quantity_ozon_client = ozon
         service._realization_quantity_cache = {}
         service._posting_quantity_cache = {}
+        service._fbo_list_quantity_cache = {}
         return service
 
     def test_multi_unit_realization_row_reconciles_cogs(self):
@@ -149,6 +177,76 @@ class PeriodProfitSaleQuantityAuthorityTests(unittest.TestCase):
         self.assertEqual(result["profit"], -5.0)
         self.assertEqual(result["products"][0]["units_sold"], 5)
         self.assertTrue(result["sale_quantity_reconciled"])
+        self.assertEqual(ozon.fbo_list_calls, [])
+
+    def test_open_month_missing_realization_uses_fbo_list_before_detail(self):
+        finance = FakeFinance({
+            "2026-09-07": {
+                "error": False,
+                "complete": True,
+                "records": [
+                    sale_record("open-1", "3921245627", "2026-09-07"),
+                ],
+            }
+        })
+        ozon = FakeOzon(
+            realization={(2026, 9): {"rows": []}},
+            fbo_lists=[{
+                "result": [fbo_posting("open-1", "3921245627", 3)],
+                "has_next": False,
+            }],
+        )
+        service = self.service(finance, ozon)
+
+        result = service._reconcile_sale_quantities(
+            result_fixture(units=1),
+            "2026-05-03",
+            "2026-09-07",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 3)
+        self.assertEqual(result["product_cost"], 63.0)
+        self.assertEqual(len(ozon.fbo_list_calls), 1)
+        self.assertEqual(ozon.fbo_calls, [])
+        self.assertEqual(ozon.fbs_calls, [])
+        self.assertEqual(
+            result["sale_quantity_source"],
+            "OZON_REALIZATION_POSTING_OR_FBO_LIST_OR_EXACT_POSTING_DETAIL",
+        )
+
+    def test_fbo_list_paginates_without_per_posting_calls(self):
+        finance = FakeFinance({
+            "2026-09-07": {
+                "error": False,
+                "complete": True,
+                "records": [
+                    sale_record("open-1", "3921245627", "2026-09-07"),
+                    sale_record("open-2", "3921245627", "2026-09-07"),
+                ],
+            }
+        })
+        first_page = [fbo_posting("noise-" + str(i), "999", 1) for i in range(999)]
+        first_page.append(fbo_posting("open-1", "3921245627", 1))
+        ozon = FakeOzon(fbo_lists=[
+            {"result": first_page, "has_next": True},
+            {
+                "result": [fbo_posting("open-2", "3921245627", 2)],
+                "has_next": False,
+            },
+        ])
+        service = self.service(finance, ozon)
+
+        result = service._reconcile_sale_quantities(
+            result_fixture(units=2),
+            "2026-09-07",
+            "2026-09-07",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 3)
+        self.assertEqual([call[3] for call in ozon.fbo_list_calls], [0, 1000])
+        self.assertEqual(ozon.fbo_calls, [])
 
     def test_missing_realization_row_uses_exact_fbo_posting_detail(self):
         finance = FakeFinance({
