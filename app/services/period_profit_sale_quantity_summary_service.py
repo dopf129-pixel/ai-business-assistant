@@ -17,6 +17,11 @@ class PeriodProfitSaleQuantitySummaryService(
     The primary source is the monthly realization-by-posting report joined by exact
     posting_number + SKU. Missing exact matches use the read-only FBO posting list
     before falling back to exact posting detail.
+
+    Multiple positive finance sale events for the same posting_number + SKU can occur
+    when Ozon reverses and later re-accrues the same physical posting. Quantity is
+    therefore reconciled once per physical posting key; signed finance amounts remain
+    authoritative in the finance summary.
     """
 
     def __init__(
@@ -79,6 +84,7 @@ class PeriodProfitSaleQuantitySummaryService(
             current += timedelta(days=1)
 
         grouped = {}
+        reaccrued_event_count = 0
         for record in sale_records:
             if not isinstance(record, dict):
                 return self._quantity_error(
@@ -92,9 +98,8 @@ class PeriodProfitSaleQuantitySummaryService(
                 )
             key = (posting_number, sku)
             if key in grouped:
-                return self._quantity_error(
-                    "PERIOD_PROFIT_SALE_QUANTITY_DUPLICATE_SALE_EVIDENCE"
-                )
+                reaccrued_event_count += 1
+                continue
             grouped[key] = record
 
         realization_map = self._load_realization_quantity_map(start, end)
@@ -192,6 +197,8 @@ class PeriodProfitSaleQuantitySummaryService(
             "OZON_REALIZATION_POSTING_OR_FBO_LIST_OR_EXACT_POSTING_DETAIL"
         )
         enriched["sale_quantity_record_count"] = len(grouped)
+        enriched["sale_quantity_positive_event_count"] = len(sale_records)
+        enriched["sale_quantity_reaccrued_event_count"] = reaccrued_event_count
         return enriched
 
     def _load_realization_quantity_map(self, start, end):
