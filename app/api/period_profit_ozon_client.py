@@ -92,17 +92,19 @@ class PeriodProfitOzonClient(OzonClient):
 
                 self._observe_revenue_diagnostics(diagnostics, commission)
 
+                sale_amount = commission.get("sale_amount")
                 seller_price = commission.get("seller_price")
                 sale_commission = commission.get("sale_commission")
+                if not self._valid_money(sale_amount):
+                    return self._finance_money_error()
                 if not self._valid_money(seller_price):
                     return self._finance_money_error()
                 if not self._valid_money(sale_commission):
                     return self._finance_money_error()
 
-                # FinanceService historically reads sale_amount for gross_sales.
-                # Period Profit binds that read to the seller-facing seller_price.
-                # Bonus/coinvestment stay diagnostic and are never added again.
-                commission["sale_amount"] = copy.deepcopy(seller_price)
+                # FinanceService reads the signed Ozon sale_amount for gross sales.
+                # Keep seller_price, sale_price, bonus and coinvestment diagnostic only.
+                # Official accrual reconciliation shows these fields are not interchangeable.
 
                 if not self._validate_delivery(product.get("delivery")):
                     return self._finance_money_error()

@@ -28,7 +28,7 @@ def _finance_result(seller_price="90.00", sale_amount="110.00"):
     }
 
 
-def test_period_profit_revenue_uses_seller_price_not_sale_amount():
+def test_period_profit_revenue_preserves_official_sale_amount():
     client = PeriodProfitOzonClient()
     raw = _finance_result()
 
@@ -38,13 +38,14 @@ def test_period_profit_revenue_uses_seller_price_not_sale_amount():
     )
 
     commission = normalized["accruals"][0]["posting"]["products"][0]["commission"]
-    assert commission["sale_amount"]["amount"] == "90.00"
+    assert commission["sale_amount"]["amount"] == "110.00"
+    assert commission["seller_price"]["amount"] == "90.00"
     assert commission["bonus"]["amount"] == "20.00"
     assert commission["coinvestment"]["amount"] == "5.00"
     assert raw["accruals"][0]["posting"]["products"][0]["commission"]["sale_amount"]["amount"] == "110.00"
 
 
-def test_finance_service_reads_normalized_seller_revenue_without_adding_bonus():
+def test_finance_service_reads_reconciled_sale_amount_without_adding_bonus():
     client = PeriodProfitOzonClient()
     normalized = client._normalize_period_profit_revenue(
         client.FINANCE_ACCRUAL_BY_DAY,
@@ -62,15 +63,32 @@ def test_finance_service_reads_normalized_seller_revenue_without_adding_bonus():
     result = service.get_daily_account_finance("2026-08-09")
 
     assert result["error"] is False
-    assert result["gross_sales"] == 90.0
+    assert result["gross_sales"] == 110.0
     assert result["net_accrual"] == 55.0
     assert result["sales_count"] == 1
 
 
-def test_missing_seller_price_fails_closed_without_sale_amount_fallback():
+def test_missing_seller_price_fails_closed_without_fallback():
     client = PeriodProfitOzonClient()
     raw = _finance_result()
     del raw["accruals"][0]["posting"]["products"][0]["commission"]["seller_price"]
+
+    result = client._normalize_period_profit_revenue(
+        client.FINANCE_ACCRUAL_BY_DAY,
+        raw,
+    )
+
+    assert result == {
+        "error": True,
+        "code": "FINANCE_SELLER_REVENUE_UNAVAILABLE",
+        "complete": False,
+    }
+
+
+def test_missing_sale_amount_fails_closed_as_unknown():
+    client = PeriodProfitOzonClient()
+    raw = _finance_result()
+    del raw["accruals"][0]["posting"]["products"][0]["commission"]["sale_amount"]
 
     result = client._normalize_period_profit_revenue(
         client.FINANCE_ACCRUAL_BY_DAY,
@@ -96,7 +114,7 @@ def test_invalid_seller_price_fails_closed():
     assert result["code"] == "FINANCE_SELLER_REVENUE_UNAVAILABLE"
 
 
-def test_explicit_zero_seller_price_is_valid_zero_not_unknown():
+def test_explicit_zero_seller_price_does_not_replace_sale_amount():
     client = PeriodProfitOzonClient()
 
     result = client._normalize_period_profit_revenue(
@@ -105,7 +123,8 @@ def test_explicit_zero_seller_price_is_valid_zero_not_unknown():
     )
 
     commission = result["accruals"][0]["posting"]["products"][0]["commission"]
-    assert commission["sale_amount"]["amount"] == "0"
+    assert commission["sale_amount"]["amount"] == "110.00"
+    assert commission["seller_price"]["amount"] == "0"
 
 
 def test_non_finance_endpoint_is_not_rewritten():
