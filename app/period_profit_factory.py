@@ -104,8 +104,9 @@ def create_period_profit_query(mapping_registry=None):
         finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=0.0,
-        sale_quantity_ozon_client=ozon_client,
     )
+    if hasattr(raw_summary_service, "sale_quantity_ozon_client"):
+        raw_summary_service.sale_quantity_ozon_client = ozon_client
     base_summary_service = PeriodProfitFinanceSkuScopeService(
         raw_summary_service,
         finance_service,
