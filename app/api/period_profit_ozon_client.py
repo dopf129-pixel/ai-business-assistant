@@ -6,7 +6,7 @@ from api.ozon_client import OzonClient
 
 
 class PeriodProfitOzonClient(OzonClient):
-    """Read-only Ozon client with Period Profit retry and strict finance validation."""
+    """Read-only Ozon client with Period Profit retry and critical finance validation."""
 
     TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
     FINANCE_ACCRUAL_BY_DAY = "/v1/finance/accrual/by-day"
@@ -57,20 +57,26 @@ class PeriodProfitOzonClient(OzonClient):
 
         accruals = result.get("accruals")
         if not isinstance(accruals, list):
-            return self._finance_money_error()
+            return self._finance_money_error("accruals")
 
         normalized = copy.deepcopy(result)
         diagnostics = self._empty_revenue_diagnostics()
+        completeness = self._empty_finance_completeness()
 
-        for accrual in normalized.get("accruals", []):
+        for accrual_index, accrual in enumerate(normalized.get("accruals", [])):
             if not isinstance(accrual, dict):
-                return self._finance_money_error()
+                return self._finance_money_error(f"accruals[{accrual_index}]")
 
             if not self._valid_money(accrual.get("total_amount")):
-                return self._finance_money_error()
+                return self._finance_money_error(
+                    f"accruals[{accrual_index}].total_amount"
+                )
 
-            if not self._validate_item_fees(accrual.get("item_fees")):
-                return self._finance_money_error()
+            self._normalize_item_fees(
+                accrual,
+                completeness,
+                f"accruals[{accrual_index}].item_fees",
+            )
 
             if accrual.get("accrued_category") != "POSTING":
                 continue
@@ -79,52 +85,62 @@ class PeriodProfitOzonClient(OzonClient):
             if posting is None:
                 continue
             if not isinstance(posting, dict):
-                return self._finance_money_error()
+                return self._finance_money_error(
+                    f"accruals[{accrual_index}].posting"
+                )
 
             products = posting.get("products")
             if products is None:
                 continue
             if not isinstance(products, list):
-                return self._finance_money_error()
+                return self._finance_money_error(
+                    f"accruals[{accrual_index}].posting.products"
+                )
 
-            for product in products:
+            for product_index, product in enumerate(products):
+                path = f"accruals[{accrual_index}].posting.products[{product_index}]"
                 if not isinstance(product, dict):
-                    return self._finance_money_error()
+                    return self._finance_money_error(path)
 
                 commission = product.get("commission")
                 if not isinstance(commission, dict):
-                    return self._finance_money_error()
+                    return self._finance_money_error(path + ".commission")
 
                 self._observe_revenue_diagnostics(diagnostics, commission)
 
                 sale_amount = commission.get("sale_amount")
-                seller_price = commission.get("seller_price")
-                sale_commission = commission.get("sale_commission")
                 if not self._valid_money(sale_amount):
                     recovered_sale_amount = self._recover_sale_amount_from_components(
                         commission
                     )
                     if recovered_sale_amount is None:
-                        return self._finance_money_error()
+                        return self._finance_money_error(path + ".commission.sale_amount")
                     commission["sale_amount"] = recovered_sale_amount
-                if not self._valid_money(seller_price):
-                    return self._finance_money_error()
-                if not self._valid_money(sale_commission):
-                    return self._finance_money_error()
 
-                # FinanceService reads the signed Ozon sale_amount for gross sales.
-                # If Ozon omits only that aggregate field, recover it exclusively from
-                # the three explicit Ozon monetary components that reconcile to it:
-                # sale_price + bonus + coinvestment. Unknown components still fail closed.
-                # seller_price remains diagnostic and is never used as a revenue fallback.
+                # sale_amount and total_amount are formula-critical. The following
+                # values are decomposition/diagnostic fields only: their absence must
+                # not make the authoritative account accrual or seller revenue unknown.
+                # Unknown ancillary values are explicitly marked incomplete before a
+                # parser-safe zero is inserted; they are never promoted as evidence.
+                if not self._valid_money(commission.get("sale_commission")):
+                    self._mark_ancillary_incomplete(
+                        completeness,
+                        path + ".commission.sale_commission",
+                    )
+                    commission["sale_commission"] = self._zero_money(commission)
 
-                if not self._validate_delivery(product.get("delivery")):
-                    return self._finance_money_error()
+                self._normalize_delivery(
+                    product,
+                    completeness,
+                    path + ".delivery",
+                )
 
         if diagnostics["record_count"] > 0:
             normalized["_period_profit_revenue_diagnostics"] = (
                 self._serialize_revenue_diagnostics(diagnostics)
             )
+
+        normalized["_period_profit_finance_completeness"] = completeness
         return normalized
 
     def _normalize_period_profit_revenue(self, endpoint, result):
@@ -175,52 +191,113 @@ class PeriodProfitOzonClient(OzonClient):
         return "RUB"
 
     @classmethod
-    def _validate_delivery(cls, delivery):
+    def _normalize_delivery(cls, product, completeness, path):
+        delivery = product.get("delivery")
         if delivery is None:
-            return True
+            return
         if not isinstance(delivery, dict):
-            return False
+            cls._mark_ancillary_incomplete(completeness, path)
+            product["delivery"] = {"services": []}
+            return
 
         services = delivery.get("services")
         if services is None:
-            return True
+            return
         if not isinstance(services, list):
-            return False
+            cls._mark_ancillary_incomplete(completeness, path + ".services")
+            delivery["services"] = []
+            return
 
-        for service in services:
+        normalized_services = []
+        for index, service in enumerate(services):
+            service_path = f"{path}.services[{index}]"
             if not isinstance(service, dict):
-                return False
+                cls._mark_ancillary_incomplete(completeness, service_path)
+                continue
             if not cls._valid_money(service.get("accrued")):
-                return False
-        return True
+                cls._mark_ancillary_incomplete(
+                    completeness,
+                    service_path + ".accrued",
+                )
+                service["accrued"] = cls._zero_money(service)
+            normalized_services.append(service)
+        delivery["services"] = normalized_services
 
     @classmethod
-    def _validate_item_fees(cls, item_fees):
+    def _normalize_item_fees(cls, accrual, completeness, path):
+        item_fees = accrual.get("item_fees")
         if item_fees is None:
-            return True
+            return
         if not isinstance(item_fees, dict):
-            return False
+            cls._mark_ancillary_incomplete(completeness, path)
+            accrual["item_fees"] = {"fees": []}
+            return
 
         groups = item_fees.get("fees")
         if groups is None:
-            return True
+            return
         if not isinstance(groups, list):
-            return False
+            cls._mark_ancillary_incomplete(completeness, path + ".fees")
+            item_fees["fees"] = []
+            return
 
-        for group in groups:
+        normalized_groups = []
+        for group_index, group in enumerate(groups):
+            group_path = f"{path}.fees[{group_index}]"
             if not isinstance(group, dict):
-                return False
+                cls._mark_ancillary_incomplete(completeness, group_path)
+                continue
+
             fees = group.get("fees")
             if fees is None:
+                normalized_groups.append(group)
                 continue
             if not isinstance(fees, list):
-                return False
-            for fee in fees:
+                cls._mark_ancillary_incomplete(completeness, group_path + ".fees")
+                group["fees"] = []
+                normalized_groups.append(group)
+                continue
+
+            normalized_fees = []
+            for fee_index, fee in enumerate(fees):
+                fee_path = f"{group_path}.fees[{fee_index}]"
                 if not isinstance(fee, dict):
-                    return False
+                    cls._mark_ancillary_incomplete(completeness, fee_path)
+                    continue
                 if not cls._valid_money(fee.get("accrued")):
-                    return False
-        return True
+                    cls._mark_ancillary_incomplete(
+                        completeness,
+                        fee_path + ".accrued",
+                    )
+                    fee["accrued"] = cls._zero_money(fee)
+                normalized_fees.append(fee)
+            group["fees"] = normalized_fees
+            normalized_groups.append(group)
+        item_fees["fees"] = normalized_groups
+
+    @staticmethod
+    def _empty_finance_completeness():
+        return {
+            "fee_components_included": True,
+            "ancillary_incomplete_count": 0,
+            "ancillary_incomplete_paths": [],
+        }
+
+    @staticmethod
+    def _mark_ancillary_incomplete(completeness, path):
+        completeness["fee_components_included"] = False
+        completeness["ancillary_incomplete_count"] += 1
+        if len(completeness["ancillary_incomplete_paths"]) < 20:
+            completeness["ancillary_incomplete_paths"].append(str(path))
+
+    @classmethod
+    def _zero_money(cls, source=None):
+        currency = "RUB"
+        if isinstance(source, dict):
+            candidate = source.get("currency")
+            if candidate:
+                currency = str(candidate)
+        return {"amount": "0", "currency": currency}
 
     @classmethod
     def _empty_revenue_diagnostics(cls):
@@ -290,12 +367,15 @@ class PeriodProfitOzonClient(OzonClient):
         return cls._money_decimal(value) is not None
 
     @staticmethod
-    def _finance_money_error():
-        return {
+    def _finance_money_error(field=None):
+        result = {
             "error": True,
             "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
             "complete": False,
         }
+        if field:
+            result["internal_field"] = str(field)
+        return result
 
     @staticmethod
     def _seller_revenue_error():
