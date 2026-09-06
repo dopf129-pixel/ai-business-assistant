@@ -7,7 +7,7 @@ from period_profit_mapping_registry_factory import (
 )
 from services.cost_service import ProductCostService
 from services.expense_repository import ExpenseRepository
-from services.finance_service import FinanceService
+from services.period_profit_finance_service import PeriodProfitFinanceService
 from services.return_inventory_recovery_repository import (
     ReturnInventoryRecoveryRepository,
 )
@@ -70,7 +70,9 @@ from services.period_profit_return_sale_lineage_evidence_service import (
 from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
-from services.period_profit_summary_service import PeriodProfitSummaryService
+from services.period_profit_critical_finance_summary_service import (
+    PeriodProfitCriticalFinanceSummaryService,
+)
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
 )
@@ -93,10 +95,10 @@ def create_period_profit_query(mapping_registry=None):
     accounting_recognition_repository = ReturnCogsAccountingRecognitionRepository()
     application_authorization_repository = ReturnCogsProfitApplicationAuthorizationRepository()
     application_commit_repository = ReturnCogsProfitApplicationCommitRepository()
-    finance_service = FinanceService()
+    finance_service = PeriodProfitFinanceService()
     finance_service.ozon = PeriodProfitOzonClient()
     ozon_client = OzonClient()
-    raw_summary_service = PeriodProfitSummaryService(
+    raw_summary_service = PeriodProfitCriticalFinanceSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=0.0,
