@@ -1,13 +1,16 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
 
+from api.ozon_client import OzonClient
+
 
 class PeriodProfitFinanceSkuScopeService:
     """Scope product cost calculation to unique SKUs actually present in Ozon finance."""
 
-    def __init__(self, summary_service, finance_service):
+    def __init__(self, summary_service, finance_service, sku_ozon_client=None):
         self.summary_service = summary_service
         self.finance_service = finance_service
+        self.sku_ozon_client = sku_ozon_client or OzonClient()
         self.cost_service = getattr(summary_service, "cost_service", None)
         self.tax_rate = getattr(summary_service, "tax_rate", None)
 
@@ -230,7 +233,7 @@ class PeriodProfitFinanceSkuScopeService:
                 "Некорректный период",
             )
 
-        getter = getattr(self.finance_service, "_get_accruals_by_day", None)
+        getter = getattr(self.sku_ozon_client, "get_accruals_by_day", None)
         if not callable(getter):
             return self._error(
                 "PERIOD_PROFIT_FINANCE_SKU_SCOPE_UNAVAILABLE",
