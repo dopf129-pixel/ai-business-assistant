@@ -126,9 +126,13 @@ Ozon остаётся строго READ-ONLY: расчёты и отчёты н�
 - `Баллы за скидки` и `Программы партнёров` имеют нулевое количество товара и не создают отдельную единицу COGS;
 - отрицательный возврат не считается стандартной продажей и не создаёт стандартную единицу COGS; восстановление COGS возврата остаётся отдельным fail-closed процессом.
 
-В production main `2eaaaa531f8e9be2e01d03aebafa0b9eadc3b203` исправлена семантика Period Profit: `sale_amount` больше не заменяется на `seller_price`, а `sales_count` увеличивается только при `sale_amount > 0`. Signed gross revenue при этом сохраняет возвраты и корректировки.
+Базовая production-коррекция `2eaaaa531f8e9be2e01d03aebafa0b9eadc3b203` исправила семантику Period Profit: явный `sale_amount` не заменяется на `seller_price`, а `sales_count` увеличивается только при `sale_amount > 0`. Signed gross revenue при этом сохраняет возвраты и корректировки.
 
-Проверка production main: Verify #1416 (`34042695822`) — SUCCESS. Перед merge feature head `dd1305c662ab2f9030952d87569fa93ad212160c` прошёл Verify #1414; synthetic merge PR #437 `a02ee8b33bda10e5338b5272085f093e7dd79158` прошёл Verify #1415, `2366 passed`.
+После этой коррекции live-запрос обнаружил совместимый с Ozon случай: агрегат `sale_amount` может отсутствовать в отдельной POSTING строке, хотя явные компоненты `sale_price`, `bonus`, `coinvestment` присутствуют. Это приводило к сообщению `Финансовые данные SKU недоступны`, потому что строгий finance reader завершался ошибкой ещё до SKU scope.
+
+Production main `32a740c6341feadf67979e43cba8fea47f2f75f5` устраняет этот runtime-регресс узким правилом: явный `sale_amount` сохраняется без изменений; при его отсутствии разрешено восстановление только из `sale_price + bonus + coinvestment`. `seller_price` никогда не используется как fallback. Если любая компонента неизвестна/невалидна, расчёт остаётся fail-closed. Сырая внутренняя диагностика не скрывает факт отсутствия исходного `sale_amount`.
+
+Проверки runtime-fix: exact feature head `0aa22d474de946fb184b6c4be443b84968a3801c` — Verify #1429 SUCCESS; PR #439 synthetic merge — Verify #1430 SUCCESS; exact production main `32a740c6341feadf67979e43cba8fea47f2f75f5` — Verify #1431 SUCCESS. Промежуточный `c9a69b38c4adaf678e7a4765c8cea136dbe2f42b` с Verify #1428 — FAILED и не является verification evidence.
 
 Подробная доказательная сверка находится в `docs/PERIOD_PROFIT_RECONCILIATION_2026-09-06.md`.
 
@@ -145,7 +149,7 @@ Ozon остаётся строго READ-ONLY: расчёты и отчёты н�
 - Product ID
 - SKU
 - Offer ID
-- себестоимость одной единицы
+- себестоимость единицы
 - валюта
 - дата изменения
 

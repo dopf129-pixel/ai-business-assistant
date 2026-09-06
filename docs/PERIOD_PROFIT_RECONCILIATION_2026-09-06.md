@@ -74,3 +74,39 @@ margin ~= 9.01%
 ```
 
 These are reconciliation expectations, not permission to infer missing return COGS. Live seller-facing output must continue to fail closed wherever required evidence is unavailable.
+
+## Post-reconciliation runtime regression: omitted aggregate sale_amount
+
+After deploying the sale/unit reconciliation package, the live Telegram query returned `Финансовые данные SKU недоступны`. The message was not a catalog or SKU identity failure. `PeriodProfitFinanceSkuScopeService` emits that generic message when its shared strict Period Profit finance reader returns an error for any day in the requested period.
+
+The regression was introduced by the stricter finance normalization: a `POSTING` product was rejected whenever Ozon omitted only the aggregate `commission.sale_amount`, even when the explicit Ozon monetary components needed to reconstruct that aggregate were present and valid.
+
+Repository-captured real Ozon payloads prove the component identity on actual operations:
+
+```text
+67.62 + 22.38 + 0.00 = 90.00
+61.85 + 27.53 + 0.62 = 90.00
+```
+
+The same identity was observed at control-period aggregate level: `sale_price + bonus + coinvestment` reconciles to `sale_amount` to display rounding.
+
+### Safe compatibility rule
+
+Production main `32a740c6341feadf67979e43cba8fea47f2f75f5` implements a narrow recovery rule:
+
+- explicit valid `sale_amount` always wins and is preserved unchanged;
+- only when `sale_amount` itself is omitted/invalid, it may be reconstructed from the three explicit Ozon money fields `sale_price + bonus + coinvestment`;
+- `seller_price` is never used as a revenue fallback;
+- if any of the three reconstruction components is missing, invalid, or non-finite, Period Profit still fails closed;
+- the internal raw-source diagnostic continues to mark the omitted `sale_amount` as incomplete rather than pretending Ozon supplied it;
+- no tax, account-net-accrual, return-COGS, or execution formula was broadened;
+- Ozon remains READ-ONLY and seller-facing Period Profit remains `read_only=True`, `executed=False`.
+
+### Verification evidence for the runtime regression fix
+
+- `c9a69b38c4adaf678e7a4765c8cea136dbe2f42b`: Verify #1428 — FAILED (`1 failed, 2366 passed`); this SHA is permanently failed and is not package evidence;
+- exact corrected feature head `0aa22d474de946fb184b6c4be443b84968a3801c`: Verify #1429 — SUCCESS;
+- PR #439 actual synthetic merge: Verify #1430 — SUCCESS;
+- squash-merged production main `32a740c6341feadf67979e43cba8fea47f2f75f5`: Verify #1431 — SUCCESS.
+
+This follow-up fixes availability of the reconciled finance path without changing the proven seller-facing revenue semantics or treating unknown money as zero.
