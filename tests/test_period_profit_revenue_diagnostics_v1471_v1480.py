@@ -32,7 +32,7 @@ def _raw_finance():
     }
 
 
-def test_client_preserves_raw_fields_before_seller_price_normalization():
+def test_client_preserves_raw_revenue_fields_without_rewriting_sale_amount():
     client = PeriodProfitOzonClient()
     normalized = client._normalize_period_profit_revenue(
         client.FINANCE_ACCRUAL_BY_DAY,
@@ -40,7 +40,8 @@ def test_client_preserves_raw_fields_before_seller_price_normalization():
     )
 
     commission = normalized["accruals"][0]["posting"]["products"][0]["commission"]
-    assert commission["sale_amount"]["amount"] == "90.00"
+    assert commission["sale_amount"]["amount"] == "110.00"
+    assert commission["seller_price"]["amount"] == "90.00"
 
     diagnostics = normalized["_period_profit_revenue_diagnostics"]
     assert diagnostics["record_count"] == 1
@@ -76,12 +77,12 @@ class _BaseSummary:
             "error": False,
             "date_from": date_from,
             "date_to": date_to,
-            "revenue": 90.0,
+            "revenue": 110.0,
             "net_accrual": 55.0,
             "product_cost": 20.0,
-            "tax": 5.4,
-            "profit": 29.6,
-            "margin_percent": 32.89,
+            "tax": 6.6,
+            "profit": 28.4,
+            "margin_percent": 25.82,
             "units_sold": 1,
             "products": [],
         }
@@ -105,9 +106,9 @@ def test_summary_diagnostics_do_not_change_profit_fields():
 
     result = service.calculate("2026-08-09", "2026-08-09", [])
 
-    assert result["revenue"] == 90.0
-    assert result["profit"] == 29.6
-    assert result["tax"] == 5.4
+    assert result["revenue"] == 110.0
+    assert result["profit"] == 28.4
+    assert result["tax"] == 6.6
     assert result["revenue_diagnostics"]["fields"]["sale_amount"]["amount"] == 110.0
     assert result["revenue_diagnostics"]["fields"]["seller_price"]["amount"] == 90.0
 
@@ -119,12 +120,12 @@ def test_compact_response_keeps_diagnostics_internal_without_changing_financial_
         "summary": {
             "date_from": "2026-08-09",
             "date_to": "2026-08-09",
-            "revenue": 90.0,
+            "revenue": 110.0,
             "net_accrual": 55.0,
             "product_cost": 20.0,
-            "tax": 5.4,
-            "profit": 29.6,
-            "margin_percent": 32.89,
+            "tax": 6.6,
+            "profit": 28.4,
+            "margin_percent": 25.82,
             "units_sold": 1,
             "revenue_diagnostics": {
                 "missing_days": 0,
@@ -143,8 +144,8 @@ def test_compact_response_keeps_diagnostics_internal_without_changing_financial_
 
     output = compact_period_profit_result(result)
 
-    assert output["summary"]["revenue"] == 90.0
-    assert output["summary"]["profit"] == 29.6
+    assert output["summary"]["revenue"] == 110.0
+    assert output["summary"]["profit"] == 28.4
     assert output["summary"]["revenue_diagnostics"] == result["summary"]["revenue_diagnostics"]
     assert "Диагностика выручки Ozon" not in output["text"]
     assert "sale_amount" not in output["text"]
