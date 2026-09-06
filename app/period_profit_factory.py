@@ -72,8 +72,8 @@ from services.period_profit_return_sale_lineage_evidence_service import (
 from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
-from services.period_profit_critical_finance_summary_service import (
-    PeriodProfitCriticalFinanceSummaryService as PeriodProfitSummaryService,
+from services.period_profit_sale_quantity_summary_service import (
+    PeriodProfitSaleQuantitySummaryService as PeriodProfitSummaryService,
 )
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
@@ -104,6 +104,7 @@ def create_period_profit_query(mapping_registry=None):
         finance_service=finance_service,
         cost_service=cost_service,
         tax_rate=0.0,
+        sale_quantity_ozon_client=ozon_client,
     )
     base_summary_service = PeriodProfitFinanceSkuScopeService(
         raw_summary_service,
