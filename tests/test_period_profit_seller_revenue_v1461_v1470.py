@@ -17,6 +17,7 @@ def _finance_result(seller_price="90.00", sale_amount="110.00"):
                                 "seller_price": {"amount": seller_price},
                                 "sale_amount": {"amount": sale_amount},
                                 "sale_commission": {"amount": "-10.00"},
+                                "sale_price": {"amount": "85.00"},
                                 "bonus": {"amount": "20.00"},
                                 "coinvestment": {"amount": "5.00"},
                             },
@@ -85,10 +86,27 @@ def test_missing_seller_price_fails_closed_without_fallback():
     }
 
 
-def test_missing_sale_amount_fails_closed_as_unknown():
+def test_missing_sale_amount_recovers_only_from_explicit_ozon_components():
     client = PeriodProfitOzonClient()
     raw = _finance_result()
     del raw["accruals"][0]["posting"]["products"][0]["commission"]["sale_amount"]
+
+    result = client._normalize_period_profit_revenue(
+        client.FINANCE_ACCRUAL_BY_DAY,
+        raw,
+    )
+
+    commission = result["accruals"][0]["posting"]["products"][0]["commission"]
+    assert commission["sale_amount"]["amount"] == "110.00"
+    assert commission["seller_price"]["amount"] == "90.00"
+
+
+def test_missing_sale_amount_with_unknown_component_fails_closed():
+    client = PeriodProfitOzonClient()
+    raw = _finance_result()
+    commission = raw["accruals"][0]["posting"]["products"][0]["commission"]
+    del commission["sale_amount"]
+    del commission["bonus"]
 
     result = client._normalize_period_profit_revenue(
         client.FINANCE_ACCRUAL_BY_DAY,
