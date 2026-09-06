@@ -10,6 +10,9 @@
 Перед внесением любых изменений необходимо полностью
 прочитать PROJECT_STATUS.md.
 
+Для текущей финансовой семантики Period Profit также обязательно прочитать
+`docs/PERIOD_PROFIT_RECONCILIATION_2026-09-06.md`.
+
 ---
 
 # Основные правила
@@ -22,17 +25,31 @@ main.py используется только как точка входа.
 
 Основная бизнес-логика должна находиться внутри сервисов.
 
+Ozon всегда READ-ONLY. Не менять цены, рекламу, остатки, карточки, поставки или иное состояние бизнеса.
+
+Для seller-facing Period Profit денежным авторитетом является account-level Ozon finance. Каноническая формула:
+
+```text
+period_profit = account_net_accrual
+              + exact_committed_return_cogs_if_valid
+              - product_cost
+              - configured_tax
+```
+
+`unknown != zero`. Return COGS нельзя восстанавливать без recognition / authorization / commit / no-double-counting gates. Отчёт должен оставаться `read_only=True`, `executed=False`.
+
 ---
 
 # Перед началом работы
 
 1. Прочитать PROJECT_STATUS.md.
 2. Ознакомиться с ARCHITECTURE.md (если есть).
-3. Запустить:
+3. Прочитать актуальные reconciliation-документы для затрагиваемой финансовой логики.
+4. Запустить полный Verify/тестовый контур для точного SHA.
+
+Локальная вспомогательная команда проекта:
 
 python run_tests.py
-
-Все тесты должны пройти.
 
 ---
 
@@ -40,17 +57,19 @@ python run_tests.py
 
 Обязательно:
 
-1. снова запустить
+1. пройти exact feature-head full Verify;
+2. открыть PR и пройти full Verify на фактическом synthetic merge SHA;
+3. squash merge;
+4. пройти full Verify точного resulting main SHA;
+5. синхронизировать документацию только с этим проверенным production main;
+6. проверить docs branch;
+7. проверить synthetic merge docs PR;
+8. squash merge docs PR;
+9. пройти Verify точного финального docs-main SHA.
 
-python run_tests.py
+Failed SHA остаётся failed навсегда; его verification evidence нельзя переносить на другой SHA.
 
-2. убедиться, что проект запускается
-
-python app\main.py
-
-3. обновить PROJECT_STATUS.md
-
-4. добавить запись в CHANGELOG.md
+Также убедиться, что проект запускается, и обновить PROJECT_STATUS.md / CHANGELOG или специализированный reconciliation-документ по затронутому контракту.
 
 ---
 
@@ -70,6 +89,24 @@ python app\main.py
 - Stock Forecast
 - Decision Engine
 - Summary Report
+- FinanceService
+- Period Profit read-only reporting
+
+---
+
+# Period Profit — актуальный доказанный контракт
+
+Контрольная сверка `09.08.2026–31.08.2026` с официальным отчётом Ozon доказала:
+
+- account net accrual = `141707.34 RUB`;
+- signed `sale_amount` = `374328.93 RUB`;
+- физических положительных sale events = `4072`;
+- нулевые product-quantity начисления лояльности/партнёрских программ не являются отдельными проданными единицами;
+- отрицательный возврат не является стандартной sale-Cogs единицей.
+
+Production main `2eaaaa531f8e9be2e01d03aebafa0b9eadc3b203` сохраняет `sale_amount` и считает стандартный `sales_count` только при `sale_amount > 0`. Verify #1416 прошёл успешно. PR #437 synthetic merge `a02ee8b33bda10e5338b5272085f093e7dd79158` также прошёл полный Verify (`2366 passed`).
+
+Не возвращать старую подмену `sale_amount = seller_price` без новой строгой официальной сверки.
 
 ---
 
@@ -117,37 +154,10 @@ ozon_assistant.db
 
 ---
 
-# Следующий этап разработки
-
-Переход
-от анализа одного товара
-к анализу всего кабинета продавца.
-
-План:
-
-• Dashboard магазина
-
-• рейтинг товаров
-
-• рейтинг риска
-
-• рейтинг здоровья
-
-• товары,
-  у которых заканчиваются остатки
-
-• общие KPI кабинета
-
-• AI Summary по всему магазину
-
----
-
 # Приоритет разработки
 
 1. Не ломать существующее.
-
-2. Добавлять новое через сервисы.
-
-3. Всегда писать тесты.
-
-4. Всегда обновлять документацию.
+2. Не выдавать неизвестные финансовые значения за ноль.
+3. Всегда писать regression-тесты на реальные классы операций.
+4. Всегда завершать полный SHA-bound Verify lifecycle.
+5. Всегда синхронизировать документацию с проверенным production main.
