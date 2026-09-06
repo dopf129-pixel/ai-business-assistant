@@ -17,6 +17,11 @@ class PeriodProfitOzonClient(OzonClient):
         "bonus",
         "coinvestment",
     )
+    SALE_AMOUNT_COMPONENT_FIELDS = (
+        "sale_price",
+        "bonus",
+        "coinvestment",
+    )
 
     def _post(self, endpoint, data, timeout=20, max_attempts=3):
         result = None
@@ -96,15 +101,22 @@ class PeriodProfitOzonClient(OzonClient):
                 seller_price = commission.get("seller_price")
                 sale_commission = commission.get("sale_commission")
                 if not self._valid_money(sale_amount):
-                    return self._finance_money_error()
+                    recovered_sale_amount = self._recover_sale_amount_from_components(
+                        commission
+                    )
+                    if recovered_sale_amount is None:
+                        return self._finance_money_error()
+                    commission["sale_amount"] = recovered_sale_amount
                 if not self._valid_money(seller_price):
                     return self._finance_money_error()
                 if not self._valid_money(sale_commission):
                     return self._finance_money_error()
 
                 # FinanceService reads the signed Ozon sale_amount for gross sales.
-                # Keep seller_price, sale_price, bonus and coinvestment diagnostic only.
-                # Official accrual reconciliation shows these fields are not interchangeable.
+                # If Ozon omits only that aggregate field, recover it exclusively from
+                # the three explicit Ozon monetary components that reconcile to it:
+                # sale_price + bonus + coinvestment. Unknown components still fail closed.
+                # seller_price remains diagnostic and is never used as a revenue fallback.
 
                 if not self._validate_delivery(product.get("delivery")):
                     return self._finance_money_error()
@@ -125,6 +137,42 @@ class PeriodProfitOzonClient(OzonClient):
         ):
             return self._seller_revenue_error()
         return normalized
+
+    @classmethod
+    def _recover_sale_amount_from_components(cls, commission):
+        if not isinstance(commission, dict):
+            return None
+
+        amounts = []
+        for field in cls.SALE_AMOUNT_COMPONENT_FIELDS:
+            amount = cls._money_decimal(commission.get(field))
+            if amount is None:
+                return None
+            amounts.append(amount)
+
+        total = sum(amounts, Decimal("0"))
+        if not total.is_finite():
+            return None
+
+        return {
+            "amount": format(total, "f"),
+            "currency": cls._component_currency(commission),
+        }
+
+    @classmethod
+    def _component_currency(cls, commission):
+        currencies = []
+        for field in cls.SALE_AMOUNT_COMPONENT_FIELDS:
+            money = commission.get(field)
+            if not isinstance(money, dict):
+                continue
+            currency = str(money.get("currency") or "").strip()
+            if currency:
+                currencies.append(currency)
+
+        if currencies and all(currency == currencies[0] for currency in currencies):
+            return currencies[0]
+        return "RUB"
 
     @classmethod
     def _validate_delivery(cls, delivery):
