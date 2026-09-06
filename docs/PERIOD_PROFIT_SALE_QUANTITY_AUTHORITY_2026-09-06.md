@@ -30,8 +30,12 @@ Using the official May accrual workbook:
 
 The previous 1,632-unit / 34,272 RUB COGS result understated standard COGS by 63 RUB.
 
-## Verification
+## Verified production evidence
 
-The first feature SHA `49dbf4144ffa344be87fef06a84cbbc1dfe7603a` failed Verify #1511 only because the factory test double did not accept the new constructor keyword. It remains failed and is not release evidence.
+The first feature SHA `49dbf4144ffa344be87fef06a84cbbc1dfe7603a` failed Verify #1511 because the factory test double did not accept the initial constructor keyword. It remains failed forever and is not release evidence.
 
-The corrected feature head is `abf39b863dcc843f0cd731acc01cc94964964af1`; Verify #1512 passed the full suite. Final release evidence is recorded after the full PR / main / docs lifecycle completes.
+After preserving factory injection compatibility, SHA `abf39b863dcc843f0cd731acc01cc94964964af1` passed Verify #1512. Documentation was then added to the feature branch, so the exact final feature release head became `5c0d2db9673d7d747b3ae3cf966a35dfcfa6f2b8`; Verify #1513 passed the full suite.
+
+PR #451 synthetic merge `180177500ac047b32d5aecc3a2e2778f929b7f58` passed full Verify #1514. The PR was squash-merged and exact production main `c083c56ed5584cbbd84648b469fbb432f8a72338` passed full Verify #1515.
+
+This documentation reconciliation branch starts from that exact verified production main. The final docs PR and final main verification are recorded by the repository workflow history for this package.
