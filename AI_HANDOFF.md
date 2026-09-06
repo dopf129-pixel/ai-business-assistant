@@ -104,7 +104,11 @@ Failed SHA остаётся failed навсегда; его verification evidenc
 - нулевые product-quantity начисления лояльности/партнёрских программ не являются отдельными проданными единицами;
 - отрицательный возврат не является стандартной sale-Cogs единицей.
 
-Production main `2eaaaa531f8e9be2e01d03aebafa0b9eadc3b203` сохраняет `sale_amount` и считает стандартный `sales_count` только при `sale_amount > 0`. Verify #1416 прошёл успешно. PR #437 synthetic merge `a02ee8b33bda10e5338b5272085f093e7dd79158` также прошёл полный Verify (`2366 passed`).
+Базовая коррекция sale/unit semantics была выпущена в main `2eaaaa531f8e9be2e01d03aebafa0b9eadc3b203`: `sale_amount` сохраняется, а стандартный `sales_count` увеличивается только при `sale_amount > 0`.
+
+Последующий live-регресс `Финансовые данные SKU недоступны` выявил отдельный контракт Ozon: в отдельных POSTING строках агрегат `sale_amount` может отсутствовать при наличии всех трёх явных компонент. Production main `32a740c6341feadf67979e43cba8fea47f2f75f5` разрешает восстановление только как `sale_price + bonus + coinvestment`. Явный `sale_amount` всегда имеет приоритет; `seller_price` никогда не используется как fallback; при отсутствии/невалидности любой компоненты расчёт по-прежнему fail-closed. Сырая диагностика сохраняет факт отсутствия исходного `sale_amount`.
+
+Проверки текущего runtime-fix: exact feature head `0aa22d474de946fb184b6c4be443b84968a3801c` — Verify #1429 SUCCESS; PR #439 synthetic merge — Verify #1430 SUCCESS; production main `32a740c6341feadf67979e43cba8fea47f2f75f5` — Verify #1431 SUCCESS. SHA `c9a69b38c4adaf678e7a4765c8cea136dbe2f42b` с Verify #1428 остаётся FAILED навсегда и не является evidence.
 
 Не возвращать старую подмену `sale_amount = seller_price` без новой строгой официальной сверки.
 
