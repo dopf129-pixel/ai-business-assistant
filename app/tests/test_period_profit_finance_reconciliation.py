@@ -11,8 +11,11 @@ from api.period_profit_ozon_client import PeriodProfitOzonClient  # noqa: E402
 from services.finance_service import FinanceService  # noqa: E402
 
 
-def money(amount):
-    return {"amount": str(amount)}
+def money(amount, currency=None):
+    result = {"amount": str(amount)}
+    if currency is not None:
+        result["currency"] = currency
+    return result
 
 
 def posting_accrual(*, total_amount, sale_amount, sku="SKU-1"):
@@ -127,12 +130,52 @@ class PeriodProfitOzonRevenueReconciliationTests(unittest.TestCase):
         self.assertEqual(diagnostics["sale_amount"]["amount"], "100.00")
         self.assertEqual(diagnostics["seller_price"]["amount"], "99.00")
 
-    def test_missing_sale_amount_fails_closed(self):
+    def test_missing_sale_amount_recovers_from_explicit_ozon_components(self):
         client = PeriodProfitOzonClient.__new__(PeriodProfitOzonClient)
         payload = self._payload()
-        del payload["accruals"][0]["posting"]["products"][0]["commission"][
-            "sale_amount"
-        ]
+        commission = payload["accruals"][0]["posting"]["products"][0]["commission"]
+        del commission["sale_amount"]
+
+        normalized = client._normalize_period_profit_finance(
+            client.FINANCE_ACCRUAL_BY_DAY,
+            payload,
+        )
+
+        recovered = normalized["accruals"][0]["posting"]["products"][0][
+            "commission"
+        ]["sale_amount"]
+        self.assertEqual(recovered["amount"], "100.00")
+        diagnostics = normalized["_period_profit_revenue_diagnostics"]["fields"]
+        self.assertFalse(diagnostics["sale_amount"]["complete"])
+        self.assertEqual(diagnostics["sale_amount"]["missing_records"], 1)
+
+    def test_real_ozon_posting_components_recover_exact_sale_amount(self):
+        client = PeriodProfitOzonClient.__new__(PeriodProfitOzonClient)
+        payload = self._payload()
+        commission = payload["accruals"][0]["posting"]["products"][0]["commission"]
+        commission["seller_price"] = money("90", "RUB")
+        commission["sale_price"] = money("67.62", "RUB")
+        commission["bonus"] = money("22.38", "RUB")
+        commission["coinvestment"] = money("0", "RUB")
+        commission["sale_commission"] = money("-12.6", "RUB")
+        del commission["sale_amount"]
+
+        normalized = client._normalize_period_profit_finance(
+            client.FINANCE_ACCRUAL_BY_DAY,
+            payload,
+        )
+
+        recovered = normalized["accruals"][0]["posting"]["products"][0][
+            "commission"
+        ]["sale_amount"]
+        self.assertEqual(recovered, {"amount": "90.00", "currency": "RUB"})
+
+    def test_missing_sale_amount_still_fails_when_component_is_unknown(self):
+        client = PeriodProfitOzonClient.__new__(PeriodProfitOzonClient)
+        payload = self._payload()
+        commission = payload["accruals"][0]["posting"]["products"][0]["commission"]
+        del commission["sale_amount"]
+        del commission["bonus"]
 
         normalized = client._normalize_period_profit_finance(
             client.FINANCE_ACCRUAL_BY_DAY,
