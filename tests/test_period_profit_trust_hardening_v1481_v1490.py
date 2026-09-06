@@ -80,11 +80,31 @@ def test_period_profit_finance_fails_closed_when_total_amount_missing():
     }
 
 
-def test_period_profit_finance_fails_closed_when_sale_amount_missing():
+def test_period_profit_finance_recovers_omitted_sale_amount_from_explicit_components():
     client = PeriodProfitOzonClient()
     response = _finance_response()
     commission = response["accruals"][0]["posting"]["products"][0]["commission"]
     commission.pop("sale_amount")
+
+    result = client._normalize_period_profit_finance(
+        client.FINANCE_ACCRUAL_BY_DAY,
+        response,
+    )
+
+    assert result["error"] is False
+    recovered = result["accruals"][0]["posting"]["products"][0]["commission"]
+    assert recovered["sale_amount"] == _money("90.00")
+    diagnostics = result["_period_profit_revenue_diagnostics"]["fields"]["sale_amount"]
+    assert diagnostics["complete"] is False
+    assert diagnostics["missing_records"] == 1
+
+
+def test_period_profit_finance_still_fails_when_sale_amount_and_component_missing():
+    client = PeriodProfitOzonClient()
+    response = _finance_response()
+    commission = response["accruals"][0]["posting"]["products"][0]["commission"]
+    commission.pop("sale_amount")
+    commission.pop("bonus")
 
     result = client._normalize_period_profit_finance(
         client.FINANCE_ACCRUAL_BY_DAY,
