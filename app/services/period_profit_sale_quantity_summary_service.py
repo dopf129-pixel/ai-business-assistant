@@ -13,9 +13,10 @@ class PeriodProfitSaleQuantitySummaryService(
     """Reconcile standard-sale unit quantities from read-only Ozon evidence.
 
     Finance accrual-by-day is the monetary authority but its posting product schema does
-    not expose quantity.  Standard COGS therefore needs a separate quantity authority.
+    not expose quantity. Standard COGS therefore needs a separate quantity authority.
     The primary source is the monthly realization-by-posting report joined by exact
-    posting_number + SKU.  Missing exact matches fall back to read-only posting detail.
+    posting_number + SKU. Missing exact matches use the read-only FBO posting list
+    before falling back to exact posting detail.
     """
 
     def __init__(
@@ -29,6 +30,7 @@ class PeriodProfitSaleQuantitySummaryService(
         self.sale_quantity_ozon_client = sale_quantity_ozon_client
         self._realization_quantity_cache = {}
         self._posting_quantity_cache = {}
+        self._fbo_list_quantity_cache = {}
 
     def calculate(self, date_from, date_to, products):
         result = super().calculate(date_from, date_to, products)
@@ -37,12 +39,7 @@ class PeriodProfitSaleQuantitySummaryService(
         if self.sale_quantity_ozon_client is None:
             return result
 
-        reconciled = self._reconcile_sale_quantities(
-            result,
-            date_from,
-            date_to,
-        )
-        return reconciled
+        return self._reconcile_sale_quantities(result, date_from, date_to)
 
     def _reconcile_sale_quantities(self, result, date_from, date_to):
         start = self._date(date_from)
@@ -56,7 +53,9 @@ class PeriodProfitSaleQuantitySummaryService(
             None,
         )
         if not callable(getter):
-            return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_UNAVAILABLE")
+            return self._quantity_error(
+                "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_UNAVAILABLE"
+            )
 
         sale_records = []
         current = start
@@ -64,41 +63,65 @@ class PeriodProfitSaleQuantitySummaryService(
             try:
                 evidence = getter(current.isoformat())
             except Exception:
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_UNAVAILABLE")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_UNAVAILABLE"
+                )
             if (
                 not isinstance(evidence, dict)
                 or evidence.get("error") is True
                 or evidence.get("complete") is not True
                 or not isinstance(evidence.get("records"), list)
             ):
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INCOMPLETE")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INCOMPLETE"
+                )
             sale_records.extend(evidence["records"])
             current += timedelta(days=1)
 
         grouped = {}
         for record in sale_records:
             if not isinstance(record, dict):
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID"
+                )
             posting_number = str(record.get("posting_number") or "").strip()
             sku = str(record.get("sku") or "").strip()
             if not posting_number or not sku:
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID"
+                )
             key = (posting_number, sku)
             if key in grouped:
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_DUPLICATE_SALE_EVIDENCE")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_DUPLICATE_SALE_EVIDENCE"
+                )
             grouped[key] = record
 
         realization_map = self._load_realization_quantity_map(start, end)
         if realization_map is None:
             realization_map = {}
 
+        unresolved_records = [
+            record
+            for key, record in grouped.items()
+            if key not in realization_map
+        ]
+        fbo_list_map = self._load_fbo_list_quantity_map(unresolved_records)
+        if fbo_list_map is None:
+            fbo_list_map = {}
+
         units_by_sku = defaultdict(int)
         for posting_number, sku in grouped:
-            quantity = realization_map.get((posting_number, sku))
+            key = (posting_number, sku)
+            quantity = realization_map.get(key)
+            if quantity is None:
+                quantity = fbo_list_map.get(key)
             if quantity is None:
                 quantity = self._load_posting_quantity(posting_number, sku)
             if quantity is None:
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE")
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE"
+                )
             units_by_sku[sku] += quantity
 
         product_rows = result.get("products")
@@ -133,10 +156,7 @@ class PeriodProfitSaleQuantitySummaryService(
             next_row["units_sold"] = units
             next_row["product_cost"] = round(product_cost, 2)
             next_row["profit"] = round(profit, 2)
-            next_row["margin_percent"] = self._margin(
-                next_row["profit"],
-                revenue,
-            )
+            next_row["margin_percent"] = self._margin(next_row["profit"], revenue)
             if next_row["margin_percent"] is None:
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
             next_rows.append(next_row)
@@ -145,7 +165,9 @@ class PeriodProfitSaleQuantitySummaryService(
             total_product_cost += product_cost
 
         if any(sku not in covered_skus for sku in units_by_sku):
-            return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_SKU_SCOPE_INCOMPLETE")
+            return self._quantity_error(
+                "PERIOD_PROFIT_SALE_QUANTITY_SKU_SCOPE_INCOMPLETE"
+            )
 
         net_accrual = self._number(result.get("net_accrual"), missing_zero=True)
         tax = self._number(result.get("tax"), missing_zero=True)
@@ -167,7 +189,7 @@ class PeriodProfitSaleQuantitySummaryService(
             return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
         enriched["sale_quantity_reconciled"] = True
         enriched["sale_quantity_source"] = (
-            "OZON_REALIZATION_POSTING_OR_EXACT_POSTING_DETAIL"
+            "OZON_REALIZATION_POSTING_OR_FBO_LIST_OR_EXACT_POSTING_DETAIL"
         )
         enriched["sale_quantity_record_count"] = len(grouped)
         return enriched
@@ -226,6 +248,120 @@ class PeriodProfitSaleQuantitySummaryService(
                 return None
             parsed[key] = quantity
         return parsed
+
+    def _load_fbo_list_quantity_map(self, records):
+        if not records:
+            return {}
+        getter = getattr(self.sale_quantity_ozon_client, "get_fbo_postings", None)
+        if not callable(getter):
+            return None
+
+        dates = []
+        for record in records:
+            if not isinstance(record, dict):
+                return None
+            parsed = self._date(record.get("accrual_date"))
+            if parsed is None:
+                return None
+            dates.append(parsed)
+
+        since_date = min(dates) - timedelta(days=31)
+        to_date = max(dates) + timedelta(days=1)
+        cache_key = (since_date.isoformat(), to_date.isoformat())
+        if cache_key in self._fbo_list_quantity_cache:
+            return self._fbo_list_quantity_cache[cache_key]
+
+        since = since_date.isoformat() + "T00:00:00Z"
+        to = to_date.isoformat() + "T23:59:59Z"
+        combined = {}
+        offset = 0
+        limit = 1000
+
+        for _ in range(200):
+            try:
+                response = getter(
+                    since,
+                    to,
+                    limit=limit,
+                    offset=offset,
+                    direction="ASC",
+                    status="",
+                )
+            except Exception:
+                self._fbo_list_quantity_cache[cache_key] = None
+                return None
+
+            parsed = self._parse_fbo_posting_list(response)
+            if parsed is None:
+                self._fbo_list_quantity_cache[cache_key] = None
+                return None
+
+            page_map, row_count, has_next = parsed
+            for posting_key, quantity in page_map.items():
+                existing = combined.get(posting_key)
+                if existing is not None and existing != quantity:
+                    self._fbo_list_quantity_cache[cache_key] = None
+                    return None
+                combined[posting_key] = quantity
+
+            if has_next is False or (has_next is None and row_count < limit):
+                self._fbo_list_quantity_cache[cache_key] = combined
+                return combined
+            if row_count <= 0:
+                self._fbo_list_quantity_cache[cache_key] = None
+                return None
+            offset += row_count
+
+        self._fbo_list_quantity_cache[cache_key] = None
+        return None
+
+    @classmethod
+    def _parse_fbo_posting_list(cls, response):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return None
+
+        result = response.get("result")
+        if isinstance(result, list):
+            postings = result
+        elif isinstance(result, dict):
+            postings = result.get("postings")
+        else:
+            postings = response.get("postings")
+        if not isinstance(postings, list):
+            return None
+
+        has_next = response.get("has_next")
+        if has_next is None and isinstance(result, dict):
+            has_next = result.get("has_next")
+        if has_next is not None and type(has_next) is not bool:
+            return None
+
+        parsed = {}
+        for posting in postings:
+            if not isinstance(posting, dict):
+                continue
+            posting_number = str(posting.get("posting_number") or "").strip()
+            products = posting.get("products")
+            if not posting_number or not isinstance(products, list):
+                continue
+            seen = set()
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                sku = str(product.get("sku") or "").strip()
+                quantity = cls._quantity(product.get("quantity"))
+                if not sku or quantity is None:
+                    continue
+                key = (posting_number, sku)
+                if key in seen:
+                    return None
+                seen.add(key)
+                existing = parsed.get(key)
+                if existing is not None and existing != quantity:
+                    return None
+                parsed[key] = quantity
+
+        return parsed, len(postings), has_next
 
     def _load_posting_quantity(self, posting_number, sku):
         key = (posting_number, sku)
