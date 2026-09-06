@@ -35,7 +35,7 @@ class PeriodProfitOzonClient(OzonClient):
             )
 
             if not isinstance(result, dict) or result.get("error") is not True:
-                return self._normalize_period_profit_finance(endpoint, result)
+                return self._normalize_period_profit_canonical_finance(endpoint, result)
 
             status_code = result.get("status_code")
             if status_code not in self.TRANSIENT_STATUS_CODES:
@@ -48,7 +48,7 @@ class PeriodProfitOzonClient(OzonClient):
 
         return result
 
-    def _normalize_period_profit_finance(self, endpoint, result):
+    def _normalize_period_profit_canonical_finance(self, endpoint, result):
         if endpoint != self.FINANCE_ACCRUAL_BY_DAY:
             return result
 
@@ -57,26 +57,20 @@ class PeriodProfitOzonClient(OzonClient):
 
         accruals = result.get("accruals")
         if not isinstance(accruals, list):
-            return self._finance_money_error("accruals")
+            return self._finance_money_error()
 
         normalized = copy.deepcopy(result)
         diagnostics = self._empty_revenue_diagnostics()
         completeness = self._empty_finance_completeness()
 
-        for accrual_index, accrual in enumerate(normalized.get("accruals", [])):
+        for accrual in normalized.get("accruals", []):
             if not isinstance(accrual, dict):
-                return self._finance_money_error(f"accruals[{accrual_index}]")
+                return self._finance_money_error()
 
             if not self._valid_money(accrual.get("total_amount")):
-                return self._finance_money_error(
-                    f"accruals[{accrual_index}].total_amount"
-                )
+                return self._finance_money_error()
 
-            self._normalize_item_fees(
-                accrual,
-                completeness,
-                f"accruals[{accrual_index}].item_fees",
-            )
+            self._normalize_item_fees(accrual, completeness, "item_fees")
 
             if accrual.get("accrued_category") != "POSTING":
                 continue
@@ -85,26 +79,21 @@ class PeriodProfitOzonClient(OzonClient):
             if posting is None:
                 continue
             if not isinstance(posting, dict):
-                return self._finance_money_error(
-                    f"accruals[{accrual_index}].posting"
-                )
+                return self._finance_money_error()
 
             products = posting.get("products")
             if products is None:
                 continue
             if not isinstance(products, list):
-                return self._finance_money_error(
-                    f"accruals[{accrual_index}].posting.products"
-                )
+                return self._finance_money_error()
 
-            for product_index, product in enumerate(products):
-                path = f"accruals[{accrual_index}].posting.products[{product_index}]"
+            for product in products:
                 if not isinstance(product, dict):
-                    return self._finance_money_error(path)
+                    return self._finance_money_error()
 
                 commission = product.get("commission")
                 if not isinstance(commission, dict):
-                    return self._finance_money_error(path + ".commission")
+                    return self._finance_money_error()
 
                 self._observe_revenue_diagnostics(diagnostics, commission)
 
@@ -114,33 +103,51 @@ class PeriodProfitOzonClient(OzonClient):
                         commission
                     )
                     if recovered_sale_amount is None:
-                        return self._finance_money_error(path + ".commission.sale_amount")
+                        return self._finance_money_error()
                     commission["sale_amount"] = recovered_sale_amount
 
-                # sale_amount and total_amount are formula-critical. The following
-                # values are decomposition/diagnostic fields only: their absence must
-                # not make the authoritative account accrual or seller revenue unknown.
-                # Unknown ancillary values are explicitly marked incomplete before a
-                # parser-safe zero is inserted; they are never promoted as evidence.
+                # total_amount and sale_amount are formula-critical. seller_price is
+                # diagnostic only. Commission/delivery/item-fee money is decomposition
+                # only because authoritative Ozon economics already live in total_amount.
+                # Unknown ancillary values are marked incomplete before parser-safe zero
+                # substitution and are never promoted as complete evidence.
                 if not self._valid_money(commission.get("sale_commission")):
                     self._mark_ancillary_incomplete(
                         completeness,
-                        path + ".commission.sale_commission",
+                        "commission.sale_commission",
                     )
                     commission["sale_commission"] = self._zero_money(commission)
 
-                self._normalize_delivery(
-                    product,
-                    completeness,
-                    path + ".delivery",
-                )
+                self._normalize_delivery(product, completeness, "delivery")
 
         if diagnostics["record_count"] > 0:
             normalized["_period_profit_revenue_diagnostics"] = (
                 self._serialize_revenue_diagnostics(diagnostics)
             )
 
-        normalized["_period_profit_finance_completeness"] = completeness
+        if completeness["fee_components_included"] is False:
+            normalized["_period_profit_finance_completeness"] = completeness
+        return normalized
+
+    def _normalize_period_profit_finance(self, endpoint, result):
+        """Strict compatibility surface retained for legacy callers and tests."""
+        normalized = self._normalize_period_profit_canonical_finance(endpoint, result)
+        if endpoint != self.FINANCE_ACCRUAL_BY_DAY or not isinstance(normalized, dict):
+            return normalized
+        if normalized.get("error") is True:
+            return normalized
+
+        completeness = normalized.get("_period_profit_finance_completeness")
+        if isinstance(completeness, dict) and completeness.get("fee_components_included") is False:
+            return self._finance_money_error()
+
+        diagnostics = normalized.get("_period_profit_revenue_diagnostics")
+        if isinstance(diagnostics, dict):
+            seller = (diagnostics.get("fields") or {}).get("seller_price")
+            if isinstance(seller, dict) and seller.get("complete") is False:
+                return self._finance_money_error()
+
+        normalized.pop("_period_profit_finance_completeness", None)
         return normalized
 
     def _normalize_period_profit_revenue(self, endpoint, result):
@@ -367,15 +374,12 @@ class PeriodProfitOzonClient(OzonClient):
         return cls._money_decimal(value) is not None
 
     @staticmethod
-    def _finance_money_error(field=None):
-        result = {
+    def _finance_money_error():
+        return {
             "error": True,
             "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
             "complete": False,
         }
-        if field:
-            result["internal_field"] = str(field)
-        return result
 
     @staticmethod
     def _seller_revenue_error():
