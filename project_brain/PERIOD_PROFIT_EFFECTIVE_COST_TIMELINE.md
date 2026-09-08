@@ -1,33 +1,64 @@
-# Period Profit bounded historical product cost
+# Period Profit seller-confirmed product cost timeline
 
-Production basis: `bd05122aef83e7d734e04ebdd8042a5e6d6c21ff`.
+Production basis: `40c97fcbf8a31c751f9bd527bb00d6fbba16aa94`.
 
 ## Decision
 
-Period Profit COGS requires seller-confirmed historical cost evidence whose validity is explicitly bounded.
+Period Profit COGS uses explicit seller-confirmed cost evidence. Two evidence forms are intentionally different:
 
-`product_cost_history` stores:
+1. bounded historical evidence for a closed period;
+2. an explicit operational cost switch entered by the seller for future calculations.
+
+Mutable `product_costs` values are not historical Period Profit authority.
+
+## Bounded historical evidence
+
+`product_cost_history` stores seller-confirmed historical evidence with:
 
 - `effective_from` — first confirmed date;
-- `effective_through` — last confirmed date for that evidence row;
-- seller-confirmed cost, currency, identity and source.
+- `effective_through` — last confirmed date;
+- cost, currency, product identity and source.
 
-For Period Profit, a history row is usable only when the finance sale-accrual date is inside the inclusive interval:
+A bounded history row is usable only when the finance sale-accrual date is inside the inclusive interval:
 
 `effective_from <= accrual_date <= effective_through`
 
-A missing `effective_through` is not interpreted as infinity. Open-ended historical rows remain storable for compatibility, but they are insufficient evidence for Period Profit and fail closed.
+A missing `effective_through` is not interpreted as infinity. Open-ended historical rows remain insufficient evidence for Period Profit and fail closed.
 
-## Unknown is not current cost
+## Seller operational cost switch
 
-The mutable `product_costs` row describes current product economics. It is not historical evidence for an earlier Period Profit period.
+Telegram exposes a `Себестоимость` flow:
 
-Therefore Period Profit does not use either of the former compatibility paths:
+1. seller opens the cost menu;
+2. seller chooses an exact SKU from the local product catalog;
+3. seller enters the new unit cost in RUB;
+4. the bot records an append-only seller-confirmed operational switch in local SQLite.
 
-- `LEGACY_CURRENT_COST_NO_HISTORY`;
-- `LEGACY_SERVICE_COMPATIBILITY`.
+Operational switches are stored in `product_cost_switch_history`. A later seller switch supersedes an earlier switch only from the later switch's effective date. Earlier Period Profit dates continue to resolve using the evidence that was effective then.
 
-If bounded historical evidence is missing, ambiguous, outside its confirmed interval or invalid, COGS is unknown and Period Profit fails closed. `unknown != zero`, and unknown also does not mean today's cost.
+The mutable `product_costs` row is updated at the same time for current-economics compatibility, but Period Profit does not use that mutable row as historical authority.
+
+Ozon is not changed by this flow. Product selection reads the locally cached catalog and all Ozon integration remains READ-ONLY.
+
+## Activation date
+
+Current Period Profit finance evidence is date-granular: it proves `accrual_date`, not an intra-day sale timestamp.
+
+Therefore a seller cost entered during a calendar day becomes effective on the next calendar date as seen by the bot runtime. This prevents sales/accruals already attributed to the confirmation day from being re-costed retroactively.
+
+The bot reports the exact activation date after saving the cost.
+
+A literal intra-day cost boundary must not be inferred without finer-grained sale-time evidence.
+
+## Resolution order
+
+For a requested accrual date:
+
+1. if an explicit operational switch is effective, the latest applicable seller switch is authoritative;
+2. otherwise Period Profit may use bounded historical evidence covering that date;
+3. otherwise COGS is unknown and Period Profit fails closed.
+
+There is no current-cost fallback. `unknown != zero` and unknown does not mean today's mutable cost.
 
 ## Re-accrual semantics
 
@@ -40,56 +71,68 @@ Physical quantity is still counted exactly once using the established authority 
 3. exact FBO/FBS posting detail;
 4. fail closed.
 
-The finance `accrual_date` is a finance-period date. The current evidence model does not prove that it is the physical shipment or delivery date.
+The finance `accrual_date` is a finance-period date. The current evidence model does not prove that it is the physical shipment or delivery timestamp.
 
-For one re-accrued physical posting, all observed positive accrual dates must resolve to the same bounded seller-confirmed cost version. If any date is unknown, or the dates cross different cost versions, Period Profit fails closed instead of selecting whichever accrual event happened to be encountered first.
+For one re-accrued physical posting, all observed positive accrual dates must resolve to the same seller-confirmed cost version. A version can be either one bounded historical row or one operational switch. If any date is unknown, or the accrual dates cross different versions, Period Profit fails closed instead of choosing one event opportunistically.
 
-Distinct physical postings may resolve to different bounded cost versions within one requested period. Their COGS is summed after quantity reconciliation.
+Repeated finance accrual does not multiply physical quantity or COGS.
 
-## Scope
+## Scope and invariants
 
-This is bounded effective-date evidence, not FIFO or lot allocation. It does not claim which inventory batch a specific Ozon sale consumed when batches overlap.
+This is explicit effective-date evidence, not FIFO or lot allocation. It does not claim which physical inventory batch a sale consumed when batches overlap.
 
-No Ozon mutation is introduced. Ozon remains READ-ONLY.
+The following invariants remain unchanged:
 
-The following invariants are unchanged:
-
+- Ozon remains READ-ONLY;
 - account-level Ozon finance remains the money authority;
 - signed finance amounts are not rewritten by cost evidence;
 - return COGS still requires no-double-counting, recognition, authorization and commit before inclusion;
-- seller-facing Period Profit remains read-only and non-executing.
+- seller-facing Period Profit remains read-only and non-executing;
+- missing or ambiguous COGS evidence fails closed.
 
-## Storage compatibility
+## Storage behavior
 
-`ProductCostService.create_table()` migrates existing local SQLite databases by adding nullable `effective_through` when the column is absent.
+`ProductCostService.create_table()` maintains `product_cost_history` and migrates older databases with nullable `effective_through` when needed.
 
-Existing history rows are not silently assigned an invented end date. They therefore remain unbounded until explicit seller evidence supplies a valid upper boundary. Period Profit will not use those open-ended rows as confirmed historical COGS.
+`PeriodProfitEffectiveCostService` creates `product_cost_switch_history` on initialization. No manual Ozon-side migration exists or is required.
 
-`record_historical_cost(..., effective_through=...)` rejects an invalid or reversed interval.
+`record_historical_cost(..., effective_through=...)` rejects invalid or reversed bounded intervals.
+
+`record_cost_switch(...)` appends a seller-confirmed operational switch and updates the mutable current-cost row in the same local SQLite transaction. Duplicate `product_id + effective_from` switch versions fail closed rather than silently overwrite evidence.
 
 ## Regression coverage
 
-`app/tests/test_period_profit_effective_cost_timeline.py` covers:
+Bounded-history tests cover:
 
-- bounded historical cost inside its confirmed interval;
-- separate later bounded versions;
-- fail-closed behavior before and after confirmed coverage;
-- open-ended history rejected by Period Profit;
-- current cost without history rejected by Period Profit;
-- reversed history interval rejected;
-- distinct physical sales using different bounded versions;
-- repeated positive accrual events within one cost version counting physical quantity once;
-- re-accrual crossing cost versions failing closed;
+- cost inside a confirmed interval;
+- separate bounded versions;
+- before/after coverage fail closed;
+- open-ended history rejected;
+- current cost without evidence rejected;
+- reversed interval rejected;
+- different physical sales using different versions;
+- re-accrual inside one version counting quantity once;
+- re-accrual crossing versions failing closed;
 - missing effective-cost resolver failing closed.
 
-Existing re-accrual quantity regression remains authoritative for the invariant that repeated positive finance events do not multiply physical quantity.
+Seller-switch tests additionally cover:
+
+- switch overriding bounded history only from the switch date;
+- later switch superseding an earlier switch without rewriting past dates;
+- Telegram numeric input creating a switch for the next calendar date;
+- invalid Telegram input performing no write;
+- re-accrual crossing an operational switch failing closed;
+- re-accrual entirely inside one operational switch counting one physical quantity and one COGS amount.
 
 ## SHA-bound verification evidence
 
-Production change lifecycle:
+Bounded-history production lifecycle remains recorded on its original SHAs.
 
-- feature head `9aa35b8e8b3c0a423daa686832e73f12c2a23b5f` — full Verify passed;
-- actual PR #461 synthetic merge `61173a551f66989c37468ecbf8a79106dfe54bbb` — full Verify passed; artifact `verification-61173a551f66989c37468ecbf8a79106dfe54bbb`;
-- squash production main `bd05122aef83e7d734e04ebdd8042a5e6d6c21ff` — full Verify passed.
+Telegram seller-cost production lifecycle:
+
+- failed feature candidate `40371cb43c36d5a05fdc6ee0495487f91c9a34fa` — Verify #1582 failed with 2382 passed / 2 failed; this SHA remains failed evidence;
+- corrected feature head `6a60905dbb56e88a2662dc316303031e75fea2b6` — full Verify #1584 passed, 2384 passed / 0 failed; artifact `verification-6a60905dbb56e88a2662dc316303031e75fea2b6`;
+- actual PR #463 synthetic merge `1a7fcc47c5c8a1dafee3dda05c90ca9998f15152` — full Verify #1585 passed; artifact `verification-1a7fcc47c5c8a1dafee3dda05c90ca9998f15152`;
+- squash production main `40c97fcbf8a31c751f9bd527bb00d6fbba16aa94` — full Verify #1586 passed; artifact `verification-40c97fcbf8a31c751f9bd527bb00d6fbba16aa94`.
 
 Verification evidence is SHA-bound and is never transferred between revisions.
