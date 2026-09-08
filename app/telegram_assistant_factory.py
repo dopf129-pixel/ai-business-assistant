@@ -17,8 +17,8 @@ from product_returns_finance_impact_factory import (
 )
 
 
-from services.assistant_keyboard_service import (
-    AssistantKeyboardService
+from services.return_inventory_keyboard_service import (
+    ReturnInventoryKeyboardService as AssistantKeyboardService,
 )
 
 
@@ -71,10 +71,16 @@ from services.period_profit_effective_cost_service import (
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
+from services.return_inventory_recovery_repository import (
+    ReturnInventoryRecoveryRepository,
+)
+from services.telegram_return_inventory_confirmation_service import (
+    TelegramReturnInventoryConfirmationService,
+)
 
 
-from telegram_app_layer.seller_cost_telegram_adapter import (
-    SellerCostTelegramAdapter as AssistantTelegramAdapter,
+from telegram_app_layer.return_inventory_telegram_adapter import (
+    ReturnInventoryTelegramAdapter as AssistantTelegramAdapter,
 )
 
 
@@ -246,6 +252,11 @@ def create_telegram_assistant():
     )
 
 
+    return_inventory_service = TelegramReturnInventoryConfirmationService(
+        repository=ReturnInventoryRecoveryRepository(),
+    )
+
+
     adapter = (
         AssistantTelegramAdapter(
             assistant,
@@ -254,6 +265,7 @@ def create_telegram_assistant():
             storage_service,
             memory_commands,
             seller_cost_service,
+            return_inventory_service,
         )
     )
 
@@ -350,6 +362,7 @@ def create_telegram_assistant():
 
 
     runner.seller_cost_service = seller_cost_service
+    runner.return_inventory_service = return_inventory_service
 
 
     runner.profiles = (
