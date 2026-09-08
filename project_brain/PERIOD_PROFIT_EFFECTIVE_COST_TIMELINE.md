@@ -1,6 +1,6 @@
 # Period Profit seller-confirmed product cost timeline
 
-Production basis: `40c97fcbf8a31c751f9bd527bb00d6fbba16aa94`.
+Production basis: `d74856ca669e695bb8feaed0f03192e275c6998c`.
 
 ## Decision
 
@@ -30,9 +30,12 @@ A missing `effective_through` is not interpreted as infinity. Open-ended histori
 Telegram exposes a `Себестоимость` flow:
 
 1. seller opens the cost menu;
-2. seller chooses an exact SKU from the local product catalog;
-3. seller enters the new unit cost in RUB;
-4. the bot records an append-only seller-confirmed operational switch in local SQLite.
+2. the menu displays the seller-facing article (`offer_id`, for example `hook-2`), while the callback keeps the exact internal SKU;
+3. seller selects the article and the bot confirms both article and SKU;
+4. seller enters the new unit cost in RUB;
+5. the bot records an append-only seller-confirmed operational switch in local SQLite.
+
+The seller-facing article is presentation only. Cost authority remains attached to the exact product identity including SKU, so changing display text does not change Period Profit matching semantics.
 
 Operational switches are stored in `product_cost_switch_history`. A later seller switch supersedes an earlier switch only from the later switch's effective date. Earlier Period Profit dates continue to resolve using the evidence that was effective then.
 
@@ -122,7 +125,9 @@ Seller-switch tests additionally cover:
 - Telegram numeric input creating a switch for the next calendar date;
 - invalid Telegram input performing no write;
 - re-accrual crossing an operational switch failing closed;
-- re-accrual entirely inside one operational switch counting one physical quantity and one COGS amount.
+- re-accrual entirely inside one operational switch counting one physical quantity and one COGS amount;
+- seller article (`offer_id`) displayed in the menu while callback preserves the exact SKU;
+- selection confirmation showing article and SKU without changing internal product identity.
 
 ## SHA-bound verification evidence
 
@@ -134,5 +139,11 @@ Telegram seller-cost production lifecycle:
 - corrected feature head `6a60905dbb56e88a2662dc316303031e75fea2b6` — full Verify #1584 passed, 2384 passed / 0 failed; artifact `verification-6a60905dbb56e88a2662dc316303031e75fea2b6`;
 - actual PR #463 synthetic merge `1a7fcc47c5c8a1dafee3dda05c90ca9998f15152` — full Verify #1585 passed; artifact `verification-1a7fcc47c5c8a1dafee3dda05c90ca9998f15152`;
 - squash production main `40c97fcbf8a31c751f9bd527bb00d6fbba16aa94` — full Verify #1586 passed; artifact `verification-40c97fcbf8a31c751f9bd527bb00d6fbba16aa94`.
+
+Seller-facing article display lifecycle:
+
+- feature head `a8e0696c7864e031aa04ca906efd6589d1c5737f` — full Verify #1593 passed;
+- actual PR #465 synthetic merge `544c1b3cef1545a1e02310ccc66e35779ca9737f` — full Verify #1594 passed;
+- squash production main `d74856ca669e695bb8feaed0f03192e275c6998c` — full Verify #1595 passed.
 
 Verification evidence is SHA-bound and is never transferred between revisions.
