@@ -5,7 +5,9 @@ from api.period_profit_ozon_client import PeriodProfitOzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
-from services.cost_service import ProductCostService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
+)
 from services.expense_repository import ExpenseRepository
 from services.period_profit_finance_service import (
     PeriodProfitFinanceService as FinanceService,
@@ -72,8 +74,8 @@ from services.period_profit_return_sale_lineage_evidence_service import (
 from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
-from services.period_profit_sale_quantity_summary_service import (
-    PeriodProfitSaleQuantitySummaryService as PeriodProfitSummaryService,
+from services.period_profit_effective_cost_sale_quantity_summary_service import (
+    PeriodProfitEffectiveCostSaleQuantitySummaryService as PeriodProfitSummaryService,
 )
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
@@ -84,6 +86,10 @@ from services.period_profit_tax_policy_summary_service import (
 from services.product_service import ProductService
 from services.tax_configuration_service import TaxConfigurationService
 from services.tax_service import TaxService
+
+
+# Compatibility seam retained for existing factory tests and dependency overrides.
+ProductCostService = PeriodProfitEffectiveCostService
 
 
 def create_period_profit_query(mapping_registry=None):
