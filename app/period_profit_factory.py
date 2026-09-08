@@ -38,8 +38,8 @@ from services.period_profit_final_application_query_service import (
     PeriodProfitFinalApplicationQueryService,
 )
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
-from services.period_profit_return_cogs_recovery_evidence_service import (
-    PeriodProfitReturnCogsRecoveryEvidenceService,
+from services.period_profit_return_cogs_effective_cost_recovery_evidence_service import (
+    PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService,
 )
 from services.period_profit_return_cogs_quantity_evidence_service import (
     PeriodProfitReturnCogsQuantityEvidenceService,
@@ -130,7 +130,7 @@ def create_period_profit_query(mapping_registry=None):
         if mapping_registry is not None
         else None
     )
-    base_return_cogs_evidence = PeriodProfitReturnCogsRecoveryEvidenceService(
+    base_return_cogs_evidence = PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService(
         cost_service,
         PeriodProfitReturnSaleLineageEvidenceService(finance_service),
         inventory_recovery_repository,
