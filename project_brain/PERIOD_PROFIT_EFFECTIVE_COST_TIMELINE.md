@@ -1,6 +1,6 @@
 # Period Profit seller-confirmed product cost timeline
 
-Production basis: `d74856ca669e695bb8feaed0f03192e275c6998c`.
+Production basis: `d20fc9e9fa1f3bd8f45bffd4b8e6bcac9d74af89`.
 
 ## Decision
 
@@ -63,6 +63,21 @@ For a requested accrual date:
 
 There is no current-cost fallback. `unknown != zero` and unknown does not mean today's mutable cost.
 
+## Return COGS originating-sale cost authority
+
+Return COGS now resolves the cost of the matched originating sale through the same effective-cost authority used by normal Period Profit COGS.
+
+For each Return COGS candidate with proven sale lineage, the matched originating-sale finance accrual date is passed to `get_effective_cost_evidence(...)`. The accepted seller-confirmed cost version can therefore be either:
+
+- a bounded historical interval covering that sale date; or
+- the latest append-only operational cost switch effective on that sale date.
+
+The mutable `product_costs` value is not accepted as originating-sale historical authority. If no approved effective-cost evidence exists for the matched sale date, Return COGS remains unknown and fails closed.
+
+This change removes an inconsistency where normal Period Profit could use an operational switch while Return COGS still asked only for `product_cost_history`. It does not by itself authorize a Return COGS profit adjustment.
+
+Return COGS inclusion still requires the complete chain already established by the accounting model: no-double-counting evidence, sale quantity consistency, inventory recovery evidence, recovery-period attribution, accounting readiness, recognition, application authorization and application commit. Until every required gate is satisfied, `confirmed_cogs_recovery_amount` remains zero and `profit_adjustment_allowed` remains false.
+
 ## Re-accrual semantics
 
 Ozon finance can expose multiple positive accrual events for one physical `(posting_number, sku)`.
@@ -103,6 +118,8 @@ The following invariants remain unchanged:
 
 `record_cost_switch(...)` appends a seller-confirmed operational switch and updates the mutable current-cost row in the same local SQLite transaction. Duplicate `product_id + effective_from` switch versions fail closed rather than silently overwrite evidence.
 
+Return inventory recovery and later Return COGS accounting gates remain separate local evidence stores. Effective cost evidence does not synthesize, infer or auto-create inventory recovery, recognition, authorization or commit records.
+
 ## Regression coverage
 
 Bounded-history tests cover:
@@ -129,6 +146,13 @@ Seller-switch tests additionally cover:
 - seller article (`offer_id`) displayed in the menu while callback preserves the exact SKU;
 - selection confirmation showing article and SKU without changing internal product identity.
 
+Return COGS effective-cost tests additionally cover:
+
+- operational switch evidence accepted as the originating-sale cost authority;
+- matched sale date resolving to 21 RUB even when mutable current cost is deliberately different;
+- current cost without effective seller-confirmed evidence failing closed;
+- no premature Return COGS monetary recovery or profit adjustment when later accounting gates are not confirmed.
+
 ## SHA-bound verification evidence
 
 Bounded-history production lifecycle remains recorded on its original SHAs.
@@ -145,5 +169,12 @@ Seller-facing article display lifecycle:
 - feature head `a8e0696c7864e031aa04ca906efd6589d1c5737f` — full Verify #1593 passed;
 - actual PR #465 synthetic merge `544c1b3cef1545a1e02310ccc66e35779ca9737f` — full Verify #1594 passed;
 - squash production main `d74856ca669e695bb8feaed0f03192e275c6998c` — full Verify #1595 passed.
+
+Return COGS effective-cost lifecycle:
+
+- failed feature candidate `a0e11b7df88a96ed3ec678c6e21dedbc2390a024` — Verify #1603 failed with 2383 passed / 1 failed because an existing factory dependency-injection compatibility seam was removed; this SHA remains failed evidence;
+- corrected feature head `8706bf5ee3e4feeada5c271b19fc3768aa2af0b9` — full Verify #1604 passed, 2384 passed / 0 failed;
+- actual PR #467 synthetic merge `bd3a03dc498c567478ac9b425a84971664af4135` — full Verify #1605 passed, 2384 passed / 0 failed; artifact `verification-bd3a03dc498c567478ac9b425a84971664af4135`;
+- squash production main `d20fc9e9fa1f3bd8f45bffd4b8e6bcac9d74af89` — full Verify #1606 passed.
 
 Verification evidence is SHA-bound and is never transferred between revisions.
