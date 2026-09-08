@@ -15,6 +15,12 @@ class PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService(
     Mutable current ``product_costs`` values are never accepted here.
     """
 
+    # Current FBO Returns API evidence uses ReturnedToOzon ("На складе Ozon")
+    # for a customer return that reached Ozon. This is only candidate evidence:
+    # saleable inventory restoration still requires the independent inventory
+    # recovery repository gate below the base service.
+    RETURN_PLACE_STATUS = "ReturnedToOzon"
+
     def _historical_cost_evidence(self, record, sale_date):
         getter = getattr(
             self.cost_service,
