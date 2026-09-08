@@ -1,4 +1,3 @@
-from collections import defaultdict
 from datetime import timedelta
 from math import isfinite
 
@@ -10,7 +9,7 @@ from services.period_profit_sale_quantity_summary_service import (
 class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     PeriodProfitSaleQuantitySummaryService
 ):
-    """Reconcile physical sale quantity with effective-dated seller cost evidence."""
+    """Reconcile physical sale quantity with bounded seller cost evidence."""
 
     def _reconcile_sale_quantities(self, result, date_from, date_to):
         start = self._date(date_from)
@@ -62,22 +61,33 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             key = (posting_number, sku)
             if key in grouped:
                 reaccrued_event_count += 1
+                grouped[key]["accrual_dates"].add(accrual_date.isoformat())
                 continue
-            grouped[key] = dict(record, accrual_date=accrual_date.isoformat())
+            grouped[key] = {
+                "record": dict(record, accrual_date=accrual_date.isoformat()),
+                "accrual_dates": {accrual_date.isoformat()},
+            }
 
         realization_map = self._load_realization_quantity_map(start, end)
         if realization_map is None:
             realization_map = {}
 
-        unresolved_records = [
-            record for key, record in grouped.items() if key not in realization_map
-        ]
+        unresolved_records = []
+        for key, grouped_record in grouped.items():
+            if key in realization_map:
+                continue
+            base_record = grouped_record["record"]
+            for accrual_date in sorted(grouped_record["accrual_dates"]):
+                unresolved_records.append(
+                    dict(base_record, accrual_date=accrual_date)
+                )
+
         fbo_list_map = self._load_fbo_list_quantity_map(unresolved_records)
         if fbo_list_map is None:
             fbo_list_map = {}
 
-        units_by_sku_date = defaultdict(int)
-        for key, record in grouped.items():
+        physical_sales = []
+        for key, grouped_record in grouped.items():
             posting_number, sku = key
             quantity = realization_map.get(key)
             if quantity is None:
@@ -88,7 +98,12 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error(
                     "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE"
                 )
-            units_by_sku_date[(sku, record["accrual_date"])] += quantity
+            physical_sales.append({
+                "posting_number": posting_number,
+                "sku": sku,
+                "quantity": quantity,
+                "accrual_dates": sorted(grouped_record["accrual_dates"]),
+            })
 
         product_rows = result.get("products")
         if not isinstance(product_rows, list):
@@ -99,7 +114,6 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         total_units = 0
         total_product_cost = 0.0
         historical_bucket_count = 0
-        legacy_bucket_count = 0
 
         for row in product_rows:
             if not isinstance(row, dict):
@@ -115,32 +129,46 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
 
             units = 0
             product_cost = 0.0
-            applied_costs = []
-            for (bucket_sku, accrual_date), quantity in units_by_sku_date.items():
-                if bucket_sku != sku:
+            applied_versions = set()
+            for sale in physical_sales:
+                if sale["sku"] != sku:
                     continue
-                cost_evidence = self._effective_cost_evidence(row, accrual_date)
-                if cost_evidence is None:
+
+                version_signatures = set()
+                resolved_cost = None
+                for accrual_date in sale["accrual_dates"]:
+                    cost_evidence = self._effective_cost_evidence(row, accrual_date)
+                    if cost_evidence is None:
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+                        )
+                    cost = self._number(cost_evidence.get("cost_price"))
+                    if cost is None:
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+                        )
+                    signature = self._cost_version_signature(cost_evidence, cost)
+                    if signature is None:
+                        return self._quantity_error(
+                            "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+                        )
+                    version_signatures.add(signature)
+                    resolved_cost = cost
+
+                if len(version_signatures) != 1 or resolved_cost is None:
                     return self._quantity_error(
-                        "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+                        "PERIOD_PROFIT_REACCRUAL_COST_VERSION_AMBIGUOUS"
                     )
-                cost = self._number(cost_evidence.get("cost_price"))
-                if cost is None:
-                    return self._quantity_error(
-                        "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
-                    )
-                candidate = product_cost + quantity * cost
+
+                candidate = product_cost + sale["quantity"] * resolved_cost
                 if not isfinite(candidate):
                     return self._quantity_error(
                         "PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID"
                     )
                 product_cost = candidate
-                units += quantity
-                applied_costs.append((quantity, cost))
-                if cost_evidence.get("historical_cost_confirmed") is True:
-                    historical_bucket_count += 1
-                else:
-                    legacy_bucket_count += 1
+                units += sale["quantity"]
+                applied_versions.update(version_signatures)
+                historical_bucket_count += 1
 
             profit = net_accrual - product_cost - tax
             if not all(isfinite(v) for v in (product_cost, profit)):
@@ -155,13 +183,13 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             next_row["margin_percent"] = self._margin(next_row["profit"], revenue)
             if next_row["margin_percent"] is None:
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
-            next_row["effective_cost_versioned"] = len({cost for _, cost in applied_costs}) > 1
+            next_row["effective_cost_versioned"] = len(applied_versions) > 1
             next_rows.append(next_row)
             covered_skus.add(sku)
             total_units += units
             total_product_cost += product_cost
 
-        if any(sku not in covered_skus for sku, _ in units_by_sku_date):
+        if any(sale["sku"] not in covered_skus for sale in physical_sales):
             return self._quantity_error(
                 "PERIOD_PROFIT_SALE_QUANTITY_SKU_SCOPE_INCOMPLETE"
             )
@@ -192,40 +220,45 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         enriched["sale_quantity_positive_event_count"] = len(sale_records)
         enriched["sale_quantity_reaccrued_event_count"] = reaccrued_event_count
         enriched["effective_cost_reconciled"] = True
-        enriched["effective_cost_source"] = (
-            "SELLER_CONFIRMED_HISTORY_OR_LEGACY_CURRENT_WHEN_NO_HISTORY"
-        )
+        enriched["effective_cost_source"] = "SELLER_CONFIRMED_BOUNDED_HISTORY"
         enriched["historical_cost_bucket_count"] = historical_bucket_count
-        enriched["legacy_current_cost_bucket_count"] = legacy_bucket_count
+        enriched["legacy_current_cost_bucket_count"] = 0
         return enriched
 
     def _effective_cost_evidence(self, row, accrual_date):
         getter = getattr(self.cost_service, "get_effective_cost_evidence", None)
-        if callable(getter):
-            try:
-                evidence = getter(
-                    accrual_date,
-                    product_id=row.get("product_id"),
-                    sku=row.get("sku"),
-                    offer_id=row.get("offer_id"),
-                )
-            except Exception:
-                return None
-            if (
-                not isinstance(evidence, dict)
-                or evidence.get("error") is True
-                or evidence.get("effective_cost_confirmed") is not True
-            ):
-                return None
-            return evidence
-
-        cost = self._number(row.get("cost_per_unit"))
-        if cost is None:
+        if not callable(getter):
             return None
-        return {
-            "error": False,
-            "effective_cost_confirmed": True,
-            "historical_cost_confirmed": False,
-            "cost_price": cost,
-            "cost_basis": "LEGACY_SERVICE_COMPATIBILITY",
-        }
+        try:
+            evidence = getter(
+                accrual_date,
+                product_id=row.get("product_id"),
+                sku=row.get("sku"),
+                offer_id=row.get("offer_id"),
+            )
+        except Exception:
+            return None
+        if (
+            not isinstance(evidence, dict)
+            or evidence.get("error") is True
+            or evidence.get("effective_cost_confirmed") is not True
+            or evidence.get("historical_cost_confirmed") is not True
+        ):
+            return None
+        return evidence
+
+    @staticmethod
+    def _cost_version_signature(evidence, cost):
+        effective_from = str(evidence.get("effective_from") or "").strip()
+        effective_through = str(evidence.get("effective_through") or "").strip()
+        source = str(evidence.get("source") or "").strip()
+        if not effective_from or not effective_through or not source:
+            return None
+        history_id = evidence.get("history_id")
+        return (
+            str(history_id) if history_id is not None else "",
+            effective_from,
+            effective_through,
+            source,
+            round(cost, 2),
+        )

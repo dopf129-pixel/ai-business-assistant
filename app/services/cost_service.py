@@ -60,6 +60,8 @@ class ProductCostService:
 
                 effective_from TEXT NOT NULL,
 
+                effective_through TEXT,
+
                 source TEXT NOT NULL DEFAULT 'SELLER_CONFIRMED',
 
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -68,6 +70,19 @@ class ProductCostService:
             )
             """
         )
+
+        cursor.execute(
+            "PRAGMA table_info(product_cost_history)"
+        )
+        history_columns = {
+            str(row[1])
+            for row in cursor.fetchall()
+            if isinstance(row, (tuple, list)) and len(row) > 1
+        }
+        if "effective_through" not in history_columns:
+            cursor.execute(
+                "ALTER TABLE product_cost_history ADD COLUMN effective_through TEXT"
+            )
 
         cursor.execute(
             """
@@ -153,6 +168,7 @@ class ProductCostService:
         effective_from,
         currency="RUB",
         source="SELLER_CONFIRMED",
+        effective_through=None,
     ):
         product_key = self._text(
             product_id
@@ -169,6 +185,11 @@ class ProductCostService:
         effective_date = self._date(
             effective_from
         )
+        through_date = (
+            self._date(effective_through)
+            if effective_through is not None
+            else None
+        )
         currency_key = self._text(
             currency
         )
@@ -184,6 +205,14 @@ class ProductCostService:
             )
             or cost is None
             or effective_date is None
+            or (
+                effective_through is not None
+                and through_date is None
+            )
+            or (
+                through_date is not None
+                and through_date < effective_date
+            )
             or not currency_key
             or not source_key
         ):
@@ -211,11 +240,12 @@ class ProductCostService:
                     cost_price,
                     currency,
                     effective_from,
+                    effective_through,
                     source
 
                 )
 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     product_key,
@@ -224,6 +254,7 @@ class ProductCostService:
                     cost,
                     currency_key,
                     effective_date.isoformat(),
+                    through_date.isoformat() if through_date is not None else None,
                     source_key,
                 )
             )
@@ -264,6 +295,11 @@ class ProductCostService:
             "currency": currency_key,
             "effective_from": (
                 effective_date.isoformat()
+            ),
+            "effective_through": (
+                through_date.isoformat()
+                if through_date is not None
+                else None
             ),
             "source": source_key,
             "historical_evidence": True,
@@ -346,6 +382,7 @@ class ProductCostService:
                 cost_price,
                 currency,
                 effective_from,
+                effective_through,
                 source,
                 recorded_at
 
@@ -353,6 +390,10 @@ class ProductCostService:
 
             WHERE
                 effective_from <= ?
+                AND (
+                    effective_through IS NULL
+                    OR effective_through >= ?
+                )
                 AND (
                     {where_identifiers}
                 )
@@ -362,6 +403,7 @@ class ProductCostService:
                 id DESC
             """,
             (
+                effective_date.isoformat(),
                 effective_date.isoformat(),
                 *values,
             )
@@ -382,6 +424,7 @@ class ProductCostService:
                 "historical_cost_confirmed": False,
                 "cost_price": None,
                 "effective_from": None,
+                "effective_through": None,
                 "source": None,
             }
 
@@ -412,6 +455,7 @@ class ProductCostService:
                 "historical_cost_confirmed": False,
                 "cost_price": None,
                 "effective_from": None,
+                "effective_through": None,
                 "source": None,
                 "candidate_product_ids": sorted(
                     latest_by_product
@@ -429,12 +473,29 @@ class ProductCostService:
         row_effective = self._date(
             row[6]
         )
+        row_through = (
+            self._date(row[7])
+            if row[7] is not None
+            else None
+        )
 
         if (
             cost is None
             or row_effective is None
             or row_effective
             > effective_date
+            or (
+                row[7] is not None
+                and row_through is None
+            )
+            or (
+                row_through is not None
+                and row_through < row_effective
+            )
+            or (
+                row_through is not None
+                and effective_date > row_through
+            )
         ):
             return self._historical_unavailable(
                 "PRODUCT_COST_HISTORY_ROW_INVALID"
@@ -469,10 +530,15 @@ class ProductCostService:
             "effective_from": (
                 row_effective.isoformat()
             ),
-            "source": str(
-                row[7]
+            "effective_through": (
+                row_through.isoformat()
+                if row_through is not None
+                else None
             ),
-            "recorded_at": row[8],
+            "source": str(
+                row[8]
+            ),
+            "recorded_at": row[9],
             "at_date": (
                 effective_date.isoformat()
             ),
@@ -633,5 +699,6 @@ class ProductCostService:
             "historical_cost_confirmed": False,
             "cost_price": None,
             "effective_from": None,
+            "effective_through": None,
             "source": None,
         }
