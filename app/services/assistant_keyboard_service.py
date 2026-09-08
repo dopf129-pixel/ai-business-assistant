@@ -32,6 +32,10 @@ class AssistantKeyboardService:
                     "callback": "period_profit"
                 },
                 {
+                    "text": "💰 Себестоимость",
+                    "callback": "seller_cost"
+                },
+                {
                     "text": "💰 Юнит-экономика товаров",
                     "callback": "unit_economics"
                 },
