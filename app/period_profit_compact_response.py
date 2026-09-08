@@ -120,7 +120,7 @@ def _warnings(result):
 
     return_cogs = result.get("return_cogs_recovery_evidence")
     if isinstance(return_cogs, dict):
-        unresolved = _non_negative_int(return_cogs.get("unresolved_units"))
+        unresolved = _unconfirmed_return_cogs_units(return_cogs)
         if unresolved:
             warnings.append(
                 "Есть "
@@ -131,6 +131,30 @@ def _warnings(result):
             )
 
     return warnings
+
+
+def _unconfirmed_return_cogs_units(evidence):
+    unresolved = _non_negative_int(evidence.get("unresolved_units"))
+    if evidence.get("period_cogs_recovery_confirmed") is True:
+        return unresolved
+
+    candidate_units = 0
+    records = evidence.get("candidate_records")
+    if not isinstance(records, list):
+        return unresolved
+
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        state = str(
+            row.get("inventory_recovery_state") or ""
+        ).strip().upper()
+        if state == "NON_SALEABLE":
+            continue
+        quantity = _non_negative_int(row.get("quantity"))
+        candidate_units += quantity
+
+    return unresolved + candidate_units
 
 
 def _comparison_line(comparison):
