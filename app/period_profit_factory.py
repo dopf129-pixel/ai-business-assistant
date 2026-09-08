@@ -88,11 +88,15 @@ from services.tax_configuration_service import TaxConfigurationService
 from services.tax_service import TaxService
 
 
+# Compatibility seam retained for existing factory tests and dependency overrides.
+ProductCostService = PeriodProfitEffectiveCostService
+
+
 def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
     tax_policy = TaxConfigurationService().get_policy()
     tax_service = TaxService()
-    cost_service = PeriodProfitEffectiveCostService()
+    cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
     inventory_recovery_repository = ReturnInventoryRecoveryRepository()
     accounting_attribution_repository = ReturnCogsAccountingAttributionRepository()
