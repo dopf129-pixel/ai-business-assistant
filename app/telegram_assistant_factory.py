@@ -64,8 +64,17 @@ from services.assistant_history_service import (
 )
 
 
-from telegram_app_layer.assistant_telegram_adapter import (
-    AssistantTelegramAdapter
+from services.product_service import ProductService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
+)
+from services.telegram_seller_cost_update_service import (
+    TelegramSellerCostUpdateService,
+)
+
+
+from telegram_app_layer.seller_cost_telegram_adapter import (
+    SellerCostTelegramAdapter
 )
 
 
@@ -231,14 +240,20 @@ def create_telegram_assistant():
     )
 
 
+    seller_cost_service = TelegramSellerCostUpdateService(
+        product_service=ProductService(),
+        cost_service=PeriodProfitEffectiveCostService(),
+    )
+
 
     adapter = (
-        AssistantTelegramAdapter(
+        SellerCostTelegramAdapter(
             assistant,
             keyboard,
             button_handler,
             storage_service,
-            memory_commands
+            memory_commands,
+            seller_cost_service=seller_cost_service,
         )
     )
 
@@ -332,6 +347,9 @@ def create_telegram_assistant():
     runner.returns_finance_impact_query = (
         returns_finance_impact_query
     )
+
+
+    runner.seller_cost_service = seller_cost_service
 
 
     runner.profiles = (
