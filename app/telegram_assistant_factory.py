@@ -74,7 +74,7 @@ from services.telegram_seller_cost_update_service import (
 
 
 from telegram_app_layer.seller_cost_telegram_adapter import (
-    SellerCostTelegramAdapter
+    SellerCostTelegramAdapter as AssistantTelegramAdapter,
 )
 
 
@@ -247,13 +247,13 @@ def create_telegram_assistant():
 
 
     adapter = (
-        SellerCostTelegramAdapter(
+        AssistantTelegramAdapter(
             assistant,
             keyboard,
             button_handler,
             storage_service,
             memory_commands,
-            seller_cost_service=seller_cost_service,
+            seller_cost_service,
         )
     )
 
