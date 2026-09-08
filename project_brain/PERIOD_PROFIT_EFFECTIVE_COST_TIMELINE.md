@@ -1,45 +1,95 @@
-# Period Profit effective-dated product cost
+# Period Profit bounded historical product cost
 
-Production basis: `151e945e7388094607879d16427330d9ab89d7b9`.
+Production basis: `bd05122aef83e7d734e04ebdd8042a5e6d6c21ff`.
 
 ## Decision
 
-Period Profit must not treat the current `product_costs` value as an eternal historical fact once seller-confirmed cost history exists.
+Period Profit COGS requires seller-confirmed historical cost evidence whose validity is explicitly bounded.
 
-`product_cost_history` is the seller-confirmed effective-date timeline. A row is effective from `effective_from` until a later confirmed version for the same product identity becomes effective.
+`product_cost_history` stores:
 
-For reconciled physical sales, COGS is calculated per sale accrual-date bucket:
+- `effective_from` — first confirmed date;
+- `effective_through` — last confirmed date for that evidence row;
+- seller-confirmed cost, currency, identity and source.
 
-`product_cost = sum(physical_quantity_on_date * confirmed_cost_effective_on_date)`
+For Period Profit, a history row is usable only when the finance sale-accrual date is inside the inclusive interval:
 
-This keeps prior Period Profit stable when a future batch has a different себестоимость.
+`effective_from <= accrual_date <= effective_through`
 
-## Compatibility and fail-closed behavior
+A missing `effective_through` is not interpreted as infinity. Open-ended historical rows remain storable for compatibility, but they are insufficient evidence for Period Profit and fail closed.
 
-- If seller-confirmed history exists and an applicable version is available for the sale accrual date, use it.
-- If a history timeline exists but there is no version effective yet for a requested earlier date, fail closed. `unknown != zero` and today's cost is not backfilled into that period.
-- If no history timeline exists at all, the unique current `product_costs` row remains a compatibility fallback. This preserves existing installations until seller-confirmed history is seeded.
-- Once history is seeded, changing only the current cost does not rewrite past or future Period Profit. A new seller-confirmed cost version must be recorded with the date from which it applies.
+## Unknown is not current cost
+
+The mutable `product_costs` row describes current product economics. It is not historical evidence for an earlier Period Profit period.
+
+Therefore Period Profit does not use either of the former compatibility paths:
+
+- `LEGACY_CURRENT_COST_NO_HISTORY`;
+- `LEGACY_SERVICE_COMPATIBILITY`.
+
+If bounded historical evidence is missing, ambiguous, outside its confirmed interval or invalid, COGS is unknown and Period Profit fails closed. `unknown != zero`, and unknown also does not mean today's cost.
+
+## Re-accrual semantics
+
+Ozon finance can expose multiple positive accrual events for one physical `(posting_number, sku)`.
+
+Physical quantity is still counted exactly once using the established authority chain:
+
+1. realization;
+2. FBO posting list;
+3. exact FBO/FBS posting detail;
+4. fail closed.
+
+The finance `accrual_date` is a finance-period date. The current evidence model does not prove that it is the physical shipment or delivery date.
+
+For one re-accrued physical posting, all observed positive accrual dates must resolve to the same bounded seller-confirmed cost version. If any date is unknown, or the dates cross different cost versions, Period Profit fails closed instead of selecting whichever accrual event happened to be encountered first.
+
+Distinct physical postings may resolve to different bounded cost versions within one requested period. Their COGS is summed after quantity reconciliation.
 
 ## Scope
 
-This is effective-date costing, not FIFO/lot allocation. If multiple purchase batches with different costs overlap in inventory, the current evidence model cannot prove which lot a specific Ozon sale consumed. Do not describe it as exact lot attribution without additional inventory lineage evidence.
+This is bounded effective-date evidence, not FIFO or lot allocation. It does not claim which inventory batch a specific Ozon sale consumed when batches overlap.
 
-Ozon remains READ-ONLY. The change affects only local cost evidence and Period Profit calculation.
+No Ozon mutation is introduced. Ozon remains READ-ONLY.
 
-## Reconciliation invariants retained
+The following invariants are unchanged:
 
-- Ozon account-level finance remains the money authority.
-- Physical sale quantity remains reconciled by exact posting + SKU, including re-accrual deduplication.
-- Signed Ozon finance amounts are not changed by cost versioning.
-- Return COGS recognition/authorization/commit rules are unchanged.
-- Seller-facing Period Profit remains read-only and non-executing.
+- account-level Ozon finance remains the money authority;
+- signed finance amounts are not rewritten by cost evidence;
+- return COGS still requires no-double-counting, recognition, authorization and commit before inclusion;
+- seller-facing Period Profit remains read-only and non-executing.
+
+## Storage compatibility
+
+`ProductCostService.create_table()` migrates existing local SQLite databases by adding nullable `effective_through` when the column is absent.
+
+Existing history rows are not silently assigned an invented end date. They therefore remain unbounded until explicit seller evidence supplies a valid upper boundary. Period Profit will not use those open-ended rows as confirmed historical COGS.
+
+`record_historical_cost(..., effective_through=...)` rejects an invalid or reversed interval.
 
 ## Regression coverage
 
 `app/tests/test_period_profit_effective_cost_timeline.py` covers:
 
-- preservation of an old 21 RUB cost after a later confirmed cost version becomes effective;
-- fail-closed behavior before the first confirmed historical version;
-- legacy current-cost compatibility when no history exists;
-- physical COGS split across sale accrual dates with different effective costs.
+- bounded historical cost inside its confirmed interval;
+- separate later bounded versions;
+- fail-closed behavior before and after confirmed coverage;
+- open-ended history rejected by Period Profit;
+- current cost without history rejected by Period Profit;
+- reversed history interval rejected;
+- distinct physical sales using different bounded versions;
+- repeated positive accrual events within one cost version counting physical quantity once;
+- re-accrual crossing cost versions failing closed;
+- missing effective-cost resolver failing closed.
+
+Existing re-accrual quantity regression remains authoritative for the invariant that repeated positive finance events do not multiply physical quantity.
+
+## SHA-bound verification evidence
+
+Production change lifecycle:
+
+- feature head `9aa35b8e8b3c0a423daa686832e73f12c2a23b5f` — full Verify passed;
+- actual PR #461 synthetic merge `61173a551f66989c37468ecbf8a79106dfe54bbb` — full Verify passed; artifact `verification-61173a551f66989c37468ecbf8a79106dfe54bbb`;
+- squash production main `bd05122aef83e7d734e04ebdd8042a5e6d6c21ff` — full Verify passed.
+
+Verification evidence is SHA-bound and is never transferred between revisions.
