@@ -38,8 +38,9 @@ from services.period_profit_final_application_query_service import (
     PeriodProfitFinalApplicationQueryService,
 )
 from services.period_profit_return_evidence_service import PeriodProfitReturnEvidenceService
-from services.period_profit_return_cogs_recovery_evidence_service import (
-    PeriodProfitReturnCogsRecoveryEvidenceService,
+from services.period_profit_return_cogs_effective_cost_recovery_evidence_service import (
+    PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService
+    as PeriodProfitReturnCogsRecoveryEvidenceService,
 )
 from services.period_profit_return_cogs_quantity_evidence_service import (
     PeriodProfitReturnCogsQuantityEvidenceService,
@@ -88,7 +89,7 @@ from services.tax_configuration_service import TaxConfigurationService
 from services.tax_service import TaxService
 
 
-# Compatibility seam retained for existing factory tests and dependency overrides.
+# Compatibility seams retained for existing factory tests and dependency overrides.
 ProductCostService = PeriodProfitEffectiveCostService
 
 
