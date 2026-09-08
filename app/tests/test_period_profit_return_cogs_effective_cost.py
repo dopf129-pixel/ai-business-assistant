@@ -80,7 +80,7 @@ class SaleableRecovery:
         }
 
 
-def return_evidence():
+def return_evidence(status="ReturnedToOzon"):
     return {
         "error": False,
         "status": "PERIOD_PROFIT_RETURN_EVIDENCE_READY",
@@ -95,7 +95,7 @@ def return_evidence():
                 "offer_id": "hook-2",
                 "quantity": 1,
                 "type": "ClientReturn",
-                "visual_status_sys_name": "ArrivedAtReturnPlace",
+                "visual_status_sys_name": status,
                 "compensation_status_sys_name": "",
             }
         ],
@@ -103,6 +103,38 @@ def return_evidence():
 
 
 class ReturnCogsEffectiveCostTests(unittest.TestCase):
+    def test_current_returned_to_ozon_status_reaches_conservative_recovery_gates(self):
+        service = PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService(
+            EffectiveSwitchCost(),
+            MatchedLineage(),
+            SaleableRecovery(),
+        )
+        result = service.analyze(
+            return_evidence(),
+            [("4108512640", "hook-2", "3921245627")],
+        )
+
+        self.assertEqual(result["candidate_recovery_units"], 1)
+        self.assertEqual(len(result["candidate_records"]), 1)
+        self.assertTrue(result["saleable_inventory_recovery_confirmed"])
+
+    def test_legacy_arrived_status_is_not_silently_treated_as_current_authority(self):
+        service = PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService(
+            EffectiveSwitchCost(),
+            MatchedLineage(),
+            SaleableRecovery(),
+        )
+        result = service.analyze(
+            return_evidence("ArrivedAtReturnPlace"),
+            [("4108512640", "hook-2", "3921245627")],
+        )
+
+        self.assertEqual(result["candidate_recovery_units"], 0)
+        self.assertEqual(len(result["candidate_records"]), 0)
+        self.assertEqual(result["unresolved_units"], 1)
+        self.assertFalse(result["period_cogs_recovery_confirmed"])
+        self.assertFalse(result["profit_adjustment_allowed"])
+
     def test_operational_switch_is_originating_sale_cost_authority(self):
         service = PeriodProfitReturnCogsEffectiveCostRecoveryEvidenceService(
             EffectiveSwitchCost(),
