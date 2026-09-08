@@ -37,7 +37,8 @@ class TelegramSellerCostUpdateService:
             if sku in seen:
                 return self._error("SELLER_COST_SKU_AMBIGUOUS")
             seen.add(sku)
-            products.append((sku, product_id, offer_id))
+            display_name = offer_id or sku
+            products.append((display_name, sku, product_id, offer_id))
 
         products.sort(key=lambda item: item[0])
         if not products:
@@ -45,16 +46,16 @@ class TelegramSellerCostUpdateService:
 
         return {
             "error": False,
-            "message": "Выберите SKU, для которого приехала новая партия:",
+            "message": "Выберите артикул товара, для которого приехала новая партия:",
             "keyboard": {
                 "error": False,
                 "type": "inline_keyboard",
                 "buttons": [
                     {
-                        "text": sku,
+                        "text": display_name,
                         "callback": "seller_cost:" + sku,
                     }
-                    for sku, _, _ in products
+                    for display_name, sku, _, _ in products
                 ],
             },
             "read_only_ozon": True,
@@ -91,10 +92,11 @@ class TelegramSellerCostUpdateService:
             "sku": sku_key,
             "offer_id": offer_id,
         }
+        display_name = offer_id or sku_key
         return {
             "error": False,
             "message": (
-                "SKU " + sku_key + " выбран.\n"
+                "Артикул " + display_name + " выбран (SKU " + sku_key + ").\n"
                 "Введите новую себестоимость в рублях, например: 24.70\n"
                 "Новая цена начнёт действовать со следующей календарной даты, "
                 "чтобы не пересчитывать уже прошедшие начисления сегодняшнего дня."
@@ -171,18 +173,20 @@ class TelegramSellerCostUpdateService:
 
         self._pending.pop(user_key, None)
         amount = self._format_cost(cost)
+        display_name = identity["offer_id"] or identity["sku"]
         return {
             "error": False,
             "handled": True,
             "message": (
-                "✅ Себестоимость SKU " + identity["sku"] + " сохранена: "
-                + amount + " ₽.\n"
+                "✅ Себестоимость артикула " + display_name + " (SKU "
+                + identity["sku"] + ") сохранена: " + amount + " ₽.\n"
                 "Для Period Profit она действует с "
                 + effective_from.isoformat()
                 + " до следующего подтверждённого изменения.\n"
                 "Прошлые периоды не переписываются."
             ),
             "sku": identity["sku"],
+            "offer_id": identity["offer_id"],
             "cost_price": round(cost, 2),
             "effective_from": effective_from.isoformat(),
             "seller_confirmed": True,
