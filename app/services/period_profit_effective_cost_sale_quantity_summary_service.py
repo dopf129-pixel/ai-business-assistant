@@ -9,7 +9,7 @@ from services.period_profit_sale_quantity_summary_service import (
 class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     PeriodProfitSaleQuantitySummaryService
 ):
-    """Reconcile physical sale quantity with bounded seller cost evidence."""
+    """Reconcile physical sale quantity with seller-confirmed cost evidence."""
 
     def _reconcile_sale_quantities(self, result, date_from, date_to):
         start = self._date(date_from)
@@ -220,7 +220,9 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         enriched["sale_quantity_positive_event_count"] = len(sale_records)
         enriched["sale_quantity_reaccrued_event_count"] = reaccrued_event_count
         enriched["effective_cost_reconciled"] = True
-        enriched["effective_cost_source"] = "SELLER_CONFIRMED_BOUNDED_HISTORY"
+        enriched["effective_cost_source"] = (
+            "SELLER_CONFIRMED_BOUNDED_HISTORY_OR_OPERATIONAL_SWITCH"
+        )
         enriched["historical_cost_bucket_count"] = historical_bucket_count
         enriched["legacy_current_cost_bucket_count"] = 0
         return enriched
@@ -250,13 +252,32 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     @staticmethod
     def _cost_version_signature(evidence, cost):
         effective_from = str(evidence.get("effective_from") or "").strip()
-        effective_through = str(evidence.get("effective_through") or "").strip()
         source = str(evidence.get("source") or "").strip()
-        if not effective_from or not effective_through or not source:
+        basis = str(evidence.get("cost_basis") or "").strip()
+        if not effective_from or not source or not basis:
             return None
+
+        if basis == "SELLER_CONFIRMED_OPERATIONAL_SWITCH":
+            switch_id = evidence.get("switch_id")
+            if switch_id is None:
+                return None
+            return (
+                "SWITCH",
+                str(switch_id),
+                effective_from,
+                source,
+                round(cost, 2),
+            )
+
+        if basis != "SELLER_CONFIRMED_BOUNDED_PERIOD":
+            return None
+        effective_through = str(evidence.get("effective_through") or "").strip()
         history_id = evidence.get("history_id")
+        if not effective_through or history_id is None:
+            return None
         return (
-            str(history_id) if history_id is not None else "",
+            "BOUNDED_HISTORY",
+            str(history_id),
             effective_from,
             effective_through,
             source,
