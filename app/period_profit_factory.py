@@ -5,7 +5,9 @@ from api.period_profit_ozon_client import PeriodProfitOzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
-from services.cost_service import ProductCostService
+from services.period_profit_effective_cost_service import (
+    PeriodProfitEffectiveCostService,
+)
 from services.expense_repository import ExpenseRepository
 from services.period_profit_finance_service import (
     PeriodProfitFinanceService as FinanceService,
@@ -72,8 +74,8 @@ from services.period_profit_return_sale_lineage_evidence_service import (
 from services.period_profit_return_sale_quantity_evidence_service import (
     PeriodProfitReturnSaleQuantityEvidenceService,
 )
-from services.period_profit_sale_quantity_summary_service import (
-    PeriodProfitSaleQuantitySummaryService as PeriodProfitSummaryService,
+from services.period_profit_effective_cost_sale_quantity_summary_service import (
+    PeriodProfitEffectiveCostSaleQuantitySummaryService as PeriodProfitSummaryService,
 )
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
@@ -90,7 +92,7 @@ def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
     tax_policy = TaxConfigurationService().get_policy()
     tax_service = TaxService()
-    cost_service = ProductCostService()
+    cost_service = PeriodProfitEffectiveCostService()
     expense_repository = ExpenseRepository()
     inventory_recovery_repository = ReturnInventoryRecoveryRepository()
     accounting_attribution_repository = ReturnCogsAccountingAttributionRepository()
