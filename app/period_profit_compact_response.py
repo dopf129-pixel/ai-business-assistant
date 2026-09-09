@@ -3,6 +3,10 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
 
+from services.period_profit_return_cogs_blocker_stage_service import (
+    PeriodProfitReturnCogsBlockerStageService,
+)
+
 
 def compact_period_profit_result(result):
     """Return a compact Telegram presentation without changing financial facts."""
@@ -131,23 +135,30 @@ def _warnings(result):
 
 
 def _return_cogs_diagnostic(evidence):
-    """Explain the first proven Return COGS blocker without changing any gate."""
-    records = evidence.get("candidate_records")
-    if not isinstance(records, list) or not records:
+    """Render the single first blocker resolved by the canonical read-only stage service."""
+    stage_result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+    if not isinstance(stage_result, dict):
+        return "🔒 Return COGS пока не применён: стадия доказательств недоступна."
+    if stage_result.get("error") is True:
+        return (
+            "🔒 Return COGS пока не применён: цепочка доказательств невалидна. "
+            "Текущий ответ остаётся read-only."
+        )
+
+    stage = stage_result.get("stage")
+    if stage == PeriodProfitReturnCogsBlockerStageService.NONE:
         return None
 
-    pending_inventory = []
-    for row in records:
-        if not isinstance(row, dict):
-            continue
-        state = str(row.get("inventory_recovery_state") or "").strip().upper()
-        status = str(row.get("inventory_recovery_evidence_status") or "").strip().upper()
-        recovery_evidence_ready = status == "RETURN_INVENTORY_RECOVERY_READY"
-        if recovery_evidence_ready and state in {"NON_SALEABLE", "SALEABLE_RESTORED"}:
-            continue
-        pending_inventory.append(row)
-
-    if pending_inventory:
+    if stage == PeriodProfitReturnCogsBlockerStageService.INVENTORY:
+        pending_inventory = [
+            row for row in stage_result.get("records", []) if isinstance(row, dict)
+        ]
+        if not pending_inventory:
+            return (
+                "↩️ Нужен локальный факт о состоянии возврата. "
+                "Статус Ozon сам по себе не доказывает SALEABLE_RESTORED."
+            )
+        pending_inventory.sort(key=lambda row: _return_identity_key(row) or ("", "", ""))
         shown = pending_inventory[:3]
         identities = "; ".join(_return_identity(row) for row in shown)
         extra = len(pending_inventory) - len(shown)
@@ -160,65 +171,52 @@ def _return_cogs_diagnostic(evidence):
             "Статус Ozon сам по себе не доказывает SALEABLE_RESTORED."
         )
 
-    if (
-        "accounting_attribution_evidence_confirmed" in evidence
-        and evidence.get("accounting_attribution_evidence_confirmed") is not True
-    ):
+    if stage == PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_ATTRIBUTION:
         exact = _accounting_attribution_diagnostic(evidence)
         if exact is not None:
             return exact
         return (
-            "🧾 Return COGS пока не применён: бухгалтерская атрибуция периода "
-            "и отсутствие двойного учёта компенсации не подтверждены."
+            "🧾 Return COGS пока не применён: бухгалтерская атрибуция периода, "
+            "canonical READY status и отсутствие двойного учёта компенсации не подтверждены."
         )
 
-    if (
-        "return_cogs_accounting_recognition_evidence_confirmed" in evidence
-        and evidence.get("return_cogs_accounting_recognition_evidence_confirmed")
-        is not True
-    ):
+    if stage == PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_RECOGNITION:
         exact = _accounting_recognition_diagnostic(evidence)
         if exact is not None:
             return exact
         return (
             "🧾 Return COGS пока не применён: требуется отдельное бухгалтерское "
-            "признание подтверждённой суммы."
+            "признание подтверждённой суммы с canonical READY status."
         )
 
-    if (
-        "return_cogs_profit_application_eligibility_confirmed" in evidence
-        and evidence.get("return_cogs_profit_application_eligibility_confirmed")
-        is not True
-    ):
+    if stage == PeriodProfitReturnCogsBlockerStageService.APPLICATION_AUTHORIZATION:
         exact = _application_authorization_diagnostic(evidence)
         if exact is not None:
             return exact
         return (
             "🔒 Return COGS пока не применён: отдельная авторизация применения "
-            "к прибыли не подтверждена."
+            "к прибыли с canonical READY status не подтверждена."
         )
 
-    if (
-        "return_cogs_profit_application_commit_confirmed" in evidence
-        and evidence.get("return_cogs_profit_application_commit_confirmed") is not True
-    ):
+    if stage == PeriodProfitReturnCogsBlockerStageService.APPLICATION_COMMIT:
         exact = _application_commit_diagnostic(evidence)
         if exact is not None:
             return exact
         if evidence.get("return_cogs_profit_application_commit_ready") is True:
             return (
-                "🔒 Return COGS доказан до стадии commit, но применение к прибыли "
-                "ещё не зафиксировано. Текущий ответ остаётся read-only."
+                "🔒 Return COGS доказан до стадии commit, но exact-once commit ещё "
+                "не подтверждён canonical committed status. Текущий ответ остаётся read-only."
             )
         return "🔒 Return COGS пока не применён: exact-once commit не подтверждён."
 
-    if (
-        "return_cogs_profit_applied" in evidence
-        and evidence.get("return_cogs_profit_applied") is not True
-    ):
-        return "🔒 Return COGS пока не применён к seller-facing прибыли."
+    if stage == PeriodProfitReturnCogsBlockerStageService.FINAL_APPLICATION:
+        return (
+            "🔒 Return COGS имеет подтверждённый exact-once commit, но ещё не отражён "
+            "в seller-facing прибыли. Это отдельный final-application blocker и не "
+            "разрешение повторять commit."
+        )
 
-    return None
+    return "🔒 Return COGS пока не применён: неизвестная стадия доказательств."
 
 
 def _accounting_attribution_diagnostic(evidence):
