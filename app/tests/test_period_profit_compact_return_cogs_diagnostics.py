@@ -163,6 +163,148 @@ class PeriodProfitCompactReturnCogsDiagnosticsTests(unittest.TestCase):
         self.assertIn("бухгалтерская атрибуция периода", result["text"])
         self.assertIn("отсутствие двойного учёта компенсации", result["text"])
 
+    def test_accounting_missing_exposes_exact_identity_and_does_not_invent_quantity(self):
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": [{
+                    "return_id": "r-accounting",
+                    "posting_number": "p-accounting",
+                    "sku": "s-accounting",
+                    "quantity": None,
+                    "inventory_recovery_state": "SALEABLE_RESTORED",
+                    "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
+                }],
+                "accounting_attribution_evidence_confirmed": False,
+                "accounting_attribution_evidence_records": [{
+                    "return_id": "r-accounting",
+                    "posting_number": "p-accounting",
+                    "sku": "s-accounting",
+                    "status": "RETURN_COGS_ACCOUNTING_ATTRIBUTION_MISSING",
+                    "recovery_accounting_period_matches_request": False,
+                    "compensation_state": None,
+                    "compensation_double_count_clear": None,
+                }],
+            })
+        )
+
+        self.assertIn("Точные бухгалтерские блокеры", result["text"])
+        self.assertIn("return_id=r-accounting", result["text"])
+        self.assertIn("posting=p-accounting", result["text"])
+        self.assertIn("SKU=s-accounting", result["text"])
+        self.assertIn("кол-во=неизвестно", result["text"])
+        self.assertIn("нет бухгалтерской атрибуции периода", result["text"])
+        self.assertNotIn("кол-во=0", result["text"])
+        self.assertIn("не считаются нулём", result["text"])
+        self.assertTrue(result["read_only"])
+        self.assertFalse(result["executed"])
+
+    def test_accounting_ready_but_outside_period_exposes_period_reason(self):
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": [{
+                    "return_id": "r-period",
+                    "posting_number": "p-period",
+                    "sku": "s-period",
+                    "quantity": 2,
+                    "inventory_recovery_state": "SALEABLE_RESTORED",
+                    "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
+                }],
+                "accounting_attribution_evidence_confirmed": False,
+                "accounting_attribution_evidence_records": [{
+                    "return_id": "r-period",
+                    "posting_number": "p-period",
+                    "sku": "s-period",
+                    "status": "RETURN_COGS_ACCOUNTING_ATTRIBUTION_READY",
+                    "recovery_accounting_period_matches_request": False,
+                    "compensation_state": "NO_COMPENSATION_CONFIRMED",
+                    "compensation_double_count_clear": True,
+                }],
+            })
+        )
+
+        self.assertIn("return_id=r-period", result["text"])
+        self.assertIn("кол-во=2", result["text"])
+        self.assertIn(
+            "дата бухгалтерского восстановления не подтверждена в выбранном периоде",
+            result["text"],
+        )
+
+    def test_accounting_double_count_unknown_stays_unconfirmed(self):
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": [{
+                    "return_id": "r-comp",
+                    "posting_number": "p-comp",
+                    "sku": "s-comp",
+                    "quantity": 1,
+                    "inventory_recovery_state": "SALEABLE_RESTORED",
+                    "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
+                }],
+                "accounting_attribution_evidence_confirmed": False,
+                "accounting_attribution_evidence_records": [{
+                    "return_id": "r-comp",
+                    "posting_number": "p-comp",
+                    "sku": "s-comp",
+                    "status": "RETURN_COGS_ACCOUNTING_ATTRIBUTION_READY",
+                    "recovery_accounting_period_matches_request": True,
+                    "compensation_state": "COMPENSATION_PRESENT",
+                    "compensation_double_count_clear": None,
+                }],
+            })
+        )
+
+        self.assertIn("return_id=r-comp", result["text"])
+        self.assertIn(
+            "отсутствие двойного учёта компенсации не подтверждено",
+            result["text"],
+        )
+        self.assertNotIn("отдельная авторизация применения", result["text"])
+
+    def test_accounting_diagnostics_are_deterministic_and_limited(self):
+        candidates = []
+        accounting_records = []
+        for suffix in ("d", "b", "a", "c"):
+            candidates.append({
+                "return_id": "r-" + suffix,
+                "posting_number": "p-" + suffix,
+                "sku": "s-" + suffix,
+                "quantity": 1,
+                "inventory_recovery_state": "SALEABLE_RESTORED",
+                "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
+            })
+            accounting_records.append({
+                "return_id": "r-" + suffix,
+                "posting_number": "p-" + suffix,
+                "sku": "s-" + suffix,
+                "status": "RETURN_COGS_ACCOUNTING_ATTRIBUTION_MISSING",
+            })
+
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": candidates,
+                "accounting_attribution_evidence_confirmed": False,
+                "accounting_attribution_evidence_records": accounting_records,
+            })
+        )
+
+        text = result["text"]
+        self.assertLess(text.index("return_id=r-a"), text.index("return_id=r-b"))
+        self.assertLess(text.index("return_id=r-b"), text.index("return_id=r-c"))
+        self.assertNotIn("return_id=r-d", text)
+        self.assertIn("ещё 1", text)
+
     def test_diagnostic_stops_at_first_unproven_gate(self):
         result = compact_period_profit_result(
             self._result({
