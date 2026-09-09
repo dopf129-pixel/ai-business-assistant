@@ -151,15 +151,12 @@ def _return_cogs_diagnostic(evidence):
         status = str(
             row.get("inventory_recovery_evidence_status") or ""
         ).strip().upper()
-        if state == "NON_SALEABLE":
-            continue
+        recovery_evidence_ready = (
+            status == "RETURN_INVENTORY_RECOVERY_READY"
+        )
         if (
-            state == "SALEABLE_RESTORED"
-            and status
-            not in {
-                "RETURN_INVENTORY_RECOVERY_QUANTITY_MISMATCH",
-                "RETURN_INVENTORY_RECOVERY_IDENTITY_CONFLICT",
-            }
+            recovery_evidence_ready
+            and state in {"NON_SALEABLE", "SALEABLE_RESTORED"}
         ):
             continue
         pending_inventory.append(row)
@@ -279,7 +276,13 @@ def _unconfirmed_return_cogs_units(evidence):
         state = str(
             row.get("inventory_recovery_state") or ""
         ).strip().upper()
-        if state == "NON_SALEABLE":
+        status = str(
+            row.get("inventory_recovery_evidence_status") or ""
+        ).strip().upper()
+        if (
+            status == "RETURN_INVENTORY_RECOVERY_READY"
+            and state == "NON_SALEABLE"
+        ):
             continue
         quantity = _non_negative_int(row.get("quantity"))
         candidate_units += quantity
