@@ -6,6 +6,10 @@ class PeriodProfitReturnCogsFinalApplicationService:
 
     APPLIED = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_APPLIED"
     NOT_APPLIED = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_NOT_APPLIED"
+    ACCOUNTING_READY = "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"
+    RECOGNITION_READY = "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
+    APPLICATION_READY = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"
+    COMMIT_CONFIRMED = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"
 
     def __init__(self, tax_service, tax_policy_result):
         self.tax_service = tax_service
@@ -25,8 +29,20 @@ class PeriodProfitReturnCogsFinalApplicationService:
 
         if evidence.get("return_cogs_profit_application_commit_confirmed") is not True:
             return self._not_applied(summary, evidence)
+        if self._text(evidence.get("return_cogs_profit_application_commit_status")).upper() != self.COMMIT_CONFIRMED:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_STATUS_REQUIRED")
         if evidence.get("return_cogs_profit_application_eligibility_confirmed") is not True:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_ELIGIBILITY_REQUIRED")
+        if self._text(evidence.get("return_cogs_profit_application_eligibility_status")).upper() != self.APPLICATION_READY:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_ELIGIBILITY_STATUS_REQUIRED")
+        if evidence.get("return_cogs_accounting_recognition_evidence_confirmed") is not True:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_REQUIRED")
+        if self._text(evidence.get("return_cogs_accounting_recognition_status")).upper() != self.RECOGNITION_READY:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_STATUS_REQUIRED")
+        if evidence.get("accounting_attribution_evidence_confirmed") is not True:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_ACCOUNTING_ATTRIBUTION_REQUIRED")
+        if self._text(evidence.get("accounting_attribution_evidence_status")).upper() != self.ACCOUNTING_READY:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_ACCOUNTING_STATUS_REQUIRED")
 
         records = evidence.get("return_cogs_profit_application_commit_records")
         if not isinstance(records, list) or not records:
@@ -38,10 +54,19 @@ class PeriodProfitReturnCogsFinalApplicationService:
             if not isinstance(record, dict) or record.get("application_commit_confirmed") is not True:
                 return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_INVALID")
             recognition_id = self._positive_int(record.get("recognition_history_id"))
+            authorization_id = self._positive_int(record.get("authorization_history_id"))
             amount = self._money(record.get("committed_amount"))
             currency = self._text(record.get("currency")).upper()
+            accounting_date = self._text(record.get("recovery_accounting_date"))
+            identity = self._identity(record)
             if recognition_id is None or recognition_id in seen_recognitions:
                 return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_VERSION_INVALID")
+            if authorization_id is None:
+                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_VERSION_INVALID")
+            if identity is None:
+                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_IDENTITY_INVALID")
+            if not accounting_date:
+                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_DATE_INVALID")
             if amount is None or currency != "RUB":
                 return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
             seen_recognitions.add(recognition_id)
@@ -195,6 +220,16 @@ class PeriodProfitReturnCogsFinalApplicationService:
     @staticmethod
     def _text(value):
         return "" if value is None else str(value).strip()
+
+    @classmethod
+    def _identity(cls, record):
+        if not isinstance(record, dict):
+            return None
+        values = tuple(
+            cls._text(record.get(key))
+            for key in ("return_id", "posting_number", "sku")
+        )
+        return values if all(values) else None
 
     @staticmethod
     def _margin(profit, revenue):
