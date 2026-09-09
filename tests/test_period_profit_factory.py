@@ -87,10 +87,18 @@ class ReturnCogsApplicationCommitReadiness:
         self.application_commit_repository = application_commit_repository
 
 
+class ReturnCogsCommitIntegrity:
+    def __init__(self, base_service): self.base_service = base_service
+
+
 class ReturnCogsFinalApplication:
     def __init__(self, tax_service, tax_policy):
         self.tax_service = tax_service
         self.tax_policy = tax_policy
+
+
+class ReturnCogsFinalIntegrity:
+    def __init__(self, base_service): self.base_service = base_service
 
 
 class ExternalExpenseEvidence:
@@ -156,7 +164,9 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsAccountingRecognitionService", ReturnCogsAccountingRecognition)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationEligibilityService", ReturnCogsApplicationEligibility)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsApplicationCommitReadinessService", ReturnCogsApplicationCommitReadiness)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsCommitIntegrityService", ReturnCogsCommitIntegrity)
     monkeypatch.setattr(factory, "PeriodProfitReturnCogsFinalApplicationService", ReturnCogsFinalApplication)
+    monkeypatch.setattr(factory, "PeriodProfitReturnCogsFinalIntegrityService", ReturnCogsFinalIntegrity)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleLineageEvidenceService", SaleLineageEvidence)
     monkeypatch.setattr(factory, "PeriodProfitReturnSaleQuantityEvidenceService", SaleQuantityEvidence)
     monkeypatch.setattr(factory, "PeriodProfitExternalExpenseEvidenceService", ExternalExpenseEvidence)
@@ -179,10 +189,16 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     assert query.product_provider() == [{"sku": "1"}]
     assert isinstance(query.return_evidence_service, ReturnEvidence)
     assert isinstance(query.return_evidence_service.ozon_client, Ozon)
-    assert isinstance(final_query.return_cogs_application_service, ReturnCogsFinalApplication)
-    assert final_query.return_cogs_application_service.tax_service is tax_summary.tax_service
 
-    commit_readiness = query.return_cogs_recovery_evidence_service
+    final_integrity = final_query.return_cogs_application_service
+    assert isinstance(final_integrity, ReturnCogsFinalIntegrity)
+    final_application = final_integrity.base_service
+    assert isinstance(final_application, ReturnCogsFinalApplication)
+    assert final_application.tax_service is tax_summary.tax_service
+
+    commit_integrity = query.return_cogs_recovery_evidence_service
+    assert isinstance(commit_integrity, ReturnCogsCommitIntegrity)
+    commit_readiness = commit_integrity.base_service
     assert isinstance(commit_readiness, ReturnCogsApplicationCommitReadiness)
     assert isinstance(commit_readiness.application_commit_repository, ApplicationCommit)
     application = commit_readiness.base_service
