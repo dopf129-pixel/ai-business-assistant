@@ -30,16 +30,16 @@ class OzonAccountService:
 
         saved = self.repository.save(user_key, client_key, secret)
         if not isinstance(saved, dict) or saved.get("error") is True:
-            return {
-                "error": True,
-                "code": "OZON_ACCOUNT_STORAGE_UNAVAILABLE",
-                "message": (
-                    "Не удалось безопасно сохранить подключение. "
-                    "Проверьте OZON_CREDENTIAL_MASTER_KEY на сервере."
-                ),
-                "read_only_ozon": True,
-                "executed_ozon": False,
-            }
+            return self._storage_error()
+
+        try:
+            self._initialize_tenant_storage()
+        except Exception:
+            try:
+                self.repository.delete(user_key)
+            except Exception:
+                pass
+            return self._storage_error()
 
         return {
             "error": False,
@@ -94,6 +94,27 @@ class OzonAccountService:
             "status": "OZON_ACCOUNT_DISCONNECTED",
             "message": "Кабинет Ozon отключён. Локально сохранённый API Key удалён.",
             "connected": False,
+            "read_only_ozon": True,
+            "executed_ozon": False,
+        }
+
+    @staticmethod
+    def _initialize_tenant_storage():
+        from database import create_tables
+        from services.cost_service import ProductCostService
+
+        create_tables()
+        ProductCostService()
+
+    @staticmethod
+    def _storage_error():
+        return {
+            "error": True,
+            "code": "OZON_ACCOUNT_STORAGE_UNAVAILABLE",
+            "message": (
+                "Не удалось безопасно сохранить подключение. "
+                "Проверьте OZON_CREDENTIAL_MASTER_KEY и локальное хранилище на сервере."
+            ),
             "read_only_ozon": True,
             "executed_ozon": False,
         }
