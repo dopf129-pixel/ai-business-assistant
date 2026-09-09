@@ -130,7 +130,137 @@ def _warnings(result):
                 "Это не число финансовых «Возврат выручки»."
             )
 
+        diagnostic = _return_cogs_diagnostic(return_cogs)
+        if diagnostic is not None:
+            warnings.append(diagnostic)
+
     return warnings
+
+
+def _return_cogs_diagnostic(evidence):
+    """Explain the first proven Return COGS blocker without changing any gate."""
+    records = evidence.get("candidate_records")
+    if not isinstance(records, list) or not records:
+        return None
+
+    pending_inventory = []
+    for row in records:
+        if not isinstance(row, dict):
+            continue
+        state = str(row.get("inventory_recovery_state") or "").strip().upper()
+        status = str(
+            row.get("inventory_recovery_evidence_status") or ""
+        ).strip().upper()
+        if state == "NON_SALEABLE":
+            continue
+        if (
+            state == "SALEABLE_RESTORED"
+            and status
+            not in {
+                "RETURN_INVENTORY_RECOVERY_QUANTITY_MISMATCH",
+                "RETURN_INVENTORY_RECOVERY_IDENTITY_CONFLICT",
+            }
+        ):
+            continue
+        pending_inventory.append(row)
+
+    if pending_inventory:
+        shown = pending_inventory[:3]
+        identities = "; ".join(_return_identity(row) for row in shown)
+        extra = len(pending_inventory) - len(shown)
+        suffix = f"; ещё {extra}" if extra > 0 else ""
+        return (
+            "↩️ Нужен локальный факт о состоянии возврата: "
+            + identities
+            + suffix
+            + ". Подтвердите точную идентичность и состояние через «Состояние возврата». "
+            "Статус Ozon сам по себе не доказывает SALEABLE_RESTORED."
+        )
+
+    if (
+        "accounting_attribution_evidence_confirmed" in evidence
+        and evidence.get("accounting_attribution_evidence_confirmed") is not True
+    ):
+        return (
+            "🧾 Return COGS пока не применён: бухгалтерская атрибуция периода "
+            "и отсутствие двойного учёта компенсации не подтверждены."
+        )
+
+    if (
+        "return_cogs_accounting_recognition_evidence_confirmed" in evidence
+        and evidence.get("return_cogs_accounting_recognition_evidence_confirmed")
+        is not True
+    ):
+        return (
+            "🧾 Return COGS пока не применён: требуется отдельное бухгалтерское "
+            "признание подтверждённой суммы."
+        )
+
+    if (
+        "return_cogs_profit_application_eligibility_confirmed" in evidence
+        and evidence.get("return_cogs_profit_application_eligibility_confirmed")
+        is not True
+    ):
+        return (
+            "🔒 Return COGS пока не применён: отдельная авторизация применения "
+            "к прибыли не подтверждена."
+        )
+
+    if (
+        "return_cogs_profit_application_commit_confirmed" in evidence
+        and evidence.get("return_cogs_profit_application_commit_confirmed") is not True
+    ):
+        if evidence.get("return_cogs_profit_application_commit_ready") is True:
+            return (
+                "🔒 Return COGS доказан до стадии commit, но применение к прибыли "
+                "ещё не зафиксировано. Текущий ответ остаётся read-only."
+            )
+        return (
+            "🔒 Return COGS пока не применён: exact-once commit не подтверждён."
+        )
+
+    if (
+        "return_cogs_profit_applied" in evidence
+        and evidence.get("return_cogs_profit_applied") is not True
+    ):
+        return (
+            "🔒 Return COGS пока не применён к seller-facing прибыли."
+        )
+
+    return None
+
+
+def _return_identity(row):
+    return_id = _text_or_unknown(row.get("return_id"))
+    posting = _text_or_unknown(row.get("posting_number"))
+    sku = _text_or_unknown(row.get("sku"))
+    quantity = _positive_int_or_none(row.get("quantity"))
+    quantity_text = str(quantity) if quantity is not None else "неизвестно"
+    return (
+        "return_id="
+        + return_id
+        + ", posting="
+        + posting
+        + ", SKU="
+        + sku
+        + ", кол-во="
+        + quantity_text
+    )
+
+
+def _text_or_unknown(value):
+    text = str(value or "").strip()
+    return text if text else "неизвестно"
+
+
+def _positive_int_or_none(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if number > 0 else None
 
 
 def _unconfirmed_return_cogs_units(evidence):
