@@ -2,6 +2,9 @@ from period_profit_comparison import build_period_profit_comparison
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
+from services.period_profit_return_cogs_blocker_stage_service import (
+    PeriodProfitReturnCogsBlockerStageService,
+)
 
 
 class PeriodProfitFinalApplicationQueryService:
@@ -10,7 +13,6 @@ class PeriodProfitFinalApplicationQueryService:
     def __init__(self, base_service, return_cogs_application_service):
         self.base_service = base_service
         self.return_cogs_application_service = return_cogs_application_service
-        # Preserve the established PeriodProfitQueryService compatibility surface.
         self.summary_service = getattr(base_service, "summary_service", None)
         self.product_provider = getattr(base_service, "product_provider", None)
         self.return_evidence_service = getattr(base_service, "return_evidence_service", None)
@@ -55,6 +57,9 @@ class PeriodProfitFinalApplicationQueryService:
         result["summary"] = summary
         result["return_cogs_recovery_evidence"] = return_cogs_evidence
         result["return_cogs_profit_application"] = application
+        result["return_cogs_blocker_stage"] = (
+            PeriodProfitReturnCogsBlockerStageService.resolve(return_cogs_evidence)
+        )
 
         external_adjustment = result.get("external_expense_adjustment")
         external_evidence = result.get("external_expense_evidence")
