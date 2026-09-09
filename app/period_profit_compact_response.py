@@ -178,6 +178,9 @@ def _return_cogs_diagnostic(evidence):
         "accounting_attribution_evidence_confirmed" in evidence
         and evidence.get("accounting_attribution_evidence_confirmed") is not True
     ):
+        exact = _accounting_attribution_diagnostic(evidence)
+        if exact is not None:
+            return exact
         return (
             "🧾 Return COGS пока не применён: бухгалтерская атрибуция периода "
             "и отсутствие двойного учёта компенсации не подтверждены."
@@ -225,6 +228,82 @@ def _return_cogs_diagnostic(evidence):
         )
 
     return None
+
+
+def _accounting_attribution_diagnostic(evidence):
+    """Render exact accounting blockers without inventing missing accounting facts."""
+    accounting_records = evidence.get("accounting_attribution_evidence_records")
+    candidates = evidence.get("candidate_records")
+    if not isinstance(accounting_records, list) or not accounting_records:
+        return None
+    if not isinstance(candidates, list):
+        candidates = []
+
+    candidate_index = {}
+    for row in candidates:
+        identity = _return_identity_key(row)
+        if identity is not None and identity not in candidate_index:
+            candidate_index[identity] = row
+
+    blocked = []
+    for row in accounting_records:
+        if not isinstance(row, dict):
+            continue
+        identity = _return_identity_key(row)
+        candidate = candidate_index.get(identity, row)
+        reason = _accounting_attribution_reason(row)
+        if reason is None:
+            continue
+        blocked.append((identity or ("", "", ""), candidate, reason))
+
+    if not blocked:
+        return None
+
+    blocked.sort(key=lambda item: item[0])
+    shown = blocked[:3]
+    details = "; ".join(
+        _return_identity(candidate) + " — " + reason
+        for _, candidate, reason in shown
+    )
+    extra = len(blocked) - len(shown)
+    suffix = f"; ещё {extra}" if extra > 0 else ""
+    return (
+        "🧾 Return COGS пока не применён. Точные бухгалтерские блокеры: "
+        + details
+        + suffix
+        + ". Эти факты не заполняются автоматически и не считаются нулём при отсутствии данных."
+    )
+
+
+def _accounting_attribution_reason(row):
+    status = str(row.get("status") or "").strip().upper()
+    if status == "RETURN_COGS_ACCOUNTING_ATTRIBUTION_MISSING":
+        return "нет бухгалтерской атрибуции периода"
+    if status == "RETURN_COGS_ACCOUNTING_ATTRIBUTION_IDENTITY_CONFLICT":
+        return "конфликт точной идентичности бухгалтерского свидетельства"
+    if status != "RETURN_COGS_ACCOUNTING_ATTRIBUTION_READY":
+        return "бухгалтерское свидетельство недоступно или невалидно"
+    if row.get("recovery_accounting_period_matches_request") is not True:
+        return "дата бухгалтерского восстановления не подтверждена в выбранном периоде"
+    compensation_state = str(row.get("compensation_state") or "").strip().upper()
+    if compensation_state not in {
+        "NO_COMPENSATION_CONFIRMED",
+        "COMPENSATION_PRESENT",
+    }:
+        return "бухгалтерский режим компенсации не подтверждён"
+    if row.get("compensation_double_count_clear") is not True:
+        return "отсутствие двойного учёта компенсации не подтверждено"
+    return None
+
+
+def _return_identity_key(row):
+    if not isinstance(row, dict):
+        return None
+    values = tuple(
+        str(row.get(key) or "").strip()
+        for key in ("return_id", "posting_number", "sku")
+    )
+    return values if all(values) else None
 
 
 def _return_identity(row):
