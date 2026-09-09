@@ -57,10 +57,7 @@ def compact_period_profit_result(result):
         )
         external_total = external_evidence.get("observed_expense_total")
         if _finite_number(external_total) is not None:
-            external_line = (
-                "Внешние расходы: "
-                + _money(external_total)
-            )
+            external_line = "Внешние расходы: " + _money(external_total)
 
     lines = [
         "💰 Прибыль за период "
@@ -103,9 +100,7 @@ def _warnings(result):
     external = result.get("external_expense_evidence")
     if isinstance(external, dict):
         if external.get("error") is True:
-            warnings.append(
-                "⚠️ Внешние расходы недоступны и не считаются нулём."
-            )
+            warnings.append("⚠️ Внешние расходы недоступны и не считаются нулём.")
         elif (
             external.get("status")
             in {
@@ -114,9 +109,7 @@ def _warnings(result):
             }
             and external.get("coverage_complete") is not True
         ):
-            warnings.append(
-                "⚠️ Внешние расходы учтены не полностью."
-            )
+            warnings.append("⚠️ Внешние расходы учтены не полностью.")
 
     return_cogs = result.get("return_cogs_recovery_evidence")
     if isinstance(return_cogs, dict):
@@ -148,16 +141,9 @@ def _return_cogs_diagnostic(evidence):
         if not isinstance(row, dict):
             continue
         state = str(row.get("inventory_recovery_state") or "").strip().upper()
-        status = str(
-            row.get("inventory_recovery_evidence_status") or ""
-        ).strip().upper()
-        recovery_evidence_ready = (
-            status == "RETURN_INVENTORY_RECOVERY_READY"
-        )
-        if (
-            recovery_evidence_ready
-            and state in {"NON_SALEABLE", "SALEABLE_RESTORED"}
-        ):
+        status = str(row.get("inventory_recovery_evidence_status") or "").strip().upper()
+        recovery_evidence_ready = status == "RETURN_INVENTORY_RECOVERY_READY"
+        if recovery_evidence_ready and state in {"NON_SALEABLE", "SALEABLE_RESTORED"}:
             continue
         pending_inventory.append(row)
 
@@ -191,6 +177,9 @@ def _return_cogs_diagnostic(evidence):
         and evidence.get("return_cogs_accounting_recognition_evidence_confirmed")
         is not True
     ):
+        exact = _accounting_recognition_diagnostic(evidence)
+        if exact is not None:
+            return exact
         return (
             "🧾 Return COGS пока не применён: требуется отдельное бухгалтерское "
             "признание подтверждённой суммы."
@@ -215,17 +204,13 @@ def _return_cogs_diagnostic(evidence):
                 "🔒 Return COGS доказан до стадии commit, но применение к прибыли "
                 "ещё не зафиксировано. Текущий ответ остаётся read-only."
             )
-        return (
-            "🔒 Return COGS пока не применён: exact-once commit не подтверждён."
-        )
+        return "🔒 Return COGS пока не применён: exact-once commit не подтверждён."
 
     if (
         "return_cogs_profit_applied" in evidence
         and evidence.get("return_cogs_profit_applied") is not True
     ):
-        return (
-            "🔒 Return COGS пока не применён к seller-facing прибыли."
-        )
+        return "🔒 Return COGS пока не применён к seller-facing прибыли."
 
     return None
 
@@ -296,6 +281,107 @@ def _accounting_attribution_reason(row):
     return None
 
 
+def _accounting_recognition_diagnostic(evidence):
+    """Render exact recognition blockers from existing evidence only."""
+    candidates = evidence.get("candidate_records")
+    recognition_records = evidence.get("return_cogs_accounting_recognition_evidence_records")
+    amount_records = evidence.get("return_cogs_recovery_amount_evidence_records")
+    attribution_records = evidence.get("accounting_attribution_evidence_records")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    if not isinstance(recognition_records, list):
+        recognition_records = []
+    if not isinstance(amount_records, list):
+        amount_records = []
+    if not isinstance(attribution_records, list):
+        attribution_records = []
+
+    recognition_index = _identity_index(recognition_records)
+    amount_index = _identity_index(amount_records)
+    attribution_index = _identity_index(attribution_records)
+    blocked = []
+
+    for candidate in candidates:
+        identity = _return_identity_key(candidate)
+        if identity is None:
+            continue
+        record = recognition_index.get(identity)
+        reason = _accounting_recognition_reason(
+            record,
+            amount_index.get(identity),
+            attribution_index.get(identity),
+        )
+        if reason is not None:
+            blocked.append((identity, candidate, reason))
+
+    if not blocked:
+        return None
+
+    blocked.sort(key=lambda item: item[0])
+    shown = blocked[:3]
+    details = "; ".join(
+        _return_identity(candidate) + " — " + reason
+        for _, candidate, reason in shown
+    )
+    extra = len(blocked) - len(shown)
+    suffix = f"; ещё {extra}" if extra > 0 else ""
+    return (
+        "🧾 Return COGS пока не применён. Точные блокеры бухгалтерского признания: "
+        + details
+        + suffix
+        + ". Признание не создаётся автоматически и не подменяется расчётной суммой."
+    )
+
+
+def _accounting_recognition_reason(record, amount_record, attribution_record):
+    if not isinstance(record, dict):
+        return "нет отдельного бухгалтерского признания"
+    if record.get("error") is True:
+        return "свидетельство бухгалтерского признания недоступно"
+    if record.get("error") is not False:
+        return "свидетельство бухгалтерского признания невалидно"
+    if str(record.get("status") or "").strip().upper() != "RETURN_COGS_ACCOUNTING_RECOGNITION_READY":
+        return "бухгалтерское признание не готово"
+    if record.get("accounting_recognition_confirmed") is not True:
+        return "явное подтверждение бухгалтерского признания отсутствует"
+    if str(record.get("recognition_state") or "").strip().upper() != "COGS_RECOVERY_RECOGNIZED":
+        return "состояние COGS_RECOVERY_RECOGNIZED не подтверждено"
+
+    recognized_amount = _money_number(record.get("recognized_amount"))
+    expected_amount = None
+    if isinstance(amount_record, dict):
+        expected_amount = _money_number(amount_record.get("staged_recovery_amount"))
+    if recognized_amount is None:
+        return "признанная сумма отсутствует или невалидна"
+    if expected_amount is None:
+        return "ожидаемая сумма восстановления не подтверждена"
+    if abs(recognized_amount - expected_amount) > 0.01:
+        return "признанная сумма не совпадает с подтверждённой суммой восстановления"
+    if str(record.get("currency") or "").strip().upper() != "RUB":
+        return "валюта бухгалтерского признания не подтверждена как RUB"
+
+    recognized_date = str(record.get("recovery_accounting_date") or "").strip()
+    expected_date = ""
+    if isinstance(attribution_record, dict):
+        expected_date = str(attribution_record.get("recovery_accounting_date") or "").strip()
+    if not recognized_date:
+        return "дата бухгалтерского признания отсутствует"
+    if not expected_date:
+        return "дата бухгалтерской атрибуции не подтверждена"
+    if recognized_date != expected_date:
+        return "дата бухгалтерского признания не совпадает с атрибуцией периода"
+    return None
+
+
+def _identity_index(records):
+    result = {}
+    for row in records:
+        identity = _return_identity_key(row)
+        if identity is not None and identity not in result:
+            result[identity] = row
+    return result
+
+
 def _return_identity_key(row):
     if not isinstance(row, dict):
         return None
@@ -339,6 +425,18 @@ def _positive_int_or_none(value):
     return number if number > 0 else None
 
 
+def _money_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isfinite(number) or number < 0.0:
+        return None
+    return round(number, 2)
+
+
 def _unconfirmed_return_cogs_units(evidence):
     unresolved = _non_negative_int(evidence.get("unresolved_units"))
     if evidence.get("period_cogs_recovery_confirmed") is True:
@@ -352,16 +450,9 @@ def _unconfirmed_return_cogs_units(evidence):
     for row in records:
         if not isinstance(row, dict):
             continue
-        state = str(
-            row.get("inventory_recovery_state") or ""
-        ).strip().upper()
-        status = str(
-            row.get("inventory_recovery_evidence_status") or ""
-        ).strip().upper()
-        if (
-            status == "RETURN_INVENTORY_RECOVERY_READY"
-            and state == "NON_SALEABLE"
-        ):
+        state = str(row.get("inventory_recovery_state") or "").strip().upper()
+        status = str(row.get("inventory_recovery_evidence_status") or "").strip().upper()
+        if status == "RETURN_INVENTORY_RECOVERY_READY" and state == "NON_SALEABLE":
             continue
         quantity = _non_negative_int(row.get("quantity"))
         candidate_units += quantity
@@ -389,12 +480,7 @@ def _comparison_line(comparison):
         icon = "➡️"
         sign = ""
 
-    return (
-        icon
-        + " К прошлому периоду: "
-        + sign
-        + _money(abs(value))
-    )
+    return icon + " К прошлому периоду: " + sign + _money(abs(value))
 
 
 def _period(date_from, date_to):
