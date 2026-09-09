@@ -5,9 +5,10 @@ from services.ozon_credential_provider import OzonCredentialProvider
 class OzonClient(BaseOzonClient):
     """Tenant-aware facade over the existing read-only Ozon client.
 
-    Explicit credentials are used only for connection validation. Otherwise
-    credentials are resolved on every request from the current Telegram tenant.
-    A tenant with no connected account never falls back to process-wide env keys.
+    Explicit credentials are used only for connection validation or deliberate
+    instance overrides. Otherwise credentials are resolved on every request from
+    the current Telegram tenant. A tenant with no connected account never falls
+    back to process-wide env keys.
     """
 
     def __init__(self, client_id=None, api_key=None, credential_provider=None):
@@ -16,7 +17,9 @@ class OzonClient(BaseOzonClient):
         self._credential_provider = credential_provider or OzonCredentialProvider()
         self._legacy_client_id = None
         self._legacy_api_key = None
+        self._initializing_base = True
         super().__init__()
+        self._initializing_base = False
 
     @property
     def client_id(self):
@@ -27,7 +30,11 @@ class OzonClient(BaseOzonClient):
 
     @client_id.setter
     def client_id(self, value):
-        self._legacy_client_id = self._text(value)
+        value = self._text(value)
+        if getattr(self, "_initializing_base", False):
+            self._legacy_client_id = value
+        else:
+            self._explicit_client_id = value
 
     @property
     def api_key(self):
@@ -38,7 +45,11 @@ class OzonClient(BaseOzonClient):
 
     @api_key.setter
     def api_key(self, value):
-        self._legacy_api_key = self._text(value)
+        value = self._text(value)
+        if getattr(self, "_initializing_base", False):
+            self._legacy_api_key = value
+        else:
+            self._explicit_api_key = value
 
     def credential_source(self):
         if self._explicit_client_id or self._explicit_api_key:
