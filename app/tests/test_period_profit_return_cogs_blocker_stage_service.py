@@ -23,9 +23,21 @@ class PeriodProfitReturnCogsBlockerStageServiceTests(unittest.TestCase):
     def _base(self):
         return {
             "candidate_records": [self._candidate()],
+            "accounting_attribution_evidence_status": (
+                "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"
+            ),
             "accounting_attribution_evidence_confirmed": True,
+            "return_cogs_accounting_recognition_status": (
+                "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
+            ),
             "return_cogs_accounting_recognition_evidence_confirmed": True,
+            "return_cogs_profit_application_eligibility_status": (
+                "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"
+            ),
             "return_cogs_profit_application_eligibility_confirmed": True,
+            "return_cogs_profit_application_commit_status": (
+                "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"
+            ),
             "return_cogs_profit_application_commit_confirmed": True,
             "return_cogs_profit_applied": True,
         }
@@ -54,11 +66,42 @@ class PeriodProfitReturnCogsBlockerStageServiceTests(unittest.TestCase):
             PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_ATTRIBUTION,
         )
 
+    def test_partial_accounting_status_blocks_even_when_boolean_is_true(self):
+        evidence = self._base()
+        evidence["accounting_attribution_evidence_status"] = (
+            "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_PARTIAL"
+        )
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(
+            result["stage"],
+            PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_ATTRIBUTION,
+        )
+
+    def test_missing_accounting_status_blocks_even_when_boolean_is_true(self):
+        evidence = self._base()
+        evidence.pop("accounting_attribution_evidence_status")
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(
+            result["stage"],
+            PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_ATTRIBUTION,
+        )
+
     def test_recognition_precedes_authorization_and_commit(self):
         evidence = self._base()
         evidence["return_cogs_accounting_recognition_evidence_confirmed"] = False
         evidence["return_cogs_profit_application_eligibility_confirmed"] = False
         evidence["return_cogs_profit_application_commit_confirmed"] = False
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(
+            result["stage"],
+            PeriodProfitReturnCogsBlockerStageService.ACCOUNTING_RECOGNITION,
+        )
+
+    def test_blocked_recognition_status_cannot_advance_on_true_boolean(self):
+        evidence = self._base()
+        evidence["return_cogs_accounting_recognition_status"] = (
+            "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_BLOCKED"
+        )
         result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
         self.assertEqual(
             result["stage"],
@@ -75,10 +118,35 @@ class PeriodProfitReturnCogsBlockerStageServiceTests(unittest.TestCase):
             PeriodProfitReturnCogsBlockerStageService.APPLICATION_AUTHORIZATION,
         )
 
+    def test_blocked_application_status_cannot_advance_on_true_boolean(self):
+        evidence = self._base()
+        evidence["return_cogs_profit_application_eligibility_status"] = (
+            "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_BLOCKED"
+        )
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(
+            result["stage"],
+            PeriodProfitReturnCogsBlockerStageService.APPLICATION_AUTHORIZATION,
+        )
+
     def test_commit_precedes_final_application(self):
         evidence = self._base()
+        evidence["return_cogs_profit_application_commit_status"] = (
+            "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_READY"
+        )
         evidence["return_cogs_profit_application_commit_confirmed"] = False
         evidence["return_cogs_profit_applied"] = False
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(
+            result["stage"],
+            PeriodProfitReturnCogsBlockerStageService.APPLICATION_COMMIT,
+        )
+
+    def test_true_commit_boolean_without_committed_status_stays_at_commit(self):
+        evidence = self._base()
+        evidence["return_cogs_profit_application_commit_status"] = (
+            "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_READY"
+        )
         result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
         self.assertEqual(
             result["stage"],
@@ -118,6 +186,13 @@ class PeriodProfitReturnCogsBlockerStageServiceTests(unittest.TestCase):
         ]
         result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
         self.assertEqual(result["stage"], PeriodProfitReturnCogsBlockerStageService.INVENTORY)
+
+    def test_malformed_candidate_row_is_inventory_blocked(self):
+        evidence = self._base()
+        evidence["candidate_records"] = [None]
+        result = PeriodProfitReturnCogsBlockerStageService.resolve(evidence)
+        self.assertEqual(result["stage"], PeriodProfitReturnCogsBlockerStageService.INVENTORY)
+        self.assertTrue(result["blocker_present"])
 
     def test_invalid_evidence_fails_closed_without_inventing_a_financial_stage(self):
         result = PeriodProfitReturnCogsBlockerStageService.resolve(None)

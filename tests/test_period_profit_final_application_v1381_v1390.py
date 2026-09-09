@@ -38,19 +38,35 @@ def _summary(tax=60.0, profit=340.0):
 def _committed_evidence(amount=100.0):
     return {
         "error": False,
+        "accounting_attribution_evidence_status": (
+            "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"
+        ),
+        "accounting_attribution_evidence_confirmed": True,
+        "return_cogs_accounting_recognition_status": (
+            "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
+        ),
+        "return_cogs_accounting_recognition_evidence_confirmed": True,
+        "return_cogs_profit_application_eligibility_status": (
+            "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"
+        ),
         "return_cogs_profit_application_eligibility_confirmed": True,
         "return_cogs_profit_application_eligible_amount": amount,
+        "return_cogs_profit_application_commit_status": (
+            "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"
+        ),
         "return_cogs_profit_application_commit_confirmed": True,
         "return_cogs_profit_application_commit_records": [
             {
                 "error": False,
                 "application_commit_confirmed": True,
                 "recognition_history_id": 11,
+                "authorization_history_id": 21,
                 "return_id": "ret-1",
                 "posting_number": "post-1",
                 "sku": "42",
                 "committed_amount": amount,
                 "currency": "RUB",
+                "recovery_accounting_date": "2026-09-04",
             }
         ],
         "return_cogs_profit_applied": False,
@@ -107,6 +123,9 @@ def test_v1384_missing_commit_does_not_infer_zero_adjustment():
     service = PeriodProfitReturnCogsFinalApplicationService(TaxService(), _policy("NONE"))
     evidence = _committed_evidence()
     evidence["return_cogs_profit_application_commit_confirmed"] = False
+    evidence["return_cogs_profit_application_commit_status"] = (
+        "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_READY"
+    )
     evidence["return_cogs_profit_application_commit_records"] = []
     result = service.apply(_summary(tax=0.0, profit=400.0), evidence)
 
@@ -212,6 +231,9 @@ def test_v1390_application_requires_durable_commit_not_merely_eligibility():
     service = PeriodProfitReturnCogsFinalApplicationService(TaxService(), _policy("NONE"))
     evidence = _committed_evidence()
     evidence["return_cogs_profit_application_commit_confirmed"] = False
+    evidence["return_cogs_profit_application_commit_status"] = (
+        "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_READY"
+    )
     evidence["return_cogs_profit_application_commit_records"] = []
     evidence["return_cogs_profit_application_eligibility_confirmed"] = True
     result = service.apply(_summary(tax=0.0, profit=400.0), evidence)
