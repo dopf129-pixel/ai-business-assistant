@@ -46,11 +46,43 @@ def _committed_evidence(amount=100.0):
             "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
         ),
         "return_cogs_accounting_recognition_evidence_confirmed": True,
+        "return_cogs_accounting_recognition_evidence_records": [
+            {
+                "error": False,
+                "status": "RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
+                "accounting_recognition_confirmed": True,
+                "recognition_state": "COGS_RECOVERY_RECOGNIZED",
+                "history_id": 11,
+                "return_id": "ret-1",
+                "posting_number": "post-1",
+                "sku": "42",
+                "recognized_amount": amount,
+                "currency": "RUB",
+                "recovery_accounting_date": "2026-09-04",
+            }
+        ],
         "return_cogs_profit_application_eligibility_status": (
             "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"
         ),
         "return_cogs_profit_application_eligibility_confirmed": True,
         "return_cogs_profit_application_eligible_amount": amount,
+        "return_cogs_profit_application_authorization_records": [
+            {
+                "error": False,
+                "status": "RETURN_COGS_PROFIT_APPLICATION_AUTHORIZATION_READY",
+                "application_authorization_confirmed": True,
+                "application_state": "PROFIT_APPLICATION_AUTHORIZED",
+                "application_already_applied": False,
+                "history_id": 21,
+                "recognition_history_id": 11,
+                "return_id": "ret-1",
+                "posting_number": "post-1",
+                "sku": "42",
+                "authorized_amount": amount,
+                "currency": "RUB",
+                "recovery_accounting_date": "2026-09-04",
+            }
+        ],
         "return_cogs_profit_application_commit_status": (
             "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"
         ),
@@ -86,11 +118,13 @@ def test_v1381_none_tax_applies_committed_return_cogs_once_read_only():
         assert result["error"] is False
         assert result["return_cogs_profit_applied"] is True
         assert result["return_cogs_profit_application_amount"] == 100.0
+        assert result["return_cogs_final_application_chain_bound"] is True
         assert result["summary"]["period_profit_before_return_cogs"] == 400.0
         assert result["summary"]["tax"] == 0.0
         assert result["summary"]["profit"] == 500.0
         assert result["summary"]["margin_percent"] == 50.0
         assert result["evidence"]["profit_adjustment_allowed"] is True
+        assert result["evidence"]["return_cogs_final_application_chain_bound"] is True
         assert result["read_only"] is True
         assert result["executed"] is False
 
