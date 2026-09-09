@@ -66,8 +66,14 @@ from services.period_profit_return_cogs_application_eligibility_service import (
 from services.period_profit_return_cogs_application_commit_readiness_service import (
     PeriodProfitReturnCogsApplicationCommitReadinessService,
 )
+from services.period_profit_return_cogs_commit_integrity_service import (
+    PeriodProfitReturnCogsCommitIntegrityService,
+)
 from services.period_profit_return_cogs_final_application_service import (
     PeriodProfitReturnCogsFinalApplicationService,
+)
+from services.period_profit_return_cogs_final_integrity_service import (
+    PeriodProfitReturnCogsFinalIntegrityService,
 )
 from services.period_profit_return_sale_lineage_evidence_service import (
     PeriodProfitReturnSaleLineageEvidenceService,
@@ -165,11 +171,14 @@ def create_period_profit_query(mapping_registry=None):
         application_return_cogs_evidence,
         application_commit_repository,
     )
+    integrity_return_cogs_evidence = PeriodProfitReturnCogsCommitIntegrityService(
+        application_commit_return_cogs_evidence
+    )
     base_query = PeriodProfitQueryService(
         summary_service=summary_service,
         product_provider=lambda: _load_period_profit_products(product_service),
         return_evidence_service=PeriodProfitReturnEvidenceService(ozon_client),
-        return_cogs_recovery_evidence_service=application_commit_return_cogs_evidence,
+        return_cogs_recovery_evidence_service=integrity_return_cogs_evidence,
         external_expense_evidence_service=(
             PeriodProfitExternalExpenseEvidenceService(expense_repository)
         ),
@@ -178,12 +187,15 @@ def create_period_profit_query(mapping_registry=None):
         authorized_storage_mapping=mappings.get("STORAGE"),
         mapping_observability_service=observability,
     )
-    return PeriodProfitFinalApplicationQueryService(
-        base_query,
+    final_application_service = PeriodProfitReturnCogsFinalIntegrityService(
         PeriodProfitReturnCogsFinalApplicationService(
             tax_service,
             tax_policy,
-        ),
+        )
+    )
+    return PeriodProfitFinalApplicationQueryService(
+        base_query,
+        final_application_service,
     )
 
 
