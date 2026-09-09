@@ -1,6 +1,6 @@
 # Period Profit Return COGS inventory warning
 
-Production basis: `ae2e64eec92726a51c28f0d7978645b5ac1ba319`.
+Production basis: `6fb22652abc1eaf4737eb5c3ffe38cb00ebb9c8a`.
 
 ## Decision
 
@@ -54,6 +54,19 @@ Once ready saleable inventory recovery is already proven, the diagnostic advance
 4. exact-once commit;
 5. final seller-facing application.
 
+For the accounting-attribution stage, production now exposes exact per-candidate diagnostics from the already-read evidence rows. The compact warning binds accounting evidence back to the exact `return_id / posting_number / sku` identity and reuses the candidate quantity only when that identity matches. It distinguishes:
+
+- missing accounting attribution;
+- exact-identity conflict in accounting evidence;
+- accounting evidence that is unavailable or invalid;
+- a recovery accounting date that is not confirmed inside the requested period;
+- an unconfirmed compensation accounting mode;
+- compensation double-count clearance that is not explicitly true.
+
+The accounting rows are sorted by exact identity before presentation, at most three are expanded, and an additional-count suffix is used for larger sets. Missing quantity remains `неизвестно`, not zero. A `None`/unknown double-count clearance remains unconfirmed and cannot advance the diagnostic to recognition, authorization, or commit.
+
+This accounting diagnostic is not an input surface. It does not let the seller write accounting attribution, compensation treatment, recognition, authorization, or commit facts. It only explains the existing fail-closed state already returned by the pipeline.
+
 This is presentation-only observability. The diagnostic does not write accounting evidence, authorize anything, commit anything, or change Period Profit arithmetic. A commit-ready result is still described as read-only and not applied until commit/final-application evidence proves that state.
 
 ## Financial invariants
@@ -64,6 +77,8 @@ This inventory confirmation and blocker observability do not weaken the Period P
 - `ReturnedToOzon` is not mapped to `SALEABLE_RESTORED`.
 - `unknown != zero`.
 - Non-ready inventory evidence never becomes presentation-authoritative merely because it contains a recognized state string.
+- Missing/unknown accounting facts are not auto-filled, coerced to false-as-proof, or treated as zero amounts.
+- Exact accounting diagnostics consume repository evidence only; they do not create accounting facts or promote readiness gates.
 - No candidate amount is included until the full no-double-counting -> recognition -> authorization -> commit chain succeeds.
 - Seller-facing Period Profit remains `read_only=True` and `executed=False`.
 - The local inventory confirmation response itself is marked `read_only_ozon=True` and does not execute a Period Profit adjustment.
@@ -88,7 +103,9 @@ Automatically provable evidence already present in the pipeline includes return-
 
 The missing saleable-inventory fact was not an Ozon-derived semantic defect: `ReturnedToOzon` proves only that Ozon has the return, not that sellable inventory was restored. The repository already supported append-only local evidence but Telegram had no seller-facing way to provide it. That missing local input path was fixed by the seller inventory confirmation package.
 
-The blocker-diagnostics package then closed a presentation gap by exposing the first fail-closed stage. The inventory-presentation proof hardening package closes a narrower integrity gap: presentation code now checks evidence readiness, not just a state string, before suppressing or advancing the inventory blocker.
+The blocker-diagnostics package then closed a presentation gap by exposing the first fail-closed stage. The inventory-presentation proof hardening package closed a narrower integrity gap by requiring evidence readiness, not just a state string, before suppressing or advancing the inventory blocker.
+
+The exact accounting-diagnostics package closes the next presentation gap. Accounting evidence and readiness gates already existed and remained correctly fail-closed, but the seller-facing warning collapsed all accounting failures into one generic sentence. Production now reports the exact candidate identity and the specific accounting blocker when that detail is already present in read-only evidence. No new accounting write path was introduced.
 
 Downstream recovery-period attribution, compensation accounting treatment, compensation double-count clearance, accounting recognition, profit-application authorization, and commit evidence remain explicit accounting/business facts and stay fail-closed until independently confirmed.
 
@@ -109,6 +126,10 @@ Regression tests prove that:
 - conflicted `NON_SALEABLE` evidence remains unresolved and visible;
 - unavailable `SALEABLE_RESTORED` evidence remains at the inventory blocker and does not advance to accounting;
 - after ready inventory proof, diagnostics stop at the first unproven accounting/recognition/authorization/commit gate;
+- missing accounting attribution exposes exact return/posting/SKU identity and preserves unknown quantity;
+- accounting evidence outside the requested period exposes the period-attribution reason for the exact candidate;
+- unknown compensation double-count clearance remains explicitly unconfirmed and does not advance to later gates;
+- exact accounting blocker rows are rendered deterministically, with at most three expanded identities and an additional-count suffix;
 - commit-ready evidence is still presented as read-only and not as applied profit.
 
 ## SHA-bound verification evidence
@@ -123,7 +144,7 @@ Seller inventory confirmation package:
 
 - feature head `f91bd6f847405859aaba643d37b4f03fc6529ef9` — Verify #1634 passed on exact push SHA; full suite passed;
 - actual PR #473 synthetic merge `75fe63f6ef6ac1f6a868215ae053054aa0afa9ad` — Verify #1635 passed with 2,384 tests, 0 failures; artifact `verification-75fe63f6ef6ac1f6a868215ae053054aa0afa9ad` recorded `ref=refs/pull/473/merge`, `business_execution=false`, and `ozon_mutation=false`;
-- squash production main `c9efce6c51cf8f890a8e584f64da6c4d6bac3f9f` — Verify #1636 passed on exact `main` push SHA with the full test suite.
+- squash production main `c9efce6c51cf8f890a8e584f64da6c4d6bac3f9` — Verify #1636 passed on exact `main` push SHA with the full test suite.
 
 Read-only blocker diagnostics package:
 
@@ -136,5 +157,11 @@ Inventory presentation proof hardening package:
 - feature head `12e8c7b2237133703aecd4ab8cb46ed9e4089891` — Verify #1653 passed on the exact push SHA;
 - actual PR #477 synthetic merge `b25a52758d3998a6a4de10f74e5e714367ff12cb` — Verify #1654 passed; SHA-bound artifact `verification-b25a52758d3998a6a4de10f74e5e714367ff12cb` identifies the PR merge revision;
 - squash production main `ae2e64eec92726a51c28f0d7978645b5ac1ba319` — Verify #1655 passed on the exact `main` push SHA with compile, deterministic schema, full test suite, SHA-bound report, and artifact upload successful.
+
+Exact accounting blocker diagnostics package:
+
+- feature head `b3a83bbc92f561b6945f2e387088d270deb906af` — Verify #1663 passed on the exact push SHA with compile, deterministic schema, full test suite, SHA-bound report, and artifact upload successful;
+- actual PR #479 synthetic merge `865a1cda86824fe935521c6001cf36d4f0611f44` — Verify #1664 passed; SHA-bound artifact `verification-865a1cda86824fe935521c6001cf36d4f0611f44` identifies the PR merge revision;
+- squash production main `6fb22652abc1eaf4737eb5c3ffe38cb00ebb9c8a` — Verify #1665 passed on the exact `main` push SHA with compile, deterministic schema, full test suite, SHA-bound report, and artifact upload successful.
 
 Verification evidence is SHA-bound and is never transferred between revisions.
