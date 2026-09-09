@@ -162,7 +162,7 @@ def test_v1375_repository_failure_fails_closed_without_profit_change():
     assert result["profit_adjustment_allowed"] is False
 
 
-def test_v1376_commit_repository_is_atomic_exact_once_and_first_writer_wins(tmp_path, monkeypatch):
+def test_v1376_commit_repository_is_atomic_exact_once_and_conflicting_replay_fails_closed(tmp_path, monkeypatch):
     db_path = tmp_path / "commit.db"
     monkeypatch.setattr(repository_module, "DB_NAME", str(db_path))
     repository = ReturnCogsProfitApplicationCommitRepository()
@@ -190,11 +190,12 @@ def test_v1376_commit_repository_is_atomic_exact_once_and_first_writer_wins(tmp_
 
     assert first["status"] == "RETURN_COGS_PROFIT_APPLICATION_COMMIT_RECORDED"
     assert first["application_already_committed"] is False
-    assert second["status"] == "RETURN_COGS_PROFIT_APPLICATION_ALREADY_COMMITTED"
-    assert second["application_already_committed"] is True
-    assert second["return_id"] == IDENTITY[0]
-    assert second["committed_amount"] == 150.0
-    assert second["authorization_history_id"] == AUTHORIZATION_HISTORY_ID
+    assert second["error"] is True
+    assert second["code"] == "RETURN_COGS_PROFIT_APPLICATION_COMMIT_REPLAY_CONFLICT"
+    persisted = repository.get_application_commit(RECOGNITION_HISTORY_ID)
+    assert persisted["return_id"] == IDENTITY[0]
+    assert persisted["committed_amount"] == 150.0
+    assert persisted["authorization_history_id"] == AUTHORIZATION_HISTORY_ID
 
 
 def test_v1377_commit_ledger_is_append_only_for_update_and_delete(tmp_path, monkeypatch):
