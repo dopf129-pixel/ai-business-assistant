@@ -38,6 +38,9 @@ def _ready_base():
         "recovery_period_attribution_evidence_confirmed": True,
         "compensation_accounting_treatment_evidence_confirmed": True,
         "compensation_double_count_clear": True,
+        "accounting_attribution_evidence_status": (
+            "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"
+        ),
         "accounting_attribution_evidence_confirmed": True,
         "originating_sale_quantity_confirmed": False,
         "originating_sale_quantity_gate_promoted": False,
@@ -66,6 +69,7 @@ def test_v1321_complete_independent_evidence_promotes_readiness_gates_only():
     assert result["originating_sale_quantity_gate_promoted"] is True
     assert result["recovery_period_attribution_confirmed"] is True
     assert result["compensation_accounting_treatment_confirmed"] is True
+    assert result["return_cogs_accounting_evidence_status_confirmed"] is True
     assert result["return_cogs_accounting_readiness_confirmed"] is True
     assert result["return_cogs_accounting_readiness_blockers"] == []
     assert result["period_cogs_recovery_confirmed"] is False
@@ -152,6 +156,7 @@ def test_v1329_empty_candidate_set_never_becomes_accounting_ready():
     assert result["originating_sale_quantity_confirmed"] is False
     assert result["recovery_period_attribution_confirmed"] is False
     assert result["compensation_accounting_treatment_confirmed"] is False
+    assert result["return_cogs_accounting_evidence_status_confirmed"] is False
     assert result["return_cogs_accounting_readiness_confirmed"] is False
     assert "RETURN_COGS_CANDIDATES_REQUIRED" in result[
         "return_cogs_accounting_readiness_blockers"
@@ -167,6 +172,7 @@ def test_v1330_malformed_or_exceptional_base_fails_closed_without_profit_change(
         assert result["originating_sale_quantity_confirmed"] is False
         assert result["recovery_period_attribution_confirmed"] is False
         assert result["compensation_accounting_treatment_confirmed"] is False
+        assert result["return_cogs_accounting_evidence_status_confirmed"] is False
         assert result["return_cogs_accounting_readiness_confirmed"] is False
         assert result["period_cogs_recovery_confirmed"] is False
         assert result["accounting_cogs_recovery_confirmed"] is False
