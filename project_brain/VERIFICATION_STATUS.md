@@ -4,47 +4,55 @@ Date: 2026-09-09
 
 ## Latest verified product baseline
 
-`6e08187ae7fde85f0985fd0082876c4c0f1f2574`
+`2959fa0173d4a69757bd02092f0c765fcc1577ad`
 
-Package: `Return COGS downstream commit/final integrity gates`.
+Package: `Return COGS controlled commit write and ledger integrity`.
 
 ### Exact feature head
 
-- SHA `80f697bfb853175fd0ea45d7f145298c78dae140`;
-- Verify #1733 succeeded;
-- artifact `verification-80f697bfb853175fd0ea45d7f145298c78dae140`;
-- digest `sha256:86fb9a5530b0a72fcd7cfd803b126201d32bd31d2e6516fb1f0242bbded5f3fe`.
+- SHA `1397ebef0fcb1cda17ace6ffde4e2fe2053a1ff0`;
+- Verify #1747 succeeded;
+- full suite: 2400 passed;
+- artifact `verification-1397ebef0fcb1cda17ace6ffde4e2fe2053a1ff0`;
+- digest `sha256:ef97392731f368d39a2947bc57910034fd65ef693b7f826d94bfda67b7dd29d0`.
 
 ### PR integration checkout
 
-- PR #491;
-- synthetic merge SHA `bfdf3eb0cb430f5303f44cd48667f73261764d87`;
-- Verify #1734 succeeded;
-- artifact `verification-bfdf3eb0cb430f5303f44cd48667f73261764d87`;
-- digest `sha256:29dc3f9183c50035e097b7a54e4ed4c178db8f5d345014fb27768ee483ae093f`.
+- PR #493;
+- synthetic merge SHA `76bc066c671ef33139eabf8728da03f72e0f6c1f`;
+- Verify #1748 succeeded;
+- full suite: 2400 passed;
+- artifact `verification-76bc066c671ef33139eabf8728da03f72e0f6c1f`;
+- digest `sha256:348b83724fa70eccaae433487bf34cccd89c3d316fbaac2e77bf773e0303cd4b`.
 
 ### Exact production main
 
-- squash SHA `6e08187ae7fde85f0985fd0082876c4c0f1f2574`;
-- Verify #1735 succeeded;
-- artifact `verification-6e08187ae7fde85f0985fd0082876c4c0f1f2574`;
-- digest `sha256:fde356adf84ca4cbb80b1f74d683ee8aadc310cec545259e689a47c9c8f8bd25`.
+- squash SHA `2959fa0173d4a69757bd02092f0c765fcc1577ad`;
+- Verify #1749 succeeded;
+- full suite: 2400 passed;
+- artifact `verification-2959fa0173d4a69757bd02092f0c765fcc1577ad`;
+- digest `sha256:3a0b8ca62ba264d7879d028b342ca5695aff55df29c00ef4d54b7a84d62ab588`.
 
 ## Product behavior verified
 
-Seller-facing Period Profit keeps the Return COGS chain fail-closed from candidate evidence through inventory recovery, accounting attribution/compensation clearance, accounting recognition, application authorization, exact-once commit, and final read-only application.
+The seller-facing Return COGS chain remains fail-closed through inventory recovery, accounting attribution, recognition, authorization, exact-once commit and final read-only Period Profit application.
 
-The production chain now includes separate downstream integrity wrappers. Commit integrity rechecks canonical eligibility, complete candidate coverage, recognition and authorization row state, finite RUB amounts, accounting dates, monetary-authority exclusion, monetary-authority non-overlap, compensation non-overlap, and durable commit binding. Final integrity requires exact candidate → recognition → authorization → commit identity-set equality before the existing final calculation can run.
+The controlled accounting-side commit boundary is now hardened as well. `commit_current_authorization(...)` opens `BEGIN IMMEDIATE`, re-reads the latest recognition and authorization evidence inside the same transaction, rejects stale/revoked/applied or mismatched evidence, derives amount/date/currency from those durable rows, and only then appends the commit ledger.
 
-NaN and Infinity are invalid monetary evidence. A downstream subset cannot be accepted merely because its own aggregate amount reconciles. A durable commit row whose `error` field is unknown is invalid. Missing monetary-authority or compensation non-overlap proof remains unconfirmed.
+Exact semantic retries are idempotent. Materially changed replays fail closed instead of silently returning the first row. Authorization history IDs cannot be reused across another recognition. NaN and Infinity are invalid monetary evidence.
 
-Successful final application can expose `return_cogs_final_application_chain_bound=True`, `return_cogs_final_candidate_coverage_confirmed=True`, and `return_cogs_final_monetary_authority_reconfirmed=True`. These are read-only evidence flags, not mutation authority.
+A separate read-only ledger audit reconciles durable commits against current recognition and authorization history and surfaces stale/revoked/orphan/mismatched evidence without mutating history.
 
 The historical control warning of 8 unresolved units/returns remains distinct from the 785 exact raw Returns API records. Repository evidence still does not prove the identities of that historical set of 8 and no identity list is fabricated.
+
+## Failed-revision evidence
+
+Earlier intermediate feature revisions in this package failed the legacy first-writer replay test. Those SHAs remain failed permanently and are not reused as verification evidence. The verified package baseline starts at the final green feature head listed above.
 
 ## Safety invariants
 
 - Ozon remains read-only.
+- No seller-facing accounting/commit write control is introduced.
 - `ReturnedToOzon` is candidate evidence only and is not `SALEABLE_RESTORED`.
 - `unknown != zero`.
 - No guessed `quantity × unit cost` Return COGS derivation is permitted.
