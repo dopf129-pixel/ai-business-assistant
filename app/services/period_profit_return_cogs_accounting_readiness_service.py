@@ -7,6 +7,7 @@ class PeriodProfitReturnCogsAccountingReadinessService:
         "historical_cost_basis_confirmed",
         "saleable_inventory_recovery_confirmed",
     )
+    ACCOUNTING_EVIDENCE_READY = "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"
 
     def __init__(self, base_service):
         self.base_service = base_service
@@ -59,6 +60,11 @@ class PeriodProfitReturnCogsAccountingReadinessService:
             has_candidates
             and base.get("accounting_attribution_evidence_confirmed") is True
         )
+        accounting_evidence_status_confirmed = (
+            has_candidates
+            and str(base.get("accounting_attribution_evidence_status") or "").strip().upper()
+            == self.ACCOUNTING_EVIDENCE_READY
+        )
 
         quantity_gate = quantity_source
         period_gate = period_source
@@ -71,6 +77,7 @@ class PeriodProfitReturnCogsAccountingReadinessService:
             and period_gate
             and compensation_gate
             and accounting_attribution_source
+            and accounting_evidence_status_confirmed
         )
 
         blockers = []
@@ -89,12 +96,17 @@ class PeriodProfitReturnCogsAccountingReadinessService:
             blockers.append("COMPENSATION_DOUBLE_COUNT_CLEARANCE_REQUIRED")
         if not accounting_attribution_source:
             blockers.append("ACCOUNTING_ATTRIBUTION_EVIDENCE_REQUIRED")
+        if not accounting_evidence_status_confirmed:
+            blockers.append("ACCOUNTING_ATTRIBUTION_EVIDENCE_READY_STATUS_REQUIRED")
 
         result = dict(base)
         result["originating_sale_quantity_confirmed"] = quantity_gate
         result["originating_sale_quantity_gate_promoted"] = quantity_gate
         result["recovery_period_attribution_confirmed"] = period_gate
         result["compensation_accounting_treatment_confirmed"] = compensation_gate
+        result["return_cogs_accounting_evidence_status_confirmed"] = (
+            accounting_evidence_status_confirmed
+        )
         result["return_cogs_accounting_readiness_confirmed"] = readiness
         result["return_cogs_accounting_readiness_status"] = (
             "RETURN_COGS_ACCOUNTING_READINESS_READY"
@@ -103,8 +115,6 @@ class PeriodProfitReturnCogsAccountingReadinessService:
         )
         result["return_cogs_accounting_readiness_blockers"] = blockers
 
-        # v1321-v1330 promotes evidence readiness only. Monetary recovery and
-        # Period Profit adjustment remain a separate, later accounting contract.
         result["period_cogs_recovery_confirmed"] = False
         result["accounting_cogs_recovery_confirmed"] = False
         result["confirmed_cogs_recovery_amount"] = 0.0
@@ -125,6 +135,7 @@ class PeriodProfitReturnCogsAccountingReadinessService:
             "originating_sale_quantity_gate_promoted": False,
             "recovery_period_attribution_confirmed": False,
             "compensation_accounting_treatment_confirmed": False,
+            "return_cogs_accounting_evidence_status_confirmed": False,
             "return_cogs_accounting_readiness_confirmed": False,
             "return_cogs_accounting_readiness_status": (
                 "RETURN_COGS_ACCOUNTING_READINESS_UNAVAILABLE"
