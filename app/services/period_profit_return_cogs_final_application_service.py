@@ -10,6 +10,10 @@ class PeriodProfitReturnCogsFinalApplicationService:
     RECOGNITION_READY = "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
     APPLICATION_READY = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"
     COMMIT_CONFIRMED = "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"
+    RECOGNITION_RECORD_READY = "RETURN_COGS_ACCOUNTING_RECOGNITION_READY"
+    RECOGNIZED = "COGS_RECOVERY_RECOGNIZED"
+    AUTHORIZATION_RECORD_READY = "RETURN_COGS_PROFIT_APPLICATION_AUTHORIZATION_READY"
+    AUTHORIZED = "PROFIT_APPLICATION_AUTHORIZED"
 
     def __init__(self, tax_service, tax_policy_result):
         self.tax_service = tax_service
@@ -48,33 +52,13 @@ class PeriodProfitReturnCogsFinalApplicationService:
         if not isinstance(records, list) or not records:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_RECORDS_REQUIRED")
 
-        committed_total = 0.0
-        seen_recognitions = set()
-        for record in records:
-            if not isinstance(record, dict) or record.get("application_commit_confirmed") is not True:
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_INVALID")
-            recognition_id = self._positive_int(record.get("recognition_history_id"))
-            authorization_id = self._positive_int(record.get("authorization_history_id"))
-            amount = self._money(record.get("committed_amount"))
-            currency = self._text(record.get("currency")).upper()
-            accounting_date = self._text(record.get("recovery_accounting_date"))
-            identity = self._identity(record)
-            if recognition_id is None or recognition_id in seen_recognitions:
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_VERSION_INVALID")
-            if authorization_id is None:
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_VERSION_INVALID")
-            if identity is None:
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_IDENTITY_INVALID")
-            if not accounting_date:
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_DATE_INVALID")
-            if amount is None or currency != "RUB":
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
-            seen_recognitions.add(recognition_id)
-            committed_total += amount
-            if not isfinite(committed_total):
-                return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
+        chain = self._validate_chain_records(evidence, records)
+        if chain.get("error") is True:
+            return self._unavailable(chain.get("code"))
 
-        committed_total = round(committed_total, 2)
+        committed_total = chain.get("committed_total")
+        if committed_total is None:
+            return self._unavailable("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
         eligible_total = self._money(evidence.get("return_cogs_profit_application_eligible_amount"))
         if eligible_total is None or abs(committed_total - eligible_total) > 0.01:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_TOTAL_MISMATCH")
@@ -126,6 +110,7 @@ class PeriodProfitReturnCogsFinalApplicationService:
         adjusted_evidence = dict(evidence)
         adjusted_evidence["return_cogs_profit_applied"] = True
         adjusted_evidence["return_cogs_profit_application_amount"] = committed_total
+        adjusted_evidence["return_cogs_final_application_chain_bound"] = True
         adjusted_evidence["profit_adjustment_allowed"] = True
         adjusted_evidence["automatic_recovery_allowed"] = False
         adjusted_evidence["compensation_profit_adjustment_allowed"] = False
@@ -139,9 +124,126 @@ class PeriodProfitReturnCogsFinalApplicationService:
             "evidence": adjusted_evidence,
             "return_cogs_profit_applied": True,
             "return_cogs_profit_application_amount": committed_total,
+            "return_cogs_final_application_chain_bound": True,
             "tax_recomputed": True,
             "read_only": True,
             "executed": False,
+        }
+
+    def _validate_chain_records(self, evidence, commit_records):
+        recognition_records = evidence.get("return_cogs_accounting_recognition_evidence_records")
+        authorization_records = evidence.get("return_cogs_profit_application_authorization_records")
+        if not isinstance(recognition_records, list) or not recognition_records:
+            return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_RECORDS_REQUIRED")
+        if not isinstance(authorization_records, list) or not authorization_records:
+            return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_RECORDS_REQUIRED")
+
+        recognition_index = {}
+        for record in recognition_records:
+            if not isinstance(record, dict):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_RECORD_INVALID")
+            history_id = self._positive_int(record.get("history_id"))
+            if history_id is None or history_id in recognition_index:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_VERSION_INVALID")
+            if record.get("error") is not False:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_RECORD_INVALID")
+            if self._text(record.get("status")).upper() != self.RECOGNITION_RECORD_READY:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_RECORD_STATUS_REQUIRED")
+            if record.get("accounting_recognition_confirmed") is not True:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_RECORD_CONFIRMATION_REQUIRED")
+            if self._text(record.get("recognition_state")).upper() != self.RECOGNIZED:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_STATE_REQUIRED")
+            if self._identity(record) is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_IDENTITY_INVALID")
+            if self._money(record.get("recognized_amount")) is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_AMOUNT_INVALID")
+            if self._text(record.get("currency")).upper() != "RUB":
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_CURRENCY_INVALID")
+            if not self._text(record.get("recovery_accounting_date")):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_DATE_INVALID")
+            recognition_index[history_id] = record
+
+        authorization_index = {}
+        for record in authorization_records:
+            if not isinstance(record, dict):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_RECORD_INVALID")
+            history_id = self._positive_int(record.get("history_id"))
+            if history_id is None or history_id in authorization_index:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_VERSION_INVALID")
+            if record.get("error") is not False:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_RECORD_INVALID")
+            if self._text(record.get("status")).upper() != self.AUTHORIZATION_RECORD_READY:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_RECORD_STATUS_REQUIRED")
+            if record.get("application_authorization_confirmed") is not True:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_CONFIRMATION_REQUIRED")
+            if self._text(record.get("application_state")).upper() != self.AUTHORIZED:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_STATE_REQUIRED")
+            if record.get("application_already_applied") is not False:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_ALREADY_APPLIED_INVALID")
+            if self._identity(record) is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_IDENTITY_INVALID")
+            if self._money(record.get("authorized_amount")) is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_AMOUNT_INVALID")
+            if self._text(record.get("currency")).upper() != "RUB":
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_CURRENCY_INVALID")
+            if not self._text(record.get("recovery_accounting_date")):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_DATE_INVALID")
+            authorization_index[history_id] = record
+
+        committed_total = 0.0
+        seen_recognitions = set()
+        seen_authorizations = set()
+        for record in commit_records:
+            if not isinstance(record, dict) or record.get("application_commit_confirmed") is not True:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_INVALID")
+            recognition_id = self._positive_int(record.get("recognition_history_id"))
+            authorization_id = self._positive_int(record.get("authorization_history_id"))
+            amount = self._money(record.get("committed_amount"))
+            currency = self._text(record.get("currency")).upper()
+            accounting_date = self._text(record.get("recovery_accounting_date"))
+            identity = self._identity(record)
+            if recognition_id is None or recognition_id in seen_recognitions:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_VERSION_INVALID")
+            if authorization_id is None or authorization_id in seen_authorizations:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_VERSION_INVALID")
+            recognition = recognition_index.get(recognition_id)
+            authorization = authorization_index.get(authorization_id)
+            if recognition is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_RECOGNITION_BINDING_REQUIRED")
+            if authorization is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_AUTHORIZATION_BINDING_REQUIRED")
+            if identity is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_IDENTITY_INVALID")
+            if identity != self._identity(recognition) or identity != self._identity(authorization):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_IDENTITY_MISMATCH")
+            if self._positive_int(authorization.get("recognition_history_id")) != recognition_id:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_VERSION_MISMATCH")
+            if accounting_date != self._text(recognition.get("recovery_accounting_date")):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_DATE_MISMATCH")
+            if accounting_date != self._text(authorization.get("recovery_accounting_date")):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_DATE_MISMATCH")
+            if amount is None or currency != "RUB":
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
+            recognized_amount = self._money(recognition.get("recognized_amount"))
+            authorized_amount = self._money(authorization.get("authorized_amount"))
+            if recognized_amount is None or authorized_amount is None:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_AMOUNT_INVALID")
+            if abs(amount - recognized_amount) > 0.01 or abs(amount - authorized_amount) > 0.01:
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_CHAIN_AMOUNT_MISMATCH")
+            seen_recognitions.add(recognition_id)
+            seen_authorizations.add(authorization_id)
+            committed_total += amount
+            if not isfinite(committed_total):
+                return self._chain_error("RETURN_COGS_FINAL_APPLICATION_COMMIT_AMOUNT_INVALID")
+
+        if seen_recognitions != set(recognition_index):
+            return self._chain_error("RETURN_COGS_FINAL_APPLICATION_RECOGNITION_COVERAGE_MISMATCH")
+        if seen_authorizations != set(authorization_index):
+            return self._chain_error("RETURN_COGS_FINAL_APPLICATION_AUTHORIZATION_COVERAGE_MISMATCH")
+
+        return {
+            "error": False,
+            "committed_total": round(committed_total, 2),
         }
 
     def _not_applied(self, summary, evidence):
@@ -237,6 +339,10 @@ class PeriodProfitReturnCogsFinalApplicationService:
             return 0.0
         margin = profit / revenue * 100.0
         return round(margin, 2) if isfinite(margin) else None
+
+    @staticmethod
+    def _chain_error(code):
+        return {"error": True, "code": code}
 
     @staticmethod
     def _unavailable(code):
