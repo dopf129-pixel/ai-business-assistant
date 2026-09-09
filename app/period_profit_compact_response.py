@@ -190,6 +190,9 @@ def _return_cogs_diagnostic(evidence):
         and evidence.get("return_cogs_profit_application_eligibility_confirmed")
         is not True
     ):
+        exact = _application_authorization_diagnostic(evidence)
+        if exact is not None:
+            return exact
         return (
             "🔒 Return COGS пока не применён: отдельная авторизация применения "
             "к прибыли не подтверждена."
@@ -199,6 +202,9 @@ def _return_cogs_diagnostic(evidence):
         "return_cogs_profit_application_commit_confirmed" in evidence
         and evidence.get("return_cogs_profit_application_commit_confirmed") is not True
     ):
+        exact = _application_commit_diagnostic(evidence)
+        if exact is not None:
+            return exact
         if evidence.get("return_cogs_profit_application_commit_ready") is True:
             return (
                 "🔒 Return COGS доказан до стадии commit, но применение к прибыли "
@@ -216,7 +222,6 @@ def _return_cogs_diagnostic(evidence):
 
 
 def _accounting_attribution_diagnostic(evidence):
-    """Render exact accounting blockers without inventing missing accounting facts."""
     accounting_records = evidence.get("accounting_attribution_evidence_records")
     candidates = evidence.get("candidate_records")
     if not isinstance(accounting_records, list) or not accounting_records:
@@ -282,7 +287,6 @@ def _accounting_attribution_reason(row):
 
 
 def _accounting_recognition_diagnostic(evidence):
-    """Render exact recognition blockers from existing evidence only."""
     candidates = evidence.get("candidate_records")
     recognition_records = evidence.get("return_cogs_accounting_recognition_evidence_records")
     amount_records = evidence.get("return_cogs_recovery_amount_evidence_records")
@@ -370,6 +374,186 @@ def _accounting_recognition_reason(record, amount_record, attribution_record):
         return "дата бухгалтерской атрибуции не подтверждена"
     if recognized_date != expected_date:
         return "дата бухгалтерского признания не совпадает с атрибуцией периода"
+    return None
+
+
+def _application_authorization_diagnostic(evidence):
+    candidates = evidence.get("candidate_records")
+    authorization_records = evidence.get("return_cogs_profit_application_authorization_records")
+    recognition_records = evidence.get("return_cogs_accounting_recognition_evidence_records")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    if not isinstance(authorization_records, list):
+        authorization_records = []
+    if not isinstance(recognition_records, list):
+        recognition_records = []
+
+    authorization_index = _identity_index(authorization_records)
+    recognition_index = _identity_index(recognition_records)
+    blocked = []
+    for candidate in candidates:
+        identity = _return_identity_key(candidate)
+        if identity is None:
+            continue
+        reason = _application_authorization_reason(
+            authorization_index.get(identity),
+            recognition_index.get(identity),
+            identity,
+        )
+        if reason is not None:
+            blocked.append((identity, candidate, reason))
+
+    if not blocked:
+        return None
+    blocked.sort(key=lambda item: item[0])
+    shown = blocked[:3]
+    details = "; ".join(
+        _return_identity(candidate) + " — " + reason
+        for _, candidate, reason in shown
+    )
+    extra = len(blocked) - len(shown)
+    suffix = f"; ещё {extra}" if extra > 0 else ""
+    return (
+        "🔒 Return COGS пока не применён. Точные блокеры авторизации: "
+        + details
+        + suffix
+        + ". Авторизация не создаётся автоматически и не заменяет бухгалтерское признание."
+    )
+
+
+def _application_authorization_reason(record, recognition, identity):
+    if not isinstance(record, dict):
+        return "нет отдельной авторизации применения к прибыли"
+    if record.get("error") is True:
+        return "свидетельство авторизации недоступно"
+    if record.get("error") is not False:
+        return "свидетельство авторизации невалидно"
+    if str(record.get("status") or "").strip().upper() != "RETURN_COGS_PROFIT_APPLICATION_AUTHORIZATION_READY":
+        return "авторизация не готова"
+    if record.get("application_authorization_confirmed") is not True:
+        return "явная авторизация применения к прибыли отсутствует"
+    if str(record.get("application_state") or "").strip().upper() != "PROFIT_APPLICATION_AUTHORIZED":
+        return "состояние PROFIT_APPLICATION_AUTHORIZED не подтверждено"
+    if record.get("application_already_applied") is not False:
+        return "не подтверждено, что применение ещё не выполнено"
+    if _return_identity_key(record) != identity:
+        return "точная идентичность авторизации не совпадает с возвратом"
+    if not isinstance(recognition, dict):
+        return "версия бухгалтерского признания для авторизации не подтверждена"
+    recognition_history_id = _positive_int_or_none(recognition.get("history_id"))
+    if recognition_history_id is None:
+        return "версия бухгалтерского признания отсутствует"
+    if _positive_int_or_none(record.get("recognition_history_id")) != recognition_history_id:
+        return "авторизация относится к другой версии бухгалтерского признания"
+    authorized_amount = _money_number(record.get("authorized_amount"))
+    recognized_amount = _money_number(recognition.get("recognized_amount"))
+    if authorized_amount is None:
+        return "авторизованная сумма отсутствует или невалидна"
+    if recognized_amount is None:
+        return "признанная сумма для сверки авторизации отсутствует"
+    if abs(authorized_amount - recognized_amount) > 0.01:
+        return "авторизованная сумма не совпадает с бухгалтерски признанной"
+    if str(record.get("currency") or "").strip().upper() != "RUB":
+        return "валюта авторизации не подтверждена как RUB"
+    if str(record.get("recovery_accounting_date") or "").strip() != str(recognition.get("recovery_accounting_date") or "").strip():
+        return "дата авторизации не совпадает с датой бухгалтерского признания"
+    if str(record.get("monetary_authority_treatment") or "").strip().upper() != "EXCLUDED_FROM_ACCOUNT_NET_ACCRUAL":
+        return "не подтверждено исключение из account net accrual"
+    if record.get("monetary_authority_non_overlap_confirmed") is not True:
+        return "не подтверждено отсутствие пересечения с денежным authority"
+    if record.get("compensation_non_overlap_confirmed") is not True:
+        return "не подтверждено отсутствие пересечения с компенсацией"
+    return None
+
+
+def _application_commit_diagnostic(evidence):
+    candidates = evidence.get("candidate_records")
+    recognition_records = evidence.get("return_cogs_accounting_recognition_evidence_records")
+    authorization_records = evidence.get("return_cogs_profit_application_authorization_records")
+    commit_records = evidence.get("return_cogs_profit_application_commit_records")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    if not isinstance(recognition_records, list):
+        recognition_records = []
+    if not isinstance(authorization_records, list):
+        authorization_records = []
+    if not isinstance(commit_records, list):
+        commit_records = []
+
+    recognition_index = _identity_index(recognition_records)
+    authorization_index = _identity_index(authorization_records)
+    commit_index = _identity_index(commit_records)
+    blocked = []
+    for candidate in candidates:
+        identity = _return_identity_key(candidate)
+        if identity is None:
+            continue
+        reason = _application_commit_reason(
+            commit_index.get(identity),
+            recognition_index.get(identity),
+            authorization_index.get(identity),
+            evidence.get("return_cogs_profit_application_commit_ready") is True,
+        )
+        if reason is not None:
+            blocked.append((identity, candidate, reason))
+
+    if not blocked:
+        return None
+    blocked.sort(key=lambda item: item[0])
+    shown = blocked[:3]
+    details = "; ".join(
+        _return_identity(candidate) + " — " + reason
+        for _, candidate, reason in shown
+    )
+    extra = len(blocked) - len(shown)
+    suffix = f"; ещё {extra}" if extra > 0 else ""
+    return (
+        "🔒 Return COGS пока не применён. Точные блокеры exact-once commit: "
+        + details
+        + suffix
+        + ". Текущий ответ остаётся read-only; наличие готовности не считается выполненным commit."
+    )
+
+
+def _application_commit_reason(record, recognition, authorization, commit_ready):
+    if not isinstance(recognition, dict):
+        return "версия бухгалтерского признания для commit отсутствует"
+    history_id = _positive_int_or_none(recognition.get("history_id"))
+    if history_id is None:
+        return "версия бухгалтерского признания для commit невалидна"
+    if not isinstance(authorization, dict):
+        return "версия авторизации для commit отсутствует"
+    authorization_history_id = _positive_int_or_none(authorization.get("history_id"))
+    if authorization_history_id is None:
+        return "версия авторизации для commit невалидна"
+    if not isinstance(record, dict):
+        if commit_ready:
+            return "готов к exact-once commit, но запись commit ещё отсутствует"
+        return "запись exact-once commit отсутствует"
+    if record.get("error") is True:
+        return "свидетельство commit недоступно"
+    if record.get("error") is not False:
+        return "свидетельство commit невалидно"
+    if record.get("application_commit_confirmed") is not True:
+        return "commit ещё не подтверждён"
+    if _positive_int_or_none(record.get("recognition_history_id")) != history_id:
+        return "commit относится к другой версии бухгалтерского признания"
+    if _return_identity_key(record) != _return_identity_key(recognition):
+        return "точная идентичность commit не совпадает с признанием"
+    if str(record.get("recovery_accounting_date") or "").strip() != str(recognition.get("recovery_accounting_date") or "").strip():
+        return "дата commit не совпадает с датой бухгалтерского признания"
+    committed_amount = _money_number(record.get("committed_amount"))
+    recognized_amount = _money_number(recognition.get("recognized_amount"))
+    if committed_amount is None:
+        return "сумма commit отсутствует или невалидна"
+    if recognized_amount is None:
+        return "признанная сумма для сверки commit отсутствует"
+    if abs(committed_amount - recognized_amount) > 0.01:
+        return "сумма commit не совпадает с бухгалтерски признанной"
+    if str(record.get("currency") or "").strip().upper() != "RUB":
+        return "валюта commit не подтверждена как RUB"
+    if _positive_int_or_none(record.get("authorization_history_id")) != authorization_history_id:
+        return "commit относится к другой версии авторизации"
     return None
 
 
