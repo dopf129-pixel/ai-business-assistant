@@ -92,6 +92,53 @@ class PeriodProfitCompactReturnCogsDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("Нужен локальный факт о состоянии возврата", result["text"])
         self.assertNotIn("return_id=r-1", result["text"])
 
+    def test_non_saleable_state_without_ready_evidence_stays_unconfirmed(self):
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": [{
+                    "return_id": "r-unsafe",
+                    "posting_number": "p-unsafe",
+                    "sku": "s-unsafe",
+                    "quantity": 2,
+                    "inventory_recovery_state": "NON_SALEABLE",
+                    "inventory_recovery_evidence_status": (
+                        "RETURN_INVENTORY_RECOVERY_IDENTITY_CONFLICT"
+                    ),
+                }],
+            })
+        )
+
+        self.assertIn("Есть 2 возврата Returns API", result["text"])
+        self.assertIn("Нужен локальный факт о состоянии возврата", result["text"])
+        self.assertIn("return_id=r-unsafe", result["text"])
+
+    def test_saleable_state_without_ready_evidence_does_not_advance_to_accounting(self):
+        result = compact_period_profit_result(
+            self._result({
+                "error": False,
+                "unresolved_units": 0,
+                "period_cogs_recovery_confirmed": False,
+                "candidate_records": [{
+                    "return_id": "r-unavailable",
+                    "posting_number": "p-unavailable",
+                    "sku": "s-unavailable",
+                    "quantity": 1,
+                    "inventory_recovery_state": "SALEABLE_RESTORED",
+                    "inventory_recovery_evidence_status": (
+                        "RETURN_INVENTORY_RECOVERY_UNAVAILABLE"
+                    ),
+                }],
+                "accounting_attribution_evidence_confirmed": False,
+            })
+        )
+
+        self.assertIn("Нужен локальный факт о состоянии возврата", result["text"])
+        self.assertIn("return_id=r-unavailable", result["text"])
+        self.assertNotIn("бухгалтерская атрибуция периода", result["text"])
+
     def test_saleable_inventory_moves_diagnostic_to_accounting_gate(self):
         result = compact_period_profit_result(
             self._result({
