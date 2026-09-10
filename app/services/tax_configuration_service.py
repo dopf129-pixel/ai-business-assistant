@@ -14,29 +14,34 @@ class TaxConfigurationService:
         file_path=None,
         environment=None
     ):
-        self.file_path = (
-            file_path
-            or tenant_storage_path(
-                os.path.join(
-                    os.getcwd(),
-                    "data",
-                    "tax_configuration.json"
-                )
-            )
-        )
+        self._file_path = file_path
         self.environment = (
             os.environ
             if environment is None
             else environment
         )
 
+    @property
+    def file_path(self):
+        if self._file_path is not None:
+            return self._file_path
+
+        return tenant_storage_path(
+            os.path.join(
+                os.getcwd(),
+                "data",
+                "tax_configuration.json"
+            )
+        )
+
     def get_policy(self):
-        if not os.path.exists(self.file_path):
+        file_path = self.file_path
+        if not os.path.exists(file_path):
             return self._get_environment_policy()
 
         try:
             with open(
-                self.file_path,
+                file_path,
                 "r",
                 encoding="utf-8"
             ) as file:
@@ -124,7 +129,8 @@ class TaxConfigurationService:
         if validated.get("error"):
             return validated
 
-        folder = os.path.dirname(self.file_path)
+        file_path = self.file_path
+        folder = os.path.dirname(file_path)
         temp_path = None
 
         try:
@@ -158,7 +164,7 @@ class TaxConfigurationService:
 
             os.replace(
                 temp_path,
-                self.file_path
+                file_path
             )
             temp_path = None
 
