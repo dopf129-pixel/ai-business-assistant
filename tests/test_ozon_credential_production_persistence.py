@@ -33,7 +33,7 @@ def test_default_credential_db_uses_persistent_runtime_root(monkeypatch, tmp_pat
     db_path = storage_root / "ozon_assistant.db"
     assert saved["error"] is False
     assert db_path.exists()
-    assert not Path("ozon_assistant.db").exists()
+    assert repository._resolved_db_name() == str(db_path)
     assert "api-secret" not in db_path.read_bytes().decode("utf-8", errors="ignore")
 
     restarted = OzonAccountRepository()
@@ -69,6 +69,7 @@ def test_explicit_database_path_is_not_rebased_by_runtime_root(monkeypatch, tmp_
     assert repository.save("42", "client-123", "api-secret")["error"] is False
 
     assert explicit_db.exists()
+    assert repository._resolved_db_name() == str(explicit_db)
     assert not (storage_root / "credentials.db").exists()
 
 
