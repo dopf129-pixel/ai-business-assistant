@@ -4,6 +4,7 @@ import os
 import tempfile
 
 from services.tax_service import TaxService
+from services.tenant_storage import tenant_storage_path
 
 
 class TaxConfigurationService:
@@ -15,9 +16,7 @@ class TaxConfigurationService:
     ):
         self.file_path = (
             file_path
-            or os.path.join(
-                os.getcwd(),
-                "data",
+            or tenant_storage_path(
                 "tax_configuration.json"
             )
         )
