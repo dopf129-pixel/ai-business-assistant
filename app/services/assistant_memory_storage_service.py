@@ -1,17 +1,25 @@
 import json
 from pathlib import Path
 
+from services.tenant_storage import tenant_storage_path
+
 
 class AssistantMemoryStorageService:
 
 
     def __init__(
         self,
-        file_path="assistant_memory.json"
+        file_path=None
     ):
 
-        self.file_path = Path(
-            file_path
+        self._file_path = file_path
+
+    @property
+    def file_path(self):
+        return Path(
+            self._file_path
+            if self._file_path is not None
+            else tenant_storage_path("assistant_memory.json")
         )
 
 
