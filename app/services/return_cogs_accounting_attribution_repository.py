@@ -1,6 +1,8 @@
 from datetime import date, datetime
 import sqlite3
 
+from services.tenant_storage import tenant_storage_path
+
 
 DB_NAME = "ozon_assistant.db"
 
@@ -17,7 +19,7 @@ class ReturnCogsAccountingAttributionRepository:
         self.create_table()
 
     def get_connection(self):
-        return sqlite3.connect(DB_NAME)
+        return sqlite3.connect(tenant_storage_path(DB_NAME))
 
     def create_table(self):
         conn = self.get_connection()
@@ -89,8 +91,6 @@ class ReturnCogsAccountingAttributionRepository:
                 "status": "RETURN_COGS_ACCOUNTING_ATTRIBUTION_RECORD_UNAVAILABLE",
             }
 
-        # Explicit no-compensation evidence is itself the no-double-count proof.
-        # A contradictory false marker is rejected rather than normalized.
         if state == "NO_COMPENSATION_CONFIRMED" and clear is not True:
             return {
                 "error": True,
