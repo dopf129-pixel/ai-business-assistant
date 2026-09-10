@@ -2,6 +2,8 @@ from datetime import date, datetime
 from math import isfinite
 import sqlite3
 
+from services.tenant_storage import tenant_storage_path
+
 
 DB_NAME = "ozon_assistant.db"
 
@@ -18,7 +20,7 @@ class ReturnCogsProfitApplicationCommitRepository:
         self.create_table()
 
     def get_connection(self):
-        return sqlite3.connect(DB_NAME)
+        return sqlite3.connect(tenant_storage_path(DB_NAME))
 
     def create_table(self):
         conn = self.get_connection()

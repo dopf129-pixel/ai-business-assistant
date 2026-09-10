@@ -1,6 +1,8 @@
 from datetime import date, datetime
 import sqlite3
 
+from services.tenant_storage import tenant_storage_path
+
 
 DB_NAME = "ozon_assistant.db"
 
@@ -18,7 +20,7 @@ class ReturnInventoryRecoveryRepository:
 
     def get_connection(self):
 
-        return sqlite3.connect(DB_NAME)
+        return sqlite3.connect(tenant_storage_path(DB_NAME))
 
     def create_table(self):
 
