@@ -1,18 +1,30 @@
 import sqlite3
 
-from services.tenant_storage import tenant_storage_path
+from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 DB_NAME = "ozon_assistant.db"
 
 
+def _open_connection():
+    return sqlite3.connect(
+        ensure_storage_parent(tenant_storage_path(DB_NAME))
+    )
+
+
 def get_connection():
-    return sqlite3.connect(tenant_storage_path(DB_NAME))
+    conn = _open_connection()
+    _initialize_schema(conn)
+    return conn
 
 
 def create_tables():
+    conn = _open_connection()
+    _initialize_schema(conn)
+    conn.close()
 
-    conn = get_connection()
+
+def _initialize_schema(conn):
     cursor = conn.cursor()
 
     cursor.execute(
@@ -85,7 +97,6 @@ def create_tables():
     )
 
     conn.commit()
-    conn.close()
 
 
 def save_product(product):

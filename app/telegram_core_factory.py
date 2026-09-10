@@ -393,7 +393,10 @@ def create_telegram_core(
                 else 0
             ),
             advertising_cost=advertising_cost,
-            finance_service=FinanceService()
+            finance_service=FinanceService(),
+            tax_configuration_service=(
+                tax_configuration
+            )
         )
     )
 
@@ -625,6 +628,9 @@ def create_telegram_core(
                 )
                 if tax_policy
                 else 1.0
+            ),
+            tax_configuration_service=(
+                tax_configuration
             )
         )
     )

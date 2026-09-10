@@ -26,7 +26,27 @@ class ProductActionTaskDraftService:
         self.clock = clock or (
             lambda: datetime.now(timezone.utc).isoformat()
         )
+        self._records_by_storage = {}
         self.records = self._load_records()
+
+    @property
+    def records(self):
+        key = self._storage_identity()
+        if key not in self._records_by_storage:
+            self._records_by_storage[key] = self._load_records()
+        return self._records_by_storage[key]
+
+    @records.setter
+    def records(self, value):
+        self._records_by_storage[self._storage_identity()] = value
+
+    def _storage_identity(self):
+        if self.storage_service is None:
+            return ("memory", id(self))
+        try:
+            return ("path", str(self.storage_service.file_path))
+        except AttributeError:
+            return ("storage", id(self.storage_service))
 
     def create_from_confirmation(self, decision, proposal):
         decision = dict(decision or {})

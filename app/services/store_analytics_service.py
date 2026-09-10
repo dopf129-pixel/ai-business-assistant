@@ -28,7 +28,8 @@ class StoreAnalyticsService:
         analysis_date=None,
         expense_repository=None,
         finance_service=None,
-        comparison_service=None
+        comparison_service=None,
+        tax_configuration_service=None
     ):
 
         self.period_service = (
@@ -92,6 +93,9 @@ class StoreAnalyticsService:
                 ),
                 expense_repository=(
                     expense_repository
+                ),
+                tax_configuration_service=(
+                    tax_configuration_service
                 )
             )
         )

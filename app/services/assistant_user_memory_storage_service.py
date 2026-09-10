@@ -1,6 +1,6 @@
 import json
 
-from services.tenant_storage import tenant_storage_path
+from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class AssistantUserMemoryStorageService:
@@ -26,6 +26,8 @@ class AssistantUserMemoryStorageService:
         self,
         memory
     ):
+
+        ensure_storage_parent(self.file_path)
 
         with open(
             self.file_path,

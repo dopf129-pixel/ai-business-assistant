@@ -3,64 +3,78 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from services.tenant_storage import tenant_storage_path
+from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class ExpenseRepository:
 
     def __init__(
         self,
-        db_path="ozon_assistant.db"
+        db_path=None
     ):
 
-        self.db_path = Path(
-            db_path
+        self._db_path = (
+            Path(db_path)
+            if db_path is not None
+            else None
         )
 
         self.create_table()
+
+    @property
+    def db_path(self):
+        if self._db_path is not None:
+            return self._db_path
+        return Path(tenant_storage_path("ozon_assistant.db"))
 
     def get_connection(
         self
     ):
 
-        return sqlite3.connect(
-            tenant_storage_path(self.db_path)
+        connection = sqlite3.connect(
+            ensure_storage_parent(self.db_path)
         )
+        self._initialize_schema(connection)
+        return connection
 
     def create_table(
         self
     ):
 
-        with self.get_connection() as connection:
+        connection = self.get_connection()
+        connection.close()
 
-            cursor = connection.cursor()
+    @staticmethod
+    def _initialize_schema(connection):
 
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS expenses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    expense_date TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    amount REAL NOT NULL,
-                    description TEXT,
-                    created_at TEXT NOT NULL
-                )
-                """
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                expense_date TEXT NOT NULL,
+                category TEXT NOT NULL,
+                amount REAL NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL
             )
+            """
+        )
 
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS expense_coverage (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date_from TEXT NOT NULL,
-                    date_to TEXT NOT NULL,
-                    note TEXT,
-                    created_at TEXT NOT NULL
-                )
-                """
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS expense_coverage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date_from TEXT NOT NULL,
+                date_to TEXT NOT NULL,
+                note TEXT,
+                created_at TEXT NOT NULL
             )
+            """
+        )
 
-            connection.commit()
+        connection.commit()
 
     def confirm_coverage(
         self,
