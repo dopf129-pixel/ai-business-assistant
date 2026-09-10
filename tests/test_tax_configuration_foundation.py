@@ -229,6 +229,7 @@ def test_production_factory_uses_tax_configuration_and_keeps_executors():
     )
 
     assert core["tax_configuration"] is configuration
+    assert analytics.tax_configuration_service is configuration
     assert analytics.tax_mode == "USN_INCOME"
     assert analytics.tax_rate == 6.0
     assert "sales" in router.executors

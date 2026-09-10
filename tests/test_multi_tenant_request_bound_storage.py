@@ -6,6 +6,7 @@ from services.assistant_session_storage_service import AssistantSessionStorageSe
 from services.assistant_user_memory_storage_service import AssistantUserMemoryStorageService
 from services.conversation_history_storage_service import ConversationHistoryStorageService
 from services.product_decision_history_storage_service import ProductDecisionHistoryStorageService
+from services.store_analytics_service import StoreAnalyticsService
 from services.store_report_storage_service import StoreReportStorageService
 from services.tax_configuration_service import TaxConfigurationService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -108,3 +109,61 @@ def test_legacy_defaults_are_preserved_without_tenant(tmp_path, monkeypatch):
     assert Path(TaxConfigurationService(environment={}).file_path) == (
         tmp_path / "data" / "tax_configuration.json"
     )
+
+
+class _EmptyExpenseRepository:
+    def get_expenses_by_date(self, expense_date):
+        return []
+
+
+def test_long_lived_period_profit_analytics_resolves_each_request_tax_policy(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    configuration = TaxConfigurationService(environment={})
+    analytics = StoreAnalyticsService(
+        tax_mode=None,
+        tax_rate=0,
+        minimum_tax_rate=0,
+        advertising_cost=0,
+        analysis_date="2026-09-10",
+        expense_repository=_EmptyExpenseRepository(),
+        tax_configuration_service=configuration,
+    )
+    profits = [
+        {
+            "error": False,
+            "sales_count": 1,
+            "gross_sales": 1000,
+            "net_accrual": 700,
+            "total_cost": 300,
+            "gross_profit": 400,
+        }
+    ]
+
+    _tenant(
+        "seller-a",
+        lambda: configuration.save_policy("USN_INCOME", 6.0),
+    )
+    _tenant(
+        "seller-b",
+        lambda: configuration.save_policy("USN_INCOME", 15.0),
+    )
+
+    results = [
+        _tenant("seller-a", lambda: analytics.analyze(profits)),
+        _tenant("seller-b", lambda: analytics.analyze(profits)),
+        _tenant("seller-a", lambda: analytics.analyze(profits)),
+    ]
+
+    assert [result["tax"]["tax_rate"] for result in results] == [
+        6.0,
+        15.0,
+        6.0,
+    ]
+    assert [result["tax"]["tax_amount"] for result in results] == [
+        60.0,
+        150.0,
+        60.0,
+    ]

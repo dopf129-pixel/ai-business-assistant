@@ -52,7 +52,8 @@ class BusinessAnalyticsService:
         analysis_date=None,
         date_from=None,
         date_to=None,
-        expense_repository=None
+        expense_repository=None,
+        tax_configuration_service=None
     ):
 
         self.tax_mode = tax_mode
@@ -64,6 +65,10 @@ class BusinessAnalyticsService:
 
         self.advertising_cost = (
             advertising_cost
+        )
+
+        self.tax_configuration_service = (
+            tax_configuration_service
         )
 
         # Обратная совместимость:
@@ -314,18 +319,50 @@ class BusinessAnalyticsService:
                 "store_profit": store_profit
             }
 
+        tax_mode = self.tax_mode
+        tax_rate = self.tax_rate
+        minimum_tax_rate = self.minimum_tax_rate
+
+        if self.tax_configuration_service is not None:
+
+            configuration = (
+                self.tax_configuration_service
+                .get_policy()
+            )
+
+            policy = (
+                configuration.get("policy")
+                if isinstance(configuration, dict)
+                and configuration.get("configured")
+                else None
+            )
+
+            tax_mode = (
+                policy.get("mode")
+                if policy
+                else None
+            )
+            tax_rate = (
+                policy.get("tax_rate")
+                if policy
+                else 0
+            )
+            minimum_tax_rate = (
+                policy.get("minimum_tax_rate")
+                if policy
+                else 0
+            )
+
         configured_rate = None
 
-        if self.tax_rate > 0:
+        if tax_rate is not None and tax_rate > 0:
 
-            configured_rate = (
-                self.tax_rate
-            )
+            configured_rate = tax_rate
 
         tax = (
             self.tax_service
             .calculate(
-                mode=self.tax_mode,
+                mode=tax_mode,
                 revenue=store_profit.get(
                     "gross_sales",
                     0
@@ -336,7 +373,7 @@ class BusinessAnalyticsService:
                 ),
                 tax_rate=configured_rate,
                 minimum_tax_rate=(
-                    self.minimum_tax_rate
+                    minimum_tax_rate
                 )
             )
         )
