@@ -6,7 +6,7 @@ This package adds a repository-owned container runtime for the Telegram polling 
 
 ## Canonical image contract
 
-The repository root now contains `Dockerfile`.
+The repository root contains `Dockerfile`.
 
 The image:
 
@@ -17,7 +17,7 @@ The image:
 - copies the application package into `/app/app`;
 - starts the existing canonical Telegram entrypoint with `python -m telegram_api_bot`.
 
-`TELEGRAM_BOT_TOKEN` is not baked into the image. The existing startup boundary continues to require it from the runtime environment and fails closed when it is absent.
+`TELEGRAM_BOT_TOKEN` is not baked into the image. The startup boundary requires it from the runtime environment and fails closed when it is absent.
 
 ## Persistent runtime storage contract
 
@@ -41,11 +41,34 @@ The behavior is intentionally opt-in outside the production container: when `AI_
 
 This means container recreation can preserve seller/tenant databases and JSON state as long as the runtime mounts durable storage at `/var/lib/ai-business-assistant`. The contract does not depend on a specific cloud or container provider.
 
+## Health and graceful shutdown contract
+
+PR #513 adds an orchestrator-facing local healthcheck and explicit shutdown behavior.
+
+The image declares a Docker `HEALTHCHECK` that executes:
+
+```text
+python -m runtime_healthcheck
+```
+
+The healthcheck is intentionally local and non-invasive. It performs no Telegram or Ozon network calls and does not initialize the seller assistant. It validates that:
+
+- `TELEGRAM_BOT_TOKEN` is configured;
+- when `AI_ASSISTANT_STORAGE_ROOT` is configured, the storage root exists;
+- the storage root is a directory;
+- the storage root is writable/executable by the runtime process.
+
+Failure messages do not include the token value. Storage validation is side-effect free: a missing storage root is reported unhealthy rather than created by the probe.
+
+The Docker image declares `STOPSIGNAL SIGTERM`. The Telegram polling runtime also passes `(SIGINT, SIGTERM)` explicitly to `Application.run_polling`, locking the graceful-stop contract instead of relying only on library defaults.
+
+The healthcheck is a local runtime/configuration probe, not proof that Telegram upstream is reachable. External Telegram availability must not be used to mutate seller state or trigger Ozon writes.
+
 ## Build-context safety
 
 `.dockerignore` excludes repository metadata, virtual environments, `.env` files, local seller data, SQLite databases, local assistant state, tests, and development/reconciliation material from the container build context.
 
-This prevents local credentials and tenant/seller state from being unintentionally copied into a production image. Runtime persistence is therefore supplied by the mounted volume, not by baking mutable state into the image.
+This prevents local credentials and tenant/seller state from being unintentionally copied into a production image. Runtime persistence is supplied by the mounted volume, not by baking mutable state into the image.
 
 ## Verification coverage
 
@@ -58,7 +81,7 @@ This prevents local credentials and tenant/seller state from being unintentional
 - `.env` and seller-state/database paths are excluded from the build context;
 - no `TELEGRAM_BOT_TOKEN` value is defined in the Dockerfile.
 
-`tests/test_persistent_runtime_storage_contract.py` additionally verifies:
+`tests/test_persistent_runtime_storage_contract.py` verifies:
 
 - historical paths remain unchanged when the storage root is unset;
 - legacy default state is relocated beneath the configured persistent root;
@@ -67,9 +90,18 @@ This prevents local credentials and tenant/seller state from being unintentional
 - parent directories are created only through the explicit storage-write helper;
 - absolute paths are not rebased by the persistent root.
 
+`tests/test_telegram_runtime_health_shutdown_contract.py` verifies:
+
+- missing Telegram token fails health without exposing a token value;
+- configured token plus an existing persistent directory is healthy;
+- missing or non-directory storage fails health without creating paths;
+- the healthcheck CLI exits successfully for healthy configuration;
+- Telegram polling receives explicit `SIGINT` and `SIGTERM` stop signals;
+- the Dockerfile declares the healthcheck and `STOPSIGNAL SIGTERM`.
+
 ## Safety invariants
 
-This package changes deployment persistence only. It does not introduce Ozon write calls or accounting execution.
+These runtime changes do not introduce Ozon write calls or accounting execution.
 
 The existing invariants remain mandatory:
 
@@ -86,6 +118,6 @@ The existing invariants remain mandatory:
 
 ## Production relation
 
-The container runtime intentionally delegates to the canonical Telegram startup package introduced by PR #507. PR #511 extends that runtime with a durable storage contract rather than creating a second persistence implementation.
+The container runtime delegates to the canonical Telegram startup package introduced by PR #507. PR #511 adds durable storage and PR #513 adds local health and graceful shutdown contracts without creating alternate runtime or persistence implementations.
 
-Provider-specific deployment manifests can be added later if a concrete hosting platform is selected. Any such provider configuration must mount durable storage at the declared runtime storage root and must continue to inject secrets only at runtime.
+Provider-specific deployment manifests can be added later if a concrete hosting platform is selected. Any such provider configuration must mount durable storage at the declared runtime storage root, inject secrets only at runtime, honor SIGTERM termination, and use the local healthcheck without turning external availability into a state-changing probe.
