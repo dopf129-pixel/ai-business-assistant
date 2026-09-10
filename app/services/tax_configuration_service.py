@@ -17,7 +17,11 @@ class TaxConfigurationService:
         self.file_path = (
             file_path
             or tenant_storage_path(
-                "tax_configuration.json"
+                os.path.join(
+                    os.getcwd(),
+                    "data",
+                    "tax_configuration.json"
+                )
             )
         )
         self.environment = (
