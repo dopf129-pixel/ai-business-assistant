@@ -1,5 +1,4 @@
--r requirements.txt
-pytest>=8,<9
 requests>=2.31,<3
 python-dotenv>=1,<2
 cryptography>=43,<46
+python-telegram-bot>=20.7,<22

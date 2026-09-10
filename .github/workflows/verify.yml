@@ -32,7 +32,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install verification dependencies
         run: |
@@ -51,6 +53,7 @@ jobs:
           printf 'commit_sha=%s\n' "$GITHUB_SHA" > verification-artifacts/revision.txt
           printf 'ref=%s\n' "$GITHUB_REF" >> verification-artifacts/revision.txt
           printf 'run_id=%s\n' "$GITHUB_RUN_ID" >> verification-artifacts/revision.txt
+          printf 'run_number=%s\n' "$GITHUB_RUN_NUMBER" >> verification-artifacts/revision.txt
           python --version >> verification-artifacts/revision.txt
 
       - name: Run full test suite
