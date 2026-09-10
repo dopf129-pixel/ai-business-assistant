@@ -14,11 +14,16 @@ def test_compose_uses_repository_dockerfile_and_persistent_volume():
     assert "ai_business_assistant_data:" in text
 
 
-def test_compose_requires_telegram_token_at_deploy_time_without_value():
+def test_compose_requires_runtime_secrets_at_deploy_time_without_values():
     text = _compose_text()
 
     assert "TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}" in text
+    assert (
+        "OZON_CREDENTIAL_MASTER_KEY: "
+        "${OZON_CREDENTIAL_MASTER_KEY:?OZON_CREDENTIAL_MASTER_KEY is required}"
+    ) in text
     assert "TELEGRAM_BOT_TOKEN=" not in text
+    assert "OZON_CREDENTIAL_MASTER_KEY=" not in text
 
 
 def test_compose_declares_restart_and_graceful_stop_window():
