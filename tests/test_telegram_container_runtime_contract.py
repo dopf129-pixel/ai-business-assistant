@@ -22,6 +22,13 @@ def test_dockerfile_installs_production_requirements_only():
     assert "requirements-dev.txt" not in dockerfile
 
 
+def test_dockerfile_declares_persistent_runtime_storage():
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "AI_ASSISTANT_STORAGE_ROOT=/var/lib/ai-business-assistant" in dockerfile
+    assert 'VOLUME ["/var/lib/ai-business-assistant"]' in dockerfile
+
+
 def test_dockerignore_excludes_local_secrets_and_seller_state():
     dockerignore = DOCKERIGNORE.read_text(encoding="utf-8").splitlines()
 
