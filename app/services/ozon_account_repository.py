@@ -1,10 +1,12 @@
 import os
 import sqlite3
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
 
 DB_NAME = "ozon_assistant.db"
+_STORAGE_ROOT_ENV = "AI_ASSISTANT_STORAGE_ROOT"
 
 
 class OzonAccountRepository:
@@ -13,8 +15,22 @@ class OzonAccountRepository:
         self.master_key = master_key or os.getenv("OZON_CREDENTIAL_MASTER_KEY")
         self._create_table()
 
+    def _resolved_db_name(self):
+        path = Path(str(self.db_name))
+        if path.is_absolute() or str(self.db_name) != DB_NAME:
+            return str(path)
+
+        storage_root = str(os.getenv(_STORAGE_ROOT_ENV, "") or "").strip()
+        if storage_root:
+            return str(Path(storage_root) / path)
+        return str(path)
+
     def _connection(self):
-        return sqlite3.connect(self.db_name)
+        db_path = Path(self._resolved_db_name())
+        parent = db_path.parent
+        if parent != Path("."):
+            parent.mkdir(parents=True, exist_ok=True)
+        return sqlite3.connect(str(db_path))
 
     def _fernet(self):
         key = str(self.master_key or "").strip().encode("utf-8")
