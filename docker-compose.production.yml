@@ -1,0 +1,16 @@
+services:
+  telegram-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-business-assistant:local
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}
+      AI_ASSISTANT_STORAGE_ROOT: /var/lib/ai-business-assistant
+    volumes:
+      - ai_business_assistant_data:/var/lib/ai-business-assistant
+    stop_grace_period: 30s
+
+volumes:
+  ai_business_assistant_data:
