@@ -67,33 +67,39 @@ class TelegramRunner:
             text = user_id
             user_id = None
 
+        stored_text = (
+            self._safe_message_for_storage(
+                text
+            )
+        )
+
         if (
             self.history_service
             and user_id
-            and text
+            and stored_text
         ):
 
             self.history_service.add(
                 user_id,
-                f"Сообщение: {text}"
+                f"Сообщение: {stored_text}"
             )
 
         if (
             self.context_service
             and user_id
-            and text
+            and stored_text
         ):
 
             self.context_service.update(
                 user_id,
                 "last_message",
-                text
+                stored_text
             )
 
             self.context_service.update(
                 user_id,
                 "current_task",
-                text
+                stored_text
             )
 
         return call_with_legacy_arity(
@@ -107,6 +113,29 @@ class TelegramRunner:
                 text,
             ),
         )
+
+
+    @staticmethod
+    def _safe_message_for_storage(
+        text
+    ):
+
+        raw = str(text or "")
+        stripped = raw.strip()
+
+        if not stripped:
+            return raw
+
+        command = (
+            stripped
+            .split(maxsplit=1)[0]
+            .lower()
+        )
+
+        if command == "/ozon_connect":
+            return "/ozon_connect [REDACTED]"
+
+        return raw
 
 
     def receive_callback(
