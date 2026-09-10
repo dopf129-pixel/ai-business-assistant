@@ -14,4 +14,9 @@ COPY app ./app
 
 VOLUME ["/var/lib/ai-business-assistant"]
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-m", "runtime_healthcheck"]
+
+STOPSIGNAL SIGTERM
+
 CMD ["python", "-m", "telegram_api_bot"]
