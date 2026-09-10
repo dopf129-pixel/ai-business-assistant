@@ -3,6 +3,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from services.tenant_storage import tenant_storage_path
+
 
 class ExpenseRepository:
 
@@ -22,7 +24,7 @@ class ExpenseRepository:
     ):
 
         return sqlite3.connect(
-            self.db_path
+            tenant_storage_path(self.db_path)
         )
 
     def create_table(
