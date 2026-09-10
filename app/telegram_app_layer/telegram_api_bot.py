@@ -1,4 +1,5 @@
 import os
+import signal
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -156,7 +157,9 @@ def build_application(token=None):
 def main():
     application = build_application()
     print("Telegram API bot started")
-    application.run_polling()
+    application.run_polling(
+        stop_signals=(signal.SIGINT, signal.SIGTERM),
+    )
 
 
 if __name__ == "__main__":
