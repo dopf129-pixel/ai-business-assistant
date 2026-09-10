@@ -59,6 +59,29 @@ jobs:
       - name: Run full test suite
         run: python -m pytest -q --junitxml=verification-artifacts/pytest-junit.xml
 
+      - name: Build production Docker image
+        run: |
+          IMAGE="ai-business-assistant:verify-${GITHUB_SHA}"
+          docker build --pull=false --tag "$IMAGE" .
+          printf 'docker_image=%s\n' "$IMAGE" >> verification-artifacts/revision.txt
+          docker image inspect "$IMAGE" --format 'image_id={{.Id}}' >> verification-artifacts/revision.txt
+
+      - name: Smoke production Docker runtime
+        run: |
+          IMAGE="ai-business-assistant:verify-${GITHUB_SHA}"
+          MASTER_KEY="$(docker run --rm --entrypoint python "$IMAGE" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          docker run --rm \
+            --entrypoint python \
+            -e TELEGRAM_BOT_TOKEN=verification-token \
+            -e OZON_CREDENTIAL_MASTER_KEY="$MASTER_KEY" \
+            -e AI_ASSISTANT_STORAGE_ROOT=/tmp \
+            "$IMAGE" \
+            -m runtime_healthcheck
+          docker run --rm \
+            --entrypoint python \
+            "$IMAGE" \
+            -c 'import telegram_api_bot, runtime_healthcheck; print("container imports ok")'
+
       - name: Generate SHA-bound test report
         if: always()
         run: |
