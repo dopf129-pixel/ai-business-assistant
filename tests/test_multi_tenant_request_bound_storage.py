@@ -37,7 +37,12 @@ def test_shared_storage_instances_follow_request_tenant(tmp_path, monkeypatch):
         (ConversationHistoryStorageService(), ["a"], ["b"], []),
         (ProductDecisionHistoryStorageService(), [{"seller": "a"}], [{"seller": "b"}], []),
         (ProductActionTaskDraftStorageService(), [{"draft": "a"}], [{"draft": "b"}], []),
-        (ProductDecisionUserActionCompletionStorageService(), [{"completion": "a"}], [{"completion": "b"}], []),
+        (
+            ProductDecisionUserActionCompletionStorageService(),
+            [{"completion": "a"}],
+            [{"completion": "b"}],
+            [],
+        ),
         (StoreReportStorageService(), [{"seller": "a"}], [{"seller": "b"}], []),
     ]
 
@@ -112,7 +117,9 @@ def test_legacy_defaults_are_preserved_without_tenant(tmp_path, monkeypatch):
     assert AssistantSessionStorageService().file_path == "assistant_session.json"
     assert AssistantUserMemoryStorageService().file_path == "assistant_user_memory.json"
     assert ConversationHistoryStorageService().file_path == Path("conversation_history.json")
-    assert ProductDecisionHistoryStorageService().file_path == Path("data/product_decision_history.json")
+    assert ProductDecisionHistoryStorageService().file_path == Path(
+        "data/product_decision_history.json"
+    )
     assert ProductActionTaskDraftStorageService().file_path == Path(
         "data/product_action_task_drafts.json"
     )
