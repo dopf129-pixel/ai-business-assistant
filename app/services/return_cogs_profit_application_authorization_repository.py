@@ -2,7 +2,7 @@ from datetime import date, datetime
 from math import isfinite
 import sqlite3
 
-from services.tenant_storage import tenant_storage_path
+from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 DB_NAME = "ozon_assistant.db"
@@ -21,10 +21,17 @@ class ReturnCogsProfitApplicationAuthorizationRepository:
         self.create_table()
 
     def get_connection(self):
-        return sqlite3.connect(tenant_storage_path(DB_NAME))
+        conn = sqlite3.connect(
+            ensure_storage_parent(tenant_storage_path(DB_NAME))
+        )
+        self._initialize_schema(conn)
+        return conn
 
     def create_table(self):
         conn = self.get_connection()
+        conn.close()
+
+    def _initialize_schema(self, conn):
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -66,7 +73,7 @@ class ReturnCogsProfitApplicationAuthorizationRepository:
             """
         )
         conn.commit()
-        conn.close()
+
 
     def record_application_state(
         self,

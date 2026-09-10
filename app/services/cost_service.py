@@ -1,7 +1,7 @@
 import sqlite3
 
 from services.base_cost_service import ProductCostService as BaseProductCostService
-from services.tenant_storage import tenant_storage_path
+from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 DB_NAME = "ozon_assistant.db"
@@ -11,7 +11,7 @@ class ProductCostService(BaseProductCostService):
     """Tenant-local cost storage while preserving the legacy service contract."""
 
     def get_connection(self):
-        conn = sqlite3.connect(tenant_storage_path(DB_NAME))
+        conn = sqlite3.connect(ensure_storage_parent(tenant_storage_path(DB_NAME)))
         self._ensure_schema(conn)
         return conn
 

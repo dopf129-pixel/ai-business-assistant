@@ -42,7 +42,7 @@ from services.product_task_draft_readiness_service import (
 
 
 def create_product_decision_history(
-    file_path="data/product_decision_history.json"
+    file_path=None
 ):
     return ProductDecisionHistoryService(
         storage_service=ProductDecisionHistoryStorageService(
@@ -52,7 +52,7 @@ def create_product_decision_history(
 
 
 def create_product_action_task_drafts(
-    file_path="data/product_action_task_drafts.json"
+    file_path=None
 ):
     return ProductActionTaskDraftService(
         storage_service=ProductActionTaskDraftStorageService(

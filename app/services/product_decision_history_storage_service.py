@@ -6,6 +6,8 @@ from services.tenant_storage import tenant_storage_path
 
 class ProductDecisionHistoryStorageService:
 
+    DEFAULT_FILE_PATH = "data/product_decision_history.json"
+
     def __init__(
         self,
         file_path=None
@@ -17,7 +19,7 @@ class ProductDecisionHistoryStorageService:
         return Path(
             self._file_path
             if self._file_path is not None
-            else tenant_storage_path("data/product_decision_history.json")
+            else tenant_storage_path(self.DEFAULT_FILE_PATH)
         )
 
     def load(self):

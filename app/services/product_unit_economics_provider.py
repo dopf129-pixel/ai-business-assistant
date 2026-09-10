@@ -22,18 +22,21 @@ class ProductUnitEconomicsProvider:
         tax_service=None,
         tax_mode=None,
         tax_rate=None,
-        minimum_tax_rate=1.0
+        minimum_tax_rate=1.0,
+        tax_configuration_service=None
     ):
         self.tax_service = tax_service
         self.tax_mode = tax_mode
         self.tax_rate = tax_rate
         self.minimum_tax_rate = minimum_tax_rate
+        self.tax_configuration_service = tax_configuration_service
 
     def build(
         self,
         profits
     ):
         metrics = []
+        tax_policy = self._resolve_tax_policy()
 
         for item in (profits or []):
             if not item or item.get("error"):
@@ -67,7 +70,8 @@ class ProductUnitEconomicsProvider:
 
             tax = self._calculate_tax(
                 revenue=revenue,
-                gross_profit=gross_profit
+                gross_profit=gross_profit,
+                tax_policy=tax_policy
             )
 
             if tax is None:
@@ -135,6 +139,7 @@ class ProductUnitEconomicsProvider:
 
     def build_current(self, facts, product_cost):
         facts = dict(facts or {})
+        tax_policy = self._resolve_tax_policy()
         seller_price = self._number(
             facts.get("seller_price")
         )
@@ -153,7 +158,7 @@ class ProductUnitEconomicsProvider:
 
         if (
             requested_tax_policy == "OZON_BUYER_PRICE"
-            and self.tax_mode == "USN_INCOME"
+            and tax_policy["mode"] == "USN_INCOME"
         ):
             tax_base_policy = "OZON_BUYER_PRICE"
             tax_base = buyer_price
@@ -207,7 +212,8 @@ class ProductUnitEconomicsProvider:
             )
             tax = self._calculate_tax(
                 revenue=tax_base,
-                gross_profit=gross_profit
+                gross_profit=gross_profit,
+                tax_policy=tax_policy
             )
             if tax is None:
                 missing_fields.append("tax")
@@ -223,7 +229,7 @@ class ProductUnitEconomicsProvider:
                     if seller_price > 0
                     else None
                 )
-        elif not self.tax_service or not self.tax_mode:
+        elif not self.tax_service or not tax_policy["mode"]:
             missing_fields.append("tax")
 
         result = {
@@ -244,7 +250,7 @@ class ProductUnitEconomicsProvider:
             ),
             "tax_base_policy": tax_base_policy,
             "tax_base": self._round(tax_base),
-            "tax_rate": self._number(self.tax_rate),
+            "tax_rate": self._number(tax_policy["tax_rate"]),
             "tax_effective_percent": self._round(
                 tax_effective_percent
             ),
@@ -290,18 +296,20 @@ class ProductUnitEconomicsProvider:
     def _calculate_tax(
         self,
         revenue,
-        gross_profit
+        gross_profit,
+        tax_policy=None
     ):
-        if not self.tax_service or not self.tax_mode:
+        policy = tax_policy or self._resolve_tax_policy()
+        if not self.tax_service or not policy["mode"]:
             return None
 
         result = self.tax_service.calculate(
-            mode=self.tax_mode,
+            mode=policy["mode"],
             revenue=revenue,
             gross_profit=gross_profit,
-            tax_rate=self.tax_rate,
+            tax_rate=policy["tax_rate"],
             minimum_tax_rate=(
-                self.minimum_tax_rate
+                policy["minimum_tax_rate"]
             )
         )
 
@@ -312,6 +320,34 @@ class ProductUnitEconomicsProvider:
             result.get("tax_amount", 0)
             or 0
         )
+
+    def _resolve_tax_policy(self):
+        if self.tax_configuration_service is None:
+            return {
+                "mode": self.tax_mode,
+                "tax_rate": self.tax_rate,
+                "minimum_tax_rate": self.minimum_tax_rate,
+            }
+
+        configuration = self.tax_configuration_service.get_policy()
+        policy = (
+            configuration.get("policy")
+            if isinstance(configuration, dict)
+            and configuration.get("configured") is True
+            and isinstance(configuration.get("policy"), dict)
+            else None
+        )
+        if policy is None:
+            return {
+                "mode": None,
+                "tax_rate": None,
+                "minimum_tax_rate": 1.0,
+            }
+        return {
+            "mode": policy.get("mode"),
+            "tax_rate": policy.get("tax_rate"),
+            "minimum_tax_rate": policy.get("minimum_tax_rate", 1.0),
+        }
 
     def _number(self, value):
         if value in (None, ""):

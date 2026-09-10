@@ -5,7 +5,13 @@ from services.assistant_memory_storage_service import AssistantMemoryStorageServ
 from services.assistant_session_storage_service import AssistantSessionStorageService
 from services.assistant_user_memory_storage_service import AssistantUserMemoryStorageService
 from services.conversation_history_storage_service import ConversationHistoryStorageService
+from services.product_action_task_draft_storage_service import (
+    ProductActionTaskDraftStorageService,
+)
 from services.product_decision_history_storage_service import ProductDecisionHistoryStorageService
+from services.product_decision_user_action_completion_storage_service import (
+    ProductDecisionUserActionCompletionStorageService,
+)
 from services.store_analytics_service import StoreAnalyticsService
 from services.store_report_storage_service import StoreReportStorageService
 from services.tax_configuration_service import TaxConfigurationService
@@ -30,6 +36,13 @@ def test_shared_storage_instances_follow_request_tenant(tmp_path, monkeypatch):
         (AssistantUserMemoryStorageService(), {"seller": "a"}, {"seller": "b"}, {}),
         (ConversationHistoryStorageService(), ["a"], ["b"], []),
         (ProductDecisionHistoryStorageService(), [{"seller": "a"}], [{"seller": "b"}], []),
+        (ProductActionTaskDraftStorageService(), [{"draft": "a"}], [{"draft": "b"}], []),
+        (
+            ProductDecisionUserActionCompletionStorageService(),
+            [{"completion": "a"}],
+            [{"completion": "b"}],
+            [],
+        ),
         (StoreReportStorageService(), [{"seller": "a"}], [{"seller": "b"}], []),
     ]
 
@@ -104,7 +117,15 @@ def test_legacy_defaults_are_preserved_without_tenant(tmp_path, monkeypatch):
     assert AssistantSessionStorageService().file_path == "assistant_session.json"
     assert AssistantUserMemoryStorageService().file_path == "assistant_user_memory.json"
     assert ConversationHistoryStorageService().file_path == Path("conversation_history.json")
-    assert ProductDecisionHistoryStorageService().file_path == Path("data/product_decision_history.json")
+    assert ProductDecisionHistoryStorageService().file_path == Path(
+        "data/product_decision_history.json"
+    )
+    assert ProductActionTaskDraftStorageService().file_path == Path(
+        "data/product_action_task_drafts.json"
+    )
+    assert ProductDecisionUserActionCompletionStorageService().file_path == Path(
+        "data/product_decision_user_action_completion.json"
+    )
     assert StoreReportStorageService().file_path == Path("store_reports.json")
     assert Path(TaxConfigurationService(environment={}).file_path) == (
         tmp_path / "data" / "tax_configuration.json"
