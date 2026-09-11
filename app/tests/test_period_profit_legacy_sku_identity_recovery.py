@@ -16,6 +16,7 @@ LEGACY_SKU = "3398133813"
 CURRENT_SKU = "3921245627"
 OFFER_ID = "hook-2"
 PRODUCT_ID = "product-hook-2"
+POSTING_NUMBER = "72166001-0225-1"
 
 
 class _CostService:
@@ -60,8 +61,16 @@ class _FinanceService:
 
 
 class _OzonClient:
-    def __init__(self, offers=None):
+    def __init__(
+        self,
+        offers=None,
+        *,
+        fbo_sku=LEGACY_SKU,
+        matching_posting_number=False,
+    ):
         self.offers = list(offers or [OFFER_ID])
+        self.fbo_sku = fbo_sku
+        self.matching_posting_number = matching_posting_number
         self.fbo_calls = 0
 
     def get_accruals_by_day(self, _date):
@@ -70,7 +79,7 @@ class _OzonClient:
             "accruals": [
                 {
                     "accrued_category": "POSTING",
-                    "unit_number": "posting-legacy-hook-2",
+                    "unit_number": POSTING_NUMBER,
                     "posting": {
                         "products": [
                             {"sku": LEGACY_SKU},
@@ -96,10 +105,14 @@ class _OzonClient:
             "result": {
                 "postings": [
                     {
-                        "posting_number": f"posting-{index}",
+                        "posting_number": (
+                            POSTING_NUMBER
+                            if self.matching_posting_number
+                            else f"posting-{index}"
+                        ),
                         "products": [
                             {
-                                "sku": LEGACY_SKU,
+                                "sku": self.fbo_sku,
                                 "offer_id": offer_id,
                                 "quantity": 1,
                             }
@@ -113,9 +126,20 @@ class _OzonClient:
 
 
 class PeriodProfitLegacySkuIdentityRecoveryTests(unittest.TestCase):
-    def _service(self, *, offers=None, current_cost=True):
+    def _service(
+        self,
+        *,
+        offers=None,
+        current_cost=True,
+        fbo_sku=LEGACY_SKU,
+        matching_posting_number=False,
+    ):
         cost_service = _CostService(current_cost=current_cost)
-        ozon = _OzonClient(offers=offers)
+        ozon = _OzonClient(
+            offers=offers,
+            fbo_sku=fbo_sku,
+            matching_posting_number=matching_posting_number,
+        )
         service = PeriodProfitLegacySkuIdentityScopeService(
             _SummaryService(cost_service),
             _FinanceService(),
@@ -124,14 +148,17 @@ class PeriodProfitLegacySkuIdentityRecoveryTests(unittest.TestCase):
         return service, ozon
 
     @staticmethod
-    def _catalog():
-        return [
+    def _catalog(extra=None):
+        products = [
             {
                 "product_id": PRODUCT_ID,
                 "offer_id": OFFER_ID,
                 "sku": CURRENT_SKU,
             }
         ]
+        if extra:
+            products.extend(extra)
+        return products
 
     def test_live_hook_2_legacy_finance_sku_recovers_stable_product_identity(self):
         service, ozon = self._service()
@@ -158,6 +185,60 @@ class PeriodProfitLegacySkuIdentityRecoveryTests(unittest.TestCase):
         self.assertNotIn("cost", product)
         self.assertNotIn("cost_price", product)
         self.assertEqual(ozon.fbo_calls, 1)
+
+    def test_live_hook_2_recovers_when_fbo_has_already_rewritten_sku(self):
+        service, ozon = self._service(
+            fbo_sku=CURRENT_SKU,
+            matching_posting_number=True,
+        )
+
+        result = service._scope_products(
+            "2026-09-05",
+            "2026-09-11",
+            self._catalog(),
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["historical_sku_recovery_count"], 1)
+        product = result["products"][0]
+        self.assertEqual(product["product_id"], PRODUCT_ID)
+        self.assertEqual(product["sku"], LEGACY_SKU)
+        self.assertEqual(product["offer_id"], OFFER_ID)
+        self.assertEqual(
+            product["historical_sku_identity_source"],
+            "OZON_FINANCE_UNIT_TO_FBO_POSTING_OFFER_ID",
+        )
+        self.assertNotIn("cost_price", product)
+        self.assertEqual(ozon.fbo_calls, 1)
+
+    def test_posting_identity_with_multiple_catalog_offers_stays_fail_closed(self):
+        other_offer = "other-offer"
+        service, _ozon = self._service(
+            offers=[OFFER_ID, other_offer],
+            fbo_sku=CURRENT_SKU,
+            matching_posting_number=True,
+        )
+        catalog = self._catalog(
+            [
+                {
+                    "product_id": "other-product",
+                    "offer_id": other_offer,
+                    "sku": "9999999999",
+                }
+            ]
+        )
+
+        result = service._scope_products(
+            "2026-09-05",
+            "2026-09-11",
+            catalog,
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(
+            result["code"],
+            "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
+        )
 
     def test_conflicting_offer_identity_stays_fail_closed(self):
         service, _ozon = self._service(offers=[OFFER_ID, "different-offer"])
