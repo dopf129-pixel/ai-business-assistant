@@ -1,6 +1,9 @@
 from datetime import timedelta
 from math import isfinite
 
+from services.period_profit_critical_finance_summary_service import (
+    PeriodProfitCriticalFinanceSummaryService,
+)
 from services.period_profit_sale_quantity_summary_service import (
     PeriodProfitSaleQuantitySummaryService,
 )
@@ -9,7 +12,108 @@ from services.period_profit_sale_quantity_summary_service import (
 class PeriodProfitEffectiveCostSaleQuantitySummaryService(
     PeriodProfitSaleQuantitySummaryService
 ):
-    """Reconcile physical sale quantity with seller-confirmed cost evidence."""
+    """Reconcile physical sale quantity with seller-confirmed cost evidence.
+
+    Finance SKU is the monetary identity. Ozon posting evidence can expose a newer
+    catalog SKU for the same seller offer, so posting quantity is reconciled by
+    exact finance SKU first and then by the already-scoped stable offer identity.
+    Historical cost remains independently resolved by stable product identity and
+    sale date; current mutable cost is never used as retroactive authority.
+    """
+
+    OFFER_KEY_PREFIX = "@offer:"
+
+    def calculate(self, date_from, date_to, products):
+        # PeriodProfitSaleQuantitySummaryService.calculate() reconciles quantity
+        # immediately after the critical finance summary. Insert stable identity
+        # metadata at that boundary so a retired finance SKU does not erase the
+        # product_id/offer_id already proven by the outer SKU-scope service.
+        result = PeriodProfitCriticalFinanceSummaryService.calculate(
+            self,
+            date_from,
+            date_to,
+            products,
+        )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return result
+
+        identity_by_finance_sku = self._identity_by_finance_sku(products)
+        rows = result.get("products")
+        if not isinstance(rows, list):
+            return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+
+        enriched_rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+            finance_sku = self._text(row.get("sku"))
+            identity = identity_by_finance_sku.get(finance_sku)
+            next_row = dict(row)
+            next_row["finance_sku"] = finance_sku
+            if identity is not None:
+                product_id = self._text(identity.get("product_id"))
+                offer_id = self._text(identity.get("offer_id"))
+                catalog_sku = self._text(identity.get("catalog_sku"))
+                if product_id:
+                    next_row["product_id"] = product_id
+                if offer_id:
+                    next_row["offer_id"] = offer_id
+                if catalog_sku:
+                    next_row["catalog_sku"] = catalog_sku
+                for field in (
+                    "historical_sku_identity_recovered",
+                    "historical_sku_identity_source",
+                ):
+                    if field in identity:
+                        next_row[field] = identity[field]
+            enriched_rows.append(next_row)
+
+        enriched = dict(result)
+        enriched["products"] = enriched_rows
+        return self._reconcile_sale_quantities(
+            enriched,
+            date_from,
+            date_to,
+        )
+
+    @classmethod
+    def _identity_by_finance_sku(cls, products):
+        indexed = {}
+        for product in products or []:
+            if isinstance(product, dict):
+                identity = dict(product)
+                finance_sku = cls._text(identity.get("sku"))
+            elif isinstance(product, (tuple, list)) and len(product) >= 3:
+                identity = {
+                    "product_id": product[0],
+                    "offer_id": product[1],
+                    "sku": product[2],
+                }
+                finance_sku = cls._text(product[2])
+            else:
+                continue
+            if not finance_sku:
+                continue
+            existing = indexed.get(finance_sku)
+            if existing is not None and not cls._same_stable_identity(existing, identity):
+                # Ambiguous input identity must not be used for a posting join.
+                indexed[finance_sku] = None
+                continue
+            if finance_sku not in indexed:
+                indexed[finance_sku] = identity
+        return indexed
+
+    @classmethod
+    def _same_stable_identity(cls, left, right):
+        left_product = cls._text(left.get("product_id"))
+        right_product = cls._text(right.get("product_id"))
+        left_offer = cls._text(left.get("offer_id"))
+        right_offer = cls._text(right.get("offer_id"))
+        if left_product and right_product and left_product != right_product:
+            return False
+        if left_offer and right_offer and left_offer != right_offer:
+            return False
+        return True
 
     def _reconcile_sale_quantities(self, result, date_from, date_to):
         start = self._date(date_from)
@@ -51,8 +155,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error(
                     "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID"
                 )
-            posting_number = str(record.get("posting_number") or "").strip()
-            sku = str(record.get("sku") or "").strip()
+            posting_number = self._text(record.get("posting_number"))
+            sku = self._text(record.get("sku"))
             accrual_date = self._date(record.get("accrual_date"))
             if not posting_number or not sku or accrual_date is None:
                 return self._quantity_error(
@@ -68,13 +172,37 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 "accrual_dates": {accrual_date.isoformat()},
             }
 
+        product_rows = result.get("products")
+        if not isinstance(product_rows, list):
+            return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+        row_by_finance_sku = {}
+        for row in product_rows:
+            if not isinstance(row, dict):
+                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+            finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
+            if not finance_sku or finance_sku in row_by_finance_sku:
+                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
+            row_by_finance_sku[finance_sku] = row
+
         realization_map = self._load_realization_quantity_map(start, end)
         if realization_map is None:
             realization_map = {}
 
         unresolved_records = []
         for key, grouped_record in grouped.items():
-            if key in realization_map:
+            posting_number, finance_sku = key
+            row = row_by_finance_sku.get(finance_sku)
+            if row is None:
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_SKU_SCOPE_INCOMPLETE"
+                )
+            if self._quantity_from_identity_map(
+                realization_map,
+                posting_number,
+                finance_sku,
+                row,
+                allow_offer=False,
+            ) is not None:
                 continue
             base_record = grouped_record["record"]
             for accrual_date in sorted(grouped_record["accrual_dates"]):
@@ -88,26 +216,44 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
 
         physical_sales = []
         for key, grouped_record in grouped.items():
-            posting_number, sku = key
-            quantity = realization_map.get(key)
+            posting_number, finance_sku = key
+            row = row_by_finance_sku.get(finance_sku)
+            if row is None:
+                return self._quantity_error(
+                    "PERIOD_PROFIT_SALE_QUANTITY_SKU_SCOPE_INCOMPLETE"
+                )
+
+            quantity = self._quantity_from_identity_map(
+                realization_map,
+                posting_number,
+                finance_sku,
+                row,
+                allow_offer=False,
+            )
             if quantity is None:
-                quantity = fbo_list_map.get(key)
+                quantity = self._quantity_from_identity_map(
+                    fbo_list_map,
+                    posting_number,
+                    finance_sku,
+                    row,
+                    allow_offer=True,
+                )
             if quantity is None:
-                quantity = self._load_posting_quantity(posting_number, sku)
+                quantity = self._load_posting_quantity_for_identity(
+                    posting_number,
+                    finance_sku,
+                    row,
+                )
             if quantity is None:
                 return self._quantity_error(
                     "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE"
                 )
             physical_sales.append({
                 "posting_number": posting_number,
-                "sku": sku,
+                "sku": finance_sku,
                 "quantity": quantity,
                 "accrual_dates": sorted(grouped_record["accrual_dates"]),
             })
-
-        product_rows = result.get("products")
-        if not isinstance(product_rows, list):
-            return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
 
         next_rows = []
         covered_skus = set()
@@ -116,10 +262,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         historical_bucket_count = 0
 
         for row in product_rows:
-            if not isinstance(row, dict):
-                return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
-            sku = str(row.get("sku") or "").strip()
-            if not sku:
+            finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
+            if not finance_sku:
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
             net_accrual = self._number(row.get("net_accrual"), missing_zero=True)
             tax = self._number(row.get("tax"), missing_zero=True)
@@ -131,7 +275,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             product_cost = 0.0
             applied_versions = set()
             for sale in physical_sales:
-                if sale["sku"] != sku:
+                if sale["sku"] != finance_sku:
                     continue
 
                 version_signatures = set()
@@ -185,7 +329,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
             next_row["effective_cost_versioned"] = len(applied_versions) > 1
             next_rows.append(next_row)
-            covered_skus.add(sku)
+            covered_skus.add(finance_sku)
             total_units += units
             total_product_cost += product_cost
 
@@ -214,7 +358,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             return self._quantity_error("PERIOD_PROFIT_SALE_QUANTITY_RESULT_INVALID")
         enriched["sale_quantity_reconciled"] = True
         enriched["sale_quantity_source"] = (
-            "OZON_REALIZATION_POSTING_OR_FBO_LIST_OR_EXACT_POSTING_DETAIL"
+            "OZON_REALIZATION_POSTING_OR_FBO_STABLE_IDENTITY_OR_EXACT_POSTING_DETAIL"
         )
         enriched["sale_quantity_record_count"] = len(grouped)
         enriched["sale_quantity_positive_event_count"] = len(sale_records)
@@ -226,6 +370,173 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         enriched["historical_cost_bucket_count"] = historical_bucket_count
         enriched["legacy_current_cost_bucket_count"] = 0
         return enriched
+
+    def _quantity_from_identity_map(
+        self,
+        quantity_map,
+        posting_number,
+        finance_sku,
+        row,
+        *,
+        allow_offer,
+    ):
+        if not isinstance(quantity_map, dict):
+            return None
+        keys = [(posting_number, finance_sku)]
+        catalog_sku = self._text(row.get("catalog_sku"))
+        if catalog_sku and catalog_sku != finance_sku:
+            keys.append((posting_number, catalog_sku))
+        if allow_offer:
+            offer_id = self._text(row.get("offer_id"))
+            if offer_id:
+                keys.append((posting_number, self.OFFER_KEY_PREFIX + offer_id))
+
+        values = {
+            quantity_map[key]
+            for key in keys
+            if key in quantity_map and self._quantity(quantity_map[key]) is not None
+        }
+        if len(values) != 1:
+            return None
+        return next(iter(values))
+
+    @classmethod
+    def _parse_fbo_posting_list(cls, response):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return None
+
+        result = response.get("result")
+        if isinstance(result, list):
+            postings = result
+        elif isinstance(result, dict):
+            postings = result.get("postings")
+        else:
+            postings = response.get("postings")
+        if not isinstance(postings, list):
+            return None
+
+        has_next = response.get("has_next")
+        if has_next is None and isinstance(result, dict):
+            has_next = result.get("has_next")
+        if has_next is not None and type(has_next) is not bool:
+            return None
+
+        parsed = {}
+        for posting in postings:
+            if not isinstance(posting, dict):
+                continue
+            posting_number = cls._text(posting.get("posting_number"))
+            products = posting.get("products")
+            if not posting_number or not isinstance(products, list):
+                continue
+            seen = set()
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                sku = cls._text(product.get("sku"))
+                offer_id = cls._text(product.get("offer_id"))
+                quantity = cls._quantity(product.get("quantity"))
+                if quantity is None or (not sku and not offer_id):
+                    continue
+                keys = []
+                if sku:
+                    keys.append((posting_number, sku))
+                if offer_id:
+                    keys.append((posting_number, cls.OFFER_KEY_PREFIX + offer_id))
+                for key in keys:
+                    if key in seen:
+                        return None
+                    seen.add(key)
+                    existing = parsed.get(key)
+                    if existing is not None and existing != quantity:
+                        return None
+                    parsed[key] = quantity
+
+        return parsed, len(postings), has_next
+
+    def _load_posting_quantity_for_identity(self, posting_number, finance_sku, row):
+        offer_id = self._text(row.get("offer_id"))
+        catalog_sku = self._text(row.get("catalog_sku"))
+        cache = getattr(self, "_identity_posting_quantity_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._identity_posting_quantity_cache = cache
+        key = (posting_number, finance_sku, catalog_sku, offer_id)
+        if key in cache:
+            return cache[key]
+
+        quantity = None
+        client = self.sale_quantity_ozon_client
+        for method_name in ("get_fbo_posting", "get_fbs_posting"):
+            getter = getattr(client, method_name, None)
+            if not callable(getter):
+                continue
+            try:
+                response = getter(posting_number)
+            except Exception:
+                continue
+            quantity = self._quantity_from_posting_identity_response(
+                response,
+                posting_number,
+                finance_sku,
+                catalog_sku,
+                offer_id,
+            )
+            if quantity is not None:
+                break
+
+        cache[key] = quantity
+        return quantity
+
+    @classmethod
+    def _quantity_from_posting_identity_response(
+        cls,
+        response,
+        posting_number,
+        finance_sku,
+        catalog_sku,
+        offer_id,
+    ):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return None
+        result = response.get("result")
+        if not isinstance(result, dict):
+            result = response
+        returned = cls._text(result.get("posting_number"))
+        products = result.get("products")
+        if returned and returned != posting_number:
+            return None
+        if not isinstance(products, list):
+            return None
+
+        sku_aliases = {finance_sku}
+        if catalog_sku:
+            sku_aliases.add(catalog_sku)
+        sku_quantities = []
+        offer_quantities = []
+        for product in products:
+            if not isinstance(product, dict):
+                continue
+            quantity = cls._quantity(product.get("quantity"))
+            if quantity is None:
+                continue
+            if cls._text(product.get("sku")) in sku_aliases:
+                sku_quantities.append(quantity)
+            if offer_id and cls._text(product.get("offer_id")) == offer_id:
+                offer_quantities.append(quantity)
+
+        candidates = []
+        if len(sku_quantities) == 1:
+            candidates.append(sku_quantities[0])
+        elif len(sku_quantities) > 1:
+            return None
+        if len(offer_quantities) == 1:
+            candidates.append(offer_quantities[0])
+        elif len(offer_quantities) > 1:
+            return None
+        if not candidates or len(set(candidates)) != 1:
+            return None
+        return candidates[0]
 
     def _effective_cost_evidence(self, row, accrual_date):
         getter = getattr(self.cost_service, "get_effective_cost_evidence", None)
