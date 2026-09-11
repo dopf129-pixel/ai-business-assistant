@@ -145,6 +145,14 @@ def _resolve_token(token=None):
     return resolved
 
 
+def _polling_stop_signals(platform_name=None):
+    """Return supported polling stop signals for the current platform."""
+    platform_name = platform_name or os.name
+    if platform_name == "nt":
+        return None
+    return (signal.SIGINT, signal.SIGTERM)
+
+
 def build_application(token=None):
     """Build the polling application without starting network traffic."""
     application = Application.builder().token(_resolve_token(token)).build()
@@ -158,7 +166,7 @@ def main():
     application = build_application()
     print("Telegram API bot started")
     application.run_polling(
-        stop_signals=(signal.SIGINT, signal.SIGTERM),
+        stop_signals=_polling_stop_signals(),
     )
 
 

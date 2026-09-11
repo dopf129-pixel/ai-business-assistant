@@ -10,6 +10,9 @@ env/
 # Environment variables
 .env
 
+# Local runtime storage
+.runtime-data/
+
 # SQLite
 *.db
 *.sqlite3
