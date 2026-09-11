@@ -50,6 +50,22 @@ class ProductCostService(BaseProductCostService):
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS product_cost_switch_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id TEXT NOT NULL,
+                sku TEXT,
+                offer_id TEXT,
+                cost_price REAL NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                effective_from TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'SELLER_CONFIRMED_BOT',
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(product_id, effective_from)
+            )
+            """
+        )
+        cursor.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_product_cost_history_sku_effective
             ON product_cost_history (sku, effective_from)
             """
@@ -58,6 +74,18 @@ class ProductCostService(BaseProductCostService):
             """
             CREATE INDEX IF NOT EXISTS idx_product_cost_history_offer_effective
             ON product_cost_history (offer_id, effective_from)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_product_cost_switch_sku_effective
+            ON product_cost_switch_history (sku, effective_from)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_product_cost_switch_offer_effective
+            ON product_cost_switch_history (offer_id, effective_from)
             """
         )
         conn.commit()
