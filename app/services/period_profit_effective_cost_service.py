@@ -160,6 +160,49 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         sku=None,
         offer_id=None,
     ):
+        """Resolve evidence using stable identity fallbacks without weakening gates.
+
+        A product id may change in Ozon while the seller offer remains stable.  Period
+        Profit therefore tries the strongest identities in order: product id, offer
+        id, then SKU.  Only a pure "missing" result may fall through.  Ambiguous,
+        stale/not-effective, malformed, or unavailable evidence remains fail-closed.
+        Every candidate is evaluated at the original historical ``at_date``.
+        """
+        candidates = self._identity_candidates(
+            product_id=product_id,
+            offer_id=offer_id,
+            sku=sku,
+        )
+        if not candidates:
+            return self._effective_unavailable(
+                "PERIOD_PROFIT_COST_IDENTITY_MISSING"
+            )
+
+        last_missing = None
+        for identity in candidates:
+            evidence = self._get_effective_cost_evidence_for_identity(
+                at_date,
+                **identity,
+            )
+            if (
+                isinstance(evidence, dict)
+                and evidence.get("code") == "PERIOD_PROFIT_COST_HISTORY_MISSING"
+            ):
+                last_missing = evidence
+                continue
+            return evidence
+
+        return last_missing or self._effective_unavailable(
+            "PERIOD_PROFIT_COST_HISTORY_MISSING"
+        )
+
+    def _get_effective_cost_evidence_for_identity(
+        self,
+        at_date,
+        product_id=None,
+        sku=None,
+        offer_id=None,
+    ):
         switched = self._get_switch_evidence(
             at_date,
             product_id=product_id,
@@ -243,6 +286,20 @@ class PeriodProfitEffectiveCostService(ProductCostService):
         return self._effective_unavailable(
             "PERIOD_PROFIT_COST_HISTORY_MISSING"
         )
+
+    @classmethod
+    def _identity_candidates(cls, product_id=None, offer_id=None, sku=None):
+        candidates = []
+        product_key = cls._text(product_id)
+        offer_key = cls._text(offer_id)
+        sku_key = cls._text(sku)
+        if product_key:
+            candidates.append({"product_id": product_key})
+        if offer_key:
+            candidates.append({"offer_id": offer_key})
+        if sku_key:
+            candidates.append({"sku": sku_key})
+        return candidates
 
     def _get_switch_evidence(
         self,
