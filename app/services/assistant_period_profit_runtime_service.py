@@ -106,6 +106,22 @@ class AssistantPeriodProfitRuntimeService:
 
     @staticmethod
     def _present(result):
+        if (
+            isinstance(result, dict)
+            and result.get("error") is True
+            and result.get("status") == "PERIOD_PROFIT_SALE_QUANTITY_UNAVAILABLE"
+        ):
+            code = str(result.get("code") or "").strip()
+            if code:
+                output = dict(result)
+                output["quantity_diagnostic_code"] = code
+                output["message"] = (
+                    "Данные о количестве проданных товаров недоступны\n"
+                    "Код диагностики: " + code
+                )
+                output["read_only"] = True
+                output["executed"] = False
+                return output
         return compact_period_profit_result(result)
 
     @staticmethod
