@@ -1,5 +1,8 @@
 from datetime import timedelta
 
+from services.period_profit_finance_sku_scope_service import (
+    PeriodProfitFinanceSkuScopeService,
+)
 from services.period_profit_legacy_sku_identity_scope_service import (
     PeriodProfitLegacySkuIdentityScopeService,
 )
@@ -23,6 +26,24 @@ class PeriodProfitCachedLegacySkuIdentityScopeService(
         self._fbo_identity_snapshot = None
         self._fbo_identity_snapshot_loaded = False
         return super()._scope_products(date_from, date_to, products)
+
+    def _recover_missing_product(self, sku, at_date):
+        direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
+            self,
+            sku,
+            at_date,
+        )
+        if direct is not None:
+            result = dict(direct)
+            result["historical_sku_identity_recovered"] = True
+            result["historical_sku_identity_source"] = (
+                "SELLER_CONFIRMED_HISTORICAL_COST_IDENTITY"
+                if result.get("historical_cost_evidence") is True
+                else "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
+            )
+            return result
+
+        return super()._recover_missing_product(sku, at_date)
 
     def _load_fbo_identity_snapshot(self):
         if self._fbo_identity_snapshot_loaded:
