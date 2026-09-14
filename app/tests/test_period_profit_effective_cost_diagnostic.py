@@ -39,6 +39,59 @@ class _ReadyCost:
         }
 
 
+class _CatalogSkuCost:
+    def __init__(self):
+        self.calls = []
+
+    def get_effective_cost_evidence(
+        self,
+        at_date,
+        product_id=None,
+        sku=None,
+        offer_id=None,
+    ):
+        self.calls.append((at_date, product_id, sku, offer_id))
+        if sku == "current-sku":
+            return {
+                "error": False,
+                "effective_cost_confirmed": True,
+                "historical_cost_confirmed": True,
+                "cost_price": 12.0,
+                "effective_from": "2026-09-01",
+                "effective_through": "2026-09-30",
+                "source": "SELLER_CONFIRMED",
+                "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
+                "history_id": 2,
+            }
+        return {
+            "error": True,
+            "code": "PERIOD_PROFIT_COST_HISTORY_MISSING",
+            "status": "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE",
+            "effective_cost_confirmed": False,
+            "historical_cost_confirmed": False,
+            "cost_price": None,
+        }
+
+
+class _NonMissingFinanceSkuCost(_CatalogSkuCost):
+    def get_effective_cost_evidence(
+        self,
+        at_date,
+        product_id=None,
+        sku=None,
+        offer_id=None,
+    ):
+        self.calls.append((at_date, product_id, sku, offer_id))
+        return {
+            "error": True,
+            "code": "PERIOD_PROFIT_COST_HISTORY_NOT_EFFECTIVE",
+            "status": "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE",
+            "effective_cost_confirmed": False,
+            "historical_cost_confirmed": False,
+            "cost_price": None,
+        }
+
+
 class PeriodProfitEffectiveCostDiagnosticTests(unittest.TestCase):
     def _service(self, cost_service):
         service = PeriodProfitDiagnosticQuantitySummaryService.__new__(
@@ -98,6 +151,58 @@ class PeriodProfitEffectiveCostDiagnosticTests(unittest.TestCase):
         self.assertEqual(
             result["code"],
             "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE",
+        )
+
+    def test_missing_legacy_finance_sku_retries_proven_catalog_sku(self):
+        cost_service = _CatalogSkuCost()
+        service = self._service(cost_service)
+
+        evidence = service._effective_cost_evidence(
+            {
+                "product_id": "p1",
+                "sku": "legacy-sku",
+                "catalog_sku": "current-sku",
+                "offer_id": "offer-1",
+            },
+            "2026-09-05",
+        )
+
+        self.assertIsInstance(evidence, dict)
+        self.assertEqual(evidence["cost_price"], 12.0)
+        self.assertEqual(
+            cost_service.calls,
+            [
+                ("2026-09-05", "p1", "legacy-sku", "offer-1"),
+                ("2026-09-05", "p1", "current-sku", "offer-1"),
+            ],
+        )
+        self.assertIsNone(service._effective_cost_diagnostic_code)
+
+    def test_non_missing_cost_failure_does_not_retry_catalog_sku(self):
+        cost_service = _NonMissingFinanceSkuCost()
+        service = self._service(cost_service)
+
+        evidence = service._effective_cost_evidence(
+            {
+                "product_id": "p1",
+                "sku": "legacy-sku",
+                "catalog_sku": "current-sku",
+                "offer_id": "offer-1",
+            },
+            "2026-09-05",
+        )
+        result = service._quantity_error(
+            "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+        )
+
+        self.assertIsNone(evidence)
+        self.assertEqual(
+            cost_service.calls,
+            [("2026-09-05", "p1", "legacy-sku", "offer-1")],
+        )
+        self.assertEqual(
+            result["code"],
+            "PERIOD_PROFIT_COST_HISTORY_NOT_EFFECTIVE",
         )
 
 
