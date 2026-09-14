@@ -362,3 +362,102 @@ def test_related_seller_cost_identity_ambiguity_remains_fail_closed():
     assert result["finance_diagnostic_code"] == (
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
     )
+
+
+class _SellerHistoricalIdentity(_NoDirectCost):
+    def __init__(self, records):
+        self.records = list(records)
+
+    def get_seller_cost_identities(self):
+        return {
+            "error": False,
+            "records": list(self.records),
+            "cost_values_included": False,
+            "read_only": True,
+        }
+
+    def get_all_costs(self):
+        raise AssertionError("current cost fallback must not be used")
+
+
+def test_related_sku_resolves_from_historical_identity_only_storage():
+    ozon = _RelatedOzon([
+        {"sku": "legacy-sku", "availability": "HIDDEN"},
+        {"sku": "current-sku", "availability": "HIDDEN"},
+    ])
+    finance = _Finance(ozon)
+    summary = _Summary()
+    summary.cost_service = _SellerHistoricalIdentity([
+        {
+            "product_id": "historical-product",
+            "sku": "legacy-sku",
+            "offer_id": "stable-offer",
+            "source": "product_cost_history",
+        },
+        {
+            "product_id": "current-product",
+            "sku": "current-sku",
+            "offer_id": "stable-offer",
+            "source": "product_cost_switch_history",
+        },
+    ])
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        summary,
+        finance,
+        sku_ozon_client=None,
+    )
+
+    result = service.calculate(
+        "2026-06-01",
+        "2026-09-14",
+        [{
+            "product_id": "unrelated-product",
+            "offer_id": "unrelated-offer",
+            "sku": "unrelated-sku",
+        }],
+    )
+
+    assert result["error"] is False
+    product = summary.received_products[0]
+    assert product["sku"] == "legacy-sku"
+    assert product["catalog_sku"] == "current-sku"
+    assert product["product_id"] == "historical-product"
+    assert product["offer_id"] == "stable-offer"
+    assert "cost_price" not in product
+
+
+def test_related_historical_identity_conflicting_offers_fail_closed():
+    ozon = _RelatedOzon([
+        {"sku": "legacy-sku", "availability": "HIDDEN"},
+        {"sku": "current-sku", "availability": "HIDDEN"},
+    ])
+    finance = _Finance(ozon)
+    summary = _Summary()
+    summary.cost_service = _SellerHistoricalIdentity([
+        {
+            "product_id": "historical-product",
+            "sku": "legacy-sku",
+            "offer_id": "offer-a",
+        },
+        {
+            "product_id": "current-product",
+            "sku": "current-sku",
+            "offer_id": "offer-b",
+        },
+    ])
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        summary,
+        finance,
+        sku_ozon_client=None,
+    )
+
+    result = service.calculate(
+        "2026-06-01",
+        "2026-09-14",
+        [{"product_id": "x", "offer_id": "x", "sku": "x"}],
+    )
+
+    assert result["error"] is True
+    assert result["finance_diagnostic_code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    )
