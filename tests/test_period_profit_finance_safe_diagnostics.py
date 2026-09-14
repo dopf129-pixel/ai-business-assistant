@@ -85,3 +85,28 @@ def test_money_validation_stage_survives_production_error_wiring():
     )
     assert result["read_only"] is True
     assert result["executed"] is False
+
+
+def test_sku_identity_stage_survives_production_telegram_wiring():
+    runtime = AssistantPeriodProfitRuntimeService(_Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+        "code": "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
+        "finance_diagnostic_code": (
+            "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
+        ),
+        "message": "must not escape",
+        "read_only": True,
+        "executed": False,
+    }))
+
+    result = runtime.handle_callback("period_profit:90D")
+
+    assert result["message"] == (
+        "Финансовые данные Ozon недоступны\n"
+        "Код диагностики: "
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
+    )
+    assert "must not escape" not in result["message"]
+    assert result["read_only"] is True
+    assert result["executed"] is False
