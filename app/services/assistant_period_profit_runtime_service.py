@@ -113,6 +113,23 @@ class AssistantPeriodProfitRuntimeService:
 
     @staticmethod
     def _present(result):
+        if isinstance(result, dict) and result.get("error") is True:
+            code = str(result.get("code") or "").strip()
+            if (
+                code == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
+                or code.startswith("OZON_FINANCE_")
+                or code.startswith("PERIOD_PROFIT_FINANCE_")
+            ):
+                output = dict(result)
+                output["finance_diagnostic_code"] = code
+                output["message"] = (
+                    "Финансовые данные Ozon недоступны\n"
+                    "Код диагностики: " + code
+                )
+                output["read_only"] = True
+                output["executed"] = False
+                return output
+
         if (
             isinstance(result, dict)
             and result.get("error") is True
