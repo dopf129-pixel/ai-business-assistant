@@ -4414,3 +4414,13 @@ Covers:
 - tenant credentials remain available inside concurrent Ozon finance worker threads;
 - the real `PeriodProfitFinanceService`, `PeriodProfitRelatedSkuOzonClient`, `OzonCredentialProvider`, and `TelegramBotService` wiring;
 - Ozon calls remain READ-ONLY and finance prefetch remains all-or-fail.
+
+---
+
+# Safe Period Profit Finance Diagnostics
+
+Tests:
+
+- `tests/test_period_profit_finance_safe_diagnostics.py`
+
+Covers safe HTTP classification, canonical finance error preservation, payload removal, and read-only Telegram diagnostic presentation.

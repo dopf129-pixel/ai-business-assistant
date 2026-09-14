@@ -103,10 +103,7 @@ class PeriodProfitFinanceService(FinanceService):
         # This preserves the existing all-or-fail behavior for a calculation.
         for key, response in zip(dates, responses):
             if not isinstance(response, dict) or response.get("error") is True:
-                return {
-                    "error": True,
-                    "code": "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
-                }
+                return self._prefetch_response_error(response)
             accruals = response.get("accruals")
             if not isinstance(accruals, list):
                 return {
@@ -272,6 +269,31 @@ class PeriodProfitFinanceService(FinanceService):
             "complete": True,
             "record_count": len(records),
             "records": records,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _prefetch_response_error(response):
+        code = ""
+        if isinstance(response, dict):
+            raw_code = str(response.get("code") or "").strip().upper()
+            if raw_code and all(
+                character.isalnum() or character == "_"
+                for character in raw_code
+            ):
+                code = raw_code
+            if not code:
+                status_code = response.get("status_code")
+                if (
+                    isinstance(status_code, int)
+                    and not isinstance(status_code, bool)
+                    and 100 <= status_code <= 599
+                ):
+                    code = "PERIOD_PROFIT_FINANCE_PREFETCH_HTTP_" + str(status_code)
+        return {
+            "error": True,
+            "code": code or "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
             "read_only": True,
             "executed": False,
         }
