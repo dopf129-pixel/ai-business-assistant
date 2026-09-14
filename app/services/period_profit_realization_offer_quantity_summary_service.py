@@ -20,6 +20,12 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
     reconciliation; this adapter never guesses across offers or postings.
     """
 
+    @staticmethod
+    def _text(value):
+        if value is None:
+            return ""
+        return str(value).strip()
+
     @classmethod
     def _parse_realization(cls, response):
         parsed = super()._parse_realization(response)
