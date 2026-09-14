@@ -11,6 +11,17 @@ class PeriodProfitDiagnosticQuantitySummaryService(
     GENERIC_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
     MISSING_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_COST_HISTORY_MISSING"
 
+    def calculate(self, date_from, date_to, products):
+        preparer = getattr(self.finance_service, "prepare_read_session", None)
+        if callable(preparer):
+            try:
+                preparer(date_from, date_to)
+            except Exception:
+                return self._quantity_error(
+                    "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
+                )
+        return super().calculate(date_from, date_to, products)
+
     def _effective_cost_evidence(self, row, accrual_date):
         self._effective_cost_diagnostic_code = None
         self._effective_cost_trace = None
@@ -70,9 +81,6 @@ class PeriodProfitDiagnosticQuantitySummaryService(
         first_code = str(evidence.get("code") or "").strip()
         trace["primary_lookup_code"] = first_code or "READY"
 
-        # A historical finance SKU can be retired while the already-proven product
-        # identity carries a newer catalog SKU. Retry through it strictly after a
-        # pure missing result; every other blocker remains fail-closed.
         if (
             evidence.get("error") is True
             and first_code == self.MISSING_EFFECTIVE_COST_CODE
@@ -114,8 +122,6 @@ class PeriodProfitDiagnosticQuantitySummaryService(
             else:
                 self._effective_cost_diagnostic_code = self.GENERIC_EFFECTIVE_COST_CODE
 
-            # Only on failure, probe each already-known identity independently. These
-            # are additional READ-ONLY lookups and do not alter financial authority.
             trace.update(
                 self._probe_cost_identities(
                     getter,
