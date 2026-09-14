@@ -4434,3 +4434,13 @@ Updated:
 - `tests/test_period_profit_finance_safe_diagnostics.py`
 
 Covers end-to-end propagation of a sanitized formula-critical money validation stage through prefetch and Telegram runtime.
+
+---
+
+# Period Profit Related-SKU Runtime Finance Regression
+
+Updated:
+
+- `app/tests/test_period_profit_related_sku_identity.py`
+
+Covers the production factory assignment shape, absent/null non-sale commission normalization, retained account accrual evidence, and fail-closed malformed commission handling.

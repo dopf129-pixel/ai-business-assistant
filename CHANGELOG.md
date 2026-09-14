@@ -402,3 +402,9 @@ Summary Report теперь включает:
 
 - Classify the exact fail-closed accrual money validation stage without exposing financial values or Ozon payloads.
 - Carry the sanitized stage through finance prefetch, SKU scope, and Telegram presentation.
+
+## 2026-09-14 — Restore Period Profit non-sale posting normalization
+
+- Fixed the related-SKU production client inheritance introduced by #558.
+- Restored the established runtime handling for POSTING rows whose sale commission block is wholly absent.
+- Malformed commission containers and partial sale-money components remain fail-closed.
