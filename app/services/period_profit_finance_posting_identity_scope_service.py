@@ -11,11 +11,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
 ):
     """Resolve legacy finance SKUs without making FBO a critical dependency.
 
-    Direct seller-confirmed cost identity remains the first authority. When that
-    is unavailable, use the exact finance posting numbers already observed for
-    the legacy SKU and the READ-ONLY ``/v1/finance/accrual/postings`` evidence to
-    bridge to exactly one current catalog SKU. Ambiguous/missing evidence fails
-    closed. FBO is intentionally not entered from this production scope.
+    The period finance cache is prefetched first so the SKU scope and downstream
+    summary reuse the same READ-ONLY daily evidence. Direct seller-confirmed cost
+    identity remains the first authority. When that is unavailable, exact finance
+    posting numbers observed for the legacy SKU are reconciled against
+    ``/v1/finance/accrual/postings`` and exactly one current catalog SKU may be
+    accepted. Ambiguous/missing evidence fails closed. FBO is intentionally not
+    entered from this production scope.
     """
 
     def __init__(self, summary_service, finance_service, sku_ozon_client=None):
@@ -27,6 +29,26 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_sku = {}
 
     def _scope_products(self, date_from, date_to, products):
+        prefetch = getattr(self.finance_service, "prefetch_daily_accruals", None)
+        if callable(prefetch):
+            try:
+                result = prefetch(date_from, date_to)
+            except Exception:
+                return self._error(
+                    "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
+                    "Финансовые данные Ozon недоступны",
+                )
+            if not isinstance(result, dict) or result.get("error") is True:
+                code = (
+                    str(result.get("code") or "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE")
+                    if isinstance(result, dict)
+                    else "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
+                )
+                return self._error(
+                    code,
+                    "Финансовые данные Ozon недоступны",
+                )
+
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         return super()._scope_products(date_from, date_to, products)
 
@@ -46,10 +68,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
             )
             return result
 
-        recovered = self._recover_from_finance_posting_identity(sku)
-        if recovered is None:
-            return None
-        return recovered
+        return self._recover_from_finance_posting_identity(sku)
 
     def _recover_from_finance_posting_identity(self, sku):
         finance_sku = self._text(sku)
