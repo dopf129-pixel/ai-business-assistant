@@ -1,5 +1,8 @@
 from datetime import timedelta
 
+from services.period_profit_finance_sku_scope_service import (
+    PeriodProfitFinanceSkuScopeService,
+)
 from services.period_profit_legacy_sku_identity_scope_service import (
     PeriodProfitLegacySkuIdentityScopeService,
 )
@@ -23,6 +26,35 @@ class PeriodProfitCachedLegacySkuIdentityScopeService(
         self._fbo_identity_snapshot = None
         self._fbo_identity_snapshot_loaded = False
         return super()._scope_products(date_from, date_to, products)
+
+    def _recover_missing_product(self, sku, at_date):
+        """Use already-proven seller identity before optional network enrichment.
+
+        The base finance-SKU scope can resolve an absent catalog SKU directly from
+        seller-confirmed historical cost evidence or an exact current seller-cost
+        SKU row. Both paths already prove one product identity. FBO is only needed
+        when that local proof is absent, so do not block Period Profit on optional
+        FBO enrichment when direct seller evidence is sufficient.
+        """
+        direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
+            self,
+            sku,
+            at_date,
+        )
+        if direct is not None:
+            result = dict(direct)
+            result["historical_sku_identity_recovered"] = True
+            if result.get("historical_cost_evidence") is True:
+                result["historical_sku_identity_source"] = (
+                    "SELLER_CONFIRMED_HISTORICAL_COST_IDENTITY"
+                )
+            else:
+                result["historical_sku_identity_source"] = (
+                    "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
+                )
+            return result
+
+        return super()._recover_missing_product(sku, at_date)
 
     def _load_fbo_identity_snapshot(self):
         if self._fbo_identity_snapshot_loaded:
