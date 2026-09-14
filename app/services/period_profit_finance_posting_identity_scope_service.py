@@ -29,6 +29,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_sku = {}
         self._catalog_by_product_id = {}
         self._related_sku_identity_cache = {}
+        self._sku_recovery_diagnostic_codes = set()
 
     def _scope_products(self, date_from, date_to, products):
         prefetch = getattr(self.finance_service, "prefetch_daily_accruals", None)
@@ -64,7 +65,27 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         self._catalog_by_product_id = self._unique_catalog_product_id_index(products)
         self._related_sku_identity_cache = {}
-        return super()._scope_products(date_from, date_to, products)
+        self._sku_recovery_diagnostic_codes = set()
+        scoped = super()._scope_products(date_from, date_to, products)
+        if (
+            isinstance(scoped, dict)
+            and scoped.get("code")
+            == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+        ):
+            diagnostics = sorted(self._sku_recovery_diagnostic_codes)
+            if len(diagnostics) == 1:
+                diagnostic = diagnostics[0]
+            elif diagnostics:
+                diagnostic = (
+                    "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_MULTIPLE_BLOCKERS"
+                )
+            else:
+                diagnostic = (
+                    "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_UNRESOLVED"
+                )
+            scoped = dict(scoped)
+            scoped["finance_diagnostic_code"] = diagnostic
+        return scoped
 
     def _load_period_skus(self, date_from, date_to):
         # The prefetch above populated PeriodProfitFinanceService's normal daily
@@ -110,29 +131,39 @@ class PeriodProfitFinancePostingIdentityScopeService(
         ozon = getattr(self.finance_service, "ozon", None)
         getter = getattr(ozon, "get_related_skus", None)
         if not callable(getter):
+            self._record_sku_recovery_diagnostic("RELATED_API_UNAVAILABLE")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
         try:
             response = getter([finance_sku])
         except Exception:
+            self._record_sku_recovery_diagnostic("RELATED_API_EXCEPTION")
             self._related_sku_identity_cache[finance_sku] = None
             return None
-        if not isinstance(response, dict) or response.get("error") is True:
+        if not isinstance(response, dict):
+            self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
+            self._related_sku_identity_cache[finance_sku] = None
+            return None
+        if response.get("error") is True:
+            self._record_sku_recovery_diagnostic("RELATED_API_ERROR")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
         items = response.get("items")
         errors = response.get("errors") or []
         if not isinstance(items, list) or not isinstance(errors, list):
+            self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
         for error in errors:
             if not isinstance(error, dict):
+                self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
                 self._related_sku_identity_cache[finance_sku] = None
                 return None
             if self._text(error.get("sku")) == finance_sku:
+                self._record_sku_recovery_diagnostic("RELATED_SKU_REJECTED")
                 self._related_sku_identity_cache[finance_sku] = None
                 return None
 
@@ -140,6 +171,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         candidate_skus = set()
         for item in items:
             if not isinstance(item, dict):
+                self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
                 self._related_sku_identity_cache[finance_sku] = None
                 return None
             related_sku = self._text(item.get("sku"))
@@ -154,19 +186,30 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 if candidate_sku:
                     candidate_skus.add(candidate_sku)
 
-        if not target_seen or len(candidate_skus) != 1:
+        if not target_seen:
+            self._record_sku_recovery_diagnostic("RELATED_TARGET_MISSING")
+            self._related_sku_identity_cache[finance_sku] = None
+            return None
+        if not candidate_skus:
+            self._record_sku_recovery_diagnostic("RELATED_CATALOG_MISSING")
+            self._related_sku_identity_cache[finance_sku] = None
+            return None
+        if len(candidate_skus) != 1:
+            self._record_sku_recovery_diagnostic("RELATED_AMBIGUOUS")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
         catalog_sku = next(iter(candidate_skus))
         candidate = self._catalog_by_sku.get(catalog_sku)
         if not isinstance(candidate, dict):
+            self._record_sku_recovery_diagnostic("RELATED_CATALOG_MISSING")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
         product_id = self._text(candidate.get("product_id"))
         offer_id = self._text(candidate.get("offer_id"))
         if not product_id:
+            self._record_sku_recovery_diagnostic("RELATED_PRODUCT_ID_MISSING")
             self._related_sku_identity_cache[finance_sku] = None
             return None
 
@@ -257,6 +300,16 @@ class PeriodProfitFinancePostingIdentityScopeService(
             "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_SKU"
         )
         return result
+
+    def _record_sku_recovery_diagnostic(self, stage):
+        stage = self._text(stage).upper()
+        if stage and all(
+            character.isalnum() or character == "_"
+            for character in stage
+        ):
+            self._sku_recovery_diagnostic_codes.add(
+                "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_" + stage
+            )
 
     @classmethod
     def _unique_catalog_sku_index(cls, products):
