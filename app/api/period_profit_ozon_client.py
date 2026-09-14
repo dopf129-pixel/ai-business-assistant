@@ -57,7 +57,7 @@ class PeriodProfitOzonClient(OzonClient):
 
         accruals = result.get("accruals")
         if not isinstance(accruals, list):
-            return self._finance_money_error()
+            return self._finance_money_error("ACCRUALS")
 
         normalized = copy.deepcopy(result)
         diagnostics = self._empty_revenue_diagnostics()
@@ -65,10 +65,10 @@ class PeriodProfitOzonClient(OzonClient):
 
         for accrual in normalized.get("accruals", []):
             if not isinstance(accrual, dict):
-                return self._finance_money_error()
+                return self._finance_money_error("ACCRUAL_RECORD")
 
             if not self._valid_money(accrual.get("total_amount")):
-                return self._finance_money_error()
+                return self._finance_money_error("TOTAL_AMOUNT")
 
             self._normalize_item_fees(accrual, completeness, "item_fees")
 
@@ -79,21 +79,21 @@ class PeriodProfitOzonClient(OzonClient):
             if posting is None:
                 continue
             if not isinstance(posting, dict):
-                return self._finance_money_error()
+                return self._finance_money_error("POSTING")
 
             products = posting.get("products")
             if products is None:
                 continue
             if not isinstance(products, list):
-                return self._finance_money_error()
+                return self._finance_money_error("PRODUCTS")
 
             for product in products:
                 if not isinstance(product, dict):
-                    return self._finance_money_error()
+                    return self._finance_money_error("PRODUCT_RECORD")
 
                 commission = product.get("commission")
                 if not isinstance(commission, dict):
-                    return self._finance_money_error()
+                    return self._finance_money_error("COMMISSION")
 
                 self._observe_revenue_diagnostics(diagnostics, commission)
 
@@ -103,7 +103,7 @@ class PeriodProfitOzonClient(OzonClient):
                         commission
                     )
                     if recovered_sale_amount is None:
-                        return self._finance_money_error()
+                        return self._finance_money_error("SALE_AMOUNT_COMPONENTS")
                     commission["sale_amount"] = recovered_sale_amount
 
                 # total_amount and sale_amount are formula-critical. seller_price is
@@ -374,12 +374,21 @@ class PeriodProfitOzonClient(OzonClient):
         return cls._money_decimal(value) is not None
 
     @staticmethod
-    def _finance_money_error():
-        return {
+    def _finance_money_error(stage=None):
+        result = {
             "error": True,
             "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
             "complete": False,
         }
+        stage = str(stage or "").strip().upper()
+        if stage and all(
+            character.isalnum() or character == "_"
+            for character in stage
+        ):
+            result["finance_diagnostic_code"] = (
+                "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_" + stage
+            )
+        return result
 
     @staticmethod
     def _seller_revenue_error():
