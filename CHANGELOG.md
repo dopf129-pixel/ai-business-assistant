@@ -397,3 +397,9 @@ Summary Report теперь включает:
 
 - Preserve safe upstream finance error codes and HTTP status classes across concurrent prefetch.
 - Show the sanitized diagnostic code in Telegram without exposing Ozon payloads, identifiers, credentials, or monetary data.
+
+## 2026-09-14 — Restore Period Profit non-sale posting normalization
+
+- Fixed the related-SKU production client inheritance introduced by #558.
+- Restored the established runtime handling for POSTING rows whose sale commission block is wholly absent.
+- Malformed commission containers and partial sale-money components remain fail-closed.
