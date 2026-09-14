@@ -397,3 +397,8 @@ Summary Report теперь включает:
 
 - Preserve safe upstream finance error codes and HTTP status classes across concurrent prefetch.
 - Show the sanitized diagnostic code in Telegram without exposing Ozon payloads, identifiers, credentials, or monetary data.
+
+## 2026-09-14 — Period Profit monetary validation stage diagnostics
+
+- Classify the exact fail-closed accrual money validation stage without exposing financial values or Ozon payloads.
+- Carry the sanitized stage through finance prefetch, SKU scope, and Telegram presentation.

@@ -76,6 +76,9 @@ def test_period_profit_finance_fails_closed_when_total_amount_missing():
     assert result == {
         "error": True,
         "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_TOTAL_AMOUNT"
+        ),
         "complete": False,
     }
 

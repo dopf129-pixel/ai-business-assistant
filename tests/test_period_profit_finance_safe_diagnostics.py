@@ -58,3 +58,30 @@ def test_telegram_period_profit_exposes_only_safe_finance_diagnostic_code():
     assert "secret" not in result["message"]
     assert result["read_only"] is True
     assert result["executed"] is False
+
+def test_money_validation_stage_survives_production_error_wiring():
+    source = {
+        "error": True,
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_TOTAL_AMOUNT"
+        ),
+        "complete": False,
+    }
+    prefetch = PeriodProfitFinanceService._prefetch_response_error(source)
+    assert prefetch["finance_diagnostic_code"] == (
+        "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_TOTAL_AMOUNT"
+    )
+
+    runtime = AssistantPeriodProfitRuntimeService(_Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_SUMMARY_UNAVAILABLE",
+        **prefetch,
+    }))
+    result = runtime.handle_callback("period_profit:7D")
+
+    assert result["message"].endswith(
+        "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_TOTAL_AMOUNT"
+    )
+    assert result["read_only"] is True
+    assert result["executed"] is False

@@ -102,6 +102,9 @@ def test_v1504_unknown_total_amount_still_fails_closed():
     assert result == {
         "error": True,
         "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_TOTAL_AMOUNT"
+        ),
         "complete": False,
     }
 
@@ -121,6 +124,9 @@ def test_v1505_unrecoverable_sale_amount_still_fails_closed():
     assert result == {
         "error": True,
         "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_SALE_AMOUNT_COMPONENTS"
+        ),
         "complete": False,
     }
 
@@ -171,6 +177,9 @@ def test_v1508_malformed_formula_structure_still_fails_closed():
     assert result == {
         "error": True,
         "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_COMMISSION"
+        ),
         "complete": False,
     }
 

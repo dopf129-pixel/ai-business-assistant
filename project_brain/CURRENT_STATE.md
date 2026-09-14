@@ -3879,3 +3879,13 @@ Completed:
 [x] Preserve safe finance failure identity across the parallel prefetch boundary
 [x] Expose only sanitized diagnostic codes in Telegram
 [x] Keep Ozon payloads, credentials, identifiers, and amounts hidden
+
+---
+
+# Period Profit Monetary Validation Stage Diagnostics — 2026-09-14
+
+Completed:
+
+[x] Distinguish accrual list/record, total amount, posting, products, commission, and sale-component blockers
+[x] Preserve the existing fail-closed monetary result
+[x] Expose no payload, identifiers, credentials, or monetary values
