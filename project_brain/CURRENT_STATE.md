@@ -3879,3 +3879,15 @@ Completed:
 [x] Preserve safe finance failure identity across the parallel prefetch boundary
 [x] Expose only sanitized diagnostic codes in Telegram
 [x] Keep Ozon payloads, credentials, identifiers, and amounts hidden
+
+---
+
+# Period Profit Related-SKU Runtime Base Fix — 2026-09-14
+
+Completed:
+
+[x] Traced live FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_COMMISSION to the #558 client inheritance regression
+[x] Restored PeriodProfitRuntimeOzonClient as the related-SKU client's finance-normalization base
+[x] Preserved account total_amount for non-sale postings without inventing SKU revenue or quantity
+[x] Kept malformed/partial commission evidence fail-closed
+[x] Preserved historical effective-cost authority and Return COGS gates
