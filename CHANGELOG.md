@@ -392,3 +392,8 @@ Summary Report теперь включает:
 - Every concurrent Ozon READ-ONLY day/posting request now runs in an independent copy of the originating request context.
 - Added production-wiring regression coverage from Telegram callback/text entry through the real tenant-aware Ozon client.
 - Preserved fail-closed monetary and quantity validation, historical effective-cost authority, and all Return COGS gates.
+
+## 2026-09-14 — Safe Period Profit finance diagnostics
+
+- Preserve safe upstream finance error codes and HTTP status classes across concurrent prefetch.
+- Show the sanitized diagnostic code in Telegram without exposing Ozon payloads, identifiers, credentials, or monetary data.
