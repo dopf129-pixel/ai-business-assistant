@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from datetime import date, timedelta
 from threading import local
 
@@ -91,7 +92,7 @@ class PeriodProfitFinanceService(FinanceService):
         workers = min(self.DAILY_PREFETCH_WORKERS, len(dates))
         try:
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                responses = list(executor.map(getter, dates))
+                responses = list(self._map_with_current_context(executor, getter, dates))
         except Exception:
             return {
                 "error": True,
@@ -190,7 +191,7 @@ class PeriodProfitFinanceService(FinanceService):
         workers = min(self.POSTING_QUANTITY_WORKERS, len(batches))
         try:
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                responses = list(executor.map(getter, batches))
+                responses = list(self._map_with_current_context(executor, getter, batches))
         except Exception:
             return self._posting_quantity_error(
                 "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
@@ -274,6 +275,16 @@ class PeriodProfitFinanceService(FinanceService):
             "read_only": True,
             "executed": False,
         }
+
+    @staticmethod
+    def _map_with_current_context(executor, function, values):
+        """Run every worker call in an independent copy of the request context."""
+        futures = [
+            executor.submit(copy_context().run, function, value)
+            for value in values
+        ]
+        for future in futures:
+            yield future.result()
 
     @staticmethod
     def _posting_quantity_error(code):
