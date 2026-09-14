@@ -385,3 +385,10 @@ Summary Report теперь включает:
 - task lifecycle success wording is emitted only for validated successful results;
 - committed skip state is reported explicitly if a later next-action read fails;
 - no new business execution or Ozon mutation path was added.
+
+## 2026-09-14 — Period Profit tenant-context propagation
+
+- Fixed 7/28/56/90-day and custom Period Profit reads after parallel finance prefetch lost the Telegram tenant `ContextVar` in worker threads.
+- Every concurrent Ozon READ-ONLY day/posting request now runs in an independent copy of the originating request context.
+- Added production-wiring regression coverage from Telegram callback/text entry through the real tenant-aware Ozon client.
+- Preserved fail-closed monetary and quantity validation, historical effective-cost authority, and all Return COGS gates.
