@@ -4398,3 +4398,19 @@ Verification:
 - squash main `3f82b65054a2a7a48b9918803c197377bdb3557f`: Verify #1131, 2208 passed / 0 failed, artifact 9906878610, digest `sha256:45eb967f32521ae3c7a2007663f6acfffcf6fa2f1fbdddb58bc332f56a02311d`;
 - failed SHAs remain failed evidence permanently and carry no transferable success claim;
 - `externally_verified=False`.
+
+---
+
+# Period Profit Tenant Context Production Wiring
+
+Tests:
+
+- `tests/test_period_profit_tenant_context_production_wiring.py`
+
+Covers:
+
+- Telegram callback tenant binding for 7D, 28D, 56D, and 90D;
+- Telegram text tenant binding for a custom date range;
+- tenant credentials remain available inside concurrent Ozon finance worker threads;
+- the real `PeriodProfitFinanceService`, `PeriodProfitRelatedSkuOzonClient`, `OzonCredentialProvider`, and `TelegramBotService` wiring;
+- Ozon calls remain READ-ONLY and finance prefetch remains all-or-fail.
