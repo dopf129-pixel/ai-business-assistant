@@ -291,12 +291,22 @@ class PeriodProfitFinanceService(FinanceService):
                     and 100 <= status_code <= 599
                 ):
                     code = "PERIOD_PROFIT_FINANCE_PREFETCH_HTTP_" + str(status_code)
-        return {
+        result = {
             "error": True,
             "code": code or "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
             "read_only": True,
             "executed": False,
         }
+        if isinstance(response, dict):
+            diagnostic = str(
+                response.get("finance_diagnostic_code") or ""
+            ).strip().upper()
+            if diagnostic and all(
+                character.isalnum() or character == "_"
+                for character in diagnostic
+            ):
+                result["finance_diagnostic_code"] = diagnostic
+        return result
 
     @staticmethod
     def _map_with_current_context(executor, function, values):
