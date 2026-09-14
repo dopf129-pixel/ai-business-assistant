@@ -317,52 +317,103 @@ class PeriodProfitFinancePostingIdentityScopeService(
         return result
 
     def _recover_related_sku_from_seller_cost(self, finance_sku, items):
-        """Use seller cost rows only as identity, never as historical cost."""
-
-        cost_service = self.cost_service
-        getter = getattr(cost_service, "get_all_costs", None)
-        if not callable(getter):
-            return "UNAVAILABLE", None
-        try:
-            rows = getter()
-        except Exception:
-            return "UNAVAILABLE", None
-        if not isinstance(rows, (list, tuple)):
-            return "UNAVAILABLE", None
+        """Use seller cost storage only as identity, never as cost authority."""
 
         related_skus = {
             self._text(item.get("sku"))
             for item in items
-            if isinstance(item, dict)
-            and self._text(item.get("sku"))
-            and self._text(item.get("sku")) != finance_sku
+            if isinstance(item, dict) and self._text(item.get("sku"))
         }
-        matches = []
-        for related_sku in related_skus:
-            for row in rows:
-                candidate = self._product_from_current_cost_row(
-                    row,
-                    related_sku,
-                )
-                if candidate is not None:
-                    matches.append((related_sku, candidate))
+        cost_service = self.cost_service
+        identity_getter = getattr(
+            cost_service,
+            "get_seller_cost_identities",
+            None,
+        )
+        records = None
+        if callable(identity_getter):
+            try:
+                identity_result = identity_getter()
+            except Exception:
+                return "UNAVAILABLE", None
+            if (
+                not isinstance(identity_result, dict)
+                or identity_result.get("error") is True
+                or not isinstance(identity_result.get("records"), list)
+            ):
+                return "UNAVAILABLE", None
+            records = identity_result["records"]
 
-        identities = {
-            (
-                related_sku,
-                self._text(candidate.get("product_id")),
-                self._text(candidate.get("offer_id")),
-            )
-            for related_sku, candidate in matches
-        }
+        matches = []
+        if records is not None:
+            for record in records:
+                if not isinstance(record, dict):
+                    return "UNAVAILABLE", None
+                sku = self._text(record.get("sku"))
+                product_id = self._text(record.get("product_id"))
+                offer_id = self._text(record.get("offer_id"))
+                if sku in related_skus and product_id:
+                    matches.append((sku, product_id, offer_id))
+        else:
+            getter = getattr(cost_service, "get_all_costs", None)
+            if not callable(getter):
+                return "UNAVAILABLE", None
+            try:
+                rows = getter()
+            except Exception:
+                return "UNAVAILABLE", None
+            if not isinstance(rows, (list, tuple)):
+                return "UNAVAILABLE", None
+            for related_sku in related_skus:
+                for row in rows:
+                    candidate = self._product_from_current_cost_row(
+                        row,
+                        related_sku,
+                    )
+                    if candidate is not None:
+                        matches.append((
+                            related_sku,
+                            self._text(candidate.get("product_id")),
+                            self._text(candidate.get("offer_id")),
+                        ))
+
+        identities = set(matches)
         if not identities:
             return "MISSING", None
-        if len(identities) != 1:
-            return "AMBIGUOUS", None
 
-        catalog_sku, product_id, offer_id = next(iter(identities))
-        if not product_id:
-            return "MISSING", None
+        offer_ids = {offer_id for _, _, offer_id in identities if offer_id}
+        if len(offer_ids) > 1:
+            return "AMBIGUOUS", None
+        if offer_ids:
+            stable_offer = next(iter(offer_ids))
+            identities = {
+                identity
+                for identity in identities
+                if identity[2] == stable_offer
+            }
+        else:
+            stable_offer = ""
+
+        finance_matches = {
+            identity for identity in identities if identity[0] == finance_sku
+        }
+        if len(finance_matches) == 1:
+            _, product_id, offer_id = next(iter(finance_matches))
+        else:
+            product_ids = {identity[1] for identity in identities}
+            if len(product_ids) != 1:
+                return "AMBIGUOUS", None
+            product_id = next(iter(product_ids))
+            offer_id = stable_offer
+
+        related_current_skus = {
+            sku for sku, _, _ in identities if sku != finance_sku
+        }
+        catalog_sku = (
+            next(iter(related_current_skus))
+            if len(related_current_skus) == 1
+            else finance_sku
+        )
         return "MATCHED", {
             "product_id": product_id,
             "offer_id": offer_id or catalog_sku,
