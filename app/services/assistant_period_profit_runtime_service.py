@@ -6,19 +6,38 @@ from services.period_profit_cost_confirmation_runtime_service import (
     PeriodProfitCostConfirmationRuntimeService,
 )
 from services.period_profit_effective_cost_service import PeriodProfitEffectiveCostService
+from services.period_profit_identity_confirmation_runtime_service import (
+    PeriodProfitIdentityConfirmationRuntimeService,
+)
 
 
 class AssistantPeriodProfitRuntimeService:
-    """Narrow Period Profit route plus seller-confirmed local cost corrections."""
+    """Narrow Period Profit route plus seller-confirmed local corrections."""
 
     PERIOD_CODES = {"TODAY", "7D", "28D", "56D", "90D"}
 
-    def __init__(self, query_service, cost_confirmation_runtime_service=None):
+    def __init__(
+        self,
+        query_service,
+        cost_confirmation_runtime_service=None,
+        identity_confirmation_runtime_service=None,
+    ):
         self.query_service = query_service
         self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
+        self.identity_confirmation_runtime_service = identity_confirmation_runtime_service
 
     def handle_text(self, text, today=None):
         value = " ".join(str(text or "").strip().lower().split())
+
+        if self._looks_like_identity_confirmation(value):
+            runtime = self.identity_confirmation_runtime_service
+            if runtime is None:
+                cost_service = PeriodProfitEffectiveCostService()
+                runtime = PeriodProfitIdentityConfirmationRuntimeService(cost_service)
+            confirmation = runtime.handle_text(text)
+            if confirmation is not None:
+                return confirmation
+
         if "себесто" in value or "cost" in value:
             runtime = self.cost_confirmation_runtime_service
             if runtime is None:
@@ -193,6 +212,22 @@ class AssistantPeriodProfitRuntimeService:
                 continue
             parts.append(key + "=" + text)
         return "; ".join(parts)
+
+    @staticmethod
+    def _looks_like_identity_confirmation(value):
+        if "sku" not in value:
+            return False
+        return any(
+            phrase in value
+            for phrase in (
+                "один товар",
+                "тот же товар",
+                "это один товар",
+                "это тот же товар",
+                "same product",
+                "same item",
+            )
+        )
 
     @staticmethod
     def _is_profit_request(value):
