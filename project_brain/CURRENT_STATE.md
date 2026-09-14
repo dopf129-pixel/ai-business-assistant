@@ -3869,3 +3869,13 @@ Completed:
 [x] Propagated an independent request context into every READ-ONLY finance worker
 [x] Covered 7D, 28D, 56D, 90D, and a custom date range through TelegramBotService
 [x] Preserved fail-closed finance/quantity evidence and historical/Return COGS authority
+
+---
+
+# Safe Period Profit Finance Diagnostics — 2026-09-14
+
+Completed:
+
+[x] Preserve safe finance failure identity across the parallel prefetch boundary
+[x] Expose only sanitized diagnostic codes in Telegram
+[x] Keep Ozon payloads, credentials, identifiers, and amounts hidden
