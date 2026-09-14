@@ -1,7 +1,7 @@
-from api.period_profit_ozon_client import PeriodProfitOzonClient
+from api.period_profit_runtime_ozon_client import PeriodProfitRuntimeOzonClient
 
 
-class PeriodProfitRelatedSkuOzonClient(PeriodProfitOzonClient):
+class PeriodProfitRelatedSkuOzonClient(PeriodProfitRuntimeOzonClient):
     """Period Profit READ-ONLY client with old/current SKU identity lookup."""
 
     RELATED_SKU_ENDPOINT = "/v1/product/related-sku/get"
