@@ -6,20 +6,14 @@ from services.period_profit_realization_offer_quantity_summary_service import (
 class PeriodProfitDiagnosticQuantitySummaryService(
     PeriodProfitRealizationOfferQuantitySummaryService
 ):
-    """Expose the exact safe effective-cost blocker without leaking seller data.
-
-    The effective-cost reconciliation historically collapsed every cost failure into
-    PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE. That made live diagnosis impossible:
-    missing history, a not-yet-effective row, identity ambiguity, and storage errors
-    all looked identical. This adapter preserves the same fail-closed behavior while
-    carrying only the existing machine-readable error code to the final result.
-    """
+    """Expose safe Period Profit diagnostics without leaking seller identifiers."""
 
     GENERIC_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
     MISSING_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_COST_HISTORY_MISSING"
 
     def _effective_cost_evidence(self, row, accrual_date):
         self._effective_cost_diagnostic_code = None
+        self._effective_cost_trace = None
         getter = getattr(self.cost_service, "get_effective_cost_evidence", None)
         if not callable(getter):
             self._effective_cost_diagnostic_code = (
@@ -27,56 +21,87 @@ class PeriodProfitDiagnosticQuantitySummaryService(
             )
             return None
 
+        finance_sku = self._text(row.get("sku"))
+        catalog_sku = self._text(row.get("catalog_sku"))
+        product_id = self._text(row.get("product_id"))
+        offer_id = self._text(row.get("offer_id"))
+
+        trace = {
+            "product_id_present": bool(product_id),
+            "offer_id_present": bool(offer_id),
+            "finance_sku_present": bool(finance_sku),
+            "catalog_sku_present": bool(catalog_sku),
+            "catalog_sku_differs": bool(
+                catalog_sku and finance_sku and catalog_sku != finance_sku
+            ),
+            "identity_recovered": bool(row.get("historical_sku_identity_recovered")),
+            "primary_lookup_code": None,
+            "catalog_lookup_attempted": False,
+            "catalog_lookup_code": None,
+            "product_id_lookup_code": None,
+            "offer_id_lookup_code": None,
+            "finance_sku_lookup_code": None,
+            "catalog_sku_lookup_code": None,
+            "current_cost_present": None,
+            "current_cost_date_relation": None,
+        }
+
         try:
             evidence = getter(
                 accrual_date,
-                product_id=row.get("product_id"),
-                sku=row.get("sku"),
-                offer_id=row.get("offer_id"),
+                product_id=product_id or None,
+                sku=finance_sku or None,
+                offer_id=offer_id or None,
             )
         except Exception:
             self._effective_cost_diagnostic_code = (
                 "PERIOD_PROFIT_COST_SERVICE_EXCEPTION"
             )
+            self._effective_cost_trace = trace
             return None
 
         if not isinstance(evidence, dict):
             self._effective_cost_diagnostic_code = (
                 "PERIOD_PROFIT_COST_RESPONSE_INVALID"
             )
+            self._effective_cost_trace = trace
             return None
 
-        # A historical finance SKU can be retired while the already-proven product
-        # identity carries a newer catalog SKU.  Cost storage may therefore only know
-        # that catalog SKU.  Retry through it strictly after a pure missing result;
-        # ambiguous, not-effective, malformed, or unavailable evidence must remain
-        # fail-closed and must never be bypassed by an alias lookup.
         first_code = str(evidence.get("code") or "").strip()
-        catalog_sku = self._text(row.get("catalog_sku"))
-        finance_sku = self._text(row.get("sku"))
+        trace["primary_lookup_code"] = first_code or "READY"
+
+        # A historical finance SKU can be retired while the already-proven product
+        # identity carries a newer catalog SKU. Retry through it strictly after a
+        # pure missing result; every other blocker remains fail-closed.
         if (
             evidence.get("error") is True
             and first_code == self.MISSING_EFFECTIVE_COST_CODE
             and catalog_sku
             and catalog_sku != finance_sku
         ):
+            trace["catalog_lookup_attempted"] = True
             try:
                 evidence = getter(
                     accrual_date,
-                    product_id=row.get("product_id"),
+                    product_id=product_id or None,
                     sku=catalog_sku,
-                    offer_id=row.get("offer_id"),
+                    offer_id=offer_id or None,
                 )
             except Exception:
                 self._effective_cost_diagnostic_code = (
                     "PERIOD_PROFIT_COST_SERVICE_EXCEPTION"
                 )
+                self._effective_cost_trace = trace
                 return None
             if not isinstance(evidence, dict):
                 self._effective_cost_diagnostic_code = (
                     "PERIOD_PROFIT_COST_RESPONSE_INVALID"
                 )
+                self._effective_cost_trace = trace
                 return None
+            trace["catalog_lookup_code"] = (
+                str(evidence.get("code") or "").strip() or "READY"
+            )
 
         if (
             evidence.get("error") is True
@@ -88,9 +113,96 @@ class PeriodProfitDiagnosticQuantitySummaryService(
                 self._effective_cost_diagnostic_code = code
             else:
                 self._effective_cost_diagnostic_code = self.GENERIC_EFFECTIVE_COST_CODE
+
+            # Only on failure, probe each already-known identity independently. These
+            # are additional READ-ONLY lookups and do not alter financial authority.
+            trace.update(
+                self._probe_cost_identities(
+                    getter,
+                    accrual_date,
+                    product_id=product_id,
+                    offer_id=offer_id,
+                    finance_sku=finance_sku,
+                    catalog_sku=catalog_sku,
+                )
+            )
+            trace.update(
+                self._probe_current_cost_relation(
+                    accrual_date,
+                    product_id=product_id,
+                )
+            )
+            self._effective_cost_trace = trace
             return None
 
         return evidence
+
+    def _probe_cost_identities(
+        self,
+        getter,
+        accrual_date,
+        product_id="",
+        offer_id="",
+        finance_sku="",
+        catalog_sku="",
+    ):
+        result = {}
+        probes = (
+            ("product_id_lookup_code", {"product_id": product_id}) if product_id else None,
+            ("offer_id_lookup_code", {"offer_id": offer_id}) if offer_id else None,
+            ("finance_sku_lookup_code", {"sku": finance_sku}) if finance_sku else None,
+            (
+                "catalog_sku_lookup_code",
+                {"sku": catalog_sku},
+            )
+            if catalog_sku
+            else None,
+        )
+        for probe in probes:
+            if probe is None:
+                continue
+            key, kwargs = probe
+            try:
+                evidence = getter(accrual_date, **kwargs)
+            except Exception:
+                result[key] = "EXCEPTION"
+                continue
+            if not isinstance(evidence, dict):
+                result[key] = "INVALID"
+                continue
+            result[key] = str(evidence.get("code") or "").strip() or "READY"
+        return result
+
+    def _probe_current_cost_relation(self, accrual_date, product_id=""):
+        if not product_id:
+            return {}
+        getter = getattr(self.cost_service, "get_cost", None)
+        date_parser = getattr(self.cost_service, "_date", None)
+        if not callable(getter) or not callable(date_parser):
+            return {}
+        try:
+            row = getter(product_id)
+        except Exception:
+            return {"current_cost_present": "UNKNOWN"}
+        if row is None:
+            return {
+                "current_cost_present": False,
+                "current_cost_date_relation": "NO_CURRENT_ROW",
+            }
+        result = {"current_cost_present": True}
+        if not isinstance(row, (tuple, list)) or len(row) < 6:
+            result["current_cost_date_relation"] = "UNKNOWN"
+            return result
+        target = date_parser(accrual_date)
+        updated_text = str(row[5] or "").strip()
+        updated = date_parser(updated_text[:10]) if len(updated_text) >= 10 else None
+        if target is None or updated is None:
+            result["current_cost_date_relation"] = "UNKNOWN"
+        elif updated <= target:
+            result["current_cost_date_relation"] = "ON_OR_BEFORE_SALE"
+        else:
+            result["current_cost_date_relation"] = "AFTER_SALE"
+        return result
 
     def _quantity_error(self, code):
         diagnostic_code = code
@@ -101,7 +213,7 @@ class PeriodProfitDiagnosticQuantitySummaryService(
             if candidate.startswith(("PERIOD_PROFIT_", "PRODUCT_COST_")):
                 diagnostic_code = candidate
 
-        return {
+        result = {
             "error": True,
             "code": diagnostic_code,
             "status": "PERIOD_PROFIT_SALE_QUANTITY_UNAVAILABLE",
@@ -110,3 +222,7 @@ class PeriodProfitDiagnosticQuantitySummaryService(
             "read_only": True,
             "executed": False,
         }
+        trace = getattr(self, "_effective_cost_trace", None)
+        if isinstance(trace, dict) and trace:
+            result["cost_diagnostic_trace"] = dict(trace)
+        return result
