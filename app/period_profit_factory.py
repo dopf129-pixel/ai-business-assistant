@@ -2,7 +2,6 @@ from math import isfinite
 
 from api.ozon_client import OzonClient
 from api.period_profit_ozon_client import PeriodProfitOzonClient
-from api.period_profit_identity_ozon_client import PeriodProfitIdentityOzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
@@ -85,8 +84,8 @@ from services.period_profit_return_sale_quantity_evidence_service import (
 from services.period_profit_diagnostic_quantity_summary_service import (
     PeriodProfitDiagnosticQuantitySummaryService as PeriodProfitSummaryService,
 )
-from services.period_profit_cached_legacy_sku_identity_scope_service import (
-    PeriodProfitCachedLegacySkuIdentityScopeService as PeriodProfitFinanceSkuScopeService,
+from services.period_profit_finance_posting_identity_scope_service import (
+    PeriodProfitFinancePostingIdentityScopeService as PeriodProfitFinanceSkuScopeService,
 )
 from services.period_profit_tax_policy_summary_service import (
     PeriodProfitTaxPolicySummaryService,
@@ -96,7 +95,6 @@ from services.tax_configuration_service import TaxConfigurationService
 from services.tax_service import TaxService
 
 
-# Compatibility seams retained for existing factory tests and dependency overrides.
 ProductCostService = PeriodProfitEffectiveCostService
 
 
@@ -114,7 +112,6 @@ def create_period_profit_query(mapping_registry=None):
     finance_service = FinanceService()
     finance_service.ozon = PeriodProfitOzonClient()
     ozon_client = OzonClient()
-    identity_ozon_client = PeriodProfitIdentityOzonClient()
     raw_summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
@@ -125,7 +122,7 @@ def create_period_profit_query(mapping_registry=None):
     base_summary_service = PeriodProfitFinanceSkuScopeService(
         raw_summary_service,
         finance_service,
-        sku_ozon_client=identity_ozon_client,
+        sku_ozon_client=None,
     )
     summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
@@ -202,12 +199,7 @@ def create_period_profit_query(mapping_registry=None):
 
 
 def _load_period_profit_products(product_service):
-    """Refresh the complete Ozon catalog before using local product identities."""
-    refresher = getattr(
-        product_service,
-        "refresh_products_for_period_profit",
-        None,
-    )
+    refresher = getattr(product_service, "refresh_products_for_period_profit", None)
     if callable(refresher):
         try:
             refresh_result = refresher()
@@ -217,7 +209,6 @@ def _load_period_profit_products(product_service):
             return []
         if refresh_result.get("complete") is not True:
             return []
-
     loader = getattr(product_service, "load_products", None)
     if not callable(loader):
         return []
@@ -229,7 +220,6 @@ def _load_period_profit_products(product_service):
 
 
 def _period_profit_tax_fraction(policy_result):
-    """Compatibility helper retained for older callers/tests."""
     if not isinstance(policy_result, dict):
         return None
     if policy_result.get("error") is not False or policy_result.get("configured") is not True:
