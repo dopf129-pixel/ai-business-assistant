@@ -74,14 +74,6 @@ class AssistantPeriodProfitRuntimeService:
         )
 
     def _query_with_optional_comparison(self, **kwargs):
-        """Comparison is optional enrichment; current-period facts are not.
-
-        The query service evaluates the current period first and then the previous
-        period. Historically an unavailable previous-period quantity caused the
-        whole seller-facing current result to disappear. Retry without comparison
-        only after the comparison-enabled query failed. If the current query also
-        fails, its fail-closed error is returned unchanged.
-        """
         compared = self.query_service.query(
             compare_previous=True,
             **kwargs,
@@ -115,19 +107,55 @@ class AssistantPeriodProfitRuntimeService:
             if code:
                 output = dict(result)
                 output["quantity_diagnostic_code"] = code
-                output["message"] = (
+                message = (
                     "Данные о количестве проданных товаров недоступны\n"
                     "Код диагностики: " + code
                 )
+                trace = result.get("cost_diagnostic_trace")
+                trace_text = AssistantPeriodProfitRuntimeService._safe_trace_text(trace)
+                if trace_text:
+                    output["cost_diagnostic_trace_text"] = trace_text
+                    message += "\nТрассировка: " + trace_text
+                output["message"] = message
                 output["read_only"] = True
                 output["executed"] = False
                 return output
         return compact_period_profit_result(result)
 
     @staticmethod
+    def _safe_trace_text(trace):
+        if not isinstance(trace, dict):
+            return ""
+        keys = (
+            "product_id_present",
+            "offer_id_present",
+            "finance_sku_present",
+            "catalog_sku_present",
+            "catalog_sku_differs",
+            "identity_recovered",
+            "primary_lookup_code",
+            "catalog_lookup_attempted",
+            "catalog_lookup_code",
+            "product_id_lookup_code",
+            "offer_id_lookup_code",
+            "finance_sku_lookup_code",
+            "catalog_sku_lookup_code",
+            "current_cost_present",
+            "current_cost_date_relation",
+        )
+        parts = []
+        for key in keys:
+            value = trace.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            parts.append(key + "=" + text)
+        return "; ".join(parts)
+
+    @staticmethod
     def _is_profit_request(value):
-        # Explicit unit-economics questions keep their existing estimated route.
-        # Period Profit is the account-level source for seller-facing profit/margin.
         if "юнит" in value or "unit econom" in value:
             return False
 
