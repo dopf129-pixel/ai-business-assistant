@@ -2,7 +2,6 @@ from math import isfinite
 
 from api.ozon_client import OzonClient
 from api.period_profit_ozon_client import PeriodProfitOzonClient
-from api.period_profit_identity_ozon_client import PeriodProfitIdentityOzonClient
 from period_profit_mapping_registry_factory import (
     load_active_period_profit_mappings,
 )
@@ -85,8 +84,8 @@ from services.period_profit_return_sale_quantity_evidence_service import (
 from services.period_profit_diagnostic_quantity_summary_service import (
     PeriodProfitDiagnosticQuantitySummaryService as PeriodProfitSummaryService,
 )
-from services.period_profit_cached_legacy_sku_identity_scope_service import (
-    PeriodProfitCachedLegacySkuIdentityScopeService as PeriodProfitFinanceSkuScopeService,
+from services.period_profit_finance_posting_identity_scope_service import (
+    PeriodProfitFinancePostingIdentityScopeService as PeriodProfitFinanceSkuScopeService,
 )
 from services.period_profit_tax_policy_summary_service import (
     PeriodProfitTaxPolicySummaryService,
@@ -114,7 +113,6 @@ def create_period_profit_query(mapping_registry=None):
     finance_service = FinanceService()
     finance_service.ozon = PeriodProfitOzonClient()
     ozon_client = OzonClient()
-    identity_ozon_client = PeriodProfitIdentityOzonClient()
     raw_summary_service = PeriodProfitSummaryService(
         finance_service=finance_service,
         cost_service=cost_service,
@@ -125,7 +123,7 @@ def create_period_profit_query(mapping_registry=None):
     base_summary_service = PeriodProfitFinanceSkuScopeService(
         raw_summary_service,
         finance_service,
-        sku_ozon_client=identity_ozon_client,
+        sku_ozon_client=None,
     )
     summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
