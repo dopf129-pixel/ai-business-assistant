@@ -60,7 +60,10 @@ def test_v1514_partial_sale_components_remain_fail_closed():
     )
     assert result == {
         "error": True,
-        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",\n        "finance_diagnostic_code": (\n            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_SALE_AMOUNT_COMPONENTS"\n        ),
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_SALE_AMOUNT_COMPONENTS"
+        ),
         "complete": False,
     }
 
@@ -72,7 +75,10 @@ def test_v1515_malformed_commission_container_remains_fail_closed():
     )
     assert result == {
         "error": True,
-        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",\n        "finance_diagnostic_code": (\n            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_COMMISSION"\n        ),
+        "code": "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE",
+        "finance_diagnostic_code": (
+            "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_COMMISSION"
+        ),
         "complete": False,
     }
 
