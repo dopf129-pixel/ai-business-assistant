@@ -101,5 +101,48 @@ class PeriodProfitEffectiveCostIdentityFallbackTests(unittest.TestCase):
             self.assertIsNone(evidence["cost_price"])
 
 
+    def test_identity_index_includes_history_and_switch_without_cost_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = TempCostService(os.path.join(tmp, "costs.db"))
+            service.record_historical_cost(
+                "legacy-product-id",
+                "3398133813",
+                "hook-2",
+                14.50,
+                "2026-05-03",
+                effective_through="2026-09-09",
+            )
+            service.record_cost_switch(
+                "current-product-id",
+                "3921245627",
+                "hook-2",
+                21.00,
+                "2026-09-11",
+            )
+
+            result = service.get_seller_cost_identities()
+
+            self.assertFalse(result["error"])
+            self.assertTrue(result["read_only"])
+            self.assertFalse(result["executed"])
+            self.assertFalse(result["cost_values_included"])
+            records = result["records"]
+            self.assertTrue(any(
+                row["product_id"] == "legacy-product-id"
+                and row["sku"] == "3398133813"
+                and row["offer_id"] == "hook-2"
+                and row["source"] == "product_cost_history"
+                for row in records
+            ))
+            self.assertTrue(any(
+                row["product_id"] == "current-product-id"
+                and row["sku"] == "3921245627"
+                and row["offer_id"] == "hook-2"
+                and row["source"] == "product_cost_switch_history"
+                for row in records
+            ))
+            self.assertTrue(all("cost_price" not in row for row in records))
+
+
 if __name__ == "__main__":
     unittest.main()
