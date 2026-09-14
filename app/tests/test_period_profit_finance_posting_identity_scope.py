@@ -56,9 +56,10 @@ class _Finance:
         }
 
 
-def test_production_factory_uses_finance_posting_identity_scope():
-    assert period_profit_factory.PeriodProfitFinanceSkuScopeService is (
-        PeriodProfitFinancePostingIdentityScopeService
+def test_production_factory_retains_finance_posting_identity_scope_behavior():
+    assert issubclass(
+        period_profit_factory.PeriodProfitFinanceSkuScopeService,
+        PeriodProfitFinancePostingIdentityScopeService,
     )
 
 

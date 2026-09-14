@@ -84,8 +84,8 @@ from services.period_profit_return_sale_quantity_evidence_service import (
 from services.period_profit_diagnostic_quantity_summary_service import (
     PeriodProfitDiagnosticQuantitySummaryService as PeriodProfitSummaryService,
 )
-from services.period_profit_finance_posting_identity_scope_service import (
-    PeriodProfitFinancePostingIdentityScopeService as PeriodProfitFinanceSkuScopeService,
+from services.period_profit_seller_confirmed_identity_scope_service import (
+    PeriodProfitSellerConfirmedIdentityScopeService as PeriodProfitFinanceSkuScopeService,
 )
 from services.period_profit_tax_policy_summary_service import (
     PeriodProfitTaxPolicySummaryService,
