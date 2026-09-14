@@ -3858,3 +3858,14 @@ Next accounting priority:
 - keep compensation treatment separate and prevent double counting;
 - keep automatic COGS reversal blocked until these remaining facts are complete.
 
+---
+
+# Period Profit Tenant Context Propagation — 2026-09-14
+
+Completed:
+
+[x] Traced Telegram callback/text production wiring through Period Profit finance prefetch
+[x] Identified lost tenant ContextVar at ThreadPoolExecutor boundary
+[x] Propagated an independent request context into every READ-ONLY finance worker
+[x] Covered 7D, 28D, 56D, 90D, and a custom date range through TelegramBotService
+[x] Preserved fail-closed finance/quantity evidence and historical/Return COGS authority
