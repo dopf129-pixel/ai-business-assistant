@@ -580,3 +580,17 @@ class OzonClient:
             timeout=30,
             max_attempts=3
         )
+
+    def get_accruals_by_postings(self, posting_numbers):
+        """Read finance accrual rows for exact posting numbers."""
+        return self._post(
+            "/v1/finance/accrual/postings",
+            {
+                "posting_numbers": [
+                    str(value)
+                    for value in posting_numbers or []
+                ]
+            },
+            timeout=30,
+            max_attempts=3
+        )
