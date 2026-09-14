@@ -2,17 +2,32 @@ import re
 from datetime import datetime
 
 from period_profit_compact_response import compact_period_profit_result
+from services.period_profit_cost_confirmation_runtime_service import (
+    PeriodProfitCostConfirmationRuntimeService,
+)
+from services.period_profit_effective_cost_service import PeriodProfitEffectiveCostService
 
 
 class AssistantPeriodProfitRuntimeService:
-    """Narrow read-only route for explicit period-profit requests."""
+    """Narrow Period Profit route plus seller-confirmed local cost corrections."""
 
     PERIOD_CODES = {"TODAY", "7D", "28D", "56D", "90D"}
 
-    def __init__(self, query_service):
+    def __init__(self, query_service, cost_confirmation_runtime_service=None):
         self.query_service = query_service
+        self.cost_confirmation_runtime_service = (
+            cost_confirmation_runtime_service
+            or PeriodProfitCostConfirmationRuntimeService(
+                PeriodProfitEffectiveCostService()
+            )
+        )
 
     def handle_text(self, text, today=None):
+        if self.cost_confirmation_runtime_service is not None:
+            confirmation = self.cost_confirmation_runtime_service.handle_text(text)
+            if confirmation is not None:
+                return confirmation
+
         value = " ".join(str(text or "").strip().lower().split())
         if not self._is_profit_request(value):
             return None
