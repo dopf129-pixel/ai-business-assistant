@@ -191,6 +191,21 @@ class PeriodProfitFinancePostingIdentityScopeService(
             self._related_sku_identity_cache[finance_sku] = None
             return None
         if not candidate_skus:
+            seller_status, seller_candidate = (
+                self._recover_related_sku_from_seller_cost(
+                    finance_sku,
+                    items,
+                )
+            )
+            if seller_status == "AMBIGUOUS":
+                self._record_sku_recovery_diagnostic("RELATED_AMBIGUOUS")
+                self._related_sku_identity_cache[finance_sku] = None
+                return None
+            if seller_candidate is not None:
+                self._related_sku_identity_cache[finance_sku] = dict(
+                    seller_candidate
+                )
+                return seller_candidate
             self._record_sku_recovery_diagnostic("RELATED_CATALOG_MISSING")
             self._related_sku_identity_cache[finance_sku] = None
             return None
@@ -300,6 +315,64 @@ class PeriodProfitFinancePostingIdentityScopeService(
             "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_SKU"
         )
         return result
+
+    def _recover_related_sku_from_seller_cost(self, finance_sku, items):
+        """Use seller cost rows only as identity, never as historical cost."""
+
+        cost_service = self.cost_service
+        getter = getattr(cost_service, "get_all_costs", None)
+        if not callable(getter):
+            return "UNAVAILABLE", None
+        try:
+            rows = getter()
+        except Exception:
+            return "UNAVAILABLE", None
+        if not isinstance(rows, (list, tuple)):
+            return "UNAVAILABLE", None
+
+        related_skus = {
+            self._text(item.get("sku"))
+            for item in items
+            if isinstance(item, dict)
+            and self._text(item.get("sku"))
+            and self._text(item.get("sku")) != finance_sku
+        }
+        matches = []
+        for related_sku in related_skus:
+            for row in rows:
+                candidate = self._product_from_current_cost_row(
+                    row,
+                    related_sku,
+                )
+                if candidate is not None:
+                    matches.append((related_sku, candidate))
+
+        identities = {
+            (
+                related_sku,
+                self._text(candidate.get("product_id")),
+                self._text(candidate.get("offer_id")),
+            )
+            for related_sku, candidate in matches
+        }
+        if not identities:
+            return "MISSING", None
+        if len(identities) != 1:
+            return "AMBIGUOUS", None
+
+        catalog_sku, product_id, offer_id = next(iter(identities))
+        if not product_id:
+            return "MISSING", None
+        return "MATCHED", {
+            "product_id": product_id,
+            "offer_id": offer_id or catalog_sku,
+            "catalog_sku": catalog_sku,
+            "sku": finance_sku,
+            "historical_sku_identity_recovered": True,
+            "historical_sku_identity_source": (
+                "OZON_RELATED_SKU_TO_SELLER_COST_IDENTITY"
+            ),
+        }
 
     def _record_sku_recovery_diagnostic(self, stage):
         stage = self._text(stage).upper()
