@@ -23,10 +23,9 @@ class AssistantPeriodProfitRuntimeService:
                 return self._invalid_custom_period()
 
             return self._present(
-                self.query_service.query(
+                self._query_with_optional_comparison(
                     date_from=dates[0],
                     date_to=dates[1],
-                    compare_previous=True,
                     today=today,
                 )
             )
@@ -47,9 +46,8 @@ class AssistantPeriodProfitRuntimeService:
             }
 
         return self._present(
-            self.query_service.query(
+            self._query_with_optional_comparison(
                 period_code=period,
-                compare_previous=True,
                 today=today,
             )
         )
@@ -69,12 +67,42 @@ class AssistantPeriodProfitRuntimeService:
                 "executed": False,
             }
         return self._present(
-            self.query_service.query(
+            self._query_with_optional_comparison(
                 period_code=period,
-                compare_previous=True,
                 today=today,
             )
         )
+
+    def _query_with_optional_comparison(self, **kwargs):
+        """Comparison is optional enrichment; current-period facts are not.
+
+        The query service evaluates the current period first and then the previous
+        period. Historically an unavailable previous-period quantity caused the
+        whole seller-facing current result to disappear. Retry without comparison
+        only after the comparison-enabled query failed. If the current query also
+        fails, its fail-closed error is returned unchanged.
+        """
+        compared = self.query_service.query(
+            compare_previous=True,
+            **kwargs,
+        )
+        if not isinstance(compared, dict) or compared.get("error") is not True:
+            return compared
+
+        current = self.query_service.query(
+            compare_previous=False,
+            **kwargs,
+        )
+        if not isinstance(current, dict) or current.get("error") is not False:
+            return current if isinstance(current, dict) else compared
+
+        degraded = dict(current)
+        degraded["comparison"] = None
+        degraded["previous_summary"] = None
+        degraded["comparison_status"] = "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
+        degraded["comparison_error_code"] = compared.get("code")
+        degraded["comparison_read_only"] = True
+        return degraded
 
     @staticmethod
     def _present(result):
