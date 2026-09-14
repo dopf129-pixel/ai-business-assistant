@@ -6,6 +6,58 @@ from api.period_profit_ozon_client import PeriodProfitOzonClient
 class PeriodProfitRuntimeOzonClient(PeriodProfitOzonClient):
     """Runtime adapter for valid POSTING rows that carry no sale-money evidence."""
 
+    FINANCE_ACCRUAL_POSTINGS = "/v1/finance/accrual/postings"
+
+    def get_accruals_by_postings(self, posting_numbers):
+        """Read quantity-bearing accrual evidence for exact posting numbers."""
+        normalized = []
+        seen = set()
+        for value in posting_numbers or []:
+            posting_number = str(value or "").strip()
+            if not posting_number or posting_number in seen:
+                continue
+            seen.add(posting_number)
+            normalized.append(posting_number)
+
+        if not normalized:
+            return {
+                "error": False,
+                "posting_accruals": [],
+                "read_only": True,
+                "executed": False,
+            }
+
+        result = self._post(
+            self.FINANCE_ACCRUAL_POSTINGS,
+            {"posting_numbers": normalized},
+            timeout=30,
+            max_attempts=3,
+        )
+        if not isinstance(result, dict):
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if result.get("error") is True:
+            return result
+
+        posting_accruals = result.get("posting_accruals")
+        if not isinstance(posting_accruals, list):
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+
+        enriched = dict(result)
+        enriched["error"] = False
+        enriched["read_only"] = True
+        enriched["executed"] = False
+        return enriched
+
     def _normalize_period_profit_canonical_finance(self, endpoint, result):
         if endpoint != self.FINANCE_ACCRUAL_BY_DAY or not isinstance(result, dict):
             return super()._normalize_period_profit_canonical_finance(endpoint, result)
