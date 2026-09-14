@@ -138,6 +138,9 @@ def test_related_sku_ambiguity_falls_through_and_still_fails_closed():
 
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+    assert result["finance_diagnostic_code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    )
     assert finance.posting_calls == [("posting-legacy",)]
 
 
@@ -237,3 +240,42 @@ def test_related_client_keeps_malformed_commission_fail_closed():
 
     assert result["error"] is True
     assert result["code"] == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
+
+
+def test_related_sku_api_error_is_distinguished_without_exposing_payload():
+    class _UnavailableRelatedOzon:
+        def get_related_skus(self, skus):
+            assert skus == ["legacy-sku"]
+            return {
+                "error": True,
+                "code": "OZON_RELATED_SKU_HTTP_403",
+                "payload": {"secret": "must-not-escape"},
+            }
+
+    finance = _Finance(_UnavailableRelatedOzon())
+    summary = _Summary()
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        summary,
+        finance,
+        sku_ozon_client=None,
+    )
+
+    result = service.calculate(
+        "2026-09-14",
+        "2026-09-14",
+        [{
+            "product_id": "product-1",
+            "offer_id": "offer-1",
+            "sku": "current-sku",
+        }],
+    )
+
+    assert result["error"] is True
+    assert result["code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+    )
+    assert result["finance_diagnostic_code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
+    )
+    assert "payload" not in result
+    assert "legacy-sku" not in result["finance_diagnostic_code"]
