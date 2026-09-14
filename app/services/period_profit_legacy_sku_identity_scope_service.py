@@ -37,15 +37,16 @@ class PeriodProfitLegacySkuIdentityScopeService(PeriodProfitFinanceSkuScopeServi
 
     def _scope_products(self, date_from, date_to, products):
         normalized = self._product_index(products)
-        self._catalog_by_offer = self._offer_index(
-            normalized.get("products", {}).values()
-            if isinstance(normalized, dict)
-            else []
-        )
-        self._scope_start = self._date(date_from)
-        self._scope_end = self._date(date_to)
         self._legacy_identity_cache = {}
         self._finance_posting_numbers_by_sku = {}
+        self._scope_start = self._date(date_from)
+        self._scope_end = self._date(date_to)
+        if normalized is None:
+            self._catalog_by_offer = {}
+            return super()._scope_products(date_from, date_to, products)
+        self._catalog_by_offer = self._offer_index(
+            normalized.get("products", {}).values()
+        )
         return super()._scope_products(date_from, date_to, products)
 
     def _load_period_skus(self, date_from, date_to):
