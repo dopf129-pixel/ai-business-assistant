@@ -153,6 +153,71 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             "read_only_ozon": True,
         }
 
+    def get_seller_cost_identities(self):
+        """Return seller-confirmed identity only, without cost values."""
+
+        queries = (
+            (
+                "product_cost_history",
+                "SELECT product_id, sku, offer_id "
+                "FROM product_cost_history",
+            ),
+            (
+                "product_cost_switch_history",
+                "SELECT product_id, sku, offer_id "
+                "FROM product_cost_switch_history",
+            ),
+            (
+                "product_costs",
+                "SELECT product_id, sku, offer_id "
+                "FROM product_costs",
+            ),
+        )
+        conn = self.get_connection()
+        records = set()
+        try:
+            cursor = conn.cursor()
+            for source, query in queries:
+                cursor.execute(query)
+                for row in cursor.fetchall():
+                    if not isinstance(row, (tuple, list)) or len(row) < 3:
+                        return {
+                            "error": True,
+                            "code": "PRODUCT_COST_IDENTITY_ROW_INVALID",
+                            "records": [],
+                        }
+                    product_id = self._text(row[0])
+                    sku = self._text(row[1])
+                    offer_id = self._text(row[2])
+                    if not product_id or (not sku and not offer_id):
+                        continue
+                    records.add((product_id, sku, offer_id, source))
+        except Exception:
+            return {
+                "error": True,
+                "code": "PRODUCT_COST_IDENTITY_STORAGE_UNAVAILABLE",
+                "records": [],
+            }
+        finally:
+            conn.close()
+
+        return {
+            "error": False,
+            "status": "PRODUCT_COST_IDENTITIES_READY",
+            "records": [
+                {
+                    "product_id": product_id,
+                    "sku": sku or None,
+                    "offer_id": offer_id or None,
+                    "source": source,
+                }
+                for product_id, sku, offer_id, source in sorted(records)
+            ],
+            "cost_values_included": False,
+            "read_only": True,
+            "executed": False,
+        }
+
     def get_effective_cost_evidence(
         self,
         at_date,
