@@ -131,6 +131,7 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
             return {"map": {}, "expected": expected, "fatal": None}
 
         parsed = {}
+        observed_by_posting = {}
         for record in records:
             if not isinstance(record, dict):
                 return {"map": {}, "expected": expected, "fatal": None}
@@ -148,6 +149,29 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
                     "fatal": "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_POSTING_CONFLICT",
                 }
             parsed[key] = quantity
+            observed_by_posting.setdefault(posting_number, {})[sku] = quantity
+
+        # Ozon can retain a retired SKU in accrual/by-day while accrual/postings
+        # exposes the current SKU for the same physical posting. Bridge that SKU
+        # drift only when the posting is provably one-to-one on both sides: exactly
+        # one finance sale identity and exactly one observed positive quantity line.
+        # Multi-item postings remain unresolved and fall through to stable-identity
+        # sources instead of guessing.
+        expected_by_posting = {}
+        for posting_number, sku in expected:
+            expected_by_posting.setdefault(posting_number, set()).add(sku)
+
+        for posting_number, expected_skus in expected_by_posting.items():
+            if len(expected_skus) != 1:
+                continue
+            observed = observed_by_posting.get(posting_number) or {}
+            if len(observed) != 1:
+                continue
+            expected_sku = next(iter(expected_skus))
+            if (posting_number, expected_sku) in parsed:
+                continue
+            observed_quantity = next(iter(observed.values()))
+            parsed[(posting_number, expected_sku)] = observed_quantity
 
         return {"map": parsed, "expected": expected, "fatal": None}
 
