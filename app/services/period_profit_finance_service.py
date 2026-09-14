@@ -1,3 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, timedelta
+from threading import local
+
 from api.period_profit_ozon_client import PeriodProfitOzonClient
 from api.period_profit_runtime_ozon_client import PeriodProfitRuntimeOzonClient
 from services.finance_service import FinanceService
@@ -7,6 +11,12 @@ class PeriodProfitFinanceService(FinanceService):
     """FinanceService adapter that preserves Period Profit completeness metadata."""
 
     POSTING_QUANTITY_BATCH_SIZE = 100
+    DAILY_PREFETCH_WORKERS = 4
+    POSTING_QUANTITY_WORKERS = 4
+
+    def __init__(self):
+        super().__init__()
+        self._period_profit_session = local()
 
     @property
     def ozon(self):
@@ -20,6 +30,99 @@ class PeriodProfitFinanceService(FinanceService):
         if type(value) is PeriodProfitOzonClient:
             value = PeriodProfitRuntimeOzonClient()
         self._ozon = value
+
+    def prepare_read_session(self, date_from, date_to):
+        """Schedule bounded READ-ONLY day prefetch for the next summary calculation."""
+        self._period_profit_session.prefetch_period = (
+            str(date_from),
+            str(date_to),
+        )
+
+    def begin_read_session(self):
+        super().begin_read_session()
+        period = getattr(self._period_profit_session, "prefetch_period", None)
+        self._period_profit_session.prefetch_period = None
+        if period is None:
+            return
+        result = self.prefetch_daily_accruals(*period)
+        if not isinstance(result, dict) or result.get("error") is True:
+            raise RuntimeError("PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE")
+
+    def prefetch_daily_accruals(self, date_from, date_to):
+        """Fill the normal daily cache concurrently without changing finance semantics."""
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except (TypeError, ValueError):
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_PERIOD_INVALID",
+            }
+        if start > end:
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_PERIOD_INVALID",
+            }
+
+        getter = getattr(self.ozon, "get_accruals_by_day", None)
+        if not callable(getter):
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
+            }
+
+        dates = []
+        current = start
+        while current <= end:
+            key = current.isoformat()
+            if key not in self._daily_accrual_cache:
+                dates.append(key)
+            current += timedelta(days=1)
+
+        if not dates:
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_FINANCE_PREFETCH_READY",
+                "date_count": 0,
+                "read_only": True,
+                "executed": False,
+            }
+
+        workers = min(self.DAILY_PREFETCH_WORKERS, len(dates))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                responses = list(executor.map(getter, dates))
+        except Exception:
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
+            }
+
+        # Commit to the shared cache only after the whole bounded read succeeds.
+        # This preserves the existing all-or-fail behavior for a calculation.
+        for key, response in zip(dates, responses):
+            if not isinstance(response, dict) or response.get("error") is True:
+                return {
+                    "error": True,
+                    "code": "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
+                }
+            accruals = response.get("accruals")
+            if not isinstance(accruals, list):
+                return {
+                    "error": True,
+                    "code": "PERIOD_PROFIT_FINANCE_PREFETCH_INVALID",
+                }
+
+        for key, response in zip(dates, responses):
+            self._daily_accrual_cache[key] = response
+
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_FINANCE_PREFETCH_READY",
+            "date_count": len(dates),
+            "read_only": True,
+            "executed": False,
+        }
 
     def get_daily_finance(self, accrual_date, sku=None):
         result = super().get_daily_finance(accrual_date, sku=sku)
@@ -80,16 +183,21 @@ class PeriodProfitFinanceService(FinanceService):
                 "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
             )
 
-        quantities = {}
-        for offset in range(0, len(numbers), self.POSTING_QUANTITY_BATCH_SIZE):
-            batch = numbers[offset:offset + self.POSTING_QUANTITY_BATCH_SIZE]
-            try:
-                response = getter(batch)
-            except Exception:
-                return self._posting_quantity_error(
-                    "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
-                )
+        batches = [
+            numbers[offset:offset + self.POSTING_QUANTITY_BATCH_SIZE]
+            for offset in range(0, len(numbers), self.POSTING_QUANTITY_BATCH_SIZE)
+        ]
+        workers = min(self.POSTING_QUANTITY_WORKERS, len(batches))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                responses = list(executor.map(getter, batches))
+        except Exception:
+            return self._posting_quantity_error(
+                "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
+            )
 
+        quantities = {}
+        for response in responses:
             if not isinstance(response, dict) or response.get("error") is True:
                 return self._posting_quantity_error(
                     "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
