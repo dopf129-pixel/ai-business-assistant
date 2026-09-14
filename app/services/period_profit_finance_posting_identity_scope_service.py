@@ -52,6 +52,17 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         return super()._scope_products(date_from, date_to, products)
 
+    def _load_period_skus(self, date_from, date_to):
+        # The prefetch above populated PeriodProfitFinanceService's normal daily
+        # cache. Force the scope reader through that cache instead of making a
+        # second set of day-by-day Ozon calls through the identity client.
+        original_client = self.sku_ozon_client
+        self.sku_ozon_client = None
+        try:
+            return super()._load_period_skus(date_from, date_to)
+        finally:
+            self.sku_ozon_client = original_client
+
     def _recover_missing_product(self, sku, at_date):
         direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
             self,
