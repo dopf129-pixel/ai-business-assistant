@@ -15,20 +15,20 @@ class AssistantPeriodProfitRuntimeService:
 
     def __init__(self, query_service, cost_confirmation_runtime_service=None):
         self.query_service = query_service
-        self.cost_confirmation_runtime_service = (
-            cost_confirmation_runtime_service
-            or PeriodProfitCostConfirmationRuntimeService(
-                PeriodProfitEffectiveCostService()
-            )
-        )
+        self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
 
     def handle_text(self, text, today=None):
-        if self.cost_confirmation_runtime_service is not None:
-            confirmation = self.cost_confirmation_runtime_service.handle_text(text)
+        value = " ".join(str(text or "").strip().lower().split())
+        if "себесто" in value or "cost" in value:
+            runtime = self.cost_confirmation_runtime_service
+            if runtime is None:
+                runtime = PeriodProfitCostConfirmationRuntimeService(
+                    PeriodProfitEffectiveCostService()
+                )
+            confirmation = runtime.handle_text(text)
             if confirmation is not None:
                 return confirmation
 
-        value = " ".join(str(text or "").strip().lower().split())
         if not self._is_profit_request(value):
             return None
 
