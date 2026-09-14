@@ -324,6 +324,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
             for item in items
             if isinstance(item, dict) and self._text(item.get("sku"))
         }
+        related_product_ids = {
+            self._text(item.get("product_id"))
+            for item in items
+            if isinstance(item, dict) and self._text(item.get("product_id"))
+        }
         cost_service = self.cost_service
         identity_getter = getattr(
             cost_service,
@@ -352,7 +357,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 sku = self._text(record.get("sku"))
                 product_id = self._text(record.get("product_id"))
                 offer_id = self._text(record.get("offer_id"))
-                if sku in related_skus and product_id:
+                if (
+                    product_id
+                    and (
+                        sku in related_skus
+                        or product_id in related_product_ids
+                    )
+                ):
                     matches.append((sku, product_id, offer_id))
         else:
             getter = getattr(cost_service, "get_all_costs", None)
