@@ -170,3 +170,70 @@ def test_related_sku_client_is_read_only_and_uses_single_lookup(monkeypatch):
         10,
         1,
     )]
+
+def test_factory_assigned_related_client_preserves_runtime_nonsale_normalization(
+    monkeypatch,
+):
+    from api.ozon_client import OzonClient
+    from services.period_profit_finance_service import PeriodProfitFinanceService
+
+    responses = {
+        "2026-09-08": {
+            "accruals": [{
+                "accrued_category": "POSTING",
+                "total_amount": {"amount": "-25", "currency": "RUB"},
+                "posting": {"products": [{"sku": "legacy-sku"}]},
+            }],
+            "last_id": "",
+        },
+        "2026-09-09": {
+            "accruals": [{
+                "accrued_category": "POSTING",
+                "total_amount": {"amount": "-10", "currency": "RUB"},
+                "posting": {"products": [{
+                    "sku": "legacy-sku",
+                    "commission": None,
+                }]},
+            }],
+            "last_id": "",
+        },
+    }
+
+    def read_only_post(self, endpoint, data, timeout=20, max_attempts=3):
+        assert endpoint == "/v1/finance/accrual/by-day"
+        return responses[data["date"]]
+
+    monkeypatch.setattr(OzonClient, "_post", read_only_post)
+    finance = PeriodProfitFinanceService()
+    finance.ozon = PeriodProfitRelatedSkuOzonClient(
+        client_id="client",
+        api_key="key",
+    )
+
+    result = finance.prefetch_daily_accruals("2026-09-08", "2026-09-09")
+
+    assert result["error"] is False
+    assert result["date_count"] == 2
+    for response in finance._daily_accrual_cache.values():
+        commission = response["accruals"][0]["posting"]["products"][0]["commission"]
+        assert commission["sale_amount"]["amount"] == "0"
+
+
+def test_related_client_keeps_malformed_commission_fail_closed():
+    client = PeriodProfitRelatedSkuOzonClient()
+    result = client._normalize_period_profit_canonical_finance(
+        client.FINANCE_ACCRUAL_BY_DAY,
+        {
+            "accruals": [{
+                "accrued_category": "POSTING",
+                "total_amount": {"amount": "-25", "currency": "RUB"},
+                "posting": {"products": [{
+                    "sku": "legacy-sku",
+                    "commission": "ambiguous",
+                }]},
+            }],
+        },
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
