@@ -4424,3 +4424,13 @@ Tests:
 - `tests/test_period_profit_finance_safe_diagnostics.py`
 
 Covers safe HTTP classification, canonical finance error preservation, payload removal, and read-only Telegram diagnostic presentation.
+
+---
+
+# Period Profit Related-SKU Runtime Finance Regression
+
+Updated:
+
+- `app/tests/test_period_profit_related_sku_identity.py`
+
+Covers the production factory assignment shape, absent/null non-sale commission normalization, retained account accrual evidence, and fail-closed malformed commission handling.
