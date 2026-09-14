@@ -46,10 +46,20 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     if isinstance(result, dict)
                     else "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
                 )
-                return self._error(
+                error = self._error(
                     code,
                     "Финансовые данные Ozon недоступны",
                 )
+                if isinstance(result, dict):
+                    diagnostic = str(
+                        result.get("finance_diagnostic_code") or ""
+                    ).strip().upper()
+                    if diagnostic and all(
+                        character.isalnum() or character == "_"
+                        for character in diagnostic
+                    ):
+                        error["finance_diagnostic_code"] = diagnostic
+                return error
 
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         self._catalog_by_product_id = self._unique_catalog_product_id_index(products)
