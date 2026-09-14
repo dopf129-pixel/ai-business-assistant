@@ -121,10 +121,18 @@ class AssistantPeriodProfitRuntimeService:
                 or code.startswith("PERIOD_PROFIT_FINANCE_")
             ):
                 output = dict(result)
-                output["finance_diagnostic_code"] = code
+                diagnostic = str(
+                    result.get("finance_diagnostic_code") or code
+                ).strip().upper()
+                if not diagnostic or not all(
+                    character.isalnum() or character == "_"
+                    for character in diagnostic
+                ):
+                    diagnostic = code
+                output["finance_diagnostic_code"] = diagnostic
                 output["message"] = (
                     "Финансовые данные Ozon недоступны\n"
-                    "Код диагностики: " + code
+                    "Код диагностики: " + diagnostic
                 )
                 output["read_only"] = True
                 output["executed"] = False
