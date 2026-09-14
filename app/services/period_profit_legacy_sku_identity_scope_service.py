@@ -145,10 +145,50 @@ class PeriodProfitLegacySkuIdentityScopeService(PeriodProfitFinanceSkuScopeServi
 
     def _recover_missing_product(self, sku, at_date):
         direct = super()._recover_missing_product(sku, at_date)
-        if direct is not None:
-            return direct
-
         recovered = self._recover_catalog_product_from_fbo(sku)
+
+        if direct is not None:
+            if recovered is None:
+                return direct
+
+            finance_sku = self._text(sku)
+            direct_product_id = self._text(direct.get("product_id"))
+            recovered_product_id = self._text(recovered.get("product_id"))
+            if (
+                direct_product_id
+                and recovered_product_id
+                and direct_product_id != recovered_product_id
+            ):
+                return None
+
+            direct_offer_id = self._text(direct.get("offer_id"))
+            recovered_offer_id = self._text(recovered.get("offer_id"))
+            if (
+                direct_offer_id
+                and direct_offer_id != finance_sku
+                and recovered_offer_id
+                and direct_offer_id != recovered_offer_id
+            ):
+                return None
+
+            result = dict(direct)
+            result["sku"] = finance_sku
+            if recovered_product_id:
+                result["product_id"] = recovered_product_id
+            if recovered_offer_id:
+                result["offer_id"] = recovered_offer_id
+
+            catalog_sku = self._text(recovered.get("sku"))
+            if catalog_sku and catalog_sku != finance_sku:
+                result["catalog_sku"] = catalog_sku
+
+            result["historical_sku_identity_recovered"] = True
+            result["historical_sku_identity_source"] = recovered.get(
+                "historical_sku_identity_source",
+                "OZON_FBO_POSTING_OFFER_ID",
+            )
+            return result
+
         if recovered is None:
             return None
 
@@ -165,7 +205,10 @@ class PeriodProfitLegacySkuIdentityScopeService(PeriodProfitFinanceSkuScopeServi
             return None
 
         result = dict(recovered)
-        result["sku"] = str(sku)
+        catalog_sku = self._text(result.get("sku"))
+        result["sku"] = self._text(sku)
+        if catalog_sku and catalog_sku != result["sku"]:
+            result["catalog_sku"] = catalog_sku
         result["historical_sku_identity_recovered"] = True
         result["historical_sku_identity_source"] = recovered.get(
             "historical_sku_identity_source",
