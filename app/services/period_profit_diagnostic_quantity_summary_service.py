@@ -16,6 +16,7 @@ class PeriodProfitDiagnosticQuantitySummaryService(
     """
 
     GENERIC_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_EFFECTIVE_COST_UNAVAILABLE"
+    MISSING_EFFECTIVE_COST_CODE = "PERIOD_PROFIT_COST_HISTORY_MISSING"
 
     def _effective_cost_evidence(self, row, accrual_date):
         self._effective_cost_diagnostic_code = None
@@ -44,6 +45,38 @@ class PeriodProfitDiagnosticQuantitySummaryService(
                 "PERIOD_PROFIT_COST_RESPONSE_INVALID"
             )
             return None
+
+        # A historical finance SKU can be retired while the already-proven product
+        # identity carries a newer catalog SKU.  Cost storage may therefore only know
+        # that catalog SKU.  Retry through it strictly after a pure missing result;
+        # ambiguous, not-effective, malformed, or unavailable evidence must remain
+        # fail-closed and must never be bypassed by an alias lookup.
+        first_code = str(evidence.get("code") or "").strip()
+        catalog_sku = self._text(row.get("catalog_sku"))
+        finance_sku = self._text(row.get("sku"))
+        if (
+            evidence.get("error") is True
+            and first_code == self.MISSING_EFFECTIVE_COST_CODE
+            and catalog_sku
+            and catalog_sku != finance_sku
+        ):
+            try:
+                evidence = getter(
+                    accrual_date,
+                    product_id=row.get("product_id"),
+                    sku=catalog_sku,
+                    offer_id=row.get("offer_id"),
+                )
+            except Exception:
+                self._effective_cost_diagnostic_code = (
+                    "PERIOD_PROFIT_COST_SERVICE_EXCEPTION"
+                )
+                return None
+            if not isinstance(evidence, dict):
+                self._effective_cost_diagnostic_code = (
+                    "PERIOD_PROFIT_COST_RESPONSE_INVALID"
+                )
+                return None
 
         if (
             evidence.get("error") is True
