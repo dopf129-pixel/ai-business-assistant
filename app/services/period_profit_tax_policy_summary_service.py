@@ -22,8 +22,8 @@ class PeriodProfitTaxPolicySummaryService:
             return self._error("PERIOD_PROFIT_TAX_BASE_UNAVAILABLE")
         try:
             base = calculator(date_from, date_to, products)
-        except Exception:
-            return self._error("PERIOD_PROFIT_TAX_BASE_EXCEPTION")
+        except Exception as exc:
+            return self._base_exception(exc)
         if not isinstance(base, dict):
             return self._error("PERIOD_PROFIT_TAX_BASE_INVALID")
         if base.get("error") is True:
@@ -167,6 +167,21 @@ class PeriodProfitTaxPolicySummaryService:
             return 0.0
         margin = profit / revenue * 100.0
         return round(margin, 2) if isfinite(margin) else None
+
+    @classmethod
+    def _base_exception(cls, exc):
+        result = cls._error("PERIOD_PROFIT_TAX_BASE_EXCEPTION")
+        result["exception_type"] = type(exc).__name__
+        traceback = getattr(exc, "__traceback__", None)
+        while traceback is not None and traceback.tb_next is not None:
+            traceback = traceback.tb_next
+        if traceback is not None:
+            code = getattr(traceback.tb_frame, "f_code", None)
+            if code is not None:
+                result["exception_function"] = code.co_name
+                result["exception_file"] = code.co_filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            result["exception_line"] = traceback.tb_lineno
+        return result
 
     @staticmethod
     def _error(code):
