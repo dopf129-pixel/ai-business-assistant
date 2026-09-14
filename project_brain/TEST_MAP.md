@@ -4424,3 +4424,13 @@ Tests:
 - `tests/test_period_profit_finance_safe_diagnostics.py`
 
 Covers safe HTTP classification, canonical finance error preservation, payload removal, and read-only Telegram diagnostic presentation.
+
+---
+
+# Period Profit Monetary Validation Stage Diagnostics
+
+Updated:
+
+- `tests/test_period_profit_finance_safe_diagnostics.py`
+
+Covers end-to-end propagation of a sanitized formula-critical money validation stage through prefetch and Telegram runtime.
