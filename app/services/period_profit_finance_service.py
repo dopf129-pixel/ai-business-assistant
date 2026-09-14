@@ -6,6 +6,8 @@ from services.finance_service import FinanceService
 class PeriodProfitFinanceService(FinanceService):
     """FinanceService adapter that preserves Period Profit completeness metadata."""
 
+    POSTING_QUANTITY_BATCH_SIZE = 100
+
     @property
     def ozon(self):
         return self._ozon
@@ -43,3 +45,136 @@ class PeriodProfitFinanceService(FinanceService):
             enriched["fee_components_included"] = True
             enriched["ancillary_incomplete_count"] = 0
         return enriched
+
+    def get_sale_posting_quantity_evidence(self, posting_numbers):
+        """Load direct READ-ONLY Ozon quantity evidence for exact sale postings.
+
+        ``/v1/finance/accrual/postings`` can contain several accrual rows for the
+        same SKU (sale, commission, logistics, etc.). Quantity is therefore not
+        summed across rows. It is accepted only when every positive observation
+        for one posting/SKU agrees on the same integer value.
+        """
+        numbers = []
+        seen = set()
+        for value in posting_numbers or []:
+            posting_number = str(value or "").strip()
+            if not posting_number or posting_number in seen:
+                continue
+            seen.add(posting_number)
+            numbers.append(posting_number)
+
+        if not numbers:
+            return {
+                "error": False,
+                "status": "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_READY",
+                "complete": True,
+                "record_count": 0,
+                "records": [],
+                "read_only": True,
+                "executed": False,
+            }
+
+        getter = getattr(self.ozon, "get_accruals_by_postings", None)
+        if not callable(getter):
+            return self._posting_quantity_error(
+                "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
+            )
+
+        quantities = {}
+        for offset in range(0, len(numbers), self.POSTING_QUANTITY_BATCH_SIZE):
+            batch = numbers[offset:offset + self.POSTING_QUANTITY_BATCH_SIZE]
+            try:
+                response = getter(batch)
+            except Exception:
+                return self._posting_quantity_error(
+                    "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
+                )
+
+            if not isinstance(response, dict) or response.get("error") is True:
+                return self._posting_quantity_error(
+                    "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE"
+                )
+            posting_accruals = response.get("posting_accruals")
+            if not isinstance(posting_accruals, list):
+                return self._posting_quantity_error(
+                    "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                )
+
+            for posting in posting_accruals:
+                if not isinstance(posting, dict):
+                    return self._posting_quantity_error(
+                        "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                    )
+                posting_number = str(posting.get("posting_number") or "").strip()
+                accruals = posting.get("accruals")
+                if not posting_number or not isinstance(accruals, list):
+                    return self._posting_quantity_error(
+                        "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                    )
+                if posting_number not in seen:
+                    return self._posting_quantity_error(
+                        "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_SCOPE_INVALID"
+                    )
+
+                for accrual in accruals:
+                    if not isinstance(accrual, dict):
+                        return self._posting_quantity_error(
+                            "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                        )
+                    sku = str(accrual.get("sku") or "").strip()
+                    raw_quantity = accrual.get("quantity")
+                    if not sku or isinstance(raw_quantity, bool):
+                        continue
+                    try:
+                        quantity = int(raw_quantity)
+                    except (TypeError, ValueError, OverflowError):
+                        return self._posting_quantity_error(
+                            "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                        )
+                    try:
+                        if float(raw_quantity) != float(quantity):
+                            return self._posting_quantity_error(
+                                "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                            )
+                    except (TypeError, ValueError, OverflowError):
+                        return self._posting_quantity_error(
+                            "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_INVALID"
+                        )
+                    if quantity <= 0:
+                        continue
+                    quantities.setdefault((posting_number, sku), set()).add(quantity)
+
+        records = []
+        for (posting_number, sku), values in sorted(quantities.items()):
+            if len(values) != 1:
+                return self._posting_quantity_error(
+                    "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_CONFLICT"
+                )
+            records.append({
+                "posting_number": posting_number,
+                "sku": sku,
+                "quantity": next(iter(values)),
+                "source": "OZON_FINANCE_ACCRUAL_POSTINGS",
+            })
+
+        return {
+            "error": False,
+            "status": "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_READY",
+            "complete": True,
+            "record_count": len(records),
+            "records": records,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _posting_quantity_error(code):
+        return {
+            "error": True,
+            "code": code,
+            "status": "FINANCE_SALE_POSTING_QUANTITY_EVIDENCE_UNAVAILABLE",
+            "complete": False,
+            "records": [],
+            "read_only": True,
+            "executed": False,
+        }
