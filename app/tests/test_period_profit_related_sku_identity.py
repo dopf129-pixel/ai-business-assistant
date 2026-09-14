@@ -279,3 +279,86 @@ def test_related_sku_api_error_is_distinguished_without_exposing_payload():
     )
     assert "payload" not in result
     assert "legacy-sku" not in result["finance_diagnostic_code"]
+
+
+class _SellerCostIdentity(_NoDirectCost):
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def get_all_costs(self):
+        return list(self.rows)
+
+
+def test_related_sku_resolves_hidden_product_through_seller_cost_identity():
+    ozon = _RelatedOzon([
+        {"sku": "legacy-sku", "availability": "HIDDEN"},
+        {"sku": "current-sku", "availability": "HIDDEN"},
+    ])
+    finance = _Finance(ozon)
+    summary = _Summary()
+    summary.cost_service = _SellerCostIdentity([
+        ("product-1", "current-sku", "offer-1", 999.0, "RUB"),
+    ])
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        summary,
+        finance,
+        sku_ozon_client=None,
+    )
+
+    result = service.calculate(
+        "2026-09-14",
+        "2026-09-14",
+        [{
+            "product_id": "unrelated-product",
+            "offer_id": "unrelated-offer",
+            "sku": "unrelated-sku",
+        }],
+    )
+
+    assert result["error"] is False
+    product = summary.received_products[0]
+    assert product["sku"] == "legacy-sku"
+    assert product["catalog_sku"] == "current-sku"
+    assert product["product_id"] == "product-1"
+    assert product["offer_id"] == "offer-1"
+    assert "cost_price" not in product
+    assert product["historical_sku_identity_source"] == (
+        "OZON_RELATED_SKU_TO_SELLER_COST_IDENTITY"
+    )
+
+
+def test_related_seller_cost_identity_ambiguity_remains_fail_closed():
+    ozon = _RelatedOzon([
+        {"sku": "legacy-sku", "availability": "HIDDEN"},
+        {"sku": "current-a", "availability": "HIDDEN"},
+        {"sku": "current-b", "availability": "HIDDEN"},
+    ])
+    finance = _Finance(ozon)
+    summary = _Summary()
+    summary.cost_service = _SellerCostIdentity([
+        ("product-a", "current-a", "offer-a", 10.0, "RUB"),
+        ("product-b", "current-b", "offer-b", 20.0, "RUB"),
+    ])
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        summary,
+        finance,
+        sku_ozon_client=None,
+    )
+
+    result = service.calculate(
+        "2026-09-14",
+        "2026-09-14",
+        [{
+            "product_id": "unrelated-product",
+            "offer_id": "unrelated-offer",
+            "sku": "unrelated-sku",
+        }],
+    )
+
+    assert result["error"] is True
+    assert result["code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+    )
+    assert result["finance_diagnostic_code"] == (
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    )
