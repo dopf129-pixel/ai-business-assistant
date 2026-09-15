@@ -109,7 +109,8 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
         "seller_cost",
         "unit_economics",
         "product_decisions",
-        "returns_finance_impact"
+        "returns_finance_impact",
+        "help"
     ]
 
 

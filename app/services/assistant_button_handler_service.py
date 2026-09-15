@@ -1,6 +1,11 @@
 from period_profit_telegram_contract import (
     build_period_profit_telegram_menu,
 )
+from telegram_help_contract import (
+    build_telegram_command_reference,
+    build_telegram_help_response,
+    build_telegram_phrase_examples,
+)
 
 
 class AssistantButtonHandlerService:
@@ -439,6 +444,23 @@ class AssistantButtonHandlerService:
         button_id,
         user_id=None
     ):
+
+        if button_id == "help":
+            return build_telegram_help_response()
+
+        if button_id == "help:commands":
+            return build_telegram_command_reference()
+
+        if button_id == "help:examples":
+            return build_telegram_phrase_examples()
+
+        if button_id == "help:main":
+            return {
+                "error": False,
+                "text": "Главное меню",
+                "message": "Главное меню",
+                "keyboard": self.keyboard_service.build_main_keyboard(),
+            }
 
         if button_id == "period_profit":
 

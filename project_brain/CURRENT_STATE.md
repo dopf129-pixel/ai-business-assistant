@@ -1,5 +1,14 @@
 # Current Project State
 
+## 2026-09-15 — Telegram help and discoverability
+
+- The main keyboard exposes `Помощь и команды`.
+- `/help` and the callback use the same canonical presentation contract.
+- Every supported slash command and every exact seller-confirmation phrase family
+  is documented in-bot; routine flows link back to the existing production callbacks.
+- No Ozon mutation, financial authority, historical-cost, identity, or Return COGS
+  gate changed.
+
 
 Date:
 

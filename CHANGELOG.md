@@ -2,6 +2,15 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-15 — Telegram help and feature discovery
+
+- added a visible `Помощь и команды` action to the production main keyboard;
+- `/help` and the inline help callback now share one user-facing guide;
+- added a complete slash-command memo and examples for memory, custom Period
+  Profit periods, effective-dated historical cost, and seller-confirmed SKU identity;
+- linked help directly to existing Period Profit, seller cost, and memory flows;
+- preserved tenant admission, Ozon read-only access, and financial fail-closed rules.
+
 ## 2026-08-29 — Product Task Freshness Evidence Contract v1
 
 - product task drafts now preserve optional source-recorded freshness timestamps from product decisions;
