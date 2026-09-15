@@ -4362,6 +4362,26 @@ Verification:
 - `externally_verified=False`.
 ---
 
+# Telegram Help and Feature Discovery
+
+Tests:
+
+- `tests/test_telegram_help_discovery.py`
+- updated `tests/test_product_unit_economics_telegram_ui.py`
+- existing `tests/test_period_profit_historical_sku_cost_input_v1421_v1430.py`
+
+Covers:
+
+- visible help entry in the real main keyboard;
+- `/help` and inline callback parity;
+- production Telegram bot/adapter/button-handler callback wiring;
+- complete supported slash-command inventory;
+- examples for memory, custom Period Profit, effective-dated cost, and SKU identity;
+- navigation back to existing workflows and main menu;
+- no Ozon execution from help responses.
+
+---
+
 # Return Inventory Recovery Evidence v1
 
 Boundaries:

@@ -46,6 +46,10 @@ class AssistantKeyboardService:
                 {
                     "text": "↩️ Расходы на возвраты",
                     "callback": "returns_finance_impact"
+                },
+                {
+                    "text": "❓ Помощь и команды",
+                    "callback": "help"
                 }
             ]
         }

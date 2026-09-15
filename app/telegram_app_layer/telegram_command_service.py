@@ -1,5 +1,7 @@
 from math import isfinite
 
+from telegram_help_contract import build_telegram_help_response
+
 
 class TelegramCommandService:
     def __init__(
@@ -20,18 +22,7 @@ class TelegramCommandService:
             return self.assistant_adapter.get_start_response(user_id)
 
         if command == "/help":
-            return {
-                "error": False,
-                "message": (
-                    "Доступные команды:\n"
-                    "/start - запуск\n"
-                    "/memory - память\n"
-                    "/ozon_connect CLIENT_ID API_KEY - подключить свой кабинет Ozon\n"
-                    "/ozon_status - статус подключения Ozon\n"
-                    "/ozon_disconnect - удалить локально сохранённый API Key\n"
-                    "/costsku SKU СЕБЕСТОИМОСТЬ - сохранить локальную себестоимость исторического SKU"
-                ),
-            }
+            return build_telegram_help_response()
 
         if command == "/memory":
             return self.assistant_adapter.handle_button("memory", user_id)
