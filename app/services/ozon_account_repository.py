@@ -60,8 +60,6 @@ class OzonAccountRepository:
     def _create_table(self):
         conn = self._connection()
         try:
-            # Keep the legacy table intact for rollback compatibility. New writes
-            # go to the multi-store table; legacy rows are imported lazily below.
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ozon_accounts (
@@ -86,6 +84,9 @@ class OzonAccountRepository:
                 )
                 """
             )
+            # Legacy rows are copied for a safe in-place upgrade. delete() also
+            # removes the matching legacy row so a disconnected legacy account
+            # cannot be resurrected by this migration on the next process start.
             conn.execute(
                 """
                 INSERT OR IGNORE INTO ozon_store_accounts (
@@ -269,6 +270,12 @@ class OzonAccountRepository:
             )
             deleted = cursor.rowcount > 0
             if deleted:
+                # A migrated legacy credential must be deleted at the source as
+                # well, otherwise _create_table() would import it again later.
+                conn.execute(
+                    "DELETE FROM ozon_accounts WHERE telegram_user_id = ? AND client_id = ?",
+                    (user_key, client_key),
+                )
                 row = conn.execute(
                     """
                     SELECT client_id FROM ozon_store_accounts
