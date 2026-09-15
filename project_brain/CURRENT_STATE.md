@@ -126,6 +126,8 @@ AI Business Assistant
 
 # Completed Features
 
+[x] Read-only Period Profit presentation by selected tenant catalog SKU with fail-closed identity and amount validation
+
 [x] Resumable Telegram onboarding from production Ozon account and tax configuration sources
 
 
