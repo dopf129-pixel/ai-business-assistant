@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-15 — Multiple Ozon stores per Telegram user
+
+- one Telegram user can keep multiple encrypted READ-ONLY Ozon accounts and
+  explicitly select the active store from the main keyboard;
+- credentials and all tenant-local storage are scoped by Telegram user plus exact
+  Ozon Client ID, preventing products and seller-confirmed costs from mixing;
+- the legacy single-account row is migrated as the active credential, while old
+  user-only business data remains untouched and is not guessed into a store;
+- adding a store validates it through the existing READ-ONLY Ozon probe.
+
 ## 2026-09-15 — Telegram help and feature discovery
 
 - added a visible `Помощь и команды` action to the production main keyboard;

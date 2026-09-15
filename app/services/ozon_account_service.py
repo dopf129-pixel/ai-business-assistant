@@ -1,5 +1,6 @@
 from api.ozon_client import OzonClient
 from services.ozon_account_repository import OzonAccountRepository
+from services.tenant_context import reset_current_tenant_store_id, set_current_tenant_store_id
 
 
 class OzonAccountService:
@@ -32,6 +33,7 @@ class OzonAccountService:
         if not isinstance(saved, dict) or saved.get("error") is True:
             return self._storage_error()
 
+        token = set_current_tenant_store_id(client_key)
         try:
             self._initialize_tenant_storage()
         except Exception:
@@ -40,6 +42,8 @@ class OzonAccountService:
             except Exception:
                 pass
             return self._storage_error()
+        finally:
+            reset_current_tenant_store_id(token)
 
         return {
             "error": False,
@@ -53,6 +57,20 @@ class OzonAccountService:
             "read_only_ozon": True,
             "executed_ozon": False,
         }
+
+    def list_accounts(self, user_id):
+        rows = self.repository.list_accounts(user_id)
+        return {"error": False, "accounts": [{
+            "client_id": row["client_id"], "client_id_masked": self.repository._mask_client_id(row["client_id"]),
+            "active": row["active"],
+        } for row in rows], "read_only_ozon": True, "executed_ozon": False}
+
+    def select(self, user_id, client_id):
+        result = self.repository.select(user_id, client_id)
+        if result.get("error") is True:
+            return {"error": True, "message": "Магазин не найден", "read_only_ozon": True}
+        return {"error": False, "message": "Магазин выбран: " + self.repository._mask_client_id(client_id),
+                "client_id_masked": self.repository._mask_client_id(client_id), "read_only_ozon": True, "executed_ozon": False}
 
     def status(self, user_id):
         status = self.repository.status(user_id)

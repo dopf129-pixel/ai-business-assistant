@@ -101,6 +101,7 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
     ]
 
     assert callbacks == [
+        "stores",
         "analyze",
         "plan",
         "history",

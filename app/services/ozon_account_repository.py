@@ -55,6 +55,20 @@ class OzonAccountRepository:
                 )
                 """
             )
+            conn.execute("""CREATE TABLE IF NOT EXISTS ozon_store_accounts (
+                telegram_user_id TEXT NOT NULL, client_id TEXT NOT NULL,
+                api_key_encrypted TEXT NOT NULL, connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (telegram_user_id, client_id))""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS ozon_active_stores (
+                telegram_user_id TEXT PRIMARY KEY, client_id TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            conn.execute("""INSERT OR IGNORE INTO ozon_store_accounts
+                (telegram_user_id, client_id, api_key_encrypted, connected_at, updated_at)
+                SELECT telegram_user_id, client_id, api_key_encrypted, connected_at, updated_at
+                FROM ozon_accounts""")
+            conn.execute("""INSERT OR IGNORE INTO ozon_active_stores (telegram_user_id, client_id)
+                SELECT telegram_user_id, client_id FROM ozon_accounts""")
             conn.commit()
         finally:
             conn.close()
@@ -73,6 +87,17 @@ class OzonAccountRepository:
         encrypted = fernet.encrypt(secret.encode("utf-8")).decode("utf-8")
         conn = self._connection()
         try:
+            conn.execute(
+                """INSERT INTO ozon_store_accounts (telegram_user_id, client_id, api_key_encrypted)
+                VALUES (?, ?, ?) ON CONFLICT(telegram_user_id, client_id) DO UPDATE SET
+                api_key_encrypted=excluded.api_key_encrypted, updated_at=CURRENT_TIMESTAMP""",
+                (user_key, client_key, encrypted),
+            )
+            conn.execute(
+                """INSERT INTO ozon_active_stores (telegram_user_id, client_id) VALUES (?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET client_id=excluded.client_id,
+                updated_at=CURRENT_TIMESTAMP""", (user_key, client_key)
+            )
             conn.execute(
                 """
                 INSERT INTO ozon_accounts (
@@ -101,9 +126,9 @@ class OzonAccountRepository:
         try:
             row = conn.execute(
                 """
-                SELECT client_id, api_key_encrypted
-                FROM ozon_accounts
-                WHERE telegram_user_id = ?
+                SELECT a.client_id, a.api_key_encrypted FROM ozon_store_accounts a
+                JOIN ozon_active_stores s ON s.telegram_user_id=a.telegram_user_id
+                    AND s.client_id=a.client_id WHERE a.telegram_user_id = ?
                 """,
                 (user_key,),
             ).fetchone()
@@ -119,6 +144,38 @@ class OzonAccountRepository:
             "client_id": str(row[0]),
             "api_key": api_key,
         }
+
+    def list_accounts(self, user_id):
+        user_key = str(user_id or "").strip()
+        conn = self._connection()
+        try:
+            rows = conn.execute("""SELECT a.client_id,
+                CASE WHEN s.client_id=a.client_id THEN 1 ELSE 0 END
+                FROM ozon_store_accounts a LEFT JOIN ozon_active_stores s
+                ON s.telegram_user_id=a.telegram_user_id
+                WHERE a.telegram_user_id=? ORDER BY a.connected_at, a.client_id""", (user_key,)).fetchall()
+        finally:
+            conn.close()
+        return [{"client_id": str(row[0]), "active": bool(row[1])} for row in rows]
+
+    def select(self, user_id, client_id):
+        user_key, client_key = str(user_id or "").strip(), str(client_id or "").strip()
+        conn = self._connection()
+        try:
+            exists = conn.execute("SELECT 1 FROM ozon_store_accounts WHERE telegram_user_id=? AND client_id=?", (user_key, client_key)).fetchone()
+            if not exists:
+                return {"error": True, "code": "OZON_STORE_NOT_FOUND"}
+            conn.execute("""INSERT INTO ozon_active_stores (telegram_user_id, client_id) VALUES (?, ?)
+                ON CONFLICT(telegram_user_id) DO UPDATE SET client_id=excluded.client_id,
+                updated_at=CURRENT_TIMESTAMP""", (user_key, client_key))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"error": False, "client_id": client_key}
+
+    def active_client_id(self, user_id):
+        rows = self.list_accounts(user_id)
+        return next((row["client_id"] for row in rows if row["active"]), None)
 
     def status(self, user_id):
         account = self.get(user_id)
