@@ -16,7 +16,21 @@ class TelegramOnboardingService:
         if not isinstance(account, dict) or type(account.get("error")) is not bool:
             return self._error("ONBOARDING_OZON_STATUS_INVALID")
         if account.get("error") is True:
-            return self._error("ONBOARDING_OZON_STATUS_UNAVAILABLE")
+            message = str(
+                account.get("message")
+                or "Не удалось прочитать сохранённое подключение Ozon."
+            )
+            return {
+                "error": True,
+                "code": str(
+                    account.get("code") or "ONBOARDING_OZON_STATUS_UNAVAILABLE"
+                ),
+                "text": message,
+                "message": message,
+                "onboarding": True,
+                "read_only_ozon": True,
+                "executed_ozon": False,
+            }
         if account.get("connected") is not True:
             self._pending[user_key] = "OZON"
             return {
@@ -42,9 +56,17 @@ class TelegramOnboardingService:
             if len(parts) != 2:
                 return self._handled("Отправьте CLIENT_ID и API_KEY одной строкой через пробел.")
             result = self.account_service.connect(user_key, parts[0], parts[1])
-            if not isinstance(result, dict) or result.get("error") is not False:
+            if not isinstance(result, dict):
                 return self._handled(
                     "Не удалось проверить и сохранить подключение. Проверьте данные и повторите."
+                )
+            if result.get("error") is True:
+                return self._handled(
+                    str(result.get("message") or "Не удалось безопасно сохранить подключение.")
+                )
+            if result.get("status") != "OZON_ACCOUNT_CONNECTED":
+                return self._handled(
+                    str(result.get("message") or "Ozon не подтвердил подключение.")
                 )
             return self._tax_or_complete(user_key, main_keyboard, handled=True)
         if stage and stage.startswith("TAX_RATE:"):

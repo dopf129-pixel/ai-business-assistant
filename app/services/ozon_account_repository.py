@@ -121,15 +121,54 @@ class OzonAccountRepository:
         }
 
     def status(self, user_id):
-        account = self.get(user_id)
-        if not account:
+        user_key = str(user_id or "").strip()
+        if not user_key:
             return {
+                "error": False,
                 "connected": False,
                 "client_id_masked": None,
             }
-        client_id = str(account.get("client_id") or "")
+
+        conn = self._connection()
+        try:
+            row = conn.execute(
+                """
+                SELECT client_id, api_key_encrypted
+                FROM ozon_accounts
+                WHERE telegram_user_id = ?
+                """,
+                (user_key,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            return {
+                "error": False,
+                "connected": False,
+                "client_id_masked": None,
+            }
+
+        fernet = self._fernet()
+        if fernet is None:
+            return {
+                "error": True,
+                "code": "OZON_ACCOUNT_MASTER_KEY_UNAVAILABLE",
+                "connected": False,
+            }
+        try:
+            fernet.decrypt(str(row[1]).encode("utf-8"))
+        except (InvalidToken, ValueError, TypeError):
+            return {
+                "error": True,
+                "code": "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+                "connected": False,
+            }
+
+        client_id = str(row[0] or "")
         masked = self._mask_client_id(client_id)
         return {
+            "error": False,
             "connected": True,
             "client_id_masked": masked,
         }

@@ -54,6 +54,11 @@ def test_wrong_master_key_cannot_decrypt_or_mutate_persisted_credentials(monkeyp
 
     wrong_key_repository = OzonAccountRepository(master_key=WRONG_KEY)
     assert wrong_key_repository.get("42") is None
+    assert wrong_key_repository.status("42") == {
+        "error": True,
+        "code": "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+        "connected": False,
+    }
     assert _ciphertext(db_path) == ciphertext_before
 
     restored = OzonAccountRepository(master_key=MASTER_KEY)
@@ -81,3 +86,22 @@ def test_no_storage_root_preserves_legacy_default_path(monkeypatch, tmp_path):
     assert repository.save("42", "client-123", "api-secret")["error"] is False
 
     assert (tmp_path / "ozon_assistant.db").exists()
+
+
+def test_missing_master_key_distinguishes_existing_record_from_new_user(tmp_path):
+    db_path = tmp_path / "credentials.db"
+    repository = OzonAccountRepository(master_key=MASTER_KEY, db_name=str(db_path))
+    assert repository.save("42", "client-123", "api-secret")["error"] is False
+
+    missing_key = OzonAccountRepository(master_key=" ", db_name=str(db_path))
+
+    assert missing_key.status("42") == {
+        "error": True,
+        "code": "OZON_ACCOUNT_MASTER_KEY_UNAVAILABLE",
+        "connected": False,
+    }
+    assert missing_key.status("new-user") == {
+        "error": False,
+        "connected": False,
+        "client_id_masked": None,
+    }

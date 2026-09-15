@@ -2,6 +2,16 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-15 — Persistent Ozon credential restart diagnostics
+
+- an existing encrypted seller account is no longer presented as a new,
+  disconnected account when the runtime master key is missing or changed;
+- onboarding now preserves and displays safe connection/storage diagnostics instead
+  of replacing them with a generic retry prompt;
+- a failed Ozon credential probe cannot incorrectly advance onboarding to tax setup;
+- tenant storage is initialized before saving new credentials, so a later setup
+  failure cannot delete or replace a previously stored account record.
+
 ## 2026-09-15 — Telegram help and feature discovery
 
 - added a visible `Помощь и команды` action to the production main keyboard;

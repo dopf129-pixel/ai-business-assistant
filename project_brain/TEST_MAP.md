@@ -4362,6 +4362,21 @@ Verification:
 - `externally_verified=False`.
 ---
 
+# Persistent Ozon Credential Restart Diagnostics
+
+Updated tests:
+
+- `tests/test_ozon_credential_production_persistence.py`
+- `tests/test_multi_tenant_ozon_onboarding.py`
+- `tests/test_telegram_guided_onboarding.py`
+- `tests/test_seller_e2e_production_readiness.py`
+
+Covers missing/wrong master-key classification, preserved encrypted records,
+safe onboarding diagnostics, rejected probe handling, secret redaction, restart
+persistence, tenant binding, and unchanged Ozon READ-ONLY semantics.
+
+---
+
 # Telegram Help and Feature Discovery
 
 Tests:

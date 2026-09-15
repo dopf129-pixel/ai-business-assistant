@@ -1,5 +1,14 @@
 # Current Project State
 
+## 2026-09-15 — Ozon connection persistence after restart
+
+- Onboarding distinguishes a genuinely unconfigured seller from an existing
+  encrypted credential that cannot be read with the current master key.
+- Existing unreadable ciphertext remains untouched and the seller is told to
+  restore the original `.env` master key instead of reconnecting the shop.
+- Invalid Ozon probes and storage failures stay in the Ozon onboarding step.
+- Tenant isolation and Ozon READ-ONLY behavior are unchanged.
+
 ## 2026-09-15 — Telegram help and discoverability
 
 - The main keyboard exposes `Помощь и команды`.
