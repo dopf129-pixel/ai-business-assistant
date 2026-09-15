@@ -27,10 +27,7 @@ class TelegramSellerCostUpdateService:
                 "Нажмите товар и отправьте только сумму в рублях. "
                 "После сохранения я предложу следующий товар."
             )
-            buttons = [
-                {"text": display_name, "callback": "seller_cost:" + sku}
-                for display_name, sku, _, _ in shown
-            ]
+            buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
             if len(missing) > len(shown):
                 message += f"\n\nПоказаны первые {len(shown)} позиций."
         else:
@@ -39,17 +36,8 @@ class TelegramSellerCostUpdateService:
                 "Теперь Period Profit сможет использовать подтверждённые значения. "
                 "Если придёт новая партия по другой цене — выберите товар ниже и обновите стоимость."
             )
-            buttons = [
-                {"text": display_name, "callback": "seller_cost:" + sku}
-                for display_name, sku, _, _ in products[:20]
-            ]
-        return {
-            "error": False,
-            "message": message,
-            "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)},
-            "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
-            "read_only_ozon": True,
-        }
+            buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
+        return {"error": False, "message": message, "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)}, "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons}, "read_only_ozon": True}
 
     def select_sku(self, user_id, sku):
         user_key = self._user_key(user_id)
@@ -64,26 +52,9 @@ class TelegramSellerCostUpdateService:
             return self._error("SELLER_COST_SKU_NOT_FOUND" if not matches else "SELLER_COST_SKU_AMBIGUOUS")
         display_name, _, product_id, offer_id = matches[0]
         is_initial = sku_key not in self._current_costs()
-        self._pending[user_key] = {
-            "product_id": product_id,
-            "sku": sku_key,
-            "offer_id": offer_id,
-            "initial": is_initial,
-        }
-        timing = (
-            "Это первая себестоимость товара, поэтому она начнёт действовать с сегодняшней даты."
-            if is_initial
-            else "Это изменение существующей себестоимости; новая цена начнёт действовать с завтрашней даты, чтобы не переписывать уже рассчитанный сегодняшний день."
-        )
-        return {
-            "error": False,
-            "message": (
-                f"{display_name}\nSKU: {sku_key}\n\n"
-                "Введите себестоимость одной штуки в ₽. Например: 430\n\n" + timing
-            ),
-            "seller_cost_input_pending": True,
-            "read_only_ozon": True,
-        }
+        self._pending[user_key] = {"product_id": product_id, "sku": sku_key, "offer_id": offer_id, "initial": is_initial}
+        timing = "Это первая себестоимость товара, поэтому она начнёт действовать с сегодняшней даты." if is_initial else "Это изменение существующей себестоимости; новая цена начнёт действовать с завтрашней даты, чтобы не переписывать уже рассчитанный сегодняшний день."
+        return {"error": False, "message": f"{display_name}\nSKU: {sku_key}\n\nВведите себестоимость одной штуки в ₽. Например: 430\n\n{timing}", "seller_cost_input_pending": True, "read_only_ozon": True}
 
     def handle_text(self, user_id, text):
         user_key = self._user_key(user_id)
@@ -91,13 +62,7 @@ class TelegramSellerCostUpdateService:
             return {"error": False, "handled": False, "read_only_ozon": True}
         cost = self._cost(text)
         if cost is None:
-            return {
-                "error": False,
-                "handled": True,
-                "message": "Не удалось распознать сумму. Отправьте только число в рублях, например: 430 или 430.50",
-                "seller_cost_input_pending": True,
-                "read_only_ozon": True,
-            }
+            return {"error": False, "handled": True, "message": "Не удалось распознать сумму. Отправьте только число в рублях, например: 430 или 430.50", "seller_cost_input_pending": True, "read_only_ozon": True}
         today = self._today()
         if today is None:
             return {"error": True, "handled": True, "message": "Не удалось определить дату активации себестоимости.", "code": "SELLER_COST_EFFECTIVE_DATE_UNAVAILABLE", "read_only_ozon": True}
@@ -107,10 +72,7 @@ class TelegramSellerCostUpdateService:
         if not callable(recorder):
             return {"error": True, "handled": True, "message": "Хранилище подтверждённой себестоимости недоступно.", "code": "SELLER_COST_SWITCH_RECORDER_UNAVAILABLE", "read_only_ozon": True}
         try:
-            result = recorder(
-                product_id=identity["product_id"], sku=identity["sku"], offer_id=identity["offer_id"],
-                cost_price=cost, effective_from=effective_from.isoformat(), source="SELLER_CONFIRMED_BOT",
-            )
+            result = recorder(product_id=identity["product_id"], sku=identity["sku"], offer_id=identity["offer_id"], cost_price=cost, effective_from=effective_from.isoformat(), source="SELLER_CONFIRMED_BOT")
         except Exception:
             result = None
         if not isinstance(result, dict) or result.get("error") is not False:
@@ -122,16 +84,8 @@ class TelegramSellerCostUpdateService:
         if isinstance(menu, dict) and menu.get("error") is False:
             coverage = menu.get("cost_coverage") or {}
             remaining = int(coverage.get("missing") or 0)
-            if remaining:
-                message = f"✅ {display_name}: {amount} ₽ сохранено.\n\nОсталось заполнить: {remaining}. Выберите следующий товар:"
-            else:
-                message = f"✅ {display_name}: {amount} ₽ сохранено.\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль."
-            return {
-                "error": False, "handled": True, "message": message,
-                "keyboard": menu.get("keyboard"), "cost_coverage": coverage,
-                "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2),
-                "effective_from": effective_from.isoformat(), "seller_confirmed": True, "read_only_ozon": True,
-            }
+            message = f"✅ {display_name}: {amount} ₽ сохранено.\n\nОсталось заполнить: {remaining}. Выберите следующий товар:" if remaining else f"✅ {display_name}: {amount} ₽ сохранено.\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль."
+            return {"error": False, "handled": True, "message": message, "keyboard": menu.get("keyboard"), "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "seller_confirmed": True, "read_only_ozon": True}
         return {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.", "sku": identity["sku"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "seller_confirmed": True, "read_only_ozon": True}
 
     def clear_pending(self, user_id):
@@ -170,12 +124,7 @@ class TelegramSellerCostUpdateService:
             return set()
         result = set()
         for row in rows if isinstance(rows, list) else []:
-            if isinstance(row, dict):
-                sku = self._text(row.get("sku"))
-            elif isinstance(row, (tuple, list)) and len(row) >= 3:
-                sku = self._text(row[2])
-            else:
-                sku = ""
+            sku = self._text(row.get("sku")) if isinstance(row, dict) else self._text(row[1]) if isinstance(row, (tuple, list)) and len(row) >= 2 else ""
             if sku:
                 result.add(sku)
         return result
