@@ -12,6 +12,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         user_profile_service=None,
         memory_command_service=None,
         seller_cost_service=None,
+        onboarding_service=None,
     ):
         super().__init__(
             assistant,
@@ -19,6 +20,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             button_handler,
             user_profile_service,
             memory_command_service,
+            onboarding_service,
         )
         self.seller_cost_service = seller_cost_service
 

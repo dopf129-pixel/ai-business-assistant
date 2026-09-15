@@ -77,6 +77,9 @@ from services.return_inventory_recovery_repository import (
 from services.telegram_return_inventory_confirmation_service import (
     TelegramReturnInventoryConfirmationService,
 )
+from services.telegram_onboarding_service import TelegramOnboardingService
+from services.ozon_account_service import OzonAccountService
+from services.tax_configuration_service import TaxConfigurationService
 
 
 from telegram_app_layer.return_inventory_telegram_adapter import (
@@ -255,6 +258,12 @@ def create_telegram_assistant():
     return_inventory_service = TelegramReturnInventoryConfirmationService(
         repository=ReturnInventoryRecoveryRepository(),
     )
+    onboarding_service = TelegramOnboardingService(
+        account_service=OzonAccountService(),
+        tax_configuration_service=(
+            system.get("tax_configuration") or TaxConfigurationService()
+        ),
+    )
 
 
     adapter = (
@@ -266,6 +275,7 @@ def create_telegram_assistant():
             memory_commands,
             seller_cost_service,
             return_inventory_service,
+            onboarding_service,
         )
     )
 
@@ -363,6 +373,7 @@ def create_telegram_assistant():
 
     runner.seller_cost_service = seller_cost_service
     runner.return_inventory_service = return_inventory_service
+    runner.onboarding_service = onboarding_service
 
 
     runner.profiles = (

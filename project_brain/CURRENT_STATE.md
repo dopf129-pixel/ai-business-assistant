@@ -126,6 +126,8 @@ AI Business Assistant
 
 # Completed Features
 
+[x] Resumable Telegram onboarding from production Ozon account and tax configuration sources
+
 
 [x] Intent detection
 

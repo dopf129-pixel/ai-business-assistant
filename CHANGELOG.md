@@ -408,3 +408,8 @@ Summary Report теперь включает:
 - Fixed the related-SKU production client inheritance introduced by #558.
 - Restored the established runtime handling for POSTING rows whose sale commission block is wholly absent.
 - Malformed commission containers and partial sale-money components remain fail-closed.
+# 2026-09-15 — Guided Telegram onboarding
+
+- `/start` now resumes at the first missing required setting from the existing Ozon account and tenant tax configuration stores.
+- Existing credentials and tax settings are skipped; API keys are never echoed.
+- Completed sellers go directly to the main keyboard; seller and historical costs remain explicit optional follow-up settings.

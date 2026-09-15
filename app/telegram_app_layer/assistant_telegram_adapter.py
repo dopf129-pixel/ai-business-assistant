@@ -74,7 +74,8 @@ class AssistantTelegramAdapter:
         keyboard_service,
         button_handler,
         user_profile_service=None,
-        memory_command_service=None
+        memory_command_service=None,
+        onboarding_service=None,
     ):
 
         self.assistant = (
@@ -96,6 +97,7 @@ class AssistantTelegramAdapter:
         self.memory_command_service = (
             memory_command_service
         )
+        self.onboarding_service = onboarding_service
 
     def get_start_response(
         self,
@@ -136,7 +138,7 @@ class AssistantTelegramAdapter:
                     "TELEGRAM_KEYBOARD_BUILD_FAILED"
             }
 
-        return {
+        result = {
             "error": False,
 
             "text":
@@ -144,6 +146,9 @@ class AssistantTelegramAdapter:
 
             "keyboard": keyboard
         }
+        if self.onboarding_service is not None:
+            return self.onboarding_service.start(user_id, keyboard)
+        return result
 
     def handle_text(
         self,
@@ -160,6 +165,18 @@ class AssistantTelegramAdapter:
         if profile_failure:
 
             return profile_failure
+
+        if self.onboarding_service is not None:
+            try:
+                onboarding = self.onboarding_service.handle_text(
+                    user_id, text, self.keyboard_service.build_main_keyboard()
+                )
+            except Exception:
+                return {"error": True, "message": "TELEGRAM_ONBOARDING_TEXT_FAILED"}
+            if not isinstance(onboarding, dict) or type(onboarding.get("error")) is not bool:
+                return {"error": True, "message": "INVALID_TELEGRAM_ONBOARDING_RESULT"}
+            if onboarding.get("handled") is True:
+                return onboarding
 
         if (
             self.memory_command_service
@@ -254,6 +271,15 @@ class AssistantTelegramAdapter:
         callback,
         user_id=None
     ):
+        if self.onboarding_service is not None:
+            try:
+                onboarding = self.onboarding_service.handle_callback(
+                    user_id, callback, self.keyboard_service.build_main_keyboard()
+                )
+            except Exception:
+                return {"error": True, "message": "TELEGRAM_ONBOARDING_BUTTON_FAILED"}
+            if onboarding is not None:
+                return onboarding
 
         profile_failure = (
             self._admit_user_profile(
