@@ -1,16 +1,19 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
 
+from services.seller_cost_table_service import SellerCostTableService
+
 
 class TelegramSellerCostUpdateService:
     """Guided seller-cost setup without mutating Ozon."""
 
     INITIAL_HISTORY_DATE = date.min
 
-    def __init__(self, product_service, cost_service, date_provider=None):
+    def __init__(self, product_service, cost_service, date_provider=None, table_service=None):
         self.product_service = product_service
         self.cost_service = cost_service
         self.date_provider = date_provider or date.today
+        self.table_service = table_service or SellerCostTableService(product_service, cost_service)
         self._pending = {}
 
     def open_menu(self):
@@ -21,17 +24,16 @@ class TelegramSellerCostUpdateService:
         missing = [item for item in products if item[1] not in costs]
         configured = len(products) - len(missing)
         if missing:
-            shown = missing[:20]
+            shown = missing[:19]
             message = (
                 "💰 Себестоимость товаров\n\n"
                 f"Заполнено: {configured} из {len(products)}\n"
                 f"Без себестоимости: {len(missing)}\n\n"
-                "Нажмите товар и отправьте только сумму в рублях. "
-                "Первую себестоимость применю ко всей доступной истории продаж; "
-                "если раньше она отличалась, историю можно уточнить позже. "
-                "После сохранения я предложу следующий товар."
+                "Можно заполнить товары по одному или скачать таблицу, заполнить колонку себестоимости и отправить её обратно. "
+                "Первую себестоимость применю ко всей доступной истории продаж; если раньше она отличалась, историю можно уточнить позже."
             )
-            buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
+            buttons = [{"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"}]
+            buttons += [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
             if len(missing) > len(shown):
                 message += f"\n\nПоказаны первые {len(shown)} позиций."
         else:
@@ -42,6 +44,12 @@ class TelegramSellerCostUpdateService:
             )
             buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in products[:20]]
         return {"error": False, "message": message, "cost_coverage": {"configured": configured, "total": len(products), "missing": len(missing)}, "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons}, "read_only_ozon": True}
+
+    def export_table(self):
+        return self.table_service.export_csv()
+
+    def import_table(self, content):
+        return self.table_service.import_csv(content)
 
     def select_sku(self, user_id, sku):
         user_key = self._user_key(user_id)
