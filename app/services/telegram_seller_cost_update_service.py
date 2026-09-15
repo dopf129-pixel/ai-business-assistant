@@ -5,6 +5,8 @@ from math import isfinite
 class TelegramSellerCostUpdateService:
     """Guided seller-cost setup without mutating Ozon."""
 
+    INITIAL_HISTORY_DATE = date.min
+
     def __init__(self, product_service, cost_service, date_provider=None):
         self.product_service = product_service
         self.cost_service = cost_service
@@ -25,6 +27,8 @@ class TelegramSellerCostUpdateService:
                 f"Заполнено: {configured} из {len(products)}\n"
                 f"Без себестоимости: {len(missing)}\n\n"
                 "Нажмите товар и отправьте только сумму в рублях. "
+                "Первую себестоимость применю ко всей доступной истории продаж; "
+                "если раньше она отличалась, историю можно уточнить позже. "
                 "После сохранения я предложу следующий товар."
             )
             buttons = [{"text": name, "callback": "seller_cost:" + sku} for name, sku, _, _ in shown]
@@ -53,7 +57,7 @@ class TelegramSellerCostUpdateService:
         display_name, _, product_id, offer_id = matches[0]
         is_initial = sku_key not in self._current_costs()
         self._pending[user_key] = {"product_id": product_id, "sku": sku_key, "offer_id": offer_id, "initial": is_initial}
-        timing = "Это первая себестоимость товара, поэтому она начнёт действовать с сегодняшней даты." if is_initial else "Это изменение существующей себестоимости; новая цена начнёт действовать с завтрашней даты, чтобы не переписывать уже рассчитанный сегодняшний день."
+        timing = "Это первая себестоимость товара — применю её ко всей доступной истории продаж. Если раньше цена отличалась, историю можно будет уточнить позже." if is_initial else "Это изменение существующей себестоимости; новая цена начнёт действовать с завтрашней даты, чтобы не переписывать уже рассчитанный сегодняшний день."
         return {"error": False, "message": f"{display_name}\nSKU: {sku_key}\n\nВведите себестоимость одной штуки в ₽. Например: 430\n\n{timing}", "seller_cost_input_pending": True, "read_only_ozon": True}
 
     def handle_text(self, user_id, text):
@@ -67,12 +71,14 @@ class TelegramSellerCostUpdateService:
         if today is None:
             return {"error": True, "handled": True, "message": "Не удалось определить дату активации себестоимости.", "code": "SELLER_COST_EFFECTIVE_DATE_UNAVAILABLE", "read_only_ozon": True}
         identity = dict(self._pending[user_key])
-        effective_from = today if identity.get("initial") else today + timedelta(days=1)
+        is_initial = bool(identity.get("initial"))
+        effective_from = self.INITIAL_HISTORY_DATE if is_initial else today + timedelta(days=1)
+        source = "SELLER_CONFIRMED_INITIAL_HISTORY" if is_initial else "SELLER_CONFIRMED_BOT"
         recorder = getattr(self.cost_service, "record_cost_switch", None)
         if not callable(recorder):
             return {"error": True, "handled": True, "message": "Хранилище подтверждённой себестоимости недоступно.", "code": "SELLER_COST_SWITCH_RECORDER_UNAVAILABLE", "read_only_ozon": True}
         try:
-            result = recorder(product_id=identity["product_id"], sku=identity["sku"], offer_id=identity["offer_id"], cost_price=cost, effective_from=effective_from.isoformat(), source="SELLER_CONFIRMED_BOT")
+            result = recorder(product_id=identity["product_id"], sku=identity["sku"], offer_id=identity["offer_id"], cost_price=cost, effective_from=effective_from.isoformat(), source=source)
         except Exception:
             result = None
         if not isinstance(result, dict) or result.get("error") is not False:
@@ -81,12 +87,13 @@ class TelegramSellerCostUpdateService:
         menu = self.open_menu()
         amount = self._format_cost(cost)
         display_name = identity["offer_id"] or identity["sku"]
+        history_note = " Применено ко всей доступной истории продаж." if is_initial else ""
         if isinstance(menu, dict) and menu.get("error") is False:
             coverage = menu.get("cost_coverage") or {}
             remaining = int(coverage.get("missing") or 0)
-            message = f"✅ {display_name}: {amount} ₽ сохранено.\n\nОсталось заполнить: {remaining}. Выберите следующий товар:" if remaining else f"✅ {display_name}: {amount} ₽ сохранено.\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль."
-            return {"error": False, "handled": True, "message": message, "keyboard": menu.get("keyboard"), "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "seller_confirmed": True, "read_only_ozon": True}
-        return {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.", "sku": identity["sku"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "seller_confirmed": True, "read_only_ozon": True}
+            message = f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\nОсталось заполнить: {remaining}. Выберите следующий товар:" if remaining else f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль за прошлые периоды."
+            return {"error": False, "handled": True, "message": message, "keyboard": menu.get("keyboard"), "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "historical_default": is_initial, "seller_confirmed": True, "read_only_ozon": True}
+        return {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.{history_note}", "sku": identity["sku"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "historical_default": is_initial, "seller_confirmed": True, "read_only_ozon": True}
 
     def clear_pending(self, user_id):
         user_key = self._user_key(user_id)
