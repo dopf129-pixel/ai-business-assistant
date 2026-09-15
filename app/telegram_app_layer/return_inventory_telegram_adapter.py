@@ -13,6 +13,7 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         memory_command_service=None,
         seller_cost_service=None,
         return_inventory_service=None,
+        onboarding_service=None,
     ):
         super().__init__(
             assistant,
@@ -21,6 +22,7 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
             user_profile_service,
             memory_command_service,
             seller_cost_service,
+            onboarding_service,
         )
         self.return_inventory_service = return_inventory_service
 

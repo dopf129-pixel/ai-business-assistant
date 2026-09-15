@@ -54,6 +54,14 @@ Result:
 
 # Core Flow
 
+## Telegram guided onboarding
+
+Tests:
+
+- tests/test_telegram_guided_onboarding.py
+
+Проверяет production callback path, resumable missing-step detection, secret non-disclosure, tenant-scoped pending input and factory wiring.
+
 
 ## Main assistant flow
 
