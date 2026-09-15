@@ -32,6 +32,8 @@ class TelegramCommandService:
 
     def handle_callback(self, user_id, callback):
         value = str(callback or "").strip()
+        if value == "ozon_stores":
+            return self._ozon_service().stores(user_id)
         prefix = "ozon_store:"
         if not value.startswith(prefix):
             return None
