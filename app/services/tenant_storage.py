@@ -1,7 +1,7 @@
 import hashlib
 import os
 
-from services.tenant_context import get_current_tenant_user_id
+from services.tenant_context import get_current_tenant_store_id, get_current_tenant_user_id
 
 
 _STORAGE_ROOT_ENV = "AI_ASSISTANT_STORAGE_ROOT"
@@ -24,7 +24,9 @@ def tenant_storage_path(filename):
     if not user_id:
         path = os.fspath(filename)
     else:
-        digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
+        store_id = str(get_current_tenant_store_id() or "").strip()
+        identity = user_id + ("|store|" + store_id if store_id else "")
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
         directory = os.path.join("data", "tenants", digest)
         path = os.path.join(directory, os.path.basename(os.fspath(filename)))
 

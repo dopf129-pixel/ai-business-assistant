@@ -83,8 +83,8 @@ from services.ozon_account_service import OzonAccountService
 from services.tax_configuration_service import TaxConfigurationService
 
 
-from telegram_app_layer.return_inventory_telegram_adapter import (
-    ReturnInventoryTelegramAdapter as AssistantTelegramAdapter,
+from telegram_app_layer.store_selection_telegram_adapter import (
+    StoreSelectionTelegramAdapter as AssistantTelegramAdapter,
 )
 
 
@@ -268,8 +268,9 @@ def create_telegram_assistant():
     return_inventory_service = TelegramReturnInventoryConfirmationService(
         repository=ReturnInventoryRecoveryRepository(),
     )
+    account_service = OzonAccountService()
     onboarding_service = TelegramOnboardingService(
-        account_service=OzonAccountService(),
+        account_service=account_service,
         tax_configuration_service=(
             system.get("tax_configuration") or TaxConfigurationService()
         ),
@@ -286,6 +287,7 @@ def create_telegram_assistant():
             seller_cost_service,
             return_inventory_service,
             onboarding_service,
+            account_service,
         )
     )
 
@@ -302,7 +304,8 @@ def create_telegram_assistant():
     bot_service = (
         TelegramBotService(
             adapter,
-            command_service
+            command_service,
+            account_service.repository.active_client_id,
         )
     )
 

@@ -1,5 +1,14 @@
 # Current Project State
 
+## 2026-09-15 — Multi-store Telegram isolation
+
+- `🏪 Выбрать магазин` lists the current user's encrypted seller accounts and
+  supports adding or selecting one.
+- Request context now binds both Telegram user and proven Ozon Client ID.
+- Product, cost, tax, return, memory, and report paths use the combined scope.
+- Previously mixed user-only storage is retained but not automatically attributed;
+  each store starts with an isolated scope and requires seller-confirmed costs.
+
 ## 2026-09-15 — Telegram help and discoverability
 
 - The main keyboard exposes `Помощь и команды`.

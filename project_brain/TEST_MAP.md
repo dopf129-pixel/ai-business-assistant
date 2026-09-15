@@ -4362,6 +4362,19 @@ Verification:
 - `externally_verified=False`.
 ---
 
+# Multi-store Telegram Selection and Isolation
+
+Tests:
+
+- `tests/test_multi_store_selection_and_isolation.py`
+- updated `tests/test_product_unit_economics_telegram_ui.py`
+
+Covers two stores for one Telegram user, active credential selection, combined
+user/store storage paths, tenant isolation, picker/add-store callbacks, ContextVar
+reset, and preserved legacy-account migration without business-data attribution.
+
+---
+
 # Telegram Help and Feature Discovery
 
 Tests:

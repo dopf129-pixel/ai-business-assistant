@@ -2,13 +2,15 @@ from telegram_app_layer.telegram_call_compat import call_with_legacy_arity
 from services.tenant_context import (
     set_current_tenant_user_id,
     reset_current_tenant_user_id,
+    set_current_tenant_store_id, reset_current_tenant_store_id,
 )
 
 
 class TelegramBotService:
-    def __init__(self, adapter, command_service=None):
+    def __init__(self, adapter, command_service=None, store_resolver=None):
         self.adapter = adapter
         self.command_service = command_service
+        self.store_resolver = store_resolver
 
     def on_start(self, user_id=None):
         return self._with_tenant(
@@ -71,10 +73,15 @@ class TelegramBotService:
             ),
         )
 
-    @staticmethod
-    def _with_tenant(user_id, function):
+    def _with_tenant(self, user_id, function):
         token = set_current_tenant_user_id(user_id)
+        store_token = set_current_tenant_store_id(None)
         try:
+            resolver = getattr(self, "store_resolver", None)
+            if callable(resolver) and user_id is not None:
+                reset_current_tenant_store_id(store_token)
+                store_token = set_current_tenant_store_id(resolver(user_id))
             return function()
         finally:
+            reset_current_tenant_store_id(store_token)
             reset_current_tenant_user_id(token)

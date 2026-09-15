@@ -6,6 +6,8 @@ Send `/start` to resume required setup or open the main menu. Use
 
 ## Main actions
 
+- `🏪 Выбрать магазин` — add or select an Ozon cabinet; every store has an
+  isolated product, cost, tax, return, memory, and report scope;
 - `💵 Прибыль за период` — account Period Profit and profit for a selected SKU;
 - `💰 Себестоимость` — guided current seller-cost update;
 - `💰 Юнит-экономика товаров` — per-product economics;
@@ -35,3 +37,7 @@ Send `/start` to resume required setup or open the main menu. Use
 Historical cost requires an explicit effective date. Product identity and cost
 are separate facts. Unknown financial data is never converted to zero or false.
 Ozon access remains strictly read-only, and API keys are never echoed.
+
+Legacy data that was already mixed before multi-store isolation is never assigned
+to a store automatically. Reopen each store, refresh its catalog, and confirm its
+costs (including historical effective dates) in that store's isolated scope.
