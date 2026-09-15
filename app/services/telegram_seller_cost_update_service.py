@@ -107,6 +107,23 @@ class TelegramSellerCostUpdateService:
             return self._error("SELLER_COST_PRODUCT_CATALOG_UNAVAILABLE")
         if not isinstance(rows, list):
             return self._error("SELLER_COST_PRODUCT_CATALOG_INVALID")
+        if not rows:
+            refresher = getattr(self.product_service, "refresh_products_for_period_profit", None)
+            if not callable(refresher):
+                return self._catalog_error("SELLER_COST_PRODUCT_CATALOG_EMPTY")
+            try:
+                refreshed = refresher()
+            except Exception:
+                refreshed = None
+            if not isinstance(refreshed, dict) or refreshed.get("error") is not False:
+                code = refreshed.get("code") if isinstance(refreshed, dict) else None
+                return self._catalog_error(code or "SELLER_COST_PRODUCT_CATALOG_REFRESH_FAILED")
+            try:
+                rows = self.product_service.load_products()
+            except Exception:
+                return self._catalog_error("SELLER_COST_PRODUCT_CATALOG_UNAVAILABLE")
+            if not isinstance(rows, list):
+                return self._catalog_error("SELLER_COST_PRODUCT_CATALOG_INVALID")
         products, seen = [], set()
         for row in rows:
             if not isinstance(row, (tuple, list)) or len(row) < 3:
@@ -119,7 +136,7 @@ class TelegramSellerCostUpdateService:
             seen.add(sku)
             products.append((offer_id or sku, sku, product_id, offer_id))
         products.sort(key=lambda item: item[0])
-        return products if products else self._error("SELLER_COST_PRODUCT_CATALOG_EMPTY")
+        return products if products else self._catalog_error("SELLER_COST_PRODUCT_CATALOG_EMPTY")
 
     def _current_costs(self):
         getter = getattr(self.cost_service, "get_all_costs", None)
@@ -175,6 +192,10 @@ class TelegramSellerCostUpdateService:
     @staticmethod
     def _format_cost(value):
         return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    @staticmethod
+    def _catalog_error(code):
+        return {"error": True, "message": "Не удалось загрузить товары из Ozon. Проверьте подключение магазина и попробуйте ещё раз.", "code": code, "read_only_ozon": True}
 
     @staticmethod
     def _error(code):

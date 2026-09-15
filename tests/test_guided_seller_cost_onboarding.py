@@ -8,6 +8,22 @@ class _Products:
         return [("1", "ART-A", "SKU-A"), ("2", "ART-B", "SKU-B")]
 
 
+class _InitiallyEmptyProducts:
+    def __init__(self, refresh_result=None):
+        self.rows = []
+        self.refresh_calls = 0
+        self.refresh_result = refresh_result or {"error": False, "status": "PERIOD_PROFIT_PRODUCT_CATALOG_REFRESHED"}
+
+    def load_products(self):
+        return list(self.rows)
+
+    def refresh_products_for_period_profit(self):
+        self.refresh_calls += 1
+        if self.refresh_result.get("error") is False:
+            self.rows = [("1", "ART-A", "SKU-A")]
+        return dict(self.refresh_result)
+
+
 class _Costs:
     def __init__(self):
         self.current = []
@@ -33,6 +49,29 @@ def test_menu_prioritizes_only_products_without_cost():
     assert result["cost_coverage"] == {"configured": 1, "total": 2, "missing": 1}
     assert result["keyboard"]["buttons"] == [{"text": "ART-B", "callback": "seller_cost:SKU-B"}]
     assert "всей доступной истории продаж" in result["message"]
+
+
+def test_empty_local_catalog_is_refreshed_from_ozon_before_cost_setup():
+    products = _InitiallyEmptyProducts()
+    service = TelegramSellerCostUpdateService(products, _Costs())
+
+    result = service.open_menu()
+
+    assert result["error"] is False
+    assert products.refresh_calls == 1
+    assert result["cost_coverage"] == {"configured": 0, "total": 1, "missing": 1}
+    assert result["keyboard"]["buttons"] == [{"text": "ART-A", "callback": "seller_cost:SKU-A"}]
+
+
+def test_catalog_refresh_failure_has_actionable_message():
+    products = _InitiallyEmptyProducts({"error": True, "code": "PERIOD_PROFIT_PRODUCT_CATALOG_API_UNAVAILABLE"})
+    service = TelegramSellerCostUpdateService(products, _Costs())
+
+    result = service.open_menu()
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_PRODUCT_CATALOG_API_UNAVAILABLE"
+    assert "Ozon" in result["message"]
 
 
 def test_first_cost_is_effective_for_full_history_and_flow_offers_next_missing_product():
