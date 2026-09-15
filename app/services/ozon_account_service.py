@@ -1,5 +1,6 @@
 from api.ozon_client import OzonClient
-from services.ozon_account_repository import OzonAccountRepository
+from services.ozon_account_repository import OzonAccountRepository, make_store_tenant_scope
+from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 
 
 class OzonAccountService:
@@ -25,6 +26,7 @@ class OzonAccountService:
         saved = self.repository.save(user_key, client_key, secret)
         if not isinstance(saved, dict) or saved.get("error") is True:
             return self._storage_error()
+        token = set_current_tenant_user_id(make_store_tenant_scope(user_key, client_key))
         try:
             self._initialize_tenant_storage()
         except Exception:
@@ -33,6 +35,8 @@ class OzonAccountService:
             except Exception:
                 pass
             return self._storage_error()
+        finally:
+            reset_current_tenant_user_id(token)
         count = len(self.repository.list_accounts(user_key))
         return {
             "error": False,
