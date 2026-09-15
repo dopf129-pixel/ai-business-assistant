@@ -8,10 +8,7 @@ class TelegramBotService:
         self.command_service = command_service
 
     def on_start(self, user_id=None):
-        return self._with_tenant(
-            user_id,
-            lambda: call_with_legacy_arity(self.adapter.get_start_response, (user_id,), ()),
-        )
+        return self._with_tenant(user_id, lambda: call_with_legacy_arity(self.adapter.get_start_response, (user_id,), ()))
 
     def on_message(self, user_id, text=None):
         if text is None:
@@ -30,6 +27,9 @@ class TelegramBotService:
                     return {"error": True, "message": "INVALID_TELEGRAM_COMMAND_RESULT"}
                 return command_result
         return call_with_legacy_arity(self.adapter.handle_text, (text, user_id), (text,))
+
+    def on_document(self, user_id, content, filename=None):
+        return self._with_tenant(user_id, lambda: self.adapter.handle_document(content, user_id, filename))
 
     def on_callback(self, user_id, callback=None):
         if callback is None:
@@ -56,8 +56,6 @@ class TelegramBotService:
             if client_id:
                 scope = make_store_tenant_scope(user_id, client_id)
         except Exception:
-            # Account management and onboarding must remain reachable even when
-            # local credential storage is temporarily unavailable.
             scope = user_id
         token = set_current_tenant_user_id(scope)
         try:
