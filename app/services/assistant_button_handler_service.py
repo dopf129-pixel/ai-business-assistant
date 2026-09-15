@@ -196,7 +196,8 @@ class AssistantButtonHandlerService:
         product_decision_persistence_verifier=None,
         product_decision_user_action_guidance_builder=None,
         product_decision_user_action_checklist_builder=None,
-        period_profit_runtime_service=None
+        period_profit_runtime_service=None,
+        period_profit_sku_runtime_service=None,
     ):
 
         self.assistant = (
@@ -255,6 +256,7 @@ class AssistantButtonHandlerService:
         self.period_profit_runtime_service = (
             period_profit_runtime_service
         )
+        self.period_profit_sku_runtime_service = period_profit_sku_runtime_service
 
 
     def prepare_context(
@@ -443,6 +445,16 @@ class AssistantButtonHandlerService:
             return (
                 self._open_period_profit_menu()
             )
+
+        if button_id == "period_profit_sku":
+            if self.period_profit_sku_runtime_service is None:
+                return {"error": True, "message": "Прибыль по SKU недоступна", "executed": False}
+            return self.period_profit_sku_runtime_service.open_sku_menu()
+
+        if button_id.startswith("period_profit_sku:"):
+            if self.period_profit_sku_runtime_service is None:
+                return {"error": True, "message": "Прибыль по SKU недоступна", "executed": False}
+            return self.period_profit_sku_runtime_service.handle_callback(button_id)
 
         if button_id.startswith(
             "period_profit:"
@@ -686,6 +698,12 @@ class AssistantButtonHandlerService:
                 "message": "INVALID_PERIOD_PROFIT_TELEGRAM_KEYBOARD",
                 "executed": False
             }
+
+        keyboard = dict(keyboard)
+        keyboard["buttons"] = list(keyboard["buttons"]) + [{
+            "text": "🔎 По выбранному SKU",
+            "callback": "period_profit_sku",
+        }]
 
         return {
             "error": False,

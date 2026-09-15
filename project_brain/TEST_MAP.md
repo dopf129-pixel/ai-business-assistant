@@ -54,6 +54,15 @@ Result:
 
 # Core Flow
 
+## Period Profit by selected SKU
+
+Tests:
+
+- tests/test_period_profit_sku_telegram_flow.py
+- tests/test_telegram_period_profit_analyst_wiring_v1161_v1170.py
+
+Проверяет Telegram SKU/period navigation, production factory wiring, aggregation of proven legacy/current SKU rows, configured tax recomputation, forged identity rejection, and fail-closed unknown money handling.
+
 ## Telegram guided onboarding
 
 Tests:

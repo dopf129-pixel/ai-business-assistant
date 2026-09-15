@@ -413,3 +413,8 @@ Summary Report теперь включает:
 - `/start` now resumes at the first missing required setting from the existing Ozon account and tenant tax configuration stores.
 - Existing credentials and tax settings are skipped; API keys are never echoed.
 - Completed sellers go directly to the main keyboard; seller and historical costs remain explicit optional follow-up settings.
+# 2026-09-15 — Period Profit by selected SKU
+
+- Telegram Period Profit now offers a product selector and the existing date presets for one catalog SKU.
+- The SKU report aggregates canonical Period Profit product rows across proven current/legacy SKU identity and recalculates configured tax on the selected aggregate.
+- Account-level unattributed expenses, external expenses, and Return COGS remain explicitly excluded/unknown instead of being allocated by assumption.

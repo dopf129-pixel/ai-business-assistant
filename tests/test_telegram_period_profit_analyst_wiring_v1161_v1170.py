@@ -96,6 +96,7 @@ def test_v1163_period_profit_menu_is_read_only_and_non_executing():
         "period_profit:28D",
         "period_profit:56D",
         "period_profit:90D",
+        "period_profit_sku",
     ]
 
 
