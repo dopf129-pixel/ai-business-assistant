@@ -8,21 +8,21 @@ class OzonCredentialProvider:
         self.repository = repository or OzonAccountRepository()
 
     def get_credentials(self):
-        user_id = get_current_tenant_user_id()
-        if user_id:
-            account = self.repository.get(user_id)
+        tenant_scope = get_current_tenant_user_id()
+        if tenant_scope:
+            account = self.repository.get(tenant_scope)
             if not account:
                 return {
                     "client_id": None,
                     "api_key": None,
                     "source": "TENANT_ACCOUNT_MISSING",
-                    "tenant_user_id": user_id,
+                    "tenant_user_id": tenant_scope,
                 }
             return {
                 "client_id": account.get("client_id"),
                 "api_key": account.get("api_key"),
-                "source": "TENANT_ACCOUNT",
-                "tenant_user_id": user_id,
+                "source": "TENANT_STORE_ACCOUNT",
+                "tenant_user_id": tenant_scope,
             }
 
         return {
