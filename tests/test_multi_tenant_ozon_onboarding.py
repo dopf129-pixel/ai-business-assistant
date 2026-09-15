@@ -219,3 +219,21 @@ def test_account_service_validates_before_persisting(tmp_path, monkeypatch):
     assert result["executed_ozon"] is False
     assert "api-secret" not in result["message"]
     assert repo.get("user-a")["api_key"] == "api-secret"
+
+
+def test_account_status_does_not_treat_wrong_master_key_as_disconnected(tmp_path):
+    db_path = tmp_path / "accounts.db"
+    original_key = Fernet.generate_key().decode("utf-8")
+    wrong_key = Fernet.generate_key().decode("utf-8")
+    repository = OzonAccountRepository(master_key=original_key, db_name=str(db_path))
+    assert repository.save("user-a", "123456", "api-secret")["error"] is False
+
+    restarted = OzonAccountService(
+        repository=OzonAccountRepository(master_key=wrong_key, db_name=str(db_path))
+    )
+    result = restarted.status("user-a")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_ACCOUNT_MASTER_KEY_MISMATCH"
+    assert "не подключайте магазин повторно" in result["message"]
+    assert "api-secret" not in str(result)

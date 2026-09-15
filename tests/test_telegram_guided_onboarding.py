@@ -32,7 +32,7 @@ class Accounts:
         assert get_current_tenant_user_id() == str(user_id)
         self.connect_calls.append((user_id, client_id, api_key))
         self.connected.add(user_id)
-        return {"error": False}
+        return {"error": False, "status": "OZON_ACCOUNT_CONNECTED"}
 
 
 class Tax:
@@ -85,3 +85,61 @@ def test_factory_wires_onboarding(monkeypatch, tmp_path):
     runner = create_telegram_assistant()
     assert isinstance(runner.onboarding_service, TelegramOnboardingService)
     assert runner.bot_service.on_start("new-seller")["required_step"] == "OZON_CREDENTIALS"
+
+
+def test_failed_ozon_probe_does_not_advance_to_tax_setup():
+    class RejectedAccounts(Accounts):
+        def connect(self, user_id, client_id, api_key):
+            return {
+                "error": False,
+                "status": "OZON_ACCOUNT_CONNECTION_FAILED",
+                "message": "Ozon не подтвердил доступ с этими реквизитами.",
+            }
+
+    bot = make_bot(RejectedAccounts(), Tax())
+    bot.on_start("seller-a")
+
+    result = bot.on_message("seller-a", "client invalid-key")
+
+    assert result["handled"] is True
+    assert "не подтвердил" in result["message"]
+    assert result.get("required_step") != "TAX_CONFIGURATION"
+
+
+def test_storage_failure_is_shown_without_secret_or_false_success():
+    class FailedStorageAccounts(Accounts):
+        def connect(self, user_id, client_id, api_key):
+            return {
+                "error": True,
+                "status": "OZON_ACCOUNT_STORAGE_UNAVAILABLE",
+                "message": "Проверьте OZON_CREDENTIAL_MASTER_KEY и хранилище.",
+            }
+
+    bot = make_bot(FailedStorageAccounts(), Tax())
+    bot.on_start("seller-a")
+
+    result = bot.on_message("seller-a", "client api-secret")
+
+    assert result["handled"] is True
+    assert "OZON_CREDENTIAL_MASTER_KEY" in result["message"]
+    assert "api-secret" not in str(result)
+
+
+def test_existing_unreadable_credentials_do_not_prompt_for_reconnection():
+    class UnreadableAccounts(Accounts):
+        def status(self, user_id):
+            return {
+                "error": True,
+                "code": "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+                "message": (
+                    "Подключение уже сохранено. Восстановите прежний "
+                    "OZON_CREDENTIAL_MASTER_KEY; не подключайте магазин повторно."
+                ),
+            }
+
+    result = make_bot(UnreadableAccounts(), Tax()).on_start("seller-a")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_ACCOUNT_MASTER_KEY_MISMATCH"
+    assert result.get("required_step") != "OZON_CREDENTIALS"
+    assert "не подключайте магазин повторно" in result["text"]
