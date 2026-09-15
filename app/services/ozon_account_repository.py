@@ -197,15 +197,22 @@ class OzonAccountRepository:
             return {"error": True, "deleted": False}
         conn = self._connection()
         try:
-            cursor = conn.execute(
-                "DELETE FROM ozon_accounts WHERE telegram_user_id = ?",
-                (user_key,),
-            )
+            active = conn.execute("SELECT client_id FROM ozon_active_stores WHERE telegram_user_id=?", (user_key,)).fetchone()
+            if active is None:
+                return {"error": False, "deleted": False}
+            client_id = str(active[0])
+            cursor = conn.execute("DELETE FROM ozon_store_accounts WHERE telegram_user_id=? AND client_id=?", (user_key, client_id))
+            conn.execute("DELETE FROM ozon_accounts WHERE telegram_user_id=? AND client_id=?", (user_key, client_id))
+            replacement = conn.execute("SELECT client_id FROM ozon_store_accounts WHERE telegram_user_id=? ORDER BY connected_at, client_id LIMIT 1", (user_key,)).fetchone()
+            if replacement is None:
+                conn.execute("DELETE FROM ozon_active_stores WHERE telegram_user_id=?", (user_key,))
+            else:
+                conn.execute("UPDATE ozon_active_stores SET client_id=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?", (str(replacement[0]), user_key))
             conn.commit()
             deleted = cursor.rowcount > 0
         finally:
             conn.close()
-        return {"error": False, "deleted": deleted}
+        return {"error": False, "deleted": cursor.rowcount > 0}
 
     @staticmethod
     def _mask_client_id(client_id):

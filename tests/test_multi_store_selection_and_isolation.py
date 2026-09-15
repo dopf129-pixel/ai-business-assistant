@@ -80,3 +80,15 @@ def test_store_selection_is_tenant_scoped(tmp_path, monkeypatch):
     assert accounts.select("user-a", "store-b")["error"] is True
     assert accounts.repository.get("user-a")["client_id"] == "store-a"
     assert accounts.repository.get("user-b")["client_id"] == "store-b"
+
+
+def test_disconnect_removes_only_active_store_and_selects_remaining(tmp_path, monkeypatch):
+    accounts = service(tmp_path, monkeypatch)
+    accounts.connect("user", "store-a", "key-a")
+    accounts.connect("user", "store-b", "key-b")
+
+    result = accounts.disconnect("user")
+
+    assert result["error"] is False
+    assert [row["client_id"] for row in accounts.list_accounts("user")["accounts"]] == ["store-a"]
+    assert accounts.repository.get("user")["client_id"] == "store-a"
