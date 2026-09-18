@@ -1,3 +1,4 @@
+import io
 import os
 import signal
 
@@ -103,6 +104,58 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _send_result(message, result, progress_message=None):
+    keyboard = build_keyboard(result.get("keyboard"))
+    file_content = result.get("file_content")
+    filename = result.get("filename")
+    if file_content is not None and filename:
+        payload = file_content.encode("utf-8") if isinstance(file_content, str) else bytes(file_content)
+        document = io.BytesIO(payload)
+        document.name = str(filename)
+        caption = format_response(result)
+        if progress_message is not None:
+            await finish_progress(message, progress_message, caption or "Таблица готова.")
+        elif caption:
+            await message.reply_text(caption)
+        await message.reply_document(
+            document=document,
+            filename=str(filename),
+            caption="Заполните себестоимость и отправьте этот CSV-файл обратно боту.",
+        )
+        return
+    response = format_response(result)
+    if progress_message is not None:
+        await finish_progress(message, progress_message, response, reply_markup=keyboard)
+    else:
+        await message.reply_text(response, reply_markup=keyboard)
+
+
+async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    document = update.message.document
+    if document is None:
+        return
+    progress_message = await begin_progress(
+        update.message,
+        bot=context.bot,
+        chat_id=update.effective_chat.id,
+        text="seller_cost_table_upload",
+        force=True,
+    )
+    try:
+        telegram_file = await context.bot.get_file(document.file_id)
+        content = bytes(await telegram_file.download_as_bytearray())
+        result = get_runner().receive_document(user_id, content, document.file_name)
+    except Exception:
+        await finish_progress(
+            update.message,
+            progress_message,
+            "⚠️ Не удалось обработать таблицу. Попробуйте ещё раз.",
+        )
+        raise
+    await _send_result(update.message, result, progress_message)
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -127,14 +180,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         raise
 
-    response = format_response(result)
-    keyboard = build_keyboard(result.get("keyboard"))
-    await finish_progress(
-        query.message,
-        progress_message,
-        response,
-        reply_markup=keyboard,
-    )
+    await _send_result(query.message, result, progress_message)
 
 
 def _resolve_token(token=None):
@@ -157,6 +203,7 @@ def build_application(token=None):
     """Build the polling application without starting network traffic."""
     application = Application.builder().token(_resolve_token(token)).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     application.add_handler(MessageHandler(filters.TEXT, message_handler))
     application.add_handler(CallbackQueryHandler(callback_handler))
     return application
