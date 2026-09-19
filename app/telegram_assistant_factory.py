@@ -211,8 +211,13 @@ def create_telegram_assistant():
 
 
 
+    period_profit_cost_service = PeriodProfitEffectiveCostService()
+
     period_profit_sku_runtime_service = (
-        PeriodProfitSkuRuntimeService(period_profit_runtime_service.query_service)
+        PeriodProfitSkuRuntimeService(
+            period_profit_runtime_service.query_service,
+            cost_service=period_profit_cost_service,
+        )
         if period_profit_runtime_service is not None
         else None
     )
@@ -261,7 +266,7 @@ def create_telegram_assistant():
 
     seller_cost_service = TelegramSellerCostUpdateService(
         product_service=ProductService(),
-        cost_service=PeriodProfitEffectiveCostService(),
+        cost_service=period_profit_cost_service,
     )
 
 
