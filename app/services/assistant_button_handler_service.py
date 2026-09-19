@@ -454,6 +454,14 @@ class AssistantButtonHandlerService:
         if button_id == "help:examples":
             return build_telegram_phrase_examples()
 
+        if button_id == "main_menu":
+            return {
+                "error": False,
+                "text": "Главное меню",
+                "message": "Главное меню",
+                "keyboard": self.keyboard_service.build_main_keyboard(),
+            }
+
         if button_id == "help:main":
             return {
                 "error": False,
