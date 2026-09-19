@@ -63,3 +63,32 @@ def test_store_wide_scope_still_fails_closed_for_unresolved_finance_skus():
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
     assert "1124761937" in result["message"]
+
+
+def test_selected_scope_preserves_exact_current_finance_sku_without_recovery():
+    class ExactScope(PeriodProfitFinanceSkuScopeService):
+        def _load_period_skus(self, date_from, date_to):
+            return {"error": False, "skus": ["989101156", "unrelated"]}
+
+        def _recover_missing_product(self, sku, at_date):
+            return None
+
+    service = ExactScope(_Summary(), finance_service=object())
+    result = service.calculate(
+        "2026-09-13",
+        "2026-09-19",
+        [{
+            "product_id": "selected-product",
+            "sku": "989101156",
+            "offer_id": "10002_white_01",
+            "_period_profit_selected_scope": True,
+        }],
+    )
+
+    assert result["error"] is False
+    assert result["finance_sku_count"] == 1
+    assert result["products"] == [{
+        "product_id": "selected-product",
+        "sku": "989101156",
+        "offer_id": "10002_white_01",
+    }]

@@ -90,6 +90,13 @@ class PeriodProfitFinanceSkuScopeService:
             scoped_products[sku] = candidate
 
         if selected_scope is not None:
+            selected_catalog_sku = self._text(selected_scope.get("sku"))
+            if selected_catalog_sku in finance_skus and selected_catalog_sku not in scoped_products:
+                candidate = dict(selected_scope)
+                candidate.pop("_period_profit_selected_scope", None)
+                scoped_products[selected_catalog_sku] = candidate
+
+        if selected_scope is not None:
             product_by_sku = scoped_products
         else:
             product_by_sku.update(scoped_products)
