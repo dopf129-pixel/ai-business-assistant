@@ -209,6 +209,14 @@ def _polling_stop_signals(platform_name=None):
     return (signal.SIGINT, signal.SIGTERM)
 
 
+async def _post_init(application):
+    await application.bot.set_my_commands([
+        ("start", "Запустить ассистента"),
+        ("menu", "Главное меню"),
+    ])
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+
 def build_application(token=None):
     """Build the polling application without starting network traffic."""
     application = Application.builder().token(_resolve_token(token)).post_init(_post_init).build()
@@ -218,14 +226,6 @@ def build_application(token=None):
     application.add_handler(MessageHandler(filters.TEXT, message_handler))
     application.add_handler(CallbackQueryHandler(callback_handler))
     return application
-
-
-async def _post_init(application):
-    await application.bot.set_my_commands([
-        ("start", "Запустить ассистента"),
-        ("menu", "Главное меню"),
-    ])
-    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 def main():
