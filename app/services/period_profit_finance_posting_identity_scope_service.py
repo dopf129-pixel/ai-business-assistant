@@ -537,6 +537,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
 
         trace = current_period_profit_trace()
         matched_offers = set()
+        posting_owners = {}
+        for owner_sku, owner_postings in self._finance_posting_numbers_by_sku.items():
+            for posting_number in owner_postings or ():
+                posting_owners.setdefault(self._text(posting_number), set()).add(
+                    self._text(owner_sku)
+                )
         for year, month in self._evidence_months(self._scope_start, self._scope_end):
             cache_key = ("get_realization_posting", year, month)
             if trace is not None and cache_key in trace.posting_response_cache:
@@ -567,9 +573,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 posting_number = self._text(order.get("posting_number"))
                 observed_sku = self._text(item.get("sku"))
                 offer_id = self._text(item.get("offer_id"))
+                owners = posting_owners.get(posting_number) or set()
+                identity_is_exact = observed_sku == finance_sku
+                identity_is_unique_posting = owners == {finance_sku}
                 if (
                     posting_number in posting_numbers
-                    and observed_sku == finance_sku
+                    and (identity_is_exact or identity_is_unique_posting)
                     and offer_id in self._catalog_by_offer
                 ):
                     matched_offers.add(offer_id)

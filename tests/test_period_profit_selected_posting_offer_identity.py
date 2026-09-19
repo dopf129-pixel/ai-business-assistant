@@ -296,3 +296,50 @@ def test_realization_offer_conflict_remains_fail_closed():
     assert "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_REALIZATION_OFFER_AMBIGUOUS" in (
         service._sku_recovery_diagnostic_codes
     )
+
+
+def test_realization_accepts_rewritten_sku_for_unique_finance_posting():
+    service = _service()
+    service._scope_start = date(2026, 9, 1)
+    service._scope_end = date(2026, 9, 19)
+    service.finance_service.ozon.get_realization_posting = lambda year, month: {
+        "error": False,
+        "rows": [{
+            "order": {"posting_number": "posting-1"},
+            "item": {
+                "sku": "989101156",
+                "offer_id": "10002_white_01",
+            },
+        }],
+    }
+
+    result = service._recover_from_realization_offer_identity(
+        "legacy-finance-sku"
+    )
+
+    assert result["catalog_sku"] == "989101156"
+    assert result["sku"] == "legacy-finance-sku"
+
+
+def test_realization_rewritten_sku_rejects_multi_product_posting():
+    service = _service()
+    service._scope_start = date(2026, 9, 1)
+    service._scope_end = date(2026, 9, 19)
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {"posting-1"},
+        "other-finance-sku": {"posting-1"},
+    }
+    service.finance_service.ozon.get_realization_posting = lambda year, month: {
+        "error": False,
+        "rows": [{
+            "order": {"posting_number": "posting-1"},
+            "item": {
+                "sku": "989101156",
+                "offer_id": "10002_white_01",
+            },
+        }],
+    }
+
+    assert service._recover_from_realization_offer_identity(
+        "legacy-finance-sku"
+    ) is None

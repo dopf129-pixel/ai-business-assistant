@@ -11,6 +11,7 @@
   90 seconds while the informational watchdog continues waiting.
 - Exact realization evidence now covers confirming postings outside the bounded
   detail-probe prefix without reintroducing per-posting N+1 requests.
+- Rewritten realization SKUs are supported for single-finance-SKU postings only.
 
 ## 2026-09-15 — Telegram help and discoverability
 
