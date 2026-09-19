@@ -126,6 +126,7 @@ class PeriodProfitSkuRuntimeService:
             "product_id": identity.get("product_id"),
             "offer_id": identity.get("offer_id"),
             "sku": identity.get("sku"),
+            "_period_profit_selected_scope": True,
         }
         originals = [(service, service.product_provider) for service in services]
         provider = lambda: [dict(selected)]
