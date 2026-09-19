@@ -78,7 +78,8 @@ class PeriodProfitSkuRuntimeService:
         if period not in {code for _, code in self.PERIODS}:
             return self._error("PERIOD_PROFIT_SKU_PERIOD_INVALID")
         try:
-            result = self.query_service.query(
+            result = self._query_selected_product(
+                identity,
                 period_code=period,
                 compare_previous=True,
                 today=today,
@@ -99,6 +100,42 @@ class PeriodProfitSkuRuntimeService:
                 return candidate
             previous = candidate
         return self._present(selected, identity, previous)
+
+    def _query_selected_product(self, identity, **kwargs):
+        """Run Period Profit with the catalog scoped to the selected product.
+
+        A SKU-specific request must not be blocked by missing seller cost or
+        unresolved legacy identity for unrelated products in the same store.
+        Temporarily narrow the query's product provider to the selected catalog
+        identity while preserving the canonical finance, quantity, tax and
+        return-processing pipeline.
+        """
+        services = []
+        current = self.query_service
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if hasattr(current, "product_provider"):
+                services.append(current)
+            current = getattr(current, "base_service", None)
+
+        if not services:
+            return self.query_service.query(**kwargs)
+
+        selected = {
+            "product_id": identity.get("product_id"),
+            "offer_id": identity.get("offer_id"),
+            "sku": identity.get("sku"),
+        }
+        originals = [(service, service.product_provider) for service in services]
+        provider = lambda: [dict(selected)]
+        try:
+            for service, _original in originals:
+                service.product_provider = provider
+            return self.query_service.query(**kwargs)
+        finally:
+            for service, original in originals:
+                service.product_provider = original
 
     def _products(self):
         provider = getattr(self.query_service, "product_provider", None)
