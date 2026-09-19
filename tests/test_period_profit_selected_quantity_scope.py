@@ -2,6 +2,10 @@ from services.period_profit_effective_cost_sale_quantity_summary_service import 
 
 
 class _QuantityService(PeriodProfitEffectiveCostSaleQuantitySummaryService):
+    @staticmethod
+    def _text(value):
+        return "" if value is None else str(value).strip()
+
     def _load_realization_quantity_map(self, start, end):
         return {
             ("post-selected", "sku-selected"): 1,
