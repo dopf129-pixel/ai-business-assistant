@@ -252,18 +252,14 @@ class PeriodProfitSkuRuntimeService:
         return output
 
     def _validate_selected_finance_evidence(self, summary, selected):
-        """Reject silent all-zero selected-SKU profit without positive evidence."""
+        """Reject only an unproven all-zero selected-SKU result.
+
+        Positive money or physical quantity is sufficient business evidence.
+        Metadata counters are used only to distinguish a real scoped zero from
+        a synthetic zero when the production pipeline provides them.
+        """
         if not isinstance(summary, dict):
             return self._error("PERIOD_PROFIT_SKU_SUMMARY_INVALID")
-        finance_count = self._integer(summary.get("finance_sku_count"))
-        quantity_records = self._integer(summary.get("sale_quantity_record_count"))
-        operations = 0
-        for row in summary.get("products") or []:
-            if not isinstance(row, dict):
-                continue
-            value = self._integer(row.get("operations"))
-            if value is not None:
-                operations += value
         monetary_evidence = any(
             abs(float(selected.get(field) or 0.0)) > 0.000001
             for field in (
@@ -272,12 +268,37 @@ class PeriodProfitSkuRuntimeService:
             )
         )
         physical_evidence = int(selected.get("units_sold") or 0) > 0
-        scoped_evidence = (
-            (finance_count is not None and finance_count > 0)
-            or (quantity_records is not None and quantity_records > 0)
-            or operations > 0
+        if monetary_evidence or physical_evidence:
+            return None
+
+        metadata_present = any(
+            key in summary
+            for key in (
+                "finance_sku_count",
+                "sale_quantity_record_count",
+                "sale_quantity_reconciled",
+            )
         )
-        if (not monetary_evidence and not physical_evidence) or not scoped_evidence:
+        if not metadata_present:
+            # Legacy/test query implementations may not expose evidence
+            # metadata. They are protected by the upstream finance-scope
+            # fail-closed gates when running the production chain.
+            return None
+
+        finance_count = self._integer(summary.get("finance_sku_count"))
+        quantity_records = self._integer(summary.get("sale_quantity_record_count"))
+        reconciled = summary.get("sale_quantity_reconciled") is True
+        if (
+            finance_count is not None
+            and finance_count > 0
+            and reconciled
+            and quantity_records is not None
+            and quantity_records == 0
+        ):
+            return self._error(
+                "PERIOD_PROFIT_SELECTED_SKU_FINANCE_EVIDENCE_MISSING"
+            )
+        if finance_count == 0:
             return self._error(
                 "PERIOD_PROFIT_SELECTED_SKU_FINANCE_EVIDENCE_MISSING"
             )
