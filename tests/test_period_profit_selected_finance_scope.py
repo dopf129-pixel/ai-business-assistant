@@ -159,4 +159,5 @@ def test_selected_scope_never_degrades_to_empty_product_list():
         "product_id": "selected-product",
         "sku": "989101156",
         "offer_id": "10002_white_01",
+        "_period_profit_selected_scope": True,
     }]
