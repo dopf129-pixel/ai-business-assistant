@@ -133,7 +133,7 @@ def test_selected_scope_rejects_other_offer_even_when_product_id_collides():
     assert [row["sku"] for row in result["products"]] == ["legacy-white"]
 
 
-def test_selected_scope_never_degrades_to_empty_product_list():
+def test_selected_scope_fails_when_no_finance_identity_matches_selected_product():
     class UnresolvedScope(PeriodProfitFinanceSkuScopeService):
         def _load_period_skus(self, date_from, date_to):
             return {"error": False, "skus": ["legacy-finance-sku"]}
@@ -153,15 +153,8 @@ def test_selected_scope_never_degrades_to_empty_product_list():
         }],
     )
 
-    assert result["error"] is False
-    assert result["finance_sku_count"] == 1
-    assert result["products"] == [{
-        "product_id": "selected-product",
-        "sku": "989101156",
-        "offer_id": "10002_white_01",
-        "_period_profit_selected_scope": True,
-    }]
-
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_UNRESOLVED"
 
 def test_selected_scope_does_not_turn_empty_period_finance_into_zero_profit():
     class EmptyFinanceScope(PeriodProfitFinanceSkuScopeService):
