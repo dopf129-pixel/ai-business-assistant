@@ -345,6 +345,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
         matched_offers = set()
         for posting_number in posting_numbers:
             posting_offers = set()
+            # A posting number belongs to exactly one fulfillment schema.  Stop
+            # after the first schema that returns usable product rows instead of
+            # probing the other endpoint as well.  In production the wrong FBS
+            # probe can otherwise spend up to three 30-second network attempts
+            # for every FBO posting and block the synchronous Telegram callback.
             for method_name in ("get_fbo_posting", "get_fbs_posting"):
                 getter = getattr(ozon, method_name, None)
                 if not callable(getter):
@@ -353,12 +358,16 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     response = getter(posting_number)
                 except Exception:
                     continue
-                for product in self._posting_products(response, posting_number):
+                products = self._posting_products(response, posting_number)
+                if not products:
+                    continue
+                for product in products:
                     product_sku = self._text(product.get("sku"))
                     offer_id = self._text(product.get("offer_id"))
                     if product_sku != finance_sku or offer_id not in self._catalog_by_offer:
                         continue
                     posting_offers.add(offer_id)
+                break
             if len(posting_offers) > 1:
                 self._record_sku_recovery_diagnostic("POSTING_OFFER_AMBIGUOUS")
                 return None
