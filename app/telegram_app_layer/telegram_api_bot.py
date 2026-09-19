@@ -167,18 +167,45 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_result(update.message, result, progress_message)
 
 
-async def _run_sync_with_stall_notice(function, *, progress_message=None, stall_seconds=8.0):
-    """Run blocking application work off the Telegram event loop.
+async def _run_sync_with_stall_notice(
+    function,
+    *,
+    progress_message=None,
+    stall_seconds=8.0,
+    give_up_seconds=45.0,
+):
+    """Run blocking work off-loop and stop making the user wait indefinitely.
 
-    If work is still running after the threshold, edit the progress message so
-    the user can distinguish a slow dependency from an ignored button.
+    Python cannot safely kill a running worker thread, so after the user-facing
+    deadline we detach it and return a controlled timeout result.  A done
+    callback consumes any eventual exception from the detached worker.
     """
     task = asyncio.create_task(asyncio.to_thread(function))
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=stall_seconds)
     except asyncio.TimeoutError:
         await _mark_progress_slow(progress_message)
-        return await task
+
+    remaining = max(0.0, float(give_up_seconds) - float(stall_seconds))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+    except asyncio.TimeoutError:
+        task.add_done_callback(_consume_detached_task_result)
+        return {
+            "error": True,
+            "code": "TELEGRAM_CALLBACK_TIMEOUT",
+            "message": (
+                "⏱ Ozon не ответил вовремя. Я остановил ожидание этого запроса. "
+                "Попробуйте ещё раз через минуту."
+            ),
+        }
+
+
+def _consume_detached_task_result(task):
+    try:
+        task.result()
+    except BaseException:
+        pass
 
 
 async def _mark_progress_slow(progress_message):
