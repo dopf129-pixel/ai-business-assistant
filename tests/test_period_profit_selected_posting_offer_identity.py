@@ -347,6 +347,7 @@ def test_realization_rewritten_sku_rejects_multi_product_posting():
 
 def test_fbo_period_snapshot_finds_late_posting_without_detail_n_plus_one():
     service = _service()
+    service._catalog_by_sku["989101156"].pop("_period_profit_selected_scope")
     service._scope_start = date(2026, 9, 1)
     service._scope_end = date(2026, 9, 19)
     service._finance_posting_numbers_by_sku = {
@@ -478,3 +479,79 @@ def test_selected_scope_prefilters_hundreds_of_unrelated_finance_skus():
     ]
     assert finance.ozon.realization_calls == [(2026, 9)]
     assert finance.ozon.related_calls == []
+
+
+def test_selected_scope_uses_one_reverse_related_lookup_not_fbo_history():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    all_skus = {
+        "unrelated-%03d" % index for index in range(500)
+    } | {"legacy-finance-sku"}
+    related_calls = []
+
+    def related(skus):
+        related_calls.append(tuple(skus))
+        return {
+            "error": False,
+            "items": [
+                {"sku": "989101156", "product_id": "current-product"},
+                {"sku": "legacy-finance-sku", "product_id": "current-product"},
+            ],
+            "errors": [],
+        }
+
+    service.finance_service.ozon.get_related_skus = related
+    service.finance_service.ozon.get_realization_posting = lambda *_args: {
+        "error": True,
+    }
+    service.finance_service.ozon.get_fbo_postings = lambda *_args, **_kwargs: (
+        (_ for _ in ()).throw(AssertionError("selected scope must not list FBO"))
+    )
+
+    result = service._selected_finance_sku_candidates(
+        all_skus,
+        selected,
+        date(2026, 9, 19),
+    )
+
+    assert result == {"legacy-finance-sku"}
+    assert related_calls == [("989101156",)]
+    recovered = service._recover_missing_product(
+        "legacy-finance-sku",
+        date(2026, 9, 19),
+    )
+    assert recovered["catalog_sku"] == "989101156"
+    assert related_calls == [("989101156",)]
+
+
+def test_selected_scope_missing_identity_fails_without_fbo_page_scan():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    calls = {"related": 0, "fbo_list": 0}
+
+    def related(_skus):
+        calls["related"] += 1
+        return {
+            "error": False,
+            "items": [{"sku": "989101156", "product_id": "current-product"}],
+            "errors": [],
+        }
+
+    def fbo_list(*_args, **_kwargs):
+        calls["fbo_list"] += 1
+        return {"error": False, "result": {"postings": [], "has_next": False}}
+
+    service.finance_service.ozon.get_related_skus = related
+    service.finance_service.ozon.get_realization_posting = lambda *_args: {
+        "error": True,
+    }
+    service.finance_service.ozon.get_fbo_postings = fbo_list
+
+    result = service._selected_finance_sku_candidates(
+        {"legacy-finance-sku"},
+        selected,
+        date(2026, 9, 19),
+    )
+
+    assert result == set()
+    assert calls == {"related": 1, "fbo_list": 0}

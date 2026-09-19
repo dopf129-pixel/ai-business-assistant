@@ -4495,3 +4495,15 @@ Updated:
 - `app/tests/test_period_profit_related_sku_identity.py`
 
 Covers the production factory assignment shape, absent/null non-sale commission normalization, retained account accrual evidence, and fail-closed malformed commission handling.
+
+---
+
+# Selected-SKU bounded reverse identity lookup
+
+Updated:
+
+- `tests/test_period_profit_selected_posting_offer_identity.py`
+
+Covers one reverse related-SKU request for 500 unrelated finance SKUs, request-local
+identity reuse, and zero account-wide FBO list calls both for a proven match and for
+fail-closed missing identity.

@@ -1139,8 +1139,6 @@ Status:
 
 Implemented
 
----
-
 ## Decision 019
 
 Date:
@@ -1174,6 +1172,37 @@ Reason:
 Для обучения требуется явный пользовательский сигнал, но влияние такого
 сигнала на рекомендации допустимо только после накопления и проверки
 исторических результатов.
+
+Status:
+
+Implemented
+
+---
+
+## Decision 041
+
+Date:
+
+2026-09-20
+
+Topic:
+
+Selected-SKU identity must not require account-wide posting enumeration
+
+Decision:
+
+Selected-SKU Period Profit resolves historical finance SKUs by querying Ozon's
+related-SKU group for the exact selected current SKU once and intersecting that
+proven group with finance SKUs observed in the requested period. The result is
+request-locally cached for downstream recovery. Account-wide FBO list pagination
+is forbidden in selected-SKU mode. If exact realization, seller-confirmed mapping,
+or the reverse related-SKU group cannot prove identity, calculation fails closed.
+
+Reason:
+
+FBO history size is unrelated to one selected SKU and reached hundreds of serial
+HTTP pages in production. Querying the exact current SKU preserves variant identity
+while bounding the network work independently of account posting volume.
 
 Status:
 
