@@ -255,33 +255,76 @@ class PeriodProfitFinancePostingIdentityScopeService(
             if len(owners) == 1:
                 candidates.update(owners)
 
-        # Realization covers both fulfillment schemas.  Only pay for the broad
-        # FBO period snapshot when no candidate could be proven from realization
-        # or local seller evidence; otherwise large stores would page through
-        # every FBO posting despite already having exact selected-offer evidence.
-        postings = self._load_fbo_identity_snapshot() if not candidates else None
-        if isinstance(postings, list):
-            for posting in postings:
-                if not isinstance(posting, dict):
-                    continue
-                posting_number = self._text(posting.get("posting_number"))
-                products = posting.get("products")
-                if not isinstance(products, list):
-                    continue
-                for product in products:
-                    if (
-                        not isinstance(product, dict)
-                        or self._text(product.get("offer_id")) != selected_offer
-                    ):
-                        continue
-                    observed_sku = self._text(product.get("sku"))
-                    if observed_sku in all_skus:
-                        candidates.add(observed_sku)
-                    owners = posting_owners.get(posting_number) or set()
-                    if len(owners) == 1:
-                        candidates.update(owners)
+        # Ask Ozon for the exact related-SKU group of the selected current SKU.
+        # This is one bounded request and proves which retired finance SKUs belong
+        # to this variant.  Never scan the account-wide paginated FBO history in
+        # selected-SKU mode: large accounts can require hundreds of pages.
+        if not candidates:
+            candidates.update(
+                self._selected_related_finance_candidates(all_skus, selected)
+            )
 
         return candidates & all_skus
+
+    def _selected_related_finance_candidates(self, all_skus, selected):
+        selected_sku = self._text(selected.get("sku"))
+        if not selected_sku or all_skus == {selected_sku}:
+            return set()
+
+        ozon = getattr(self.finance_service, "ozon", None)
+        getter = getattr(ozon, "get_related_skus", None)
+        if not callable(getter):
+            self._record_sku_recovery_diagnostic("RELATED_API_UNAVAILABLE")
+            return set()
+        try:
+            response = getter([selected_sku])
+        except Exception:
+            self._record_sku_recovery_diagnostic("RELATED_API_EXCEPTION")
+            return set()
+        if not isinstance(response, dict) or response.get("error") is True:
+            self._record_sku_recovery_diagnostic("RELATED_API_ERROR")
+            return set()
+        items = response.get("items")
+        errors = response.get("errors") or []
+        if not isinstance(items, list) or not isinstance(errors, list):
+            self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
+            return set()
+        if any(
+            not isinstance(error, dict)
+            or self._text(error.get("sku")) == selected_sku
+            for error in errors
+        ):
+            self._record_sku_recovery_diagnostic("RELATED_SKU_REJECTED")
+            return set()
+
+        related_skus = set()
+        for item in items:
+            if not isinstance(item, dict):
+                self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
+                return set()
+            sku = self._text(item.get("sku"))
+            if sku:
+                related_skus.add(sku)
+        if selected_sku not in related_skus:
+            self._record_sku_recovery_diagnostic("RELATED_TARGET_MISSING")
+            return set()
+
+        result = related_skus & set(all_skus)
+        catalog_sku = self._text(selected.get("sku"))
+        product_id = self._text(selected.get("product_id"))
+        if not product_id:
+            self._record_sku_recovery_diagnostic("RELATED_PRODUCT_ID_MISSING")
+            return set()
+        for finance_sku in result:
+            recovered = dict(selected)
+            recovered["catalog_sku"] = catalog_sku
+            recovered["sku"] = finance_sku
+            recovered["historical_sku_identity_recovered"] = True
+            recovered["historical_sku_identity_source"] = (
+                "OZON_RELATED_SKU_TO_CURRENT_CATALOG"
+            )
+            self._related_sku_identity_cache[finance_sku] = recovered
+        return result
 
     def _posting_owners(self):
         owners = {}
@@ -365,9 +408,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if realization is not None:
             return self._cache_identity(cache_key, realization)
 
-        fbo_snapshot = self._recover_from_fbo_snapshot_offer_identity(sku)
-        if fbo_snapshot is not None:
-            return self._cache_identity(cache_key, fbo_snapshot)
+        # Account-wide FBO pagination is valid only for store-wide recovery.
+        # Selected-SKU requests use exact realization/related/posting evidence.
+        if self._selected_scope_catalog_product() is None:
+            fbo_snapshot = self._recover_from_fbo_snapshot_offer_identity(sku)
+            if fbo_snapshot is not None:
+                return self._cache_identity(cache_key, fbo_snapshot)
 
         related = self._recover_from_related_sku_identity(sku)
         if related is not None:
