@@ -68,6 +68,8 @@ Tests:
 Проверяет Telegram SKU/period navigation, production factory wiring, aggregation of proven legacy/current SKU rows, configured tax recomputation, forged identity rejection, and fail-closed unknown money handling.
 Также ограничивает количество Ozon posting-detail вызовов, проверяет однократный
 previous-period pass, конкурентную изоляцию selected scope и автоматический stack dump.
+Проверяет восстановление offer identity по позднему posting через один месячный
+realization request и fail-closed конфликт нескольких offers.
 
 ## Telegram guided onboarding
 

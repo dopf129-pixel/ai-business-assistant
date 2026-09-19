@@ -9,6 +9,8 @@
   request state.
 - Long Telegram workers emit a secret-free diagnostic snapshot and worker stack after
   90 seconds while the informational watchdog continues waiting.
+- Exact realization evidence now covers confirming postings outside the bounded
+  detail-probe prefix without reintroducing per-posting N+1 requests.
 
 ## 2026-09-15 — Telegram help and discoverability
 

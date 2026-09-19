@@ -1,6 +1,7 @@
 from services.period_profit_finance_posting_identity_scope_service import (
     PeriodProfitFinancePostingIdentityScopeService,
 )
+from datetime import date
 
 
 class _Summary:
@@ -205,3 +206,93 @@ def test_missing_posting_identity_is_bounded_and_fails_closed():
 
     assert result is None
     assert len(calls) == 2 * service.MAX_SELECTED_POSTING_IDENTITY_PROBES
+
+
+def test_realization_resolves_offer_beyond_first_three_postings_without_n_plus_one():
+    service = _service()
+    service._scope_start = date(2026, 9, 1)
+    service._scope_end = date(2026, 9, 19)
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {
+            "posting-%03d" % index for index in range(250)
+        },
+    }
+    realization_calls = []
+    detail_calls = []
+
+    def realization(year, month):
+        realization_calls.append((year, month))
+        return {
+            "error": False,
+            "rows": [{
+                "order": {"posting_number": "posting-249"},
+                "item": {
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "10002_white_01",
+                },
+            }],
+        }
+
+    service.finance_service.ozon.get_realization_posting = realization
+    service.finance_service.ozon.get_fbo_posting = (
+        lambda posting_number: detail_calls.append(posting_number)
+    )
+
+    result = service._recover_missing_product(
+        "legacy-finance-sku",
+        date(2026, 9, 19),
+    )
+
+    assert result["offer_id"] == "10002_white_01"
+    assert result["historical_sku_identity_source"] == (
+        "OZON_REALIZATION_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+    )
+    assert realization_calls == [(2026, 9)]
+    assert detail_calls == []
+
+
+def test_realization_offer_conflict_remains_fail_closed():
+    service = _service()
+    other = {
+        "product_id": "other-product",
+        "offer_id": "other-offer",
+        "sku": "other-catalog-sku",
+    }
+    service._catalog_by_offer["other-offer"] = other
+    service._scope_start = date(2026, 9, 1)
+    service._scope_end = date(2026, 9, 19)
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {"posting-1", "posting-2"},
+    }
+    service.finance_service.ozon.get_realization_posting = lambda year, month: {
+        "error": False,
+        "rows": [
+            {
+                "order": {"posting_number": "posting-1"},
+                "item": {
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "10002_white_01",
+                },
+            },
+            {
+                "order": {"posting_number": "posting-2"},
+                "item": {
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "other-offer",
+                },
+            },
+        ],
+    }
+    service.finance_service.ozon.get_fbo_posting = lambda posting_number: {
+        "error": True,
+    }
+    service.finance_service.ozon.get_fbs_posting = lambda posting_number: {
+        "error": True,
+    }
+
+    assert service._recover_from_realization_offer_identity(
+        "legacy-finance-sku"
+    ) is None
+    assert "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_REALIZATION_OFFER_AMBIGUOUS" in (
+        service._sku_recovery_diagnostic_codes
+    )
