@@ -173,15 +173,17 @@ async def _run_sync_with_stall_notice(
     progress_message=None,
     stall_seconds=8.0,
     long_wait_seconds=45.0,
+    heartbeat_seconds=60.0,
 ):
-    """Run blocking work off-loop and keep long legitimate jobs alive.
+    """Run blocking work off-loop and visibly heartbeat while it is alive.
 
-    The watchdog is informational, not a business-operation timeout: at the
-    first threshold the user sees a slow warning; at the second threshold the
-    message says the request is still running.  The worker remains attached
-    until it returns, so valid Ozon analytics taking more than a minute are not
-    discarded.
+    This watchdog never imposes a business-operation deadline.  After the slow
+    thresholds it updates the same Telegram progress message every heartbeat
+    interval with elapsed time.  A user can therefore distinguish a long
+    calculation from a bot/process that stopped producing heartbeats.
     """
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
     task = asyncio.create_task(asyncio.to_thread(function))
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=stall_seconds)
@@ -192,11 +194,31 @@ async def _run_sync_with_stall_notice(
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
     except asyncio.TimeoutError:
-        await _mark_progress_long_running(progress_message)
-        return await task
+        await _mark_progress_long_running(
+            progress_message,
+            elapsed_seconds=loop.time() - started_at,
+        )
+
+    interval = max(0.01, float(heartbeat_seconds))
+    while True:
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+        except asyncio.TimeoutError:
+            await _mark_progress_heartbeat(
+                progress_message,
+                elapsed_seconds=loop.time() - started_at,
+            )
 
 
-async def _mark_progress_long_running(progress_message):
+def _format_elapsed(seconds):
+    total = max(0, int(seconds))
+    minutes, secs = divmod(total, 60)
+    if minutes:
+        return f"{minutes} мин {secs:02d} сек"
+    return f"{secs} сек"
+
+
+async def _mark_progress_heartbeat(progress_message, elapsed_seconds):
     if progress_message is None:
         return False
     editor = getattr(progress_message, "edit_text", None)
@@ -204,8 +226,27 @@ async def _mark_progress_long_running(progress_message):
         return False
     try:
         await editor(
-            "⏳ Запрос выполняется больше 45 секунд, но я продолжаю обработку. "
-            "Некоторые расчёты Ozon могут занимать больше минуты."
+            "💓 Бот работает. Запрос всё ещё выполняется — "
+            + _format_elapsed(elapsed_seconds)
+            + ". Продолжаю ждать ответ Ozon/расчёт."
+        )
+        return True
+    except Exception:
+        return False
+
+
+async def _mark_progress_long_running(progress_message, elapsed_seconds=45.0):
+    if progress_message is None:
+        return False
+    editor = getattr(progress_message, "edit_text", None)
+    if not callable(editor):
+        return False
+    try:
+        await editor(
+            "⏳ Запрос выполняется уже "
+            + _format_elapsed(elapsed_seconds)
+            + ", но я продолжаю обработку. "
+            "Дальше буду обновлять статус каждую минуту."
         )
         return True
     except Exception:

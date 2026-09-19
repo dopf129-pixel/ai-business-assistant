@@ -61,6 +61,7 @@ def test_stall_watchdog_keeps_long_legitimate_callback_alive():
             progress_message=progress,
             stall_seconds=0.005,
             long_wait_seconds=0.015,
+            heartbeat_seconds=0.2,
         )
     )
 
@@ -69,3 +70,29 @@ def test_stall_watchdog_keeps_long_legitimate_callback_alive():
     assert len(progress.edits) == 2
     assert "задерживается дольше обычного" in progress.edits[0]
     assert "продолжаю обработку" in progress.edits[1]
+
+
+def test_stall_watchdog_emits_recurring_heartbeat_for_very_long_callback():
+    progress = _Progress()
+
+    def very_slow_but_valid():
+        import time
+        time.sleep(0.055)
+        return {"error": False, "text": "done"}
+
+    result = asyncio.run(
+        _run_sync_with_stall_notice(
+            very_slow_but_valid,
+            progress_message=progress,
+            stall_seconds=0.005,
+            long_wait_seconds=0.015,
+            heartbeat_seconds=0.01,
+        )
+    )
+
+    assert result["text"] == "done"
+    assert "задерживается дольше обычного" in progress.edits[0]
+    assert "Дальше буду обновлять статус" in progress.edits[1]
+    heartbeats = [text for text in progress.edits if "💓 Бот работает" in text]
+    assert len(heartbeats) >= 2
+    assert all("выполняется" in text for text in heartbeats)
