@@ -203,6 +203,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if posting is not None:
             return self._cache_identity(cache_key, posting)
 
+        realization = self._recover_from_realization_offer_identity(sku)
+        if realization is not None:
+            return self._cache_identity(cache_key, realization)
+
         result = self._recover_from_finance_posting_offer_identity(sku)
         return self._cache_identity(cache_key, result)
 
@@ -504,6 +508,112 @@ class PeriodProfitFinancePostingIdentityScopeService(
             "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
         )
         return result
+
+    def _recover_from_realization_offer_identity(self, sku):
+        """Resolve exact finance posting/SKU identity from monthly realization.
+
+        The realization report already carries posting_number, finance SKU and
+        stable seller offer_id for both fulfillment schemas.  Reading each
+        intersecting month once avoids serial FBO/FBS detail probing while still
+        requiring exact, unambiguous evidence.
+        """
+        finance_sku = self._text(sku)
+        posting_numbers = set(
+            self._finance_posting_numbers_by_sku.get(finance_sku) or ()
+        )
+        if (
+            not finance_sku
+            or not posting_numbers
+            or not self._catalog_by_offer
+            or self._scope_start is None
+            or self._scope_end is None
+        ):
+            return None
+
+        ozon = getattr(self.finance_service, "ozon", None)
+        getter = getattr(ozon, "get_realization_posting", None)
+        if not callable(getter):
+            return None
+
+        trace = current_period_profit_trace()
+        matched_offers = set()
+        for year, month in self._evidence_months(self._scope_start, self._scope_end):
+            cache_key = ("get_realization_posting", year, month)
+            if trace is not None and cache_key in trace.posting_response_cache:
+                response = trace.posting_response_cache[cache_key]
+                trace.update(
+                    "realization_identity_cache",
+                    service=type(self).__name__,
+                    method="get_realization_posting",
+                    cache="hit",
+                    finance_sku=finance_sku,
+                )
+            else:
+                try:
+                    response = getter(year, month)
+                except Exception:
+                    response = None
+                if trace is not None:
+                    trace.posting_response_cache[cache_key] = response
+
+            rows = self._realization_rows(response)
+            if rows is None:
+                continue
+            for row in rows:
+                order = row.get("order") if isinstance(row, dict) else None
+                item = row.get("item") if isinstance(row, dict) else None
+                if not isinstance(order, dict) or not isinstance(item, dict):
+                    continue
+                posting_number = self._text(order.get("posting_number"))
+                observed_sku = self._text(item.get("sku"))
+                offer_id = self._text(item.get("offer_id"))
+                if (
+                    posting_number in posting_numbers
+                    and observed_sku == finance_sku
+                    and offer_id in self._catalog_by_offer
+                ):
+                    matched_offers.add(offer_id)
+
+        if len(matched_offers) > 1:
+            self._record_sku_recovery_diagnostic("REALIZATION_OFFER_AMBIGUOUS")
+            return None
+        if len(matched_offers) != 1:
+            return None
+
+        offer_id = next(iter(matched_offers))
+        candidate = self._catalog_by_offer.get(offer_id)
+        if not isinstance(candidate, dict):
+            return None
+        result = dict(candidate)
+        result["catalog_sku"] = self._text(candidate.get("sku"))
+        result["sku"] = finance_sku
+        result["historical_sku_identity_recovered"] = True
+        result["historical_sku_identity_source"] = (
+            "OZON_REALIZATION_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+        )
+        return result
+
+    @staticmethod
+    def _realization_rows(response):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return None
+        rows = response.get("rows")
+        if not isinstance(rows, list):
+            result = response.get("result")
+            rows = result.get("rows") if isinstance(result, dict) else None
+        return rows if isinstance(rows, list) else None
+
+    @staticmethod
+    def _evidence_months(start, end):
+        year, month = start.year, start.month
+        values = []
+        while (year, month) <= (end.year, end.month):
+            values.append((year, month))
+            if month == 12:
+                year, month = year + 1, 1
+            else:
+                month += 1
+        return values
 
     @classmethod
     def _posting_products(cls, response, posting_number):

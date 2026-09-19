@@ -435,3 +435,12 @@ Summary Report теперь включает:
   detail calls), with request-local identity/response reuse across comparison work.
 - Added secret-free stage, Ozon endpoint/duration/call-count and cache diagnostics;
   operations exceeding 90 seconds persist the worker-thread stack locally.
+
+# 2026-09-19 — Recover selected SKU from bounded realization evidence
+
+- Fixed a fail-closed false negative when the confirming posting was not among the
+  first three detail probes.
+- Identity recovery now checks exact monthly realization rows by
+  `posting_number + finance SKU + offer_id` before the bounded detail fallback.
+- The path remains fail-closed for conflicting offers and uses one Ozon request per
+  intersecting month instead of one request per posting.

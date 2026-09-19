@@ -11,7 +11,9 @@ Decision:
 - selected catalog scope lives in a request-local `ContextVar`, never in shared mutable
   service attributes;
 - exact posting-offer recovery examines at most three deterministic posting numbers and
-  accepts only one exact catalog offer from a usable posting;
+  accepts only one exact catalog offer from a usable posting as a final fallback;
+- before detail probing, monthly realization evidence resolves exact
+  `posting_number + finance SKU + offer_id` across the complete period;
 - absence or ambiguity remains fail-closed;
 - proven identity and posting responses are reused only inside the current request;
 - the final application layer alone owns previous-period comparison execution.
