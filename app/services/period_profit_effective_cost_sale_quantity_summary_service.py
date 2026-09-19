@@ -546,7 +546,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             evidence = getter(
                 accrual_date,
                 product_id=row.get("product_id"),
-                sku=row.get("sku"),
+                sku=row.get("catalog_sku") or row.get("sku"),
                 offer_id=row.get("offer_id"),
             )
         except Exception:
