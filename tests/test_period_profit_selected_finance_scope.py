@@ -130,3 +130,32 @@ def test_selected_scope_rejects_other_offer_even_when_product_id_collides():
     assert result["error"] is False
     assert [row["offer_id"] for row in result["products"]] == ["10002_white_01"]
     assert [row["sku"] for row in result["products"]] == ["legacy-white"]
+
+
+def test_selected_scope_never_degrades_to_empty_product_list():
+    class UnresolvedScope(PeriodProfitFinanceSkuScopeService):
+        def _load_period_skus(self, date_from, date_to):
+            return {"error": False, "skus": ["legacy-finance-sku"]}
+
+        def _recover_missing_product(self, sku, at_date):
+            return None
+
+    service = UnresolvedScope(_Summary(), finance_service=object())
+    result = service.calculate(
+        "2026-09-13",
+        "2026-09-19",
+        [{
+            "product_id": "selected-product",
+            "sku": "989101156",
+            "offer_id": "10002_white_01",
+            "_period_profit_selected_scope": True,
+        }],
+    )
+
+    assert result["error"] is False
+    assert result["finance_sku_count"] == 1
+    assert result["products"] == [{
+        "product_id": "selected-product",
+        "sku": "989101156",
+        "offer_id": "10002_white_01",
+    }]
