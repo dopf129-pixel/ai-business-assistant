@@ -35,13 +35,6 @@ class OzonClient:
         max_attempts=3
     ):
 
-        if not self.client_id or not self.api_key:
-
-            return {
-                "error": True,
-                "message": "Нет ключей Ozon API"
-            }
-
         url = self.base_url + endpoint
 
         # Resolve tenant credentials once per HTTP request.  Tenant-aware
