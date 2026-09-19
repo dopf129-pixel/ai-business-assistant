@@ -47,24 +47,25 @@ def test_stall_watchdog_does_not_warn_for_fast_callback():
     assert progress.edits == []
 
 
-def test_stall_watchdog_returns_controlled_timeout_instead_of_waiting_forever():
+def test_stall_watchdog_keeps_long_legitimate_callback_alive():
     progress = _Progress()
 
-    def stuck():
+    def slow_but_valid():
         import time
-        time.sleep(0.08)
-        return {"error": False, "text": "too late"}
+        time.sleep(0.03)
+        return {"error": False, "text": "done"}
 
     result = asyncio.run(
         _run_sync_with_stall_notice(
-            stuck,
+            slow_but_valid,
             progress_message=progress,
             stall_seconds=0.005,
-            give_up_seconds=0.015,
+            long_wait_seconds=0.015,
         )
     )
 
-    assert result["error"] is True
-    assert result["code"] == "TELEGRAM_CALLBACK_TIMEOUT"
-    assert "остановил ожидание" in result["message"]
-    assert len(progress.edits) == 1
+    assert result["error"] is False
+    assert result["text"] == "done"
+    assert len(progress.edits) == 2
+    assert "задерживается дольше обычного" in progress.edits[0]
+    assert "продолжаю обработку" in progress.edits[1]
