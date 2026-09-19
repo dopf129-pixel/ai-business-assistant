@@ -70,11 +70,15 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
 
         enriched = dict(result)
         enriched["products"] = enriched_rows
-        return self._reconcile_sale_quantities(
-            enriched,
-            date_from,
-            date_to,
-        )
+        self._active_quantity_products = list(products or [])
+        try:
+            return self._reconcile_sale_quantities(
+                enriched,
+                date_from,
+                date_to,
+            )
+        finally:
+            self._active_quantity_products = []
 
     @classmethod
     def _identity_by_finance_sku(cls, products):
@@ -148,6 +152,14 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             sale_records.extend(evidence["records"])
             current += timedelta(days=1)
 
+        selected_finance_skus = {
+            self._text(product.get("sku"))
+            for product in (products := getattr(self, "_active_quantity_products", []) or [])
+            if isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+            and self._text(product.get("sku"))
+        }
+
         grouped = {}
         reaccrued_event_count = 0
         for record in sale_records:
@@ -162,6 +174,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
                 return self._quantity_error(
                     "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INVALID"
                 )
+            if selected_finance_skus and sku not in selected_finance_skus:
+                continue
             key = (posting_number, sku)
             if key in grouped:
                 reaccrued_event_count += 1
