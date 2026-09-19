@@ -61,6 +61,11 @@ class PeriodProfitSummaryService:
                 )
 
         normalized_products = []
+        selected_product_scope = any(
+            isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+            for product in (products or [])
+        )
 
         for product in products or []:
             normalized = self._normalize_product(
@@ -135,7 +140,7 @@ class PeriodProfitSummaryService:
         ozon_account_reconciliation = 0.0
         product_revenue_reconciled = None
 
-        if account_finance is not None:
+        if account_finance is not None and not selected_product_scope:
             if account_finance.get("error"):
                 return account_finance
 
