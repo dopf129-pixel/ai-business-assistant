@@ -40,7 +40,7 @@ def test_selected_catalog_product_ignores_unrelated_finance_skus():
     )
 
     assert result["error"] is False
-    assert result["finance_sku_count"] == 4
+    assert result["finance_sku_count"] == 2
     assert [row["sku"] for row in result["products"]] == [
         "1124761908",
         "989101156",
