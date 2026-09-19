@@ -90,9 +90,13 @@ class PeriodProfitSkuRuntimeService:
             return self._error("PERIOD_PROFIT_SKU_QUERY_INVALID")
         if result.get("error") is True:
             return dict(result)
-        selected = self._aggregate(result.get("summary"), identity)
+        summary = result.get("summary")
+        selected = self._aggregate(summary, identity)
         if selected.get("error") is True:
             return selected
+        evidence_error = self._validate_selected_finance_evidence(summary, selected)
+        if evidence_error is not None:
+            return evidence_error
         previous = None
         if isinstance(result.get("previous_summary"), dict):
             candidate = self._aggregate(result["previous_summary"], identity, allow_empty=True)
@@ -246,6 +250,38 @@ class PeriodProfitSkuRuntimeService:
         output["date_from"] = summary.get("date_from")
         output["date_to"] = summary.get("date_to")
         return output
+
+    def _validate_selected_finance_evidence(self, summary, selected):
+        """Reject silent all-zero selected-SKU profit without positive evidence."""
+        if not isinstance(summary, dict):
+            return self._error("PERIOD_PROFIT_SKU_SUMMARY_INVALID")
+        finance_count = self._integer(summary.get("finance_sku_count"))
+        quantity_records = self._integer(summary.get("sale_quantity_record_count"))
+        operations = 0
+        for row in summary.get("products") or []:
+            if not isinstance(row, dict):
+                continue
+            value = self._integer(row.get("operations"))
+            if value is not None:
+                operations += value
+        monetary_evidence = any(
+            abs(float(selected.get(field) or 0.0)) > 0.000001
+            for field in (
+                "revenue", "net_accrual", "commission", "logistics",
+                "acquiring", "other_fees",
+            )
+        )
+        physical_evidence = int(selected.get("units_sold") or 0) > 0
+        scoped_evidence = (
+            (finance_count is not None and finance_count > 0)
+            or (quantity_records is not None and quantity_records > 0)
+            or operations > 0
+        )
+        if (not monetary_evidence and not physical_evidence) or not scoped_evidence:
+            return self._error(
+                "PERIOD_PROFIT_SELECTED_SKU_FINANCE_EVIDENCE_MISSING"
+            )
+        return None
 
     def _seller_cost_total(self, identity, summary, units_sold):
         if self.cost_service is None:
