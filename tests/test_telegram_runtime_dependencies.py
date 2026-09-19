@@ -75,6 +75,10 @@ def test_build_application_registers_handlers_without_starting_polling(monkeypat
             self.token_value = token
             return self
 
+        def post_init(self, callback):
+            self.post_init_callback = callback
+            return self
+
         def build(self):
             return self.application
 
