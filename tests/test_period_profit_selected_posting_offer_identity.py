@@ -82,3 +82,69 @@ def test_posting_offer_bridge_rejects_offer_not_in_selected_catalog_scope():
     assert service._recover_from_finance_posting_offer_identity(
         "legacy-finance-sku"
     ) is None
+
+
+def test_posting_offer_bridge_does_not_probe_fbs_after_usable_fbo_response():
+    service = _service()
+    calls = []
+
+    def fbo(posting_number):
+        calls.append(("fbo", posting_number))
+        return {
+            "error": False,
+            "result": {
+                "posting_number": posting_number,
+                "products": [{
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "10002_white_01",
+                    "quantity": 1,
+                }],
+            },
+        }
+
+    def fbs(posting_number):
+        calls.append(("fbs", posting_number))
+        raise AssertionError("FBS must not be probed after a usable FBO response")
+
+    service.finance_service.ozon.get_fbo_posting = fbo
+    service.finance_service.ozon.get_fbs_posting = fbs
+
+    result = service._recover_from_finance_posting_offer_identity(
+        "legacy-finance-sku"
+    )
+
+    assert result["offer_id"] == "10002_white_01"
+    assert calls == [("fbo", "posting-1")]
+
+
+def test_posting_offer_bridge_falls_back_to_fbs_when_fbo_has_no_products():
+    service = _service()
+    calls = []
+
+    def fbo(posting_number):
+        calls.append(("fbo", posting_number))
+        return {"error": True, "status_code": 404}
+
+    def fbs(posting_number):
+        calls.append(("fbs", posting_number))
+        return {
+            "error": False,
+            "result": {
+                "posting_number": posting_number,
+                "products": [{
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "10002_white_01",
+                    "quantity": 1,
+                }],
+            },
+        }
+
+    service.finance_service.ozon.get_fbo_posting = fbo
+    service.finance_service.ozon.get_fbs_posting = fbs
+
+    result = service._recover_from_finance_posting_offer_identity(
+        "legacy-finance-sku"
+    )
+
+    assert result["offer_id"] == "10002_white_01"
+    assert calls == [("fbo", "posting-1"), ("fbs", "posting-1")]
