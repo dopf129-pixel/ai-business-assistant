@@ -154,7 +154,7 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
 
         selected_finance_skus = {
             self._text(product.get("sku"))
-            for product in (products := getattr(self, "_active_quantity_products", []) or [])
+            for product in (getattr(self, "_active_quantity_products", []) or [])
             if isinstance(product, dict)
             and product.get("_period_profit_selected_scope") is True
             and self._text(product.get("sku"))
