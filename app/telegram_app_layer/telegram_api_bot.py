@@ -172,13 +172,15 @@ async def _run_sync_with_stall_notice(
     *,
     progress_message=None,
     stall_seconds=8.0,
-    give_up_seconds=45.0,
+    long_wait_seconds=45.0,
 ):
-    """Run blocking work off-loop and stop making the user wait indefinitely.
+    """Run blocking work off-loop and keep long legitimate jobs alive.
 
-    Python cannot safely kill a running worker thread, so after the user-facing
-    deadline we detach it and return a controlled timeout result.  A done
-    callback consumes any eventual exception from the detached worker.
+    The watchdog is informational, not a business-operation timeout: at the
+    first threshold the user sees a slow warning; at the second threshold the
+    message says the request is still running.  The worker remains attached
+    until it returns, so valid Ozon analytics taking more than a minute are not
+    discarded.
     """
     task = asyncio.create_task(asyncio.to_thread(function))
     try:
@@ -186,26 +188,28 @@ async def _run_sync_with_stall_notice(
     except asyncio.TimeoutError:
         await _mark_progress_slow(progress_message)
 
-    remaining = max(0.0, float(give_up_seconds) - float(stall_seconds))
+    remaining = max(0.0, float(long_wait_seconds) - float(stall_seconds))
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
     except asyncio.TimeoutError:
-        task.add_done_callback(_consume_detached_task_result)
-        return {
-            "error": True,
-            "code": "TELEGRAM_CALLBACK_TIMEOUT",
-            "message": (
-                "⏱ Ozon не ответил вовремя. Я остановил ожидание этого запроса. "
-                "Попробуйте ещё раз через минуту."
-            ),
-        }
+        await _mark_progress_long_running(progress_message)
+        return await task
 
 
-def _consume_detached_task_result(task):
+async def _mark_progress_long_running(progress_message):
+    if progress_message is None:
+        return False
+    editor = getattr(progress_message, "edit_text", None)
+    if not callable(editor):
+        return False
     try:
-        task.result()
-    except BaseException:
-        pass
+        await editor(
+            "⏳ Запрос выполняется больше 45 секунд, но я продолжаю обработку. "
+            "Некоторые расчёты Ozon могут занимать больше минуты."
+        )
+        return True
+    except Exception:
+        return False
 
 
 async def _mark_progress_slow(progress_message):
