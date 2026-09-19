@@ -12,6 +12,8 @@
 - Exact realization evidence now covers confirming postings outside the bounded
   detail-probe prefix without reintroducing per-posting N+1 requests.
 - Rewritten realization SKUs are supported for single-finance-SKU postings only.
+- Late FBO evidence is recovered from a period snapshot, and previous-period-only
+  identity gaps degrade comparison without suppressing proven current profit.
 
 ## 2026-09-15 — Telegram help and discoverability
 

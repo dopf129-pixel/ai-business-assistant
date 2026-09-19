@@ -72,6 +72,8 @@ previous-period pass, конкурентную изоляцию selected scope �
 realization request и fail-closed конфликт нескольких offers.
 Проверяет rewritten realization SKU для однозначного posting и отклоняет тот же
 fallback для multi-product posting.
+Проверяет late-posting FBO snapshot без detail N+1 и возврат доказанной current
+прибыли при недоступной identity только в previous comparison period.
 
 ## Telegram guided onboarding
 

@@ -207,6 +207,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if realization is not None:
             return self._cache_identity(cache_key, realization)
 
+        fbo_snapshot = self._recover_from_fbo_snapshot_offer_identity(sku)
+        if fbo_snapshot is not None:
+            return self._cache_identity(cache_key, fbo_snapshot)
+
         result = self._recover_from_finance_posting_offer_identity(sku)
         return self._cache_identity(cache_key, result)
 
@@ -599,6 +603,51 @@ class PeriodProfitFinancePostingIdentityScopeService(
         result["historical_sku_identity_recovered"] = True
         result["historical_sku_identity_source"] = (
             "OZON_REALIZATION_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+        )
+        return result
+
+    def _recover_from_fbo_snapshot_offer_identity(self, sku):
+        """Resolve all FBO posting evidence from a paged period snapshot."""
+        finance_sku = self._text(sku)
+        posting_numbers = set(
+            self._finance_posting_numbers_by_sku.get(finance_sku) or ()
+        )
+        if not finance_sku or not posting_numbers or not self._catalog_by_offer:
+            return None
+
+        postings = self._load_fbo_identity_snapshot()
+        if postings is None:
+            return None
+        parsed = self._parse_fbo_identity_page(
+            {"postings": postings},
+            finance_sku,
+            posting_numbers,
+            set(self._catalog_by_offer),
+        )
+        if parsed is None:
+            self._record_sku_recovery_diagnostic("FBO_SNAPSHOT_AMBIGUOUS")
+            return None
+        exact_offers, posting_offers, _count, _has_next = parsed
+        if len(exact_offers) > 1 or len(posting_offers) > 1:
+            self._record_sku_recovery_diagnostic("FBO_SNAPSHOT_AMBIGUOUS")
+            return None
+        if exact_offers and posting_offers and exact_offers != posting_offers:
+            self._record_sku_recovery_diagnostic("FBO_SNAPSHOT_AMBIGUOUS")
+            return None
+        offers = exact_offers or posting_offers
+        if len(offers) != 1:
+            return None
+
+        offer_id = next(iter(offers))
+        candidate = self._catalog_by_offer.get(offer_id)
+        if not isinstance(candidate, dict):
+            return None
+        result = dict(candidate)
+        result["catalog_sku"] = self._text(candidate.get("sku"))
+        result["sku"] = finance_sku
+        result["historical_sku_identity_recovered"] = True
+        result["historical_sku_identity_source"] = (
+            "OZON_FBO_SNAPSHOT_TO_CURRENT_CATALOG_OFFER_ID"
         )
         return result
 

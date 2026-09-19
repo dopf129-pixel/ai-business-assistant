@@ -343,3 +343,52 @@ def test_realization_rewritten_sku_rejects_multi_product_posting():
     assert service._recover_from_realization_offer_identity(
         "legacy-finance-sku"
     ) is None
+
+
+def test_fbo_period_snapshot_finds_late_posting_without_detail_n_plus_one():
+    service = _service()
+    service._scope_start = date(2026, 9, 1)
+    service._scope_end = date(2026, 9, 19)
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {
+            "posting-%03d" % index for index in range(250)
+        },
+    }
+    list_calls = []
+    detail_calls = []
+    service.finance_service.ozon.get_realization_posting = lambda year, month: {
+        "error": True,
+    }
+
+    def fbo_list(since, to, **kwargs):
+        list_calls.append((since, to, kwargs))
+        return {
+            "error": False,
+            "result": {
+                "postings": [{
+                    "posting_number": "posting-249",
+                    "products": [{
+                        "sku": "989101156",
+                        "offer_id": "10002_white_01",
+                    }],
+                }],
+                "has_next": False,
+            },
+        }
+
+    service.finance_service.ozon.get_fbo_postings = fbo_list
+    service.finance_service.ozon.get_fbo_posting = (
+        lambda posting_number: detail_calls.append(posting_number)
+    )
+
+    result = service._recover_missing_product(
+        "legacy-finance-sku",
+        date(2026, 9, 19),
+    )
+
+    assert result["catalog_sku"] == "989101156"
+    assert result["historical_sku_identity_source"] == (
+        "OZON_FBO_SNAPSHOT_TO_CURRENT_CATALOG_OFFER_ID"
+    )
+    assert len(list_calls) == 1
+    assert detail_calls == []
