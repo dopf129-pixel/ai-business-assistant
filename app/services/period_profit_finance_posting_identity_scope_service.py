@@ -28,6 +28,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         )
         self._catalog_by_sku = {}
         self._catalog_by_product_id = {}
+        self._catalog_by_offer = {}
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
 
@@ -64,6 +65,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
 
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         self._catalog_by_product_id = self._unique_catalog_product_id_index(products)
+        self._catalog_by_offer = self._unique_catalog_offer_index(products)
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
         scoped = super()._scope_products(date_from, date_to, products)
@@ -118,7 +120,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if related is not None:
             return related
 
-        return self._recover_from_finance_posting_identity(sku)
+        posting = self._recover_from_finance_posting_identity(sku)
+        if posting is not None:
+            return posting
+
+        return self._recover_from_finance_posting_offer_identity(sku)
 
     def _recover_from_related_sku_identity(self, sku):
         finance_sku = self._text(sku)
@@ -316,6 +322,81 @@ class PeriodProfitFinancePostingIdentityScopeService(
         )
         return result
 
+    def _recover_from_finance_posting_offer_identity(self, sku):
+        """Bridge finance SKU to catalog by exact posting offer_id.
+
+        Finance accrual SKUs can differ from the current catalog SKU.  When the
+        finance posting numbers are known, exact FBO/FBS posting detail gives a
+        stronger stable identity: offer_id.  Accept it only when every observed
+        matching posting points to one unique catalog offer; ambiguity remains
+        fail-closed.
+        """
+        finance_sku = self._text(sku)
+        posting_numbers = sorted(
+            self._finance_posting_numbers_by_sku.get(finance_sku) or ()
+        )
+        if not finance_sku or not posting_numbers or not self._catalog_by_offer:
+            return None
+
+        ozon = getattr(self.finance_service, "ozon", None)
+        if ozon is None:
+            return None
+
+        matched_offers = set()
+        for posting_number in posting_numbers:
+            posting_offers = set()
+            for method_name in ("get_fbo_posting", "get_fbs_posting"):
+                getter = getattr(ozon, method_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    response = getter(posting_number)
+                except Exception:
+                    continue
+                for product in self._posting_products(response, posting_number):
+                    product_sku = self._text(product.get("sku"))
+                    offer_id = self._text(product.get("offer_id"))
+                    if product_sku != finance_sku or offer_id not in self._catalog_by_offer:
+                        continue
+                    posting_offers.add(offer_id)
+            if len(posting_offers) > 1:
+                self._record_sku_recovery_diagnostic("POSTING_OFFER_AMBIGUOUS")
+                return None
+            matched_offers.update(posting_offers)
+
+        if len(matched_offers) != 1:
+            if matched_offers:
+                self._record_sku_recovery_diagnostic("POSTING_OFFER_AMBIGUOUS")
+            else:
+                self._record_sku_recovery_diagnostic("POSTING_OFFER_MISSING")
+            return None
+
+        offer_id = next(iter(matched_offers))
+        candidate = self._catalog_by_offer.get(offer_id)
+        if not isinstance(candidate, dict):
+            return None
+        result = dict(candidate)
+        result["catalog_sku"] = self._text(candidate.get("sku"))
+        result["sku"] = finance_sku
+        result["historical_sku_identity_recovered"] = True
+        result["historical_sku_identity_source"] = (
+            "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+        )
+        return result
+
+    @classmethod
+    def _posting_products(cls, response, posting_number):
+        if not isinstance(response, dict) or response.get("error") is True:
+            return []
+        result = response.get("result")
+        if not isinstance(result, dict):
+            result = response
+        returned = cls._text(result.get("posting_number"))
+        if returned and returned != cls._text(posting_number):
+            return []
+        products = result.get("products")
+        return products if isinstance(products, list) else []
+
     def _recover_related_sku_from_seller_cost(self, finance_sku, items):
         """Use seller cost storage only as identity, never as cost authority."""
 
@@ -471,6 +552,33 @@ class PeriodProfitFinancePostingIdentityScopeService(
             indexed[sku] = candidate
         for sku in duplicates:
             indexed.pop(sku, None)
+        return indexed
+
+    @classmethod
+    def _unique_catalog_offer_index(cls, products):
+        indexed = {}
+        duplicates = set()
+        for product in products or []:
+            if isinstance(product, dict):
+                candidate = dict(product)
+                offer_id = cls._text(candidate.get("offer_id"))
+            elif isinstance(product, (tuple, list)) and len(product) >= 3:
+                candidate = {
+                    "product_id": product[0],
+                    "offer_id": product[1],
+                    "sku": product[2],
+                }
+                offer_id = cls._text(product[1])
+            else:
+                continue
+            if not offer_id:
+                continue
+            if offer_id in indexed:
+                duplicates.add(offer_id)
+                continue
+            indexed[offer_id] = candidate
+        for offer_id in duplicates:
+            indexed.pop(offer_id, None)
         return indexed
 
     @classmethod
