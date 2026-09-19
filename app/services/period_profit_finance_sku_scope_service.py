@@ -65,19 +65,34 @@ class PeriodProfitFinanceSkuScopeService:
                 "historical_sku_recovery_count": 0,
             }
 
+        selected_scope = self._selected_product_scope(product_by_sku)
         unresolved = []
+        scoped_products = {}
         for sku in finance_skus:
             if sku in product_by_sku:
-                continue
-            recovered = self._recover_missing_product(
-                sku,
-                date_to,
-            )
-            if recovered is None:
-                unresolved.append(sku)
-                continue
-            product_by_sku[sku] = recovered
-            historical_recovery_count += 1
+                candidate = product_by_sku[sku]
+            else:
+                candidate = self._recover_missing_product(
+                    sku,
+                    date_to,
+                )
+                if candidate is None:
+                    if selected_scope is None:
+                        unresolved.append(sku)
+                    continue
+                historical_recovery_count += 1
+
+            if selected_scope is not None:
+                if not self._same_selected_product(candidate, selected_scope):
+                    continue
+                candidate = dict(candidate)
+                candidate.pop("_period_profit_selected_scope", None)
+            scoped_products[sku] = candidate
+
+        if selected_scope is not None:
+            product_by_sku = scoped_products
+        else:
+            product_by_sku.update(scoped_products)
 
         if unresolved:
             preview = ", ".join(unresolved[:5])
@@ -95,9 +110,17 @@ class PeriodProfitFinanceSkuScopeService:
 
         return {
             "error": False,
-            "products": [product_by_sku[sku] for sku in finance_skus],
+            "products": [
+                product_by_sku[sku]
+                for sku in finance_skus
+                if sku in product_by_sku
+            ],
             "finance_sku_scope_applied": True,
-            "finance_sku_count": len(finance_skus),
+            "finance_sku_count": (
+                len(product_by_sku)
+                if selected_scope is not None
+                else len(finance_skus)
+            ),
             "catalog_duplicate_sku_count": duplicate_count,
             "historical_sku_recovery_count": historical_recovery_count,
         }
@@ -352,6 +375,31 @@ class PeriodProfitFinanceSkuScopeService:
             "products": product_by_sku,
             "duplicate_count": duplicate_count,
         }
+
+    @classmethod
+    def _selected_product_scope(cls, product_by_sku):
+        selected = [
+            product for product in product_by_sku.values()
+            if isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+        ]
+        if len(selected) != 1:
+            return None
+        return selected[0]
+
+    @classmethod
+    def _same_selected_product(cls, candidate, selected):
+        if not isinstance(candidate, dict) or not isinstance(selected, dict):
+            return False
+        selected_product_id = cls._text(selected.get("product_id"))
+        candidate_product_id = cls._text(candidate.get("product_id"))
+        if selected_product_id and candidate_product_id:
+            return selected_product_id == candidate_product_id
+        selected_offer = cls._text(selected.get("offer_id"))
+        candidate_offer = cls._text(candidate.get("offer_id"))
+        if selected_offer and candidate_offer:
+            return selected_offer == candidate_offer
+        return cls._text(candidate.get("sku")) == cls._text(selected.get("sku"))
 
     @staticmethod
     def _text(value):
