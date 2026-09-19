@@ -1,9 +1,12 @@
+from contextvars import ContextVar
+
 from services.period_profit_cached_legacy_sku_identity_scope_service import (
     PeriodProfitCachedLegacySkuIdentityScopeService,
 )
 from services.period_profit_finance_sku_scope_service import (
     PeriodProfitFinanceSkuScopeService,
 )
+from services.period_profit_operation_diagnostics import current_period_profit_trace
 
 
 class PeriodProfitFinancePostingIdentityScopeService(
@@ -20,7 +23,28 @@ class PeriodProfitFinancePostingIdentityScopeService(
     entered from this production scope.
     """
 
+    MAX_SELECTED_POSTING_IDENTITY_PROBES = 3
+
+    _REQUEST_STATE_FIELDS = {
+        "_catalog_by_sku",
+        "_catalog_by_product_id",
+        "_catalog_by_offer",
+        "_related_sku_identity_cache",
+        "_sku_recovery_diagnostic_codes",
+        "_legacy_identity_cache",
+        "_scope_start",
+        "_scope_end",
+        "_finance_posting_numbers_by_sku",
+        "_fbo_identity_snapshot",
+        "_fbo_identity_snapshot_loaded",
+    }
+
     def __init__(self, summary_service, finance_service, sku_ozon_client=None):
+        self._request_state_var = ContextVar(
+            "period_profit_identity_scope_state_" + str(id(self)),
+            default=None,
+        )
+        self._default_request_state = {}
         super().__init__(
             summary_service,
             finance_service,
@@ -32,7 +56,41 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
 
+    def __getattribute__(self, name):
+        if name in object.__getattribute__(self, "_REQUEST_STATE_FIELDS"):
+            state_var = object.__getattribute__(self, "_request_state_var")
+            state = state_var.get()
+            if state is None:
+                state = object.__getattribute__(self, "_default_request_state")
+            return state.get(name)
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name, value):
+        if name in type(self)._REQUEST_STATE_FIELDS and hasattr(
+            self, "_request_state_var"
+        ):
+            state = self._request_state_var.get()
+            if state is None:
+                state = self._default_request_state
+            state[name] = value
+            return
+        object.__setattr__(self, name, value)
+
     def _scope_products(self, date_from, date_to, products):
+        token = self._request_state_var.set(dict(self._default_request_state))
+        try:
+            return self._scope_products_in_request(date_from, date_to, products)
+        finally:
+            self._request_state_var.reset(token)
+
+    def _scope_products_in_request(self, date_from, date_to, products):
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.update(
+                "finance_identity_scope",
+                service=type(self).__name__,
+                method="_scope_products",
+            )
         prefetch = getattr(self.finance_service, "prefetch_daily_accruals", None)
         if callable(prefetch):
             try:
@@ -101,6 +159,27 @@ class PeriodProfitFinancePostingIdentityScopeService(
             self.sku_ozon_client = original_client
 
     def _recover_missing_product(self, sku, at_date):
+        trace = current_period_profit_trace()
+        cache_key = self._identity_cache_key(sku)
+        if trace is not None and cache_key in trace.identity_cache:
+            cached = trace.identity_cache[cache_key]
+            trace.update(
+                "finance_identity_cache",
+                service=type(self).__name__,
+                method="_recover_missing_product",
+                finance_sku=self._text(sku),
+                cache="hit",
+            )
+            return dict(cached) if isinstance(cached, dict) else None
+        if trace is not None:
+            trace.update(
+                "finance_identity_cache",
+                service=type(self).__name__,
+                method="_recover_missing_product",
+                finance_sku=self._text(sku),
+                cache="miss",
+            )
+
         direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
             self,
             sku,
@@ -114,17 +193,35 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 if result.get("historical_cost_evidence") is True
                 else "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
             )
-            return result
+            return self._cache_identity(cache_key, result)
 
         related = self._recover_from_related_sku_identity(sku)
         if related is not None:
-            return related
+            return self._cache_identity(cache_key, related)
 
         posting = self._recover_from_finance_posting_identity(sku)
         if posting is not None:
-            return posting
+            return self._cache_identity(cache_key, posting)
 
-        return self._recover_from_finance_posting_offer_identity(sku)
+        result = self._recover_from_finance_posting_offer_identity(sku)
+        return self._cache_identity(cache_key, result)
+
+    def _identity_cache_key(self, sku):
+        catalog = tuple(sorted(
+            (self._text(key), self._text(value.get("product_id")))
+            for key, value in self._catalog_by_offer.items()
+            if isinstance(value, dict)
+        ))
+        return self._text(sku), catalog
+
+    @staticmethod
+    def _cache_identity(cache_key, result):
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.identity_cache[cache_key] = (
+                dict(result) if isinstance(result, dict) else None
+            )
+        return result
 
     def _recover_from_related_sku_identity(self, sku):
         finance_sku = self._text(sku)
@@ -342,8 +439,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if ozon is None:
             return None
 
-        matched_offers = set()
-        for posting_number in posting_numbers:
+        trace = current_period_profit_trace()
+        # One exact posting is sufficient positive identity evidence.  Search a
+        # small deterministic set and fail closed if it cannot prove identity;
+        # never turn every posting in a 90-day period into a serial HTTP N+1.
+        for posting_number in posting_numbers[:self.MAX_SELECTED_POSTING_IDENTITY_PROBES]:
             posting_offers = set()
             # A posting number belongs to exactly one fulfillment schema.  Stop
             # after the first schema that returns usable product rows instead of
@@ -354,10 +454,25 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 getter = getattr(ozon, method_name, None)
                 if not callable(getter):
                     continue
-                try:
-                    response = getter(posting_number)
-                except Exception:
-                    continue
+                response_key = (method_name, posting_number)
+                if trace is not None and response_key in trace.posting_response_cache:
+                    response = trace.posting_response_cache[response_key]
+                    trace.update(
+                        "posting_response_cache",
+                        service=type(self).__name__,
+                        method=method_name,
+                        posting_number=posting_number,
+                        cache="hit",
+                    )
+                else:
+                    if trace is not None:
+                        trace.record_posting(posting_number)
+                    try:
+                        response = getter(posting_number)
+                    except Exception:
+                        response = None
+                    if trace is not None:
+                        trace.posting_response_cache[response_key] = response
                 products = self._posting_products(response, posting_number)
                 if not products:
                     continue
@@ -371,16 +486,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
             if len(posting_offers) > 1:
                 self._record_sku_recovery_diagnostic("POSTING_OFFER_AMBIGUOUS")
                 return None
-            matched_offers.update(posting_offers)
-
-        if len(matched_offers) != 1:
-            if matched_offers:
-                self._record_sku_recovery_diagnostic("POSTING_OFFER_AMBIGUOUS")
-            else:
-                self._record_sku_recovery_diagnostic("POSTING_OFFER_MISSING")
+            if len(posting_offers) == 1:
+                offer_id = next(iter(posting_offers))
+                break
+        else:
+            self._record_sku_recovery_diagnostic("POSTING_OFFER_MISSING")
             return None
 
-        offer_id = next(iter(matched_offers))
         candidate = self._catalog_by_offer.get(offer_id)
         if not isinstance(candidate, dict):
             return None

@@ -148,3 +148,60 @@ def test_posting_offer_bridge_falls_back_to_fbs_when_fbo_has_no_products():
 
     assert result["offer_id"] == "10002_white_01"
     assert calls == [("fbo", "posting-1"), ("fbs", "posting-1")]
+
+
+def test_selected_sku_posting_identity_has_bounded_ozon_call_count():
+    service = _service()
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {
+            "posting-%03d" % index for index in range(250)
+        },
+    }
+    calls = []
+
+    def fbo(posting_number):
+        calls.append(("fbo", posting_number))
+        return {
+            "error": False,
+            "result": {
+                "posting_number": posting_number,
+                "products": [{
+                    "sku": "legacy-finance-sku",
+                    "offer_id": "10002_white_01",
+                }],
+            },
+        }
+
+    service.finance_service.ozon.get_fbo_posting = fbo
+    result = service._recover_from_finance_posting_offer_identity(
+        "legacy-finance-sku"
+    )
+
+    assert result["offer_id"] == "10002_white_01"
+    assert calls == [("fbo", "posting-000")]
+
+
+def test_missing_posting_identity_is_bounded_and_fails_closed():
+    service = _service()
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {
+            "posting-%03d" % index for index in range(250)
+        },
+    }
+    calls = []
+
+    def missing(kind):
+        def get(posting_number):
+            calls.append((kind, posting_number))
+            return {"error": True, "status_code": 404}
+        return get
+
+    service.finance_service.ozon.get_fbo_posting = missing("fbo")
+    service.finance_service.ozon.get_fbs_posting = missing("fbs")
+
+    result = service._recover_from_finance_posting_offer_identity(
+        "legacy-finance-sku"
+    )
+
+    assert result is None
+    assert len(calls) == 2 * service.MAX_SELECTED_POSTING_IDENTITY_PROBES

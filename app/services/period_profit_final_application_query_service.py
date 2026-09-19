@@ -32,7 +32,10 @@ class PeriodProfitFinalApplicationQueryService:
                 period_code=period_code,
                 date_from=date_from,
                 date_to=date_to,
-                compare_previous=compare_previous,
+                # This final layer owns comparison finalization.  Asking the
+                # base query for it too executes the whole previous-period
+                # summary twice, including identity recovery and Ozon reads.
+                compare_previous=False,
                 today=today,
             )
         except Exception:

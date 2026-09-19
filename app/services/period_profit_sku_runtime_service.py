@@ -1,4 +1,29 @@
 from math import isfinite
+from contextvars import ContextVar
+
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    current_period_profit_trace,
+    reset_period_profit_trace,
+)
+
+
+class _RequestScopedProductProvider:
+    """Keep selected-product scope in ContextVar instead of shared mutation."""
+
+    def __init__(self, provider):
+        self.provider = provider
+        self.override = ContextVar(
+            "period_profit_selected_product_" + str(id(self)),
+            default=None,
+        )
+
+    def __call__(self):
+        selected = self.override.get()
+        if selected is not None:
+            return [dict(selected)]
+        return self.provider()
 
 
 class PeriodProfitSkuRuntimeService:
@@ -19,6 +44,7 @@ class PeriodProfitSkuRuntimeService:
     def __init__(self, query_service, cost_service=None):
         self.query_service = query_service
         self.cost_service = cost_service
+        self._scoped_providers = self._install_request_scoped_providers()
 
     def open_sku_menu(self):
         products = self._products()
@@ -114,16 +140,7 @@ class PeriodProfitSkuRuntimeService:
         identity while preserving the canonical finance, quantity, tax and
         return-processing pipeline.
         """
-        services = []
-        current = self.query_service
-        seen = set()
-        while current is not None and id(current) not in seen:
-            seen.add(id(current))
-            if hasattr(current, "product_provider"):
-                services.append(current)
-            current = getattr(current, "base_service", None)
-
-        if not services:
+        if not self._scoped_providers:
             return self.query_service.query(**kwargs)
 
         selected = {
@@ -132,15 +149,44 @@ class PeriodProfitSkuRuntimeService:
             "sku": identity.get("sku"),
             "_period_profit_selected_scope": True,
         }
-        originals = [(service, service.product_provider) for service in services]
-        provider = lambda: [dict(selected)]
+        trace = current_period_profit_trace() or PeriodProfitOperationTrace(
+            "selected_sku_profit"
+        )
+        trace.update(
+            "selected_sku_query_start",
+            service=type(self).__name__,
+            method="_query_selected_product",
+            catalog_sku=selected.get("sku"),
+        )
+        trace_token = activate_period_profit_trace(trace)
+        provider_tokens = [
+            provider.override.set(selected)
+            for provider in self._scoped_providers
+        ]
         try:
-            for service, _original in originals:
-                service.product_provider = provider
             return self.query_service.query(**kwargs)
         finally:
-            for service, original in originals:
-                service.product_provider = original
+            for provider, token in zip(self._scoped_providers, provider_tokens):
+                provider.override.reset(token)
+            reset_period_profit_trace(trace_token)
+
+    def _install_request_scoped_providers(self):
+        providers = []
+        current = self.query_service
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            provider = getattr(current, "product_provider", None)
+            if callable(provider):
+                if isinstance(provider, _RequestScopedProductProvider):
+                    scoped = provider
+                else:
+                    scoped = _RequestScopedProductProvider(provider)
+                    current.product_provider = scoped
+                if scoped not in providers:
+                    providers.append(scoped)
+            current = getattr(current, "base_service", None)
+        return providers
 
     def _products(self):
         provider = getattr(self.query_service, "product_provider", None)
