@@ -447,3 +447,8 @@ Summary Report теперь включает:
 - Realization rows where Ozon has rewritten the historical SKU to the current
   catalog SKU are accepted only when the posting belongs to exactly one finance SKU;
   multi-product postings remain fail-closed.
+- Added a paged FBO period snapshot before detail probing, so late FBO postings
+  missing from realization are resolved with page-level rather than per-posting calls.
+- A proven current selected-SKU result is no longer suppressed when only the
+  previous comparison period has unprovable identity; comparison is omitted instead
+  of fabricating a zero.

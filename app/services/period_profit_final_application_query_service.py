@@ -84,9 +84,19 @@ class PeriodProfitFinalApplicationQueryService:
             if previous.get("error") is True:
                 return previous
             previous_summary = previous.get("summary")
-            comparison = build_period_profit_comparison(summary, previous_summary)
-            if comparison.get("error"):
-                return comparison
+            if previous_summary is None:
+                comparison = None
+                result["comparison_status"] = (
+                    "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
+                )
+                result["comparison_error_code"] = previous.get(
+                    "comparison_error_code"
+                )
+                result["comparison_read_only"] = True
+            else:
+                comparison = build_period_profit_comparison(summary, previous_summary)
+                if comparison.get("error"):
+                    return comparison
             result["previous_summary"] = previous_summary
             result["comparison"] = comparison
 
@@ -143,6 +153,24 @@ class PeriodProfitFinalApplicationQueryService:
             products,
         )
         if not isinstance(summary, dict) or summary.get("error") is True:
+            code = summary.get("code") if isinstance(summary, dict) else None
+            selected_scope = any(
+                isinstance(product, dict)
+                and product.get("_period_profit_selected_scope") is True
+                for product in products
+            )
+            if selected_scope and code in {
+                "PERIOD_PROFIT_SELECTED_SKU_FINANCE_MISSING",
+                "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_UNRESOLVED",
+            }:
+                # Current-period profit is already proven.  An unprovable
+                # comparison must not fabricate a previous zero or suppress the
+                # valid current answer; omit comparison explicitly instead.
+                return {
+                    "error": False,
+                    "summary": None,
+                    "comparison_error_code": code,
+                }
             return summary if isinstance(summary, dict) else self._error(
                 "PERIOD_PROFIT_FINAL_PREVIOUS_SUMMARY_INVALID"
             )

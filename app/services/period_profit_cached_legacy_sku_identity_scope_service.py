@@ -55,6 +55,8 @@ class PeriodProfitCachedLegacySkuIdentityScopeService(
             return None
 
         client = self.sku_ozon_client
+        if client is None:
+            client = getattr(self.finance_service, "ozon", None)
         getter = getattr(client, "get_fbo_postings", None)
         if not callable(getter):
             self._fbo_identity_snapshot = None

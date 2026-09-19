@@ -72,3 +72,26 @@ def test_final_query_does_not_make_base_recalculate_previous_period():
     assert result["error"] is False
     assert base.compare_flags == [False]
     assert len(base.summary_service.calls) == 1
+
+
+def test_selected_sku_current_profit_survives_unprovable_previous_identity():
+    base = _Base()
+    base.product_provider = lambda: [{
+        "sku": "selected",
+        "_period_profit_selected_scope": True,
+    }]
+    base.summary_service.calculate = lambda *_args: {
+        "error": True,
+        "code": "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_UNRESOLVED",
+    }
+    service = PeriodProfitFinalApplicationQueryService(base, _Application())
+
+    result = service.query(period_code="7D", compare_previous=True)
+
+    assert result["error"] is False
+    assert result["summary"]["status"] == "PERIOD_PROFIT_SUMMARY_READY"
+    assert result["previous_summary"] is None
+    assert result["comparison"] is None
+    assert result["comparison_error_code"] == (
+        "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_UNRESOLVED"
+    )
