@@ -46,7 +46,11 @@ class OzonAccountRepository:
         parent = db_path.parent
         if parent != Path("."):
             parent.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(str(db_path))
+        # Credential reads run on the request path. Never let a SQLite lock
+        # make a Telegram calculation wait for the driver default indefinitely.
+        conn = sqlite3.connect(str(db_path), timeout=5.0)
+        conn.execute("PRAGMA busy_timeout = 5000")
+        return conn
 
     def _fernet(self):
         key = str(self.master_key or "").strip().encode("utf-8")

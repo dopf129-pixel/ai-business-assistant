@@ -32,7 +32,8 @@ class OzonClient:
         endpoint,
         data,
         timeout=20,
-        max_attempts=3
+        max_attempts=3,
+        total_timeout=75
     ):
 
         url = self.base_url + endpoint
@@ -54,18 +55,41 @@ class OzonClient:
             "Content-Type": "application/json"
         }
 
+        started_at = time.monotonic()
+
         for attempt in range(
             1,
             max_attempts + 1
         ):
 
+            if (
+                total_timeout is not None
+                and time.monotonic() - started_at >= float(total_timeout)
+            ):
+                return {
+                    "error": True,
+                    "code": "OZON_API_TOTAL_TIMEOUT",
+                    "message": "Ozon API: запрос превысил общий лимит ожидания"
+                }
+
             try:
+
+                request_timeout = float(timeout)
+                if total_timeout is not None:
+                    remaining = float(total_timeout) - (time.monotonic() - started_at)
+                    if remaining <= 0:
+                        return {
+                            "error": True,
+                            "code": "OZON_API_TOTAL_TIMEOUT",
+                            "message": "Ozon API: запрос превысил общий лимит ожидания"
+                        }
+                    request_timeout = min(request_timeout, remaining)
 
                 response = requests.post(
                     url,
                     headers=headers,
                     json=data,
-                    timeout=timeout
+                    timeout=request_timeout
                 )
 
                 if response.status_code == 429:
