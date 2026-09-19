@@ -41,6 +41,7 @@ def _summary(**overrides):
         "products": [row],
         "finance_sku_count": 1,
         "sale_quantity_record_count": 0,
+        "sale_quantity_reconciled": True,
         "tax_mode": "NONE",
         "tax_rate_percent": 0.0,
         "minimum_tax_rate_percent": 0.0,
