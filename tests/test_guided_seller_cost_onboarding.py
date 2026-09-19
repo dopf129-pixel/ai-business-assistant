@@ -82,7 +82,11 @@ def test_first_cost_is_effective_for_full_history_and_flow_offers_next_missing_p
     assert saved["effective_from"] == "0001-01-01"
     assert saved["historical_default"] is True
     assert saved["cost_coverage"]["missing"] == 1
-    assert saved["keyboard"]["buttons"] == [_table_button(), {"text": "ART-B", "callback": "seller_cost:SKU-B"}]
+    assert saved["keyboard"]["buttons"] == [
+        {"text": "📊 Прибыль по этому товару", "callback": "period_profit_sku:SKU-A"},
+        _table_button(),
+        {"text": "ART-B", "callback": "seller_cost:SKU-B"},
+    ]
     assert costs.recorded[0]["cost_price"] == 430.0
     assert costs.recorded[0]["source"] == "SELLER_CONFIRMED_INITIAL_HISTORY"
 
