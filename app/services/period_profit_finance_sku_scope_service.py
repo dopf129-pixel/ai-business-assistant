@@ -98,6 +98,20 @@ class PeriodProfitFinanceSkuScopeService:
 
         if selected_scope is not None:
             product_by_sku = scoped_products
+            if not product_by_sku:
+                # The period contains finance SKUs, but none could be proven to
+                # belong to the explicitly selected catalog product.  Do not
+                # pass an empty list into the generic summary service (which
+                # produces the misleading "Нет пригодных товаров" message).
+                # Preserve the selected catalog identity as a last-resort
+                # finance lookup key; downstream finance evidence will then
+                # either produce the selected SKU result or a precise
+                # finance/quantity error for this product only.
+                fallback = dict(selected_scope)
+                fallback.pop("_period_profit_selected_scope", None)
+                selected_sku = self._text(fallback.get("sku"))
+                if selected_sku:
+                    product_by_sku[selected_sku] = fallback
         else:
             product_by_sku.update(scoped_products)
 
@@ -117,11 +131,15 @@ class PeriodProfitFinanceSkuScopeService:
 
         return {
             "error": False,
-            "products": [
-                product_by_sku[sku]
-                for sku in finance_skus
-                if sku in product_by_sku
-            ],
+            "products": (
+                list(product_by_sku.values())
+                if selected_scope is not None
+                else [
+                    product_by_sku[sku]
+                    for sku in finance_skus
+                    if sku in product_by_sku
+                ]
+            ),
             "finance_sku_scope_applied": True,
             "finance_sku_count": (
                 len(product_by_sku)
