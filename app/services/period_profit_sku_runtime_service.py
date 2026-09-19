@@ -16,13 +16,25 @@ class PeriodProfitSkuRuntimeService:
         "acquiring", "other_fees", "product_cost", "tax", "profit",
     )
 
-    def __init__(self, query_service):
+    def __init__(self, query_service, cost_service=None):
         self.query_service = query_service
+        self.cost_service = cost_service
 
     def open_sku_menu(self):
         products = self._products()
         if isinstance(products, dict):
             return products
+        configured = self._configured_skus()
+        if configured is not None:
+            products = [product for product in products if product["sku"] in configured]
+            if not products:
+                return {
+                    "error": False,
+                    "message": "Сначала укажите себестоимость хотя бы для одного SKU.",
+                    "keyboard": {"error": False, "type": "inline_keyboard", "buttons": [{"text": "💰 Указать себестоимость", "callback": "seller_cost"}]},
+                    "read_only": True,
+                    "executed": False,
+                }
         buttons = []
         for product in products:
             label = product["offer_id"] or product["sku"]
@@ -32,7 +44,7 @@ class PeriodProfitSkuRuntimeService:
             })
         return {
             "error": False,
-            "message": "Выберите товар для расчёта прибыли:",
+            "message": "Выберите товар, по которому хотите посмотреть прибыль:",
             "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
             "read_only": True,
             "executed": False,
@@ -108,6 +120,30 @@ class PeriodProfitSkuRuntimeService:
         if not products:
             return self._error("PERIOD_PROFIT_SKU_CATALOG_EMPTY")
         return sorted(products, key=lambda item: (item["offer_id"] or item["sku"], item["sku"]))
+
+    def _configured_skus(self):
+        if self.cost_service is None:
+            return None
+        getter = getattr(self.cost_service, "get_all_costs", None)
+        if not callable(getter):
+            return None
+        try:
+            rows = getter()
+        except Exception:
+            return None
+        if not isinstance(rows, list):
+            return None
+        configured = set()
+        for row in rows:
+            if isinstance(row, dict):
+                sku = self._text(row.get("sku"))
+            elif isinstance(row, (tuple, list)) and len(row) >= 2:
+                sku = self._text(row[1])
+            else:
+                continue
+            if sku:
+                configured.add(sku)
+        return configured
 
     def _selected_identity(self, sku):
         if not sku:

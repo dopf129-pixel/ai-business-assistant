@@ -27,9 +27,10 @@ class TelegramSellerCostUpdateService:
             shown = missing[:19]
             message = (
                 "💰 Себестоимость товаров\n\n"
-                f"Заполнено: {configured} из {len(products)}\n"
-                f"Без себестоимости: {len(missing)}\n\n"
-                "Можно заполнить товары по одному или скачать таблицу, заполнить колонку себестоимости и отправить её обратно. "
+                f"Себестоимость указана для {configured} из {len(products)} товаров.\n\n"
+                "Заполнять весь каталог не обязательно. Выберите только те SKU, по которым хотите считать прибыль. "
+                "После сохранения можно сразу открыть прибыль по этому товару. "
+                "Для массового заполнения можно скачать таблицу. "
                 "Первую себестоимость применю ко всей доступной истории продаж; если раньше она отличалась, историю можно уточнить позже."
             )
             buttons = [{"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"}]
@@ -99,8 +100,16 @@ class TelegramSellerCostUpdateService:
         if isinstance(menu, dict) and menu.get("error") is False:
             coverage = menu.get("cost_coverage") or {}
             remaining = int(coverage.get("missing") or 0)
-            message = f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\nОсталось заполнить: {remaining}. Выберите следующий товар:" if remaining else f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль за прошлые периоды."
-            return {"error": False, "handled": True, "message": message, "keyboard": menu.get("keyboard"), "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "historical_default": is_initial, "seller_confirmed": True, "read_only_ozon": True}
+            if remaining:
+                message = f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\nМожно сразу посмотреть прибыль по этому товару или указать себестоимость для другого SKU."
+                keyboard = dict(menu.get("keyboard") or {})
+                buttons = list(keyboard.get("buttons") or [])
+                buttons.insert(0, {"text": "📊 Прибыль по этому товару", "callback": "period_profit_sku:" + identity["sku"]})
+                keyboard["buttons"] = buttons
+            else:
+                message = f"✅ {display_name}: {amount} ₽ сохранено.{history_note}\n\n🎉 Готово: себестоимость заполнена для всего каталога. Теперь можно считать прибыль за прошлые периоды."
+                keyboard = menu.get("keyboard")
+            return {"error": False, "handled": True, "message": message, "keyboard": keyboard, "cost_coverage": coverage, "sku": identity["sku"], "offer_id": identity["offer_id"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "historical_default": is_initial, "seller_confirmed": True, "read_only_ozon": True}
         return {"error": False, "handled": True, "message": f"✅ {display_name}: {amount} ₽ сохранено.{history_note}", "sku": identity["sku"], "cost_price": round(cost, 2), "effective_from": effective_from.isoformat(), "historical_default": is_initial, "seller_confirmed": True, "read_only_ozon": True}
 
     def clear_pending(self, user_id):

@@ -2,7 +2,7 @@ import io
 import os
 import signal
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -62,6 +62,16 @@ def format_response(result):
     if result.get("actions"):
         return action_formatter.format(result)
     return formatter.format(result)
+
+
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    result = get_runner().receive_callback(user_id, "main_menu")
+    keyboard = build_keyboard(result.get("keyboard"))
+    await update.message.reply_text(
+        result.get("text") or result.get("message") or "Главное меню",
+        reply_markup=keyboard,
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -199,10 +209,19 @@ def _polling_stop_signals(platform_name=None):
     return (signal.SIGINT, signal.SIGTERM)
 
 
+async def _post_init(application):
+    await application.bot.set_my_commands([
+        ("start", "Запустить ассистента"),
+        ("menu", "Главное меню"),
+    ])
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+
 def build_application(token=None):
     """Build the polling application without starting network traffic."""
-    application = Application.builder().token(_resolve_token(token)).build()
+    application = Application.builder().token(_resolve_token(token)).post_init(_post_init).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu))
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
     application.add_handler(MessageHandler(filters.TEXT, message_handler))
     application.add_handler(CallbackQueryHandler(callback_handler))
