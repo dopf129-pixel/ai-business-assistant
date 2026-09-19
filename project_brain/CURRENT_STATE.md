@@ -3931,3 +3931,15 @@ Completed:
 [x] Preserved account total_amount for non-sale postings without inventing SKU revenue or quantity
 [x] Kept malformed/partial commission evidence fail-closed
 [x] Preserved historical effective-cost authority and Return COGS gates
+
+---
+
+# Selected-SKU bounded reverse identity lookup — 2026-09-20
+
+Completed:
+
+[x] Proved the remaining latency was account-wide `/v3/posting/fbo/list` pagination
+[x] Replaced hundreds of FBO pages with one lookup for the selected current SKU
+[x] Reused the proven related identity in downstream finance scoping
+[x] Kept missing/ambiguous identity fail-closed
+[x] Added regression coverage for 500 unrelated finance SKUs and zero FBO list calls
