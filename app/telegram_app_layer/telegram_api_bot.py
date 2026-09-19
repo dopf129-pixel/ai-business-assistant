@@ -211,7 +211,7 @@ def _polling_stop_signals(platform_name=None):
 
 def build_application(token=None):
     """Build the polling application without starting network traffic."""
-    application = Application.builder().token(_resolve_token(token)).build()
+    application = Application.builder().token(_resolve_token(token)).post_init(_post_init).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu))
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
@@ -230,7 +230,6 @@ async def _post_init(application):
 
 def main():
     application = build_application()
-    application.post_init = _post_init
     print("Telegram API bot started")
     application.run_polling(
         stop_signals=_polling_stop_signals(),
