@@ -1,5 +1,28 @@
 # Architecture Decisions
 
+## Decision 019
+
+Date: 2026-09-19
+
+Topic: Selected-SKU request isolation and bounded identity evidence search
+
+Decision:
+
+- selected catalog scope lives in a request-local `ContextVar`, never in shared mutable
+  service attributes;
+- exact posting-offer recovery examines at most three deterministic posting numbers and
+  accepts only one exact catalog offer from a usable posting;
+- absence or ambiguity remains fail-closed;
+- proven identity and posting responses are reused only inside the current request;
+- the final application layer alone owns previous-period comparison execution.
+
+Reason:
+
+The former path multiplied two previous-period passes by an unbounded serial FBO/FBS
+probe for every posting and allowed concurrent callbacks to overwrite shared scope.
+
+---
+
 
 ## Decision 001
 
@@ -2085,4 +2108,3 @@ fail-closed behavior.
 Status:
 
 Implemented
-

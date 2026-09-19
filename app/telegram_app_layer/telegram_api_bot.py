@@ -174,6 +174,7 @@ async def _run_sync_with_stall_notice(
     stall_seconds=8.0,
     long_wait_seconds=45.0,
     heartbeat_seconds=60.0,
+    diagnostic_seconds=90.0,
 ):
     """Run blocking work off-loop and visibly heartbeat while it is alive.
 
@@ -184,7 +185,23 @@ async def _run_sync_with_stall_notice(
     """
     loop = asyncio.get_running_loop()
     started_at = loop.time()
-    task = asyncio.create_task(asyncio.to_thread(function))
+    from services.period_profit_operation_diagnostics import (
+        PeriodProfitOperationTrace,
+        activate_period_profit_trace,
+        reset_period_profit_trace,
+    )
+
+    trace = PeriodProfitOperationTrace("telegram_callback")
+
+    def observed_function():
+        token = activate_period_profit_trace(trace)
+        trace.bind_worker()
+        try:
+            return function()
+        finally:
+            reset_period_profit_trace(token)
+
+    task = asyncio.create_task(asyncio.to_thread(observed_function))
     try:
         return await asyncio.wait_for(asyncio.shield(task), timeout=stall_seconds)
     except asyncio.TimeoutError:
@@ -200,13 +217,18 @@ async def _run_sync_with_stall_notice(
         )
 
     interval = max(0.01, float(heartbeat_seconds))
+    diagnostic_dumped = False
     while True:
         try:
             return await asyncio.wait_for(asyncio.shield(task), timeout=interval)
         except asyncio.TimeoutError:
+            elapsed = loop.time() - started_at
+            if not diagnostic_dumped and elapsed >= float(diagnostic_seconds):
+                trace.dump_worker_stack()
+                diagnostic_dumped = True
             await _mark_progress_heartbeat(
                 progress_message,
-                elapsed_seconds=loop.time() - started_at,
+                elapsed_seconds=elapsed,
             )
 
 

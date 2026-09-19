@@ -8,6 +8,7 @@ from config import (
     OZON_CLIENT_ID,
     OZON_API_KEY
 )
+from services.period_profit_operation_diagnostics import current_period_profit_trace
 
 
 class OzonClient:
@@ -28,6 +29,39 @@ class OzonClient:
         }
 
     def _post(
+        self,
+        endpoint,
+        data,
+        timeout=20,
+        max_attempts=3,
+        total_timeout=75,
+    ):
+        trace = current_period_profit_trace()
+        started_at = time.monotonic()
+        status = "exception"
+        try:
+            result = self._post_impl(
+                endpoint,
+                data,
+                timeout=timeout,
+                max_attempts=max_attempts,
+                total_timeout=total_timeout,
+            )
+            status = (
+                str(result.get("code") or result.get("status_code") or "error")
+                if isinstance(result, dict) and result.get("error") is True
+                else "ok"
+            )
+            return result
+        finally:
+            if trace is not None:
+                trace.record_ozon_call(
+                    endpoint,
+                    time.monotonic() - started_at,
+                    status,
+                )
+
+    def _post_impl(
         self,
         endpoint,
         data,

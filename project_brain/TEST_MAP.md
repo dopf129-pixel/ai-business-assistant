@@ -60,8 +60,14 @@ Tests:
 
 - tests/test_period_profit_sku_telegram_flow.py
 - tests/test_telegram_period_profit_analyst_wiring_v1161_v1170.py
+- tests/test_period_profit_selected_posting_offer_identity.py
+- tests/test_period_profit_selected_scope_concurrency.py
+- tests/test_period_profit_previous_period_single_pass.py
+- tests/test_period_profit_operation_diagnostics.py
 
 Проверяет Telegram SKU/period navigation, production factory wiring, aggregation of proven legacy/current SKU rows, configured tax recomputation, forged identity rejection, and fail-closed unknown money handling.
+Также ограничивает количество Ozon posting-detail вызовов, проверяет однократный
+previous-period pass, конкурентную изоляцию selected scope и автоматический stack dump.
 
 ## Telegram guided onboarding
 

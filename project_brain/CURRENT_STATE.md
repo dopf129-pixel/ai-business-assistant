@@ -1,5 +1,15 @@
 # Current Project State
 
+## 2026-09-19 — Selected-SKU Period Profit latency repair
+
+- Selected-SKU identity recovery no longer performs an unbounded serial posting-detail
+  N+1, and current/previous comparison reuses request-local proven identity evidence.
+- The final query calculates the previous period once instead of twice.
+- Selected-product provider scope is concurrency-safe and no longer mutates shared
+  request state.
+- Long Telegram workers emit a secret-free diagnostic snapshot and worker stack after
+  90 seconds while the informational watchdog continues waiting.
+
 ## 2026-09-15 — Telegram help and discoverability
 
 - The main keyboard exposes `Помощь и команды`.

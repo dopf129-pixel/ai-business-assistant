@@ -427,3 +427,11 @@ Summary Report теперь включает:
 - Telegram Period Profit now offers a product selector and the existing date presets for one catalog SKU.
 - The SKU report aggregates canonical Period Profit product rows across proven current/legacy SKU identity and recalculates configured tax on the selected aggregate.
 - Account-level unattributed expenses, external expenses, and Return COGS remain explicitly excluded/unknown instead of being allocated by assumption.
+# 2026-09-19 — Bound selected-SKU identity recovery work
+
+- Removed duplicate previous-period execution from the final Period Profit wrapper.
+- Replaced shared `product_provider` mutation with request-local `ContextVar` scope.
+- Bounded exact posting-offer identity search to three postings (at most six FBO/FBS
+  detail calls), with request-local identity/response reuse across comparison work.
+- Added secret-free stage, Ozon endpoint/duration/call-count and cache diagnostics;
+  operations exceeding 90 seconds persist the worker-thread stack locally.
