@@ -45,7 +45,7 @@ def test_selected_catalog_product_ignores_unrelated_finance_skus():
         "1124761908",
         "989101156",
     ]
-    assert all("_period_profit_selected_scope" not in row for row in result["products"])
+    assert all(row.get("_period_profit_selected_scope") is True for row in result["products"])
 
 
 def test_store_wide_scope_still_fails_closed_for_unresolved_finance_skus():
@@ -91,6 +91,7 @@ def test_selected_scope_preserves_exact_current_finance_sku_without_recovery():
         "product_id": "selected-product",
         "sku": "989101156",
         "offer_id": "10002_white_01",
+        "_period_profit_selected_scope": True,
     }]
 
 
@@ -158,4 +159,5 @@ def test_selected_scope_never_degrades_to_empty_product_list():
         "product_id": "selected-product",
         "sku": "989101156",
         "offer_id": "10002_white_01",
+        "_period_profit_selected_scope": True,
     }]

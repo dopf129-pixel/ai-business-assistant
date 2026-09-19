@@ -86,14 +86,14 @@ class PeriodProfitFinanceSkuScopeService:
                 if not self._same_selected_product(candidate, selected_scope):
                     continue
                 candidate = dict(candidate)
-                candidate.pop("_period_profit_selected_scope", None)
+                candidate["_period_profit_selected_scope"] = True
             scoped_products[sku] = candidate
 
         if selected_scope is not None:
             selected_catalog_sku = self._text(selected_scope.get("sku"))
             if selected_catalog_sku in finance_skus and selected_catalog_sku not in scoped_products:
                 candidate = dict(selected_scope)
-                candidate.pop("_period_profit_selected_scope", None)
+                candidate["_period_profit_selected_scope"] = True
                 scoped_products[selected_catalog_sku] = candidate
 
         if selected_scope is not None:
@@ -108,7 +108,7 @@ class PeriodProfitFinanceSkuScopeService:
                 # either produce the selected SKU result or a precise
                 # finance/quantity error for this product only.
                 fallback = dict(selected_scope)
-                fallback.pop("_period_profit_selected_scope", None)
+                fallback["_period_profit_selected_scope"] = True
                 selected_sku = self._text(fallback.get("sku"))
                 if selected_sku:
                     product_by_sku[selected_sku] = fallback
