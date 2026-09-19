@@ -74,6 +74,8 @@ realization request и fail-closed конфликт нескольких offers.
 fallback для multi-product posting.
 Проверяет late-posting FBO snapshot без detail N+1 и возврат доказанной current
 прибыли при недоступной identity только в previous comparison period.
+Проверяет production-style scope с 200 посторонними finance SKU: один realization
+request и отсутствие related/detail вызовов для чужих товаров.
 
 ## Telegram guided onboarding
 

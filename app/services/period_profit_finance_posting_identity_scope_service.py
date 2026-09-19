@@ -37,6 +37,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         "_finance_posting_numbers_by_sku",
         "_fbo_identity_snapshot",
         "_fbo_identity_snapshot_loaded",
+        "_realization_identity_responses",
     }
 
     def __init__(self, summary_service, finance_service, sku_ozon_client=None):
@@ -55,6 +56,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_offer = {}
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
+        self._realization_identity_responses = {}
 
     def __getattribute__(self, name):
         if name in object.__getattribute__(self, "_REQUEST_STATE_FIELDS"):
@@ -126,7 +128,24 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._catalog_by_offer = self._unique_catalog_offer_index(products)
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
-        scoped = super()._scope_products(date_from, date_to, products)
+        self._legacy_identity_cache = {}
+        self._fbo_identity_snapshot = None
+        self._fbo_identity_snapshot_loaded = False
+        self._finance_posting_numbers_by_sku = {}
+        self._realization_identity_responses = {}
+        self._scope_start = self._date(date_from)
+        self._scope_end = self._date(date_to)
+        # Enter the canonical finance scope directly.  Legacy parent setup uses
+        # a one-to-many offer index intended for store-wide FBO recovery; this
+        # selected-aware service requires the unique catalog offer index above.
+        # Letting the parent overwrite it made every posting/realization candidate
+        # a list, so exact selected-offer recovery could never return a product.
+        scoped = PeriodProfitFinanceSkuScopeService._scope_products(
+            self,
+            date_from,
+            date_to,
+            products,
+        )
         if (
             isinstance(scoped, dict)
             and scoped.get("code")
@@ -154,9 +173,152 @@ class PeriodProfitFinancePostingIdentityScopeService(
         original_client = self.sku_ozon_client
         self.sku_ozon_client = None
         try:
-            return super()._load_period_skus(date_from, date_to)
+            result = super()._load_period_skus(date_from, date_to)
         finally:
             self.sku_ozon_client = original_client
+        if not isinstance(result, dict) or result.get("error") is True:
+            return result
+
+        selected = self._selected_scope_catalog_product()
+        if selected is None:
+            return result
+
+        all_skus = set(result.get("skus") or ())
+        candidates = self._selected_finance_sku_candidates(
+            all_skus,
+            selected,
+            date_to,
+        )
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.update(
+                "selected_finance_sku_prefilter",
+                service=type(self).__name__,
+                method="_load_period_skus",
+                catalog_sku=self._text(selected.get("sku")),
+                status=(
+                    "matched" if candidates else "no_proven_candidate"
+                ),
+            )
+        return {**result, "skus": sorted(candidates)}
+
+    def _selected_scope_catalog_product(self):
+        selected = [
+            product for product in self._catalog_by_sku.values()
+            if isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+        ]
+        return selected[0] if len(selected) == 1 else None
+
+    def _selected_finance_sku_candidates(self, all_skus, selected, at_date):
+        selected_sku = self._text(selected.get("sku"))
+        selected_offer = self._text(selected.get("offer_id"))
+        candidates = set()
+        if selected_sku in all_skus:
+            candidates.add(selected_sku)
+
+        # Local seller evidence is cheap and authoritative.  Evaluate it before
+        # any network fallback so explicit historical/current mappings survive
+        # the selected-SKU prefilter.
+        mapping_getter = getattr(
+            self,
+            "_recover_from_seller_confirmed_mapping",
+            None,
+        )
+        for finance_sku in sorted(all_skus - candidates):
+            direct = PeriodProfitFinanceSkuScopeService._recover_missing_product(
+                self,
+                finance_sku,
+                at_date,
+            )
+            if self._same_selected_product(direct, selected):
+                candidates.add(finance_sku)
+                continue
+            if callable(mapping_getter):
+                status, mapped = mapping_getter(finance_sku)
+                if status == "READY" and self._same_selected_product(mapped, selected):
+                    candidates.add(finance_sku)
+
+        posting_owners = self._posting_owners()
+        for row in self._period_realization_rows():
+            order = row.get("order") if isinstance(row, dict) else None
+            item = row.get("item") if isinstance(row, dict) else None
+            if not isinstance(order, dict) or not isinstance(item, dict):
+                continue
+            if self._text(item.get("offer_id")) != selected_offer:
+                continue
+            posting_number = self._text(order.get("posting_number"))
+            observed_sku = self._text(item.get("sku"))
+            if observed_sku in all_skus:
+                candidates.add(observed_sku)
+            owners = posting_owners.get(posting_number) or set()
+            if len(owners) == 1:
+                candidates.update(owners)
+
+        # Realization covers both fulfillment schemas.  Only pay for the broad
+        # FBO period snapshot when no candidate could be proven from realization
+        # or local seller evidence; otherwise large stores would page through
+        # every FBO posting despite already having exact selected-offer evidence.
+        postings = self._load_fbo_identity_snapshot() if not candidates else None
+        if isinstance(postings, list):
+            for posting in postings:
+                if not isinstance(posting, dict):
+                    continue
+                posting_number = self._text(posting.get("posting_number"))
+                products = posting.get("products")
+                if not isinstance(products, list):
+                    continue
+                for product in products:
+                    if (
+                        not isinstance(product, dict)
+                        or self._text(product.get("offer_id")) != selected_offer
+                    ):
+                        continue
+                    observed_sku = self._text(product.get("sku"))
+                    if observed_sku in all_skus:
+                        candidates.add(observed_sku)
+                    owners = posting_owners.get(posting_number) or set()
+                    if len(owners) == 1:
+                        candidates.update(owners)
+
+        return candidates & all_skus
+
+    def _posting_owners(self):
+        owners = {}
+        for finance_sku, posting_numbers in self._finance_posting_numbers_by_sku.items():
+            for posting_number in posting_numbers or ():
+                owners.setdefault(self._text(posting_number), set()).add(
+                    self._text(finance_sku)
+                )
+        return owners
+
+    def _period_realization_rows(self):
+        ozon = getattr(self.finance_service, "ozon", None)
+        getter = getattr(ozon, "get_realization_posting", None)
+        if (
+            not callable(getter)
+            or self._scope_start is None
+            or self._scope_end is None
+        ):
+            return []
+        trace = current_period_profit_trace()
+        rows = []
+        for year, month in self._evidence_months(self._scope_start, self._scope_end):
+            key = ("get_realization_posting", year, month)
+            if key in self._realization_identity_responses:
+                response = self._realization_identity_responses[key]
+            else:
+                try:
+                    response = getter(year, month)
+                except Exception:
+                    response = None
+                self._realization_identity_responses[key] = response
+                if trace is not None:
+                    trace.posting_response_cache[key] = response
+            parsed = self._realization_rows(response)
+            if parsed is not None:
+                rows.extend(parsed)
+        return rows
 
     def _recover_missing_product(self, sku, at_date):
         trace = current_period_profit_trace()
@@ -195,10 +357,6 @@ class PeriodProfitFinancePostingIdentityScopeService(
             )
             return self._cache_identity(cache_key, result)
 
-        related = self._recover_from_related_sku_identity(sku)
-        if related is not None:
-            return self._cache_identity(cache_key, related)
-
         posting = self._recover_from_finance_posting_identity(sku)
         if posting is not None:
             return self._cache_identity(cache_key, posting)
@@ -210,6 +368,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
         fbo_snapshot = self._recover_from_fbo_snapshot_offer_identity(sku)
         if fbo_snapshot is not None:
             return self._cache_identity(cache_key, fbo_snapshot)
+
+        related = self._recover_from_related_sku_identity(sku)
+        if related is not None:
+            return self._cache_identity(cache_key, related)
 
         result = self._recover_from_finance_posting_offer_identity(sku)
         return self._cache_identity(cache_key, result)
@@ -549,20 +711,22 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 )
         for year, month in self._evidence_months(self._scope_start, self._scope_end):
             cache_key = ("get_realization_posting", year, month)
-            if trace is not None and cache_key in trace.posting_response_cache:
-                response = trace.posting_response_cache[cache_key]
-                trace.update(
-                    "realization_identity_cache",
-                    service=type(self).__name__,
-                    method="get_realization_posting",
-                    cache="hit",
-                    finance_sku=finance_sku,
-                )
+            if cache_key in self._realization_identity_responses:
+                response = self._realization_identity_responses[cache_key]
+                if trace is not None:
+                    trace.update(
+                        "realization_identity_cache",
+                        service=type(self).__name__,
+                        method="get_realization_posting",
+                        cache="hit",
+                        finance_sku=finance_sku,
+                    )
             else:
                 try:
                     response = getter(year, month)
                 except Exception:
                     response = None
+                self._realization_identity_responses[cache_key] = response
                 if trace is not None:
                     trace.posting_response_cache[cache_key] = response
 

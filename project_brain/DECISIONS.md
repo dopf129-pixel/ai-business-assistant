@@ -19,6 +19,11 @@ Decision:
 - FBO identity fallback loads a paged period snapshot before bounded detail calls;
 - failure to prove only the comparison-period identity omits comparison and never
   converts it to a zero or blocks an independently proven current-period result;
+- selected-aware finance scope owns a unique `offer_id → product` index and enters
+  canonical finance scoping directly instead of inheriting the store-wide one-to-many
+  legacy offer index;
+- batch evidence prefilters selected finance SKU candidates before any per-SKU network
+  recovery; local explicit mappings remain authoritative candidates;
 - absence or ambiguity remains fail-closed;
 - proven identity and posting responses are reused only inside the current request;
 - the final application layer alone owns previous-period comparison execution.

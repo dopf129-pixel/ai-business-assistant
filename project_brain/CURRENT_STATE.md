@@ -14,6 +14,8 @@
 - Rewritten realization SKUs are supported for single-finance-SKU postings only.
 - Late FBO evidence is recovered from a period snapshot, and previous-period-only
   identity gaps degrade comparison without suppressing proven current profit.
+- Selected finance scope now preserves its unique offer index and prefilters account
+  finance SKUs before individual recovery; unrelated SKU network N+1 is removed.
 
 ## 2026-09-15 — Telegram help and discoverability
 
