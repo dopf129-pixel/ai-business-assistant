@@ -193,6 +193,11 @@ class PeriodProfitSkuRuntimeService:
             if units is None:
                 return self._error("PERIOD_PROFIT_SKU_QUANTITY_INVALID")
             output["units_sold"] += units
+        cost_override = self._seller_cost_total(identity, summary, output["units_sold"])
+        if isinstance(cost_override, dict) and cost_override.get("error") is True:
+            return cost_override
+        if cost_override is not None:
+            output["product_cost"] = cost_override
         tax = self._tax(summary, output["revenue"], output["net_accrual"] - output["product_cost"])
         if tax is None:
             return self._error("PERIOD_PROFIT_SKU_TAX_UNAVAILABLE")
@@ -203,6 +208,33 @@ class PeriodProfitSkuRuntimeService:
         output["date_from"] = summary.get("date_from")
         output["date_to"] = summary.get("date_to")
         return output
+
+    def _seller_cost_total(self, identity, summary, units_sold):
+        if self.cost_service is None:
+            return None
+        getter = getattr(self.cost_service, "get_effective_cost_evidence", None)
+        if not callable(getter):
+            return None
+        at_date = summary.get("date_to") if isinstance(summary, dict) else None
+        if not at_date:
+            return None
+        try:
+            evidence = getter(
+                at_date=at_date,
+                product_id=identity.get("product_id"),
+                sku=identity.get("sku"),
+                offer_id=identity.get("offer_id"),
+            )
+        except Exception:
+            return self._error("PERIOD_PROFIT_SKU_COST_LOOKUP_FAILED")
+        if not isinstance(evidence, dict):
+            return self._error("PERIOD_PROFIT_SKU_COST_LOOKUP_INVALID")
+        if evidence.get("error") is True or evidence.get("effective_cost_confirmed") is not True:
+            return self._error(evidence.get("code") or "PERIOD_PROFIT_SKU_COST_MISSING")
+        unit_cost = self._number(evidence.get("cost_price"))
+        if unit_cost is None:
+            return self._error("PERIOD_PROFIT_SKU_COST_INVALID")
+        return round(unit_cost * units_sold, 2)
 
     def _tax(self, summary, revenue, pre_tax_profit):
         mode = self._text(summary.get("tax_mode")).upper()
