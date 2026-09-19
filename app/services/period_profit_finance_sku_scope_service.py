@@ -398,15 +398,22 @@ class PeriodProfitFinanceSkuScopeService:
     def _same_selected_product(cls, candidate, selected):
         if not isinstance(candidate, dict) or not isinstance(selected, dict):
             return False
-        selected_product_id = cls._text(selected.get("product_id"))
-        candidate_product_id = cls._text(candidate.get("product_id"))
-        if selected_product_id and candidate_product_id:
-            return selected_product_id == candidate_product_id
         selected_offer = cls._text(selected.get("offer_id"))
         candidate_offer = cls._text(candidate.get("offer_id"))
         if selected_offer and candidate_offer:
             return selected_offer == candidate_offer
-        return cls._text(candidate.get("sku")) == cls._text(selected.get("sku"))
+
+        selected_catalog_sku = cls._text(selected.get("sku"))
+        candidate_catalog_sku = cls._text(candidate.get("catalog_sku"))
+        if selected_catalog_sku and candidate_catalog_sku:
+            return selected_catalog_sku == candidate_catalog_sku
+
+        selected_product_id = cls._text(selected.get("product_id"))
+        candidate_product_id = cls._text(candidate.get("product_id"))
+        if selected_product_id and candidate_product_id:
+            return selected_product_id == candidate_product_id
+
+        return cls._text(candidate.get("sku")) == selected_catalog_sku
 
     @staticmethod
     def _text(value):
