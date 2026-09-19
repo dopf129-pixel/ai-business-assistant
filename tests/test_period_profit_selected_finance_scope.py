@@ -161,3 +161,47 @@ def test_selected_scope_never_degrades_to_empty_product_list():
         "offer_id": "10002_white_01",
         "_period_profit_selected_scope": True,
     }]
+
+
+def test_selected_scope_does_not_turn_empty_period_finance_into_zero_profit():
+    class EmptyFinanceScope(PeriodProfitFinanceSkuScopeService):
+        def _load_period_skus(self, date_from, date_to):
+            return {"error": False, "skus": []}
+
+    summary = _Summary()
+    service = EmptyFinanceScope(summary, object())
+    result = service.calculate(
+        "2026-08-23",
+        "2026-09-19",
+        [{
+            "product_id": "selected-product",
+            "sku": "989101156",
+            "offer_id": "10002_white_01",
+            "_period_profit_selected_scope": True,
+        }],
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_SELECTED_SKU_FINANCE_MISSING"
+    assert "нет продаж этого товара" in result["message"]
+
+
+def test_store_wide_empty_period_finance_keeps_legacy_empty_scope_behavior():
+    class EmptyFinanceScope(PeriodProfitFinanceSkuScopeService):
+        def _load_period_skus(self, date_from, date_to):
+            return {"error": False, "skus": []}
+
+    summary = _Summary()
+    service = EmptyFinanceScope(summary, object())
+    result = service._scope_products(
+        "2026-08-23",
+        "2026-09-19",
+        [{
+            "product_id": "selected-product",
+            "sku": "989101156",
+            "offer_id": "10002_white_01",
+        }],
+    )
+
+    assert result["error"] is False
+    assert result["finance_sku_count"] == 0

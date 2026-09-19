@@ -55,7 +55,14 @@ class PeriodProfitFinanceSkuScopeService:
         product_by_sku = dict(normalized["products"])
         historical_recovery_count = 0
 
+        selected_scope = self._selected_product_scope(product_by_sku)
+
         if not finance_skus:
+            if selected_scope is not None:
+                return self._error(
+                    "PERIOD_PROFIT_SELECTED_SKU_FINANCE_MISSING",
+                    "За выбранный период в финансах Ozon нет продаж этого товара",
+                )
             return {
                 "error": False,
                 "products": list(product_by_sku.values()),
@@ -65,7 +72,6 @@ class PeriodProfitFinanceSkuScopeService:
                 "historical_sku_recovery_count": 0,
             }
 
-        selected_scope = self._selected_product_scope(product_by_sku)
         unresolved = []
         scoped_products = {}
         for sku in finance_skus:
