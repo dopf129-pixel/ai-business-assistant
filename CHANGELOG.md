@@ -457,3 +457,12 @@ Summary Report теперь включает:
 - Selected mode now prefilters finance SKUs from batched realization/FBO evidence and
   local seller mappings before recovery, eliminating related/detail calls for every
   unrelated SKU in the account.
+
+# 2026-09-20 — Remove selected-SKU account-wide FBO pagination
+
+- Replaced the selected-SKU fallback that paged the complete FBO history with one
+  reverse related-SKU lookup for the exact current catalog SKU.
+- Proven related finance SKUs are cached as request-local identity evidence and
+  reused by the downstream calculation.
+- Missing or malformed related identity now fails closed immediately; selected-SKU
+  mode never scans account-wide FBO pages.
