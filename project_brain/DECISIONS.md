@@ -14,6 +14,8 @@ Decision:
   accepts only one exact catalog offer from a usable posting as a final fallback;
 - before detail probing, monthly realization evidence resolves exact
   `posting_number + finance SKU + offer_id` across the complete period;
+- a realization SKU rewritten by Ozon may use `posting_number + offer_id` only
+  when that posting is owned by exactly one finance SKU;
 - absence or ambiguity remains fail-closed;
 - proven identity and posting responses are reused only inside the current request;
 - the final application layer alone owns previous-period comparison execution.

@@ -444,3 +444,6 @@ Summary Report теперь включает:
   `posting_number + finance SKU + offer_id` before the bounded detail fallback.
 - The path remains fail-closed for conflicting offers and uses one Ozon request per
   intersecting month instead of one request per posting.
+- Realization rows where Ozon has rewritten the historical SKU to the current
+  catalog SKU are accepted only when the posting belongs to exactly one finance SKU;
+  multi-product postings remain fail-closed.

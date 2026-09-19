@@ -70,6 +70,8 @@ Tests:
 previous-period pass, конкурентную изоляцию selected scope и автоматический stack dump.
 Проверяет восстановление offer identity по позднему posting через один месячный
 realization request и fail-closed конфликт нескольких offers.
+Проверяет rewritten realization SKU для однозначного posting и отклоняет тот же
+fallback для multi-product posting.
 
 ## Telegram guided onboarding
 
