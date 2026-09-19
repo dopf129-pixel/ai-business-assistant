@@ -110,9 +110,17 @@ class PeriodProfitFinanceSkuScopeService:
 
         return {
             "error": False,
-            "products": [product_by_sku[sku] for sku in finance_skus],
+            "products": [
+                product_by_sku[sku]
+                for sku in finance_skus
+                if sku in product_by_sku
+            ],
             "finance_sku_scope_applied": True,
-            "finance_sku_count": len(finance_skus),
+            "finance_sku_count": (
+                len(product_by_sku)
+                if selected_scope is not None
+                else len(finance_skus)
+            ),
             "catalog_duplicate_sku_count": duplicate_count,
             "historical_sku_recovery_count": historical_recovery_count,
         }
