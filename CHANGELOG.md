@@ -452,3 +452,8 @@ Summary Report теперь включает:
 - A proven current selected-SKU result is no longer suppressed when only the
   previous comparison period has unprovable identity; comparison is omitted instead
   of fabricating a zero.
+- Fixed the legacy wrapper replacing the selected service's unique `offer_id` index
+  with a store-wide one-to-many index, which made exact offer evidence unusable.
+- Selected mode now prefilters finance SKUs from batched realization/FBO evidence and
+  local seller mappings before recovery, eliminating related/detail calls for every
+  unrelated SKU in the account.

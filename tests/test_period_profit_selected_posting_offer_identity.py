@@ -392,3 +392,89 @@ def test_fbo_period_snapshot_finds_late_posting_without_detail_n_plus_one():
     )
     assert len(list_calls) == 1
     assert detail_calls == []
+
+
+def test_selected_scope_prefilters_hundreds_of_unrelated_finance_skus():
+    class Summary:
+        cost_service = None
+        tax_rate = 0.0
+
+        def __init__(self):
+            self.products = None
+
+        def calculate(self, _date_from, _date_to, products):
+            self.products = products
+            return {"error": False}
+
+    class Ozon:
+        def __init__(self):
+            self.related_calls = []
+            self.realization_calls = []
+
+        def get_related_skus(self, skus):
+            self.related_calls.append(tuple(skus))
+            return {"error": False, "items": [], "errors": []}
+
+        def get_realization_posting(self, year, month):
+            self.realization_calls.append((year, month))
+            return {
+                "error": False,
+                "rows": [{
+                    "order": {"posting_number": "posting-selected"},
+                    "item": {
+                        "sku": "current-selected",
+                        "offer_id": "selected-offer",
+                    },
+                }],
+            }
+
+    class Finance:
+        def __init__(self):
+            self.ozon = Ozon()
+            products = [
+                {"sku": "unrelated-%03d" % index}
+                for index in range(200)
+            ] + [{"sku": "legacy-selected"}]
+            self.response = {
+                "error": False,
+                "accruals": [
+                    {
+                        "accrued_category": "POSTING",
+                        "unit_number": (
+                            "posting-selected"
+                            if product["sku"] == "legacy-selected"
+                            else "posting-" + product["sku"]
+                        ),
+                        "posting": {"products": [product]},
+                    }
+                    for product in products
+                ],
+            }
+
+        def prefetch_daily_accruals(self, *_args):
+            return {"error": False}
+
+        def _get_accruals_by_day(self, _day):
+            return self.response
+
+    summary = Summary()
+    finance = Finance()
+    service = PeriodProfitFinancePostingIdentityScopeService(summary, finance)
+
+    result = service.calculate(
+        "2026-09-19",
+        "2026-09-19",
+        [{
+            "product_id": "selected-product",
+            "sku": "current-selected",
+            "offer_id": "selected-offer",
+            "_period_profit_selected_scope": True,
+        }],
+    )
+
+    assert result["error"] is False
+    assert [product["sku"] for product in summary.products] == [
+        "legacy-selected"
+    ]
+    assert finance.ozon.realization_calls == [(2026, 9)]
+    assert finance.ozon.related_calls == []
