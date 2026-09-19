@@ -44,6 +44,23 @@ class OzonClient:
 
         url = self.base_url + endpoint
 
+        # Resolve tenant credentials once per HTTP request.  Tenant-aware
+        # properties may read SQLite; calling get_headers() used to resolve
+        # client_id and api_key independently on every retry, adding redundant
+        # synchronous DB reads to Telegram callbacks.
+        client_id = self.client_id
+        api_key = self.api_key
+        if not client_id or not api_key:
+            return {
+                "error": True,
+                "message": "Нет ключей Ozon API"
+            }
+        headers = {
+            "Client-Id": client_id,
+            "Api-Key": api_key,
+            "Content-Type": "application/json"
+        }
+
         for attempt in range(
             1,
             max_attempts + 1
@@ -53,7 +70,7 @@ class OzonClient:
 
                 response = requests.post(
                     url,
-                    headers=self.get_headers(),
+                    headers=headers,
                     json=data,
                     timeout=timeout
                 )
