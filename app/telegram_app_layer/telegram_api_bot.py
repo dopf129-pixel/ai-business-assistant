@@ -1,3 +1,4 @@
+import asyncio
 import io
 import os
 import signal
@@ -166,6 +167,36 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_result(update.message, result, progress_message)
 
 
+async def _run_sync_with_stall_notice(function, *, progress_message=None, stall_seconds=8.0):
+    """Run blocking application work off the Telegram event loop.
+
+    If work is still running after the threshold, edit the progress message so
+    the user can distinguish a slow dependency from an ignored button.
+    """
+    task = asyncio.create_task(asyncio.to_thread(function))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=stall_seconds)
+    except asyncio.TimeoutError:
+        await _mark_progress_slow(progress_message)
+        return await task
+
+
+async def _mark_progress_slow(progress_message):
+    if progress_message is None:
+        return False
+    editor = getattr(progress_message, "edit_text", None)
+    if not callable(editor):
+        return False
+    try:
+        await editor(
+            "⚠️ Ответ задерживается дольше обычного. "
+            "Жду Ozon или локальное хранилище — бот не завис молча…"
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -181,7 +212,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        result = get_runner().receive_callback(user_id, callback)
+        result = await _run_sync_with_stall_notice(
+            lambda: get_runner().receive_callback(user_id, callback),
+            progress_message=progress_message,
+        )
     except Exception:
         await finish_progress(
             query.message,
