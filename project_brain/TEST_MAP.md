@@ -4511,3 +4511,6 @@ Also covers an asymmetric historical → current relation across 501 finance SKU
 with exact singleton confirmation and a bounded number of related-SKU calls.
 Also covers one batched posting sample for each of 501 finance SKUs, request-local
 identity reuse, and rejection of a rewritten SKU on a shared posting.
+
+`tests/test_period_profit_operation_diagnostics.py` also verifies structured,
+secret-free identity-stage evidence in persisted snapshots.
