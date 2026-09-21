@@ -4507,3 +4507,5 @@ Updated:
 Covers one reverse related-SKU request for 500 unrelated finance SKUs, request-local
 identity reuse, and zero account-wide FBO list calls both for a proven match and for
 fail-closed missing identity.
+Also covers an asymmetric historical → current relation across 501 finance SKUs,
+with exact singleton confirmation and a bounded number of related-SKU calls.
