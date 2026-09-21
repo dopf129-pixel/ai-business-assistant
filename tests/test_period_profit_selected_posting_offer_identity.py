@@ -2,6 +2,11 @@ from services.period_profit_finance_posting_identity_scope_service import (
     PeriodProfitFinancePostingIdentityScopeService,
 )
 from datetime import date
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 
 
 class _Summary:
@@ -462,16 +467,21 @@ def test_selected_scope_prefilters_hundreds_of_unrelated_finance_skus():
     finance = Finance()
     service = PeriodProfitFinancePostingIdentityScopeService(summary, finance)
 
-    result = service.calculate(
-        "2026-09-19",
-        "2026-09-19",
-        [{
-            "product_id": "selected-product",
-            "sku": "current-selected",
-            "offer_id": "selected-offer",
-            "_period_profit_selected_scope": True,
-        }],
-    )
+    trace = PeriodProfitOperationTrace("selected_sku_profit")
+    token = activate_period_profit_trace(trace)
+    try:
+        result = service.calculate(
+            "2026-09-19",
+            "2026-09-19",
+            [{
+                "product_id": "selected-product",
+                "sku": "current-selected",
+                "offer_id": "selected-offer",
+                "_period_profit_selected_scope": True,
+            }],
+        )
+    finally:
+        reset_period_profit_trace(token)
 
     assert result["error"] is False
     assert [product["sku"] for product in summary.products] == [
@@ -479,6 +489,11 @@ def test_selected_scope_prefilters_hundreds_of_unrelated_finance_skus():
     ]
     assert finance.ozon.realization_calls == [(2026, 9)]
     assert finance.ozon.related_calls == []
+    assert trace.identity_diagnostics["final"] == {
+        "finance_sku_count": 201,
+        "candidate_count": 1,
+        "status": "matched",
+    }
 
 
 def test_selected_scope_uses_one_reverse_related_lookup_not_fbo_history():
