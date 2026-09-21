@@ -24,6 +24,8 @@ class PeriodProfitFinancePostingIdentityScopeService(
     """
 
     MAX_SELECTED_POSTING_IDENTITY_PROBES = 3
+    MAX_SELECTED_RELATED_DISCOVERY_CALLS = 64
+    RELATED_DISCOVERY_BATCH_SIZE = 200
 
     _REQUEST_STATE_FIELDS = {
         "_catalog_by_sku",
@@ -310,6 +312,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
             return set()
 
         result = related_skus & set(all_skus)
+        if not result:
+            result = self._discover_directional_related_finance_skus(
+                all_skus,
+                selected_sku,
+                getter,
+            )
         catalog_sku = self._text(selected.get("sku"))
         product_id = self._text(selected.get("product_id"))
         if not product_id:
@@ -325,6 +333,65 @@ class PeriodProfitFinancePostingIdentityScopeService(
             )
             self._related_sku_identity_cache[finance_sku] = recovered
         return result
+
+    def _discover_directional_related_finance_skus(
+        self,
+        all_skus,
+        selected_sku,
+        getter,
+    ):
+        """Find directional related identities without per-SKU N+1 probing.
+
+        Ozon may return historical -> current relations when asked for the
+        historical SKU, but omit the same historical SKU for the reverse query.
+        A batch is therefore used as a membership oracle and only positive
+        batches are bisected.  A candidate is accepted only after an exact
+        singleton request returns the selected current SKU.
+        """
+        pending = []
+        values = sorted(set(all_skus) - {selected_sku})
+        for offset in range(0, len(values), self.RELATED_DISCOVERY_BATCH_SIZE):
+            pending.append(values[offset:offset + self.RELATED_DISCOVERY_BATCH_SIZE])
+
+        calls = 0
+        proven = set()
+        while pending and calls < self.MAX_SELECTED_RELATED_DISCOVERY_CALLS:
+            batch = pending.pop(0)
+            if not batch:
+                continue
+            try:
+                response = getter(batch)
+            except Exception:
+                self._record_sku_recovery_diagnostic("RELATED_API_EXCEPTION")
+                return set()
+            calls += 1
+            if not isinstance(response, dict) or response.get("error") is True:
+                self._record_sku_recovery_diagnostic("RELATED_API_ERROR")
+                return set()
+            items = response.get("items")
+            errors = response.get("errors") or []
+            if not isinstance(items, list) or not isinstance(errors, list):
+                self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
+                return set()
+            if any(not isinstance(item, dict) for item in items):
+                self._record_sku_recovery_diagnostic("RELATED_RESPONSE_INVALID")
+                return set()
+            returned = {self._text(item.get("sku")) for item in items}
+            if selected_sku not in returned:
+                continue
+            if len(batch) == 1:
+                proven.add(batch[0])
+                continue
+            middle = len(batch) // 2
+            pending.insert(0, batch[middle:])
+            pending.insert(0, batch[:middle])
+
+        if pending:
+            self._record_sku_recovery_diagnostic(
+                "RELATED_DISCOVERY_BUDGET_EXHAUSTED"
+            )
+            return set()
+        return proven
 
     def _posting_owners(self):
         owners = {}
