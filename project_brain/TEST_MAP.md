@@ -4514,3 +4514,5 @@ identity reuse, and rejection of a rewritten SKU on a shared posting.
 
 `tests/test_period_profit_operation_diagnostics.py` also verifies structured,
 secret-free identity-stage evidence in persisted snapshots.
+`tests/test_period_profit_selected_posting_offer_identity.py` runs the selected
+production scope with an active trace and verifies final-stage counts.

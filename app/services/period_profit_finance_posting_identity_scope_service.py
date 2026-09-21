@@ -90,17 +90,6 @@ class PeriodProfitFinancePostingIdentityScopeService(
     def _scope_products_in_request(self, date_from, date_to, products):
         trace = current_period_profit_trace()
         if trace is not None:
-            trace.record_identity_stage(
-                "final",
-                finance_sku_count=len(all_skus),
-                candidate_count=len(candidates),
-                status=(
-                    "matched" if candidates else
-                    "no_proven_candidate:" + ",".join(
-                        sorted(self._sku_recovery_diagnostic_codes)
-                    )
-                ),
-            )
             trace.update(
                 "finance_identity_scope",
                 service=type(self).__name__,
@@ -204,6 +193,17 @@ class PeriodProfitFinancePostingIdentityScopeService(
         )
         trace = current_period_profit_trace()
         if trace is not None:
+            trace.record_identity_stage(
+                "final",
+                finance_sku_count=len(all_skus),
+                candidate_count=len(candidates),
+                status=(
+                    "matched" if candidates else
+                    "no_proven_candidate:" + ",".join(
+                        sorted(self._sku_recovery_diagnostic_codes)
+                    )
+                ),
+            )
             trace.update(
                 "selected_finance_sku_prefilter",
                 service=type(self).__name__,
