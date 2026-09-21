@@ -475,3 +475,5 @@ Summary Report теперь включает:
   pagination or unproven product attribution is reintroduced.
 - Selected-SKU prefilter now consumes the existing batched finance-posting SKU
   evidence before related-SKU fallback, covering Ozon's rewritten current SKU.
+- A fast fail-closed selected-SKU identity miss now immediately persists stage
+  counts and blocker codes instead of waiting for the 90-second watchdog snapshot.

@@ -90,6 +90,17 @@ class PeriodProfitFinancePostingIdentityScopeService(
     def _scope_products_in_request(self, date_from, date_to, products):
         trace = current_period_profit_trace()
         if trace is not None:
+            trace.record_identity_stage(
+                "final",
+                finance_sku_count=len(all_skus),
+                candidate_count=len(candidates),
+                status=(
+                    "matched" if candidates else
+                    "no_proven_candidate:" + ",".join(
+                        sorted(self._sku_recovery_diagnostic_codes)
+                    )
+                ),
+            )
             trace.update(
                 "finance_identity_scope",
                 service=type(self).__name__,
@@ -202,6 +213,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     "matched" if candidates else "no_proven_candidate"
                 ),
             )
+            if not candidates:
+                trace.dump_worker_stack(
+                    reason="selected_finance_sku_unresolved"
+                )
         return {**result, "skus": sorted(candidates)}
 
     def _selected_scope_catalog_product(self):
@@ -241,8 +256,17 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 if status == "READY" and self._same_selected_product(mapped, selected):
                     candidates.add(finance_sku)
 
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.record_identity_stage(
+                "local",
+                finance_sku_count=len(all_skus),
+                candidate_count=len(candidates),
+            )
+
         posting_owners = self._posting_owners()
-        for row in self._period_realization_rows():
+        realization_rows = self._period_realization_rows()
+        for row in realization_rows:
             order = row.get("order") if isinstance(row, dict) else None
             item = row.get("item") if isinstance(row, dict) else None
             if not isinstance(order, dict) or not isinstance(item, dict):
@@ -256,6 +280,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
             owners = posting_owners.get(posting_number) or set()
             if len(owners) == 1:
                 candidates.update(owners)
+        if trace is not None:
+            trace.record_identity_stage(
+                "realization",
+                row_count=len(realization_rows),
+                candidate_count=len(candidates),
+            )
 
         if not candidates:
             candidates.update(
@@ -282,6 +312,9 @@ class PeriodProfitFinancePostingIdentityScopeService(
             None,
         )
         if not selected_sku or not callable(getter):
+            trace = current_period_profit_trace()
+            if trace is not None:
+                trace.record_identity_stage("finance_posting", status="unavailable")
             return set()
 
         posting_owners = self._posting_owners()
@@ -293,11 +326,21 @@ class PeriodProfitFinancePostingIdentityScopeService(
             if posting_numbers:
                 samples.append(posting_numbers[0])
         if not samples:
+            trace = current_period_profit_trace()
+            if trace is not None:
+                trace.record_identity_stage("finance_posting", status="no_samples")
             return set()
 
         try:
             evidence = getter(samples)
         except Exception:
+            trace = current_period_profit_trace()
+            if trace is not None:
+                trace.record_identity_stage(
+                    "finance_posting",
+                    sample_count=len(samples),
+                    status="exception",
+                )
             return set()
         if (
             not isinstance(evidence, dict)
@@ -305,6 +348,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
             or evidence.get("complete") is not True
             or not isinstance(evidence.get("records"), list)
         ):
+            trace = current_period_profit_trace()
+            if trace is not None:
+                trace.record_identity_stage(
+                    "finance_posting",
+                    sample_count=len(samples),
+                    status="invalid_or_incomplete",
+                )
             return set()
 
         candidates = set()
@@ -329,6 +379,15 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_SKU"
             )
             self._related_sku_identity_cache[finance_sku] = recovered
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.record_identity_stage(
+                "finance_posting",
+                sample_count=len(samples),
+                record_count=len(evidence["records"]),
+                candidate_count=len(candidates),
+                status="matched" if candidates else "no_match",
+            )
         return candidates
 
     def _selected_related_finance_candidates(self, all_skus, selected):
@@ -380,6 +439,14 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 all_skus,
                 selected_sku,
                 getter,
+            )
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.record_identity_stage(
+                "related",
+                related_item_count=len(related_skus),
+                candidate_count=len(result),
+                status="matched" if result else "no_match",
             )
         catalog_sku = self._text(selected.get("sku"))
         product_id = self._text(selected.get("product_id"))
@@ -454,6 +521,14 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 "RELATED_DISCOVERY_BUDGET_EXHAUSTED"
             )
             return set()
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.record_identity_stage(
+                "directional_related",
+                discovery_call_count=calls,
+                candidate_count=len(proven),
+                status="matched" if proven else "no_match",
+            )
         return proven
 
     def _posting_owners(self):

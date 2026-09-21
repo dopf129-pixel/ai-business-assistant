@@ -24,6 +24,7 @@ class PeriodProfitOperationTrace:
         self.finance_sku = ""
         self.catalog_sku = ""
         self.identity_cache = {}
+        self.identity_diagnostics = {}
         self.posting_response_cache = {}
         self.events = []
         self._lock = threading.Lock()
@@ -78,6 +79,20 @@ class PeriodProfitOperationTrace:
             posting_numbers_processed=count,
         )
 
+    def record_identity_stage(self, name, **fields):
+        allowed = {
+            "finance_sku_count", "candidate_count", "row_count",
+            "sample_count", "record_count", "related_item_count",
+            "discovery_call_count", "status",
+        }
+        safe = {
+            key: value for key, value in fields.items()
+            if key in allowed and isinstance(value, (str, int, float, bool))
+        }
+        with self._lock:
+            self.identity_diagnostics[str(name)] = dict(safe)
+        self.update("selected_identity_" + str(name), **safe)
+
     def dump_worker_stack(self, reason="operation_over_90_seconds", log_path=None):
         frame = sys._current_frames().get(self.worker_thread_id)
         stack = traceback.format_stack(frame) if frame is not None else []
@@ -94,6 +109,7 @@ class PeriodProfitOperationTrace:
                 "catalog_sku": self.catalog_sku,
                 "worker_thread_id": self.worker_thread_id,
                 "recent_events": self.events[-25:],
+                "identity_diagnostics": dict(self.identity_diagnostics),
                 "worker_stack": stack,
             }
         target = Path(log_path or "logs/period_profit_diagnostics.log")
