@@ -1,4 +1,5 @@
-from contextvars import ContextVar
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 
 from services.period_profit_cached_legacy_sku_identity_scope_service import (
     PeriodProfitCachedLegacySkuIdentityScopeService,
@@ -24,6 +25,8 @@ class PeriodProfitFinancePostingIdentityScopeService(
     """
 
     MAX_SELECTED_POSTING_IDENTITY_PROBES = 3
+    MAX_SELECTED_POSTING_SAMPLE_PROBES = 64
+    SELECTED_POSTING_SAMPLE_WORKERS = 8
     MAX_SELECTED_RELATED_DISCOVERY_CALLS = 64
     RELATED_DISCOVERY_BATCH_SIZE = 200
 
@@ -292,6 +295,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 self._selected_finance_posting_sku_candidates(all_skus, selected)
             )
 
+        if not candidates:
+            candidates.update(
+                self._selected_posting_offer_candidates(all_skus, selected)
+            )
+
         # Ask Ozon for the exact related-SKU group of the selected current SKU.
         # This is one bounded request and proves which retired finance SKUs belong
         # to this variant.  Never scan the account-wide paginated FBO history in
@@ -385,6 +393,98 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 "finance_posting",
                 sample_count=len(samples),
                 record_count=len(evidence["records"]),
+                candidate_count=len(candidates),
+                status="matched" if candidates else "no_match",
+            )
+        return candidates
+
+    def _selected_posting_offer_candidates(self, all_skus, selected):
+        """Resolve rewritten posting SKUs by exact offer on one posting per SKU."""
+        selected_offer = self._text(selected.get("offer_id"))
+        selected_sku = self._text(selected.get("sku"))
+        product_id = self._text(selected.get("product_id"))
+        ozon = getattr(self.finance_service, "ozon", None)
+        trace = current_period_profit_trace()
+        if not selected_offer or not selected_sku or not product_id or ozon is None:
+            return set()
+
+        posting_owners = self._posting_owners()
+        samples = []
+        for finance_sku in sorted(all_skus):
+            numbers = sorted(
+                self._finance_posting_numbers_by_sku.get(finance_sku) or ()
+            )
+            if numbers:
+                samples.append((finance_sku, numbers[0]))
+        if len(samples) > self.MAX_SELECTED_POSTING_SAMPLE_PROBES:
+            if trace is not None:
+                trace.record_identity_stage(
+                    "posting_offer",
+                    sample_count=len(samples),
+                    status="probe_budget_exhausted",
+                )
+            return set()
+
+        def probe(sample):
+            finance_sku, posting_number = sample
+            for method_name in ("get_fbo_posting", "get_fbs_posting"):
+                getter = getattr(ozon, method_name, None)
+                if not callable(getter):
+                    continue
+                if trace is not None:
+                    trace.record_posting(posting_number)
+                try:
+                    response = getter(posting_number)
+                except Exception:
+                    response = None
+                products = self._posting_products(response, posting_number)
+                if not products:
+                    continue
+                offers = {
+                    self._text(product.get("offer_id"))
+                    for product in products
+                    if isinstance(product, dict)
+                    and self._text(product.get("offer_id"))
+                }
+                owners = posting_owners.get(posting_number) or set()
+                if offers == {selected_offer} and owners == {finance_sku}:
+                    return finance_sku
+                return None
+            return None
+
+        workers = min(self.SELECTED_POSTING_SAMPLE_WORKERS, len(samples))
+        if not workers:
+            return set()
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(copy_context().run, probe, sample)
+                    for sample in samples
+                ]
+                matches = [future.result() for future in futures]
+        except Exception:
+            if trace is not None:
+                trace.record_identity_stage(
+                    "posting_offer",
+                    sample_count=len(samples),
+                    status="exception",
+                )
+            return set()
+
+        candidates = {value for value in matches if value}
+        for finance_sku in candidates:
+            recovered = dict(selected)
+            recovered["catalog_sku"] = selected_sku
+            recovered["sku"] = finance_sku
+            recovered["historical_sku_identity_recovered"] = True
+            recovered["historical_sku_identity_source"] = (
+                "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_OFFER_ID"
+            )
+            self._related_sku_identity_cache[finance_sku] = recovered
+        if trace is not None:
+            trace.record_identity_stage(
+                "posting_offer",
+                sample_count=len(samples),
                 candidate_count=len(candidates),
                 status="matched" if candidates else "no_match",
             )

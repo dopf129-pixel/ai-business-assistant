@@ -3947,3 +3947,4 @@ Completed:
 [x] Added exact batched finance-posting SKU evidence to selected prefilter
 [x] Persist fast selected-SKU identity failure diagnostics immediately
 [x] Cover the traced production entrypoint against diagnostic NameError regressions
+[x] Resolve rewritten posting SKU by bounded parallel exact-offer samples

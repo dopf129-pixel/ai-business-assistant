@@ -1,6 +1,7 @@
 from services.period_profit_finance_posting_identity_scope_service import (
     PeriodProfitFinancePostingIdentityScopeService,
 )
+from contextvars import ContextVar
 from datetime import date
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -700,6 +701,86 @@ def test_posting_sku_evidence_rejects_shared_posting_owner():
 
     result = service._selected_finance_posting_sku_candidates(
         {"legacy-finance-sku", "other-finance-sku"},
+        selected,
+    )
+
+    assert result == set()
+
+
+def test_selected_scope_resolves_rewritten_sku_from_bounded_posting_offer_samples():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    all_skus = {"finance-%02d" % index for index in range(21)}
+    service._finance_posting_numbers_by_sku = {
+        sku: {"posting-" + sku} for sku in all_skus
+    }
+    tenant = ContextVar("posting_sample_tenant", default=None)
+    token = tenant.set("seller-1")
+    calls = []
+
+    def fbo(posting_number):
+        assert tenant.get() == "seller-1"
+        calls.append(("fbo", posting_number))
+        if posting_number == "posting-finance-17":
+            return {"error": True, "status_code": 404}
+        return {
+            "error": False,
+            "result": {
+                "posting_number": posting_number,
+                "products": [{"sku": "other", "offer_id": "other-offer"}],
+            },
+        }
+
+    def fbs(posting_number):
+        assert tenant.get() == "seller-1"
+        calls.append(("fbs", posting_number))
+        return {
+            "error": False,
+            "result": {
+                "posting_number": posting_number,
+                "products": [{
+                    "sku": "989101156",
+                    "offer_id": "10002_white_01",
+                }],
+            },
+        }
+
+    service.finance_service.ozon.get_fbo_posting = fbo
+    service.finance_service.ozon.get_fbs_posting = fbs
+    try:
+        result = service._selected_posting_offer_candidates(all_skus, selected)
+    finally:
+        tenant.reset(token)
+
+    assert result == {"finance-17"}
+    assert len(calls) == 22
+    assert calls.count(("fbs", "posting-finance-17")) == 1
+    recovered = service._recover_missing_product(
+        "finance-17",
+        date(2026, 9, 19),
+    )
+    assert recovered["catalog_sku"] == "989101156"
+
+
+def test_posting_offer_sample_rejects_multi_offer_posting():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {"posting-1"},
+    }
+    service.finance_service.ozon.get_fbo_posting = lambda _posting_number: {
+        "error": False,
+        "result": {
+            "posting_number": "posting-1",
+            "products": [
+                {"sku": "989101156", "offer_id": "10002_white_01"},
+                {"sku": "other", "offer_id": "other-offer"},
+            ],
+        },
+    }
+
+    result = service._selected_posting_offer_candidates(
+        {"legacy-finance-sku"},
         selected,
     )
 

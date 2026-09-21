@@ -479,3 +479,6 @@ Summary Report теперь включает:
   counts and blocker codes instead of waiting for the 90-second watchdog snapshot.
 - Fixed diagnostic final-stage recording being placed before finance SKU/candidate
   initialization, which caused `PERIOD_PROFIT_TAX_BASE_EXCEPTION: NameError`.
+- When realization, finance-posting SKU and related-SKU evidence cannot resolve a
+  selected item, identity now probes one representative posting per finance SKU in
+  parallel and accepts only an exact unique-owner `offer_id` match.
