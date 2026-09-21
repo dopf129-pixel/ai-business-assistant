@@ -466,3 +466,10 @@ Summary Report теперь включает:
   reused by the downstream calculation.
 - Missing or malformed related identity now fails closed immediately; selected-SKU
   mode never scans account-wide FBO pages.
+
+# 2026-09-21 — Recover directional selected-SKU relations
+
+- Handles Ozon related-SKU responses that expose historical → current identity but
+  omit the historical SKU when queried in the reverse direction.
+- Uses bounded batch bisection and exact singleton confirmation; no account-wide FBO
+  pagination or unproven product attribution is reintroduced.
