@@ -4509,3 +4509,5 @@ identity reuse, and zero account-wide FBO list calls both for a proven match and
 fail-closed missing identity.
 Also covers an asymmetric historical → current relation across 501 finance SKUs,
 with exact singleton confirmation and a bounded number of related-SKU calls.
+Also covers one batched posting sample for each of 501 finance SKUs, request-local
+identity reuse, and rejection of a rewritten SKU on a shared posting.

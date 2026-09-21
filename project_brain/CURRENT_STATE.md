@@ -3944,3 +3944,4 @@ Completed:
 [x] Kept missing/ambiguous identity fail-closed
 [x] Added regression coverage for 500 unrelated finance SKUs and zero FBO list calls
 [x] Added bounded directional related-SKU discovery for asymmetric Ozon relations
+[x] Added exact batched finance-posting SKU evidence to selected prefilter

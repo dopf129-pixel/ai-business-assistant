@@ -609,3 +609,83 @@ def test_directional_related_identity_is_found_with_bounded_batch_bisection():
         date(2026, 9, 19),
     )
     assert recovered["catalog_sku"] == "989101156"
+
+
+def test_selected_scope_uses_batched_finance_posting_sku_evidence_first():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    all_skus = {
+        "unrelated-%03d" % index for index in range(500)
+    } | {"legacy-finance-sku"}
+    service._finance_posting_numbers_by_sku = {
+        sku: {"posting-" + sku} for sku in all_skus
+    }
+    evidence_calls = []
+
+    def evidence(posting_numbers):
+        evidence_calls.append(tuple(posting_numbers))
+        return {
+            "error": False,
+            "complete": True,
+            "records": [{
+                "posting_number": posting_number,
+                "sku": (
+                    "989101156"
+                    if posting_number == "posting-legacy-finance-sku"
+                    else posting_number.removeprefix("posting-")
+                ),
+                "quantity": 1,
+            } for posting_number in posting_numbers],
+        }
+
+    service.finance_service.get_sale_posting_quantity_evidence = evidence
+    service.finance_service.ozon.get_realization_posting = lambda *_args: {
+        "error": True,
+    }
+    service.finance_service.ozon.get_related_skus = lambda _skus: (
+        (_ for _ in ()).throw(AssertionError("related fallback must be skipped"))
+    )
+    service.finance_service.ozon.get_fbo_postings = lambda *_args, **_kwargs: (
+        (_ for _ in ()).throw(AssertionError("selected scope must not list FBO"))
+    )
+
+    result = service._selected_finance_sku_candidates(
+        all_skus,
+        selected,
+        date(2026, 9, 19),
+    )
+
+    assert result == {"legacy-finance-sku"}
+    assert len(evidence_calls) == 1
+    assert len(evidence_calls[0]) == 501
+    recovered = service._recover_missing_product(
+        "legacy-finance-sku",
+        date(2026, 9, 19),
+    )
+    assert recovered["catalog_sku"] == "989101156"
+    assert len(evidence_calls) == 1
+
+
+def test_posting_sku_evidence_rejects_shared_posting_owner():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {"shared-posting"},
+        "other-finance-sku": {"shared-posting"},
+    }
+    service.finance_service.get_sale_posting_quantity_evidence = lambda _numbers: {
+        "error": False,
+        "complete": True,
+        "records": [{
+            "posting_number": "shared-posting",
+            "sku": "989101156",
+            "quantity": 1,
+        }],
+    }
+
+    result = service._selected_finance_posting_sku_candidates(
+        {"legacy-finance-sku", "other-finance-sku"},
+        selected,
+    )
+
+    assert result == set()

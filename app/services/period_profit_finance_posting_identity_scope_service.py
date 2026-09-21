@@ -257,6 +257,11 @@ class PeriodProfitFinancePostingIdentityScopeService(
             if len(owners) == 1:
                 candidates.update(owners)
 
+        if not candidates:
+            candidates.update(
+                self._selected_finance_posting_sku_candidates(all_skus, selected)
+            )
+
         # Ask Ozon for the exact related-SKU group of the selected current SKU.
         # This is one bounded request and proves which retired finance SKUs belong
         # to this variant.  Never scan the account-wide paginated FBO history in
@@ -267,6 +272,64 @@ class PeriodProfitFinancePostingIdentityScopeService(
             )
 
         return candidates & all_skus
+
+    def _selected_finance_posting_sku_candidates(self, all_skus, selected):
+        """Use one exact finance posting per SKU as a batched identity sample."""
+        selected_sku = self._text(selected.get("sku"))
+        getter = getattr(
+            self.finance_service,
+            "get_sale_posting_quantity_evidence",
+            None,
+        )
+        if not selected_sku or not callable(getter):
+            return set()
+
+        posting_owners = self._posting_owners()
+        samples = []
+        for finance_sku in sorted(all_skus):
+            posting_numbers = sorted(
+                self._finance_posting_numbers_by_sku.get(finance_sku) or ()
+            )
+            if posting_numbers:
+                samples.append(posting_numbers[0])
+        if not samples:
+            return set()
+
+        try:
+            evidence = getter(samples)
+        except Exception:
+            return set()
+        if (
+            not isinstance(evidence, dict)
+            or evidence.get("error") is True
+            or evidence.get("complete") is not True
+            or not isinstance(evidence.get("records"), list)
+        ):
+            return set()
+
+        candidates = set()
+        for record in evidence["records"]:
+            if not isinstance(record, dict):
+                return set()
+            posting_number = self._text(record.get("posting_number"))
+            observed_sku = self._text(record.get("sku"))
+            owners = posting_owners.get(posting_number) or set()
+            if observed_sku == selected_sku and len(owners) == 1:
+                candidates.update(owners)
+
+        product_id = self._text(selected.get("product_id"))
+        if candidates and not product_id:
+            return set()
+        for finance_sku in candidates:
+            recovered = dict(selected)
+            recovered["catalog_sku"] = selected_sku
+            recovered["sku"] = finance_sku
+            recovered["historical_sku_identity_recovered"] = True
+            recovered["historical_sku_identity_source"] = (
+                "OZON_FINANCE_POSTING_TO_CURRENT_CATALOG_SKU"
+            )
+            self._related_sku_identity_cache[finance_sku] = recovered
+        return candidates
 
     def _selected_related_finance_candidates(self, all_skus, selected):
         selected_sku = self._text(selected.get("sku"))
@@ -466,6 +529,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 else "SELLER_CURRENT_COST_EXACT_SKU_IDENTITY"
             )
             return self._cache_identity(cache_key, result)
+
+        prefetched = self._related_sku_identity_cache.get(self._text(sku))
+        if isinstance(prefetched, dict):
+            return self._cache_identity(cache_key, dict(prefetched))
 
         posting = self._recover_from_finance_posting_identity(sku)
         if posting is not None:

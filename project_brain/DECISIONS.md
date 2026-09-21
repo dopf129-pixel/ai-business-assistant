@@ -1200,6 +1200,9 @@ or the reverse related-SKU group cannot prove identity, calculation fails closed
 Because Ozon relations may be directional, an empty reverse intersection may use
 batch bisection over period finance SKUs. Only singleton responses containing the
 exact selected current SKU prove a mapping; discovery has a hard 64-call budget.
+Before related-SKU discovery, one posting per finance SKU may be checked through
+the batched finance accrual-postings endpoint. A rewritten current catalog SKU is
+accepted only when that exact posting has one finance-SKU owner.
 
 Reason:
 
