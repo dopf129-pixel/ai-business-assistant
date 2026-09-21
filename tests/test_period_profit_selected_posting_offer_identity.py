@@ -529,11 +529,16 @@ def test_selected_scope_missing_identity_fails_without_fbo_page_scan():
     selected = service._catalog_by_sku["989101156"]
     calls = {"related": 0, "fbo_list": 0}
 
-    def related(_skus):
+    def related(skus):
         calls["related"] += 1
         return {
             "error": False,
-            "items": [{"sku": "989101156", "product_id": "current-product"}],
+            "items": [{
+                "sku": skus[0],
+                "product_id": (
+                    "current-product" if skus == ["989101156"] else "other"
+                ),
+            }],
             "errors": [],
         }
 
@@ -554,4 +559,53 @@ def test_selected_scope_missing_identity_fails_without_fbo_page_scan():
     )
 
     assert result == set()
-    assert calls == {"related": 1, "fbo_list": 0}
+    assert calls == {"related": 2, "fbo_list": 0}
+
+
+def test_directional_related_identity_is_found_with_bounded_batch_bisection():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    all_skus = {
+        "unrelated-%03d" % index for index in range(500)
+    } | {"legacy-finance-sku"}
+    calls = []
+
+    def related(skus):
+        calls.append(tuple(skus))
+        # The production failure is directional: asking for the current SKU
+        # does not return its historical finance SKU. Asking a batch containing
+        # the historical SKU does return the current member of that relation.
+        if skus == ["989101156"]:
+            items = [{"sku": "989101156", "product_id": "current-product"}]
+        elif "legacy-finance-sku" in skus:
+            items = [
+                {"sku": "legacy-finance-sku", "product_id": "old-product"},
+                {"sku": "989101156", "product_id": "current-product"},
+            ]
+        else:
+            items = [{"sku": sku, "product_id": "other"} for sku in skus]
+        return {"error": False, "items": items, "errors": []}
+
+    service.finance_service.ozon.get_related_skus = related
+    service.finance_service.ozon.get_realization_posting = lambda *_args: {
+        "error": True,
+    }
+    service.finance_service.ozon.get_fbo_postings = lambda *_args, **_kwargs: (
+        (_ for _ in ()).throw(AssertionError("selected scope must not list FBO"))
+    )
+
+    result = service._selected_finance_sku_candidates(
+        all_skus,
+        selected,
+        date(2026, 9, 19),
+    )
+
+    assert result == {"legacy-finance-sku"}
+    assert calls[0] == ("989101156",)
+    assert ("legacy-finance-sku",) in calls
+    assert len(calls) <= 24
+    recovered = service._recover_missing_product(
+        "legacy-finance-sku",
+        date(2026, 9, 19),
+    )
+    assert recovered["catalog_sku"] == "989101156"

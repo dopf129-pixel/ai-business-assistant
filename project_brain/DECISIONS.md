@@ -1197,6 +1197,9 @@ proven group with finance SKUs observed in the requested period. The result is
 request-locally cached for downstream recovery. Account-wide FBO list pagination
 is forbidden in selected-SKU mode. If exact realization, seller-confirmed mapping,
 or the reverse related-SKU group cannot prove identity, calculation fails closed.
+Because Ozon relations may be directional, an empty reverse intersection may use
+batch bisection over period finance SKUs. Only singleton responses containing the
+exact selected current SKU prove a mapping; discovery has a hard 64-call budget.
 
 Reason:
 
