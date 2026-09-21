@@ -477,3 +477,5 @@ Summary Report теперь включает:
   evidence before related-SKU fallback, covering Ozon's rewritten current SKU.
 - A fast fail-closed selected-SKU identity miss now immediately persists stage
   counts and blocker codes instead of waiting for the 90-second watchdog snapshot.
+- Fixed diagnostic final-stage recording being placed before finance SKU/candidate
+  initialization, which caused `PERIOD_PROFIT_TAX_BASE_EXCEPTION: NameError`.
