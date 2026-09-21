@@ -4516,3 +4516,6 @@ identity reuse, and rejection of a rewritten SKU on a shared posting.
 secret-free identity-stage evidence in persisted snapshots.
 `tests/test_period_profit_selected_posting_offer_identity.py` runs the selected
 production scope with an active trace and verifies final-stage counts.
+It also covers 21 parallel representative posting probes, FBO-to-FBS fallback,
+tenant ContextVar propagation, rewritten SKU acceptance by exact offer, request
+cache reuse, bounded call count, and multi-offer rejection.
