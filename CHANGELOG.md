@@ -473,3 +473,5 @@ Summary Report теперь включает:
   omit the historical SKU when queried in the reverse direction.
 - Uses bounded batch bisection and exact singleton confirmation; no account-wide FBO
   pagination or unproven product attribution is reintroduced.
+- Selected-SKU prefilter now consumes the existing batched finance-posting SKU
+  evidence before related-SKU fallback, covering Ozon's rewritten current SKU.
