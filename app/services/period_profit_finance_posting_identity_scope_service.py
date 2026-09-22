@@ -172,6 +172,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 )
             scoped = dict(scoped)
             scoped["finance_diagnostic_code"] = diagnostic
+            scoped["finance_identity_blockers"] = diagnostics
         return scoped
 
     def _load_period_skus(self, date_from, date_to):
@@ -742,10 +743,6 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if isinstance(prefetched, dict):
             return self._cache_identity(cache_key, dict(prefetched))
 
-        posting = self._recover_from_finance_posting_identity(sku)
-        if posting is not None:
-            return self._cache_identity(cache_key, posting)
-
         realization = self._recover_from_realization_offer_identity(sku)
         if realization is not None:
             return self._cache_identity(cache_key, realization)
@@ -753,6 +750,10 @@ class PeriodProfitFinancePostingIdentityScopeService(
         related = self._recover_from_related_sku_identity(sku)
         if related is not None:
             return self._cache_identity(cache_key, related)
+
+        posting = self._recover_from_finance_posting_identity(sku)
+        if posting is not None:
+            return self._cache_identity(cache_key, posting)
 
         result = self._recover_from_finance_posting_offer_identity(sku)
         return self._cache_identity(cache_key, result)

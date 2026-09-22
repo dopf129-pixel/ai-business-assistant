@@ -219,10 +219,31 @@ class AssistantPeriodProfitRuntimeService:
                 ):
                     diagnostic = code
                 output["finance_diagnostic_code"] = diagnostic
-                output["message"] = (
-                    "Финансовые данные Ozon недоступны\n"
-                    "Код диагностики: " + diagnostic
-                )
+                if diagnostic.startswith("PERIOD_PROFIT_FINANCE_SKU_IDENTITY_"):
+                    skus = [
+                        str(sku).strip()
+                        for sku in result.get("unresolved_finance_skus") or []
+                        if str(sku).strip()
+                    ][:10]
+                    message = (
+                        "Операции Ozon найдены, но не все исторические SKU "
+                        "удалось однозначно сопоставить с товарами каталога. "
+                        "Расчёт остановлен, чтобы не смешать данные разных товаров."
+                    )
+                    if skus:
+                        message += "\nSKU без подтверждённой связи: " + ", ".join(skus)
+                    message += (
+                        "\nОткройте «Прибыль за период» → «По выбранному SKU» "
+                        "для нужного товара: бот покажет подтверждение связи, "
+                        "если Ozon предоставляет достаточные доказательства."
+                        "\nКод диагностики: " + diagnostic
+                    )
+                    output["message"] = message
+                else:
+                    output["message"] = (
+                        "Финансовые данные Ozon недоступны\n"
+                        "Код диагностики: " + diagnostic
+                    )
                 output["read_only"] = True
                 output["executed"] = False
                 return output

@@ -4586,3 +4586,5 @@ Covers zero account-wide `/v3/posting/fbo/list` calls during unresolved store-wi
 identity recovery, bounded exact posting fallback, and preservation of an already
 proven current-period result when the optional previous period fails, without a
 second current-period query.
+Also covers safe Telegram presentation of multiple identity blockers, unresolved
+finance SKU visibility, and guidance into the selected-SKU confirmation flow.

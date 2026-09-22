@@ -102,11 +102,36 @@ def test_sku_identity_stage_survives_production_telegram_wiring():
 
     result = runtime.handle_callback("period_profit:90D")
 
-    assert result["message"] == (
-        "Финансовые данные Ozon недоступны\n"
-        "Код диагностики: "
+    assert result["message"].startswith(
+        "Операции Ozon найдены, но не все исторические SKU"
+    )
+    assert "По выбранному SKU" in result["message"]
+    assert result["message"].endswith(
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
     )
     assert "must not escape" not in result["message"]
     assert result["read_only"] is True
     assert result["executed"] is False
+
+
+def test_multiple_identity_blockers_show_safe_unresolved_skus():
+    runtime = AssistantPeriodProfitRuntimeService(_Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+        "code": "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
+        "finance_diagnostic_code": (
+            "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_MULTIPLE_BLOCKERS"
+        ),
+        "unresolved_finance_skus": ["OLD-1", "OLD-2"],
+        "unresolved_finance_sku_count": 2,
+        "finance_identity_blockers": [
+            "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_TARGET_MISSING",
+            "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_POSTING_OFFER_MISSING",
+        ],
+    }))
+
+    result = runtime.handle_callback("period_profit:28D")
+
+    assert "SKU без подтверждённой связи: OLD-1, OLD-2" in result["message"]
+    assert "API" not in result["message"]
+    assert "secret" not in result["message"].lower()
