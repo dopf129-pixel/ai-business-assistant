@@ -1,4 +1,6 @@
 from services.assistant_entry_service import AssistantEntryService
+from services.assistant_button_handler_service import AssistantButtonHandlerService
+from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
@@ -180,3 +182,82 @@ def test_v1180_localized_period_bypasses_general_execution_flow():
     assert main_flow.calls == []
     assert query.calls[0]["date_from"] == "2026-05-01"
     assert query.calls[0]["date_to"] == "2026-09-03"
+
+
+def test_period_profit_menu_exposes_custom_period_button():
+    runtime, _query = _service()
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=runtime,
+    )
+
+    menu = handler.handle("period_profit", "seller-1")
+
+    assert {
+        "text": "📅 Указать период",
+        "callback": "period_profit:custom",
+    } in menu["keyboard"]["buttons"]
+
+
+def test_custom_period_button_accepts_date_only_for_same_user():
+    runtime, query = _service()
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=runtime,
+    )
+
+    prompt = handler.handle("period_profit:custom", "seller-1")
+    unrelated = runtime.handle_text(
+        "01.01.2026-02.02.2026", user_id="seller-2"
+    )
+    result = runtime.handle_text(
+        "01.01.2026-02.02.2026", user_id="seller-1"
+    )
+
+    assert prompt["message"] == (
+        "Введите период в формате 01.01.2026-02.02.2026"
+    )
+    assert unrelated is None
+    assert result["error"] is False
+    assert query.calls == [{
+        "date_from": "2026-01-01",
+        "date_to": "2026-02-02",
+        "compare_previous": True,
+        "today": None,
+    }]
+
+
+def test_invalid_custom_period_keeps_prompt_active_until_valid_input():
+    runtime, query = _service()
+    runtime.begin_custom_period("seller-1")
+
+    invalid_format = runtime.handle_text(
+        "2026-01-01 - 2026-02-02", user_id="seller-1"
+    )
+    invalid_date = runtime.handle_text(
+        "31.02.2026-02.03.2026", user_id="seller-1"
+    )
+    valid = runtime.handle_text(
+        "01.02.2026-02.03.2026", user_id="seller-1"
+    )
+
+    assert invalid_format["code"] == "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_INVALID"
+    assert invalid_date["code"] == "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_INVALID"
+    assert valid["error"] is False
+    assert len(query.calls) == 1
+
+
+def test_custom_period_pending_state_can_be_cancelled_per_user():
+    runtime, query = _service()
+    runtime.begin_custom_period("seller-1")
+
+    cancelled = runtime.handle_text("отмена", user_id="seller-1")
+    after_cancel = runtime.handle_text(
+        "01.01.2026-02.02.2026", user_id="seller-1"
+    )
+
+    assert cancelled["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_CANCELLED"
+    assert after_cancel is None
+    assert query.calls == []

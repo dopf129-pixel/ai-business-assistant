@@ -3957,3 +3957,5 @@ Completed:
 [x] Expose exact revocation on every report that consumes a confirmed alias
 [x] Batch report mapping lookup into one local SQLite read and zero Ozon calls
 [x] Show selected-SKU monetary lines with their revenue share in parentheses
+[x] Add discoverable date-only custom-period input to the Period Profit menu
+[x] Isolate pending custom-period input per Telegram user

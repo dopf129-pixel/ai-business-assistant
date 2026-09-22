@@ -7,6 +7,7 @@ from services.stock_context_provider import (
 from services.finance_context_provider import (
     FinanceContextProvider
 )
+from telegram_app_layer.telegram_call_compat import call_with_legacy_arity
 
 
 class AssistantEntryService:
@@ -150,8 +151,11 @@ class AssistantEntryService:
 
         if self.period_profit_runtime_service is not None:
             direct_result = (
-                self.period_profit_runtime_service
-                .handle_text(text)
+                call_with_legacy_arity(
+                    self.period_profit_runtime_service.handle_text,
+                    (text, None, user_id),
+                    (text,),
+                )
             )
             if direct_result is not None:
                 return self._direct_result(

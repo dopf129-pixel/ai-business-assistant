@@ -4550,3 +4550,13 @@ exact current product gets a revoke button. Repository coverage verifies dedupli
 batch loading of active aliases for the report surface.
 Selected-SKU Telegram coverage also verifies revenue-share percentages for every
 money line and suppression of undefined percentages when revenue is zero.
+
+# Telegram custom Period Profit button
+
+Updated:
+
+- `tests/test_telegram_custom_period_date_input_v1171_v1180.py`
+
+Covers menu discoverability, the date-only `ДД.ММ.ГГГГ-ДД.ММ.ГГГГ` response,
+canonical ISO query arguments with previous-period comparison, invalid format and
+calendar-date retry, per-user pending-state isolation, and explicit cancellation.

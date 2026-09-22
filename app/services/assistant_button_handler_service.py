@@ -486,6 +486,24 @@ class AssistantButtonHandlerService:
                 return {"error": True, "message": "Прибыль по SKU недоступна", "executed": False}
             return self.period_profit_sku_runtime_service.handle_callback(button_id)
 
+        if button_id == "period_profit:custom":
+            if self.period_profit_runtime_service is None:
+                return {
+                    "error": True,
+                    "message": "Прибыль за период недоступна",
+                    "executed": False,
+                }
+            starter = getattr(
+                self.period_profit_runtime_service, "begin_custom_period", None
+            )
+            if not callable(starter):
+                return {
+                    "error": True,
+                    "message": "Ввод периода недоступен",
+                    "executed": False,
+                }
+            return starter(user_id)
+
         if button_id.startswith(
             "period_profit:"
         ):
@@ -730,10 +748,16 @@ class AssistantButtonHandlerService:
             }
 
         keyboard = dict(keyboard)
-        keyboard["buttons"] = list(keyboard["buttons"]) + [{
-            "text": "🔎 По выбранному SKU",
-            "callback": "period_profit_sku",
-        }]
+        keyboard["buttons"] = list(keyboard["buttons"]) + [
+            {
+                "text": "📅 Указать период",
+                "callback": "period_profit:custom",
+            },
+            {
+                "text": "🔎 По выбранному SKU",
+                "callback": "period_profit_sku",
+            },
+        ]
 
         return {
             "error": False,
