@@ -73,6 +73,53 @@ def test_selected_sku_aggregates_proven_legacy_and_current_identity():
     assert query.calls == [{"period_code": "7D", "compare_previous": True, "today": None}]
 
 
+def test_selected_sku_report_shows_revenue_share_for_each_money_line():
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("3921245627")]),
+        "previous_summary": None,
+    })
+
+    result = PeriodProfitSkuRuntimeService(query).handle_callback(
+        "period_profit_sku:3921245627:7D"
+    )
+
+    text = result["text"]
+    assert "Выручка: 100 ₽ (100%)" in text
+    assert "Начисления Ozon по SKU: 80 ₽ (80%)" in text
+    assert "Комиссия: 10 ₽ (10%)" in text
+    assert "Логистика: 5 ₽ (5%)" in text
+    assert "Эквайринг: 1 ₽ (1%)" in text
+    assert "Прочие SKU-расходы: 4 ₽ (4%)" in text
+    assert "Себестоимость: 20 ₽ (20%)" in text
+    assert "Налог: 6 ₽ (6%)" in text
+    assert "Прибыль: 54 ₽ (54%)" in text
+
+
+def test_selected_sku_zero_revenue_does_not_invent_percentages():
+    row = _row("3921245627", revenue=0, net=0, cost=0, units=0)
+    row.update({
+        "commission": 0,
+        "logistics": 0,
+        "acquiring": 0,
+        "other_fees": 0,
+        "tax": 0,
+        "profit": 0,
+    })
+    query = Query({
+        "error": False,
+        "summary": _summary([row]),
+        "previous_summary": None,
+    })
+
+    result = PeriodProfitSkuRuntimeService(query).handle_callback(
+        "period_profit_sku:3921245627:7D"
+    )
+
+    assert "Выручка: 0 ₽\n" in result["text"]
+    assert "%" not in result["text"].split("Маржа:")[0]
+
+
 def test_unknown_or_forged_sku_fails_before_finance_query():
     query = Query({"error": False})
     result = PeriodProfitSkuRuntimeService(query).handle_callback(
