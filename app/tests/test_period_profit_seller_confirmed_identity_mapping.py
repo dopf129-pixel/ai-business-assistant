@@ -131,6 +131,46 @@ def test_repository_is_idempotent_and_rejects_conflicting_alias():
         os.unlink(handle.name)
 
 
+def test_repository_revokes_only_exact_mapping_and_preserves_audit():
+    handle = tempfile.NamedTemporaryFile(delete=False)
+    handle.close()
+    try:
+        repository = SellerConfirmedProductIdentityRepository(
+            _FileCostService(handle.name)
+        )
+        assert repository.record_mapping(
+            OLD_SKU, CURRENT_PRODUCT_ID, CURRENT_SKU, OFFER_ID
+        )["error"] is False
+
+        mismatch = repository.revoke_mapping(OLD_SKU, "wrong-current-sku")
+        assert mismatch["error"] is True
+        assert mismatch["code"] == "SELLER_PRODUCT_IDENTITY_REVOCATION_MISMATCH"
+        assert repository.get_mapping(OLD_SKU)["mapping_confirmed"] is True
+
+        revoked = repository.revoke_mapping(OLD_SKU, CURRENT_SKU)
+        assert revoked["error"] is False
+        assert revoked["status"] == "SELLER_PRODUCT_IDENTITY_MAPPING_REVOKED"
+        assert repository.get_mapping(OLD_SKU)["mapping_confirmed"] is False
+
+        conn = sqlite3.connect(handle.name)
+        audit = conn.execute(
+            "SELECT finance_sku, current_sku, current_offer_id, event, event_source "
+            "FROM seller_confirmed_product_identity_mapping_audit"
+        ).fetchall()
+        conn.close()
+        assert audit == [(
+            OLD_SKU, CURRENT_SKU, OFFER_ID, "REVOKED", "SELLER_REVOKED_BOT_TEXT",
+        )]
+
+        replacement = repository.record_mapping(
+            OLD_SKU, "new-product", "new-current-sku", "new-offer"
+        )
+        assert replacement["error"] is False
+        assert repository.get_mapping(OLD_SKU)["current_sku"] == "new-current-sku"
+    finally:
+        os.unlink(handle.name)
+
+
 def test_text_confirmation_requires_exactly_one_current_seller_identity():
     recorder = _Recorder()
     runtime = PeriodProfitIdentityConfirmationRuntimeService(
@@ -154,6 +194,62 @@ def test_text_confirmation_requires_exactly_one_current_seller_identity():
             "source": "SELLER_CONFIRMED_BOT_TEXT",
         }
     ]
+
+
+def test_text_revocation_requires_and_removes_one_exact_active_pair():
+    class Repository:
+        def __init__(self):
+            self.revocations = []
+
+        def get_mapping(self, finance_sku):
+            if finance_sku != OLD_SKU:
+                return {"error": False, "mapping_confirmed": False}
+            return {
+                "error": False,
+                "mapping_confirmed": True,
+                "current_sku": CURRENT_SKU,
+            }
+
+        def revoke_mapping(self, **kwargs):
+            self.revocations.append(kwargs)
+            return {"error": False, "status": "REVOKED"}
+
+    repository = Repository()
+    runtime = PeriodProfitIdentityConfirmationRuntimeService(
+        _CurrentCostService(), repository=repository
+    )
+
+    result = runtime.handle_text(
+        f"Отменить связь SKU {OLD_SKU} и SKU {CURRENT_SKU}"
+    )
+
+    assert result["error"] is False
+    assert result["code"] == "PERIOD_PROFIT_IDENTITY_REVOCATION_RECORDED"
+    assert "недействительными" in result["message"]
+    assert repository.revocations == [{
+        "finance_sku": OLD_SKU,
+        "current_sku": CURRENT_SKU,
+        "source": "SELLER_REVOKED_BOT_TEXT",
+    }]
+
+
+def test_text_revocation_fails_closed_when_exact_pair_is_absent():
+    class Repository:
+        def get_mapping(self, _finance_sku):
+            return {"error": False, "mapping_confirmed": False}
+
+        def revoke_mapping(self, **_kwargs):
+            raise AssertionError("missing mapping must not be revoked")
+
+    runtime = PeriodProfitIdentityConfirmationRuntimeService(
+        _CurrentCostService(), repository=Repository()
+    )
+    result = runtime.handle_text(
+        f"Отменить связь SKU {OLD_SKU} и SKU {CURRENT_SKU}"
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_IDENTITY_REVOCATION_NOT_FOUND"
 
 
 def test_scope_uses_seller_mapping_before_ozon_identity_fallbacks():
@@ -227,6 +323,26 @@ def test_assistant_routes_identity_confirmation_without_profit_or_cost_words():
         f"SKU {OLD_SKU} и SKU {CURRENT_SKU} — один товар"
     )
     assert result == {"error": False, "code": "IDENTITY_RECORDED"}
+
+
+def test_assistant_routes_identity_revocation_without_running_profit_query():
+    class _NeverQuery:
+        def query(self, **_kwargs):
+            raise AssertionError("Period Profit query must not run for revocation text")
+
+    class _IdentityRuntime:
+        def handle_text(self, text):
+            assert "Отменить связь" in text
+            return {"error": False, "code": "IDENTITY_REVOKED"}
+
+    runtime = AssistantPeriodProfitRuntimeService(
+        _NeverQuery(), identity_confirmation_runtime_service=_IdentityRuntime()
+    )
+    result = runtime.handle_text(
+        f"Отменить связь SKU {OLD_SKU} и SKU {CURRENT_SKU}"
+    )
+
+    assert result == {"error": False, "code": "IDENTITY_REVOKED"}
 
 
 def test_production_factory_uses_seller_confirmed_identity_scope():
