@@ -7,6 +7,9 @@ from services.period_profit_operation_diagnostics import (
     current_period_profit_trace,
     reset_period_profit_trace,
 )
+from services.seller_confirmed_product_identity_repository import (
+    SellerConfirmedProductIdentityRepository,
+)
 
 
 class _RequestScopedProductProvider:
@@ -41,9 +44,13 @@ class PeriodProfitSkuRuntimeService:
         "acquiring", "other_fees", "product_cost", "tax", "profit",
     )
 
-    def __init__(self, query_service, cost_service=None):
+    def __init__(self, query_service, cost_service=None, identity_repository=None):
         self.query_service = query_service
         self.cost_service = cost_service
+        self.identity_repository = identity_repository or (
+            SellerConfirmedProductIdentityRepository(cost_service)
+            if cost_service is not None else None
+        )
         self._scoped_providers = self._install_request_scoped_providers()
 
     def open_sku_menu(self):
@@ -78,6 +85,8 @@ class PeriodProfitSkuRuntimeService:
 
     def handle_callback(self, callback, today=None):
         parts = str(callback or "").strip().split(":")
+        if parts and parts[0] == "period_profit_sku" and len(parts) in {5, 6}:
+            return self._handle_identity_confirmation(parts, today=today)
         if len(parts) not in {2, 3} or parts[0] != "period_profit_sku":
             return self._error("PERIOD_PROFIT_SKU_CALLBACK_INVALID")
         sku = self._text(parts[1])
@@ -115,6 +124,14 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(result, dict) or type(result.get("error")) is not bool:
             return self._error("PERIOD_PROFIT_SKU_QUERY_INVALID")
         if result.get("error") is True:
+            if result.get("code") == (
+                "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED"
+            ):
+                return self._present_identity_candidates(
+                    identity,
+                    period,
+                    result.get("identity_candidates"),
+                )
             return dict(result)
         summary = result.get("summary")
         selected = self._aggregate(summary, identity)
@@ -130,6 +147,123 @@ class PeriodProfitSkuRuntimeService:
                 return candidate
             previous = candidate
         return self._present(selected, identity, previous)
+
+    def _present_identity_candidates(self, identity, period, candidates):
+        if not isinstance(candidates, list):
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_CANDIDATES_INVALID")
+        buttons = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            finance_sku = self._text(candidate.get("finance_sku"))
+            offer_id = self._text(candidate.get("historical_offer_id"))
+            if not finance_sku:
+                continue
+            buttons.append({
+                "text": (offer_id or "Старый товар") + " · SKU " + finance_sku,
+                "callback": ":".join((
+                    "period_profit_sku", identity["sku"], period,
+                    "map", finance_sku,
+                )),
+            })
+        if not buttons:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_CANDIDATES_EMPTY")
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_REQUIRED",
+            "message": (
+                "Ozon нашёл продажи под историческими SKU, но не подтвердил их связь "
+                "с текущим SKU " + identity["sku"] + ". Выберите старый SKU только "
+                "если уверены, что это тот же товар и вариант:"
+            ),
+            "keyboard": {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": buttons,
+            },
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _handle_identity_confirmation(self, parts, today=None):
+        current_sku, period, action, finance_sku = (
+            self._text(parts[1]), self._text(parts[2]).upper(),
+            self._text(parts[3]), self._text(parts[4]),
+        )
+        if action != "map" or period not in {code for _, code in self.PERIODS}:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_CALLBACK_INVALID")
+        identity = self._selected_identity(current_sku)
+        if isinstance(identity, dict) and identity.get("error") is True:
+            return identity
+        if len(parts) == 5:
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_PENDING",
+                "message": (
+                    "Подтвердите: исторический SKU " + finance_sku
+                    + " и текущий SKU " + current_sku
+                    + " — один и тот же товар и вариант?"
+                ),
+                "keyboard": {
+                    "error": False,
+                    "type": "inline_keyboard",
+                    "buttons": [
+                        {
+                            "text": "✅ Да, это один товар",
+                            "callback": ":".join(parts + ["confirm"]),
+                        },
+                        {
+                            "text": "↩️ Отмена",
+                            "callback": "period_profit_sku:" + current_sku + ":" + period,
+                        },
+                    ],
+                },
+                "read_only": True,
+                "executed": False,
+            }
+        if parts[5] != "confirm" or self.identity_repository is None:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_INVALID")
+        verification = self._query_selected_product(
+            identity,
+            period_code=period,
+            compare_previous=True,
+            today=today,
+        )
+        verified_candidates = (
+            verification.get("identity_candidates")
+            if isinstance(verification, dict)
+            and verification.get("code") == (
+                "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED"
+            )
+            else None
+        )
+        if not isinstance(verified_candidates, list) or finance_sku not in {
+            self._text(candidate.get("finance_sku"))
+            for candidate in verified_candidates
+            if isinstance(candidate, dict)
+        }:
+            return self._error(
+                "PERIOD_PROFIT_SKU_IDENTITY_CANDIDATE_NOT_VERIFIED"
+            )
+        try:
+            recorded = self.identity_repository.record_mapping(
+                finance_sku=finance_sku,
+                current_product_id=identity["product_id"],
+                current_sku=current_sku,
+                current_offer_id=identity.get("offer_id"),
+                source="SELLER_CONFIRMED_TELEGRAM_BUTTON",
+            )
+        except Exception:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_FAILED")
+        if not isinstance(recorded, dict) or recorded.get("error") is True:
+            return self._error(
+                (recorded.get("code") if isinstance(recorded, dict) else None)
+                or "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_FAILED"
+            )
+        return self.handle_callback(
+            "period_profit_sku:" + current_sku + ":" + period,
+            today=today,
+        )
 
     def _query_selected_product(self, identity, **kwargs):
         """Run Period Profit with the catalog scoped to the selected product.
