@@ -296,6 +296,42 @@ Decision:
 
 Implemented
 
+---
+
+## Decision 042
+
+Date:
+
+2026-09-22
+
+Topic:
+
+Seller revocation of an incorrect historical SKU identity
+
+Decision:
+
+A seller-confirmed finance-SKU mapping must be reversible by the same seller-facing
+Telegram surface. Revocation requires exactly two SKU values and succeeds only when
+one is the active finance SKU and the other exactly matches its current catalog SKU.
+The active projection is removed transactionally, while its complete non-secret
+identity snapshot and revocation source are retained in a local audit table. Other
+mappings, Ozon data, costs, and previously fetched financial evidence are unchanged.
+
+The response must state that earlier reports produced through the revoked mapping
+are invalid. Missing, mismatched, ambiguous, or concurrently changed mappings fail
+closed without mutation.
+
+Reason:
+
+Seller confirmation is business evidence supplied by a human and can be mistaken.
+An irreversible confirmation would allow a known error to continue contaminating
+future selected-SKU reports. Exact-pair revocation corrects the active identity
+projection without silently erasing what was previously asserted.
+
+Status:
+
+Implemented
+
 
 
 ---

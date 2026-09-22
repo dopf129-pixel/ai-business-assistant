@@ -3951,3 +3951,5 @@ Completed:
 [x] Guide the seller through historical-SKU identity confirmation in Telegram
 [x] Revalidate a candidate against current posting evidence before persistence
 [x] Retry the original selected-SKU period automatically after confirmation
+[x] Let the seller revoke one exact incorrect historical/current SKU identity
+[x] Preserve a local revocation audit snapshot and invalidate prior report guidance

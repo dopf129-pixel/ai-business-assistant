@@ -29,7 +29,7 @@ class AssistantPeriodProfitRuntimeService:
     def handle_text(self, text, today=None):
         value = " ".join(str(text or "").strip().lower().split())
 
-        if self._looks_like_identity_confirmation(value):
+        if self._looks_like_identity_statement(value):
             runtime = self.identity_confirmation_runtime_service
             if runtime is None:
                 cost_service = PeriodProfitEffectiveCostService()
@@ -214,7 +214,7 @@ class AssistantPeriodProfitRuntimeService:
         return "; ".join(parts)
 
     @staticmethod
-    def _looks_like_identity_confirmation(value):
+    def _looks_like_identity_statement(value):
         if "sku" not in value:
             return False
         return any(
@@ -226,6 +226,11 @@ class AssistantPeriodProfitRuntimeService:
                 "это тот же товар",
                 "same product",
                 "same item",
+                "отменить связь",
+                "удалить связь",
+                "отозвать связь",
+                "не один товар",
+                "не тот же товар",
             )
         )
 
