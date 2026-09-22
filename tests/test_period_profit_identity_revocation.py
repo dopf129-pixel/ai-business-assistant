@@ -61,6 +61,24 @@ def test_exact_mapping_revocation_is_audited_and_allows_safe_remapping():
         os.unlink(handle.name)
 
 
+def test_active_report_mappings_are_loaded_in_one_batch():
+    handle = tempfile.NamedTemporaryFile(delete=False)
+    handle.close()
+    try:
+        repository = SellerConfirmedProductIdentityRepository(
+            _CostStorage(handle.name)
+        )
+        repository.record_mapping(OLD_SKU, "product-1", CURRENT_SKU, "offer-1")
+
+        mappings = repository.get_mappings([OLD_SKU, "missing", OLD_SKU])
+
+        assert list(mappings) == [OLD_SKU]
+        assert mappings[OLD_SKU]["current_sku"] == CURRENT_SKU
+        assert mappings[OLD_SKU]["mapping_confirmed"] is True
+    finally:
+        os.unlink(handle.name)
+
+
 def test_telegram_text_revokes_only_the_exact_active_pair():
     class Repository:
         def __init__(self):
