@@ -4531,3 +4531,14 @@ Covers exposure of a nonmatching historical offer only from unique-owner,
 single-offer posting evidence; Telegram candidate presentation; explicit
 confirmation; fresh candidate revalidation; tenant-local mapping persistence;
 automatic recalculation; and rejection of forged/stale candidates before storage.
+
+# Seller-confirmed SKU identity revocation
+
+Updated:
+
+- `app/tests/test_period_profit_seller_confirmed_identity_mapping.py`
+- `tests/test_telegram_help_discovery.py`
+
+Covers exact-pair transactional revocation, mismatch fail-closed behavior, retained
+audit evidence, immediate mapping absence, safe later remapping, Telegram text
+routing without a profit query, invalidation wording, and help discoverability.
