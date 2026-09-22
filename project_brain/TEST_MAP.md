@@ -4545,3 +4545,6 @@ routing without a profit query, invalidation wording, and help discoverability.
 `tests/test_period_profit_sku_telegram_flow.py` also covers the visible report
 button, explicit revocation confirmation, exact repository revalidation, one-click
 recalculation, and rejection of a forged revocation callback before mutation.
+It also covers ordinary later reports: only an alias actively confirmed for the
+exact current product gets a revoke button. Repository coverage verifies deduplicated
+batch loading of active aliases for the report surface.

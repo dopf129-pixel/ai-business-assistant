@@ -3954,3 +3954,5 @@ Completed:
 [x] Let the seller revoke one exact incorrect historical/current SKU identity
 [x] Preserve a local revocation audit snapshot and invalidate prior report guidance
 [x] Expose revocation directly on the report created from a confirmed SKU mapping
+[x] Expose exact revocation on every report that consumes a confirmed alias
+[x] Batch report mapping lookup into one local SQLite read and zero Ozon calls

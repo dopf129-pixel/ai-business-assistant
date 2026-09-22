@@ -182,6 +182,58 @@ class SellerConfirmedProductIdentityRepository:
             "executed": False,
         }
 
+    def get_mappings(self, finance_skus):
+        """Load active mappings in one SQLite read for report UI decoration."""
+        keys = sorted({self._text(value) for value in finance_skus if self._text(value)})
+        if not keys:
+            return {}
+        conn = self._connection()
+        if conn is None:
+            return {}
+        try:
+            self._ensure_schema(conn)
+            placeholders = ",".join("?" for _ in keys)
+            rows = conn.execute(
+                "SELECT id, finance_sku, current_product_id, current_sku, "
+                "current_offer_id, source, confirmed_at "
+                f"FROM {self.TABLE} WHERE finance_sku IN ({placeholders})",
+                keys,
+            ).fetchall()
+            conn.close()
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return {}
+        mappings = {}
+        for row in rows:
+            finance_key = self._text(row[1])
+            product_id = self._text(row[2])
+            current_sku = self._text(row[3])
+            source = self._text(row[5])
+            if (
+                not finance_key or not product_id or not current_sku
+                or current_sku == finance_key or not source
+            ):
+                continue
+            mappings[finance_key] = {
+                "error": False,
+                "status": "SELLER_PRODUCT_IDENTITY_MAPPING_READY",
+                "mapping_id": row[0],
+                "finance_sku": finance_key,
+                "current_product_id": product_id,
+                "current_sku": current_sku,
+                "current_offer_id": self._text(row[4]) or None,
+                "source": source,
+                "confirmed_at": row[6],
+                "mapping_confirmed": True,
+                "seller_confirmed": True,
+                "read_only_ozon": True,
+                "executed": False,
+            }
+        return mappings
+
     def revoke_mapping(
         self,
         finance_sku,

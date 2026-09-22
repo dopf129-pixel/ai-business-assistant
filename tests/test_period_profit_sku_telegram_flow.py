@@ -223,6 +223,14 @@ def test_confirmed_candidate_is_reverified_saved_and_calculated():
             self.query.confirmed = True
             return {"error": False, "status": "RECORDED"}
 
+        def get_mapping(self, finance_sku):
+            return {
+                "error": False,
+                "mapping_confirmed": finance_sku == "111",
+                "current_product_id": "p1",
+                "current_sku": "3921245627",
+            }
+
     query = ConfirmingQuery()
     repository = Repository(query)
     runtime = PeriodProfitSkuRuntimeService(
@@ -243,7 +251,7 @@ def test_confirmed_candidate_is_reverified_saved_and_calculated():
     assert result["error"] is False
     assert result["status"] == "PERIOD_PROFIT_SKU_READY"
     assert result["keyboard"]["buttons"] == [{
-        "text": "↩️ Отменить связь SKU",
+        "text": "↩️ Отменить связь SKU 111",
         "callback": "period_profit_sku:3921245627:7D:unmap:111",
     }]
     assert repository.calls == [{
@@ -305,6 +313,57 @@ def test_confirmed_mapping_can_be_revoked_from_visible_result_button():
     assert revoked["keyboard"]["buttons"][0]["callback"] == (
         "period_profit_sku:3921245627:7D"
     )
+
+
+def test_every_report_using_confirmed_alias_shows_exact_revocation_button():
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("111", catalog_sku="3921245627")]),
+        "previous_summary": None,
+    })
+
+    class Repository:
+        def get_mapping(self, finance_sku):
+            assert finance_sku == "111"
+            return {
+                "error": False,
+                "mapping_confirmed": True,
+                "current_product_id": "p1",
+                "current_sku": "3921245627",
+            }
+
+    runtime = PeriodProfitSkuRuntimeService(
+        query, identity_repository=Repository()
+    )
+
+    result = runtime.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["status"] == "PERIOD_PROFIT_SKU_READY"
+    assert result["keyboard"]["buttons"] == [{
+        "text": "↩️ Отменить связь SKU 111",
+        "callback": "period_profit_sku:3921245627:7D:unmap:111",
+    }]
+
+
+def test_report_does_not_show_revocation_for_unconfirmed_finance_sku():
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("111", catalog_sku="3921245627")]),
+        "previous_summary": None,
+    })
+
+    class Repository:
+        def get_mapping(self, _finance_sku):
+            return {"error": False, "mapping_confirmed": False}
+
+    runtime = PeriodProfitSkuRuntimeService(
+        query, identity_repository=Repository()
+    )
+
+    result = runtime.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["status"] == "PERIOD_PROFIT_SKU_READY"
+    assert "keyboard" not in result
 
 
 def test_forged_revocation_callback_is_rejected_before_storage():
