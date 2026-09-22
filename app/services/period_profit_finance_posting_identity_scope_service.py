@@ -43,6 +43,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         "_fbo_identity_snapshot",
         "_fbo_identity_snapshot_loaded",
         "_realization_identity_responses",
+        "_selected_identity_candidates",
     }
 
     def __init__(self, summary_service, finance_service, sku_ozon_client=None):
@@ -62,6 +63,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._related_sku_identity_cache = {}
         self._sku_recovery_diagnostic_codes = set()
         self._realization_identity_responses = {}
+        self._selected_identity_candidates = []
 
     def __getattribute__(self, name):
         if name in object.__getattribute__(self, "_REQUEST_STATE_FIELDS"):
@@ -138,6 +140,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
         self._fbo_identity_snapshot_loaded = False
         self._finance_posting_numbers_by_sku = {}
         self._realization_identity_responses = {}
+        self._selected_identity_candidates = []
         self._scope_start = self._date(date_from)
         self._scope_end = self._date(date_to)
         # Enter the canonical finance scope directly.  Legacy parent setup uses
@@ -220,7 +223,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 trace.dump_worker_stack(
                     reason="selected_finance_sku_unresolved"
                 )
-        return {**result, "skus": sorted(candidates)}
+        return {
+            **result,
+            "skus": sorted(candidates),
+            "identity_candidates": [
+                dict(candidate) for candidate in self._selected_identity_candidates
+            ],
+        }
 
     def _selected_scope_catalog_product(self):
         selected = [
@@ -447,8 +456,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     and self._text(product.get("offer_id"))
                 }
                 owners = posting_owners.get(posting_number) or set()
-                if offers == {selected_offer} and owners == {finance_sku}:
-                    return finance_sku
+                if len(offers) == 1 and owners == {finance_sku}:
+                    offer_id = next(iter(offers))
+                    return {
+                        "finance_sku": finance_sku,
+                        "offer_id": offer_id,
+                        "matches_selected": offer_id == selected_offer,
+                    }
                 return None
             return None
 
@@ -471,7 +485,26 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 )
             return set()
 
-        candidates = {value for value in matches if value}
+        evidence = [value for value in matches if isinstance(value, dict)]
+        self._selected_identity_candidates = sorted(
+            [
+                {
+                    "finance_sku": value["finance_sku"],
+                    "historical_offer_id": value["offer_id"],
+                }
+                for value in evidence
+                if value.get("matches_selected") is not True
+            ],
+            key=lambda value: (
+                value["historical_offer_id"],
+                value["finance_sku"],
+            ),
+        )
+        candidates = {
+            value["finance_sku"]
+            for value in evidence
+            if value.get("matches_selected") is True
+        }
         for finance_sku in candidates:
             recovered = dict(selected)
             recovered["catalog_sku"] = selected_sku
