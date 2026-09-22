@@ -525,3 +525,6 @@ Summary Report теперь включает:
 - A failed optional previous-period calculation now returns the proven current
   profit with comparison marked unavailable instead of repeating the complete
   current-period Ozon workload.
+- Store-wide identity failures are no longer presented as unavailable Ozon finance.
+  The bot explains that finance was found, lists safe unresolved finance SKUs, and
+  guides the seller through the existing selected-SKU confirmation flow.

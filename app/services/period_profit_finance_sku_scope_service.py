@@ -137,10 +137,13 @@ class PeriodProfitFinanceSkuScopeService:
                     "PERIOD_PROFIT_FINANCE_SKU_CATALOG_COVERAGE_INCOMPLETE",
                     "Не найдены товары для SKU из финансов Ozon: " + preview,
                 )
-            return self._error(
+            error = self._error(
                 "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
                 "Не найдена подтвержденная себестоимость для SKU из финансов Ozon: " + preview,
             )
+            error["unresolved_finance_skus"] = list(unresolved[:10])
+            error["unresolved_finance_sku_count"] = len(unresolved)
+            return error
 
         return {
             "error": False,
