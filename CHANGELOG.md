@@ -493,3 +493,12 @@ Summary Report теперь включает:
   tenant-local identity mapping, and automatically retries the requested period.
 - Confirmation callbacks are revalidated against fresh Ozon evidence before any
   mapping is written; missing, conflicting, or forged identity remains fail-closed.
+
+# 2026-09-22 — Revoke an incorrect SKU identity
+
+- Sellers can now send `Отменить связь SKU 111 и SKU 222` to remove one exact
+  seller-confirmed historical/current SKU pair from subsequent calculations.
+- Revocation checks both SKU values, preserves the removed mapping as a local audit
+  snapshot, and leaves every other identity mapping unchanged.
+- The bot explicitly warns that reports produced from the incorrect mapping are
+  invalid; Ozon data and historical cost evidence are never mutated.
