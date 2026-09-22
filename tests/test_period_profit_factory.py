@@ -182,7 +182,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     tax_summary = query.summary_service
     assert isinstance(tax_summary, TaxSummary)
     assert isinstance(tax_summary.tax_service, Tax)
-    assert tax_summary.tax_policy["policy"]["mode"] == "USN_INCOME"
+    assert isinstance(tax_summary.tax_policy, TaxConfig)
     assert isinstance(tax_summary.base_service.finance_service, Finance)
     assert isinstance(tax_summary.base_service.cost_service, Costs)
     assert tax_summary.base_service.tax_rate == 0.0
@@ -195,6 +195,7 @@ def test_factory_wires_existing_production_dependencies(monkeypatch):
     final_application = final_integrity.base_service
     assert isinstance(final_application, ReturnCogsFinalApplication)
     assert final_application.tax_service is tax_summary.tax_service
+    assert final_application.tax_policy is tax_summary.tax_policy
 
     commit_integrity = query.return_cogs_recovery_evidence_service
     assert isinstance(commit_integrity, ReturnCogsCommitIntegrity)
