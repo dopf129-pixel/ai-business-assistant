@@ -505,3 +505,6 @@ Summary Report теперь включает:
 - A successful button-based identity confirmation now keeps an always-visible
   `Отменить связь SKU` action on the resulting report; revocation has its own
   confirmation screen and a one-click recalculation action.
+- Every later report that actually consumes an active seller-confirmed alias also
+  exposes its exact revoke button. Active aliases are loaded in one batched local
+  SQLite read; the UI adds no Ozon calls and no per-alias connection loop.
