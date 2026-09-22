@@ -511,3 +511,7 @@ Summary Report теперь включает:
 - Selected-SKU reports now show each monetary component's percentage of revenue in
   parentheses. Zero-revenue reports suppress the percentage instead of inventing
   a ratio.
+- The Period Profit menu now includes `Указать период`. After pressing it, the
+  seller can send only `01.01.2026-02.02.2026`; pending input is isolated per
+  Telegram user, validates both calendar dates, supports cancellation, and then
+  uses the canonical comparison-enabled Period Profit query.
