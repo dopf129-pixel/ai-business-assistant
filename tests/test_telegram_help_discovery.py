@@ -79,6 +79,7 @@ def test_phrase_reference_documents_hidden_inputs_and_financial_boundaries():
     assert "запомни цена sky = 1290" in result["message"]
     assert "себестоимость 450 ₽ с 01.01.2026" in result["message"]
     assert "SKU 111 и SKU 222 — один товар" in result["message"]
+    assert "Отменить связь SKU 111 и SKU 222" in result["message"]
     assert "не угадывает" in result["message"]
 
 
