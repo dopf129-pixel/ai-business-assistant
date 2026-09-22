@@ -146,7 +146,70 @@ class PeriodProfitSkuRuntimeService:
             if candidate.get("error") is True:
                 return candidate
             previous = candidate
-        return self._present(selected, identity, previous)
+        presented = self._present(selected, identity, previous)
+        return self._with_identity_revocation_buttons(
+            presented, summary, identity, period
+        )
+
+    def _with_identity_revocation_buttons(
+        self, response, summary, identity, period
+    ):
+        getter = getattr(self.identity_repository, "get_mapping", None)
+        batch_getter = getattr(self.identity_repository, "get_mappings", None)
+        products = summary.get("products") if isinstance(summary, dict) else None
+        if (
+            not callable(getter) and not callable(batch_getter)
+        ) or not isinstance(products, list):
+            return response
+        observed_skus = sorted({
+            self._text(row.get("sku"))
+            for row in products
+            if isinstance(row, dict)
+            and self._text(row.get("sku"))
+            and self._text(row.get("sku")) != identity["sku"]
+        })
+        mappings = None
+        if callable(batch_getter):
+            try:
+                mappings = batch_getter(observed_skus)
+            except Exception:
+                mappings = None
+        finance_skus = []
+        for finance_sku in observed_skus:
+            if isinstance(mappings, dict):
+                mapping = mappings.get(finance_sku)
+            elif callable(getter):
+                try:
+                    mapping = getter(finance_sku)
+                except Exception:
+                    mapping = None
+            else:
+                mapping = None
+            if (
+                isinstance(mapping, dict)
+                and mapping.get("error") is False
+                and mapping.get("mapping_confirmed") is True
+                and self._text(mapping.get("current_sku")) == identity["sku"]
+                and self._text(mapping.get("current_product_id"))
+                == identity["product_id"]
+            ):
+                finance_skus.append(finance_sku)
+        finance_skus = sorted(set(finance_skus))
+        if not finance_skus:
+            return response
+        output = dict(response)
+        output["keyboard"] = {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [{
+                "text": "↩️ Отменить связь SKU " + finance_sku,
+                "callback": ":".join((
+                    "period_profit_sku", identity["sku"], period,
+                    "unmap", finance_sku,
+                )),
+            } for finance_sku in finance_skus],
+        }
+        return output
 
     def _present_identity_candidates(self, identity, period, candidates):
         if not isinstance(candidates, list):
@@ -270,7 +333,11 @@ class PeriodProfitSkuRuntimeService:
             "period_profit_sku:" + current_sku + ":" + period,
             today=today,
         )
-        if isinstance(calculated, dict) and calculated.get("error") is False:
+        if (
+            isinstance(calculated, dict)
+            and calculated.get("error") is False
+            and not calculated.get("keyboard")
+        ):
             calculated = dict(calculated)
             calculated["keyboard"] = {
                 "error": False,
