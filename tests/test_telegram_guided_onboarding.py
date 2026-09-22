@@ -44,8 +44,29 @@ class Tax:
         return {"error": False, "saved": True}
 
 
-def make_bot(accounts, tax):
-    service = TelegramOnboardingService(accounts, tax)
+class SellerCosts:
+    def __init__(self, configured, total=2):
+        self.configured = configured
+        self.total = total
+        self.calls = 0
+
+    def open_menu(self):
+        self.calls += 1
+        missing = self.total - self.configured
+        return {
+            "error": False,
+            "cost_coverage": {
+                "configured": self.configured,
+                "total": self.total,
+                "missing": missing,
+            },
+        }
+
+
+def make_bot(accounts, tax, seller_costs=None):
+    service = TelegramOnboardingService(
+        accounts, tax, seller_cost_service=seller_costs
+    )
     adapter = AssistantTelegramAdapter(Assistant(), Keyboard(), Buttons(), Profiles(), onboarding_service=service)
     return TelegramBotService(adapter)
 
@@ -68,6 +89,32 @@ def test_existing_settings_are_skipped_and_complete_user_gets_menu():
     assert bot.on_start("seller-a")["required_step"] == "TAX_CONFIGURATION"
     tax.configured = True
     assert bot.on_start("seller-a")["onboarding_complete"] is True
+
+
+def test_start_skips_seller_cost_prompt_when_catalog_coverage_is_complete():
+    accounts, tax = Accounts({"seller-a"}), Tax(configured=True)
+    costs = SellerCosts(configured=2, total=2)
+    bot = make_bot(accounts, tax, costs)
+
+    result = bot.on_start("seller-a")
+
+    assert result["onboarding_complete"] is True
+    assert result["cost_coverage"]["missing"] == 0
+    assert "Шаг 3 из 3" not in result.get("text", "")
+    assert "Себестоимость заполнена" in result["message"]
+    assert costs.calls == 1
+
+
+def test_start_keeps_seller_cost_step_when_catalog_has_missing_costs():
+    accounts, tax = Accounts({"seller-a"}), Tax(configured=True)
+    costs = SellerCosts(configured=1, total=2)
+    bot = make_bot(accounts, tax, costs)
+
+    result = bot.on_start("seller-a")
+
+    assert result["onboarding_complete"] is True
+    assert "Шаг 3 из 3" in result["text"]
+    assert result["keyboard"]["buttons"][0]["callback"] == "seller_cost"
 
 
 def test_pending_input_is_tenant_scoped():
