@@ -12,8 +12,10 @@
 - Exact realization evidence now covers confirming postings outside the bounded
   detail-probe prefix without reintroducing per-posting N+1 requests.
 - Rewritten realization SKUs are supported for single-finance-SKU postings only.
-- Late FBO evidence is recovered from a period snapshot, and previous-period-only
-  identity gaps degrade comparison without suppressing proven current profit.
+- Identity recovery never pages the complete account FBO history; it uses already
+  loaded finance/realization evidence and bounded exact fallbacks instead.
+- Any previous-period-only failure degrades the optional comparison without rerunning
+  or suppressing independently proven current profit.
 - Selected finance scope now preserves its unique offer index and prefilters account
   finance SKUs before individual recovery; unrelated SKU network N+1 is removed.
 

@@ -520,3 +520,8 @@ Summary Report теперь включает:
 - Period Profit and final Return COGS tax recomputation now resolve tax policy at
   request time from the active `Telegram user + Ozon Client ID` tenant scope,
   preventing a process-start snapshot or another store's rate from being reused.
+- Store-wide identity recovery no longer downloads every FBO posting in the period;
+  it reuses finance/realization evidence and retains only bounded exact fallbacks.
+- A failed optional previous-period calculation now returns the proven current
+  profit with comparison marked unavailable instead of repeating the complete
+  current-period Ozon workload.
