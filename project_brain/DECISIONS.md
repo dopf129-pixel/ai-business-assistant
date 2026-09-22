@@ -16,8 +16,9 @@ Decision:
   `posting_number + finance SKU + offer_id` across the complete period;
 - a realization SKU rewritten by Ozon may use `posting_number + offer_id` only
   when that posting is owned by exactly one finance SKU;
-- FBO identity fallback loads a paged period snapshot before bounded detail calls;
-- failure to prove only the comparison-period identity omits comparison and never
+- identity recovery must not load an account-wide paged FBO snapshot; after cached
+  finance/realization evidence it may use only bounded exact fallbacks;
+- failure to calculate the optional comparison period omits comparison and never
   converts it to a zero or blocks an independently proven current-period result;
 - selected-aware finance scope owns a unique `offer_id → product` index and enters
   canonical finance scoping directly instead of inheriting the store-wide one-to-many

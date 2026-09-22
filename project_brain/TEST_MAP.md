@@ -4573,3 +4573,16 @@ Covers skipping the seller-cost prompt only for proven complete catalog coverage
 retaining the step for missing costs, production dependency wiring, and one
 long-lived Period Profit service alternating between two active-store tenant scopes
 with different tax rates without cross-store reuse.
+
+# Store-wide Period Profit bounded identity recovery
+
+Updated:
+
+- `tests/test_period_profit_store_wide_no_fbo_snapshot.py`
+- `tests/test_period_profit_selected_posting_offer_identity.py`
+- `tests/test_period_profit_previous_period_single_pass.py`
+
+Covers zero account-wide `/v3/posting/fbo/list` calls during unresolved store-wide
+identity recovery, bounded exact posting fallback, and preservation of an already
+proven current-period result when the optional previous period fails, without a
+second current-period query.

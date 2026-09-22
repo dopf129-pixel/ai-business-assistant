@@ -750,13 +750,6 @@ class PeriodProfitFinancePostingIdentityScopeService(
         if realization is not None:
             return self._cache_identity(cache_key, realization)
 
-        # Account-wide FBO pagination is valid only for store-wide recovery.
-        # Selected-SKU requests use exact realization/related/posting evidence.
-        if self._selected_scope_catalog_product() is None:
-            fbo_snapshot = self._recover_from_fbo_snapshot_offer_identity(sku)
-            if fbo_snapshot is not None:
-                return self._cache_identity(cache_key, fbo_snapshot)
-
         related = self._recover_from_related_sku_identity(sku)
         if related is not None:
             return self._cache_identity(cache_key, related)

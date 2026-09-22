@@ -351,7 +351,7 @@ def test_realization_rewritten_sku_rejects_multi_product_posting():
     ) is None
 
 
-def test_fbo_period_snapshot_finds_late_posting_without_detail_n_plus_one():
+def test_store_wide_recovery_does_not_page_entire_fbo_period_snapshot():
     service = _service()
     service._catalog_by_sku["989101156"].pop("_period_profit_selected_scope")
     service._scope_start = date(2026, 9, 1)
@@ -393,12 +393,9 @@ def test_fbo_period_snapshot_finds_late_posting_without_detail_n_plus_one():
         date(2026, 9, 19),
     )
 
-    assert result["catalog_sku"] == "989101156"
-    assert result["historical_sku_identity_source"] == (
-        "OZON_FBO_SNAPSHOT_TO_CURRENT_CATALOG_OFFER_ID"
-    )
-    assert len(list_calls) == 1
-    assert detail_calls == []
+    assert result is None
+    assert list_calls == []
+    assert len(detail_calls) <= service.MAX_SELECTED_POSTING_IDENTITY_PROBES
 
 
 def test_selected_scope_prefilters_hundreds_of_unrelated_finance_skus():

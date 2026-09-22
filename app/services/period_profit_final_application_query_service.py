@@ -154,26 +154,18 @@ class PeriodProfitFinalApplicationQueryService:
         )
         if not isinstance(summary, dict) or summary.get("error") is True:
             code = summary.get("code") if isinstance(summary, dict) else None
-            selected_scope = any(
-                isinstance(product, dict)
-                and product.get("_period_profit_selected_scope") is True
-                for product in products
-            )
-            if selected_scope and code in {
-                "PERIOD_PROFIT_SELECTED_SKU_FINANCE_MISSING",
-                "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_UNRESOLVED",
-            }:
-                # Current-period profit is already proven.  An unprovable
-                # comparison must not fabricate a previous zero or suppress the
-                # valid current answer; omit comparison explicitly instead.
-                return {
-                    "error": False,
-                    "summary": None,
-                    "comparison_error_code": code,
-                }
-            return summary if isinstance(summary, dict) else self._error(
-                "PERIOD_PROFIT_FINAL_PREVIOUS_SUMMARY_INVALID"
-            )
+            # Current-period profit is already proven and finalized.  Failure
+            # to prove the optional previous period must neither fabricate a
+            # previous zero nor make AssistantPeriodProfitRuntimeService rerun
+            # the complete current period (including all Ozon reads).  Return
+            # the current result with an explicit unavailable comparison.
+            return {
+                "error": False,
+                "summary": None,
+                "comparison_error_code": (
+                    code or "PERIOD_PROFIT_FINAL_PREVIOUS_SUMMARY_INVALID"
+                ),
+            }
 
         return_loader = getattr(self.base_service, "return_evidence_service", None)
         cogs_service = getattr(self.base_service, "return_cogs_recovery_evidence_service", None)
