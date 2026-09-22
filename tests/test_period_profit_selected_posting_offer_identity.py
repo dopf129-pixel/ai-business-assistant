@@ -785,3 +785,29 @@ def test_posting_offer_sample_rejects_multi_offer_posting():
     )
 
     assert result == set()
+
+
+def test_posting_offer_sample_exposes_single_offer_as_confirmation_candidate():
+    service = _service()
+    selected = service._catalog_by_sku["989101156"]
+    service._finance_posting_numbers_by_sku = {
+        "legacy-finance-sku": {"posting-1"},
+    }
+    service.finance_service.ozon.get_fbo_posting = lambda _posting_number: {
+        "error": False,
+        "result": {
+            "posting_number": "posting-1",
+            "products": [{"sku": "legacy-finance-sku", "offer_id": "old-offer"}],
+        },
+    }
+
+    result = service._selected_posting_offer_candidates(
+        {"legacy-finance-sku"},
+        selected,
+    )
+
+    assert result == set()
+    assert service._selected_identity_candidates == [{
+        "finance_sku": "legacy-finance-sku",
+        "historical_offer_id": "old-offer",
+    }]

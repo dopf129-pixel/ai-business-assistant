@@ -1139,6 +1139,44 @@ Status:
 
 Implemented
 
+---
+
+## Decision 041
+
+Date:
+
+2026-09-22
+
+Topic:
+
+Seller confirmation of historical selected-SKU identity
+
+Decision:
+
+When Ozon finance and posting evidence proves sales under a historical SKU but
+does not prove that SKU belongs to the currently selected catalog item, selected-SKU
+Period Profit may ask the seller to confirm the identity in Telegram. A candidate
+is eligible only when a sampled posting has exactly one finance-SKU owner and one
+non-empty offer identifier. The candidate must be revalidated against fresh query
+evidence when the confirmation button is pressed. A confirmed mapping is stored as
+tenant-local identity evidence and the original calculation is retried.
+
+The confirmation does not create monetary evidence, change costs, or authorize an
+ambiguous match. Store-wide calculations remain unchanged. Missing, conflicting,
+multi-offer, shared-posting, stale, or forged candidates remain fail-closed.
+
+Reason:
+
+Ozon can retain finance history under an old SKU/offer without exposing a
+machine-verifiable current-catalog relation. Returning "no sales" hides that known
+history, while automatic attribution could mix products or variants. Explicit,
+evidence-bounded seller confirmation resolves the identity gap without weakening
+financial integrity.
+
+Status:
+
+Implemented
+
 ## Decision 019
 
 Date:

@@ -163,3 +163,118 @@ def test_production_telegram_callback_keeps_tenant_context_for_sku_query():
     )
     assert result["error"] is False
     assert get_current_tenant_user_id() is None
+
+
+def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():
+    query = Query({
+        "error": True,
+        "code": "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED",
+        "identity_candidates": [
+            {"finance_sku": "111", "historical_offer_id": "old-white"},
+            {"finance_sku": "222", "historical_offer_id": "old-gray"},
+        ],
+    })
+    runtime = PeriodProfitSkuRuntimeService(query)
+
+    result = runtime.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["error"] is False
+    assert result["status"] == (
+        "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_REQUIRED"
+    )
+    assert [button["callback"] for button in result["keyboard"]["buttons"]] == [
+        "period_profit_sku:3921245627:7D:map:111",
+        "period_profit_sku:3921245627:7D:map:222",
+    ]
+
+
+def test_confirmed_candidate_is_reverified_saved_and_calculated():
+    ready = {
+        "error": False,
+        "summary": _summary([_row("111", catalog_sku="3921245627")]),
+        "previous_summary": None,
+    }
+
+    class ConfirmingQuery(Query):
+        def __init__(self):
+            super().__init__(None)
+            self.confirmed = False
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            if self.confirmed:
+                return ready
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED",
+                "identity_candidates": [{
+                    "finance_sku": "111",
+                    "historical_offer_id": "old-white",
+                }],
+            }
+
+    class Repository:
+        def __init__(self, query):
+            self.query = query
+            self.calls = []
+
+        def record_mapping(self, **kwargs):
+            self.calls.append(kwargs)
+            self.query.confirmed = True
+            return {"error": False, "status": "RECORDED"}
+
+    query = ConfirmingQuery()
+    repository = Repository(query)
+    runtime = PeriodProfitSkuRuntimeService(
+        query,
+        identity_repository=repository,
+    )
+
+    pending = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:map:111"
+    )
+    result = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:map:111:confirm"
+    )
+
+    assert pending["status"] == (
+        "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_PENDING"
+    )
+    assert result["error"] is False
+    assert result["status"] == "PERIOD_PROFIT_SKU_READY"
+    assert repository.calls == [{
+        "finance_sku": "111",
+        "current_product_id": "p1",
+        "current_sku": "3921245627",
+        "current_offer_id": "hook-2",
+        "source": "SELLER_CONFIRMED_TELEGRAM_BUTTON",
+    }]
+    assert len(query.calls) == 2
+
+
+def test_forged_identity_candidate_is_rejected_before_storage():
+    query = Query({
+        "error": True,
+        "code": "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED",
+        "identity_candidates": [{
+            "finance_sku": "111",
+            "historical_offer_id": "old-white",
+        }],
+    })
+
+    class Repository:
+        def record_mapping(self, **_kwargs):
+            raise AssertionError("unverified candidate must not be stored")
+
+    runtime = PeriodProfitSkuRuntimeService(
+        query,
+        identity_repository=Repository(),
+    )
+    result = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:map:999:confirm"
+    )
+
+    assert result["error"] is True
+    assert result["code"] == (
+        "PERIOD_PROFIT_SKU_IDENTITY_CANDIDATE_NOT_VERIFIED"
+    )

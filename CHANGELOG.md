@@ -482,3 +482,14 @@ Summary Report теперь включает:
 - When realization, finance-posting SKU and related-SKU evidence cannot resolve a
   selected item, identity now probes one representative posting per finance SKU in
   parallel and accepts only an exact unique-owner `offer_id` match.
+
+# 2026-09-22 — Guided historical SKU confirmation
+
+- Replaced the misleading selected-item "no sales" result with an explicit
+  identity-confirmation flow when postings prove sales under historical SKUs but
+  Ozon does not prove their relation to the current catalog item.
+- Telegram now shows only historical SKU/offer candidates backed by a unique-owner,
+  single-offer posting, asks for an explicit seller confirmation, persists the
+  tenant-local identity mapping, and automatically retries the requested period.
+- Confirmation callbacks are revalidated against fresh Ozon evidence before any
+  mapping is written; missing, conflicting, or forged identity remains fail-closed.
