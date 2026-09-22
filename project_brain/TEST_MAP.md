@@ -4588,3 +4588,5 @@ proven current-period result when the optional previous period fails, without a
 second current-period query.
 Also covers safe Telegram presentation of multiple identity blockers, unresolved
 finance SKU visibility, and guidance into the selected-SKU confirmation flow.
+The same regression verifies the direct product-picker callback and the visible
+seller-confirmation command template.

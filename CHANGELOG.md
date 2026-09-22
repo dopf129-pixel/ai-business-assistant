@@ -528,3 +528,6 @@ Summary Report теперь включает:
 - Store-wide identity failures are no longer presented as unavailable Ozon finance.
   The bot explains that finance was found, lists safe unresolved finance SKUs, and
   guides the seller through the existing selected-SKU confirmation flow.
+- Identity-blocker messages now include a direct product-picker button and a ready
+  `SKU … и SKU … — один товар` command template, so recovery is discoverable without
+  knowing hidden bot commands.

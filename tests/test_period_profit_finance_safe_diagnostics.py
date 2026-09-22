@@ -105,7 +105,7 @@ def test_sku_identity_stage_survives_production_telegram_wiring():
     assert result["message"].startswith(
         "Операции Ozon найдены, но не все исторические SKU"
     )
-    assert "По выбранному SKU" in result["message"]
+    assert "Выбрать товар и исправить связь" in result["message"]
     assert result["message"].endswith(
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
     )
@@ -133,5 +133,14 @@ def test_multiple_identity_blockers_show_safe_unresolved_skus():
     result = runtime.handle_callback("period_profit:28D")
 
     assert "SKU без подтверждённой связи: OLD-1, OLD-2" in result["message"]
+    assert "SKU OLD-1 и SKU ТЕКУЩИЙ_SKU — один товар" in result["message"]
+    assert result["keyboard"] == {
+        "error": False,
+        "type": "inline_keyboard",
+        "buttons": [{
+            "text": "🔎 Выбрать товар и исправить связь",
+            "callback": "period_profit_sku",
+        }],
+    }
     assert "API" not in result["message"]
     assert "secret" not in result["message"].lower()
