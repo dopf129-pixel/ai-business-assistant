@@ -4519,3 +4519,15 @@ production scope with an active trace and verifies final-stage counts.
 It also covers 21 parallel representative posting probes, FBO-to-FBS fallback,
 tenant ContextVar propagation, rewritten SKU acceptance by exact offer, request
 cache reuse, bounded call count, and multi-offer rejection.
+
+# Guided historical selected-SKU confirmation
+
+Updated:
+
+- `tests/test_period_profit_selected_posting_offer_identity.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers exposure of a nonmatching historical offer only from unique-owner,
+single-offer posting evidence; Telegram candidate presentation; explicit
+confirmation; fresh candidate revalidation; tenant-local mapping persistence;
+automatic recalculation; and rejection of forged/stale candidates before storage.
