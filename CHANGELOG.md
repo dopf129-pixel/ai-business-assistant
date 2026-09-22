@@ -515,3 +515,8 @@ Summary Report теперь включает:
   seller can send only `01.01.2026-02.02.2026`; pending input is isolated per
   Telegram user, validates both calendar dates, supports cancellation, and then
   uses the canonical comparison-enabled Period Profit query.
+- `/start` now reads the same seller-cost coverage used by the cost screen and
+  skips the cost prompt when every current catalog item is configured.
+- Period Profit and final Return COGS tax recomputation now resolve tax policy at
+  request time from the active `Telegram user + Ozon Client ID` tenant scope,
+  preventing a process-start snapshot or another store's rate from being reused.

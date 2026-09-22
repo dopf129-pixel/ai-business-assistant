@@ -126,6 +126,12 @@ class PeriodProfitTaxPolicySummaryService:
 
     def _policy(self):
         source = self.tax_policy_result
+        getter = getattr(source, "get_policy", None)
+        if callable(getter):
+            try:
+                source = getter()
+            except Exception:
+                return None
         if not isinstance(source, dict):
             return None
         if source.get("error") is not False or source.get("configured") is not True:
@@ -134,6 +140,10 @@ class PeriodProfitTaxPolicySummaryService:
         return dict(policy) if isinstance(policy, dict) else None
 
     def _compatibility_tax_fraction(self):
+        if callable(getattr(self.tax_policy_result, "get_policy", None)):
+            # Request-bound providers cannot be resolved safely during process
+            # construction because no active store tenant is bound yet.
+            return None
         policy = self._policy()
         if policy is None:
             return None

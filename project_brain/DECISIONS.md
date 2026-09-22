@@ -332,6 +332,41 @@ Status:
 
 Implemented
 
+---
+
+## Decision 043
+
+Date:
+
+2026-09-22
+
+Topic:
+
+Request-bound store tax authority and onboarding cost coverage
+
+Decision:
+
+Tax policy for Period Profit must be read during each calculation under the active
+store tenant scope (`Telegram user + Ozon Client ID`). A tax-policy snapshot taken
+while constructing a long-lived process is not authoritative. The same request-time
+policy provider is used for ordinary Period Profit tax and final Return COGS tax
+recomputation. Missing or malformed policy remains fail-closed.
+
+The onboarding cost step must use the canonical seller-cost menu coverage rather
+than unconditional copy. When that coverage proves `missing=0`, `/start` goes to
+the main keyboard and does not ask the seller to configure cost again. Unavailable
+coverage does not fabricate completion.
+
+Reason:
+
+One Telegram user can connect multiple Ozon stores with different tax policies,
+and cost completion can change after onboarding. Both decisions therefore require
+current tenant-bound evidence rather than process-start or hard-coded state.
+
+Status:
+
+Implemented
+
 
 
 ---

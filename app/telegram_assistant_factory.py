@@ -278,6 +278,7 @@ def create_telegram_assistant():
         tax_configuration_service=(
             system.get("tax_configuration") or TaxConfigurationService()
         ),
+        seller_cost_service=seller_cost_service,
     )
 
 

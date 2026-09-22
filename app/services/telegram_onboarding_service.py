@@ -3,9 +3,15 @@ class TelegramOnboardingService:
 
     TAX_MODES = {"NONE", "USN_INCOME", "USN_INCOME_MINUS_EXPENSES"}
 
-    def __init__(self, account_service, tax_configuration_service):
+    def __init__(
+        self,
+        account_service,
+        tax_configuration_service,
+        seller_cost_service=None,
+    ):
         self.account_service = account_service
         self.tax_configuration_service = tax_configuration_service
+        self.seller_cost_service = seller_cost_service
         self._pending = {}
 
     def start(self, user_id, main_keyboard):
@@ -77,8 +83,36 @@ class TelegramOnboardingService:
             result["handled"] = True
         return result
 
-    @staticmethod
-    def _complete(main_keyboard, handled=False):
+    def _complete(self, main_keyboard, handled=False):
+        cost_menu = self._seller_cost_menu()
+        coverage = (
+            cost_menu.get("cost_coverage")
+            if isinstance(cost_menu, dict) and cost_menu.get("error") is False
+            else None
+        )
+        if (
+            isinstance(coverage, dict)
+            and self._non_negative_integer(coverage.get("total")) is not None
+            and self._non_negative_integer(coverage.get("missing")) == 0
+        ):
+            result = {
+                "error": False,
+                "text": (
+                    "✅ Настройка завершена. Себестоимость заполнена для всех "
+                    "товаров каталога."
+                ),
+                "message": (
+                    "✅ Настройка завершена. Себестоимость заполнена для всех "
+                    "товаров каталога."
+                ),
+                "keyboard": main_keyboard,
+                "onboarding_complete": True,
+                "cost_coverage": dict(coverage),
+                "optional_steps": ["HISTORICAL_COST_REFINEMENT"],
+            }
+            if handled:
+                result["handled"] = True
+            return result
         result = {
             "error": False,
             "text": "Шаг 3 из 3 — укажите себестоимость товаров. Без неё прибыль за период будет неполной.\n\nНажмите «Указать себестоимость»: бот покажет товары без цены, а вы будете отправлять только сумму. Первую указанную себестоимость бот применит ко всей доступной истории продаж, чтобы вы сразу могли смотреть прибыль за прошлые периоды. Если раньше себестоимость отличалась, историю можно будет уточнить позже. Можно сделать это позже.",
@@ -90,6 +124,25 @@ class TelegramOnboardingService:
         if handled:
             result["handled"] = True
         return result
+
+    def _seller_cost_menu(self):
+        opener = getattr(self.seller_cost_service, "open_menu", None)
+        if not callable(opener):
+            return None
+        try:
+            return opener()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _non_negative_integer(value):
+        if isinstance(value, bool):
+            return None
+        try:
+            number = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return number if number >= 0 else None
 
     @staticmethod
     def _handled(message):

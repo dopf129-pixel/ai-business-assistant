@@ -4560,3 +4560,16 @@ Updated:
 Covers menu discoverability, the date-only `ДД.ММ.ГГГГ-ДД.ММ.ГГГГ` response,
 canonical ISO query arguments with previous-period comparison, invalid format and
 calendar-date retry, per-user pending-state isolation, and explicit cancellation.
+
+# Request-bound tax and onboarding cost completion
+
+Updated:
+
+- `tests/test_telegram_guided_onboarding.py`
+- `tests/test_period_profit_request_bound_tax_policy.py`
+- `tests/test_period_profit_factory.py`
+
+Covers skipping the seller-cost prompt only for proven complete catalog coverage,
+retaining the step for missing costs, production dependency wiring, and one
+long-lived Period Profit service alternating between two active-store tenant scopes
+with different tax rates without cross-store reuse.

@@ -285,6 +285,12 @@ class PeriodProfitReturnCogsFinalApplicationService:
 
     def _policy(self):
         source = self.tax_policy_result
+        getter = getattr(source, "get_policy", None)
+        if callable(getter):
+            try:
+                source = getter()
+            except Exception:
+                return None
         if not isinstance(source, dict):
             return None
         if source.get("error") is not False or source.get("configured") is not True:
