@@ -242,6 +242,10 @@ def test_confirmed_candidate_is_reverified_saved_and_calculated():
     )
     assert result["error"] is False
     assert result["status"] == "PERIOD_PROFIT_SKU_READY"
+    assert result["keyboard"]["buttons"] == [{
+        "text": "↩️ Отменить связь SKU",
+        "callback": "period_profit_sku:3921245627:7D:unmap:111",
+    }]
     assert repository.calls == [{
         "finance_sku": "111",
         "current_product_id": "p1",
@@ -250,6 +254,85 @@ def test_confirmed_candidate_is_reverified_saved_and_calculated():
         "source": "SELLER_CONFIRMED_TELEGRAM_BUTTON",
     }]
     assert len(query.calls) == 2
+
+
+def test_confirmed_mapping_can_be_revoked_from_visible_result_button():
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("111", catalog_sku="3921245627")]),
+        "previous_summary": None,
+    })
+
+    class Repository:
+        def __init__(self):
+            self.calls = []
+
+        def get_mapping(self, finance_sku):
+            assert finance_sku == "111"
+            return {
+                "error": False,
+                "mapping_confirmed": True,
+                "current_product_id": "p1",
+                "current_sku": "3921245627",
+            }
+
+        def revoke_mapping(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"error": False, "status": "REVOKED"}
+
+    repository = Repository()
+    runtime = PeriodProfitSkuRuntimeService(
+        query, identity_repository=repository
+    )
+
+    pending = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:unmap:111"
+    )
+    revoked = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:unmap:111:confirm"
+    )
+
+    assert pending["status"] == (
+        "PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_PENDING"
+    )
+    assert "недействительным" in pending["message"]
+    assert revoked["status"] == "PERIOD_PROFIT_SKU_IDENTITY_REVOKED"
+    assert repository.calls == [{
+        "finance_sku": "111",
+        "current_sku": "3921245627",
+        "source": "SELLER_REVOKED_TELEGRAM_BUTTON",
+    }]
+    assert revoked["keyboard"]["buttons"][0]["callback"] == (
+        "period_profit_sku:3921245627:7D"
+    )
+
+
+def test_forged_revocation_callback_is_rejected_before_storage():
+    query = Query({"error": True, "code": "unused"})
+
+    class Repository:
+        def get_mapping(self, _finance_sku):
+            return {
+                "error": False,
+                "mapping_confirmed": True,
+                "current_product_id": "different-product",
+                "current_sku": "3921245627",
+            }
+
+        def revoke_mapping(self, **_kwargs):
+            raise AssertionError("unverified mapping must not be revoked")
+
+    runtime = PeriodProfitSkuRuntimeService(
+        query, identity_repository=Repository()
+    )
+    result = runtime.handle_callback(
+        "period_profit_sku:3921245627:7D:unmap:111:confirm"
+    )
+
+    assert result["error"] is True
+    assert result["code"] == (
+        "PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_NOT_VERIFIED"
+    )
 
 
 def test_forged_identity_candidate_is_rejected_before_storage():

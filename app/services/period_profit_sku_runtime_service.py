@@ -190,11 +190,17 @@ class PeriodProfitSkuRuntimeService:
             self._text(parts[1]), self._text(parts[2]).upper(),
             self._text(parts[3]), self._text(parts[4]),
         )
-        if action != "map" or period not in {code for _, code in self.PERIODS}:
+        if action not in {"map", "unmap"} or period not in {
+            code for _, code in self.PERIODS
+        }:
             return self._error("PERIOD_PROFIT_SKU_IDENTITY_CALLBACK_INVALID")
         identity = self._selected_identity(current_sku)
         if isinstance(identity, dict) and identity.get("error") is True:
             return identity
+        if action == "unmap":
+            return self._handle_identity_revocation(
+                parts, identity, current_sku, period, finance_sku
+            )
         if len(parts) == 5:
             return {
                 "error": False,
@@ -260,10 +266,107 @@ class PeriodProfitSkuRuntimeService:
                 (recorded.get("code") if isinstance(recorded, dict) else None)
                 or "PERIOD_PROFIT_SKU_IDENTITY_CONFIRMATION_FAILED"
             )
-        return self.handle_callback(
+        calculated = self.handle_callback(
             "period_profit_sku:" + current_sku + ":" + period,
             today=today,
         )
+        if isinstance(calculated, dict) and calculated.get("error") is False:
+            calculated = dict(calculated)
+            calculated["keyboard"] = {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": [{
+                    "text": "↩️ Отменить связь SKU",
+                    "callback": ":".join((
+                        "period_profit_sku", current_sku, period,
+                        "unmap", finance_sku,
+                    )),
+                }],
+            }
+        return calculated
+
+    def _handle_identity_revocation(
+        self, parts, identity, current_sku, period, finance_sku
+    ):
+        if self.identity_repository is None:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_INVALID")
+        if len(parts) == 5:
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_PENDING",
+                "message": (
+                    "Отменить связь исторического SKU " + finance_sku
+                    + " с текущим SKU " + current_sku + "? Ранее полученный "
+                    "расчёт по этой связи станет недействительным."
+                ),
+                "keyboard": {
+                    "error": False,
+                    "type": "inline_keyboard",
+                    "buttons": [
+                        {
+                            "text": "✅ Да, отменить связь",
+                            "callback": ":".join(parts + ["confirm"]),
+                        },
+                        {
+                            "text": "↩️ Не отменять",
+                            "callback": (
+                                "period_profit_sku:" + current_sku + ":" + period
+                            ),
+                        },
+                    ],
+                },
+                "read_only": True,
+                "executed": False,
+            }
+        if parts[5] != "confirm":
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_INVALID")
+        getter = getattr(self.identity_repository, "get_mapping", None)
+        revoker = getattr(self.identity_repository, "revoke_mapping", None)
+        if not callable(getter) or not callable(revoker):
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_INVALID")
+        try:
+            mapping = getter(finance_sku)
+        except Exception:
+            mapping = None
+        if (
+            not isinstance(mapping, dict)
+            or mapping.get("error") is True
+            or mapping.get("mapping_confirmed") is not True
+            or self._text(mapping.get("current_sku")) != current_sku
+            or self._text(mapping.get("current_product_id")) != identity["product_id"]
+        ):
+            return self._error(
+                "PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_NOT_VERIFIED"
+            )
+        try:
+            revoked = revoker(
+                finance_sku=finance_sku,
+                current_sku=current_sku,
+                source="SELLER_REVOKED_TELEGRAM_BUTTON",
+            )
+        except Exception:
+            revoked = None
+        if not isinstance(revoked, dict) or revoked.get("error") is True:
+            return self._error("PERIOD_PROFIT_SKU_IDENTITY_REVOCATION_FAILED")
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_SKU_IDENTITY_REVOKED",
+            "message": (
+                "Связь исторического SKU " + finance_sku + " с текущим SKU "
+                + current_sku + " отменена. Она больше не используется. "
+                "Предыдущий расчёт следует считать недействительным."
+            ),
+            "keyboard": {
+                "error": False,
+                "type": "inline_keyboard",
+                "buttons": [{
+                    "text": "🔄 Рассчитать заново",
+                    "callback": "period_profit_sku:" + current_sku + ":" + period,
+                }],
+            },
+            "read_only": True,
+            "executed": True,
+        }
 
     def _query_selected_product(self, identity, **kwargs):
         """Run Period Profit with the catalog scoped to the selected product.

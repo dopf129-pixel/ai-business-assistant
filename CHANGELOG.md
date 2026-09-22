@@ -502,3 +502,6 @@ Summary Report теперь включает:
   snapshot, and leaves every other identity mapping unchanged.
 - The bot explicitly warns that reports produced from the incorrect mapping are
   invalid; Ozon data and historical cost evidence are never mutated.
+- A successful button-based identity confirmation now keeps an always-visible
+  `Отменить связь SKU` action on the resulting report; revocation has its own
+  confirmation screen and a one-click recalculation action.

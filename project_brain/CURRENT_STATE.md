@@ -3953,3 +3953,4 @@ Completed:
 [x] Retry the original selected-SKU period automatically after confirmation
 [x] Let the seller revoke one exact incorrect historical/current SKU identity
 [x] Preserve a local revocation audit snapshot and invalidate prior report guidance
+[x] Expose revocation directly on the report created from a confirmed SKU mapping
