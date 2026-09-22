@@ -3948,3 +3948,6 @@ Completed:
 [x] Persist fast selected-SKU identity failure diagnostics immediately
 [x] Cover the traced production entrypoint against diagnostic NameError regressions
 [x] Resolve rewritten posting SKU by bounded parallel exact-offer samples
+[x] Guide the seller through historical-SKU identity confirmation in Telegram
+[x] Revalidate a candidate against current posting evidence before persistence
+[x] Retry the original selected-SKU period automatically after confirmation
