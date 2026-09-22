@@ -4548,3 +4548,5 @@ recalculation, and rejection of a forged revocation callback before mutation.
 It also covers ordinary later reports: only an alias actively confirmed for the
 exact current product gets a revoke button. Repository coverage verifies deduplicated
 batch loading of active aliases for the report surface.
+Selected-SKU Telegram coverage also verifies revenue-share percentages for every
+money line and suppression of undefined percentages when revenue is zero.

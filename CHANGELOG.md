@@ -508,3 +508,6 @@ Summary Report теперь включает:
 - Every later report that actually consumes an active seller-confirmed alias also
   exposes its exact revoke button. Active aliases are loaded in one batched local
   SQLite read; the UI adds no Ozon calls and no per-alias connection loop.
+- Selected-SKU reports now show each monetary component's percentage of revenue in
+  parentheses. Zero-revenue reports suppress the percentage instead of inventing
+  a ratio.
