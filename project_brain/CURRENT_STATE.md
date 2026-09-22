@@ -3959,3 +3959,5 @@ Completed:
 [x] Show selected-SKU monetary lines with their revenue share in parentheses
 [x] Add discoverable date-only custom-period input to the Period Profit menu
 [x] Isolate pending custom-period input per Telegram user
+[x] Reuse canonical seller-cost coverage in `/start` and skip completed setup
+[x] Resolve Period Profit tax policy from the active store on every request
