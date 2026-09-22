@@ -701,15 +701,33 @@ class PeriodProfitSkuRuntimeService:
             "SKU: " + identity["sku"],
             "Период: " + str(row.get("date_from")) + " — " + str(row.get("date_to")), "",
             "Продано: " + str(row["units_sold"]),
-            "Выручка: " + self._money(row["revenue"]),
-            "Начисления Ozon по SKU: " + self._money(row["net_accrual"]),
-            "Комиссия: " + self._money(row["commission"]),
-            "Логистика: " + self._money(row["logistics"]),
-            "Эквайринг: " + self._money(row["acquiring"]),
-            "Прочие SKU-расходы: " + self._money(row["other_fees"]),
-            "Себестоимость: " + self._money(row["product_cost"]),
-            "Налог: " + self._money(row["tax"]),
-            "Прибыль: " + self._money(row["profit"]),
+            "Выручка: " + self._money_with_revenue_share(
+                row["revenue"], row["revenue"]
+            ),
+            "Начисления Ozon по SKU: " + self._money_with_revenue_share(
+                row["net_accrual"], row["revenue"]
+            ),
+            "Комиссия: " + self._money_with_revenue_share(
+                row["commission"], row["revenue"]
+            ),
+            "Логистика: " + self._money_with_revenue_share(
+                row["logistics"], row["revenue"]
+            ),
+            "Эквайринг: " + self._money_with_revenue_share(
+                row["acquiring"], row["revenue"]
+            ),
+            "Прочие SKU-расходы: " + self._money_with_revenue_share(
+                row["other_fees"], row["revenue"]
+            ),
+            "Себестоимость: " + self._money_with_revenue_share(
+                row["product_cost"], row["revenue"]
+            ),
+            "Налог: " + self._money_with_revenue_share(
+                row["tax"], row["revenue"]
+            ),
+            "Прибыль: " + self._money_with_revenue_share(
+                row["profit"], row["revenue"]
+            ),
             "Маржа: " + self._percent(row["margin_percent"]),
         ]
         if previous is not None:
@@ -760,6 +778,13 @@ class PeriodProfitSkuRuntimeService:
 
     @staticmethod
     def _money(value): return ("%.2f" % float(value)).rstrip("0").rstrip(".") + " ₽"
+
+    @classmethod
+    def _money_with_revenue_share(cls, value, revenue):
+        money = cls._money(value)
+        if not revenue:
+            return money
+        return money + " (" + cls._percent(float(value) / float(revenue) * 100.0) + ")"
 
     @staticmethod
     def _percent(value): return ("%.2f" % float(value)).rstrip("0").rstrip(".") + "%"
