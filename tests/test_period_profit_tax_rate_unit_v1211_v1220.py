@@ -5,6 +5,7 @@ from period_profit_factory import (
 from services.period_profit_summary_service import (
     PeriodProfitSummaryService,
 )
+from services.tax_configuration_service import TaxConfigurationService
 
 
 class Finance:
@@ -175,16 +176,23 @@ def test_v1218_live_period_numbers_use_six_percent_not_six_times_revenue():
     assert result["margin_percent"] == 23.04
 
 
-def test_v1219_production_factory_uses_repository_tax_policy_fraction():
+def test_v1219_production_factory_uses_request_bound_tax_policy_provider():
     query = create_period_profit_query()
 
-    assert query.summary_service.tax_rate == 0.06
+    provider = query.summary_service.tax_policy_result
+    assert isinstance(provider, TaxConfigurationService)
+    assert callable(provider.get_policy)
+    assert query.summary_service.tax_rate is None
 
 
 def test_v1220_period_profit_tax_path_remains_read_only_configuration_only():
     query = create_period_profit_query()
 
-    assert query.summary_service.tax_rate == 0.06
+    assert isinstance(
+        query.summary_service.tax_policy_result,
+        TaxConfigurationService,
+    )
+    assert query.summary_service.tax_rate is None
     assert query.return_evidence_service is not None
     assert not hasattr(query.summary_service, "execute")
     assert not hasattr(query.summary_service, "mutate")
