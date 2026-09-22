@@ -24,6 +24,8 @@ class PeriodProfitIdentityConfirmationRuntimeService:
 
     def handle_text(self, text):
         value = " ".join(str(text or "").strip().lower().split())
+        if self._is_identity_revocation(value):
+            return self._revoke(value)
         if not self._is_identity_confirmation(value):
             return None
 
@@ -139,6 +141,78 @@ class PeriodProfitIdentityConfirmationRuntimeService:
             "executed": not already,
         }
 
+    def _revoke(self, value):
+        skus = self._sku_mentions(value)
+        if len(skus) != 2:
+            return self._error(
+                "PERIOD_PROFIT_IDENTITY_REVOCATION_INPUT_INVALID",
+                "Укажите ровно два SKU, например: «Отменить связь SKU 111 и SKU 222».",
+            )
+        getter = getattr(self.repository, "get_mapping", None)
+        revoker = getattr(self.repository, "revoke_mapping", None)
+        if not callable(getter) or not callable(revoker):
+            return self._error(
+                "PERIOD_PROFIT_IDENTITY_REVOCATION_SERVICE_UNAVAILABLE",
+                "Сервис отмены связи SKU недоступен.",
+            )
+
+        matches = []
+        for finance_sku, current_sku in ((skus[0], skus[1]), (skus[1], skus[0])):
+            try:
+                mapping = getter(finance_sku)
+            except Exception:
+                mapping = None
+            if (
+                isinstance(mapping, dict)
+                and mapping.get("error") is False
+                and mapping.get("mapping_confirmed") is True
+                and self._text(mapping.get("current_sku")) == current_sku
+            ):
+                matches.append((finance_sku, current_sku))
+        if len(matches) != 1:
+            return self._error(
+                "PERIOD_PROFIT_IDENTITY_REVOCATION_NOT_FOUND",
+                "Точная активная связь этих двух SKU не найдена. Ничего не изменено.",
+            )
+
+        finance_sku, current_sku = matches[0]
+        try:
+            result = revoker(
+                finance_sku=finance_sku,
+                current_sku=current_sku,
+                source="SELLER_REVOKED_BOT_TEXT",
+            )
+        except Exception:
+            result = None
+        if not isinstance(result, dict) or result.get("error") is True:
+            return self._error(
+                "PERIOD_PROFIT_IDENTITY_REVOCATION_FAILED",
+                "Не удалось отменить связь SKU. Ничего не изменено.",
+            )
+        return {
+            "error": False,
+            "code": "PERIOD_PROFIT_IDENTITY_REVOCATION_RECORDED",
+            "status": "PERIOD_PROFIT_IDENTITY_CONFIRMATION_READY",
+            "message": (
+                f"Связь SKU {finance_sku} и SKU {current_sku} отменена. "
+                "Она больше не используется в расчётах. Ранее полученные отчёты "
+                "по этой связи следует считать недействительными."
+            ),
+            "seller_confirmed": False,
+            "read_only_ozon": True,
+            "executed": True,
+        }
+
+    @staticmethod
+    def _is_identity_revocation(value):
+        return "sku" in value and any(
+            phrase in value
+            for phrase in (
+                "отменить связь", "удалить связь", "отозвать связь",
+                "не один товар", "не тот же товар",
+            )
+        )
+
     @staticmethod
     def _is_identity_confirmation(value):
         if "sku" not in value:
@@ -179,6 +253,11 @@ class PeriodProfitIdentityConfirmationRuntimeService:
             "sku": sku,
             "offer_id": offer_id or None,
         }
+
+    @staticmethod
+    def _text(value):
+        text = str(value or "").strip()
+        return text or None
 
     @staticmethod
     def _error(code, message):
