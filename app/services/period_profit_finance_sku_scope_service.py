@@ -51,6 +51,7 @@ class PeriodProfitFinanceSkuScopeService:
             return sku_result
 
         finance_skus = sku_result["skus"]
+        identity_candidates = sku_result.get("identity_candidates")
         duplicate_count = normalized["duplicate_count"]
         product_by_sku = dict(normalized["products"])
         historical_recovery_count = 0
@@ -59,6 +60,17 @@ class PeriodProfitFinanceSkuScopeService:
 
         if not finance_skus:
             if selected_scope is not None:
+                if isinstance(identity_candidates, list) and identity_candidates:
+                    error = self._error(
+                        "PERIOD_PROFIT_SELECTED_SKU_IDENTITY_CONFIRMATION_REQUIRED",
+                        "Продажи найдены под историческими SKU. Подтвердите, какой SKU относится к выбранному товару.",
+                    )
+                    error["identity_candidates"] = [
+                        dict(candidate)
+                        for candidate in identity_candidates
+                        if isinstance(candidate, dict)
+                    ]
+                    return error
                 return self._error(
                     "PERIOD_PROFIT_SELECTED_SKU_FINANCE_MISSING",
                     "За выбранный период в финансах Ozon нет продаж этого товара",
