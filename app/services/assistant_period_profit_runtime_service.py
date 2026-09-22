@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from threading import RLock
 
 from period_profit_compact_response import compact_period_profit_result
 from services.period_profit_cost_confirmation_runtime_service import (
@@ -25,9 +26,62 @@ class AssistantPeriodProfitRuntimeService:
         self.query_service = query_service
         self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
         self.identity_confirmation_runtime_service = identity_confirmation_runtime_service
+        self._custom_period_users = set()
+        self._custom_period_lock = RLock()
 
-    def handle_text(self, text, today=None):
+    def begin_custom_period(self, user_id):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_CUSTOM_PERIOD_USER_REQUIRED",
+                "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+                "read_only": True,
+                "executed": False,
+            }
+        with self._custom_period_lock:
+            self._custom_period_users.add(user_key)
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_REQUIRED",
+            "message": "Введите период в формате 01.01.2026-02.02.2026",
+            "read_only": True,
+            "executed": False,
+        }
+
+    def handle_text(self, text, today=None, user_id=None):
         value = " ".join(str(text or "").strip().lower().split())
+
+        user_key = self._user_key(user_id)
+        with self._custom_period_lock:
+            custom_period_pending = user_key in self._custom_period_users
+        if custom_period_pending:
+            if value in {"отмена", "cancel", "/cancel"}:
+                with self._custom_period_lock:
+                    self._custom_period_users.discard(user_key)
+                return {
+                    "error": False,
+                    "status": "PERIOD_PROFIT_CUSTOM_PERIOD_CANCELLED",
+                    "message": "Ввод периода отменён.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if not re.fullmatch(
+                r"\d{1,2}\.\d{1,2}\.\d{4}\s*-\s*"
+                r"\d{1,2}\.\d{1,2}\.\d{4}",
+                value,
+            ):
+                return self._custom_period_input_invalid()
+            dates = self._extract_custom_dates(value)
+            if dates is None or len(dates) != 2:
+                return self._custom_period_input_invalid()
+            with self._custom_period_lock:
+                self._custom_period_users.discard(user_key)
+            return self._present(
+                self._query_with_optional_comparison(
+                    date_from=dates[0], date_to=dates[1], today=today
+                )
+            )
 
         if self._looks_like_identity_statement(value):
             runtime = self.identity_confirmation_runtime_service
@@ -129,6 +183,22 @@ class AssistantPeriodProfitRuntimeService:
         degraded["comparison_error_code"] = compared.get("code")
         degraded["comparison_read_only"] = True
         return degraded
+
+    @staticmethod
+    def _custom_period_input_invalid():
+        return {
+            "error": True,
+            "code": "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_INVALID",
+            "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+            "message": "Введите две корректные даты: 01.01.2026-02.02.2026",
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _user_key(user_id):
+        value = str(user_id or "").strip()
+        return value or None
 
     @staticmethod
     def _present(result):
