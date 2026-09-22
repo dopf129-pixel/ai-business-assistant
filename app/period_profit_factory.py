@@ -100,7 +100,7 @@ ProductCostService = PeriodProfitEffectiveCostService
 
 def create_period_profit_query(mapping_registry=None):
     product_service = ProductService()
-    tax_policy = TaxConfigurationService().get_policy()
+    tax_configuration = TaxConfigurationService()
     tax_service = TaxService()
     cost_service = ProductCostService()
     expense_repository = ExpenseRepository()
@@ -127,7 +127,7 @@ def create_period_profit_query(mapping_registry=None):
     summary_service = PeriodProfitTaxPolicySummaryService(
         base_summary_service,
         tax_service,
-        tax_policy,
+        tax_configuration,
     )
     summary_service.finance_service = finance_service
     mappings = load_active_period_profit_mappings(mapping_registry)
@@ -189,7 +189,7 @@ def create_period_profit_query(mapping_registry=None):
     final_application_service = PeriodProfitReturnCogsFinalIntegrityService(
         PeriodProfitReturnCogsFinalApplicationService(
             tax_service,
-            tax_policy,
+            tax_configuration,
         )
     )
     return PeriodProfitFinalApplicationQueryService(
