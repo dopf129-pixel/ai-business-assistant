@@ -3956,3 +3956,4 @@ Completed:
 [x] Expose revocation directly on the report created from a confirmed SKU mapping
 [x] Expose exact revocation on every report that consumes a confirmed alias
 [x] Batch report mapping lookup into one local SQLite read and zero Ozon calls
+[x] Show selected-SKU monetary lines with their revenue share in parentheses
