@@ -4542,3 +4542,6 @@ Updated:
 Covers exact-pair transactional revocation, mismatch fail-closed behavior, retained
 audit evidence, immediate mapping absence, safe later remapping, Telegram text
 routing without a profit query, invalidation wording, and help discoverability.
+`tests/test_period_profit_sku_telegram_flow.py` also covers the visible report
+button, explicit revocation confirmation, exact repository revalidation, one-click
+recalculation, and rejection of a forged revocation callback before mutation.
