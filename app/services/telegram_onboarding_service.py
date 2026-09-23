@@ -8,10 +8,12 @@ class TelegramOnboardingService:
         account_service,
         tax_configuration_service,
         seller_cost_service=None,
+        performance_account_service=None,
     ):
         self.account_service = account_service
         self.tax_configuration_service = tax_configuration_service
         self.seller_cost_service = seller_cost_service
+        self.performance_account_service = performance_account_service
         self._pending = {}
 
     def start(self, user_id, main_keyboard):
@@ -39,6 +41,28 @@ class TelegramOnboardingService:
             if not isinstance(result, dict) or result.get("error") is not False:
                 return self._handled("Не удалось проверить и сохранить подключение. Проверьте данные и повторите.")
             return self._tax_or_complete(user_key, main_keyboard, handled=True)
+        if stage == "PERFORMANCE":
+            parts = str(text or "").strip().split(maxsplit=1)
+            if len(parts) != 2:
+                return self._handled(
+                    "Отправьте Performance Client ID и Client Secret одной "
+                    "строкой через пробел. Обычный Seller API Key не подходит."
+                )
+            result = self.performance_account_service.connect(
+                user_key, parts[0], parts[1]
+            )
+            if not isinstance(result, dict) or result.get("error") is not False:
+                return self._handled(
+                    "Не удалось проверить рекламный доступ. Проверьте "
+                    "Performance Client ID и Client Secret."
+                )
+            if result.get("status") != "OZON_PERFORMANCE_CONNECTED":
+                return {**result, "handled": True, "onboarding": True}
+            self._pending.pop(user_key, None)
+            completed = self._complete(main_keyboard, handled=True)
+            completed["message"] = result["message"]
+            completed["text"] = result["message"]
+            return completed
         if stage and stage.startswith("TAX_RATE:"):
             mode = stage.split(":", 1)[1]
             try:
@@ -54,6 +78,24 @@ class TelegramOnboardingService:
 
     def handle_callback(self, user_id, callback, main_keyboard):
         value = str(callback or "").strip()
+        if value == "onboarding_ads_help":
+            user_key = self._user_key(user_id)
+            if user_key is None or self.performance_account_service is None:
+                return self._error("ONBOARDING_PERFORMANCE_UNAVAILABLE")
+            self._pending[user_key] = "PERFORMANCE"
+            return {
+                "error": False,
+                "message": (
+                    "Откройте Ozon Seller → Настройки → API-ключи → "
+                    "Performance API и создайте отдельные рекламные реквизиты.\n\n"
+                    "Отправьте одной строкой:\n"
+                    "PERFORMANCE_CLIENT_ID CLIENT_SECRET\n\n"
+                    "Это не обычный Seller API Key. Секрет будет сохранён "
+                    "зашифрованно и не появится в ответах бота."
+                ),
+                "onboarding": True,
+                "required_step": "OZON_PERFORMANCE_CREDENTIALS",
+            }
         prefix = "onboarding_tax:"
         if not value.startswith(prefix):
             return None
@@ -110,6 +152,7 @@ class TelegramOnboardingService:
                 "cost_coverage": dict(coverage),
                 "optional_steps": ["HISTORICAL_COST_REFINEMENT"],
             }
+            self._append_performance_step(result)
             if handled:
                 result["handled"] = True
             return result
@@ -121,9 +164,43 @@ class TelegramOnboardingService:
             "onboarding_complete": True,
             "optional_steps": ["SELLER_COST", "HISTORICAL_COST_REFINEMENT"],
         }
+        self._append_performance_step(result)
         if handled:
             result["handled"] = True
         return result
+
+    def _append_performance_step(self, result):
+        service = self.performance_account_service
+        if service is None:
+            return
+        try:
+            status = service.status(self._current_user_for_status())
+        except Exception:
+            status = None
+        if isinstance(status, dict) and status.get("connected") is True:
+            result.setdefault("optional_steps", []).append("OZON_PERFORMANCE")
+            return
+        note = (
+            "\n\n📣 Чтобы прибыль по SKU учитывала рекламу, подключите "
+            "отдельный Performance API."
+        )
+        result["text"] = str(result.get("text") or result.get("message") or "") + note
+        result["message"] = str(result.get("message") or result.get("text") or "") + note
+        keyboard = dict(result.get("keyboard") or {})
+        buttons = list(keyboard.get("buttons") or [])
+        buttons.append({
+            "text": "📣 Подключить учёт рекламы",
+            "callback": "onboarding_ads_help",
+        })
+        keyboard.update({"error": False, "type": "inline_keyboard", "buttons": buttons})
+        result["keyboard"] = keyboard
+        result.setdefault("optional_steps", []).append("OZON_PERFORMANCE")
+
+    def _current_user_for_status(self):
+        # start()/handle_text() have already established the active tenant in
+        # TelegramBotService; repository lookup therefore resolves its store.
+        from services.tenant_context import get_current_tenant_user_id
+        return get_current_tenant_user_id()
 
     def _seller_cost_menu(self):
         opener = getattr(self.seller_cost_service, "open_menu", None)

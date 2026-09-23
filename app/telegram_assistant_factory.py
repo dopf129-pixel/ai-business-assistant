@@ -286,6 +286,7 @@ def create_telegram_assistant():
             system.get("tax_configuration") or TaxConfigurationService()
         ),
         seller_cost_service=seller_cost_service,
+        performance_account_service=OzonPerformanceAccountService(),
     )
 
 
