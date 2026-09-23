@@ -81,6 +81,7 @@ class OzonAccountRepository:
                     telegram_user_id TEXT NOT NULL,
                     client_id TEXT NOT NULL,
                     api_key_encrypted TEXT NOT NULL,
+                    display_name TEXT,
                     is_active INTEGER NOT NULL DEFAULT 0,
                     connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +89,16 @@ class OzonAccountRepository:
                 )
                 """
             )
+            columns = {
+                str(row[1])
+                for row in conn.execute(
+                    "PRAGMA table_info(ozon_store_accounts)"
+                ).fetchall()
+            }
+            if "display_name" not in columns:
+                conn.execute(
+                    "ALTER TABLE ozon_store_accounts ADD COLUMN display_name TEXT"
+                )
             # Legacy rows are copied for a safe in-place upgrade. delete() also
             # removes the matching legacy row so a disconnected legacy account
             # cannot be resurrected by this migration on the next process start.
@@ -106,10 +117,11 @@ class OzonAccountRepository:
         finally:
             conn.close()
 
-    def save(self, user_id, client_id, api_key):
+    def save(self, user_id, client_id, api_key, display_name=None):
         user_key = str(user_id or "").strip()
         client_key = str(client_id or "").strip()
         secret = str(api_key or "").strip()
+        name = self._normalize_display_name(display_name)
         fernet = self._fernet()
         if not user_key or not client_key or not secret or fernet is None:
             return {"error": True, "code": "OZON_ACCOUNT_STORAGE_UNAVAILABLE"}
@@ -123,14 +135,16 @@ class OzonAccountRepository:
             conn.execute(
                 """
                 INSERT INTO ozon_store_accounts (
-                    telegram_user_id, client_id, api_key_encrypted, is_active
-                ) VALUES (?, ?, ?, 1)
+                    telegram_user_id, client_id, api_key_encrypted, display_name,
+                    is_active
+                ) VALUES (?, ?, ?, ?, 1)
                 ON CONFLICT(telegram_user_id, client_id) DO UPDATE SET
                     api_key_encrypted = excluded.api_key_encrypted,
+                    display_name = COALESCE(excluded.display_name, display_name),
                     is_active = 1,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (user_key, client_key, encrypted),
+                (user_key, client_key, encrypted, name),
             )
             conn.commit()
         finally:
@@ -145,7 +159,7 @@ class OzonAccountRepository:
         try:
             rows = conn.execute(
                 """
-                SELECT client_id, is_active
+                SELECT client_id, is_active, display_name
                 FROM ozon_store_accounts
                 WHERE telegram_user_id = ?
                 ORDER BY is_active DESC, connected_at ASC, client_id ASC
@@ -159,9 +173,36 @@ class OzonAccountRepository:
                 "client_id": str(row[0]),
                 "client_id_masked": self._mask_client_id(row[0]),
                 "active": bool(row[1]),
+                "display_name": self._normalize_display_name(row[2]),
             }
             for row in rows
         ]
+
+    def update_display_name(self, user_id, client_id, display_name):
+        user_key, _ = split_store_tenant_scope(user_id)
+        client_key = str(client_id or "").strip()
+        name = self._normalize_display_name(display_name)
+        if not user_key or not client_key or not name:
+            return {"error": True, "updated": False}
+        conn = self._connection()
+        try:
+            cursor = conn.execute(
+                """
+                UPDATE ozon_store_accounts
+                SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE telegram_user_id = ? AND client_id = ?
+                """,
+                (name, user_key, client_key),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"error": False, "updated": cursor.rowcount == 1}
+
+    @staticmethod
+    def _normalize_display_name(value):
+        name = " ".join(str(value or "").split())
+        return name[:120] or None
 
     def active_client_id(self, user_id):
         user_key, scoped_client = split_store_tenant_scope(user_id)

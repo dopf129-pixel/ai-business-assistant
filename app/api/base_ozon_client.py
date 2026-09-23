@@ -290,6 +290,14 @@ class OzonClient:
             "message": "Ключи найдены"
         }
 
+    def get_seller_info(self):
+        return self._post(
+            "/v1/seller/info",
+            {},
+            timeout=20,
+            max_attempts=2,
+        )
+
     def get_products(
         self,
         limit=100
