@@ -484,6 +484,16 @@ class AssistantButtonHandlerService:
         if button_id.startswith("period_profit_sku:"):
             if self.period_profit_sku_runtime_service is None:
                 return {"error": True, "message": "Прибыль по SKU недоступна", "executed": False}
+            parts = button_id.split(":")
+            if len(parts) == 3 and parts[2].strip().lower() == "custom":
+                starter = getattr(
+                    self.period_profit_runtime_service,
+                    "begin_custom_sku_period",
+                    None,
+                )
+                if not callable(starter):
+                    return {"error": True, "message": "Произвольный период по SKU недоступен", "executed": False}
+                return starter(user_id, parts[1])
             return self.period_profit_sku_runtime_service.handle_callback(button_id)
 
         if button_id == "period_profit:custom":

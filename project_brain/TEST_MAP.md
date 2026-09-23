@@ -4590,3 +4590,12 @@ Also covers safe Telegram presentation of multiple identity blockers, unresolved
 finance SKU visibility, and guidance into the selected-SKU confirmation flow.
 The same regression verifies the direct product-picker callback and the visible
 seller-confirmation command template.
+
+# Selected-SKU custom period
+
+Updated:
+
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers button discoverability, the date-only input contract, selected-SKU retention,
+per-user pending-state isolation, and canonical date-range query arguments.

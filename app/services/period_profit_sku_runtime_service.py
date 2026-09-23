@@ -103,22 +103,48 @@ class PeriodProfitSkuRuntimeService:
                     "buttons": [
                         {"text": label, "callback": "period_profit_sku:" + sku + ":" + code}
                         for label, code in self.PERIODS
-                    ],
+                    ] + [{
+                        "text": "📅 Указать период",
+                        "callback": "period_profit_sku:" + sku + ":custom",
+                    }],
                 },
                 "selected_sku": sku,
                 "read_only": True,
                 "executed": False,
             }
         period = self._text(parts[2]).upper()
+        if period == "CUSTOM":
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_SKU_CUSTOM_PERIOD_START_REQUIRED",
+                "selected_sku": sku,
+                "read_only": True,
+                "executed": False,
+            }
         if period not in {code for _, code in self.PERIODS}:
             return self._error("PERIOD_PROFIT_SKU_PERIOD_INVALID")
+        return self._calculate(identity, period, today=today)
+
+    def handle_custom_period(self, sku, date_from, date_to, today=None):
+        identity = self._selected_identity(self._text(sku))
+        if isinstance(identity, dict) and identity.get("error") is True:
+            return identity
+        return self._calculate(
+            identity,
+            "CUSTOM",
+            today=today,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    def _calculate(self, identity, period, today=None, date_from=None, date_to=None):
         try:
-            result = self._query_selected_product(
-                identity,
-                period_code=period,
-                compare_previous=True,
-                today=today,
-            )
+            query_args = {"compare_previous": True, "today": today}
+            if date_from is not None and date_to is not None:
+                query_args.update(date_from=date_from, date_to=date_to)
+            else:
+                query_args["period_code"] = period
+            result = self._query_selected_product(identity, **query_args)
         except Exception:
             return self._error("PERIOD_PROFIT_SKU_QUERY_FAILED")
         if not isinstance(result, dict) or type(result.get("error")) is not bool:

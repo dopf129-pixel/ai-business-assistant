@@ -221,6 +221,10 @@ def create_telegram_assistant():
         if period_profit_runtime_service is not None
         else None
     )
+    if period_profit_runtime_service is not None:
+        period_profit_runtime_service.sku_runtime_service = (
+            period_profit_sku_runtime_service
+        )
 
     button_handler = (
         AssistantButtonHandlerService(
