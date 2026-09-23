@@ -59,7 +59,17 @@ class OzonPerformanceClient:
                 )
                 call_count += 1
             if response.get("error") is True:
-                # Never return partial financial data as if the period completed.
+                # Ozon documents this endpoint's dateFrom as no earlier than
+                # yesterday. A historical 400 must not be treated as zero spend.
+                if (response.get("status_code") == 400
+                        and current < date.today() - timedelta(days=1)):
+                    return {
+                        "error": True,
+                        "code": "OZON_PERFORMANCE_HISTORICAL_SKU_UNAVAILABLE",
+                        "status_code": 400,
+                        "failed_window_from": current.isoformat(),
+                        "failed_window_to": window_end.isoformat(),
+                    }
                 return {**response, "failed_window_from": current.isoformat(),
                         "failed_window_to": window_end.isoformat()}
             batch = response.get("rows")
