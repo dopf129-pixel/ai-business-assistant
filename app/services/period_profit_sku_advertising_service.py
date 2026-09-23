@@ -34,6 +34,9 @@ class PeriodProfitSkuAdvertisingService:
                 "error": True,
                 "code": (result.get("code") if isinstance(result, dict) else None)
                 or "PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE",
+                **({key: result[key] for key in (
+                    "failed_window_from", "failed_window_to", "status_code"
+                ) if key in result} if isinstance(result, dict) else {}),
             }
         rows = result.get("rows")
         if not isinstance(rows, list):
