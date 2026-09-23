@@ -534,3 +534,6 @@ Summary Report теперь включает:
 - The selected-SKU period menu now also offers `Указать период`; date-only input is
   bound to both the Telegram user and selected SKU before entering the canonical
   comparison-enabled query.
+- Period Profit now has a separate `Без учёта себестоимости` mode for sellers who
+  need an operational pre-COGS view even when costs exist or are missing. It is
+  explicitly labelled incomplete and never replaces ordinary profit or margin.

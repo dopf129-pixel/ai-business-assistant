@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
 
+from services.period_profit_cost_exclusion_context import cost_excluded
+
 
 class PeriodProfitSummaryService:
     """Read-only period profit aggregation over existing finance and cost services."""
@@ -692,6 +694,8 @@ class PeriodProfitSummaryService:
 
 
     def _resolve_cost(self, product):
+        if cost_excluded():
+            return 0.0, None
         for field in ("cost", "cost_price"):
             value = product.get(field)
             if value is not None:

@@ -10,6 +10,11 @@ from services.period_profit_effective_cost_service import PeriodProfitEffectiveC
 from services.period_profit_identity_confirmation_runtime_service import (
     PeriodProfitIdentityConfirmationRuntimeService,
 )
+from period_profit_request import build_period_profit_request
+from services.period_profit_cost_exclusion_context import (
+    activate_cost_exclusion,
+    reset_cost_exclusion,
+)
 
 
 class AssistantPeriodProfitRuntimeService:
@@ -29,6 +34,7 @@ class AssistantPeriodProfitRuntimeService:
         self.identity_confirmation_runtime_service = identity_confirmation_runtime_service
         self.sku_runtime_service = sku_runtime_service
         self._custom_period_users = set()
+        self._custom_pre_cogs_users = set()
         self._custom_sku_period_users = {}
         self._custom_period_lock = RLock()
 
@@ -67,12 +73,27 @@ class AssistantPeriodProfitRuntimeService:
             "executed": False,
         }
 
+    def begin_custom_pre_cogs_period(self, user_id):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return self._custom_period_input_invalid()
+        with self._custom_period_lock:
+            self._custom_pre_cogs_users.add(user_key)
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_PRE_COGS_CUSTOM_PERIOD_INPUT_REQUIRED",
+            "message": "Введите период в формате 01.01.2026-02.02.2026",
+            "read_only": True,
+            "executed": False,
+        }
+
     def handle_text(self, text, today=None, user_id=None):
         value = " ".join(str(text or "").strip().lower().split())
 
         user_key = self._user_key(user_id)
         with self._custom_period_lock:
             custom_sku = self._custom_sku_period_users.get(user_key)
+            custom_pre_cogs = user_key in self._custom_pre_cogs_users
             custom_period_pending = user_key in self._custom_period_users
         if custom_sku:
             if value in {"отмена", "cancel", "/cancel"}:
@@ -98,6 +119,28 @@ class AssistantPeriodProfitRuntimeService:
             return self.sku_runtime_service.handle_custom_period(
                 custom_sku, dates[0], dates[1]
             )
+        if custom_pre_cogs:
+            if value in {"отмена", "cancel", "/cancel"}:
+                with self._custom_period_lock:
+                    self._custom_pre_cogs_users.discard(user_key)
+                return {
+                    "error": False,
+                    "status": "PERIOD_PROFIT_PRE_COGS_CUSTOM_PERIOD_CANCELLED",
+                    "message": "Ввод периода отменён.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if not re.fullmatch(
+                r"\d{1,2}\.\d{1,2}\.\d{4}\s*-\s*"
+                r"\d{1,2}\.\d{1,2}\.\d{4}", value
+            ):
+                return self._custom_period_input_invalid()
+            dates = self._extract_custom_dates(value)
+            if dates is None or len(dates) != 2:
+                return self._custom_period_input_invalid()
+            with self._custom_period_lock:
+                self._custom_pre_cogs_users.discard(user_key)
+            return self._query_pre_cogs(date_from=dates[0], date_to=dates[1])
         if custom_period_pending:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:
@@ -185,6 +228,12 @@ class AssistantPeriodProfitRuntimeService:
 
     def handle_callback(self, callback_data, today=None):
         value = str(callback_data or "").strip().upper()
+        pre_cogs_prefix = "PERIOD_PROFIT_PRE_COGS:"
+        if value.startswith(pre_cogs_prefix):
+            period = value[len(pre_cogs_prefix):]
+            if period not in self.PERIOD_CODES:
+                return self._custom_period_input_invalid()
+            return self._query_pre_cogs(period_code=period, today=today)
         prefix = "PERIOD_PROFIT:"
         if not value.startswith(prefix):
             return None
@@ -203,6 +252,78 @@ class AssistantPeriodProfitRuntimeService:
                 today=today,
             )
         )
+
+    def _query_pre_cogs(self, period_code=None, date_from=None, date_to=None, today=None):
+        request = build_period_profit_request(
+            period_code=period_code,
+            date_from=date_from,
+            date_to=date_to,
+            today=today,
+        )
+        if request.get("error") is True:
+            return request
+        provider = getattr(self.query_service, "product_provider", None)
+        summary_service = getattr(self.query_service, "summary_service", None)
+        if not callable(provider) or summary_service is None:
+            base = getattr(self.query_service, "base_service", None)
+            provider = getattr(base, "product_provider", None)
+            summary_service = getattr(base, "summary_service", None)
+        if not callable(provider) or summary_service is None:
+            return self._error("PERIOD_PROFIT_PRE_COGS_DEPENDENCY_UNAVAILABLE")
+        products = provider()
+        if not isinstance(products, list):
+            return self._error("PERIOD_PROFIT_PRODUCTS_UNAVAILABLE")
+        token = activate_cost_exclusion()
+        try:
+            summary = summary_service.calculate(
+                request["date_from"], request["date_to"], products
+            )
+        finally:
+            reset_cost_exclusion(token)
+        if not isinstance(summary, dict) or summary.get("error") is True:
+            return summary if isinstance(summary, dict) else self._error(
+                "PERIOD_PROFIT_PRE_COGS_SUMMARY_INVALID"
+            )
+        before_cogs = summary.get("profit")
+        margin = summary.get("margin_percent")
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_PRE_COGS_READY",
+            "summary": summary,
+            "text": (
+                "🧮 Результат без учёта себестоимости за период "
+                + request["date_from"] + " — " + request["date_to"]
+                + "\n\nВыручка: " + self._money(summary.get("revenue"))
+                + "\nНачисления Ozon: " + self._money(summary.get("net_accrual"))
+                + "\nНалог: " + self._money(summary.get("tax"))
+                + "\n\nРезультат до себестоимости: " + self._money(before_cogs)
+                + "\nМаржа до себестоимости: " + self._percent(margin)
+                + "\n\n⚠️ Себестоимость и Return COGS не вычитались. "
+                "Это не итоговая прибыль магазина."
+            ),
+            "cost_excluded": True,
+            "profit_complete": False,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _money(value):
+        try:
+            return f"{float(value):.2f} ₽"
+        except (TypeError, ValueError):
+            return "—"
+
+    @staticmethod
+    def _percent(value):
+        try:
+            return f"{float(value):.2f}%"
+        except (TypeError, ValueError):
+            return "—"
+
+    @staticmethod
+    def _error(code):
+        return {"error": True, "code": code, "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE", "read_only": True, "executed": False}
 
     def _query_with_optional_comparison(self, **kwargs):
         compared = self.query_service.query(

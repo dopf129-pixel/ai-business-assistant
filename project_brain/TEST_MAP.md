@@ -4599,3 +4599,13 @@ Updated:
 
 Covers button discoverability, the date-only input contract, selected-SKU retention,
 per-user pending-state isolation, and canonical date-range query arguments.
+
+# Period Profit before COGS
+
+Added:
+
+- `tests/test_period_profit_pre_cogs_mode.py`
+
+Covers the separate menu and period picker, explicit incomplete-result contract,
+missing-cost independence, request-local cost exclusion, custom dates, and per-user
+pending-state isolation.

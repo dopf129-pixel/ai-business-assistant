@@ -1,6 +1,7 @@
 from services.period_profit_realization_offer_quantity_summary_service import (
     PeriodProfitRealizationOfferQuantitySummaryService,
 )
+from services.period_profit_cost_exclusion_context import cost_excluded
 
 
 class PeriodProfitDiagnosticQuantitySummaryService(
@@ -23,6 +24,18 @@ class PeriodProfitDiagnosticQuantitySummaryService(
         return super().calculate(date_from, date_to, products)
 
     def _effective_cost_evidence(self, row, accrual_date):
+        if cost_excluded():
+            return {
+                "error": False,
+                "effective_cost_confirmed": True,
+                "historical_cost_confirmed": True,
+                "cost_price": 0.0,
+                "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
+                "effective_from": str(accrual_date),
+                "effective_through": str(accrual_date),
+                "history_id": "PRE_COGS_VIEW",
+                "source": "PERIOD_PROFIT_PRE_COGS_VIEW",
+            }
         self._effective_cost_diagnostic_code = None
         self._effective_cost_trace = None
         getter = getattr(self.cost_service, "get_effective_cost_evidence", None)
