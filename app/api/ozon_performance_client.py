@@ -1,4 +1,5 @@
 import time
+from datetime import date, timedelta
 from threading import Lock
 
 import requests
@@ -18,27 +19,57 @@ class OzonPerformanceClient:
     def test_connection(self):
         return self._access_token(force=True)
 
+    # Smaller requests avoid sending multi-month statistics windows at once.
+    # The window is defensive, not an asserted Ozon API maximum.
+    STATISTICS_WINDOW_DAYS = 30
+
     def get_sku_expenses(self, date_from, date_to):
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except ValueError:
+            return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
+        if start > end:
+            return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
+
         token = self._access_token()
         if token.get("error") is True:
             return token
-        response = self._request(
-            "post",
-            "/api/client/statistics/products/sku",
-            token["access_token"],
-            json={"campaignIds": [], "dateFrom": str(date_from), "dateTo": str(date_to)},
-        )
-        if response.get("status_code") == 401:
-            token = self._access_token(force=True)
-            if token.get("error") is True:
-                return token
+        rows = []
+        call_count = 0
+        current = start
+        while current <= end:
+            window_end = min(end, current + timedelta(days=self.STATISTICS_WINDOW_DAYS - 1))
+            payload = {
+                "campaignIds": [], "dateFrom": current.isoformat(),
+                "dateTo": window_end.isoformat(),
+            }
             response = self._request(
-                "post",
-                "/api/client/statistics/products/sku",
-                token["access_token"],
-                json={"campaignIds": [], "dateFrom": str(date_from), "dateTo": str(date_to)},
+                "post", "/api/client/statistics/products/sku",
+                token["access_token"], json=payload,
             )
-        return response
+            call_count += 1
+            if response.get("status_code") == 401:
+                token = self._access_token(force=True)
+                if token.get("error") is True:
+                    return token
+                response = self._request(
+                    "post", "/api/client/statistics/products/sku",
+                    token["access_token"], json=payload,
+                )
+                call_count += 1
+            if response.get("error") is True:
+                # Never return partial financial data as if the period completed.
+                return {**response, "failed_window_from": current.isoformat(),
+                        "failed_window_to": window_end.isoformat()}
+            batch = response.get("rows")
+            if not isinstance(batch, list):
+                return {"error": True, "code": "OZON_PERFORMANCE_RESPONSE_INVALID",
+                        "failed_window_from": current.isoformat(),
+                        "failed_window_to": window_end.isoformat()}
+            rows.extend(batch)
+            current = window_end + timedelta(days=1)
+        return {"rows": rows, "external_call_count": call_count}
 
     def _access_token(self, force=False):
         if not force and self._token and time.monotonic() < self._token_expires_at:
@@ -86,6 +117,8 @@ class OzonPerformanceClient:
         except requests.exceptions.RequestException:
             return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
         if response.status_code >= 400:
+            # Never expose the raw body: it may echo credentials or request data.
+            # HTTP status and failing date window suffice to locate the request.
             return {
                 "error": True,
                 "code": "OZON_PERFORMANCE_HTTP_" + str(response.status_code),
