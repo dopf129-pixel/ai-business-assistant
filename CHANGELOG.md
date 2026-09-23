@@ -531,3 +531,6 @@ Summary Report теперь включает:
 - Identity-blocker messages now include a direct product-picker button and a ready
   `SKU … и SKU … — один товар` command template, so recovery is discoverable without
   knowing hidden bot commands.
+- The selected-SKU period menu now also offers `Указать период`; date-only input is
+  bound to both the Telegram user and selected SKU before entering the canonical
+  comparison-enabled query.

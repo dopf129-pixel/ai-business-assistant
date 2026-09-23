@@ -22,12 +22,30 @@ class AssistantPeriodProfitRuntimeService:
         query_service,
         cost_confirmation_runtime_service=None,
         identity_confirmation_runtime_service=None,
+        sku_runtime_service=None,
     ):
         self.query_service = query_service
         self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
         self.identity_confirmation_runtime_service = identity_confirmation_runtime_service
+        self.sku_runtime_service = sku_runtime_service
         self._custom_period_users = set()
+        self._custom_sku_period_users = {}
         self._custom_period_lock = RLock()
+
+    def begin_custom_sku_period(self, user_id, sku):
+        user_key = self._user_key(user_id)
+        sku_key = str(sku or "").strip()
+        if not user_key or not sku_key or self.sku_runtime_service is None:
+            return self._custom_period_input_invalid()
+        with self._custom_period_lock:
+            self._custom_sku_period_users[user_key] = sku_key
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_SKU_CUSTOM_PERIOD_INPUT_REQUIRED",
+            "message": "Введите период для SKU " + sku_key + " в формате 01.01.2026-02.02.2026",
+            "read_only": True,
+            "executed": False,
+        }
 
     def begin_custom_period(self, user_id):
         user_key = self._user_key(user_id)
@@ -54,7 +72,32 @@ class AssistantPeriodProfitRuntimeService:
 
         user_key = self._user_key(user_id)
         with self._custom_period_lock:
+            custom_sku = self._custom_sku_period_users.get(user_key)
             custom_period_pending = user_key in self._custom_period_users
+        if custom_sku:
+            if value in {"отмена", "cancel", "/cancel"}:
+                with self._custom_period_lock:
+                    self._custom_sku_period_users.pop(user_key, None)
+                return {
+                    "error": False,
+                    "status": "PERIOD_PROFIT_SKU_CUSTOM_PERIOD_CANCELLED",
+                    "message": "Ввод периода отменён.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if not re.fullmatch(
+                r"\d{1,2}\.\d{1,2}\.\d{4}\s*-\s*"
+                r"\d{1,2}\.\d{1,2}\.\d{4}", value
+            ):
+                return self._custom_period_input_invalid()
+            dates = self._extract_custom_dates(value)
+            if dates is None or len(dates) != 2:
+                return self._custom_period_input_invalid()
+            with self._custom_period_lock:
+                self._custom_sku_period_users.pop(user_key, None)
+            return self.sku_runtime_service.handle_custom_period(
+                custom_sku, dates[0], dates[1]
+            )
         if custom_period_pending:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:

@@ -1,4 +1,7 @@
 from services.assistant_button_handler_service import AssistantButtonHandlerService
+from services.assistant_period_profit_runtime_service import (
+    AssistantPeriodProfitRuntimeService,
+)
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 from services.tenant_context import get_current_tenant_user_id
@@ -46,6 +49,56 @@ class Query:
     def query(self, **kwargs):
         self.calls.append(kwargs)
         return self.result
+
+
+def test_selected_sku_period_menu_exposes_custom_period_button():
+    query = Query({"error": False, "summary": _summary([])})
+    service = PeriodProfitSkuRuntimeService(query)
+
+    result = service.handle_callback("period_profit_sku:3921245627")
+
+    assert {
+        "text": "📅 Указать период",
+        "callback": "period_profit_sku:3921245627:custom",
+    } in result["keyboard"]["buttons"]
+
+
+def test_selected_sku_custom_period_is_isolated_per_user_and_queries_dates():
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("3921245627")], "2026-01-01", "2026-02-02"),
+        "previous_summary": None,
+    })
+    sku_runtime = PeriodProfitSkuRuntimeService(query)
+    period_runtime = AssistantPeriodProfitRuntimeService(
+        query, sku_runtime_service=sku_runtime
+    )
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=period_runtime,
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+
+    prompt = handler.handle(
+        "period_profit_sku:3921245627:custom", "seller-1"
+    )
+    unrelated = period_runtime.handle_text(
+        "01.01.2026-02.02.2026", user_id="seller-2"
+    )
+    result = period_runtime.handle_text(
+        "01.01.2026-02.02.2026", user_id="seller-1"
+    )
+
+    assert "SKU 3921245627" in prompt["message"]
+    assert unrelated is None
+    assert result["error"] is False
+    assert query.calls == [{
+        "date_from": "2026-01-01",
+        "date_to": "2026-02-02",
+        "compare_previous": True,
+        "today": None,
+    }]
 
 
 def test_selected_sku_aggregates_proven_legacy_and_current_identity():
