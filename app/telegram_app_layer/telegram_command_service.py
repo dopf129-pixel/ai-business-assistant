@@ -4,10 +4,14 @@ from telegram_help_contract import build_telegram_help_response
 
 
 class TelegramCommandService:
-    def __init__(self, assistant_adapter, cost_service=None, ozon_account_service=None):
+    def __init__(
+        self, assistant_adapter, cost_service=None, ozon_account_service=None,
+        ozon_performance_account_service=None,
+    ):
         self.assistant_adapter = assistant_adapter
         self.cost_service = cost_service
         self.ozon_account_service = ozon_account_service
+        self.ozon_performance_account_service = ozon_performance_account_service
 
     def handle(self, user_id, text):
         raw = str(text or "").strip()
@@ -20,6 +24,8 @@ class TelegramCommandService:
             return self.assistant_adapter.handle_button("memory", user_id)
         if command.startswith("/ozon_connect"):
             return self._handle_ozon_connect(user_id, raw)
+        if command.startswith("/ozon_ads_connect"):
+            return self._handle_ozon_ads_connect(user_id, raw)
         if command in {"/stores", "/ozon_stores"}:
             return self._ozon_service().stores(user_id)
         if command == "/ozon_status":
@@ -58,6 +64,17 @@ class TelegramCommandService:
                 "executed_ozon": False,
             }
         return self._ozon_service().connect(user_id, parts[1], parts[2])
+
+    def _handle_ozon_ads_connect(self, user_id, raw):
+        parts = raw.split(maxsplit=2)
+        service = self.ozon_performance_account_service
+        if service is None:
+            from services.ozon_performance_account_service import OzonPerformanceAccountService
+            service = OzonPerformanceAccountService()
+            self.ozon_performance_account_service = service
+        if len(parts) != 3:
+            return service.usage()
+        return service.connect(user_id, parts[1], parts[2])
 
     def _handle_costsku(self, raw):
         parts = raw.split()

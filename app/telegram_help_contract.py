@@ -17,7 +17,7 @@ def build_telegram_help_response():
             "Если нужного действия нет на экране, откройте «Все команды» "
             "или «Примеры фраз».\n\n"
             "Команды: /start, /help, /memory, /ozon_connect, /stores, "
-            "/ozon_status, /ozon_disconnect, /costsku."
+            "/ozon_ads_connect, /ozon_status, /ozon_disconnect, /costsku."
         ),
         "message": (
             "Как пользоваться ботом\n\n"
@@ -28,7 +28,7 @@ def build_telegram_help_response():
             "Если нужного действия нет на экране, откройте «Все команды» "
             "или «Примеры фраз».\n\n"
             "Команды: /start, /help, /memory, /ozon_connect, /stores, "
-            "/ozon_status, /ozon_disconnect, /costsku."
+            "/ozon_ads_connect, /ozon_status, /ozon_disconnect, /costsku."
         ),
         "keyboard": {
             "error": False,
@@ -55,6 +55,7 @@ def build_telegram_command_reference():
         "/help — открыть эту памятку\n"
         "/memory — показать сохранённые факты\n"
         "/ozon_connect CLIENT_ID API_KEY — подключить ещё один кабинет Ozon и сделать его активным\n"
+        "/ozon_ads_connect PERFORMANCE_CLIENT_ID CLIENT_SECRET — подключить рекламную статистику для активного магазина\n"
         "/stores — показать подключённые магазины и выбрать активный\n"
         "/ozon_status — показать активный магазин Ozon\n"
         "/ozon_disconnect — отключить только активный магазин\n"
