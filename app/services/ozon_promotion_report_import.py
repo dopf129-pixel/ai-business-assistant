@@ -11,7 +11,7 @@ from xml.etree import ElementTree as ET
 from zipfile import ZipFile, BadZipFile
 
 _NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-_PERIOD = re.compile(r"Период:\\s*(\\d{2}\\.\\d{2}\\.\\d{4})\\s*-\\s*(\\d{2}\\.\\d{2}\\.\\d{4})")
+_PERIOD = re.compile(r"Период:\s*(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})")
 _HEADER = ("SKU", "Название товара", "Инструмент", "Место размещения",
            "ID кампании", "Расход, ₽")
 _ALLOWED = {"Оплата за клик", "Оплата за заказ: выбранные товары"}
@@ -68,7 +68,7 @@ def parse_promotion_report(data):
                            for si in root.findall("x:si", _NS)]
             candidates = []
             for path in archive.namelist():
-                if not re.fullmatch(r"xl/worksheets/sheet\\d+\\.xml", path):
+                if not re.fullmatch(r"xl/worksheets/sheet\d+\.xml", path):
                     continue
                 rows = _sheet_rows(archive, path, strings)
                 if len(rows) < 2:
