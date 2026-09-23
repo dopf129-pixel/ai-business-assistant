@@ -65,7 +65,7 @@ def test_failed_window_returns_error_without_partial_rows_or_private_body():
     result = OzonPerformanceClient("client", "secret", session=session).get_sku_expenses(
         "2026-05-03", "2026-07-01"
     )
-    assert result == {"error": True, "code": "OZON_PERFORMANCE_HTTP_400",
+    assert result == {"error": True, "code": "OZON_PERFORMANCE_HISTORICAL_SKU_UNAVAILABLE",
                       "status_code": 400, "failed_window_from": "2026-06-02",
                       "failed_window_to": "2026-07-01"}
     assert len(_statistics(session)) == 2
