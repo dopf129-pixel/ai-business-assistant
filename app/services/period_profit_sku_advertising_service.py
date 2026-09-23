@@ -2,19 +2,26 @@ from math import isfinite
 
 from api.ozon_performance_client import OzonPerformanceClient
 from services.ozon_performance_account_repository import OzonPerformanceAccountRepository
+from services.ozon_promotion_history_repository import PromotionHistoryRepository
 from services.tenant_context import get_current_tenant_user_id
 
 
 class PeriodProfitSkuAdvertisingService:
     """Exact CPC advertising expense from a single batched Performance call."""
 
-    def __init__(self, repository=None, client_factory=None):
+    def __init__(self, repository=None, client_factory=None, history_repository=None):
         self.repository = repository or OzonPerformanceAccountRepository()
         self.client_factory = client_factory or OzonPerformanceClient
         self._clients = {}
+        self.history_repository = history_repository or PromotionHistoryRepository()
 
     def load(self, date_from, date_to, accepted_skus):
         tenant = get_current_tenant_user_id()
+        imported = self.history_repository.load_exact(
+            tenant, date_from, date_to, accepted_skus
+        )
+        if imported is not None:
+            return imported
         credentials = self.repository.get_performance(tenant)
         if not credentials:
             return {
@@ -29,6 +36,17 @@ class PeriodProfitSkuAdvertisingService:
             client = self.client_factory(credentials["client_id"], credentials["client_secret"])
             self._clients[key] = client
         result = client.get_sku_expenses(date_from, date_to)
+        if (isinstance(result, dict) and result.get("code") in {
+                "OZON_PERFORMANCE_HISTORICAL_SKU_UNAVAILABLE",
+                "OZON_PERFORMANCE_HTTP_400",
+        }):
+            # Only use manually imported evidence for the exact same date range.
+            # Missing reports must retain the original fail-closed error.
+            historical = self.history_repository.load_exact(
+                tenant, date_from, date_to, accepted_skus
+            )
+            if historical is not None:
+                return historical
         if not isinstance(result, dict) or result.get("error") is True:
             return {
                 "error": True,
