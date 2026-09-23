@@ -42,7 +42,7 @@ def test_historical_requests_all_windows_and_types_without_manual_files():
 
     service._generate = generate
     result = service.load("2026-05-03", "2026-09-23")
-    assert result["error"] if "error" in result else False is False
+    assert "error" not in result
     assert len([s for s in seen if s[2] == "CPC"]) == 3
     assert len([s for s in seen if s[2] == "CPO"]) == 3
     assert len(result["rows"]) == 6
