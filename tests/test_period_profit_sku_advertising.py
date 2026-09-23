@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 
@@ -34,7 +36,8 @@ def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
         repository=_Repository(), client_factory=_Client
     )
 
-    result = service.load("2026-09-01", "2026-09-30", {"101", "old-101"})
+    result = service.load((date.today() - timedelta(days=1)).isoformat(),
+                          date.today().isoformat(), {"101", "old-101"})
 
     assert result == {
         "error": False,
