@@ -70,5 +70,5 @@ class PeriodProfitSkuAdvertisingService:
             "expense": round(total, 2),
             "matched_row_count": matched,
             "campaign_count": len(campaigns),
-            "external_call_count": 1,
+            "external_call_count": result.get("external_call_count", 1),
         }
