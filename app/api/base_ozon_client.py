@@ -146,19 +146,23 @@ class OzonClient:
                     )
 
                     try:
-
-                        wait_seconds = float(
-                            retry_after
-                        )
-
-                    except (
-                        TypeError,
-                        ValueError
-                    ):
-
-                        wait_seconds = (
-                            2 ** attempt
-                        )
+                        wait_seconds = float(retry_after)
+                    except (TypeError, ValueError, OverflowError):
+                        wait_seconds = float(2 ** attempt)
+                    # Invalid, negative and excessive Retry-After values must
+                    # never bypass the request's total time budget.
+                    import math
+                    if not math.isfinite(wait_seconds) or wait_seconds < 0:
+                        wait_seconds = float(2 ** attempt)
+                    if total_timeout is not None:
+                        remaining = float(total_timeout) - (time.monotonic() - started_at)
+                        if remaining <= 0 or wait_seconds >= remaining:
+                            return {
+                                "error": True,
+                                "code": "OZON_API_TOTAL_TIMEOUT",
+                                "message": "Ozon API: лимит ожидания повторного запроса",
+                            }
+                    wait_seconds = min(wait_seconds, 30.0)
 
                     print(
                         "Ozon API: достигнут лимит запросов."
