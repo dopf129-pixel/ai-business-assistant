@@ -476,6 +476,22 @@ class AssistantButtonHandlerService:
                 self._open_period_profit_menu()
             )
 
+        if button_id == "period_profit_pre_cogs":
+            return {
+                "error": False,
+                "message": "За какой период показать результат без учёта себестоимости?",
+                "keyboard": {
+                    "error": False,
+                    "type": "inline_keyboard",
+                    "buttons": [
+                        {"text": label, "callback": "period_profit_pre_cogs:" + code}
+                        for label, code in (("Сегодня", "TODAY"), ("7 дней", "7D"), ("28 дней", "28D"), ("56 дней", "56D"), ("90 дней", "90D"))
+                    ] + [{"text": "📅 Указать период", "callback": "period_profit_pre_cogs:custom"}],
+                },
+                "read_only": True,
+                "executed": False,
+            }
+
         if button_id == "period_profit_sku":
             if self.period_profit_sku_runtime_service is None:
                 return {"error": True, "message": "Прибыль по SKU недоступна", "executed": False}
@@ -513,6 +529,19 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             return starter(user_id)
+
+        if button_id == "period_profit_pre_cogs:custom":
+            starter = getattr(
+                self.period_profit_runtime_service,
+                "begin_custom_pre_cogs_period",
+                None,
+            )
+            if not callable(starter):
+                return {"error": True, "message": "Ввод периода недоступен", "executed": False}
+            return starter(user_id)
+
+        if button_id.startswith("period_profit_pre_cogs:"):
+            return self.period_profit_runtime_service.handle_callback(button_id)
 
         if button_id.startswith(
             "period_profit:"
@@ -766,6 +795,10 @@ class AssistantButtonHandlerService:
             {
                 "text": "🔎 По выбранному SKU",
                 "callback": "period_profit_sku",
+            },
+            {
+                "text": "🧮 Без учёта себестоимости",
+                "callback": "period_profit_pre_cogs",
             },
         ]
 
