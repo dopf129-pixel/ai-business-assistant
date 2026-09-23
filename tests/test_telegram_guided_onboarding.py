@@ -63,9 +63,28 @@ class SellerCosts:
         }
 
 
-def make_bot(accounts, tax, seller_costs=None):
+class PerformanceAccounts:
+    def __init__(self, connected=False):
+        self.connected = connected
+        self.connect_calls = []
+
+    def status(self, user_id):
+        return {"error": False, "connected": self.connected}
+
+    def connect(self, user_id, client_id, client_secret):
+        self.connect_calls.append((user_id, client_id, client_secret))
+        self.connected = True
+        return {
+            "error": False,
+            "status": "OZON_PERFORMANCE_CONNECTED",
+            "message": "Performance API подключён к активному магазину.",
+        }
+
+
+def make_bot(accounts, tax, seller_costs=None, performance=None):
     service = TelegramOnboardingService(
-        accounts, tax, seller_cost_service=seller_costs
+        accounts, tax, seller_cost_service=seller_costs,
+        performance_account_service=performance,
     )
     adapter = AssistantTelegramAdapter(Assistant(), Keyboard(), Buttons(), Profiles(), onboarding_service=service)
     return TelegramBotService(adapter)
@@ -115,6 +134,44 @@ def test_start_keeps_seller_cost_step_when_catalog_has_missing_costs():
     assert result["onboarding_complete"] is True
     assert "Шаг 3 из 3" in result["text"]
     assert result["keyboard"]["buttons"][0]["callback"] == "seller_cost"
+
+
+def test_complete_setup_discovers_optional_performance_connection_without_command():
+    accounts, tax = Accounts({"seller-a"}), Tax(configured=True)
+    performance = PerformanceAccounts(connected=False)
+    bot = make_bot(
+        accounts, tax, SellerCosts(configured=2, total=2), performance
+    )
+
+    started = bot.on_start("seller-a")
+    assert "учитывала рекламу" in started["text"]
+    assert started["keyboard"]["buttons"][-1] == {
+        "text": "📣 Подключить учёт рекламы",
+        "callback": "onboarding_ads_help",
+    }
+
+    instructions = bot.on_callback("seller-a", "onboarding_ads_help")
+    assert instructions["required_step"] == "OZON_PERFORMANCE_CREDENTIALS"
+    assert "обычный Seller API Key" in instructions["message"]
+
+    completed = bot.on_message("seller-a", "perf-id perf-secret")
+    assert completed["onboarding_complete"] is True
+    assert performance.connect_calls == [("seller-a", "perf-id", "perf-secret")]
+    assert "perf-secret" not in str(completed)
+
+
+def test_connected_performance_does_not_show_redundant_setup_button():
+    bot = make_bot(
+        Accounts({"seller-a"}), Tax(configured=True),
+        SellerCosts(configured=2, total=2), PerformanceAccounts(connected=True),
+    )
+
+    result = bot.on_start("seller-a")
+
+    assert all(
+        button.get("callback") != "onboarding_ads_help"
+        for button in result["keyboard"]["buttons"]
+    )
 
 
 def test_pending_input_is_tenant_scoped():
