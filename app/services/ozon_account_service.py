@@ -23,7 +23,10 @@ class OzonAccountService:
             return self._connection_error()
         if not isinstance(probe, dict) or probe.get("error") is True:
             return self._connection_error()
-        saved = self.repository.save(user_key, client_key, secret)
+        display_name = self._load_display_name(client)
+        saved = self.repository.save(
+            user_key, client_key, secret, display_name=display_name
+        )
         if not isinstance(saved, dict) or saved.get("error") is True:
             return self._storage_error()
         token = set_current_tenant_user_id(make_store_tenant_scope(user_key, client_key))
@@ -56,17 +59,27 @@ class OzonAccountService:
     def status(self, user_id):
         status = self.repository.status(user_id)
         if status.get("connected") is True:
+            account = self._account_with_display_name(
+                user_id, status.get("client_id")
+            )
+            display = (
+                account.get("display_name") if isinstance(account, dict) else None
+            ) or status.get("client_id_masked") or "***"
             return {
                 "error": False,
                 "status": "OZON_ACCOUNT_CONNECTED",
                 "message": (
                     "Активный магазин Ozon: "
-                    + str(status.get("client_id_masked") or "***")
+                    + str(display)
                     + ". Подключено магазинов: " + str(status.get("account_count") or 1)
                     + ". Переключение: /stores."
                 ),
                 "connected": True,
                 "client_id_masked": status.get("client_id_masked"),
+                "display_name": (
+                    account.get("display_name")
+                    if isinstance(account, dict) else None
+                ),
                 "account_count": status.get("account_count"),
                 "read_only_ozon": True,
                 "executed_ozon": False,
@@ -86,9 +99,13 @@ class OzonAccountService:
             return self.status(user_id)
         buttons = []
         for account in accounts:
+            account = self._with_display_name(user_id, account)
             prefix = "✓ " if account.get("active") else ""
             buttons.append({
-                "text": prefix + "Магазин " + str(account.get("client_id_masked") or "***"),
+                "text": prefix + str(
+                    self._button_label(account.get("display_name"))
+                    or "Магазин " + str(account.get("client_id_masked") or "***")
+                ),
                 "callback": "ozon_store:" + str(account.get("client_id") or ""),
             })
         return {
@@ -100,6 +117,62 @@ class OzonAccountService:
             "executed_ozon": False,
         }
 
+    def _account_with_display_name(self, user_id, client_id):
+        account = next((
+            row for row in self.repository.list_accounts(user_id)
+            if str(row.get("client_id") or "") == str(client_id or "")
+        ), None)
+        return self._with_display_name(user_id, account) if account else None
+
+    def _with_display_name(self, user_id, account):
+        if account.get("display_name"):
+            return account
+        credentials = self.repository.get(user_id, account.get("client_id"))
+        if not isinstance(credentials, dict):
+            return account
+        try:
+            client = self.client_factory(
+                credentials.get("client_id"), credentials.get("api_key")
+            )
+            name = self._load_display_name(client)
+        except Exception:
+            name = None
+        if not name:
+            return account
+        try:
+            saved = self.repository.update_display_name(
+                user_id, account.get("client_id"), name
+            )
+        except Exception:
+            saved = None
+        if not isinstance(saved, dict) or saved.get("updated") is not True:
+            return account
+        return {**account, "display_name": name}
+
+    @staticmethod
+    def _load_display_name(client):
+        getter = getattr(client, "get_seller_info", None)
+        if not callable(getter):
+            return None
+        try:
+            result = getter()
+        except Exception:
+            return None
+        if not isinstance(result, dict) or result.get("error") is True:
+            return None
+        company = result.get("company")
+        if not isinstance(company, dict):
+            return None
+        name = " ".join(str(company.get("name") or "").split())
+        return name[:120] or None
+
+    @staticmethod
+    def _button_label(value):
+        name = " ".join(str(value or "").split())
+        if len(name) <= 52:
+            return name or None
+        return name[:49].rstrip() + "…"
+
     def select(self, user_id, client_id):
         result = self.repository.select(user_id, client_id)
         if not isinstance(result, dict) or result.get("error") is True:
@@ -107,11 +180,18 @@ class OzonAccountService:
         if result.get("selected") is not True:
             return {"error": False, "message": "Магазин не найден. Откройте /stores и выберите из списка."}
         masked = self.repository._mask_client_id(client_id)
+        account = self._account_with_display_name(user_id, client_id)
+        display = (
+            account.get("display_name") if isinstance(account, dict) else None
+        ) or masked or "***"
         return {
             "error": False,
             "status": "OZON_STORE_SELECTED",
-            "message": "Выбран магазин Ozon " + str(masked or "***") + ". Данные других магазинов в расчёты не попадут.",
+            "message": "Выбран магазин Ozon " + str(display) + ". Данные других магазинов в расчёты не попадут.",
             "client_id_masked": masked,
+            "display_name": (
+                account.get("display_name") if isinstance(account, dict) else None
+            ),
             "read_only_ozon": True,
             "executed_ozon": False,
         }
