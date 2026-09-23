@@ -214,10 +214,15 @@ class PeriodProfitSkuRuntimeService:
         except Exception:
             return self._error("PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE")
         if not isinstance(loaded, dict) or loaded.get("error") is True:
-            return self._error(
+            failure = self._error(
                 loaded.get("code") if isinstance(loaded, dict)
                 else "PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE"
             )
+            if isinstance(loaded, dict):
+                for key in ("failed_window_from", "failed_window_to", "status_code"):
+                    if key in loaded:
+                        failure[key] = loaded[key]
+            return failure
         if loaded.get("configured") is not True:
             return {**loaded, "applied": False}
 
