@@ -17,6 +17,11 @@ class PeriodProfitSkuAdvertisingService:
 
     def load(self, date_from, date_to, accepted_skus):
         tenant = get_current_tenant_user_id()
+        imported = self.history_repository.load_exact(
+            tenant, date_from, date_to, accepted_skus
+        )
+        if imported is not None:
+            return imported
         credentials = self.repository.get_performance(tenant)
         if not credentials:
             return {
