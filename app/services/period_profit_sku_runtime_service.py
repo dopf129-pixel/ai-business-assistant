@@ -187,7 +187,15 @@ class PeriodProfitSkuRuntimeService:
                     evidence=result.get("advertising_financial_evidence"),
                 )
                 if previous_advertising.get("error") is True:
-                    return previous_advertising
+                    if advertising.get("source") == "IMPORTED_OZON_PROMOTION_REPORT" and previous_advertising.get("code") in {
+                        "OZON_PERFORMANCE_HISTORICAL_SKU_UNAVAILABLE",
+                        "OZON_PERFORMANCE_HTTP_400",
+                    }:
+                        # A current-period aggregate cannot be used to invent
+                        # previous-period advertising. Omit the comparison.
+                        previous = None
+                    else:
+                        return previous_advertising
                 if previous_advertising.get("applied") is True:
                     previous = self._apply_advertising(previous, previous_advertising)
         selected["advertising_evidence"] = advertising
