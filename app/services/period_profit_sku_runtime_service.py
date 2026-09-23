@@ -44,13 +44,17 @@ class PeriodProfitSkuRuntimeService:
         "acquiring", "other_fees", "product_cost", "tax", "profit",
     )
 
-    def __init__(self, query_service, cost_service=None, identity_repository=None):
+    def __init__(
+        self, query_service, cost_service=None, identity_repository=None,
+        advertising_service=None,
+    ):
         self.query_service = query_service
         self.cost_service = cost_service
         self.identity_repository = identity_repository or (
             SellerConfirmedProductIdentityRepository(cost_service)
             if cost_service is not None else None
         )
+        self.advertising_service = advertising_service
         self._scoped_providers = self._install_request_scoped_providers()
 
     def open_sku_menu(self):
@@ -172,10 +176,101 @@ class PeriodProfitSkuRuntimeService:
             if candidate.get("error") is True:
                 return candidate
             previous = candidate
+        advertising = self._load_advertising(result, summary, selected, identity)
+        if advertising.get("error") is True:
+            return advertising
+        if advertising.get("applied") is True:
+            selected = self._apply_advertising(selected, advertising)
+            if previous is not None and isinstance(result.get("previous_summary"), dict):
+                previous_advertising = self._load_advertising(
+                    result, result["previous_summary"], previous, identity,
+                    evidence=result.get("advertising_financial_evidence"),
+                )
+                if previous_advertising.get("error") is True:
+                    return previous_advertising
+                if previous_advertising.get("applied") is True:
+                    previous = self._apply_advertising(previous, previous_advertising)
+        selected["advertising_evidence"] = advertising
         presented = self._present(selected, identity, previous)
         return self._with_identity_revocation_buttons(
             presented, summary, identity, period
         )
+
+    def _load_advertising(
+        self, query_result, summary, selected, identity, evidence="CURRENT"
+    ):
+        if self.advertising_service is None:
+            return {"error": False, "applied": False, "configured": False}
+        accepted_skus = {
+            self._text(row.get("sku"))
+            for row in summary.get("products", [])
+            if isinstance(row, dict)
+        }
+        accepted_skus.add(identity["sku"])
+        try:
+            loaded = self.advertising_service.load(
+                selected.get("date_from"), selected.get("date_to"), accepted_skus
+            )
+        except Exception:
+            return self._error("PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE")
+        if not isinstance(loaded, dict) or loaded.get("error") is True:
+            return self._error(
+                loaded.get("code") if isinstance(loaded, dict)
+                else "PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE"
+            )
+        if loaded.get("configured") is not True:
+            return {**loaded, "applied": False}
+
+        finance_evidence = None
+        if evidence == "CURRENT":
+            finance_evidence = query_result.get("advertising_financial_evidence")
+        elif isinstance(evidence, dict):
+            finance_evidence = dict(evidence)
+            names = {
+                str(name) for name in evidence.get("allowed_operation_names", [])
+                if str(name)
+            }
+            if evidence.get("policy_configured") is True and names:
+                breakdown = summary.get("fee_breakdown") or {}
+                try:
+                    finance_evidence["matched_amount"] = sum(
+                        float(amount or 0.0)
+                        for name, amount in breakdown.items()
+                        if str(name) in names
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    return self._error("PERIOD_PROFIT_SKU_ADVERTISING_RECONCILIATION_INVALID")
+        matched_amount = 0.0
+        if isinstance(finance_evidence, dict):
+            if finance_evidence.get("policy_configured") is True:
+                matched_amount = self._number(finance_evidence.get("matched_amount"))
+                if matched_amount is None or matched_amount > 0:
+                    return self._error("PERIOD_PROFIT_SKU_ADVERTISING_RECONCILIATION_INVALID")
+            elif float(loaded.get("expense") or 0.0) > 0:
+                # Without an authorized finance operation mapping we cannot know
+                # whether part of the same spend is already inside net_accrual.
+                return self._error("PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED")
+        elif float(loaded.get("expense") or 0.0) > 0:
+            return self._error("PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED")
+        return {
+            **loaded,
+            "applied": True,
+            "finance_advertising_amount": round(matched_amount, 2),
+        }
+
+    def _apply_advertising(self, row, evidence):
+        output = dict(row)
+        finance_amount = float(evidence.get("finance_advertising_amount") or 0.0)
+        expense = float(evidence.get("expense") or 0.0)
+        output["other_fees"] = round(output["other_fees"] - finance_amount, 2)
+        output["net_accrual"] = round(output["net_accrual"] - finance_amount - expense, 2)
+        output["advertising_cost"] = round(expense, 2)
+        output["profit"] = round(output["net_accrual"] - output["product_cost"] - output["tax"], 2)
+        output["margin_percent"] = (
+            round(output["profit"] / output["revenue"] * 100, 2)
+            if output["revenue"] else 0.0
+        )
+        return output
 
     def _with_identity_revocation_buttons(
         self, response, summary, identity, period
@@ -745,6 +840,9 @@ class PeriodProfitSkuRuntimeService:
             "Прочие SKU-расходы: " + self._money_with_revenue_share(
                 row["other_fees"], row["revenue"]
             ),
+            "Реклама по SKU: " + self._money_with_revenue_share(
+                -row.get("advertising_cost", 0.0), row["revenue"]
+            ) if row.get("advertising_evidence", {}).get("applied") is True else None,
             "Себестоимость: " + self._money_with_revenue_share(
                 row["product_cost"], row["revenue"]
             ),
@@ -756,16 +854,23 @@ class PeriodProfitSkuRuntimeService:
             ),
             "Маржа: " + self._percent(row["margin_percent"]),
         ]
+        lines = [line for line in lines if line is not None]
         if previous is not None:
             delta = round(row["profit"] - previous["profit"], 2)
             lines.append("К прошлому периоду: " + ("+" if delta > 0 else "") + self._money(delta))
-        lines.extend(["", "⚠️ Неатрибутированные расходы кабинета, внешние расходы и Return COGS в прибыль этого SKU не включены и не считаются нулём."])
+        advertising = row.get("advertising_evidence") or {}
+        if advertising.get("applied") is True:
+            warning = "⚠️ Включена подтверждённая реклама CPC по SKU. Остальные неатрибутированные расходы кабинета, реклама других типов, внешние расходы и Return COGS не включены и не считаются нулём."
+        else:
+            warning = "⚠️ Реклама по SKU не подключена. Неатрибутированные расходы кабинета, внешние расходы и Return COGS не включены и не считаются нулём. Подключение: /ozon_ads_connect."
+        lines.extend(["", warning])
         return {
             "error": False,
             "status": "PERIOD_PROFIT_SKU_READY",
             "text": "\n".join(lines),
             "summary": row,
             "selected_sku": identity["sku"],
+            "advertising_included": advertising.get("applied") is True,
             "account_level_expenses_included": False,
             "external_expenses_included": False,
             "return_cogs_included": False,

@@ -80,6 +80,8 @@ from services.telegram_return_inventory_confirmation_service import (
 from services.telegram_onboarding_service import TelegramOnboardingService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 from services.ozon_account_service import OzonAccountService
+from services.ozon_performance_account_service import OzonPerformanceAccountService
+from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
 from services.tax_configuration_service import TaxConfigurationService
 
 
@@ -217,6 +219,7 @@ def create_telegram_assistant():
         PeriodProfitSkuRuntimeService(
             period_profit_runtime_service.query_service,
             cost_service=period_profit_cost_service,
+            advertising_service=PeriodProfitSkuAdvertisingService(),
         )
         if period_profit_runtime_service is not None
         else None
@@ -303,9 +306,13 @@ def create_telegram_assistant():
 
     command_service = (
         TelegramCommandService(
-            adapter
+            adapter,
         )
     )
+    if hasattr(command_service, "ozon_performance_account_service"):
+        command_service.ozon_performance_account_service = (
+            OzonPerformanceAccountService()
+        )
 
 
 
