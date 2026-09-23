@@ -72,7 +72,10 @@ class PromotionHistoryRepository(OzonAccountRepository):
         return summary
 
     def load_exact(self, tenant, date_from, date_to, accepted_skus):
-        user, seller = self._scope(tenant)
+        try:
+            user, seller = self._scope(tenant)
+        except PromotionReportError:
+            return None
         selected = {str(s) for s in accepted_skus}
         if not selected:
             return None
