@@ -11,6 +11,7 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
 
             "buttons": [
+                {"text": "🏪 Выбрать магазин", "callback": "ozon_stores"},
                 {
                     "text": "📊 Анализ",
                     "callback": "analyze"
