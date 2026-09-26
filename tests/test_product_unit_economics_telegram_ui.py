@@ -101,6 +101,7 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
     ]
 
     assert callbacks == [
+        "ozon_stores",
         "analyze",
         "plan",
         "history",
