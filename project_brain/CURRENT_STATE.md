@@ -1,5 +1,10 @@
 # Current Project State
 
+## 2026-09-26 — Ignore known CPM campaigns in CPC+CPO historical SKU reports
+
+- Historical Performance campaign discovery skips the documented CPM payment type, which is outside the report's CPC+CPO scope, instead of aborting the entire Period Profit calculation.
+- CPC remains included, CPO remains retrieved through its separate product report, and unrecognized payment types still fail closed.
+
 ## 2026-09-26 — Multi-store selector discoverability
 
 - The main keyboard exposes a store-selection button that uses the tenant-aware `ozon_stores` callback and existing account list.

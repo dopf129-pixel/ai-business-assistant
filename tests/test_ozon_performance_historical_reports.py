@@ -24,11 +24,37 @@ def test_unknown_columns_fail_closed():
 
 
 class _Client:
-    def __init__(self):
+    def __init__(self, campaigns=None):
         self._token = {"access_token": "token"}
+        self.campaigns = campaigns or [
+            {"id": "123", "paymentType": "CPC"},
+            {"id": "456", "paymentType": "CPM"},
+            {"id": "789", "paymentType": "CPO"},
+        ]
 
     def _access_token(self, force=False):
         return self._token
+
+    def _request(self, method, endpoint, token, **kwargs):
+        assert method == "get"
+        assert endpoint == "/api/client/campaign"
+        assert token == "token"
+        assert kwargs["params"]["advObjectType"] == "SKU"
+        return {"list": self.campaigns}
+
+
+def test_campaign_list_skips_known_out_of_scope_payment_types():
+    service = HistoricalPerformanceReports(_Client())
+    assert service._campaign_ids() == ["123"]
+
+
+def test_campaign_list_fails_closed_for_unrecognized_payment_types():
+    service = HistoricalPerformanceReports(_Client([
+        {"id": "123", "paymentType": "NEW_TYPE"},
+    ]))
+    with pytest.raises(HistoricalReportError) as exc:
+        service._campaign_ids()
+    assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
 
 
 def test_historical_requests_all_windows_and_types_without_manual_files():
