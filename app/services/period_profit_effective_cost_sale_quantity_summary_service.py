@@ -38,6 +38,18 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
         if not isinstance(result, dict) or result.get("error") is not False:
             return result
 
+        if cost_excluded():
+            # A pre-COGS view is monetary-only: physical sale quantity is needed
+            # solely to multiply units by cost. Requiring realization/FBO evidence
+            # here can fail a valid finance-only calculation for no accounting
+            # benefit. The critical finance summary already has zero COGS under
+            # this context, so return it without quantity reconciliation.
+            pre_cogs = dict(result)
+            pre_cogs["sale_quantity_reconciled"] = False
+            pre_cogs["sale_quantity_required"] = False
+            pre_cogs["product_cost"] = 0.0
+            return pre_cogs
+
         identity_by_finance_sku = self._identity_by_finance_sku(products)
         rows = result.get("products")
         if not isinstance(rows, list):
