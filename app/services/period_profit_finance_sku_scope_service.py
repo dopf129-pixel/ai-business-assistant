@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
 
+from services.period_profit_cost_exclusion_context import cost_excluded
+
 
 class PeriodProfitFinanceSkuScopeService:
     """Scope product cost calculation to unique SKUs actually present in Ozon finance."""
@@ -127,6 +129,19 @@ class PeriodProfitFinanceSkuScopeService:
                 )
         else:
             product_by_sku.update(scoped_products)
+
+        if unresolved and cost_excluded():
+            # Pre-COGS intentionally does not require confirmed cost evidence.
+            # Keep each finance SKU separate without inventing a catalog mapping.
+            for sku in unresolved:
+                product_by_sku[sku] = {
+                    "product_id": None,
+                    "offer_id": None,
+                    "sku": sku,
+                    "cost_price": 0.0,
+                    "_period_profit_pre_cogs_placeholder": True,
+                }
+            unresolved = []
 
         if unresolved:
             preview = ", ".join(unresolved[:5])
