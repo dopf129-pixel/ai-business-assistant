@@ -2,6 +2,11 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-26 — Multi-store selector discoverability
+
+- added a main-menu button that opens the existing store selector for connected Ozon accounts;
+- routed the button through the current tenant-aware `ozon_stores` callback.
+
 ## 2026-09-26 — Ozon credential status and onboarding safety
 
 - distinguish an absent store from encrypted credentials that cannot be read with the current master key;

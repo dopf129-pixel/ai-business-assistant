@@ -15,7 +15,16 @@ class _Assistant:
         return {"error": False, "message": "unused"}
 
 
-def _production_wired_bot():
+class _OzonAccounts:
+    def __init__(self):
+        self.store_list_users = []
+
+    def stores(self, user_id):
+        self.store_list_users.append(user_id)
+        return {"error": False, "message": "Выберите магазин"}
+
+
+def _production_wired_bot(ozon_account_service=None):
     keyboard = AssistantKeyboardService()
     handler = AssistantButtonHandlerService(
         _Assistant(),
@@ -24,7 +33,13 @@ def _production_wired_bot():
     adapter = AssistantTelegramAdapter(
         _Assistant(), keyboard, handler, _Profiles()
     )
-    return TelegramBotService(adapter, TelegramCommandService(adapter))
+    return TelegramBotService(
+        adapter,
+        TelegramCommandService(
+            adapter,
+            ozon_account_service=ozon_account_service,
+        ),
+    )
 
 
 def _callbacks(result):
@@ -35,6 +50,17 @@ def test_main_menu_makes_help_discoverable():
     keyboard = AssistantKeyboardService().build_main_keyboard()
 
     assert "help" in _callbacks({"keyboard": keyboard})
+    assert "ozon_stores" in _callbacks({"keyboard": keyboard})
+
+
+def test_store_selector_button_routes_to_existing_store_list():
+    accounts = _OzonAccounts()
+    bot = _production_wired_bot(accounts)
+
+    result = bot.on_callback("seller-a", "ozon_stores")
+
+    assert result == {"error": False, "message": "Выберите магазин"}
+    assert accounts.store_list_users == ["seller-a"]
 
 
 def test_help_callback_uses_production_telegram_path_and_existing_workflows():

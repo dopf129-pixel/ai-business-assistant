@@ -1,5 +1,10 @@
 # Current Project State
 
+## 2026-09-26 — Multi-store selector discoverability
+
+- The main keyboard exposes a store-selection button that uses the tenant-aware `ozon_stores` callback and existing account list.
+- Store selection and credential isolation continue to use the established Telegram user plus Ozon Client ID scope.
+
 ## 2026-09-26 — Ozon credential status and onboarding safety
 
 - Existing encrypted store records are distinguished from disconnected users when the master key is missing or mismatched.

@@ -4385,6 +4385,18 @@ Verification:
 - `externally_verified=False`.
 ---
 
+# Ozon Store Selector Discoverability
+
+Updated tests:
+
+- `tests/test_telegram_help_discovery.py`
+- `tests/test_product_unit_economics_telegram_ui.py`
+
+Covers visibility of the main-menu selector action and its route into the
+tenant-aware existing store list.
+
+---
+
 # Persistent Ozon Credential State Diagnostics
 
 Updated tests:
