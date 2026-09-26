@@ -77,6 +77,15 @@ fallback для multi-product posting.
 Проверяет production-style scope с 200 посторонними finance SKU: один realization
 request и отсутствие related/detail вызовов для чужих товаров.
 
+## Period Profit parallel finance reads
+
+Test:
+
+- tests/test_period_profit_parallel_finance_reads.py
+
+Проверяет bounded parallel accrual/posting reads and request-local daily-cache
+isolation when two active store calculations overlap on the same date.
+
 ## Telegram guided onboarding
 
 Tests:

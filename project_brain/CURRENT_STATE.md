@@ -1,5 +1,11 @@
 # Current Project State
 
+## 2026-09-26 — Isolate concurrent Period Profit finance caches
+
+- Daily Ozon accrual cache state is request-context local on the shared Period Profit finance service.
+- Overlapping calculations for different active stores retain their own raw daily finance responses, including when they request the same date.
+- Bounded prefetch workers and canonical account-level monetary authority are unchanged.
+
 ## 2026-09-19 — Selected-SKU Period Profit latency repair
 
 - Selected-SKU identity recovery no longer performs an unbounded serial posting-detail

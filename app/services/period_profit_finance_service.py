@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
+from contextvars import ContextVar, copy_context
 from datetime import date, timedelta
 from threading import local
 
@@ -16,8 +16,31 @@ class PeriodProfitFinanceService(FinanceService):
     POSTING_QUANTITY_WORKERS = 4
 
     def __init__(self):
+        # This service is shared by the production Telegram runtime. Keep the
+        # daily cache in the caller's context so overlapping store requests
+        # cannot clear or reuse each other's account-level accruals.
+        self._daily_accrual_cache_context = ContextVar(
+            "period_profit_daily_accrual_cache_" + str(id(self)),
+            default=None,
+        )
         super().__init__()
+        # FinanceService initializes its cache through the property below.
+        # Ensure copied worker contexts start empty and lazily create their own
+        # cache before the first read session.
+        self._daily_accrual_cache_context.set(None)
         self._period_profit_session = local()
+
+    @property
+    def _daily_accrual_cache(self):
+        cache = self._daily_accrual_cache_context.get()
+        if cache is None:
+            cache = {}
+            self._daily_accrual_cache_context.set(cache)
+        return cache
+
+    @_daily_accrual_cache.setter
+    def _daily_accrual_cache(self, value):
+        self._daily_accrual_cache_context.set(value)
 
     @property
     def ozon(self):
