@@ -1,5 +1,11 @@
 # Current Project State
 
+## 2026-09-26 — Ozon credential status and onboarding safety
+
+- Existing encrypted store records are distinguished from disconnected users when the master key is missing or mismatched.
+- Store-scoped storage initialization completes before credentials are saved, so a setup failure preserves an existing credential.
+- Onboarding shows safe storage/key diagnostics and advances to tax setup only after a confirmed read-only Ozon connection.
+
 ## 2026-09-26 — Isolate concurrent Period Profit finance caches
 
 - Daily Ozon accrual cache state is request-context local on the shared Period Profit finance service.

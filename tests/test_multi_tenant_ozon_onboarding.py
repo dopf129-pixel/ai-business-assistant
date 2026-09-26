@@ -219,3 +219,50 @@ def test_account_service_validates_before_persisting(tmp_path, monkeypatch):
     assert result["executed_ozon"] is False
     assert "api-secret" not in result["message"]
     assert repo.get("user-a")["api_key"] == "api-secret"
+
+
+def test_failed_tenant_storage_initialization_preserves_existing_credential(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    key = Fernet.generate_key().decode("utf-8")
+    repo = OzonAccountRepository(master_key=key, db_name=str(tmp_path / "accounts.db"))
+    assert repo.save("user-a", "123456", "old-api-secret")["error"] is False
+    service = OzonAccountService(
+        repository=repo,
+        client_factory=lambda client_id, api_key: _FakeProbeClient(),
+    )
+
+    def fail_storage_initialization():
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(service, "_initialize_tenant_storage", fail_storage_initialization)
+    outer_token = _tenant("outer-scope")
+    try:
+        result = service.connect("user-a", "123456", "replacement-api-secret")
+        assert get_current_tenant_user_id() == "outer-scope"
+    finally:
+        reset_current_tenant_user_id(outer_token)
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_ACCOUNT_STORAGE_UNAVAILABLE"
+    assert repo.get("user-a", "123456")["api_key"] == "old-api-secret"
+
+
+def test_account_status_reports_master_key_problem_without_disconnecting(tmp_path):
+    db_path = str(tmp_path / "accounts.db")
+    original_key = Fernet.generate_key().decode("utf-8")
+    wrong_key = Fernet.generate_key().decode("utf-8")
+    original = OzonAccountRepository(master_key=original_key, db_name=db_path)
+    assert original.save("user-a", "123456", "api-secret")["error"] is False
+
+    service = OzonAccountService(
+        repository=OzonAccountRepository(master_key=wrong_key, db_name=db_path)
+    )
+    result = service.status("user-a")
+
+    assert result["error"] is True
+    assert result["status"] == "OZON_ACCOUNT_STORED_CREDENTIALS_UNAVAILABLE"
+    assert result["code"] == "OZON_ACCOUNT_MASTER_KEY_MISMATCH"
+    assert "не подключайте магазин повторно" in result["message"]
+    assert "api-secret" not in str(result)

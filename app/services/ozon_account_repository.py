@@ -290,12 +290,68 @@ class OzonAccountRepository:
         return {"client_id": str(row[0]), "api_key": api_key}
 
     def status(self, user_id):
-        account = self.get(user_id)
-        accounts = self.list_accounts(user_id)
-        if not account:
-            return {"connected": False, "client_id_masked": None, "account_count": len(accounts)}
-        client_id = str(account.get("client_id") or "")
+        user_key, scoped_client = split_store_tenant_scope(user_id)
+        accounts = self.list_accounts(user_key)
+        if not user_key:
+            return {
+                "error": False,
+                "connected": False,
+                "client_id_masked": None,
+                "account_count": 0,
+            }
+
+        client_key = str(
+            scoped_client or self.active_client_id(user_key) or ""
+        ).strip()
+        if not client_key:
+            return {
+                "error": False,
+                "connected": False,
+                "client_id_masked": None,
+                "account_count": len(accounts),
+            }
+
+        conn = self._connection()
+        try:
+            row = conn.execute(
+                """
+                SELECT client_id, api_key_encrypted
+                FROM ozon_store_accounts
+                WHERE telegram_user_id = ? AND client_id = ?
+                """,
+                (user_key, client_key),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return {
+                "error": False,
+                "connected": False,
+                "client_id_masked": None,
+                "account_count": len(accounts),
+            }
+
+        fernet = self._fernet()
+        if fernet is None:
+            return {
+                "error": True,
+                "code": "OZON_ACCOUNT_MASTER_KEY_UNAVAILABLE",
+                "connected": False,
+                "account_count": len(accounts),
+            }
+        try:
+            fernet.decrypt(str(row[1]).encode("utf-8"))
+        except (InvalidToken, ValueError, TypeError):
+            return {
+                "error": True,
+                "code": "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+                "connected": False,
+                "account_count": len(accounts),
+            }
+
+        client_id = str(row[0] or "")
         return {
+            "error": False,
             "connected": True,
             "client_id_masked": self._mask_client_id(client_id),
             "client_id": client_id,

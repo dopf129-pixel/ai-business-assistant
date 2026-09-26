@@ -4385,6 +4385,21 @@ Verification:
 - `externally_verified=False`.
 ---
 
+# Persistent Ozon Credential State Diagnostics
+
+Updated tests:
+
+- `tests/test_ozon_credential_production_persistence.py`
+- `tests/test_multi_tenant_ozon_onboarding.py`
+- `tests/test_telegram_guided_onboarding.py`
+
+Covers missing and mismatched master keys, preserving the ciphertext, safe
+onboarding diagnostics, tenant context reset, preservation of an existing key
+when tenant storage initialization fails, and refusing to advance after a failed
+read-only Ozon probe.
+
+---
+
 # Telegram Help and Feature Discovery
 
 Tests:

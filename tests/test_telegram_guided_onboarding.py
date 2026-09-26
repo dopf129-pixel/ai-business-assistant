@@ -21,18 +21,24 @@ class Profiles:
 
 
 class Accounts:
-    def __init__(self, connected=()):
+    def __init__(self, connected=(), status_result=None, connect_result=None):
         self.connected, self.connect_calls = set(connected), []
+        self.status_result = status_result
+        self.connect_result = connect_result
 
     def status(self, user_id):
         assert get_current_tenant_user_id() == str(user_id)
+        if self.status_result is not None:
+            return self.status_result
         return {"error": False, "connected": user_id in self.connected}
 
     def connect(self, user_id, client_id, api_key):
         assert get_current_tenant_user_id() == str(user_id)
         self.connect_calls.append((user_id, client_id, api_key))
+        if self.connect_result is not None:
+            return self.connect_result
         self.connected.add(user_id)
-        return {"error": False}
+        return {"error": False, "status": "OZON_ACCOUNT_CONNECTED"}
 
 
 class Tax:
@@ -100,6 +106,40 @@ def test_production_callback_path_resumes_without_echoing_secret():
     completed = bot.on_callback("seller-a", "onboarding_tax:NONE")
     assert completed["onboarding_complete"] is True
     assert tax.saved == [("NONE", None)]
+
+
+def test_start_preserves_safe_saved_credential_diagnostic():
+    accounts = Accounts(status_result={
+        "error": True,
+        "code": "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+        "message": "Восстановите прежний ключ; не подключайте магазин повторно.",
+    })
+    bot = make_bot(accounts, Tax())
+
+    result = bot.on_start("seller-a")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_ACCOUNT_MASTER_KEY_MISMATCH"
+    assert result["message"] == "Восстановите прежний ключ; не подключайте магазин повторно."
+    assert "ONBOARDING_UNAVAILABLE" not in result["message"]
+    assert "required_step" not in result
+
+
+def test_failed_ozon_probe_does_not_advance_onboarding_to_tax():
+    accounts = Accounts(connect_result={
+        "error": False,
+        "status": "OZON_ACCOUNT_CONNECTION_FAILED",
+        "message": "Ozon не подтвердил доступ. Ничего не сохранено.",
+    })
+    bot = make_bot(accounts, Tax())
+
+    assert bot.on_start("seller-a")["required_step"] == "OZON_CREDENTIALS"
+    result = bot.on_message("seller-a", "client-123 rejected-secret")
+
+    assert result["handled"] is True
+    assert result["message"] == "Ozon не подтвердил доступ. Ничего не сохранено."
+    assert "required_step" not in result
+    assert "rejected-secret" not in str(result)
 
 
 def test_existing_settings_are_skipped_and_complete_user_gets_menu():
