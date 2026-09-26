@@ -2,6 +2,12 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-26 — Isolate concurrent Period Profit finance caches
+
+- made the daily accrual cache request-context local for the shared production finance service;
+- added a regression test that overlaps two store reads for the same date and verifies that each retains its own Ozon response;
+- kept bounded Ozon prefetch, accounting totals, and retry behavior unchanged.
+
 ## 2026-09-15 — Telegram help and feature discovery
 
 - added a visible `Помощь и команды` action to the production main keyboard;

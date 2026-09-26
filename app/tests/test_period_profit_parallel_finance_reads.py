@@ -3,6 +3,7 @@ import sys
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -10,6 +11,11 @@ if APP_ROOT not in sys.path:
     sys.path.insert(0, APP_ROOT)
 
 from services.period_profit_finance_service import PeriodProfitFinanceService  # noqa: E402
+from services.tenant_context import (  # noqa: E402
+    get_current_tenant_user_id,
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class _ConcurrentOzon:
@@ -69,6 +75,15 @@ class _FailingDayOzon(_ConcurrentOzon):
         return super().get_accruals_by_day(accrual_date)
 
 
+class _TenantScopedOzon:
+    def get_accruals_by_day(self, accrual_date):
+        return {
+            "error": False,
+            "accruals": [{"tenant": get_current_tenant_user_id()}],
+            "last_id": "",
+        }
+
+
 class PeriodProfitParallelFinanceReadTests(unittest.TestCase):
     def test_prepared_read_session_prefetches_days_in_parallel_and_populates_normal_cache(self):
         service = PeriodProfitFinanceService()
@@ -86,6 +101,43 @@ class PeriodProfitParallelFinanceReadTests(unittest.TestCase):
         evidence = service.get_daily_sale_posting_evidence("2026-09-10")
         self.assertFalse(evidence["error"])
         self.assertEqual(len(ozon.day_calls), before)
+
+    def test_overlapping_store_reads_keep_daily_accrual_cache_request_local(self):
+        service = PeriodProfitFinanceService()
+        service.ozon = _TenantScopedOzon()
+        accrual_date = "2026-09-14"
+        tenant_a_prefetched = threading.Event()
+        tenant_b_prefetched = threading.Event()
+
+        def read_tenant_a():
+            token = set_current_tenant_user_id("tenant-a")
+            try:
+                service.begin_read_session()
+                result = service.prefetch_daily_accruals(accrual_date, accrual_date)
+                self.assertFalse(result["error"])
+                tenant_a_prefetched.set()
+                self.assertTrue(tenant_b_prefetched.wait(timeout=3))
+                return service._get_accruals_by_day(accrual_date)["accruals"][0]["tenant"]
+            finally:
+                reset_current_tenant_user_id(token)
+
+        def read_tenant_b():
+            token = set_current_tenant_user_id("tenant-b")
+            try:
+                self.assertTrue(tenant_a_prefetched.wait(timeout=3))
+                service.begin_read_session()
+                result = service.prefetch_daily_accruals(accrual_date, accrual_date)
+                self.assertFalse(result["error"])
+                tenant_b_prefetched.set()
+                return service._get_accruals_by_day(accrual_date)["accruals"][0]["tenant"]
+            finally:
+                reset_current_tenant_user_id(token)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            tenant_a = executor.submit(read_tenant_a)
+            tenant_b = executor.submit(read_tenant_b)
+            self.assertEqual(tenant_a.result(timeout=5), "tenant-a")
+            self.assertEqual(tenant_b.result(timeout=5), "tenant-b")
 
     def test_prefetch_failure_keeps_fail_closed_cache_empty(self):
         service = PeriodProfitFinanceService()
