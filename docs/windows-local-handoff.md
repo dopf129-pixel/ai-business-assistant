@@ -17,6 +17,12 @@ Use Python 3.12. The repository-level `start_bot.ps1` script is the supported Wi
 
 Subsequent runs reuse the same `.env`, master key, virtual environment, and `.runtime-data` storage. Do not regenerate the master key after Ozon credentials have been saved: the same key is required to decrypt the stored ciphertext after restart.
 
+If `/start` reports that a connection is already stored but cannot be decrypted,
+restore the original `OZON_CREDENTIAL_MASTER_KEY` in `.env` and keep the existing
+`.runtime-data` directory. Reconnecting with a new key does not recover the saved
+encrypted record. For a storage-path error, check that `AI_ASSISTANT_STORAGE_ROOT`
+still points to the same writable directory used before.
+
 ## Secrets
 
 `.env` and `.runtime-data/` are gitignored. `.env.example` contains placeholders only. Never copy another seller's Telegram token, Ozon Client ID, Ozon API key, `.env`, local database, or runtime data into a handoff package.

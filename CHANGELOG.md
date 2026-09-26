@@ -2,6 +2,12 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-26 — Ozon credential status and onboarding safety
+
+- distinguish an absent store from encrypted credentials that cannot be read with the current master key;
+- initialize store-scoped data before replacing credentials, preserving the saved key if initialization fails;
+- retain safe connection diagnostics and keep onboarding at Ozon until a read-only probe succeeds.
+
 ## 2026-09-26 — Isolate concurrent Period Profit finance caches
 
 - made the daily accrual cache request-context local for the shared production finance service;

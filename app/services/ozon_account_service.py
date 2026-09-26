@@ -24,23 +24,25 @@ class OzonAccountService:
         if not isinstance(probe, dict) or probe.get("error") is True:
             return self._connection_error()
         display_name = self._load_display_name(client)
-        saved = self.repository.save(
-            user_key, client_key, secret, display_name=display_name
-        )
-        if not isinstance(saved, dict) or saved.get("error") is True:
-            return self._storage_error()
         token = set_current_tenant_user_id(make_store_tenant_scope(user_key, client_key))
         try:
             self._initialize_tenant_storage()
         except Exception:
-            try:
-                self.repository.delete(user_key, client_key)
-            except Exception:
-                pass
             return self._storage_error()
         finally:
             reset_current_tenant_user_id(token)
-        count = len(self.repository.list_accounts(user_key))
+        try:
+            saved = self.repository.save(
+                user_key, client_key, secret, display_name=display_name
+            )
+        except Exception:
+            return self._storage_error()
+        if not isinstance(saved, dict) or saved.get("error") is True:
+            return self._storage_error()
+        try:
+            count = len(self.repository.list_accounts(user_key))
+        except Exception:
+            count = 1
         return {
             "error": False,
             "status": "OZON_ACCOUNT_CONNECTED",
@@ -57,41 +59,68 @@ class OzonAccountService:
         }
 
     def status(self, user_id):
-        status = self.repository.status(user_id)
-        if status.get("connected") is True:
-            account = self._account_with_display_name(
-                user_id, status.get("client_id")
-            )
-            display = (
-                account.get("display_name") if isinstance(account, dict) else None
-            ) or status.get("client_id_masked") or "***"
+        try:
+            status = self.repository.status(user_id)
+            if not isinstance(status, dict):
+                return self._status_storage_error()
+            if status.get("error") is True:
+                code = str(status.get("code") or "")
+                if code in {
+                    "OZON_ACCOUNT_MASTER_KEY_UNAVAILABLE",
+                    "OZON_ACCOUNT_MASTER_KEY_MISMATCH",
+                }:
+                    return {
+                        "error": True,
+                        "code": code,
+                        "status": "OZON_ACCOUNT_STORED_CREDENTIALS_UNAVAILABLE",
+                        "message": (
+                            "Подключение магазина уже сохранено, но бот не может "
+                            "расшифровать его текущим OZON_CREDENTIAL_MASTER_KEY. "
+                            "Восстановите прежний ключ из .env; не подключайте "
+                            "магазин повторно."
+                        ),
+                        "connected": False,
+                        "account_count": status.get("account_count"),
+                        "read_only_ozon": True,
+                        "executed_ozon": False,
+                    }
+                return self._status_storage_error()
+            if status.get("connected") is True:
+                account = self._account_with_display_name(
+                    user_id, status.get("client_id")
+                )
+                display = (
+                    account.get("display_name") if isinstance(account, dict) else None
+                ) or status.get("client_id_masked") or "***"
+                return {
+                    "error": False,
+                    "status": "OZON_ACCOUNT_CONNECTED",
+                    "message": (
+                        "Активный магазин Ozon: "
+                        + str(display)
+                        + ". Подключено магазинов: " + str(status.get("account_count") or 1)
+                        + ". Переключение: /stores."
+                    ),
+                    "connected": True,
+                    "client_id_masked": status.get("client_id_masked"),
+                    "display_name": (
+                        account.get("display_name")
+                        if isinstance(account, dict) else None
+                    ),
+                    "account_count": status.get("account_count"),
+                    "read_only_ozon": True,
+                    "executed_ozon": False,
+                }
             return {
                 "error": False,
-                "status": "OZON_ACCOUNT_CONNECTED",
-                "message": (
-                    "Активный магазин Ozon: "
-                    + str(display)
-                    + ". Подключено магазинов: " + str(status.get("account_count") or 1)
-                    + ". Переключение: /stores."
-                ),
-                "connected": True,
-                "client_id_masked": status.get("client_id_masked"),
-                "display_name": (
-                    account.get("display_name")
-                    if isinstance(account, dict) else None
-                ),
-                "account_count": status.get("account_count"),
+                "status": "OZON_ACCOUNT_NOT_CONNECTED",
+                "message": "Кабинет Ozon не подключён. Используйте /ozon_connect CLIENT_ID API_KEY.",
+                "connected": False,
                 "read_only_ozon": True,
                 "executed_ozon": False,
             }
-        return {
-            "error": False,
-            "status": "OZON_ACCOUNT_NOT_CONNECTED",
-            "message": "Кабинет Ozon не подключён. Используйте /ozon_connect CLIENT_ID API_KEY.",
-            "connected": False,
-            "read_only_ozon": True,
-            "executed_ozon": False,
-        }
+        except Exception:
+            return self._status_storage_error()
 
     def stores(self, user_id):
         accounts = self.repository.list_accounts(user_id)
@@ -228,6 +257,21 @@ class OzonAccountService:
             "error": True,
             "code": "OZON_ACCOUNT_STORAGE_UNAVAILABLE",
             "message": "Не удалось безопасно сохранить подключение. Проверьте OZON_CREDENTIAL_MASTER_KEY и локальное хранилище на сервере.",
+            "read_only_ozon": True,
+            "executed_ozon": False,
+        }
+
+    @staticmethod
+    def _status_storage_error():
+        return {
+            "error": True,
+            "code": "OZON_ACCOUNT_STORAGE_UNAVAILABLE",
+            "status": "OZON_ACCOUNT_STATUS_UNAVAILABLE",
+            "message": (
+                "Не удалось прочитать сохранённое подключение. Проверьте "
+                "AI_ASSISTANT_STORAGE_ROOT и права на каталог данных."
+            ),
+            "connected": False,
             "read_only_ozon": True,
             "executed_ozon": False,
         }
