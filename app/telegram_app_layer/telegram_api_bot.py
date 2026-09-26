@@ -96,7 +96,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        result = get_runner().receive_message(user_id, text)
+        result = await _run_sync_with_stall_notice(
+            lambda: get_runner().receive_message(user_id, text),
+            progress_message=progress_message,
+        )
     except Exception:
         await finish_progress(
             update.message,
@@ -156,7 +159,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         telegram_file = await context.bot.get_file(document.file_id)
         content = bytes(await telegram_file.download_as_bytearray())
-        result = get_runner().receive_document(user_id, content, document.file_name)
+        result = await _run_sync_with_stall_notice(
+            lambda: get_runner().receive_document(user_id, content, document.file_name),
+            progress_message=progress_message,
+        )
     except Exception:
         await finish_progress(
             update.message,
