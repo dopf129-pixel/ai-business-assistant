@@ -2,6 +2,12 @@
 
 Все значимые изменения проекта фиксируются в этом файле.
 
+## 2026-09-26 — Historical Performance CPM campaign handling
+
+- skip the documented CPM payment type while collecting CPC campaigns for the CPC+CPO SKU expense scope;
+- keep CPO collection separate and continue to reject unrecognized payment types;
+- add regression coverage for both supported and unknown payment types.
+
 ## 2026-09-26 — Multi-store selector discoverability
 
 - added a main-menu button that opens the existing store selector for connected Ozon accounts;

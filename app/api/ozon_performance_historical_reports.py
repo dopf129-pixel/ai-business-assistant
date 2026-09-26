@@ -112,10 +112,12 @@ class HistoricalPerformanceReports:
             for item in items:
                 if not isinstance(item, dict) or not str(item.get("id", "")).isdecimal():
                     raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INVALID")
-                # Only CPC campaigns; order-payment is fetched separately.
+                # Only CPC campaigns are part of this report. The API also
+                # exposes CPM as a valid paymentType; it is outside the
+                # CPC+CPO SKU scope and must not abort the whole report.
                 if item.get("paymentType") == "CPC":
                     ids.append(str(item["id"]))
-                elif item.get("paymentType") not in ("CPO",):
+                elif item.get("paymentType") not in ("CPO", "CPM"):
                     raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN")
             if len(items) < 100:
                 return list(dict.fromkeys(ids))
