@@ -1,5 +1,10 @@
 # Current Project State
 
+## 2026-09-28 — Финансовая диагностика в отчёте по выбранному SKU
+
+- Ошибка предзагрузки финансов Ozon теперь показывает безопасный код диагностики прямо в сообщении выбранного SKU.
+- Текст ответа провайдера и небезопасные диагностические значения не раскрываются; финансовый расчёт остаётся fail-closed и read-only.
+
 ## 2026-09-26 — Ignore known CPM campaigns in CPC+CPO historical SKU reports
 
 - Historical Performance campaign discovery skips the documented CPM payment type, which is outside the report's CPC+CPO scope, instead of aborting the entire Period Profit calculation.

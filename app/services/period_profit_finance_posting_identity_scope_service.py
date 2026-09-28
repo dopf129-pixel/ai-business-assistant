@@ -105,9 +105,8 @@ class PeriodProfitFinancePostingIdentityScopeService(
             try:
                 result = prefetch(date_from, date_to)
             except Exception:
-                return self._error(
-                    "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
-                    "Финансовые данные Ozon недоступны",
+                return self._finance_prefetch_error(
+                    "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
                 )
             if not isinstance(result, dict) or result.get("error") is True:
                 code = (
@@ -115,20 +114,12 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     if isinstance(result, dict)
                     else "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
                 )
-                error = self._error(
+                return self._finance_prefetch_error(
                     code,
-                    "Финансовые данные Ozon недоступны",
+                    result.get("finance_diagnostic_code")
+                    if isinstance(result, dict)
+                    else None,
                 )
-                if isinstance(result, dict):
-                    diagnostic = str(
-                        result.get("finance_diagnostic_code") or ""
-                    ).strip().upper()
-                    if diagnostic and all(
-                        character.isalnum() or character == "_"
-                        for character in diagnostic
-                    ):
-                        error["finance_diagnostic_code"] = diagnostic
-                return error
 
         self._catalog_by_sku = self._unique_catalog_sku_index(products)
         self._catalog_by_product_id = self._unique_catalog_product_id_index(products)
@@ -174,6 +165,30 @@ class PeriodProfitFinancePostingIdentityScopeService(
             scoped["finance_diagnostic_code"] = diagnostic
             scoped["finance_identity_blockers"] = diagnostics
         return scoped
+
+    def _finance_prefetch_error(self, code, diagnostic=None):
+        fallback = "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
+        safe_code = self._safe_diagnostic_code(code) or fallback
+        safe_diagnostic = self._safe_diagnostic_code(diagnostic) or safe_code
+        message = (
+            "Финансовые данные Ozon недоступны\n"
+            "Код диагностики: " + safe_diagnostic
+        )
+        error = self._error(safe_code, message)
+        error["finance_diagnostic_code"] = safe_diagnostic
+        return error
+
+    @staticmethod
+    def _safe_diagnostic_code(value):
+        text = str(value or "").strip().upper()
+        if (
+            not text
+            or len(text) > 120
+            or not text.isascii()
+            or not all(character.isalnum() or character == "_" for character in text)
+        ):
+            return None
+        return text
 
     def _load_period_skus(self, date_from, date_to):
         # The prefetch above populated PeriodProfitFinanceService's normal daily

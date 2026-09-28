@@ -122,3 +122,62 @@ def test_scope_fails_closed_on_ambiguous_current_catalog_sku():
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
     assert summary.received_products is None
+
+
+def test_finance_prefetch_error_includes_safe_diagnostic_in_user_message():
+    class _UnavailableFinance:
+        def prefetch_daily_accruals(self, *_args):
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_HTTP_403",
+                "finance_diagnostic_code": "OZON_FINANCE_SCOPE_DENIED",
+                "message": "upstream detail must not be shown",
+            }
+
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        _Summary(),
+        _UnavailableFinance(),
+        sku_ozon_client=None,
+    )
+    result = service.calculate(
+        "2026-09-14",
+        "2026-09-14",
+        [{"product_id": "p1", "offer_id": "o1", "sku": "101"}],
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_FINANCE_PREFETCH_HTTP_403"
+    assert result["finance_diagnostic_code"] == "OZON_FINANCE_SCOPE_DENIED"
+    assert result["message"] == (
+        "Финансовые данные Ozon недоступны\n"
+        "Код диагностики: OZON_FINANCE_SCOPE_DENIED"
+    )
+    assert "upstream detail" not in str(result)
+    assert result["read_only"] is True
+    assert result["executed"] is False
+
+
+def test_finance_prefetch_error_does_not_echo_unsafe_diagnostic_text():
+    class _UnavailableFinance:
+        def prefetch_daily_accruals(self, *_args):
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE",
+                "finance_diagnostic_code": "token=do-not-show",
+            }
+
+    service = PeriodProfitFinancePostingIdentityScopeService(
+        _Summary(),
+        _UnavailableFinance(),
+        sku_ozon_client=None,
+    )
+    result = service.calculate(
+        "2026-09-14",
+        "2026-09-14",
+        [{"product_id": "p1", "offer_id": "o1", "sku": "101"}],
+    )
+
+    assert result["finance_diagnostic_code"] == (
+        "PERIOD_PROFIT_FINANCE_PREFETCH_UNAVAILABLE"
+    )
+    assert "do-not-show" not in str(result)
