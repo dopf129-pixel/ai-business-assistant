@@ -230,6 +230,12 @@ class PeriodProfitSkuRuntimeService:
                     failure["message"] = (
                         "Не распознан тип рекламной кампании Ozon.\n"
                         "paymentType: " + payment_type + "\n"
+                    )
+                    campaign_id = str(loaded.get("campaign_id") or "").strip()
+                    if campaign_id.isascii() and campaign_id.isdecimal():
+                        failure["campaign_id"] = campaign_id
+                        failure["message"] += "ID кампании: " + campaign_id + "\n"
+                    failure["message"] += (
                         "Код диагностики: OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
                     )
             return failure

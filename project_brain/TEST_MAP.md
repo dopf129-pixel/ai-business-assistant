@@ -62,8 +62,8 @@ Test:
 
 Проверяет разбор SKU-level CPC/CPO reports, выбор колонки рекламного расхода,
 разбиение периода на окна, пропуск известного CPM вне поддерживаемого CPC+CPO
-scope, fail-closed реакцию на неизвестный payment type и передачу безопасного
-значения `paymentType` в сообщение ошибки выбранного SKU.
+scope, fail-closed реакцию на неизвестный payment type и передачу безопасных
+`paymentType` и ID кампании в сообщение ошибки выбранного SKU.
 
 ## Period Profit by selected SKU
 

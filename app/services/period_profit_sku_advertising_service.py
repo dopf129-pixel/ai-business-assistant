@@ -46,7 +46,7 @@ class PeriodProfitSkuAdvertisingService:
                 or "PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE",
                 **({key: result[key] for key in (
                     "failed_window_from", "failed_window_to", "status_code",
-                    "campaign_payment_type",
+                    "campaign_payment_type", "campaign_id",
                 ) if key in result} if isinstance(result, dict) else {}),
             }
         rows = result.get("rows")
