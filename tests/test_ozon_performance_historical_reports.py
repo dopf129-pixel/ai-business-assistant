@@ -56,6 +56,7 @@ def test_campaign_list_fails_closed_for_unrecognized_payment_types():
         service._campaign_ids()
     assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert exc.value.campaign_payment_type == "NEW_TYPE"
+    assert exc.value.campaign_id == "123"
 
 
 def test_historical_campaign_error_returns_payment_type_diagnostic():
@@ -68,6 +69,7 @@ def test_historical_campaign_error_returns_payment_type_diagnostic():
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+    assert result["campaign_id"] == "123"
 
 
 def test_historical_campaign_diagnostic_sanitizes_unexpected_values():

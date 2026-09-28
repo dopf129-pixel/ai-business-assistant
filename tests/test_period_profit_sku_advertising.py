@@ -78,6 +78,7 @@ def test_historical_campaign_payment_type_survives_advertising_service():
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+    assert result["campaign_id"] == "1001"
 
 
 def test_runtime_shows_safe_historical_campaign_diagnostic():
@@ -87,6 +88,7 @@ def test_runtime_shows_safe_historical_campaign_diagnostic():
                 "error": True,
                 "code": "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
                 "campaign_payment_type": "CAMPAIGN_TYPE_INVALID",
+                "campaign_id": "1001",
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -100,8 +102,33 @@ def test_runtime_shows_safe_historical_campaign_diagnostic():
 
     assert result["error"] is True
     assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+    assert result["campaign_id"] == "1001"
     assert "paymentType: CAMPAIGN_TYPE_INVALID" in result["message"]
+    assert "ID кампании: 1001" in result["message"]
     assert "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN" in result["message"]
+
+
+def test_runtime_omits_non_numeric_campaign_id_from_diagnostic():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+                "campaign_payment_type": "MISSING",
+                "campaign_id": "123\nsecret",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "ID кампании" not in result["message"]
+    assert "secret" not in result["message"]
 
 
 def test_runtime_replaces_already_booked_finance_ad_with_exact_sku_ad():

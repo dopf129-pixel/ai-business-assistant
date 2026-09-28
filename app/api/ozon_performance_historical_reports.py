@@ -16,9 +16,10 @@ import requests
 
 
 class HistoricalReportError(Exception):
-    def __init__(self, code, campaign_payment_type=None):
+    def __init__(self, code, campaign_payment_type=None, campaign_id=None):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
+        self.campaign_id = campaign_id
         super().__init__(code)
 
 
@@ -137,6 +138,7 @@ class HistoricalPerformanceReports:
                         campaign_payment_type=self._safe_campaign_payment_type(
                             item.get("paymentType")
                         ),
+                        campaign_id=str(item["id"]),
                     )
             if len(items) < 100:
                 return list(dict.fromkeys(ids))
@@ -233,4 +235,6 @@ class HistoricalPerformanceReports:
             }
             if exc.campaign_payment_type is not None:
                 result["campaign_payment_type"] = exc.campaign_payment_type
+            if exc.campaign_id is not None:
+                result["campaign_id"] = exc.campaign_id
             return result
