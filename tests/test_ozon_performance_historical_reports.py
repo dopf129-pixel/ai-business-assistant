@@ -48,6 +48,29 @@ def test_campaign_list_skips_known_out_of_scope_payment_types():
     assert service._campaign_ids() == ["123"]
 
 
+def test_campaign_list_uses_sku_filter_when_payment_type_is_missing():
+    service = HistoricalPerformanceReports(_Client([
+        {"id": "42104957", "advObjectType": "SKU"},
+        # advObjectType is optional in some campaign responses. The request
+        # itself is filtered to SKU, so an omitted field still has that scope.
+        {"id": "42104958"},
+    ]))
+
+    assert service._campaign_ids() == ["42104957", "42104958"]
+
+
+def test_campaign_list_rejects_conflicting_scope_when_payment_type_is_missing():
+    service = HistoricalPerformanceReports(_Client([
+        {"id": "123", "advObjectType": "BANNER"},
+    ]))
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._campaign_ids()
+
+    assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert exc.value.campaign_payment_type == "MISSING"
+
+
 def test_campaign_list_fails_closed_for_unrecognized_payment_types():
     service = HistoricalPerformanceReports(_Client([
         {"id": "123", "paymentType": "NEW_TYPE"},
