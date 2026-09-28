@@ -1,3987 +1,10 @@
-# Current Project State
-
-## 2026-09-26 ‚Äî Ignore known CPM campaigns in CPC+CPO historical SKU reports
-
-- Historical Performance campaign discovery skips the documented CPM payment type, which is outside the report's CPC+CPO scope, instead of aborting the entire Period Profit calculation.
-- CPC remains included, CPO remains retrieved through its separate product report, and unrecognized payment types still fail closed.
-
-## 2026-09-26 ‚Äî Multi-store selector discoverability
-
-- The main keyboard exposes a store-selection button that uses the tenant-aware `ozon_stores` callback and existing account list.
-- Store selection and credential isolation continue to use the established Telegram user plus Ozon Client ID scope.
-
-## 2026-09-26 ‚Äî Ozon credential status and onboarding safety
-
-- Existing encrypted store records are distinguished from disconnected users when the master key is missing or mismatched.
-- Store-scoped storage initialization completes before credentials are saved, so a setup failure preserves an existing credential.
-- Onboarding shows safe storage/key diagnostics and advances to tax setup only after a confirmed read-only Ozon connection.
-
-## 2026-09-26 ‚Äî Isolate concurrent Period Profit finance caches
-
-- Daily Ozon accrual cache state is request-context local on the shared Period Profit finance service.
-- Overlapping calculations for different active stores retain their own raw daily finance responses, including when they request the same date.
-- Bounded prefetch workers and canonical account-level monetary authority are unchanged.
-
-## 2026-09-19 ‚Äî Selected-SKU Period Profit latency repair
-
-- Selected-SKU identity recovery no longer performs an unbounded serial posting-detail
-  N+1, and current/previous comparison reuses request-local proven identity evidence.
-- The final query calculates the previous period once instead of twice.
-- Selected-product provider scope is concurrency-safe and no longer mutates shared
-  request state.
-- Long Telegram workers emit a secret-free diagnostic snapshot and worker stack after
-  90 seconds while the informational watchdog continues waiting.
-- Exact realization evidence now covers confirming postings outside the bounded
-  detail-probe prefix without reintroducing per-posting N+1 requests.
-- Rewritten realization SKUs are supported for single-finance-SKU postings only.
-- Identity recovery never pages the complete account FBO history; it uses already
-  loaded finance/realization evidence and bounded exact fallbacks instead.
-- Any previous-period-only failure degrades the optional comparison without rerunning
-  or suppressing independently proven current profit.
-- Selected finance scope now preserves its unique offer index and prefilters account
-  finance SKUs before individual recovery; unrelated SKU network N+1 is removed.
-
-## 2026-09-15 ‚Äî Telegram help and discoverability
-
-- The main keyboard exposes `–ü–æ–º–æ—â—å –∏ –∫–æ–º–∞–Ω–¥—ã`.
-- `/help` and the callback use the same canonical presentation contract.
-- Every supported slash command and every exact seller-confirmation phrase family
-  is documented in-bot; routine flows link back to the existing production callbacks.
-- No Ozon mutation, financial authority, historical-cost, identity, or Return COGS
-  gate changed.
-
-
-Date:
-
-2026-09-03
-
-
-
-# Test Status
-
-
-Verification model: SHA-bound.
-
-Latest full-suite baseline confirmed:
-
-2208 passed on `3f82b65054a2a7a48b9918803c197377bdb3557f`.
-
-GitHub Actions push verification run #1131 completed successfully for this exact main SHA.
-
-See `project_brain/VERIFICATION_STATUS.md`.
-
-
-
-# Stabilization Checkpoint
-
-
-Completed:
-
-
-[x] Full test suite stabilization
-
-
-[x] Action Generator contract restored
-
-
-[x] Action Executor compatibility restored
-
-
-[x] Action context preservation restored
-
-
-[x] Priority preservation restored
-
-
-[x] Memory features remain compatible with existing pipeline
-
-
-
-Result:
-
-
-63 passed
-
-
-
----
-
-
-
-# Project Direction
-
-
-## Main Product
-
-
-AI Business Assistant
-
-
-
-–¶–µ–ª—å –ø—Ä–æ–µ–∫—Ç–∞:
-
-
-–°–æ–∑–¥–∞–Ω–∏–µ –±–∏–∑–Ω–µ—Å-–∞—Å—Å–∏—Å—Ç–µ–Ω—Ç–∞-–∞–Ω–∞–ª–∏—Ç–∏–∫–∞,
-–∫–æ—Ç–æ—Ä—ã–π —á–∏—Ç–∞–µ—Ç –∏ –∞–Ω–∞–ª–∏–∑–∏—Ä—É–µ—Ç –¥–∞–Ω–Ω—ã–µ Ozon,
-—Å—Ä–∞–≤–Ω–∏–≤–∞–µ—Ç –ø–µ—Ä–∏–æ–¥—ã, –æ–±—ä—è—Å–Ω—è–µ—Ç —Ä–∏—Å–∫–∏,
-–ø—Ä–∏–æ—Ä–∏—Ç–∏–∑–∏—Ä—É–µ—Ç –ø—Ä–æ–±–ª–µ–º—ã –∏ —Ä–µ–∫–æ–º–µ–Ω–¥—É–µ—Ç –¥–µ–π—Å—Ç–≤–∏—è,
-–Ω–æ –Ω–µ –∏–∑–º–µ–Ω—è–µ—Ç —Å–æ—Å—Ç–æ—è–Ω–∏–µ Ozon –∏ –Ω–µ –≤—ã–ø–æ–ª–Ω—è–µ—Ç business mutations.
-
-
-
-## Internal Development System
-
-
-AI Development Agent
-
-
-
-–ù–∞–∑–Ω–∞—á–µ–Ω–∏–µ:
-
-
-AI Development Agent —è–≤–ª—è–µ—Ç—Å—è –≤–Ω—É—Ç—Ä–µ–Ω–Ω–∏–º –∏–Ω—Å—Ç—Ä—É–º–µ–Ω—Ç–æ–º,
-–∫–æ—Ç–æ—Ä—ã–π —É—Å–∫–æ—Ä—è–µ—Ç —Å–æ–∑–¥–∞–Ω–∏–µ –∏ —Ä–∞–∑–≤–∏—Ç–∏–µ AI Business Assistant.
-
-
-
-–û—Å–Ω–æ–≤–Ω—ã–µ –∑–∞–¥–∞—á–∏:
-
-
-- —É–º–µ–Ω—å—à–µ–Ω–∏–µ —Ä—É—á–Ω—ã—Ö –¥–µ–π—Å—Ç–≤–∏–π –ø—Ä–∏ —Ä–∞–∑—Ä–∞–±–æ—Ç–∫–µ
-- –ø–æ–¥–¥–µ—Ä–∂–∞–Ω–∏–µ Project Brain
-- –∫–æ–Ω—Ç—Ä–æ–ª—å –¥–æ–∫—É–º–µ–Ω—Ç–∞—Ü–∏–æ–Ω–Ω–æ–≥–æ drift
-- –∞–≤—Ç–æ–º–∞—Ç–∏–∑–∞—Ü–∏—è —Ç–µ—Å—Ç–∏—Ä–æ–≤–∞–Ω–∏—è
-- —É—Å–∫–æ—Ä–µ–Ω–∏–µ –≤–Ω–µ—Å–µ–Ω–∏—è –∏–∑–º–µ–Ω–µ–Ω–∏–π
-
-
-
-–ê—Ä—Ö–∏—Ç–µ–∫—Ç—É—Ä–Ω–∞—è —Å–≤—è–∑—å:
-
-
-AI Development Agent
-
-‚Üì
-
-Development Workflow
-
-‚Üì
-
-AI Business Assistant
-
-
-
----
-
-
-
-# Completed Features
-
-[x] Read-only Period Profit presentation by selected tenant catalog SKU with fail-closed identity and amount validation
-
-[x] Resumable Telegram onboarding from production Ozon account and tax configuration sources
-
-
-[x] Intent detection
-
-
-[x] Task creation
-
-
-[x] Task lifecycle
-
-
-[x] Pause
-
-
-[x] Resume
-
-
-[x] Cancel
-
-
-[x] History
-
-
-[x] Context
-
-
-[x] Action Router
-
-
-[x] Sales Executor
-
-
-[x] Stock Executor
-
-
-[x] Marketing Executor
-
-
-[x] Priority system
-
-
-[x] Action dependencies
-
-
-[x] Conditional actions
-
-
-[x] SKIPPED state
-
-
-[x] Skip reason
-
-
-[x] History response formatting
-
-
-[x] Sales Intelligence Service foundation
-
-
-[x] Sales Intelligence Integration v1
-
-
-[x] Sales Intelligence Data Flow v1 - Context Propagation
-
-
-[x] Sales Intelligence Production Wiring v1
-
-
-[x] Sales Intelligence Business Data Input v1
-
-
-[x] Stock Intelligence Foundation v1
-
-
-[x] Stock Intelligence Integration v1
-
-
-[x] Stock Intelligence Context Propagation v1
-
-
-[x] Stock Intelligence Production Wiring v1
-
-
-[x] Stock Intelligence Business Data Input v1
-
-
-[x] Finance Intelligence Foundation v1
-
-
-[x] Finance Intelligence Executor Integration v1
-
-
-[x] Finance Intelligence Context Propagation v1
-
-
-[x] Finance Intelligence Production Wiring v1
-
-
-[x] Finance Intelligence Business Data Input v1
-
-
-[x] Product-Level Finance Metrics v1
-
-
-[x] Product Unit Economics Foundation v1.1
-
-
-[x] Product Unit Economics Query v1
-
-
-[x] Tax Configuration Foundation v1
-
-
-[x] Product Unit Economics Production Wiring v1
-
-
-[x] Product Unit Economics Telegram UI v1
-
-
-
----
-
-
-
-# FAILED Execution Handling
-
-
-[x] Exception interception
-
-
-[x] FAILED action status
-
-
-[x] Error message storage
-
-
-[x] Failed execution test
-
-
-[x] FAILED history event
-
-
-[x] Error history storage
-
-
-[x] Retry action preparation
-
-
-[x] Retry execution test
-
-
-[x] Retry history tracking
-
-
-[x] Retry policy service
-
-
-[x] Retry decision logic
-
-
-[x] Retry allowed flag
-
-
-[x] Retry limit service
-
-
-[x] Maximum retry attempts
-
-
-[x] Retry limit validation
-
-
-[x] Retry blocked history
-
-
-[x] Retry block event storage
-
-
-
-Result:
-
-
-63 passed
-
-
-
----
-
-
-
-# Smart Planning
-
-
-[x] Multi-level dependencies
-
-
-[x] Dependency validation
-
-
-[x] Dependency cycle detection
-
-
-[x] Replan request trigger
-
-
-[x] Replanning service
-
-
-[x] Replanning integration
-
-
-[x] Replanning execution flow
-
-
-[x] Automatic replanning engine
-
-
-[x] Plan correction
-
-
-
-Result:
-
-
-63 passed
-
-
-
----
-
-
-
-# Autonomous Business Assistant
-
-
-Phase 3 foundation completed:
-
-
-[x] Feedback service
-
-
-[x] Feedback integration
-
-
-[x] Automatic feedback collection
-
-
-[x] Memory service
-
-
-[x] Feedback ‚Üí Memory connection
-
-
-[x] Memory storage
-
-
-[x] Memory lookup
-
-
-[x] Memory context in planning
-
-
-[x] Memory-guided action generation
-
-
-[x] Full Memory Agent Loop
-
-
-[x] Memory compatibility stabilization
-
-
-
-Completed goal:
-
-
-–ü–µ—Ä–µ—Ö–æ–¥ –æ—Ç —Å–∏—Å—Ç–µ–º—ã –≤—ã–ø–æ–ª–Ω–µ–Ω–∏—è –¥–µ–π—Å—Ç–≤–∏–π
-–∫ —Å–∏—Å—Ç–µ–º–µ –Ω–∞–∫–æ–ø–ª–µ–Ω–∏—è –æ–ø—ã—Ç–∞ –∏ –∏—Å–ø–æ–ª—å–∑–æ–≤–∞–Ω–∏—è –ø–∞–º—è—Ç–∏.
-
-
-
-Next planned changes:
-
-
-1. –ü–æ–¥–¥–µ—Ä–∂–∏–≤–∞—Ç—å SHA-bound CI verification –Ω–∞ –∫–∞–∂–¥–æ–º –Ω–æ–≤–æ–º main
-
-
-2. –°—á–∏—Ç–∞—Ç—å kernel-backed task persistence hardening –∑–∞–∫—Ä—ã—Ç—ã–º; –ø–æ–¥–¥–µ—Ä–∂–∏–≤–∞—Ç—å —Ç–æ–ª—å–∫–æ regression/release evidence –±–µ–∑ –Ω–æ–≤—ã—Ö –∞–±—Å—Ç—Ä–∞–∫—Ü–∏–π –±–µ–∑ –∫–æ–Ω–∫—Ä–µ—Ç–Ω–æ–π –Ω–µ–æ–±—Ö–æ–¥–∏–º–æ—Å—Ç–∏
-
-
-3. –°—á–∏—Ç–∞—Ç—å seller-facing Product Decision Learning Coverage Queue v493-v502 –∑–∞–≤–µ—Ä—à—ë–Ω–Ω–æ–π: –∏—Å–ø–æ–ª—å–∑–æ–≤–∞—Ç—å –µ—ë —Ç–æ–ª—å–∫–æ –∫–∞–∫ read-only –æ—á–µ—Ä–µ–¥—å —Å–±–æ—Ä–∞ feedback/observation evidence, –Ω–µ –∫–∞–∫ business-priority surface
-
-
-4. –°–ª–µ–¥—É—é—â–∏–π product/operational –ø–∞–∫–µ—Ç –≤—ã–±–∏—Ä–∞—Ç—å –ø–æ —Ñ–∞–∫—Ç–∏—á–µ—Å–∫–æ–º—É repo gap –ø–æ—Å–ª–µ —Å–≤–µ—Ä–∫–∏ main; –Ω–µ –ø—Ä–æ–¥–æ–ª–∂–∞—Ç—å learning wrappers –∞–≤—Ç–æ–º–∞—Ç–∏—á–µ—Å–∫–∏
-
-
-5. –ù–µ –ø–æ–¥–∫–ª—é—á–∞—Ç—å canonical user-action advisory/checklist chain –∫ Telegram, –ø–æ–∫–∞ exact persisted Product Decision verification –Ω–µ –±—É–¥–µ—Ç —è–≤–Ω–æ –ø—Ä–æ–Ω–µ—Å—ë–Ω —á–µ—Ä–µ–∑ production Telegram lineage; v831-v840 —É–∫—Ä–µ–ø–ª—è–µ—Ç verifier, v841-v850 guidance, v851-v860 checklist, v861-v870 completion evidence, –Ω–æ runtime-–ø–æ–¥–∫–ª—é—á–µ–Ω–∏–µ –ø–æ-–ø—Ä–µ–∂–Ω–µ–º—É –Ω–µ –≤—ã–ø–æ–ª–Ω–µ–Ω–æ
-
-
-6. –ü–æ–¥–¥–µ—Ä–∂–∏–≤–∞—Ç—å operator-only persistence diagnostics –∏ Project Brain drift cleanup
-
-
-7. –ù–µ –≤–∫–ª—é—á–∞—Ç—å Product Decision / Product Task Draft execution –±–µ–∑ –æ—Ç–¥–µ–ª—å–Ω–æ–π –∞—Ä—Ö–∏—Ç–µ–∫—Ç—É—Ä—ã –∏ –∞–≤—Ç–æ—Ä–∏–∑–∞—Ü–∏–∏
-
-
----
-
-
-
-# AI Development Agent Infrastructure
-
-
-AI Development Agent —è–≤–ª—è–µ—Ç—Å—è –≤–Ω—É—Ç—Ä–µ–Ω–Ω–∏–º —É—Å–∫–æ—Ä–∏—Ç–µ–ª–µ–º
-—Å–æ–∑–¥–∞–Ω–∏—è AI Business Assistant.
-
-
-
-Completed:
-
-
-[x] Project Brain
-
-
-[x] Architecture documentation
-
-
-[x] Development rules
-
-
-[x] Roadmap
-
-
-[x] Test map
-
-
-[x] Architecture decisions log
-
-
-[x] Changelog
-
-
-[x] AI Development Manager
-
-
-[x] Project status command
-
-
-[x] Test runner command
-
-
-[x] Context generator
-
-
-[x] Project analyzer
-
-
-[x] AI Development Manager v4
-
-
-[x] Project scanner
-
-
-[x] Test analyzer
-
-
-[x] Documentation-driven planning
-
-
-[x] Development planner
-
-
-[x] Development cycle automation
-
-
-[x] Change Impact Analysis Service
-
-
----
-
-
-
-# Current Architecture Level
-
-
-Stage:
-
-
-Task Orchestration Engine
-
-+
-
-Smart Planning
-
-+
-
-Autonomous Business Assistant Foundation
-
-+
-
-Development Autopilot Layer
-
-
-
----
-
-
-
-# Current Work Queue
-
-
-NEXT:
-
-
-AI Assistant Product Development
-
-
-
----
-
-
-
-# Previous Completed Phase
-
-
-TASK:
-
-
-Phase 4 - Development Infrastructure
-
-
-
-Completed goal:
-
-
-–°–æ–∑–¥–∞–Ω–∞ –∏–Ω—Ñ—Ä–∞—Å—Ç—Ä—É–∫—Ç—É—Ä–∞ —Ä–∞–∑—Ä–∞–±–æ—Ç–∫–∏,
-–∫–æ—Ç–æ—Ä–∞—è —É—Å–∫–æ—Ä—è–µ—Ç —Ä–∞–∑–≤–∏—Ç–∏–µ AI Business Assistant
-—á–µ—Ä–µ–∑ GPT + GitHub workflow.
-
-
-
-# Current Development Task
-
-
-TASK:
-
-
-AI Assistant Product Development
-
-
-Current Goal:
-
-
-–†–∞–∑–≤–∏—Ç–∏–µ –≤–æ–∑–º–æ–∂–Ω–æ—Å—Ç–µ–π –æ—Å–Ω–æ–≤–Ω–æ–≥–æ –ø—Ä–æ–¥—É–∫—Ç–∞ AI Business Assistant.
-
-
-
----
-
-
-
-# Planned Features
-
-
-[x] FAILED action state
-
-
-[x] Executor error handling
-
-
-[x] Error history
-
-
-[x] Retry execution
-
-
-[x] Retry execution history
-
-
-[x] Retry policy
-
-
-[x] Retry limit
-
-
-[x] Retry blocked history
-
-
-[x] Multi-level dependencies
-
-
-[x] Dependency validation
-
-
-[x] Automatic replanning
-
-
-[x] Plan correction
-
-
-[x] Feedback loop
-
-
-[x] Memory system
-
-
-[x] Change Impact Analysis
-
-
-[x] Documentation Drift Detection
-
-
-[x] Automated development workflow
-
-
-[x] Git checkpoint assistant
-
-
-[x] Long-running tasks
-
-
-[x] Self-improvement cycle
-
-
-
-## Phase 1
-
-Executor Reliability
-
-
-[x] Completed
-
-
-
-## Phase 2
-
-Smart Planning
-
-
-[x] Completed
-
-
-
-## Phase 3
-
-Autonomous Business Assistant
-
-
-[x] Feedback loop
-
-
-[x] Memory system
-
-
-[x] Long-running tasks
-
-
-[x] Self-improvement cycle
-
-
-
-## Phase 4
-
-Development Autopilot Layer
-
-
-[x] Project scanner
-
-
-[x] Documentation system
-
-
-[x] Test analyzer
-
-
-[x] Change Impact Analysis
-
-
-[x] Documentation Drift Detection
-
-
-[x] Automated Development Workflow
-
-
-[x] Git Checkpoint Assistant
-
-
-[x] Project Brain Synchronization
-
-
-[x] Vector memory
-
-
-[x] Completed
-
-
-
----
-
-
-
-# Metrics
-
-
-Tests:
-
-SHA-bound verification active.
-
-Latest confirmed full-suite baseline:
-1901 passed on `84d714909d5082958bf2bb21a30b7b097eb17955`.
-
-Verification source:
-GitHub Actions push run #709, exact SHA-bound main verification with canonical `test-report.json` artifact.
-
-
-
-Architecture:
-
-
-Task Orchestration Engine
-
-+
-
-Smart Planning
-
-+
-
-Autonomous Business Assistant Foundation
-
-+
-
-Development Autopilot Layer
-
-
-
-Documentation:
-
-
-Project Brain active
-
-
-
-Development Manager:
-
-
-Active
----
-
-# Current Unit Economics Validation ‚Äî 2026-08-25
-
-Completed:
-
-[x] Current seller price from Ozon Price API
-[x] offer_id / internal Ozon SKU separation
-[x] current commission calculation
-[x] fresh logistics from Ozon finance accruals
-[x] last mile separated from logistics
-[x] acquiring average from fresh finance accruals
-[x] product cost integration
-[x] explicit tax policy integration
-[x] USN Income 6% production configuration validated
-[x] rubles + percent-of-price presentation
-[x] Telegram production wiring
-[x] safe None handling for missing mandatory data
-
-Validated production example:
-
-SKU: hook-2
-
-Seller price: 96.00 RUB
-Commission: 13.44 RUB
-Logistics: 17.85 RUB
-Last mile: 1.55 RUB
-Acquiring: 1.30 RUB
-Product cost: 21.00 RUB
-Tax: 5.76 RUB
-Calculated profit per unit: 35.10 RUB
-Margin: 36.56%
-
-Finance sample:
-236 sales / 2 complete days
-
-Historical note:
-
-At this checkpoint returns / buyout losses were not yet included because cancelled
-FBO postings could not be reliably separated into pre-shipment cancellations and
-real customer non-buyouts.
-
-Current repository state supersedes that old "Next" item: dedicated returns/buyout
-analytics, returns-finance attribution, observed return impact, and authorized return
-financial-evidence services now exist.
-
-Important current limitation:
-
-Financial return-operation evidence and returns/buyout analytics are not equivalent
-to complete return economics. Do not treat the current evidence as proof that all
-return costs/losses are fully modeled in unit economics.
-
----
-
-# Product Decisions v3 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Returns-aware product decisions
-[x] Russian decision card with source metrics
-[x] Assortment-wide decision overview
-[x] Priority ordering for product decisions
-[x] Decision summary counts in Telegram
-[x] Seller article plus action label on product buttons
-
-Preserved:
-
-- decision thresholds;
-- manual product drill-down;
-- no autonomous action execution.
-
----
-
-# Product Decisions v4 ‚Äî 2026-08-28
-
-Completed:
-
-[x] 10-minute successful decision cache
-[x] Cache expiry and mutation protection
-[x] No caching of errors or insufficient decisions
-[x] Telegram assortment pagination
-[x] Eight products per page
-[x] Previous / next navigation callbacks
-
-Preserved:
-
-- existing decision rules and thresholds;
-- seller article callbacks;
-- no autonomous action execution.
-
----
-
-# Product Decision Memory v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Persistent successful decision snapshots
-[x] Change-only history without repeated duplicates
-[x] Previous decision and priority context
-[x] Bounded retention per seller article
-[x] Atomic JSON persistence
-[x] Telegram decision transition explanation
-
-Preserved:
-
-- ProductBusinessDecisionService rules;
-- product_memory SQLite schema;
-- task and user memory;
-- data/users.json;
-- no autonomous action execution.
-
----
-
-# Product Decision Feedback v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Useful feedback signal
-[x] Not-relevant feedback signal
-[x] Feedback bound to the latest decision snapshot
-[x] Idempotent repeated feedback
-[x] Telegram feedback buttons
-[x] Safe missing-history and invalid-feedback responses
-
-Preserved:
-
-- feedback does not change decision rules;
-- feedback does not execute actions;
-- existing decision history retention remains unchanged.
-
----
-
-# Product Decision Outcome Correlation v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Prior feedback linked to the next changed decision
-[x] Priority decrease observation
-[x] Priority increase observation
-[x] Same-priority decision change observation
-[x] No inference without explicit feedback
-[x] Non-causal Telegram wording
-
-Preserved:
-
-- observations do not alter decision rules;
-- observations do not prove action causality;
-- no autonomous action execution.
-
----
-
-# Product Decision Learning Summary v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Assortment-wide learning summary
-[x] Snapshot, feedback, and outcome counts
-[x] Product-level latest decision history
-[x] Russian decision and priority labels
-[x] Feedback and observation details in history
-[x] Telegram navigation from overview and product card
-
-Preserved:
-
-- no success-rate claim on limited data;
-- no causal claim;
-- no influence on decision rules;
-- no autonomous action execution.
-
----
-
-# Safe Product Action Proposals v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] ProductDecisionActionProposalService
-[x] Replenishment review proposal
-[x] Unit-economics review proposal
-[x] Margin review proposal
-[x] Monitoring-only proposal
-[x] Manual-confirmation boundary
-[x] Telegram next-step presentation
-[x] Assortment actionable-proposal count
-
-Preserved:
-
-- no replenishment quantity inference;
-- no price-change inference;
-- execution_allowed is always false;
-- Action/Executor workflow is not invoked.
-
----
-
-# Product Action Proposal Confirmation v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Confirm or dismiss actionable proposal
-[x] Latest-decision stale proposal guard
-[x] Idempotent stored proposal status
-[x] Telegram confirmation controls and Russian status
-[x] Explicit executed=False response
-
-Preserved:
-
-- confirmation is stored intent, not execution permission;
-- monitoring-only has no confirmation buttons;
-- no quantity or price draft is inferred;
-- no external API mutation or Action Executor.
-
----
-
-# Confirmed Product Task Drafts v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Persistent ProductActionTaskDraftService
-[x] Idempotent draft per decision snapshot
-[x] Draft dismissal on proposal rejection
-[x] Draft summary in Telegram
-[x] Draft status on product card
-[x] Dedicated production storage and wiring
-
-Preserved:
-
-- drafts are not executable tasks;
-- no replenishment quantity or price is inferred;
-- executed_count is always zero;
-- no existing Action Executor or Ozon mutation path is invoked.
-
----
-
-# Product Task Draft Review Lifecycle v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Automatic stale detection against current decision snapshot
-[x] DRAFT / STALE / DISMISSED / ARCHIVED states
-[x] Compact identifiers for new and legacy drafts
-[x] Idempotent terminal archive action
-[x] Telegram lifecycle counts and archive controls
-[x] Current-card guard against old drafts
-
-Preserved:
-
-- lifecycle transitions never execute tasks;
-- archived drafts cannot be reopened implicitly;
-- no quantity, price, Ozon mutation, or Action Executor connection.
-
----
-
-# Product Draft Review Queue Prioritization v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Separate ProductTaskDraftReviewQueueService
-[x] Deterministic review score and priority category
-[x] Explainable reason codes
-[x] DRAFT and STALE queue scope
-[x] Oldest-first stable tie breaker
-[x] Telegram priority counts, reasons, and icons
-[x] Production composition wiring
-
-Preserved:
-
-- queue priority does not alter product decisions;
-- priority is not persisted as learned truth;
-- no lifecycle mutation, task execution, or Ozon API call.
-
----
-
-# Product Task Draft Detail and Audit v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Dedicated Telegram draft detail card
-[x] Source proposal, priority, profit, and margin context
-[x] CREATED / REOPENED / MARKED_STALE / DISMISSED / ARCHIVED audit events
-[x] Event source, timestamp, and status transition
-[x] No duplicate events for idempotent commands
-[x] Honest legacy-history fallback
-[x] Terminal archived detail without action controls
-
-Preserved:
-
-- audit facts do not influence decisions or queue score;
-- old history is never inferred;
-- detail and audit paths cannot execute tasks or mutate Ozon.
-
----
-
-# Product Task Draft Readiness Checklist v1 ‚Äî 2026-08-28
-
-Completed:
-
-[x] Separate ProductTaskDraftReadinessService
-[x] Proposal-specific factual requirements
-[x] Review-ready / needs-data distinction
-[x] Explicit missing-field output
-[x] Proposal-specific execution policy blockers
-[x] Detail-card readiness section
-[x] Review-queue readiness counts and item labels
-[x] Production composition wiring
-
-Preserved:
-
-- review_ready never implies execution_ready;
-- execution_ready_count remains zero;
-- missing values are not inferred;
-- checklist does not mutate decisions, drafts, or Ozon.
-
-
----
-
-# Product Decision Learning Coverage Queue v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Per-SKU learning coverage from persisted Product Decision history only
-[x] NEEDS_USER_FEEDBACK / NO_DECISION_HISTORY / WAITING_FOR_LATER_OBSERVATION states
-[x] Deterministic learning-attention rank with exact SKU tie-break
-[x] Latest-feedback semantics without treating old outcomes as future observation
-[x] Fail-closed malformed, duplicate and cross-SKU history handling
-[x] Telegram navigation and seller wording
-[x] No Product Decision query call while opening the queue
-[x] Production DI of the pure coverage builder
-
-Verified product baseline:
-
-- PR #219 head run #61: success
-- merged main SHA: `ef8b52ad34740d5cbb657988866ec01ebfe7191b`
-- push run #62: success
-- full suite: 1321 passed, 0 failed
-
-Preserved:
-
-- queue rank is not business priority;
-- no causality, success-rate or profitability claim;
-- no Product Decision rule update;
-- no Product Task Draft execution;
-- no Ozon mutation;
-- `automatic_execution_allowed=False`;
-- `executed=False`.
-
-
----
-
-# Product Decision Learning Coverage Navigation v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] State-specific inline navigation from the per-SKU learning coverage queue
-[x] Existing `product_decision:<sku>` route reused; no new runtime route
-[x] Top-10 navigation matches visible queue ordering
-[x] Return path to the full Product Decisions screen
-[x] Forged or malformed navigation fails closed
-[x] Queue opening remains read-only and does not query Product Decisions
-[x] No direct feedback callback is emitted from the queue
-
-Preserved:
-
-- seller explicitly opens a concrete Product Decision before feedback;
-- no Product Decision rule change;
-- no Product Task Draft execution;
-- no Ozon mutation;
-- no persistence or finance/mapping change;
-- `automatic_execution_allowed=False`;
-- `executed=False`.
-
-
----
-
-# Store Period Default Composition Hardening ‚Äî 2026-08-30
-
-Completed:
-
-[x] Removed duplicate StorePeriodRunnerService initialization
-[x] Missing period profit dependency fails closed with an explicit error result
-[x] StorePeriodSummaryService rejects malformed runner output
-[x] Default summary path no longer raises AttributeError on missing profit service
-[x] Existing constructor DI remains backward compatible
-
-Preserved:
-
-- no new data source or invented financial state;
-- no change to profit formulas;
-- no Product Decision or execution wiring;
-- no Ozon mutation;
-- no data/users.json change.
-
-
----
-
-# Unknown Advertising Financial Evidence v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Production advertising defaults to unknown instead of implicit zero
-[x] Explicit advertising_cost=0 remains a valid known zero
-[x] Business profit and margin stay unknown without advertising evidence
-[x] Revenue and gross profit remain independently available
-[x] Advertising and business-profit dashboards render unknown as ¬´‚Äî¬ª
-[x] Sales analysis preserves unknown profit metrics instead of optimistic zero
-[x] Tax errors remain visible when advertising is unknown
-
-Preserved:
-
-- no advertising auto-fetch or heuristic classification;
-- no financial double counting;
-- no change to Ozon fee formulas;
-- no Product Decision rule change;
-- no seller/business execution or Ozon mutation;
-- no data/users.json change.
-
-
----
-
-# Finance Context Evidence Hardening v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] FinanceContextProvider fails closed on malformed period payloads
-[x] Missing gross_sales / gross_profit no longer normalize to zero
-[x] Non-finite and boolean financial facts are rejected
-[x] Explicit numeric zero remains valid evidence
-[x] Finance context output shape remains backward compatible
-[x] Finance Intelligence uses gross-result wording instead of accounting-profit claims
-[x] Finance executor presentation uses evidence-scoped labels
-
-Preserved:
-
-- existing revenue / gross-profit arithmetic for complete evidence;
-- no extra expense inference;
-- no tax / advertising / returns double subtraction;
-- no accounting net-profit claim;
-- no Product Decision or task execution wiring;
-- no Ozon mutation;
-- no data/users.json change.
-
-
----
-
-# Stock Evidence Availability Hardening v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Missing stock dependencies no longer imply verified safe stock
-[x] Empty or partial assortment evidence is marked unavailable
-[x] Complete no-risk evidence is distinguished from unavailable evidence
-[x] Confirmed low-stock action context remains backward compatible
-[x] Stock Intelligence rejects malformed/non-finite/boolean/negative evidence
-[x] Cross-product stock/sales evidence fails closed
-[x] Explicit zero sales remains valid NO_SALES evidence
-[x] General fallback does not claim ‚Äúno critical problems‚Äù when stock evidence is unavailable
-
-Preserved:
-
-- existing low-stock threshold behavior for complete evidence;
-- no replenishment quantity inference;
-- no Product Decision rule change;
-- no new stock execution route;
-- no Ozon mutation;
-- no data/users.json change.
-
-
----
-
-# Sales Evidence Availability Hardening v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Configured missing/partial sales evidence no longer becomes a clean no-decline result
-[x] Missing or malformed revenue comparison does not normalize to 0%
-[x] Confirmed sales-decline action context remains backward compatible
-[x] Complete non-decline comparison is explicitly distinguishable from unavailable evidence
-[x] Partial configured AssistantEntryService path suppresses sales action
-[x] Legacy no-data AssistantEntryService fallback remains backward compatible
-[x] Sales Intelligence rejects malformed action context before analytics
-[x] Missing required revenue/gross-profit metrics fail closed
-[x] Unknown business profit/margin remain None
-[x] Explicit numeric zero remains valid
-[x] Missing comparison change no longer produces a false ‚Äústable‚Äù insight
-[x] Sales executor renders unknown metrics as ¬´‚Äî¬ª
-
-Preserved:
-
-- existing sales-decline threshold: revenue change < 0;
-- no Product Decision rule change;
-- no Product Task Draft execution;
-- no new sales execution route;
-- no Ozon mutation;
-- no data/users.json change.
-
-
----
-
-# Executor Error-Result Lifecycle Integrity v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Executor `error=True` results enter the existing FAILED lifecycle
-[x] Direct router `execute()` result contract remains backward compatible
-[x] Non-dict and malformed executor results fail closed
-[x] Missing executor error message uses stable `EXECUTOR_RETURNED_ERROR`
-[x] Failed action no longer reaches `complete_action()`
-[x] Task remains ACTIVE after executor-returned failure
-[x] Pending action is cleared through the existing failure owner
-[x] Failure history/feedback use FAILED semantics
-[x] Existing retry policy and retry preparation remain active
-[x] Successful executor results preserve the DONE lifecycle
-[x] Exact feature/docs branch push verification is now available
-[x] Pull-request merge-ref evidence is distinguished from exact branch-head evidence
-
-Preserved:
-
-- no new executor or production runtime route;
-- no Product Decision or Product Task Draft execution change;
-- no Ozon mutation;
-- no retry-limit change;
-- no task persistence-format change;
-- no data/users.json change.
-
-
----
-
-# Marketing Evidence Integrity v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Unsupported marketing executor no longer invents checked-channel evidence
-[x] Marketing recommendation requires explicit evidence availability and context
-[x] Missing/malformed marketing evidence fails closed
-[x] Persisted router run enters existing FAILED lifecycle on missing evidence
-
-Preserved:
-
-- no marketing API or campaign mutation;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- no data/users.json change.
-
----
-
-# Finance Evidence Availability Propagation v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] Derived finance context success is marked available
-[x] Derived finance context failure with period evidence is marked unavailable
-[x] Missing period evidence does not invent finance availability
-[x] Explicit finance context remains authoritative and available
-[x] Unavailable finance evidence suppresses finance recommendation
-[x] Unavailable finance evidence prevents false clean-business fallback
-[x] Legacy finance_context-only recommendation callers remain compatible
-
-Preserved:
-
-- FinanceContextProvider output shape;
-- existing finance arithmetic;
-- no fee double subtraction;
-- no accounting net-profit claim;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- no data/users.json change.
-
----
-
-# Business Planner Result Integrity v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] downstream recommendation error propagation
-[x] malformed recommendation result fail-closed
-[x] downstream planning error propagation
-[x] malformed planning result fail-closed
-[x] Action Plan execution error propagation
-[x] execution actions/count integrity validation
-[x] optional task-creation result validation
-[x] general-only recommendation remains non-actionable
-
-Preserved:
-
-- existing constructor dependency injection;
-- existing valid plan/action ordering;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- no business-evidence inference.
-
----
-
-# Business Flow Result Integrity v1 ‚Äî 2026-08-30
-
-Completed:
-
-[x] malformed intent result fail-closed
-[x] execution result validation before success presentation
-[x] execution error message preservation without false completed wording
-[x] cancel/pause/resume downstream failure propagation
-[x] task status/history/details/next malformed-result guards
-[x] skip pre-mutation next-action validation
-[x] skip result validation and post-mutation partial-state reporting
-[x] continue next-action and pending-action result validation
-[x] planner error propagation and actions/count integrity validation
-
-Preserved:
-
-- existing constructor dependency injection;
-- existing valid execute/task/planner response structure;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- no automatic rollback or retry;
-- no business-evidence inference.
-
----
-
-# Product Decision Learning Telegram Result Integrity v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] Learning Summary requires dict + explicit real boolean `error`
-[x] Successful summary counts are non-negative non-booleans and internally consistent
-[x] Missing summary evidence cannot become zero through optimistic defaults
-[x] Decision History requires a real list instead of treating `None` or malformed payloads as empty success
-[x] History records must match the requested SKU and carry valid decision, priority, timestamp, feedback and outcome semantics
-[x] Unknown feedback is not mislabeled as `NOT_RELEVANT`
-[x] Legitimate all-zero summary remains read-only success
-[x] Legitimate empty history remains read-only success
-[x] Stable seller-facing failures do not expose internal exception text
-
-Verified product baseline:
-
-- entering main `9bfa6a03e50d5c36a874e2ef30088e94efdb104c`: push Verify #440, 1655 passed / 0 failed, digest `sha256:b34831e479e283a17391174e150bf43b07e084510ff82a25eea7269f15f0cd92`
-- final feature `7976dbdebdda82660f9fc5bbc7ebffd804990f8f`: push Verify #442, 1666 passed / 0 failed, digest `sha256:95787b366dc1fef928b8ba8f8571bb6053172cd6775ba70c4181901f083965c1`
-- PR #286 synthetic merge `44ec86f9587831f6560e3e5ca2bbb9819abd4c29`: Verify #443, 1666 passed / 0 failed, digest `sha256:a46757c2e1baec4ad175c7afc3fcaf2dac5b3b08140d2723fa60f30cc73e6356`
-- squash main `d3e9e61e4fee3a9e3aa1f1e34f2e7a1da8cf931c`: push Verify #444, 1666 passed / 0 failed, digest `sha256:67af33c7c3c17dd68d0339edcf58e86fb934925ec2a318fd0615f3f0168fb77c`
-
-Preserved:
-
-- Product Decision rules and thresholds;
-- persistence behavior and interaction semantics;
-- Product Task Draft remains non-executable;
-- no Action Executor connection;
-- no business mutation authorization, quantity/price inference, or Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Telegram Analyze / Plan History Integrity v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] assistant result validated before analyze/plan success-history persistence
-[x] explicit assistant failure records no success history
-[x] malformed assistant result fails closed before history side effects
-[x] valid success records exactly one expected history event
-[x] explicit history persistence failure is not hidden
-[x] malformed/exceptional history persistence remains unknown; no rollback is fabricated
-[x] exception text is sanitized
-
-Verified product baseline:
-
-- entering main `9c2f783710e125b183e8a314e1ac4c2eac1754f1`: #449, 1666 passed / 0 failed, digest `sha256:a292cffdbb1309e47f33c028062ce699fd1364f18f3db1007cf50e46295b51fa`
-- final feature `dd6a5984026f591941fa0f2db62fc260a48f9e02`: #451, 1674 passed / 0 failed, digest `sha256:328c9cc03f7b0b8e292ceb1e42cc78895ba5f86bc32875916c4fc5a5d46ecd02`
-- PR #288 synthetic merge `83a8863f79f3ad76d721d4f7fd9eee2ed28a2b20`: #452, 1674 passed / 0 failed, digest `sha256:3c38001164cc6a7eb1b9f2838356843aff9a546ce7f15c5048eed2966251da3c`
-- squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d2d03c2e64aedf648461ec980818c8348fa8d627fca26`
-- no failed/cancelled intermediate production SHA occurred in v766-v773
-- `externally_verified=False`
-
-
----
-
-# Telegram History / Memory Read Integrity v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] missing History service is unavailable, not empty success
-[x] missing Memory service is unavailable, not empty success
-[x] missing user context is failure, not zero/clean evidence
-[x] History/Memory read exceptions are sanitized
-[x] results require dict + real boolean error
-[x] History success requires list; Memory success requires dict
-[x] explicit downstream failure is preserved
-[x] legitimate empty history and memory remain success
-
-Verified product baseline:
-
-- entering main `c889ff8614c589853b3a29b41caf739067672db0`: #457, 1674 passed / 0 failed, digest `sha256:8eac2e70c655e3c8d3974aa05efdbdfa53b47db31acb8f1a70bfc23684bcc0d6`
-- final feature `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`: #459, 1684 passed / 0 failed, digest `sha256:afaafbe46852fe59d83140d69ef0c891db5ebbaeeb55141d83d4b5578427a496`
-- PR #290 synthetic merge `69d5928a49ab871fa845b25362fcd581173db484`: #460, 1684 passed / 0 failed, digest `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`
-- squash main `f432814d74ee4e175d291b69c79767d86d506e0a`: #461, 1684 passed / 0 failed, digest `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`
-- no failed/cancelled intermediate production SHA occurred in v774-v783
-- `externally_verified=False`
-
-
----
-
-# Telegram Context Preparation Integrity v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] analyze/plan validate last_action context update before current_task update
-[x] failed/malformed first context update stops assistant and history side effects
-[x] current_task update result is validated independently
-[x] failure after successful last_action reports partial committed context state
-[x] malformed/exceptional second update remains unknown and does not fabricate rollback
-[x] context exception text is sanitized
-[x] internal TypeError is not retried
-[x] valid preparation still invokes assistant once and history once
-[x] optional no-service/no-user context behavior remains compatible
-
-Verified product evidence:
-
-- entering main `656ff93a0cba3194481b007c288f0eeadbaf1441`: push Verify #465, 1684 passed / 0 failed, digest `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`
-- cancelled intermediate `67e08c87de7564dc76c60fe2e9caebf05ba8f793`: push Verify #466, conclusion cancelled; test step completed 1693 passed / 0 failed; digest `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`; cancelled evidence only, not green
-- final feature `80f85b1b45e1e49279c334078c5991eac2757cc7`: push Verify #468, 1693 passed / 0 failed, digest `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
-- PR #292 synthetic merge `978b6e0170693ac5d8d39471dd45983ab394c0c3`: Verify #469, 1693 passed / 0 failed, digest `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
-- squash main `a7748785341ccea0a459ec06c7de460213cec038`: push Verify #470, 1693 passed / 0 failed, digest `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
-- `externally_verified=False`
-
-
----
-
-# Product Task Draft Freshness Telegram Presentation Integrity v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] malformed readiness/freshness metadata fails closed before presentation
-[x] partial freshness count maps cannot invent missing categories as zero
-[x] malformed optional evidence maps do not become seller-facing synthetic zeros
-[x] invalid detail status/age/reasons/coverage/guidance fails closed with stable non-secret result
-[x] unknown enum strings are not surfaced as business facts
-[x] legitimate all-zero freshness counts remain success
-[x] legitimate UNKNOWN freshness and evidence-limited guidance remain read-only success
-[x] Product Task Draft remains non-executable
-
-Verified product evidence:
-
-- entering main `3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`: push Verify #474, 1693 passed / 0 failed, digest `sha256:a334436fd6e357ab6c9948baf907d472e67331442860fdf8fa0c15d5a3afeff0`
-- final feature `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`: push Verify #476, 1703 passed / 0 failed, digest `sha256:b35bb81059445bcc1ca089d5237874461b904ec7795d08db69c2d5383179349a`
-- PR #294 synthetic merge `1fc456087126b0cc91e6b3354a6560477a989b4c`: Verify #477, 1703 passed / 0 failed, digest `sha256:f286f803fc87a2c4a65c4f32afb6d606df31635c5b1ad7be1b1aaae21cc0e231`
-- squash main `701b5a31575a2e37d76da22af260c206d4a68b50`: push Verify #478, 1703 passed / 0 failed, digest `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`
-- no failed/cancelled intermediate production SHA occurred in v793-v802
-- `externally_verified=False`
-
-
----
-
-# Telegram Adapter Runtime Exception Containment v1 ‚Äî 2026-08-31
-
-Completed:
-
-[x] assistant dispatch exceptions are contained at the Telegram adapter boundary
-[x] button-handler exceptions are contained without retry-after-exception
-[x] internal TypeError is not retried with legacy arity
-[x] legacy arity selection remains pre-call only
-[x] keyboard-builder exceptions do not claim successful start
-[x] internal exception text is not exposed to sellers
-
-Verified product evidence:
-
-- entering main `ad3692c46e31d4eceeef504e4b55d7cbaa829a09`: push Verify #482, 1703 passed / 0 failed
-- cancelled duplicate branch run #483 remains cancelled evidence only
-- failed intermediate `c3336160fccddbc25a9d8e2b1f7aeccccaa8be70`: push Verify #484, 1710 passed / 1 failed
-- final feature `21776a8cdd61dd35e28a885b5c573a2db3b15c92`: push Verify #485, 1711 passed / 0 failed
-- PR #296 synthetic merge `929a1bd4c8ace607ff0bf6c67924aa14ec84b612`: Verify #486, 1711 passed / 0 failed
-- squash main `01300c69d1ab54731657ea741687cc728c9e5600`: push Verify #487, 1711 passed / 0 failed
-- `externally_verified=False`
-
-Preserved:
-
-- no Product Decision/Product Task Draft execution
-- no Ozon mutation
-- no quantity or price inference
-- `data/users.json` unchanged
-
-
----
-
-# Post-Decision Observation Integrity v1 ‚Äî 2026-09-01
-
-Completed:
-
-[x] malformed checklist and later-decision inputs fail closed
-[x] checklist status requires explicit error=False and USER_REPORT evidence
-[x] numeric identifiers are not coerced into canonical identities
-[x] later decision requires explicit boolean error state
-[x] explicit downstream decision failure remains failure
-[x] decision type / priority / confidence are validated against canonical values
-[x] reasons require a real list of non-empty strings
-[x] valid observation remains observation-only and non-causal
-
-Verified product evidence:
-
-- entering main `6d06cca860fbc1b423db02f0166554c562e2b67c`: push Verify #492, 1711 passed / 0 failed, digest `sha256:365511645081a003af4df8d00daf2e78c865d0e81b066d40557ffc2724672064`
-- final feature `68c42c5fe4331d776eefe828263dfb930e9c8cd7`: push Verify #494, 1721 passed / 0 failed, digest `sha256:45f9677ae94b941606bfd4ef99ace1722c100d265e7e4354e15e1d6e8823998f`
-- PR #298 synthetic merge `ffee00d5b609aa8c0e2c547db0e587dd4be93b94`: Verify #495, 1721 passed / 0 failed, digest `sha256:c184f12cabf364705cc115c94fb8bf7a0d2911d1f66a6b93583c7b40e44bdd8f`
-- squash main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed, digest `sha256:9ad01f64be4b80f26bf79cdf8f8127339aa4e88453542d8b27a5b92eba7612c5`
-- no failed intermediate production SHA occurred in v811-v820
-- `externally_verified=False`
-
-Preserved:
-
-- no Product Decision recomputation or mutation
-- no Product Task Draft execution
-- no Action Executor connection
-- no Ozon mutation
-- `data/users.json` unchanged
-
-
----
-
-# Task Persistence Operator Presentation Integrity v1 ‚Äî 2026-09-01
-
-Completed:
-
-[x] operator operational/release/provenance presentation requires explicit error=False
-[x] blockers, warnings and incident categories require real unique string lists
-[x] operational counts/state/attention claims are internally consistent
-[x] release-ready / incident / human-review claims are validated
-[x] provenance revision and CI-binding metadata is structurally validated
-[x] external-verification and execution/mutation overclaims fail closed
-[x] valid operator messages remain read-only and non-sensitive
-
-Verified product evidence:
-
-- entering main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed
-- failed intermediate `41c289221c100ce4dc1462603b42349434f2f406`: push Verify #498, 1730 passed / 1 failed; failure was a new test wording expectation and remains failed evidence
-- final feature `a0e977595238dd256e9ae0d54e68ac337b04bb91`: push Verify #499, 1731 passed / 0 failed, digest `sha256:173173c93a222338ef8efd942fcb4a9af425df2e9768d6530f2d957c7b2c1cc6`
-- PR #299 synthetic merge `c77df0221826e27e444f3d68150419e4adf9bc8d`: Verify #500, 1731 passed / 0 failed, digest `sha256:8f80f8bf4a7c0a4c03a912bdd4adeead94198f10b4e262e776eb3f88292b2f95`
-- squash main `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`: push Verify #501, 1731 passed / 0 failed, digest `sha256:30db2fb7e7f68ed1460aee79cafee957467eccfd0468bacaa1953816e0340d09`
-- `externally_verified=False`
-
-Preserved:
-
-- task persistence ownership and storage format
-- no automatic retry or lock deletion
-- no business execution readiness
-- no Product Decision/Product Task Draft execution
-- no Ozon mutation
-- `data/users.json` unchanged
-
-
----
-
-# Product Decision Persistence Verification Integrity v831-v840 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Non-mapping persistence-verification application input fails closed
-
-[x] Product Decision lineage IDs and SKU are not coerced from non-string identities
-
-[x] Explicit persisted-preview error markers are structurally validated
-
-[x] Canonical decision type, priority and confidence are required
-
-[x] Reasons require a real non-empty list of non-empty strings
-
-[x] Durable history snapshot semantics fail closed before verification success
-
-[x] Recorded-at lineage requires an explicit string binding
-
-[x] Valid verification remains read-only, non-executable and externally_verified=False
-
-Verified exact main:
-
-`a3aa88f351985e8519f754923880165f96fb29ad`
-
-GitHub Actions push Verify #518: 1741 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring in this package;
-- no Ozon mutation;
-- `data/users.json` unchanged.
-
-
----
-
-# Product Decision User Action Guidance Integrity v841-v850 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Guidance accepts only mapping-shaped verification input
-
-[x] Verification/application IDs and SKU require canonical non-empty strings
-
-[x] Explicit verifier error=False and verified status are required
-
-[x] Non-empty verification mismatch evidence blocks seller guidance
-
-[x] External-verification and execution/persistence overclaims fail closed
-
-[x] Verified recorded-at is bound to the exact durable snapshot timestamp
-
-[x] Priority and confidence use canonical enums
-
-[x] Reasons require real non-empty string-list evidence
-
-[x] Valid guidance carries exact verified lineage forward without enabling execution
-
-Verified exact main:
-
-`e793ca7ab241d54a12af8b3b402b1dc862652bf2`
-
-GitHub Actions push Verify #534: 1751 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring for the newer user-action chain;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Checklist Integrity v851-v860 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Checklist accepts only mapping-shaped guidance input
-
-[x] Guidance / verification / application IDs, SKU and verified-recorded-at require canonical non-empty strings
-
-[x] Explicit guidance error=False, ready status and decision-persistence verification are required
-
-[x] Verification remains bound to the persistence application ID
-
-[x] External-verification and persistence/execution overclaims fail closed
-
-[x] Decision/action pairing, priority, confidence, title and reasons are structurally validated
-
-[x] Manual checklist steps require real non-empty strings and are never coercively stringified
-
-[x] Valid checklist carries exact verified persistence lineage forward without enabling execution
-
-Verified exact main:
-
-`405fdea64008e21173e7851e8b370b63eae7ef73`
-
-GitHub Actions push Verify #550: 1761 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring for the newer user-action chain;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Completion Evidence Integrity v861-v870 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Completion evidence accepts only mapping-shaped checklist input
-
-[x] Checklist / guidance / verification / application IDs, SKU, item ID and verified-recorded-at require canonical strings
-
-[x] Exact guidance ‚Üí verification ‚Üí application lineage is preserved
-
-[x] Explicit checklist error=False, ready status and persisted-decision verification are required
-
-[x] Non-string completion decisions are not coerced
-
-[x] External-verification and persistence/execution overclaims fail closed
-
-[x] Item count, completed count and checklist item structure are validated
-
-[x] User-reported completion carries verified persistence lineage forward without enabling execution
-
-Verified exact main:
-
-`c788760babc8b0c6becb886f37937f20d5d09028`
-
-GitHub Actions push Verify #567: 1771 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring for the newer user-action chain;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Completion Persistence Integrity v871-v880 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Completion persistence accepts only mapping-shaped evidence input
-
-[x] Exact completion ‚Üí checklist ‚Üí guidance ‚Üí verification ‚Üí application lineage is required
-
-[x] Completion status, decision and user-reported boolean are mutually consistent
-
-[x] Root and revision evidence IDs use canonical deterministic lineage
-
-[x] Malformed storage containers and records fail closed
-
-[x] Explicit save=False is not reported as durable success
-
-[x] Successful persistence carries exact verified lineage and item/revision metadata forward
-
-[x] Completion revisions preserve verified lineage without enabling execution
-
-Verified exact main:
-
-`834df2a9ded1c3e05731a9c249683d15b188c661`
-
-GitHub Actions push Verify #584: 1781 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring for the newer user-action chain;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Completion Revision Predecessor Integrity v881-v890 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Completion revision 2+ requires exactly one durable predecessor
-
-[x] Duplicate predecessor IDs fail closed as ambiguous
-
-[x] Predecessor exact verified lineage and user-owned safety state are validated
-
-[x] Predecessor status/decision/report consistency is validated
-
-[x] Revision 3+ requires canonical predecessor revision/root/previous-ID lineage
-
-[x] Duplicate current revision IDs fail closed
-
-[x] Valid root ‚Üí revision 2 ‚Üí revision 3 requires actual durable predecessor records
-
-Verified exact main:
-
-`73c349d50dad1a5562a09777df5a69f661869645`
-
-GitHub Actions push Verify #599: 1791 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Checklist Status Persistence Lineage Integrity v891-v900 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Checklist-status input and report collection shapes fail closed
-
-[x] Exact checklist ‚Üí guidance ‚Üí verification ‚Üí application lineage is required
-
-[x] Matching persisted USER_REPORT receipts require canonical verified lineage
-
-[x] Matching malformed receipts cannot degrade into NO_USER_REPORTS
-
-[x] Completion revisions require real integers and canonical root/evidence/previous IDs
-
-[x] Duplicate item+revision receipts fail closed as ambiguous
-
-[x] Per-item persisted revision chains must be contiguous from revision 1
-
-[x] Valid aggregate output carries verified persistence lineage while remaining non-executable
-
-Verified exact main:
-
-`3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
-
-GitHub Actions push Verify #616: 1801 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Post-Decision Observation Lineage Integrity v901-v910 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Canonical checklist-status ID and exact checklist/guidance/verification/application lineage required
-
-[x] Persisted Product Decision verification preserved into observation
-
-[x] USER_REPORTED_COMPLETE requires exact item/reported/completed consistency
-
-[x] Reported/completed item identities remain canonical and non-coercive
-
-[x] Later Product Decision result remains explicit and SKU-bound
-
-[x] Observation carries verified lineage while remaining read-only, non-causal and non-executable
-
-Failed intermediate evidence retained:
-
-`0896d8112971966aec9fb61c7a2250436f19d76a` / Verify #623 / 1804 passed / 7 failed.
-
-Verified exact main:
-
-`c7c864814ec609b0f2c58b4578a522b2e5e8dad1`
-
-GitHub Actions push Verify #626: 1811 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Post-Decision Outcome Lineage Integrity v911-v920 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Observation ‚Üí outcome boundary requires exact persisted Product Decision lineage
-
-[x] Complete USER_REPORT counts and item identities remain canonical
-
-[x] Prior/later decision type, priority, confidence and reasons require canonical contracts
-
-[x] Prior SKU must match observed SKU exactly
-
-[x] Noncanonical MEDIUM priority is rejected
-
-[x] Canonical NONE priority is supported for INSUFFICIENT_DATA outcomes
-
-[x] Valid outcome remains non-causal, externally unverified and non-executable
-
-Verified exact main:
-
-`82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
-
-GitHub Actions push Verify #634: 1821 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision threshold/rule change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Learning Summary Outcome Integrity v921-v930 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Non-list outcome collections fail closed
-
-[x] Non-mapping/malformed outcome rows fail closed instead of disappearing
-
-[x] Exact v911-v920 outcome lineage and persisted Product Decision verification required
-
-[x] Complete USER_REPORT evidence remains exact through learning summary
-
-[x] Unsafe or contradictory outcome classification blocks
-
-[x] Duplicate outcome IDs cannot inflate descriptive learning counts
-
-[x] Canonical NONE priority outcomes remain valid; MEDIUM remains rejected
-
-[x] Only a real empty list can produce zero-observation success
-
-Failed intermediate evidence retained:
-
-`21051b20acdfc0036a15d875d01b488283791ff3` / Verify #640 / 1830 passed / 1 failed.
-
-Verified exact main:
-
-`b492b655030791d5e703c8aa607d2763d455e486`
-
-GitHub Actions push Verify #643: 1831 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision threshold/rule change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Learning Evidence Quality Summary Integrity v931-v940 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Learning summary input and explicit success are validated
-
-[x] Counts are exact integers and never string/missing coercions
-
-[x] Outcome/priority/SKU aggregate maps must be canonical and mathematically consistent
-
-[x] Outcome IDs are exact, unique, and count-bound
-
-[x] Zero evidence requires truly empty aggregates
-
-[x] Existing evidence-quality thresholds remain unchanged
-
-Failed intermediate evidence retained:
-
-`849b0d0e78e441f3080631419ecbc0ea192890ec` / Verify #649 / 1840 passed / 1 failed.
-
-Verified exact main:
-
-`9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`
-
-GitHub Actions push Verify #652: 1841 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision User Action Learning Confidence Evidence Integrity v941-v950 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Learning evidence-quality input and explicit success are validated
-
-[x] Counts are exact integers and never string/missing coercions
-
-[x] Quality name and score must match actual sample shape
-
-[x] Outcome/priority/SKU aggregate maps remain mathematically consistent
-
-[x] Outcome IDs remain exact, unique and count-bound
-
-[x] Existing confidence thresholds remain unchanged
-
-[x] Confidence output remains descriptive-only and non-executable
-
-Verified exact main:
-
-`0671c0a0b06c662e935b4dcbf00e4cad12e32175`
-
-GitHub Actions push Verify #660: 1851 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no persistence-owner change;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram production wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Action Proposal Result Integrity v951-v960 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Action proposal result must be a mapping
-
-[x] Proposal safety booleans and automation prohibition are exact
-
-[x] Proposal SKU / priority / decision type / reasons remain Product Decision-bound
-
-[x] Proposal type and confirmation semantics are decision-bound
-
-[x] Proposal exceptions fail closed without secret leakage
-
-[x] Malformed proposal is not cached and cannot enter task-draft lifecycle
-
-[x] Assortment query fails closed instead of counting malformed proposal state
-
-[x] Telegram renders neutral failure without proposal controls
-
-Verified exact main:
-
-`7637177202c21d3f2894105e39137efd86855b8c`
-
-GitHub Actions push Verify #668: 1861 passed / 0 failed.
-
-Integration finding:
-
-- verified Product Decision user-action guidance/checklist remains intentionally unwired from Telegram;
-- current durable Product Decision history does not store exact persistence-application receipt lineage;
-- do not synthesize lineage IDs or invoke persistence application as a read side effect.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision History Context Result Integrity v961-v970 ‚Äî 2026-09-01
-
-Completed:
-
-[x] History record context is mapping-only and whitelisted
-
-[x] History context cannot overwrite Product Decision identity/error fields
-
-[x] Malformed or exceptional history context becomes explicit unknown/unavailable state
-
-[x] Unknown history count remains None and is not coerced to zero
-
-[x] Invalid history context is not cached
-
-[x] Invalid history context cannot enter task-draft lifecycle
-
-[x] Telegram latest history rejects malformed, cross-SKU and unknown-status records
-
-[x] Telegram task draft attachment requires exact SKU/proposal/revision and non-execution safety
-
-Verified exact main:
-
-`10977368ac4179f1f7168943a38fcdbc01ecfd78`
-
-GitHub Actions push Verify #677: 1871 passed / 0 failed.
-
-Preserved failed evidence:
-
-- `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed;
-- failure was a production NameError in the new draft-copy path;
-- final feature head `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Unit Economics Returns Finance Impact Integrity v971-v980 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Returns impact requires explicit success/error contract
-
-[x] Complete/classification/finance markers are exact booleans
-
-[x] Required categories and counts are validated without zero coercion
-
-[x] Observed/matched/event count consistency is enforced
-
-[x] Invalid evidence cannot become known zero return cost
-
-[x] Invalid evidence cannot become confirmed risk-adjusted profit
-
-[x] Invalid evidence cannot remove returns from missing data
-
-[x] Valid estimated and confirmed paths preserve prior numeric behavior
-
-Verified exact main:
-
-`db5ab92503f499dfe470402ffefc00b15b9c6e59`
-
-GitHub Actions push Verify #686: 1881 passed / 0 failed.
-
-Preserved failed evidence:
-
-- `b4f0d33d163ee0a81d0252e466519169c55fd1f2`: Verify #683, 1880 passed / 1 failed;
-- failure was a legacy cache fixture using a pre-contract minimal success shape;
-- production validation remained strict;
-- final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed.
-
-Preserved:
-
-- unknown finance values remain unknown;
-- no Product Decision threshold/rule change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Result Integrity v981-v990 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Product Decision service result must be a mapping
-
-[x] Unexpected error/code injection is rejected
-
-[x] Product ID and SKU are exact query-bound identity
-
-[x] Decision type and priority pairing is canonical
-
-[x] Confidence, reasons and missing-data contracts are validated
-
-[x] Invalid decision cannot reach history/proposal/cache/draft lifecycle
-
-[x] Invalid decision gets deterministic seller-safe Telegram failure
-
-Verified exact main:
-
-`5f0534bb72dba2471c3c339a69cd7041552dfb4a`
-
-GitHub Actions push Verify #698: 1891 passed / 0 failed.
-
-Cancelled intermediate evidence retained:
-
-- `f21c1ca4b21b57a634a502ecb754e93fabb78e18`: Verify #693 cancelled;
-- `689fd2b9db65861f8853251accb0f2a3e0cf86d8`: Verify #694 cancelled.
-
-Failed intermediate evidence retained:
-
-- `8a286947bdc5862834a05794e330d87ef370ffe7`: Verify #695, 1889 passed / 2 failed;
-- failure source was a legacy freshness fixture with noncanonical empty reasons;
-- final feature `8b90c11763622cc413802a488171738cf2332a1a`: Verify #696, 1891 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision threshold/rule change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Assortment Overview Integrity v991-v1000 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Overview decision rows require explicit success and unique SKU identity
-
-[x] Decision type ‚Üí priority pairs are canonical
-
-[x] Decision counts are recomputed and exact
-
-[x] Proposal counts are recomputed and exact
-
-[x] Actionable count is recomputed from exact booleans
-
-[x] Nested proposal execution remains prohibited
-
-[x] Contradictory overview state cannot generate seller keyboard
-
-[x] Valid mixed overview remains deterministic and non-mutating
-
-Verified exact main:
-
-`84d714909d5082958bf2bb21a30b7b097eb17955`
-
-GitHub Actions push Verify #709: 1901 passed / 0 failed.
-
-Preserved failed evidence:
-
-- `3fe8ef0caa6b03a5dabbabae463cb0037a4c9ca5`: Verify #704, 1882 passed / 9 failed;
-- `86b6e9063c1a9cfa500d4e0409ba6668623c5321`: Verify #705, 1892 passed / 9 failed;
-- `0b2da626f71a45adf54f0f9f0dbfd8b5a8e75353`: Verify #706, 1898 passed / 3 failed.
-
-Production validation was not weakened; legacy test fakes were aligned to the canonical producer contract.
-
-Preserved:
-
-- no Product Decision threshold/rule change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Task Draft Lifecycle Result Integrity v1001-v1010 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Task-draft reconcile result requires an exact explicit mapping contract
-
-[x] Lifecycle error/executed/execution_allowed markers are exact safety booleans
-
-[x] stale_count is a non-negative exact integer and equals stale_drafts length
-
-[x] Stale drafts remain exact-SKU and canonical proposal-bound
-
-[x] Current Product Decision revision cannot be reported as stale
-
-[x] Stale draft status is exactly STALE
-
-[x] Stale drafts remain executed=False and execution_allowed=False
-
-[x] Malformed/exceptional lifecycle result fails closed with deterministic non-secret code
-
-[x] Invalid lifecycle result is not cached and assortment query fails closed
-
-[x] Valid lifecycle is attached as a defensive copy
-
-Verified exact main:
-
-`288c6452703eee4082414d1ad36680b4ddf02caa`
-
-GitHub Actions push Verify #717: 1911 passed / 0 failed.
-
-Feature and integration evidence:
-
-- final feature `12e4f1d4f38296b8f46680302478f377121644a8`: Verify #715, 1911 passed / 0 failed;
-- PR #336 synthetic `005ac13b1fbb01bb6e95314d1f8c89b994ba85c6`: Verify #716, 1911 passed / 0 failed;
-- no failed production SHA in this package.
-
-Preserved:
-
-- no Product Decision rule/threshold change;
-- no new persistence owner;
-- no Product Task Draft execution;
-- no Action Executor connection;
-- no Telegram user-action persistence wiring;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Unit Economics Result Integrity v1011-v1020 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Unit Economics query exceptions are sanitized before Product Decision generation
-
-[x] Downstream `error` must be an exact boolean
-
-[x] Explicit downstream `error=True` remains unknown economics, never zero
-
-[x] Successful economics requires exact boolean `available`
-
-[x] Malformed/duplicate/non-string `missing_fields` is rejected
-
-[x] Boolean, NaN and infinity decision-finance values are rejected
-
-[x] `available=False` cannot claim profit or margin
-
-[x] Confirmed returns-adjusted profit requires complete returns finance evidence and known per-delivered-unit reserve
-
-[x] Estimated returns profit requires exact estimate readiness plus required estimate evidence
-
-[x] Invalid economics result fails closed with deterministic non-secret code and is not cached
-
-Verified exact main:
-
-`982dc4f58fec6172a4fa99475ae72800c107981f`
-
-GitHub Actions push Verify #727: 1921 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `c27b1fbfba804d36167855228f1881c08c4ef506`: Verify #723, 1917 passed / 4 failed;
-- `1114863bdc5b23969fe8cf2d3c9166fe5e7cd523`: Verify #724, 1918 passed / 3 failed.
-
-Final feature and integration evidence:
-
-- final feature `fa9cd0e874347ba00320c8e9c36c85d0efb530a0`: Verify #725, 1921 passed / 0 failed;
-- PR #338 synthetic `8014a74ae903863da672ee4b82f9fb565ad3d6cc`: Verify #726, 1921 passed / 0 failed;
-- squash main `982dc4f58fec6172a4fa99475ae72800c107981f`: Verify #727, 1921 passed / 0 failed.
-
-Preserved:
-
-- no finance formula or fee subtraction changed;
-- unknown finance remains unknown;
-- no Product Decision threshold/rule change;
-- no new persistence owner;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Operational Metrics Result Integrity v1021-v1030 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Sales source exceptions are sanitized before Product Decision generation
-
-[x] Stock source exceptions are sanitized before Product Decision generation
-
-[x] Non-mapping operational metrics fail closed
-
-[x] Explicit metrics `error` marker must be boolean when present
-
-[x] Explicit `error=True` remains unavailable/unknown data, never zero
-
-[x] Sales velocity is finite, non-boolean, and non-negative
-
-[x] Sales trend is canonical: GROWING / DECLINING / STABLE
-
-[x] Stock quantity and days-of-stock are finite, non-boolean, and non-negative
-
-[x] Stock priority semantics are canonical, including NO_SALES
-
-[x] Existing `stock_priority` alias contract is preserved and contradictory aliases are rejected
-
-[x] Malformed missing-data/evidence fields fail closed
-
-[x] Invalid operational metrics result is not cached
-
-Verified exact main:
-
-`70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`
-
-GitHub Actions push Verify #736: 1931 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `678739dea2fa85af3f71933f048f9bfb193fdc62`: Verify #733, 1929 passed / 2 failed.
-
-Final feature and integration evidence:
-
-- final feature `6af041c39b86791821249058d0632070f2f68685`: Verify #734, 1931 passed / 0 failed;
-- PR #340 synthetic `7e64fcd23df9fb405c8c422359e3703b6a720f56`: Verify #735, 1931 passed / 0 failed;
-- squash main `70466d338951b2b7cc2bb7c48a9d2c7ee2dc91df`: Verify #736, 1931 passed / 0 failed.
-
-Preserved:
-
-- no Product Decision threshold/rule change;
-- no finance formula change;
-- unknown sales/stock values remain unknown;
-- no new persistence owner;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Persistence Commit Receipt Integrity v1031-v1040 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Base Product Decision history writes no longer ignore storage save results
-
-[x] Rejected/unknown saves cannot return a successful available history context
-
-[x] Failed base writes are removed from in-memory state and retried from known state
-
-[x] Durable persistence application requires explicit record_persistent() support
-
-[x] In-memory-only history cannot issue a durable commit receipt
-
-[x] Successful receipt requires saved=True and persistence_state=COMMITTED
-
-[x] Receipt binds exact SKU, recorded_at, history count, and history context
-
-[x] Product Decision persistence application requires the committed receipt before product_decision_persisted=True
-
-[x] Product Decision persistence verification requires the same receipt before readback verification
-
-[x] No persistence/application lineage is synthesized into history snapshots
-
-Verified exact main:
-
-`7d53fecac126973122270eacfdfc122e50ae3de3`
-
-GitHub Actions push Verify #745: 1941 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `14a0709209228310625dd91871e963a866ab6cc9`: Verify #742, 1940 passed / 1 failed.
-
-Final feature and integration evidence:
-
-- final feature `88372919c9275a51482703e59fe21d8c4d9c5682`: Verify #743, 1941 passed / 0 failed;
-- PR #342 synthetic `7e54ca702706ad192eb70da63e351e96efdb31b5`: Verify #744, 1941 passed / 0 failed;
-- squash main `7d53fecac126973122270eacfdfc122e50ae3de3`: Verify #745, 1941 passed / 0 failed.
-
-Preserved:
-
-- existing Product Decision History storage remains the persistence owner;
-- no Telegram read path invokes persistence application;
-- Telegram verified-guidance blocker remains open because application receipt lineage is not durably embedded in history snapshots;
-- no Product Decision rule/threshold or finance formula change;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Durable Application Lineage v1041-v1050 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Persistence application constructs exact lineage before durable Product Decision write
-
-[x] Existing Product Decision History owner validates the complete lineage chain
-
-[x] Lineage binds application/readiness/authorization/eligibility/review/delta/preview IDs, draft_id and SKU
-
-[x] Malformed and cross-SKU lineage is rejected before storage mutation
-
-[x] Durable Product Decision snapshot stores the exact application lineage atomically
-
-[x] COMMITTED persistence receipt returns the same lineage
-
-[x] Persistence application rejects forged receipt lineage
-
-[x] Persistence verification requires exact receipt lineage
-
-[x] Persistence verification requires durable history snapshot lineage to match the exact application
-
-[x] JSON storage restart preserves application lineage
-
-[x] Feedback mutation preserves the snapshot lineage
-
-[x] Restart readback verifies without execution or Ozon mutation
-
-Verified exact main:
-
-`19851b9d40827b3ca5e3889c3858ca32c5602f67`
-
-GitHub Actions push Verify #754: 1951 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `cfeb3528d5f902625819b6897db192bf794fddda`: Verify #751, 1915 passed / 36 failed.
-
-Final feature and integration evidence:
-
-- final feature `5e856591925d2288db871ac9632eab5ee7f7a649`: Verify #752, 1951 passed / 0 failed;
-- PR #344 synthetic `13f8cb191c24eb0589cf4f5ba892d7b13b402bc5`: Verify #753, 1951 passed / 0 failed;
-- squash main `19851b9d40827b3ca5e3889c3858ca32c5602f67`: Verify #754, 1951 passed / 0 failed.
-
-Preserved:
-
-- Product Decision History remains the only persistence owner;
-- application lineage is written, never inferred after the fact;
-- Telegram read path still does not invoke persistence application;
-- Telegram guidance/checklist wiring is not yet enabled;
-- no Product Decision rule/threshold or finance formula change;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Read-Only Persistence Verification v1051-v1060 ‚Äî 2026-09-01
-
-Completed:
-
-[x] Product Decision History storage exposes explicit durable read receipt
-
-[x] Corrupted JSON/non-list/mixed durable data is distinguishable from no history
-
-[x] latest_persistent() reads storage directly rather than self.records
-
-[x] In-memory-only history cannot become persistence proof
-
-[x] Read-only verifier validates durable read receipt before business semantics
-
-[x] Read-only verifier validates snapshot SKU, recorded_at, decision semantics and stored application lineage
-
-[x] Missing/cross-SKU/broken-chain lineage fails closed
-
-[x] Valid durable history produces canonical PRODUCT_DECISION_PERSISTENCE_VERIFIED payload
-
-[x] Runtime verification ID is produced only after exact persisted application ID validates
-
-[x] verify_latest() performs no save/application/execution/Ozon mutation
-
-Verified exact main:
-
-`b0bfdd5dd79349244ceaf64d1d4df9899211344a`
-
-GitHub Actions push Verify #762: 1961 passed / 0 failed.
-
-Feature and integration evidence:
-
-- final feature `c0da07cbafeb1fe38001729eebca94648149d96b`: Verify #760, 1961 passed / 0 failed;
-- PR #346 synthetic `0ccae174a2adfe5c650ca96bf7dcf90ceafaec80`: Verify #761, 1961 passed / 0 failed;
-- squash main `b0bfdd5dd79349244ceaf64d1d4df9899211344a`: Verify #762, 1961 passed / 0 failed.
-
-Preserved:
-
-- Product Decision History remains the only persistence owner;
-- no persisted application lineage is inferred;
-- read-only verification never calls persistence application;
-- Telegram guidance/checklist wiring is not yet enabled;
-- no Product Decision rule/threshold or finance formula change;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Telegram Verified Product Decision Guidance / Checklist Wiring v1061-v1070 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Telegram production factory shares one Product Decision History instance between decision query and read-only persistence verifier
-
-[x] Product Decision detail presentation invokes only `verify_latest(sku)`
-
-[x] Telegram never invokes Product Decision persistence application as a read/presentation side effect
-
-[x] Verified durable snapshot must match the currently displayed Product Decision by SKU, recorded_at, decision_type, priority, confidence and reasons
-
-[x] Existing guidance builder is consumed only after canonical durable verification succeeds
-
-[x] Existing checklist builder is consumed only after verified guidance passes safety validation
-
-[x] Malformed/blocked/old/unverified durable state preserves the existing Product Decision card without a false verified claim
-
-[x] Builder/verifier exceptions are contained and do not leak secret error details into Telegram
-
-[x] Valid verified guidance is rendered as a manual checklist with automatic execution explicitly disabled
-
-[x] No Telegram callback/button starts Product Decision execution, Product Task Draft execution or Ozon mutation
-
-Verified exact main:
-
-`dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`
-
-GitHub Actions push Verify #771: 1971 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `f449e7d738b56fb72f39e0836eb2ea3464b899a9`: Verify #768, 1970 passed / 1 failed.
-
-Final feature and integration evidence:
-
-- final feature `09abed3a9db1c1cf90a13d4393bb3771f09c964d`: Verify #769, 1971 passed / 0 failed;
-- PR #348 synthetic `400bbfa95038edd3876a2ea0eb4b2e28db65fefb`: Verify #770, 1971 passed / 0 failed;
-- squash main `dbec4ecfc5f38b31aeba5e86a6d0ad09c40d58bb`: Verify #771, 1971 passed / 0 failed.
-
-Preserved:
-
-- Product Decision History remains the sole persistence owner;
-- read-only Telegram verification uses durable history and stored application lineage;
-- no missing persistence/application IDs are inferred;
-- no Product Decision rule/threshold or finance formula change;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Product Decision Telegram Query Exception Containment v1071-v1080 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Seller-facing Product Decision overview contains `query_all()` exceptions locally
-
-[x] Seller-facing Product Decision detail contains `query(sku)` exceptions locally
-
-[x] Query exceptions return deterministic `PRODUCT_DECISION_QUERY_FAILED`
-
-[x] Overview and detail return seller-specific messages instead of generic Telegram dispatch failure
-
-[x] Exception details are not exposed to the seller response
-
-[x] Query failures are one-shot and are not retried
-
-[x] Keyboard/feedback presentation is not invoked after query exceptions
-
-[x] Explicit downstream `error=True` semantics remain unchanged
-
-[x] Valid overview remains unchanged
-
-[x] Valid detail remains unchanged and preserves defensive-copy behavior
-
-Verified exact main:
-
-`41473566a558bb09899f64d581010b72e4053fbd`
-
-GitHub Actions push Verify #780: 1981 passed / 0 failed.
-
-Failed evidence preserved:
-
-- `31902d6e4f1302a5fe221e091b54bd5e2c4a8f3d`: Verify #777, 1980 passed / 1 failed.
-
-Final feature and integration evidence:
-
-- final feature `30da677a1db0fdca3cd4ac2b0928859e0b9b81a8`: Verify #778, 1981 passed / 0 failed;
-- PR #350 synthetic `a0bbb0059c67c3d4e0583f2b13883f5dd3f8857e`: Verify #779, 1981 passed / 0 failed;
-- squash main `41473566a558bb09899f64d581010b72e4053fbd`: Verify #780, 1981 passed / 0 failed.
-
-Preserved:
-
-- generic Telegram adapter exception containment remains the outer safety net;
-- no retry or duplicate query call introduced;
-- no persistence owner or persistence contract changed;
-- Product Decision thresholds/rules unchanged;
-- finance formulas unchanged;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Financial Telegram Query Exception Containment v1081-v1090 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Unit Economics product-list source exceptions are contained locally
-
-[x] Returns Finance Impact product-list source exceptions are contained locally
-
-[x] Unit Economics query exceptions are contained locally
-
-[x] Returns Finance Impact query exceptions are contained locally
-
-[x] Unit Economics formatter exceptions are contained locally
-
-[x] Seller responses use deterministic finance-domain failure codes
-
-[x] Internal exception details are not exposed
-
-[x] Financial source/query calls are one-shot and are not retried
-
-[x] Generic Telegram adapter containment remains the outer safety net
-
-[x] Valid Unit Economics and Returns Finance Impact UI remains compatible
-
-Verified exact main:
-
-`0f484141713f2452f451e818caf600d113df6ad4`
-
-GitHub Actions push Verify #788: 1991 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `6cf579771939ceb765a996fa761a406175e003d3`: Verify #786, 1991 passed / 0 failed;
-- PR #352 synthetic `69383b1fcfe87aab31dfb6bb29cd4f73bf051e13`: Verify #787, 1991 passed / 0 failed;
-- squash main `0f484141713f2452f451e818caf600d113df6ad4`: Verify #788, 1991 passed / 0 failed.
-
-Preserved:
-
-- finance formulas and calculations unchanged;
-- no retry or duplicate finance source/query call;
-- no persistence change;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Tax Configuration Persistence & Result Integrity v1091-v1100 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Persisted tax configuration root must be a mapping
-
-[x] Tax and minimum-tax rates reject booleans, non-numeric values, NaN/inf, negatives and values above 100%
-
-[x] Explicit NONE mode preserves the zero-tax normalization contract
-
-[x] Truncated or malformed persisted tax configuration fails closed as unconfigured instead of raising into startup
-
-[x] Valid tax configuration is serialized before write
-
-[x] Valid tax configuration is written to an fsynced temporary file and atomically replaces the target
-
-[x] Failed atomic replace returns deterministic `TAX_CONFIGURATION_SAVE_FAILED`
-
-[x] Failed write cleans temporary data and preserves the previous durable tax policy
-
-[x] Production `create_telegram_core` survives malformed tax configuration and keeps tax unknown/unconfigured
-
-[x] TaxService formulas and calculation branches are unchanged
-
-Verified exact main:
-
-`38e54ddc6d289f0f75121cc63efa0268ef2784f8`
-
-GitHub Actions push Verify #796: 2001 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `8cc003f6fa66eb499c67d7d3d74f90c0c75abecf`: Verify #794, 2001 passed / 0 failed;
-- PR #354 synthetic `5167b644bc53edc27a40c7b15c7068e0c669d2fc`: Verify #795, 2001 passed / 0 failed;
-- squash main `38e54ddc6d289f0f75121cc63efa0268ef2784f8`: Verify #796, 2001 passed / 0 failed.
-
-Preserved:
-
-- existing TaxConfigurationService remains the sole tax-config persistence owner;
-- TaxService formulas/calculation semantics unchanged;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Tax Calculation Input & Result Integrity v1101-v1110 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Unsupported tax mode is rejected before numeric conversion
-
-[x] Missing tax mode preserves the explicit unconfigured contract
-
-[x] Revenue and gross-profit inputs reject booleans, non-numeric values and NaN/inf
-
-[x] Tax and minimum-tax rates reject booleans, non-numeric values, NaN/inf, negatives and values above 100%
-
-[x] Explicit NONE mode preserves the existing zero-tax result
-
-[x] Numeric-string compatibility remains supported
-
-[x] Existing negative tax-base clipping remains unchanged
-
-[x] Non-finite/overflow tax calculations fail closed instead of returning NaN/inf
-
-[x] ProductUnitEconomicsProvider continues to map TaxService failures to unknown tax rather than inventing a value
-
-[x] Existing tax formula branches and configured percentages remain unchanged
-
-Verified exact main:
-
-`1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`
-
-GitHub Actions push Verify #804: 2011 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `85fc4b76baa725cbc586ca39e8454e30a70fb168`: Verify #802, 2011 passed / 0 failed;
-- PR #356 synthetic `7d070c91d97e811491849475ddcd65552eadd1c7`: Verify #803, 2011 passed / 0 failed;
-- squash main `1bc8cfc745a94c7bfe3442bf2c774947f79bce8b`: Verify #804, 2011 passed / 0 failed.
-
-Preserved:
-
-- TaxConfigurationService persistence contract unchanged;
-- TaxService formula branches/percentages unchanged;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Advertising & Expense Finite Result Integrity v1111-v1120 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Advertising cost rejects boolean and NaN/inf values
-
-[x] Missing advertising remains explicit unknown; zero remains explicit configured zero
-
-[x] Negative advertising retains the existing explicit rejection contract
-
-[x] Campaign aggregation ignores malformed/non-finite/negative/bool rows under the existing tolerant list model
-
-[x] Advertising aggregate overflow fails closed instead of returning infinity
-
-[x] Other-expense aggregation ignores malformed/non-finite/negative/bool rows under the existing tolerant list model
-
-[x] Other-expense aggregate overflow fails closed instead of returning infinity
-
-[x] Single expense rejects boolean and NaN/inf values
-
-[x] Existing numeric-string compatibility remains
-
-[x] BusinessAnalyticsService does not emit business profit when advertising is invalid or other-expense aggregation overflows
-
-Verified exact main:
-
-`cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`
-
-GitHub Actions push Verify #812: 2021 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `c45284c99d70a45b1bed2b5f62049a7bb5c40df6`: Verify #810, 2021 passed / 0 failed;
-- PR #358 synthetic `8b8bcfda3b61518637637a05b1b60109a7907192`: Verify #811, 2021 passed / 0 failed;
-- squash main `cb0148a1d6ad14b2e53f18ca948b66e8422da3c4`: Verify #812, 2021 passed / 0 failed.
-
-Preserved:
-
-- finance formulas unchanged;
-- existing AdvertisingService/ExpenseService owners unchanged;
-- no persistence contract change;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Store Profit Aggregation Result Integrity v1121-v1130 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Store-profit input container is validated
-
-[x] Non-mapping product-profit records fail closed
-
-[x] sales_count rejects boolean, negative, fractional, non-numeric and non-finite values
-
-[x] Financial aggregate fields reject boolean, non-numeric and NaN/inf values
-
-[x] Aggregate overflow and non-finite margin fail closed
-
-[x] Failed product-profit rows remain skipped
-
-[x] Missing numeric fields retain existing zero defaults
-
-[x] Numeric-string and loss-product compatibility remain
-
-[x] BusinessAnalytics propagates store-profit failure before downstream finance calculations
-
-[x] SalesIntelligence and AssistantSalesExecutor preserve the failure end-to-end
-
-Verified exact main:
-
-`87c95cf2eb139cd8782d8df79d43b2313939bba0`
-
-GitHub Actions push Verify #820: 2031 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `a888d3c4aa35aaba7526df186bfdbdd2902f9369`: Verify #818, 2031 passed / 0 failed;
-- PR #360 synthetic `decce34f5a0cf348a4f9ab1ab80c50179d5e9d2b`: Verify #819, 2031 passed / 0 failed;
-- squash main `87c95cf2eb139cd8782d8df79d43b2313939bba0`: Verify #820, 2031 passed / 0 failed.
-
-Preserved:
-
-- StoreProfitService success schema and missing-field zero defaults;
-- aggregation formulas and margin formula unchanged;
-- no persistence change;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-
----
-
-# Business Profit Calculation Result Integrity v1131-v1140 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Non-mapping store-profit/tax inputs fail closed
-
-[x] Malformed store/tax error/configured markers fail closed
-
-[x] Gross-sales/gross-profit inputs reject boolean, non-numeric and NaN/inf
-
-[x] Advertising/other-expense inputs reject boolean, negative, non-numeric and NaN/inf
-
-[x] Tax amount rejects boolean, negative, non-numeric and NaN/inf
-
-[x] Unknown tax remains unknown rather than zero
-
-[x] Existing tax-error message/presentation contract remains compatible
-
-[x] Business-profit and margin overflow/non-finite results fail closed
-
-[x] Valid numeric strings and existing formulas remain compatible
-
-[x] New BUSINESS_PROFIT_* integrity failures propagate through BusinessAnalytics, SalesIntelligence and AssistantSalesExecutor
-
-Verified exact main:
-
-`189455bb5b44c47bbf5abf188d1b456dad14b1ba`
-
-GitHub Actions push Verify #828: 2041 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `98edb5b5500c25e53b77237016afe3a223360ab8`: Verify #826, 2041 passed / 0 failed;
-- PR #362 synthetic `6e335e508c07903d6e4488f1aac40d28a9e4152f`: Verify #827, 2041 passed / 0 failed;
-- squash main `189455bb5b44c47bbf5abf188d1b456dad14b1ba`: Verify #828, 2041 passed / 0 failed.
-
-Preserved:
-
-- business-profit/margin formulas unchanged;
-- TaxService/tax formulas unchanged;
-- no persistence change;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Finance Period Aggregation Result Integrity v1141-v1150 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Daily finance source exceptions are contained as failed days with sanitized seller-safe evidence
-
-[x] Non-mapping daily finance results fail closed instead of raising during aggregation
-
-[x] Malformed explicit error markers fail the affected day
-
-[x] Operations and sales counters reject boolean, negative, fractional, non-numeric and NaN/inf values
-
-[x] Finance amount fields reject boolean, non-numeric and NaN/inf values
-
-[x] Malformed or non-finite fee breakdown values fail the whole affected day
-
-[x] Invalid days do not partially commit counters, amount totals or fee breakdown totals
-
-[x] Partial periods retain only fully valid days and preserve the existing partial-success contract
-
-[x] Aggregate amount/fee overflow fails closed with FINANCE_PERIOD_AGGREGATE_INVALID
-
-[x] Valid numeric strings and signed fee values remain compatible
-
-[x] StoreAnalytics finance path preserves contained source failures
-
-Verified exact main:
-
-`d1655adf6719e6000f996b4635253c6b99193ba3`
-
-GitHub Actions push Verify #837: 2051 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- failed intermediate `f54132ebf109240242a87037a81b1db5ed052d5b`: Verify #834, 2050 passed / 1 failed; test-only false positive remains failed evidence;
-- final feature `52661a7c37068759d20797644943a3b9e5e5ebcc`: Verify #835, 2051 passed / 0 failed;
-- PR #364 synthetic `ef001cc855661041bd3987604496d03e55acaf30`: Verify #836, 2051 passed / 0 failed;
-- squash main `d1655adf6719e6000f996b4635253c6b99193ba3`: Verify #837, 2051 passed / 0 failed.
-
-Preserved:
-
-- FinanceAnalyticsService amount/fee formulas unchanged;
-- existing partial-period success semantics unchanged;
-- no persistence change;
-- no new retry or execution path;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Period Profit Summary Input & Result Integrity v1151-v1160 ‚Äî 2026-09-02
-
-Completed:
-
-[x] Daily FinanceService exceptions are contained as seller-safe period-profit failures
-
-[x] Non-mapping daily finance results fail closed
-
-[x] Malformed explicit daily error markers fail closed
-
-[x] sales_count rejects boolean, negative, fractional, non-numeric and NaN/inf values
-
-[x] Period-profit finance amount fields reject boolean, non-numeric and NaN/inf values
-
-[x] fee_breakdown requires a mapping with finite numeric amounts
-
-[x] Cost inputs reject boolean, negative, non-numeric and NaN/inf values
-
-[x] Cost source exceptions are contained without leaking exception text
-
-[x] Invalid tax-rate configuration fails closed instead of raising during service construction
-
-[x] Product/day/period amount and fee aggregate overflow fails closed
-
-[x] Valid numeric strings and signed fee values remain compatible
-
-[x] PeriodProfitQueryService and AssistantPeriodProfitRuntimeService preserve integrity failures end-to-end
-
-Verified exact main:
-
-`0ca4d226f3f75e2b20035a87a13b1a10d6c71581`
-
-GitHub Actions push Verify #849: 2061 passed / 0 failed.
-
-Final feature and integration evidence:
-
-- final feature `4ab53fe054504c633fbcd6fb708ccb7dc557eaa4`: Verify #847, 2061 passed / 0 failed;
-- PR #367 synthetic `a9030acff2031b118c0c0600c008804c3d6ff08a`: Verify #848, 2061 passed / 0 failed;
-- squash main `0ca4d226f3f75e2b20035a87a13b1a10d6c71581`: Verify #849, 2061 passed / 0 failed;
-- no failed production SHA occurred in this package.
-
-Preserved:
-
-- period-profit formula `profit = net_accrual - product_cost - tax` unchanged;
-- configured tax multiplication semantics unchanged;
-- no persistence change;
-- no new retry or execution path;
-- Period Profit route remains read-only;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor/Ozon mutation wiring;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Telegram Period Profit Analyst Wiring v1161-v1170 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Period-profit runtime wired into production Telegram core
-
-[x] Telegram main menu exposes "üíµ –ü—Ä–∏–±—ã–ª—å –∑–∞ –ø–µ—Ä–∏–æ–¥"
-
-[x] Today / 7 / 28 / 56 / 90-day read-only period menu
-
-[x] Natural-language requests such as "–ø—Ä–∏–±—ã–ª—å –∑–∞ 28 –¥–Ω–µ–π"
-
-[x] Direct analytical text is rendered as Telegram text instead of Python dict output
-
-[x] Period-profit callback success requires read_only=True
-
-[x] Period-profit callback success requires executed=False
-
-[x] Runtime exceptions are contained with seller-safe failure
-
-[x] Malformed or execution-adjacent callback results fail closed
-
-[x] Existing partial-core test fixtures remain backward compatible
-
-Verification:
-
-- entering exact main `bb2e444b5a7ee6caa9cc4e39adccc5df64949835`: Verify #859, 2061 passed / 0 failed;
-- failed intermediate `e7fce70c39f976e97bf78687621ace5125f9d30a`: Verify #866, 2069 passed / 2 failed;
-- final feature `9c5d14f0220e5f13ee0a7d834855f7e07db58cab`: Verify #868, 2071 passed / 0 failed;
-- PR #369 synthetic `04b20cc49a253bfb357626cf62a71b779a75112e`: Verify #869, 2071 passed / 0 failed;
-- squash main `d06a5f8cc23814e3177f58f6182bef6fbceb0697`: Verify #870, 2071 passed / 0 failed.
-
-Current product boundary:
-
-- assistant is a read-only analyst/advisor;
-- Ozon price, advertising budget/bid, stock/replenishment, product-card and other seller mutations are out of scope;
-- recommendations, checklists and drafts do not grant execution permission;
-- `data/users.json` unchanged by this package;
-- `externally_verified=False`.
-
----
-
-# Telegram Custom Period Date Input v1171-v1180 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Localized custom Period Profit input in `–î–î.–ú–ú.–ì–ì–ì–ì`
-
-[x] Example `01.05.2026 - 03.09.2026` routes through production Period Profit
-
-[x] Single-digit day/month input remains accepted
-
-[x] En dash and em dash separators remain accepted
-
-[x] Existing ISO `YYYY-MM-DD` input remains supported
-
-[x] Localized dates normalize to ISO before the Period Profit query layer
-
-[x] Invalid calendar dates fail closed without finance query
-
-[x] Incomplete custom date input fails closed
-
-[x] Missing-period help now shows seller-friendly localized date format
-
-[x] Localized custom Period Profit bypasses the general execution flow
-
-Verification:
-
-- entering exact main `fa30bafeecfa9291175e7f1c4ac0ad2c078b4607`: Verify #881, 2071 passed / 0 failed;
-- final feature `62b040e392514bc410b34d82eccb8e0385b9c548`: Verify #884, 2081 passed / 0 failed;
-- PR #371 synthetic `b865b551289ba4592d8d32594323ea8a6dc64c61`: Verify #885, 2081 passed / 0 failed;
-- squash main `05f94da42e21c5ad5f7d78cb7f55bb2d40730f77`: Verify #886, 2081 passed / 0 failed;
-- no failed production SHA occurred in this package.
-
-Preserved:
-
-- Decision 036 read-only Ozon analyst boundary;
-- no finance formula changes;
-- no Product Decision/Product Task Draft execution;
-- no Action Executor connection;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Tax Policy Production Availability v1181-v1190 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Restored repository production tax policy `USN_INCOME / 6%`
-
-[x] Clean Telegram deployment receives configured tax policy
-
-[x] Explicit environment tax fallback when persisted file is absent
-
-[x] Environment fallback requires explicit `TAX_MODE`
-
-[x] Missing policy remains unknown rather than zero
-
-[x] Invalid environment policy fails closed
-
-[x] Persisted policy has precedence over environment
-
-[x] Malformed persisted policy does not silently fall back
-
-[x] hook-2-like current economics calculates 6.00 ‚ÇΩ tax at 100 ‚ÇΩ tax base
-
-[x] hook-2-like base net profit calculates to 35.83 ‚ÇΩ before returns adjustment
-
-Verification:
-
-- entering exact main `8ca28c36249a052fdf83cfd5ab86a13d986cbb1c`: Verify #896, 2081 passed / 0 failed;
-- final feature `1d0df2799fb87b57d916843a96a080389e2ac07b`: Verify #900, 2091 passed / 0 failed;
-- PR #373 synthetic `a6493407f0bb915f366573404fcffd220e6757a1`: Verify #901, 2091 passed / 0 failed;
-- squash main `9c9d379e36edf2123a466ad2b3cd1d000d81bae3`: Verify #902, 2091 passed / 0 failed;
-- no failed production SHA occurred in this package.
-
-Preserved:
-
-- Decision 036 read-only analyst boundary;
-- missing tax is never interpreted as zero;
-- returns/non-buyout evidence remains separate;
-- no Product Decision/Product Task Draft execution;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Period Profit Returns Protobuf Timestamp Compatibility v1191-v1200 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Reproduced live Ozon protobuf Timestamp failure
-
-[x] Identified Period Profit return-evidence path as source
-
-[x] Date-only Returns API start normalized to RFC3339 UTC start-of-day
-
-[x] Date-only Returns API end normalized to RFC3339 UTC end-of-day
-
-[x] Existing full RFC3339 timestamps preserved
-
-[x] Custom Period Profit ranges reach Returns API with valid timestamps
-
-[x] Preset Period Profit ranges reach Returns API with valid timestamps
-
-[x] Existing Returns filter/pagination/timeout contract preserved
-
-[x] Return evidence remains read-only and non-financial
-
-Verification:
-
-- entering exact main `d3f32e2ca2e30192a59c4551cf5633dfa0941ec6`: Verify #912, 2091 passed / 0 failed;
-- final feature `9e2c5b27a1df9f32c8e950766abc809ba93f7976`: Verify #918, 2101 passed / 0 failed;
-- PR #375 synthetic `86bc4a07477e910fcaf56a1a1b908fa28a4a68f5`: Verify #919, 2101 passed / 0 failed;
-- squash main `c1c3da7cb69d6ce2af550e57bc6c5e38a0bb8a89`: Verify #920, 2101 passed / 0 failed;
-- no failed production SHA occurred.
-
-Preserved:
-
-- Decision 036;
-- no Ozon mutation;
-- no execution changes;
-- no finance formula changes;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Period Profit Data Completeness Integrity v1201-v1210 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Persisted SQLite product tuples normalized for Period Profit
-
-[x] False-success zero summary over zero usable products blocked
-
-[x] Empty/malformed product sets fail with PERIOD_PROFIT_PRODUCTS_UNAVAILABLE
-
-[x] Existing dict product contract preserved
-
-[x] Returns evidence paginates beyond the 500-record first page
-
-[x] Pagination advances via has_next + last_id
-
-[x] Pagination bounded to 10 pages
-
-[x] Complete return counts marked exact
-
-[x] Incomplete return counts marked as lower bounds
-
-[x] Telegram partial-return wording uses "–∫–∞–∫ –º–∏–Ω–∏–º—É–º N"
-
-[x] Legacy READY return-evidence response compatibility preserved
-
-Verification:
-
-- entering exact main `5e8e74a78e2c5aa41ed59378c27a0f1ed7b55397`: Verify #930, 2101 passed / 0 failed;
-- failed intermediate `e3d8b2ed1600e3759135bda4f62865ba38a43ae9`: Verify #935, 2103 passed / 2 failed;
-- failed intermediate `49c02ae1790b7d395794932e7ac4fa95cbac1644`: Verify #936, 2109 passed / 2 failed;
-- final feature `16c53622612b72bce2aa43fd97d5ff66d47466c3`: Verify #937, 2111 passed / 0 failed;
-- PR #377 synthetic `f1593267f67339f2dd68d235056cdbc69960160a`: Verify #938, 2111 passed / 0 failed;
-- squash main `7b2b570278c9cc71f3eb6dbb23b5554d41de07f7`: Verify #939, 2111 passed / 0 failed.
-
-Preserved:
-
-- Decision 036 read-only analyst boundary;
-- no finance formula change;
-- no return-cost inference;
-- no Ozon mutation or execution changes;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Period Profit Tax Rate Unit Integrity v1211-v1220 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Live 600% Period Profit tax bug reproduced
-
-[x] Production Period Profit now reads validated TaxConfigurationService policy
-
-[x] USN Income 6.0% converts to 0.06 fraction
-
-[x] NONE converts to zero fraction
-
-[x] Unsupported USN Income Minus Expenses fails closed
-
-[x] Non-finite/invalid tax percentages fail closed
-
-[x] PeriodProfitSummaryService rejects tax multipliers above 1.0
-
-[x] Seller live sample regression: tax 80 902.27 ‚ÇΩ, profit 310 701.55 ‚ÇΩ, margin 23.04%
-
-Verification:
-
-- entering exact main `590b068ef46f58e56509ac038759f465975c9a8a`: Verify #949, 2111 passed / 0 failed;
-- failed `a7d5cead4c7c49907d6d045b54a3cec30d48efad`: Verify #953, 2110 passed / 1 failed;
-- failed `ee463cd1000113998ae5b895da02334bb5a5f495`: Verify #954, 2120 passed / 1 failed;
-- final feature `4c50429bc4c2f6515d80b497b85fe8c9663e24eb`: Verify #955, 2121 passed / 0 failed;
-- PR #379 synthetic `68c0f7360dd93738377f7111f5f4732d0b4d48af`: Verify #956, 2121 passed / 0 failed;
-- squash main `2f438bd6bb739938cee4fe56b83af8f4a563f942`: Verify #957, 2121 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- read-only Period Profit;
-- no Ozon mutation or execution changes;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Next seller-requested presentation work:
-- add percent-of-revenue in parentheses for each Period Profit monetary line.
-
----
-
-# Period Profit Revenue Share Presentation v1221-v1230 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Revenue line shows 100.00%
-
-[x] Ozon net accrual shows share of revenue
-
-[x] Commission / logistics / acquiring / other fees show share of revenue
-
-[x] Product cost shows share of revenue
-
-[x] Tax shows share of revenue
-
-[x] Profit shows share of revenue
-
-[x] Negative profit keeps negative share
-
-[x] Zero revenue suppresses derived shares
-
-[x] Existing comparison percentage meaning preserved
-
-[x] Existing margin and scope warnings preserved
-
-Verification:
-
-- entering exact main `5cb69fed7bc44fcd5f66a8a004e625bee9993953`: Verify #967, 2121 passed / 0 failed;
-- final feature `77994ccb67c060f7c01694ac65eea5c8aec24e1d`: Verify #970, 2131 passed / 0 failed;
-- PR #381 synthetic `b9a72b875081d6f12fe7f5b50d4b0c6f6af13e89`: Verify #971, 2131 passed / 0 failed;
-- squash main `08d0d0fa6860101921ead603ec4a00b95c9ee8bf`: Verify #972, 2131 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- presentation-only change;
-- no financial formula changes;
-- no Ozon mutation or execution changes;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Finance Accrual Pagination & Read Session Integrity v1231-v1240 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Ozon accrual-by-day first request sends required empty last_id
-
-[x] Finance accrual pages are read until cursor exhaustion
-
-[x] Malformed page responses fail closed
-
-[x] Repeated pagination cursors fail closed
-
-[x] Page-cap exhaustion fails closed instead of returning partial finance as complete
-
-[x] Target SKU evidence on later accrual pages is included
-
-[x] Same calendar day is reused for multiple SKUs inside one read session
-
-[x] Each Period Profit calculation starts a fresh finance read session
-
-[x] Read-session failures are contained without leaking private exception text
-
-Verification:
-
-- entering exact main `400ca040d743dc7db93480605ebd62a7fe9b02f3`: Verify #984, 2131 passed / 0 failed;
-- failed `8d159ed09410ed978bef6cfdb5719a67bc5491b1`: Verify #990, 2140 passed / 1 failed;
-- final feature `ad215b8d86c547e740dcb3583e7b7f580e9fb823`: Verify #991, 2141 passed / 0 failed;
-- PR #383 synthetic `4b1f8e48de3f92c6aecc590232697890c8814d08`: Verify #992, 2141 passed / 0 failed;
-- squash main `e66125d5e2c737497762178bef86dd36a62721f3`: Verify #993, 2141 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- read-only finance retrieval;
-- no financial formula changes;
-- no Ozon mutation or execution changes;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
----
-
-# Account-Level Ozon Profit Reconciliation v1241-v1250 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Decision 037 account-level Ozon monetary authority
-
-[x] Account-level daily revenue/net accrual/fee totals drive Period Profit V2
-
-[x] SKU-level finance remains COGS and product-revenue evidence
-
-[x] Product revenue must reconcile to account revenue within 0.01 RUB
-
-[x] Revenue coverage mismatch fails closed
-
-[x] Account-minus-SKU net reconciliation is exposed
-
-[x] Account-level charges without SKU are included once
-
-[x] Multi-SKU posting-level net duplication is corrected by account total
-
-[x] Account-level fee breakdown replaces summed SKU fee breakdown
-
-[x] Mapped Ozon expenses remain evidence and are never deducted twice
-
-Verification:
-
-- entering exact main `0aa27a1267b9d54f1207455b05e32db843091d86`: Verify #1003, 2141 passed / 0 failed;
-- final feature `a0e528f36b1b4721af0e8d0b419c414d20fabea6`: Verify #1010, 2151 passed / 0 failed;
-- PR #385 synthetic `4a361a58d62e56c2e2aa4c608620ae86992ac05f`: Verify #1011, 2151 passed / 0 failed;
-- squash main `a359e3d8e68784849caa659dec0123fb15dc6932`: Verify #1012, 2151 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- read-only analytics;
-- no Ozon mutation;
-- no unsupported accounting-net-profit claim;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Next accounting gap:
-- return-related COGS reversal / recovered-goods evidence;
-- then non-Ozon overhead/taxes if the seller provides them.
-
----
-
-# Return COGS Recovery Evidence v1251-v1260 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Nested Returns API product / status / compensation evidence preserved
-
-[x] Customer-return units at return-place exposed as candidate recovery
-
-[x] Candidate recovery value calculated from current configured product cost
-
-[x] Compensated returns separated from COGS recovery candidates
-
-[x] Unproven return statuses remain unresolved
-
-[x] Missing product cost remains unknown, not zero
-
-[x] Partial return sample cannot become complete recovery evidence
-
-[x] Historical cost basis remains unconfirmed
-
-[x] Originating sale-period lineage remains unconfirmed
-
-[x] Saleable inventory recovery remains unconfirmed
-
-[x] Period/accounting COGS recovery remains unconfirmed
-
-[x] Candidate recovery never changes Period Profit
-
-[x] Telegram and coverage expose candidate evidence and limitations
-
-Verification:
-
-- entering exact main `55942648266e9ca4fbb3d3380180c3a67bfc4c56`: Verify #1022, 2151 passed / 0 failed;
-- failed `2339d8aa8da1ec43c3298be2da8506a1e6dd8b9b`: Verify #1033, 2159 passed / 2 failed;
-- final feature `30f3edafd9d2af603f2277701cb13492a334dd30`: Verify #1038, 2161 passed / 0 failed;
-- PR #387 synthetic `c5947439450297dabb353b3dfd125e3fc6417576`: Verify #1039, 2161 passed / 0 failed;
-- squash main `d845c7183ef5a914853a15b788e18b0cebfd1c93`: Verify #1040, 2161 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- Decision 037;
-- account-level Ozon monetary authority;
-- no automatic return COGS reversal;
-- no accounting net-profit claim;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Next accounting priority:
-- explicit seller-configured non-Ozon operating expenses;
-- unknown external expense remains unknown, never zero.
-
----
-
-# External Operating Expense Coverage v1261-v1270 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Decision 038 external operating expense evidence and coverage contract
-
-[x] Existing local `expenses` rows retained as explicit seller-entered external expense evidence
-
-[x] `expense_coverage` intervals added as explicit completeness confirmation
-
-[x] Requested-period coverage is complete only when every calendar day is covered
-
-[x] Empty uncovered period remains unknown, not zero
-
-[x] Empty fully covered period becomes explicit confirmed 0 ‚ÇΩ external expense
-
-[x] Partial expense rows produce observed adjusted profit only
-
-[x] Complete coverage permits complete profit-after-external-expenses adjustment
-
-[x] Invalid expense dates fail closed
-
-[x] Boolean, NaN and infinite expense amounts fail closed
-
-[x] Period Profit Telegram text distinguishes base profit, entered expenses and coverage completeness
-
-[x] Ozon advertising/storage/return charges already inside account net accrual are never subtracted again
-
-[x] `confirm_expense_coverage.py` provides explicit local coverage confirmation
-
-Derived formula:
-
-`profit_after_external_expenses = period_profit - external_expenses`
-
-The base Period Profit formula and Decision 037 account-level Ozon monetary authority remain unchanged.
-
-Verification:
-
-- entering exact docs-reconciled main `9a29e853727c82abdf75b1992c45c532bd45e3ef`: Verify #1050, 2161 passed / 0 failed;
-- failed `55d8f189dc170cc524aa8798aea42b1b7ae6251c`: Verify #1054, 2150 passed / 11 failed;
-- failed `9f32163739d849dfe3681a9de6358fb64db40100`: Verify #1055, 2150 passed / 11 failed;
-- failed `e788e5110109eb678767313278580989b192f689`: Verify #1060, 2160 passed / 1 failed;
-- cancelled intermediate SHAs carry no transferable success evidence;
-- final feature `07f9a35eb238280e95b52bc14d18cc6aba735703`: Verify #1062, 2171 passed / 0 failed;
-- PR #389 synthetic `77dd43cfeb36ebe0066f8747c6c51580083848a6`: Verify #1063, 2171 passed / 0 failed;
-- squash main `875cc4a783a48eb9a9059b9e2e9ba85316fbdc0d`: Verify #1064, 2171 passed / 0 failed.
-
-Preserved:
-
-- Decision 036;
-- Decision 037;
-- Decision 038;
-- account-level Ozon monetary authority;
-- no double subtraction of Ozon expenses;
-- no automatic return COGS reversal;
-- no accounting net-profit claim;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Next accounting priority:
-- prove return-related COGS recovery with stronger historical cost, sale-period lineage and saleable/restored inventory evidence;
-- keep candidate recovery out of profit until that proof exists;
-- then address taxes/accounting adjustments outside the configured tax policy and any uncovered external-expense periods.
-
----
-
-# Return Sale-Period Lineage Evidence v1271-v1280 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Positive sale posting evidence extracted from Ozon daily finance
-
-[x] Sale evidence reuses the Period Profit FinanceService read-session cache
-
-[x] Return records matched to positive sale evidence by posting_number + SKU
-
-[x] Same posting with a different SKU does not confirm lineage
-
-[x] One unique positive sale-accrual date inside the selected period is matched lineage
-
-[x] Multiple positive sale dates remain ambiguous
-
-[x] Missing finance days keep lineage partial
-
-[x] Malformed positive-sale evidence cannot become clean evidence
-
-[x] Incomplete Returns pagination prevents aggregate sale-period confirmation
-
-[x] Return COGS candidate records expose lineage status and matched accrual date
-
-[x] Telegram explains confirmed or partial selected-period lineage
-
-[x] Period Profit coverage exposes sale-lineage confirmation without changing profit
-
-Preserved:
-
-- `confirmed_cogs_recovery_amount=0`;
-- `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- `historical_cost_basis_confirmed=False`;
-- `saleable_inventory_recovery_confirmed=False`;
-- Decision 036;
-- Decision 037;
-- Decision 038;
-- no Ozon mutation;
-- no profit-formula change;
-- no persistence-contract change;
-- no double subtraction;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Verification:
-
-- entering exact docs-reconciled main `356fa301a9025e15a5a9fbb94da706d10670416a`: Verify #1074, 2171 passed / 0 failed;
-- failed `db2c6c0fa900720c303a8f8face32ef3eec3be11`: Verify #1081, 2170 passed / 1 failed;
-- cancelled intermediate SHAs carry no transferable success evidence;
-- final feature `e96fb63007647857045f226c9c41fd8157ae962e`: Verify #1083, 2185 passed / 0 failed;
-- PR #391 synthetic `26d6ca0e9b2ef2b4a358cc6a517bd13bf152bffc`: Verify #1084, 2185 passed / 0 failed;
-- squash main `5c0ed4bd40207e3f4bcce3770e89e71e163288b1`: Verify #1085, 2185 passed / 0 failed.
-
-Next accounting priority:
-
-- add evidence-bound historical product cost history applicable to originating sales without backfilling unknown history by assumption;
-- separately prove saleable/restored inventory recovery;
-- keep COGS reversal blocked until both are proven;
-- then resolve compensation timing/accounting and remaining external tax/expense gaps.
-
----
-
-# Historical Product Cost Evidence v1281-v1290 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Decision 039 versioned historical product cost evidence contract
-
-[x] Separate append-only `product_cost_history` table
-
-[x] Existing mutable `product_costs` current-cost contract preserved
-
-[x] No automatic migration/backfill from current cost into history
-
-[x] Explicit `effective_from` required for historical cost versions
-
-[x] Duplicate `product_id + effective_from` versions rejected
-
-[x] Historical lookup selects latest explicit version effective on sale date
-
-[x] Identifier ambiguity remains unconfirmed
-
-[x] Dates before first explicit version remain unknown
-
-[x] `record_product_cost_history.py` added for explicit local evidence input
-
-[x] Return COGS candidates resolve historical cost only after matched sale lineage
-
-[x] Historical candidate value exposed without changing Period Profit
-
-[x] Telegram distinguishes current-cost diagnostic value from historical-cost evidence
-
-[x] Coverage exposes historical cost confirmation state
-
-Preserved:
-
-- `saleable_inventory_recovery_confirmed=False`;
-- `confirmed_cogs_recovery_amount=0`;
-- `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- Decision 036;
-- Decision 037;
-- Decision 038;
-- no Period Profit formula change;
-- no Ozon mutation;
-- no Product Decision/Product Task Draft execution;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Verification:
-
-- entering exact docs-reconciled main `212df575cc60a809032954d425902fad86623956`: Verify #1095, 2185 passed / 0 failed;
-- no failed production SHA occurred;
-- cancelled intermediate SHAs carry no transferable success evidence;
-- final feature `f3fcb80588f394eb05e5944ca2812ed59adf7649`: Verify #1103, 2195 passed / 0 failed;
-- PR #393 synthetic `672e18f904768742917df9c808c48ec476d9fd3e`: Verify #1104, 2195 passed / 0 failed;
-- squash main `9ca4497dda61615076b8203d0404502630ab7e81`: Verify #1105, 2195 passed / 0 failed.
-
-Next accounting priority:
-
-- prove saleable/restored inventory recovery after customer returns;
-- distinguish saleable recovery, unresolved/non-saleable outcomes and compensation;
-- prevent double counting between inventory recovery and Ozon compensation;
-- keep automatic COGS reversal blocked until recovery-state evidence is complete.
-
----
-
-# Return Inventory Recovery Evidence v1291-v1300 ‚Äî 2026-09-03
-
-Completed:
-
-[x] Decision 040 explicit return-level inventory recovery evidence contract
-
-[x] Append-only `return_inventory_recovery_history`
-
-[x] Explicit `SALEABLE_RESTORED` and `NON_SALEABLE` states
-
-[x] Exact return_id + posting_number + SKU identity required
-
-[x] Candidate quantity must exactly match recovery evidence quantity
-
-[x] Missing recovery evidence remains unknown
-
-[x] Identity drift remains conflicting/unconfirmed evidence
-
-[x] Stock snapshots/deltas are not accepted as automatic recovery proof
-
-[x] Compensated returns remain outside automatic saleable recovery
-
-[x] Return COGS candidate rows expose recovery state/source/date
-
-[x] Coverage exposes inventory recovery state
-
-[x] Telegram explains confirmed/partial recovery state
-
-Preserved:
-
-- `recovery_period_attribution_confirmed=False`;
-- `confirmed_cogs_recovery_amount=0`;
-- `profit_adjustment_allowed=False`;
-- `automatic_recovery_allowed=False`;
-- Decision 036/037/038/039;
-- no Period Profit formula change;
-- no Ozon mutation;
-- `data/users.json` unchanged;
-- `externally_verified=False`.
-
-Verification:
-
-- entering exact docs-reconciled main `7f859d1073338c5c0144edea8fe15574460e5210`: Verify #1115, 2195 passed / 0 failed;
-- failed `41b409edcd2a96016bf49e8e8303a7aec00c1886`: Verify #1125, compile failure;
-- failed `4643126328c9e461712aae30f5f7a694a7549e89`: Verify #1126, compile failure;
-- failed `d90549d21c8fb46b0a9012c205520c68e012dbfa`: Verify #1127, compile failure;
-- failed `13e4cfbacf617bb60c5b897137b619f079c3d500`: Verify #1128, 2203 passed / 5 failed;
-- cancelled intermediate SHAs carry no transferable success evidence;
-- final feature `1a83e5466bfebd79370e9576ce00b43b79bb668d`: Verify #1129, 2208 passed / 0 failed;
-- PR #395 synthetic `7d7b3a5e180a2505850345cc753a7d40ba391cbf`: Verify #1130, 2208 passed / 0 failed;
-- squash main `3f82b65054a2a7a48b9918803c197377bdb3557f`: Verify #1131, 2208 passed / 0 failed.
-
-Next accounting priority:
-
-- prove the accounting period in which a confirmed saleable return recovery should reverse COGS;
-- verify originating-sale quantity consistency;
-- keep compensation treatment separate and prevent double counting;
-- keep automatic COGS reversal blocked until these remaining facts are complete.
-
----
-
-# Period Profit Tenant Context Propagation ‚Äî 2026-09-14
-
-Completed:
-
-[x] Traced Telegram callback/text production wiring through Period Profit finance prefetch
-[x] Identified lost tenant ContextVar at ThreadPoolExecutor boundary
-[x] Propagated an independent request context into every READ-ONLY finance worker
-[x] Covered 7D, 28D, 56D, 90D, and a custom date range through TelegramBotService
-[x] Preserved fail-closed finance/quantity evidence and historical/Return COGS authority
-
----
-
-# Safe Period Profit Finance Diagnostics ‚Äî 2026-09-14
-
-Completed:
-
-[x] Preserve safe finance failure identity across the parallel prefetch boundary
-[x] Expose only sanitized diagnostic codes in Telegram
-[x] Keep Ozon payloads, credentials, identifiers, and amounts hidden
-
----
-
-# Period Profit Monetary Validation Stage Diagnostics ‚Äî 2026-09-14
-
-Completed:
-
-[x] Distinguish accrual list/record, total amount, posting, products, commission, and sale-component blockers
-[x] Preserve the existing fail-closed monetary result
-[x] Expose no payload, identifiers, credentials, or monetary values
-
----
-
-# Period Profit Related-SKU Runtime Base Fix ‚Äî 2026-09-14
-
-Completed:
-
-[x] Traced live FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE_COMMISSION to the #558 client inheritance regression
-[x] Restored PeriodProfitRuntimeOzonClient as the related-SKU client's finance-normalization base
-[x] Preserved account total_amount for non-sale postings without inventing SKU revenue or quantity
-[x] Kept malformed/partial commission evidence fail-closed
-[x] Preserved historical effective-cost authority and Return COGS gates
-
----
-
-# Selected-SKU bounded reverse identity lookup ‚Äî 2026-09-20
-
-Completed:
-
-[x] Proved the remaining latency was account-wide `/v3/posting/fbo/list` pagination
-[x] Replaced hundreds of FBO pages with one lookup for the selected current SKU
-[x] Reused the proven related identity in downstream finance scoping
-[x] Kept missing/ambiguous identity fail-closed
-[x] Added regression coverage for 500 unrelated finance SKUs and zero FBO list calls
-[x] Added bounded directional related-SKU discovery for asymmetric Ozon relations
-[x] Added exact batched finance-posting SKU evidence to selected prefilter
-[x] Persist fast selected-SKU identity failure diagnostics immediately
-[x] Cover the traced production entrypoint against diagnostic NameError regressions
-[x] Resolve rewritten posting SKU by bounded parallel exact-offer samples
-[x] Guide the seller through historical-SKU identity confirmation in Telegram
-[x] Revalidate a candidate against current posting evidence before persistence
-[x] Retry the original selected-SKU period automatically after confirmation
-[x] Let the seller revoke one exact incorrect historical/current SKU identity
-[x] Preserve a local revocation audit snapshot and invalidate prior report guidance
-[x] Expose revocation directly on the report created from a confirmed SKU mapping
-[x] Expose exact revocation on every report that consumes a confirmed alias
-[x] Batch report mapping lookup into one local SQLite read and zero Ozon calls
-[x] Show selected-SKU monetary lines with their revenue share in parentheses
-[x] Add discoverable date-only custom-period input to the Period Profit menu
-[x] Isolate pending custom-period input per Telegram user
-[x] Reuse canonical seller-cost coverage in `/start` and skip completed setup
-[x] Resolve Period Profit tax policy from the active store on every request
+Y™Áäx-ÆÈ‹j◊ù¢Îi∫⁄+äßj[hëÈ‹¢ÈÌﬂﬂwÂ:-jZ.∂õ≠ñ)ﬁ≥R27W'&VÁB&ˆ¶V7B7FFP†¢22##b”í”#Ç(	B
+Mç››Ì-ÚMç=›Ì-ç≠"Ì-}-R˝‚-Ω››ÌÕ24µP†¢“	Ìçç≠˝]M}==}≠ÇMç››Ì"˜¶ˆ‚-]˝]¬˝Ì≠}Ω-]"]}Ì˝›Ωí≠ÌBMç=›Ì-ç≠Ç˝˝Õ‚"ÌÌù]›çÇ-Ω››Ì=‚4µR‡¢“
+-]≠"Ì--]-˝Ì-ùM]Ç›]]}Ì˝›ΩRMç=›Ì-ç}]≠çR}›}]›çÚ›R≠Ω-Ì-Û≤Mç››Ì-Ωí}"Ì--Úfñ¬÷6∆˜6VBÇ&VB÷ˆÊ«í‡†¢22##b”í”#b(	BñvÊ˜&R∂Ê˜v‚5“6◊ñvÁ2ñ‚52¥5ÚÜó7F˜&ñ6¬4µR&W˜'G0†¢“Üó7F˜&ñ6¬W&f˜&÷Ê6R6◊ñv‚Fó66˜fW'í6∂ó2FÜRFˆ7V÷VÁFVB5“ñ÷VÁBGóR¬vÜñ6Çó2˜WG6ñFRFÜR&W˜'Bw252¥5Ú66˜R¬ñÁ7FVBˆb&˜'FñÊrFÜRVÁFó&RW&ñˆB&ˆfóB6∆7V∆Fñˆ‚‡¢“52&V÷ñÁ2ñÊ6«VFVB¬5Ú&V÷ñÁ2&WG&ñWfVBFá&˜VvÇóG26W&FR&ˆGV7B&W˜'B¬ÊBVÁ&V6ˆvÊó¶VBñ÷VÁBGóW27Fñ∆¬fñ¬6∆˜6VB‡†¢22##b”í”#b(	B◊V«Fí◊7F˜&R6V∆V7F˜"Fó66˜fW&&ñ∆óGê†¢“FÜR÷ñ‚∂Wñ&ˆ&BWá˜6W27F˜&R◊6V∆V7Fñˆ‚'WGFˆ‚FÜBW6W2FÜRFVÊÁB÷v&R˜¶ˆÂ˜7F˜&W66∆∆&6≤ÊBWÜó7FñÊr66˜VÁB∆ó7B‡¢“7F˜&R6V∆V7Fñˆ‚ÊB7&VFVÁFñ¬ó6ˆ∆Fñˆ‚6ˆÁFñÁVRFÚW6RFÜRW7F&∆ó6ÜVBFV∆Vw&“W6W"«W2˜¶ˆ‚6∆ñVÁBîB66˜R‡†¢22##b”í”#b(	B˜¶ˆ‚7&VFVÁFñ¬7FGW2ÊBˆÊ&ˆ&FñÊr6fWGê†¢“WÜó7FñÊrVÊ7'óFVB7F˜&R&V6˜&G2&RFó7FñÊwVó6ÜVBg&ˆ“Fó66ˆÊÊV7FVBW6W'2vÜV‚FÜR÷7FW"∂Wíó2÷ó76ñÊr˜"÷ó6÷F6ÜVB‡¢“7F˜&R◊66˜VB7F˜&vRñÊóFñ∆ó¶Fñˆ‚6ˆ◊∆WFW2&Vf˜&R7&VFVÁFñ«2&R6fVB¬6Ú6WGWfñ«W&R&W6W'fW2‚WÜó7FñÊr7&VFVÁFñ¬‡¢“ˆÊ&ˆ&FñÊr6Ü˜w26fR7F˜&vRˆ∂WíFñvÊ˜7Fñ72ÊBGfÊ6W2FÚFÇ6WGWˆÊ«ígFW"6ˆÊfó&÷VB&VB÷ˆÊ«í˜¶ˆ‚6ˆÊÊV7Fñˆ‚‡†¢22##b”í”#b(	Bó6ˆ∆FR6ˆÊ7W'&VÁBW&ñˆB&ˆfóBfñÊÊ6R66ÜW0†¢“Fñ«í˜¶ˆ‚67'V¬66ÜR7FFRó2&WVW7B÷6ˆÁFWáB∆ˆ6¬ˆ‚FÜR6Ü&VBW&ñˆB&ˆfóBfñÊÊ6R6W'fñ6R‡¢“˜fW&∆ñÊr6∆7V∆FñˆÁ2f˜"FñffW&VÁB7FófR7F˜&W2&WFñ‚FÜVó"˜v‚&rFñ«ífñÊÊ6R&W7ˆÁ6W2¬ñÊ6«VFñÊrvÜV‚FÜWí&WVW7BFÜR6÷RFFR‡¢“&˜VÊFVB&VfWF6Çv˜&∂W'2ÊB6ÊˆÊñ6¬66˜VÁB÷∆WfV¬÷ˆÊWF'íWFÜ˜&óGí&RVÊ6ÜÊvVB‡†¢22##b”í”í(	B6V∆V7FVB’4µRW&ñˆB&ˆfóB∆FVÊ7í&Wó †¢“6V∆V7FVB’4µRñFVÁFóGí&V6˜fW'íÊÚ∆ˆÊvW"W&f˜&◊2‚VÊ&˜VÊFVB6W&ñ¬˜7FñÊr÷FWFñ¿¢‚≥¬ÊB7W'&VÁB˜&Wfñ˜W26ˆ◊&ó6ˆ‚&WW6W2&WVW7B÷∆ˆ6¬&˜fV‚ñFVÁFóGíWfñFVÊ6R‡¢“FÜRfñÊ¬VW'í6∆7V∆FW2FÜR&Wfñ˜W2W&ñˆBˆÊ6RñÁ7FVBˆbGvñ6R‡¢“6V∆V7FVB◊&ˆGV7B&˜fñFW"66˜Ró26ˆÊ7W'&VÊ7í◊6fRÊBÊÚ∆ˆÊvW"◊WFFW26Ü&V@¢&WVW7B7FFR‡¢“∆ˆÊrFV∆Vw&“v˜&∂W'2V÷óB6V7&WB÷g&VRFñvÊ˜7Fñ26Ê6Ü˜BÊBv˜&∂W"7F6≤gFW ¢ì6V6ˆÊG2vÜñ∆RFÜRñÊf˜&÷FñˆÊ¬vF6ÜFˆr6ˆÁFñÁVW2vóFñÊr‡¢“WÜ7B&V∆ó¶Fñˆ‚WfñFVÊ6RÊ˜r6˜fW'26ˆÊfó&÷ñÊr˜7FñÊw2˜WG6ñFRFÜR&˜VÊFV@¢FWFñ¬◊&ˆ&R&VfóÇvóFÜ˜WB&VñÁG&ˆGV6ñÊrW"◊˜7FñÊr‚≥&WVW7G2‡¢“&Ww&óGFV‚&V∆ó¶Fñˆ‚4µW2&R7W˜'FVBf˜"6ñÊv∆R÷fñÊÊ6R’4µR˜7FñÊw2ˆÊ«í‡¢“ñFVÁFóGí&V6˜fW'íÊWfW"vW2FÜR6ˆ◊∆WFR66˜VÁBd$ÚÜó7F˜'ì≤óBW6W2«&VGê¢∆ˆFVBfñÊÊ6R˜&V∆ó¶Fñˆ‚WfñFVÊ6RÊB&˜VÊFVBWÜ7Bf∆∆&6∑2ñÁ7FVB‡¢“Áí&Wfñ˜W2◊W&ñˆB÷ˆÊ«ífñ«W&RFVw&FW2FÜR˜FñˆÊ¬6ˆ◊&ó6ˆ‚vóFÜ˜WB&W'VÊÊñÊp¢˜"7W&W76ñÊrñÊFWVÊFVÁF«í&˜fV‚7W'&VÁB&ˆfóB‡¢“6V∆V7FVBfñÊÊ6R66˜RÊ˜r&W6W'fW2óG2VÊóVRˆffW"ñÊFWÇÊB&Vfñ«FW'266˜VÁ@¢fñÊÊ6R4µW2&Vf˜&RñÊFófñGV¬&V6˜fW'ì≤VÁ&V∆FVB4µRÊWGv˜&≤‚≥ó2&V÷˜fVB‡†¢22##b”í”R(	BFV∆Vw&“ÜV«ÊBFó66˜fW&&ñ∆óGê†¢“FÜR÷ñ‚∂Wñ&ˆ&BWá˜6W2	˝ÌÕÌù¬Ç≠ÌÕ›M∂‡¢“ˆÜV«ÊBFÜR6∆∆&6≤W6RFÜR6÷R6ÊˆÊñ6¬&W6VÁFFñˆ‚6ˆÁG&7B‡¢“WfW'í7W˜'FVB6∆6Ç6ˆ÷÷ÊBÊBWfW'íWÜ7B6V∆∆W"÷6ˆÊfó&÷Fñˆ‚á&6Rf÷ñ«ê¢ó2Fˆ7V÷VÁFVBñ‚÷&˜C≤&˜WFñÊRf∆˜w2∆ñÊ≤&6≤FÚFÜRWÜó7FñÊr&ˆGV7Fñˆ‚6∆∆&6∑2‡¢“ÊÚ˜¶ˆ‚◊WFFñˆ‚¬fñÊÊ6ñ¬WFÜ˜&óGí¬Üó7F˜&ñ6¬÷6˜7B¬ñFVÁFóGí¬˜"&WGW&‚4Ùu0¢vFR6ÜÊvVB‡††§FFS††£##b”í”0†††¢2FW7B7FGW0††•fW&ñfñ6Fñˆ‚÷ˆFV√¢4Ñ÷&˜VÊB‡†§∆FW7BgV∆¬◊7VóFR&6V∆ñÊR6ˆÊfó&÷VC††£##Ç76VBˆ‚6cÉ&#cSSF&vCÜ#ììÉÉ63ìs3sv&F#3SSvf‡†§vóDáV"7FñˆÁ2W6ÇfW&ñfñ6Fñˆ‚'V‚336ˆ◊∆WFVB7V66W76gV∆«íf˜"FÜó2WÜ7B÷ñ‚4Ñ‡†•6VR&ˆ¶V7Eˆ'&ñ‚ıdU$îdî4DîÙÂı5DEU2Ê÷F‡†††¢27F&ñ∆ó¶Fñˆ‚6ÜV6∑ˆñÁ@††§6ˆ◊∆WFVC†††•∑Ö“gV∆¬FW7B7VóFR7F&ñ∆ó¶Fñˆ‡††•∑Ö“7Fñˆ‚vVÊW&F˜"6ˆÁG&7B&W7F˜&V@††•∑Ö“7Fñˆ‚WÜV7WF˜"6ˆ◊Fñ&ñ∆óGí&W7F˜&V@††•∑Ö“7Fñˆ‚6ˆÁFWáB&W6W'fFñˆ‚&W7F˜&V@††•∑Ö“&ñ˜&óGí&W6W'fFñˆ‚&W7F˜&V@††•∑Ö“÷V÷˜'ífVGW&W2&V÷ñ‚6ˆ◊Fñ&∆RvóFÇWÜó7FñÊróV∆ñÊP†††•&W7V«C†††£c276V@†††¢““–†††¢2&ˆ¶V7BFó&V7Fñˆ‡††¢22÷ñ‚&ˆGV7@††§í'W6ñÊW7276ó7FÁ@†††≠
+m]Ω¬˝Ì]≠-†††≠
+Ì}M›çRç}›]›ç-]›-››Ωç-ç≠¿≠≠Ì-ÌΩí}ç-]"Ç›Ωç}ç=]"M››ΩR˜¶ˆ‚¿≠-›ç-]"˝]çÌM≤¬Ì≠˝›˝]"ç≠Ç¿≠˝çÌç-ç}ç=]"˝ÌΩ]Õ≤Ç]≠ÌÕ]›M=]"M]ù--çÚ¿≠›‚›Rç}Õ]›˝]"Ì-Ì˝›çR˜¶ˆ‚Ç›R-Ω˝ÌΩ›˝]"'W6ñÊW72◊WFFñˆÁ2‡†††¢22ñÁFW&Ê¬FWfV∆˜÷VÁB7ó7FV–††§íFWfV∆˜÷VÁBvVÁ@†††≠	›}›}]›çS†††§íFWfV∆˜÷VÁBvVÁB˝-Ω˝]-Ú-›=-]››ç¬ç›-=Õ]›-Ì¬¿≠≠Ì-ÌΩí=≠Ì˝]"Ì}M›çRÇ}-ç-çRí'W6ñÊW7276ó7FÁB‡†††≠	Ì›Ì-›ΩR}M}É†††¢“=Õ]›Õç]›çR=}›ΩRM]ù--çí˝Ç}Ì-≠P¢“˝ÌMM]m›çR&ˆ¶V7B'&ñ‡¢“≠Ì›-ÌΩ¬MÌ≠=Õ]›-mçÌ››Ì=‚G&ñg@¢“--ÌÕ-ç}mçÚ-]-çÌ-›ç¢“=≠Ì]›çR-›]]›çÚç}Õ]›]›çê†††≠	]ç-]≠-=›Ú-˝}√†††§íFWfV∆˜÷VÁBvVÁ@†Æ(i0†§FWfV∆˜÷VÁBv˜&∂f∆˜p†Æ(i0†§í'W6ñÊW7276ó7FÁ@†††¢““–†††¢26ˆ◊∆WFVBfVGW&W0†•∑Ö“&VB÷ˆÊ«íW&ñˆB&ˆfóB&W6VÁFFñˆ‚'í6V∆V7FVBFVÊÁB6F∆ˆr4µRvóFÇfñ¬÷6∆˜6VBñFVÁFóGíÊB÷˜VÁBf∆ñFFñˆ‡†•∑Ö“&W7V÷&∆RFV∆Vw&“ˆÊ&ˆ&FñÊrg&ˆ“&ˆGV7Fñˆ‚˜¶ˆ‚66˜VÁBÊBFÇ6ˆÊfñwW&Fñˆ‚6˜W&6W0††•∑Ö“ñÁFVÁBFWFV7Fñˆ‡††•∑Ö“F6≤7&VFñˆ‡††•∑Ö“F6≤∆ñfV7ñ6∆P††•∑Ö“W6P††•∑Ö“&W7V÷P††•∑Ö“6Ê6V¿††•∑Ö“Üó7F˜'ê††•∑Ö“6ˆÁFWá@††•∑Ö“7Fñˆ‚&˜WFW ††•∑Ö“6∆W2WÜV7WF˜ ††•∑Ö“7Fˆ6≤WÜV7WF˜ ††•∑Ö“÷&∂WFñÊrWÜV7WF˜ ††•∑Ö“&ñ˜&óGí7ó7FV–††•∑Ö“7Fñˆ‚FWVÊFVÊ6ñW0††•∑Ö“6ˆÊFóFñˆÊ¬7FñˆÁ0††•∑Ö“4¥ïTB7FFP††•∑Ö“6∂ó&V6ˆ‡††•∑Ö“Üó7F˜'í&W7ˆÁ6Rf˜&÷GFñÊp††•∑Ö“6∆W2ñÁFV∆∆ñvVÊ6R6W'fñ6Rf˜VÊFFñˆ‡††•∑Ö“6∆W2ñÁFV∆∆ñvVÊ6RñÁFVw&Fñˆ‚c††•∑Ö“6∆W2ñÁFV∆∆ñvVÊ6RFFf∆˜rc“6ˆÁFWáB&˜vFñˆ‡††•∑Ö“6∆W2ñÁFV∆∆ñvVÊ6R&ˆGV7Fñˆ‚vó&ñÊrc††•∑Ö“6∆W2ñÁFV∆∆ñvVÊ6R'W6ñÊW72FFñÁWBc††•∑Ö“7Fˆ6≤ñÁFV∆∆ñvVÊ6Rf˜VÊFFñˆ‚c††•∑Ö“7Fˆ6≤ñÁFV∆∆ñvVÊ6RñÁFVw&Fñˆ‚c††•∑Ö“7Fˆ6≤ñÁFV∆∆ñvVÊ6R6ˆÁFWáB&˜vFñˆ‚c††•∑Ö“7Fˆ6≤ñÁFV∆∆ñvVÊ6R&ˆGV7Fñˆ‚vó&ñÊrc††•∑Ö“7Fˆ6≤ñÁFV∆∆ñvVÊ6R'W6ñÊW72FFñÁWBc††•∑Ö“fñÊÊ6RñÁFV∆∆ñvVÊ6Rf˜VÊFFñˆ‚c††•∑Ö“fñÊÊ6RñÁFV∆∆ñvVÊ6RWÜV7WF˜"ñÁFVw&Fñˆ‚c††•∑Ö“fñÊÊ6RñÁFV∆∆ñvVÊ6R6ˆÁFWáB&˜vFñˆ‚c††•∑Ö“fñÊÊ6RñÁFV∆∆ñvVÊ6R&ˆGV7Fñˆ‚vó&ñÊrc††•∑Ö“fñÊÊ6RñÁFV∆∆ñvVÊ6R'W6ñÊW72FFñÁWBc††•∑Ö“&ˆGV7B‘∆WfV¬fñÊÊ6R÷WG&ñ72c††•∑Ö“&ˆGV7BVÊóBV6ˆÊˆ÷ñ72f˜VÊFFñˆ‚c„††•∑Ö“&ˆGV7BVÊóBV6ˆÊˆ÷ñ72VW'íc††•∑Ö“FÇ6ˆÊfñwW&Fñˆ‚f˜VÊFFñˆ‚c††•∑Ö“&ˆGV7BVÊóBV6ˆÊˆ÷ñ72&ˆGV7Fñˆ‚vó&ñÊrc††•∑Ö“&ˆGV7BVÊóBV6ˆÊˆ÷ñ72FV∆Vw&“Tíc†††¢““–†††¢2dîƒTBWÜV7WFñˆ‚ÜÊF∆ñÊp††•∑Ö“WÜ6WFñˆ‚ñÁFW&6WFñˆ‡††•∑Ö“dîƒTB7Fñˆ‚7FGW0††•∑Ö“W'&˜"÷W76vR7F˜&vP††•∑Ö“fñ∆VBWÜV7WFñˆ‚FW7@††•∑Ö“dîƒTBÜó7F˜'íWfVÁ@††•∑Ö“W'&˜"Üó7F˜'í7F˜&vP††•∑Ö“&WG'í7Fñˆ‚&W&Fñˆ‡††•∑Ö“&WG'íWÜV7WFñˆ‚FW7@††•∑Ö“&WG'íÜó7F˜'íG&6∂ñÊp††•∑Ö“&WG'íˆ∆ñ7í6W'fñ6P††•∑Ö“&WG'íFV6ó6ñˆ‚∆ˆvñ0††•∑Ö“&WG'í∆∆˜vVBf∆p††•∑Ö“&WG'í∆ñ÷óB6W'fñ6P††•∑Ö“÷Üñ◊V“&WG'íGFV◊G0††•∑Ö“&WG'í∆ñ÷óBf∆ñFFñˆ‡††•∑Ö“&WG'í&∆ˆ6∂VBÜó7F˜'ê††•∑Ö“&WG'í&∆ˆ6≤WfVÁB7F˜&vP†††•&W7V«C†††£c276V@†††¢““–†††¢26÷'B∆ÊÊñÊp††•∑Ö“◊V«Fí÷∆WfV¬FWVÊFVÊ6ñW0††•∑Ö“FWVÊFVÊ7íf∆ñFFñˆ‡††•∑Ö“FWVÊFVÊ7í7ñ6∆RFWFV7Fñˆ‡††•∑Ö“&W∆‚&WVW7BG&ñvvW ††•∑Ö“&W∆ÊÊñÊr6W'fñ6P††•∑Ö“&W∆ÊÊñÊrñÁFVw&Fñˆ‡††•∑Ö“&W∆ÊÊñÊrWÜV7WFñˆ‚f∆˜p††•∑Ö“WFˆ÷Fñ2&W∆ÊÊñÊrVÊvñÊP††•∑Ö“∆‚6˜'&V7Fñˆ‡†††•&W7V«C†††£c276V@†††¢““–†††¢2WFˆÊˆ÷˜W2'W6ñÊW7276ó7FÁ@††•Ü6R2f˜VÊFFñˆ‚6ˆ◊∆WFVC†††•∑Ö“fVVF&6≤6W'fñ6P††•∑Ö“fVVF&6≤ñÁFVw&Fñˆ‡††•∑Ö“WFˆ÷Fñ2fVVF&6≤6ˆ∆∆V7Fñˆ‡††•∑Ö“÷V÷˜'í6W'fñ6P††•∑Ö“fVVF&6≤(i"÷V÷˜'í6ˆÊÊV7Fñˆ‡††•∑Ö“÷V÷˜'í7F˜&vP††•∑Ö“÷V÷˜'í∆ˆˆ∑W ††•∑Ö“÷V÷˜'í6ˆÁFWáBñ‚∆ÊÊñÊp††•∑Ö“÷V÷˜'í÷wVñFVB7Fñˆ‚vVÊW&Fñˆ‡††•∑Ö“gV∆¬÷V÷˜'ívVÁB∆ˆ˜ ††•∑Ö“÷V÷˜'í6ˆ◊Fñ&ñ∆óGí7F&ñ∆ó¶Fñˆ‡†††§6ˆ◊∆WFVBvˆ√†††≠	˝]]]ÌBÌ"ç-]Õ≤-Ω˝ÌΩ›]›çÚM]ù--çê≠¢ç-]ÕR›≠Ì˝Ω]›çÚÌ˝Ω-Çç˝ÌΩÕ}Ì-›çÚ˝Õ˝-Ç‡†††§ÊWáB∆ÊÊVB6ÜÊvW3†††£‚	˝ÌMM]mç--¬4Ñ÷&˜VÊB4ífW&ñfñ6Fñˆ‚›≠mMÌ¬›Ì-Ì¬÷ñ‡††£"‚
+}ç--¬∂W&ÊV¬÷&6∂VBF6≤W'6ó7FVÊ6RÜ&FVÊñÊr}≠Ω-Ω√≤˝ÌMM]mç--¬-ÌΩÕ≠‚&Vw&W76ñˆ‚˜&V∆V6RWfñFVÊ6R]r›Ì-ΩR-≠mçí]r≠Ì›≠]-›Ìí›]Ì]ÌMçÕÌ-Ä††£2‚
+}ç--¬6V∆∆W"÷f6ñÊr&ˆGV7BFV6ó6ñˆ‚∆V&ÊñÊr6˜fW&vRVWVRcCì2◊cS"}-]ç››Ìì¢ç˝ÌΩÕ}Ì--¬]-ÌΩÕ≠‚≠¢&VB÷ˆÊ«íÌ}]]M¬ÌfVVF&6≤ˆˆ'6W'fFñˆ‚WfñFVÊ6R¬›R≠¢'W6ñÊW72◊&ñ˜&óGí7W&f6P††£B‚
+Ω]M=Ìùçí&ˆGV7Bˆ˜W&FñˆÊ¬˝≠]"-Ωç-¬˝‚M≠-ç}]≠ÌÕ2&WÚv˝ÌΩR-]≠Ç÷ñ„≤›R˝ÌMÌΩm-¬∆V&ÊñÊrw&W'2--ÌÕ-ç}]≠Ä††£R‚	›R˝ÌM≠ΩÌ}-¬6ÊˆÊñ6¬W6W"÷7Fñˆ‚Gfó6˜'íˆ6ÜV6∂∆ó7B6Üñ‚¢FV∆Vw&“¬˝Ì≠WÜ7BW'6ó7FVB&ˆGV7BFV6ó6ñˆ‚fW&ñfñ6Fñˆ‚›R=M]"˝-›‚˝Ì›]“}]]r&ˆGV7Fñˆ‚FV∆Vw&“∆ñÊVvS≤cÉ3◊cÉC=≠]˝Ω˝]"fW&ñfñW"¬cÉC◊cÉSwVñFÊ6R¬cÉS◊cÉc6ÜV6∂∆ó7B¬cÉc◊cÉs6ˆ◊∆WFñˆ‚WfñFVÊ6R¬›‚'VÁFñ÷R›˝ÌM≠ΩÌ}]›çR˝‚›˝]m›]Õ2›R-Ω˝ÌΩ›]›‡††£b‚	˝ÌMM]mç--¬˜W&F˜"÷ˆÊ«íW'6ó7FVÊ6RFñvÊ˜7Fñ72Ç&ˆ¶V7B'&ñ‚G&ñgB6∆VÁW ††£r‚	›R-≠ΩÌ}-¬&ˆGV7BFV6ó6ñˆ‚Ú&ˆGV7BF6≤G&gBWÜV7WFñˆ‚]rÌ-M]ΩÕ›Ìí]ç-]≠-=≤Ç--Ìç}mçÄ††¢““–†††¢2íFWfV∆˜÷VÁBvVÁBñÊg&7G'V7GW&P††§íFWfV∆˜÷VÁBvVÁB˝-Ω˝]-Ú-›=-]››ç¬=≠Ìç-]Ω]¿≠Ì}M›çÚí'W6ñÊW7276ó7FÁB‡†††§6ˆ◊∆WFVC†††•∑Ö“&ˆ¶V7B'&ñ‡††•∑Ö“&6ÜóFV7GW&RFˆ7V÷VÁFFñˆ‡††•∑Ö“FWfV∆˜÷VÁB'V∆W0††•∑Ö“&ˆF÷ ††•∑Ö“FW7B÷ ††•∑Ö“&6ÜóFV7GW&RFV6ó6ñˆÁ2∆ˆp††•∑Ö“6ÜÊvV∆ˆp††•∑Ö“íFWfV∆˜÷VÁB÷ÊvW ††•∑Ö“&ˆ¶V7B7FGW26ˆ÷÷Ê@††•∑Ö“FW7B'VÊÊW"6ˆ÷÷Ê@††•∑Ö“6ˆÁFWáBvVÊW&F˜ ††•∑Ö“&ˆ¶V7BÊ«ó¶W ††•∑Ö“íFWfV∆˜÷VÁB÷ÊvW"c@††•∑Ö“&ˆ¶V7B66ÊÊW ††•∑Ö“FW7BÊ«ó¶W ††•∑Ö“Fˆ7V÷VÁFFñˆ‚÷G&ófV‚∆ÊÊñÊp††•∑Ö“FWfV∆˜÷VÁB∆ÊÊW ††•∑Ö“FWfV∆˜÷VÁB7ñ6∆RWFˆ÷Fñˆ‡††•∑Ö“6ÜÊvRñ◊7BÊ«ó6ó26W'fñ6P††¢““–†††¢27W'&VÁB&6ÜóFV7GW&R∆WfV¿††•7FvS†††•F6≤˜&6ÜW7G&Fñˆ‚VÊvñÊP†¢∞†•6÷'B∆ÊÊñÊp†¢∞†§WFˆÊˆ÷˜W2'W6ñÊW7276ó7FÁBf˜VÊFFñˆ‡†¢∞†§FWfV∆˜÷VÁBWF˜ñ∆˜B∆ñW †††¢““–†††¢27W'&VÁBv˜&≤VWVP††§‰UÖC†††§í76ó7FÁB&ˆGV7BFWfV∆˜÷VÁ@†††¢““–†††¢2&Wfñ˜W26ˆ◊∆WFVBÜ6P††•D4≥†††•Ü6RB“FWfV∆˜÷VÁBñÊg&7G'V7GW&P†††§6ˆ◊∆WFVBvˆ√†††≠
+Ì}M›ç›M-=≠-=}Ì-≠Ç¿≠≠Ì-ÌÚ=≠Ì˝]"}-ç-çRí'W6ñÊW7276ó7FÁ@≠}]]ruB≤vóDáV"v˜&∂f∆˜r‡†††¢27W'&VÁBFWfV∆˜÷VÁBF6∞††•D4≥†††§í76ó7FÁB&ˆGV7BFWfV∆˜÷VÁ@††§7W'&VÁBvˆ√†††≠
+}-ç-çR-Ì}ÕÌm›Ì-]íÌ›Ì-›Ì=‚˝ÌM=≠-í'W6ñÊW7276ó7FÁB‡†††¢““–†††¢2∆ÊÊVBfVGW&W0††•∑Ö“dîƒTB7Fñˆ‚7FFP††•∑Ö“WÜV7WF˜"W'&˜"ÜÊF∆ñÊp††•∑Ö“W'&˜"Üó7F˜'ê††•∑Ö“&WG'íWÜV7WFñˆ‡††•∑Ö“&WG'íWÜV7WFñˆ‚Üó7F˜'ê††•∑Ö“&WG'íˆ∆ñ7ê††•∑Ö“&WG'í∆ñ÷ó@††•∑Ö“&WG'í&∆ˆ6∂VBÜó7F˜'ê††•∑Ö“◊V«Fí÷∆WfV¬FWVÊFVÊ6ñW0††•∑Ö“FWVÊFVÊ7íf∆ñFFñˆ‡††•∑Ö“WFˆ÷Fñ2&W∆ÊÊñÊp††•∑Ö“∆‚6˜'&V7Fñˆ‡††•∑Ö“fVVF&6≤∆ˆ˜ ††•∑Ö“÷V÷˜'í7ó7FV–††•∑Ö“6ÜÊvRñ◊7BÊ«ó6ó0††•∑Ö“Fˆ7V÷VÁFFñˆ‚G&ñgBFWFV7Fñˆ‡††•∑Ö“WFˆ÷FVBFWfV∆˜÷VÁBv˜&∂f∆˜p††•∑Ö“vóB6ÜV6∑ˆñÁB76ó7FÁ@††•∑Ö“∆ˆÊr◊'VÊÊñÊrF6∑0††•∑Ö“6V∆b÷ñ◊&˜fV÷VÁB7ñ6∆P†††¢22Ü6R†§WÜV7WF˜"&V∆ñ&ñ∆óGê††•∑Ö“6ˆ◊∆WFV@†††¢22Ü6R †•6÷'B∆ÊÊñÊp††•∑Ö“6ˆ◊∆WFV@†††¢22Ü6R0†§WFˆÊˆ÷˜W2'W6ñÊW7276ó7FÁ@††•∑Ö“fVVF&6≤∆ˆ˜ ††•∑Ö“÷V÷˜'í7ó7FV–††•∑Ö“∆ˆÊr◊'VÊÊñÊrF6∑0††•∑Ö“6V∆b÷ñ◊&˜fV÷VÁB7ñ6∆P†††¢22Ü6R@†§FWfV∆˜÷VÁBWF˜ñ∆˜B∆ñW ††•∑Ö“&ˆ¶V7B66ÊÊW ††•∑Ö“Fˆ7V÷VÁFFñˆ‚7ó7FV–††•∑Ö“FW7BÊ«ó¶W ††•∑Ö“6ÜÊvRñ◊7BÊ«ó6ó0††•∑Ö“Fˆ7V÷VÁFFñˆ‚G&ñgBFWFV7Fñˆ‡††•∑Ö“WFˆ÷FVBFWfV∆˜÷VÁBv˜&∂f∆˜p††•∑Ö“vóB6ÜV6∑ˆñÁB76ó7FÁ@††•∑Ö“&ˆ¶V7B'&ñ‚7ñÊ6á&ˆÊó¶Fñˆ‡††•∑Ö“fV7F˜"÷V÷˜'ê††•∑Ö“6ˆ◊∆WFV@†††¢““–†††¢2÷WG&ñ70††•FW7G3††•4Ñ÷&˜VÊBfW&ñfñ6Fñˆ‚7FófR‡†§∆FW7B6ˆÊfó&÷VBgV∆¬◊7VóFR&6V∆ñÊS†£ì76VBˆ‚ÉFCsCìñCSÉ#ìSÜ&c&&##3#v#ìvV#sìSV‡†•fW&ñfñ6Fñˆ‚6˜W&6S†§vóDáV"7FñˆÁ2W6Ç'V‚3sí¬WÜ7B4Ñ÷&˜VÊB÷ñ‚fW&ñfñ6Fñˆ‚vóFÇ6ÊˆÊñ6¬FW7B◊&W˜'BÊß6ˆÊ'Fñf7B‡†††§&6ÜóFV7GW&S†††•F6≤˜&6ÜW7G&Fñˆ‚VÊvñÊP†¢∞†•6÷'B∆ÊÊñÊp†¢∞†§WFˆÊˆ÷˜W2'W6ñÊW7276ó7FÁBf˜VÊFFñˆ‡†¢∞†§FWfV∆˜÷VÁBWF˜ñ∆˜B∆ñW †††§Fˆ7V÷VÁFFñˆ„†††•&ˆ¶V7B'&ñ‚7FófP†††§FWfV∆˜÷VÁB÷ÊvW#†††§7FófP¢““–†¢27W'&VÁBVÊóBV6ˆÊˆ÷ñ72f∆ñFFñˆ‚(	B##b”Ç”#P†§6ˆ◊∆WFVC††•∑Ö“7W'&VÁB6V∆∆W"&ñ6Rg&ˆ“˜¶ˆ‚&ñ6Rê•∑Ö“ˆffW%ˆñBÚñÁFW&Ê¬˜¶ˆ‚4µR6W&Fñˆ‡•∑Ö“7W'&VÁB6ˆ÷÷ó76ñˆ‚6∆7V∆Fñˆ‡•∑Ö“g&W6Ç∆ˆvó7Fñ72g&ˆ“˜¶ˆ‚fñÊÊ6R67'V«0•∑Ö“∆7B÷ñ∆R6W&FVBg&ˆ“∆ˆvó7Fñ70•∑Ö“7Vó&ñÊrfW&vRg&ˆ“g&W6ÇfñÊÊ6R67'V«0•∑Ö“&ˆGV7B6˜7BñÁFVw&Fñˆ‡•∑Ö“Wá∆ñ6óBFÇˆ∆ñ7íñÁFVw&Fñˆ‡•∑Ö“U4‚ñÊ6ˆ÷RbR&ˆGV7Fñˆ‚6ˆÊfñwW&Fñˆ‚f∆ñFFV@•∑Ö“'V&∆W2≤W&6VÁB÷ˆb◊&ñ6R&W6VÁFFñˆ‡•∑Ö“FV∆Vw&“&ˆGV7Fñˆ‚vó&ñÊp•∑Ö“6fRÊˆÊRÜÊF∆ñÊrf˜"÷ó76ñÊr÷ÊFF˜'íFF†•f∆ñFFVB&ˆGV7Fñˆ‚WÜ◊∆S††•4µS¢Üˆˆ≤” †•6V∆∆W"&ñ6S¢ìb„%T §6ˆ÷÷ó76ñˆ„¢2„CB%T §∆ˆvó7Fñ73¢r„ÉR%T §∆7B÷ñ∆S¢„SR%T §7Vó&ñÊs¢„3%T •&ˆGV7B6˜7C¢#„%T •FÉ¢R„sb%T §6∆7V∆FVB&ˆfóBW"VÊóC¢3R„%T §÷&vñ„¢3b„SbP†§fñÊÊ6R6◊∆S†£#3b6∆W2Ú"6ˆ◊∆WFRFó0†§Üó7F˜&ñ6¬Ê˜FS††§BFÜó26ÜV6∑ˆñÁB&WGW&Á2Ú'Wñ˜WB∆˜76W2vW&RÊ˜BñWBñÊ6«VFVB&V6W6R6Ê6V∆∆V@§d$Ú˜7FñÊw26˜V∆BÊ˜B&R&V∆ñ&«í6W&FVBñÁFÚ&R◊6Üó÷VÁB6Ê6V∆∆FñˆÁ2Ê@ß&V¬7W7Fˆ÷W"Êˆ‚÷'Wñ˜WG2‡†§7W'&VÁB&W˜6óF˜'í7FFR7WW'6VFW2FÜBˆ∆B$ÊWáB"óFV”¢FVFñ6FVB&WGW&Á2ˆ'Wñ˜W@¶Ê«óFñ72¬&WGW&Á2÷fñÊÊ6RGG&ñ'WFñˆ‚¬ˆ'6W'fVB&WGW&‚ñ◊7B¬ÊBWFÜ˜&ó¶VB&WGW&‡¶fñÊÊ6ñ¬÷WfñFVÊ6R6W'fñ6W2Ê˜rWÜó7B‡†§ñ◊˜'FÁB7W'&VÁB∆ñ÷óFFñˆ„††§fñÊÊ6ñ¬&WGW&‚÷˜W&Fñˆ‚WfñFVÊ6RÊB&WGW&Á2ˆ'Wñ˜WBÊ«óFñ72&RÊ˜BWVóf∆VÁ@ßFÚ6ˆ◊∆WFR&WGW&‚V6ˆÊˆ÷ñ72‚FÚÊ˜BG&VBFÜR7W'&VÁBWfñFVÊ6R2&ˆˆbFÜB∆¿ß&WGW&‚6˜7G2ˆ∆˜76W2&RgV∆«í÷ˆFV∆VBñ‚VÊóBV6ˆÊˆ÷ñ72‡†¢““–†¢2&ˆGV7BFV6ó6ñˆÁ2c2(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“&WGW&Á2÷v&R&ˆGV7BFV6ó6ñˆÁ0•∑Ö“'W76ñ‚FV6ó6ñˆ‚6&BvóFÇ6˜W&6R÷WG&ñ70•∑Ö“76˜'F÷VÁB◊vñFRFV6ó6ñˆ‚˜fW'fñWp•∑Ö“&ñ˜&óGí˜&FW&ñÊrf˜"&ˆGV7BFV6ó6ñˆÁ0•∑Ö“FV6ó6ñˆ‚7V÷÷'í6˜VÁG2ñ‚FV∆Vw&–•∑Ö“6V∆∆W"'Fñ6∆R«W27Fñˆ‚∆&V¬ˆ‚&ˆGV7B'WGFˆÁ0†•&W6W'fVC††¢“FV6ó6ñˆ‚Fá&W6Üˆ∆G3∞¢“÷ÁV¬&ˆGV7BG&ñ∆¬÷F˜v„∞¢“ÊÚWFˆÊˆ÷˜W27Fñˆ‚WÜV7WFñˆ‚‡†¢““–†¢2&ˆGV7BFV6ó6ñˆÁ2cB(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“÷÷ñÁWFR7V66W76gV¬FV6ó6ñˆ‚66ÜP•∑Ö“66ÜRWáó'íÊB◊WFFñˆ‚&˜FV7Fñˆ‡•∑Ö“ÊÚ66ÜñÊrˆbW'&˜'2˜"ñÁ7Vffñ6ñVÁBFV6ó6ñˆÁ0•∑Ö“FV∆Vw&“76˜'F÷VÁBvñÊFñˆ‡•∑Ö“VñváB&ˆGV7G2W"vP•∑Ö“&Wfñ˜W2ÚÊWáBÊfñvFñˆ‚6∆∆&6∑0†•&W6W'fVC††¢“WÜó7FñÊrFV6ó6ñˆ‚'V∆W2ÊBFá&W6Üˆ∆G3∞¢“6V∆∆W"'Fñ6∆R6∆∆&6∑3∞¢“ÊÚWFˆÊˆ÷˜W27Fñˆ‚WÜV7WFñˆ‚‡†¢““–†¢2&ˆGV7BFV6ó6ñˆ‚÷V÷˜'íc(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“W'6ó7FVÁB7V66W76gV¬FV6ó6ñˆ‚6Ê6Ü˜G0•∑Ö“6ÜÊvR÷ˆÊ«íÜó7F˜'ívóFÜ˜WB&WVFVBGW∆ñ6FW0•∑Ö“&Wfñ˜W2FV6ó6ñˆ‚ÊB&ñ˜&óGí6ˆÁFWá@•∑Ö“&˜VÊFVB&WFVÁFñˆ‚W"6V∆∆W"'Fñ6∆P•∑Ö“Fˆ÷ñ2•4Ù‚W'6ó7FVÊ6P•∑Ö“FV∆Vw&“FV6ó6ñˆ‚G&Á6óFñˆ‚Wá∆ÊFñˆ‡†•&W6W'fVC††¢“&ˆGV7D'W6ñÊW74FV6ó6ñˆÂ6W'fñ6R'V∆W3∞¢“&ˆGV7Eˆ÷V÷˜'í5∆óFR66ÜV÷∞¢“F6≤ÊBW6W"÷V÷˜'ì∞¢“FF˜W6W'2Êß6ˆ„∞¢“ÊÚWFˆÊˆ÷˜W27Fñˆ‚WÜV7WFñˆ‚‡†¢““–†¢2&ˆGV7BFV6ó6ñˆ‚fVVF&6≤c(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“W6VgV¬fVVF&6≤6ñvÊ¿•∑Ö“Ê˜B◊&V∆WfÁBfVVF&6≤6ñvÊ¿•∑Ö“fVVF&6≤&˜VÊBFÚFÜR∆FW7BFV6ó6ñˆ‚6Ê6Ü˜@•∑Ö“ñFV◊˜FVÁB&WVFVBfVVF&6∞•∑Ö“FV∆Vw&“fVVF&6≤'WGFˆÁ0•∑Ö“6fR÷ó76ñÊr÷Üó7F˜'íÊBñÁf∆ñB÷fVVF&6≤&W7ˆÁ6W0†•&W6W'fVC††¢“fVVF&6≤FˆW2Ê˜B6ÜÊvRFV6ó6ñˆ‚'V∆W3∞¢“fVVF&6≤FˆW2Ê˜BWÜV7WFR7FñˆÁ3∞¢“WÜó7FñÊrFV6ó6ñˆ‚Üó7F˜'í&WFVÁFñˆ‚&V÷ñÁ2VÊ6ÜÊvVB‡†¢““–†¢2&ˆGV7BFV6ó6ñˆ‚˜WF6ˆ÷R6˜'&V∆Fñˆ‚c(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“&ñ˜"fVVF&6≤∆ñÊ∂VBFÚFÜRÊWáB6ÜÊvVBFV6ó6ñˆ‡•∑Ö“&ñ˜&óGíFV7&V6Rˆ'6W'fFñˆ‡•∑Ö“&ñ˜&óGíñÊ7&V6Rˆ'6W'fFñˆ‡•∑Ö“6÷R◊&ñ˜&óGíFV6ó6ñˆ‚6ÜÊvRˆ'6W'fFñˆ‡•∑Ö“ÊÚñÊfW&VÊ6RvóFÜ˜WBWá∆ñ6óBfVVF&6∞•∑Ö“Êˆ‚÷6W6¬FV∆Vw&“v˜&FñÊp†•&W6W'fVC††¢“ˆ'6W'fFñˆÁ2FÚÊ˜B«FW"FV6ó6ñˆ‚'V∆W3∞¢“ˆ'6W'fFñˆÁ2FÚÊ˜B&˜fR7Fñˆ‚6W6∆óGì∞¢“ÊÚWFˆÊˆ÷˜W27Fñˆ‚WÜV7WFñˆ‚‡†¢““–†¢2&ˆGV7BFV6ó6ñˆ‚∆V&ÊñÊr7V÷÷'íc(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“76˜'F÷VÁB◊vñFR∆V&ÊñÊr7V÷÷'ê•∑Ö“6Ê6Ü˜B¬fVVF&6≤¬ÊB˜WF6ˆ÷R6˜VÁG0•∑Ö“&ˆGV7B÷∆WfV¬∆FW7BFV6ó6ñˆ‚Üó7F˜'ê•∑Ö“'W76ñ‚FV6ó6ñˆ‚ÊB&ñ˜&óGí∆&V«0•∑Ö“fVVF&6≤ÊBˆ'6W'fFñˆ‚FWFñ«2ñ‚Üó7F˜'ê•∑Ö“FV∆Vw&“ÊfñvFñˆ‚g&ˆ“˜fW'fñWrÊB&ˆGV7B6&@†•&W6W'fVC††¢“ÊÚ7V66W72◊&FR6∆ñ“ˆ‚∆ñ÷óFVBFF∞¢“ÊÚ6W6¬6∆ñ”∞¢“ÊÚñÊf«VVÊ6Rˆ‚FV6ó6ñˆ‚'V∆W3∞¢“ÊÚWFˆÊˆ÷˜W27Fñˆ‚WÜV7WFñˆ‚‡†¢““–†¢26fR&ˆGV7B7Fñˆ‚&˜˜6«2c(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“&ˆGV7DFV6ó6ñˆ‰7FñˆÂ&˜˜6≈6W'fñ6P•∑Ö“&W∆VÊó6Ü÷VÁB&WfñWr&˜˜6¿•∑Ö“VÊóB÷V6ˆÊˆ÷ñ72&WfñWr&˜˜6¿•∑Ö“÷&vñ‚&WfñWr&˜˜6¿•∑Ö“÷ˆÊóF˜&ñÊr÷ˆÊ«í&˜˜6¿•∑Ö“÷ÁV¬÷6ˆÊfó&÷Fñˆ‚&˜VÊF'ê•∑Ö“FV∆Vw&“ÊWáB◊7FW&W6VÁFFñˆ‡•∑Ö“76˜'F÷VÁB7FñˆÊ&∆R◊&˜˜6¬6˜VÁ@†•&W6W'fVC††¢“ÊÚ&W∆VÊó6Ü÷VÁBVÁFóGíñÊfW&VÊ6S∞¢“ÊÚ&ñ6R÷6ÜÊvRñÊfW&VÊ6S∞¢“WÜV7WFñˆÂˆ∆∆˜vVBó2«vó2f«6S∞¢“7Fñˆ‚ÙWÜV7WF˜"v˜&∂f∆˜ró2Ê˜BñÁfˆ∂VB‡†¢““–†¢2&ˆGV7B7Fñˆ‚&˜˜6¬6ˆÊfó&÷Fñˆ‚c(	B##b”Ç”#Ä†§6ˆ◊∆WFVC††•∑Ö“6ˆÊfó&“˜-ª˜~m¢Gß≤⁄Óù∆≠y”fc&fSvcV#SCF#3fcfc6SÉñ¢fW&ñgí3ìs¬#376VBÚfñ∆VC∞¢“7V6Ç÷ñ‚ÜCCfcÉcì#VCc6V3F#ìV3ñVSÜ&f¢fW&ñgí3ìs"¬#376VBÚfñ∆VB‡†•&W6W'fVC††¢“FV6ó6ñˆ‚3c∞¢“&W6VÁFFñˆ‚÷ˆÊ«í6ÜÊvS∞¢“ÊÚfñÊÊ6ñ¬f˜&◊V∆6ÜÊvW3∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ‚˜"WÜV7WFñˆ‚6ÜÊvW3∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†¢““–†¢2fñÊÊ6R67'V¬vñÊFñˆ‚b&VB6W76ñˆ‚ñÁFVw&óGíc#3◊c#C(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“˜¶ˆ‚67'V¬÷'í÷Fífó'7B&WVW7B6VÊG2&WVó&VBV◊Gí∆7Eˆñ@†•∑Ö“fñÊÊ6R67'V¬vW2&R&VBVÁFñ¬7W'6˜"WÜÜW7Fñˆ‡†•∑Ö“÷∆f˜&÷VBvR&W7ˆÁ6W2fñ¬6∆˜6V@†•∑Ö“&WVFVBvñÊFñˆ‚7W'6˜'2fñ¬6∆˜6V@†•∑Ö“vR÷6WÜÜW7Fñˆ‚fñ«26∆˜6VBñÁ7FVBˆb&WGW&ÊñÊr'Fñ¬fñÊÊ6R26ˆ◊∆WFP†•∑Ö“F&vWB4µRWfñFVÊ6Rˆ‚∆FW"67'V¬vW2ó2ñÊ6«VFV@†•∑Ö“6÷R6∆VÊF"Fíó2&WW6VBf˜"◊V«Fó∆R4µW2ñÁ6ñFRˆÊR&VB6W76ñˆ‡†•∑Ö“V6ÇW&ñˆB&ˆfóB6∆7V∆Fñˆ‚7F'G2g&W6ÇfñÊÊ6R&VB6W76ñˆ‡†•∑Ö“&VB◊6W76ñˆ‚fñ«W&W2&R6ˆÁFñÊVBvóFÜ˜WB∆V∂ñÊr&ófFRWÜ6WFñˆ‚FWá@†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7B÷ñ‚C6CCsC6F3vF#ì3CÉcVV&Cc&vfSñ#&c6¢fW&ñgí3ìÉB¬#376VBÚfñ∆VC∞¢“fñ∆VBÜCSñVCìCVCìsÜ&Vcf6fF#Ssñcv&3SCì#¢fW&ñgí3ìì¬#C76VBÚfñ∆VC∞¢“fñÊ¬fVGW&RC#V#ÜCÉf3SCvSsCF6#3SÉ6Sv#vcSÉSñf#É#6¢fW&ñgí3ìì¬#C76VBÚfñ∆VC∞¢“"33É27ñÁFÜWFñ2F#cÜSCÜFS6cì&3fV63Sì#3#cìsÉì3ÉÉFCÜ¢fW&ñgí3ìì"¬#C76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚Scc#VCVS&3s3sCìssc#sÜ&VcÉfFC3fc#s#c6¢fW&ñgí3ìì2¬#C76VBÚfñ∆VB‡†•&W6W'fVC††¢“FV6ó6ñˆ‚3c∞¢“&VB÷ˆÊ«ífñÊÊ6R&WG&ñWf√∞¢“ÊÚfñÊÊ6ñ¬f˜&◊V∆6ÜÊvW3∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ‚˜"WÜV7WFñˆ‚6ÜÊvW3∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†¢““–†¢266˜VÁB‘∆WfV¬˜¶ˆ‚&ˆfóB&V6ˆÊ6ñ∆ñFñˆ‚c#C◊c#S(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“FV6ó6ñˆ‚3r66˜VÁB÷∆WfV¬˜¶ˆ‚÷ˆÊWF'íWFÜ˜&óGê†•∑Ö“66˜VÁB÷∆WfV¬Fñ«í&WfVÁVRˆÊWB67'V¬ˆfVRF˜F«2G&ófRW&ñˆB&ˆfóBc †•∑Ö“4µR÷∆WfV¬fñÊÊ6R&V÷ñÁ24Ùu2ÊB&ˆGV7B◊&WfVÁVRWfñFVÊ6P†•∑Ö“&ˆGV7B&WfVÁVR◊W7B&V6ˆÊ6ñ∆RFÚ66˜VÁB&WfVÁVRvóFÜñ‚„%T †•∑Ö“&WfVÁVR6˜fW&vR÷ó6÷F6Çfñ«26∆˜6V@†•∑Ö“66˜VÁB÷÷ñÁW2’4µRÊWB&V6ˆÊ6ñ∆ñFñˆ‚ó2Wá˜6V@†•∑Ö“66˜VÁB÷∆WfV¬6Ü&vW2vóFÜ˜WB4µR&RñÊ6«VFVBˆÊ6P†•∑Ö“◊V«Fí’4µR˜7FñÊr÷∆WfV¬ÊWBGW∆ñ6Fñˆ‚ó26˜'&V7FVB'í66˜VÁBF˜F¿†•∑Ö“66˜VÁB÷∆WfV¬fVR'&V∂F˜v‚&W∆6W27V÷÷VB4µRfVR'&V∂F˜v‡†•∑Ö“÷VB˜¶ˆ‚WáVÁ6W2&V÷ñ‚WfñFVÊ6RÊB&RÊWfW"FVGV7FVBGvñ6P†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7B÷ñ‚#v#cv#ñCSFc#sCSV#VS3&F#ÉC3ìCÉf¢fW&ñgí32¬#C76VBÚfñ∆VC∞¢“fñÊ¬fVGW&RSS#Üc3f##Cs#cSÜC#Cñ3CFC#f&Vf¢fW&ñgí3¬#S76VBÚfñ∆VC∞¢“"33ÉR7ñÁFÜWFñ2F3cSÜCc&SSf3&S&F3cÉc#SÉcìì&3Vf¢fW&ñgí3¬#S76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚3SñS6CÜScÉsÉCÉCñ6cSñFV3#6f#VF3cì3&¢fW&ñgí3"¬#S76VBÚfñ∆VB‡†•&W6W'fVC††¢“FV6ó6ñˆ‚3c∞¢“&VB÷ˆÊ«íÊ«óFñ73∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ„∞¢“ÊÚVÁ7W˜'FVB66˜VÁFñÊr÷ÊWB◊&ˆfóB6∆ñ”∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†§ÊWáB66˜VÁFñÊrv†¢“&WGW&‚◊&V∆FVB4Ùu2&WfW'6¬Ú&V6˜fW&VB÷vˆˆG2WfñFVÊ6S∞¢“FÜV‚Êˆ‚‘˜¶ˆ‚˜fW&ÜVB˜FÜW2ñbFÜR6V∆∆W"&˜fñFW2FÜV“‡†¢““–†¢2&WGW&‚4Ùu2&V6˜fW'íWfñFVÊ6Rc#S◊c#c(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“ÊW7FVB&WGW&Á2í&ˆGV7BÚ7FGW2Ú6ˆ◊VÁ6Fñˆ‚WfñFVÊ6R&W6W'fV@†•∑Ö“7W7Fˆ÷W"◊&WGW&‚VÊóG2B&WGW&‚◊∆6RWá˜6VB26ÊFñFFR&V6˜fW'ê†•∑Ö“6ÊFñFFR&V6˜fW'íf«VR6∆7V∆FVBg&ˆ“7W'&VÁB6ˆÊfñwW&VB&ˆGV7B6˜7@†•∑Ö“6ˆ◊VÁ6FVB&WGW&Á26W&FVBg&ˆ“4Ùu2&V6˜fW'í6ÊFñFFW0†•∑Ö“VÁ&˜fV‚&WGW&‚7FGW6W2&V÷ñ‚VÁ&W6ˆ«fV@†•∑Ö“÷ó76ñÊr&ˆGV7B6˜7B&V÷ñÁ2VÊ∂Ê˜v‚¬Ê˜B¶W&†•∑Ö“'Fñ¬&WGW&‚6◊∆R6ÊÊ˜B&V6ˆ÷R6ˆ◊∆WFR&V6˜fW'íWfñFVÊ6P†•∑Ö“Üó7F˜&ñ6¬6˜7B&6ó2&V÷ñÁ2VÊ6ˆÊfó&÷V@†•∑Ö“˜&ñvñÊFñÊr6∆R◊W&ñˆB∆ñÊVvR&V÷ñÁ2VÊ6ˆÊfó&÷V@†•∑Ö“6∆V&∆RñÁfVÁF˜'í&V6˜fW'í&V÷ñÁ2VÊ6ˆÊfó&÷V@†•∑Ö“W&ñˆBˆ66˜VÁFñÊr4Ùu2&V6˜fW'í&V÷ñÁ2VÊ6ˆÊfó&÷V@†•∑Ö“6ÊFñFFR&V6˜fW'íÊWfW"6ÜÊvW2W&ñˆB&ˆfó@†•∑Ö“FV∆Vw&“ÊB6˜fW&vRWá˜6R6ÊFñFFRWfñFVÊ6RÊB∆ñ÷óFFñˆÁ0†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7B÷ñ‚SSìC#cCÉ#cfSñ6Ff&#6C33ÉÉ36cv&f3F3Sf¢fW&ñgí3#"¬#S76VBÚfñ∆VC∞¢“fñ∆VB#33ñCÜÜFV3C633#ìÜ&S&FÉSfSfFCÜ#ñ&¢fW&ñgí332¬#Sí76VBÚ"fñ∆VC∞¢“fñÊ¬fVGW&R3c6VFfCñC&cc6c##sss6#3Cì&33FFC3¢fW&ñgí33Ç¬#c76VBÚfñ∆VC∞¢“"33Ér7ñÁFÜWFñ23SìCsC3ìCS#ìvF&#3S6#6FfC#VS6f3cCsSsf¢fW&ñgí33í¬#c76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚CÉCV3sÉ6VcVìCÉS6V#sÉÜSÜ#6V&fC3ì6¢fW&ñgí3C¬#c76VBÚfñ∆VB‡†•&W6W'fVC††¢“FV6ó6ñˆ‚3c∞¢“FV6ó6ñˆ‚3s∞¢“66˜VÁB÷∆WfV¬˜¶ˆ‚÷ˆÊWF'íWFÜ˜&óGì∞¢“ÊÚWFˆ÷Fñ2&WGW&‚4Ùu2&WfW'6√∞¢“ÊÚ66˜VÁFñÊrÊWB◊&ˆfóB6∆ñ”∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†§ÊWáB66˜VÁFñÊr&ñ˜&óGì†¢“Wá∆ñ6óB6V∆∆W"÷6ˆÊfñwW&VBÊˆ‚‘˜¶ˆ‚˜W&FñÊrWáVÁ6W3∞¢“VÊ∂Ê˜v‚WáFW&Ê¬WáVÁ6R&V÷ñÁ2VÊ∂Ê˜v‚¬ÊWfW"¶W&Ú‡†¢““–†¢2WáFW&Ê¬˜W&FñÊrWáVÁ6R6˜fW&vRc#c◊c#s(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“FV6ó6ñˆ‚3ÇWáFW&Ê¬˜W&FñÊrWáVÁ6RWfñFVÊ6RÊB6˜fW&vR6ˆÁG&7@†•∑Ö“WÜó7FñÊr∆ˆ6¬WáVÁ6W6&˜w2&WFñÊVB2Wá∆ñ6óB6V∆∆W"÷VÁFW&VBWáFW&Ê¬WáVÁ6RWfñFVÊ6P†•∑Ö“WáVÁ6Uˆ6˜fW&vVñÁFW'f«2FFVB2Wá∆ñ6óB6ˆ◊∆WFVÊW726ˆÊfó&÷Fñˆ‡†•∑Ö“&WVW7FVB◊W&ñˆB6˜fW&vRó26ˆ◊∆WFRˆÊ«ívÜV‚WfW'í6∆VÊF"Fíó26˜fW&V@†•∑Ö“V◊GíVÊ6˜fW&VBW&ñˆB&V÷ñÁ2VÊ∂Ê˜v‚¬Ê˜B¶W&†•∑Ö“V◊GígV∆«í6˜fW&VBW&ñˆB&V6ˆ÷W2Wá∆ñ6óB6ˆÊfó&÷VB(+“WáFW&Ê¬WáVÁ6P†•∑Ö“'Fñ¬WáVÁ6R&˜w2&ˆGV6Rˆ'6W'fVBFßW7FVB&ˆfóBˆÊ«ê†•∑Ö“6ˆ◊∆WFR6˜fW&vRW&÷óG26ˆ◊∆WFR&ˆfóB÷gFW"÷WáFW&Ê¬÷WáVÁ6W2FßW7F÷VÁ@†•∑Ö“ñÁf∆ñBWáVÁ6RFFW2fñ¬6∆˜6V@†•∑Ö“&ˆˆ∆V‚¬Ê‚ÊBñÊfñÊóFRWáVÁ6R÷˜VÁG2fñ¬6∆˜6V@†•∑Ö“W&ñˆB&ˆfóBFV∆Vw&“FWáBFó7FñÊwVó6ÜW2&6R&ˆfóB¬VÁFW&VBWáVÁ6W2ÊB6˜fW&vR6ˆ◊∆WFVÊW70†•∑Ö“˜¶ˆ‚GfW'Fó6ñÊr˜7F˜&vR˜&WGW&‚6Ü&vW2«&VGíñÁ6ñFR66˜VÁBÊWB67'V¬&RÊWfW"7V'G&7FVBvñ‡†•∑Ö“6ˆÊfó&’ˆWáVÁ6Uˆ6˜fW&vRÁñ&˜fñFW2Wá∆ñ6óB∆ˆ6¬6˜fW&vR6ˆÊfó&÷Fñˆ‡†§FW&ófVBf˜&◊V∆††¶&ˆfóEˆgFW%ˆWáFW&Ê≈ˆWáVÁ6W2“W&ñˆE˜&ˆfóB“WáFW&Ê≈ˆWáVÁ6W6 †•FÜR&6RW&ñˆB&ˆfóBf˜&◊V∆ÊBFV6ó6ñˆ‚3r66˜VÁB÷∆WfV¬˜¶ˆ‚÷ˆÊWF'íWFÜ˜&óGí&V÷ñ‚VÊ6ÜÊvVB‡†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7BFˆ72◊&V6ˆÊ6ñ∆VB÷ñ‚ñ#ñSÉS3s#v3É&&FcsV#ìì&3CV3S3&&CCVS6Vf¢fW&ñgí3S¬#c76VBÚfñ∆VC∞¢“fñ∆VBSVCÜcÉñF3s63S#FÉsìÜVC&##vSc#S6¢fW&ñgí3SB¬#S76VBÚfñ∆VC∞¢“fñ∆VBñc3#c3s3ñCÉCñFfS3cÉñFSc3SÜf#cFF#C¢fW&ñgí3SR¬#S76VBÚfñ∆VC∞¢“fñ∆VBSsÉÜSSñV#csÉscs33#sÉSÉìÉñ#ì&ccÉñ¢fW&ñgí3c¬#c76VBÚfñ∆VC∞¢“6Ê6V∆∆VBñÁFW&÷VFñFR4Ñ26''íÊÚG&Á6fW&&∆R7V66W72WfñFVÊ6S∞¢“fñÊ¬fVGW&Rvcñ3VV##3É#ÉSìV#S&&3FCÜ63f&s3Ss6¢fW&ñgí3c"¬#s76VBÚfñ∆VC∞¢“"33Éí7ñÁFÜWFñ2svFCC66fV#3fV&ScfcÉsCv3f3SSÉÉ3ÉCÜf¢fW&ñgí3c2¬#s76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚ÉsV63FsÉ6CÜV#ñìSñ#ñS&Sñ&ÉS3ff&F3F¢fW&ñgí3cB¬#s76VBÚfñ∆VB‡†•&W6W'fVC††¢“FV6ó6ñˆ‚3c∞¢“FV6ó6ñˆ‚3s∞¢“FV6ó6ñˆ‚3É∞¢“66˜VÁB÷∆WfV¬˜¶ˆ‚÷ˆÊWF'íWFÜ˜&óGì∞¢“ÊÚF˜V&∆R7V'G&7Fñˆ‚ˆb˜¶ˆ‚WáVÁ6W3∞¢“ÊÚWFˆ÷Fñ2&WGW&‚4Ùu2&WfW'6√∞¢“ÊÚ66˜VÁFñÊrÊWB◊&ˆfóB6∆ñ”∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†§ÊWáB66˜VÁFñÊr&ñ˜&óGì†¢“&˜fR&WGW&‚◊&V∆FVB4Ùu2&V6˜fW'ívóFÇ7G&ˆÊvW"Üó7F˜&ñ6¬6˜7B¬6∆R◊W&ñˆB∆ñÊVvRÊB6∆V&∆R˜&W7F˜&VBñÁfVÁF˜'íWfñFVÊ6S∞¢“∂VW6ÊFñFFR&V6˜fW'í˜WBˆb&ˆfóBVÁFñ¬FÜB&ˆˆbWÜó7G3∞¢“FÜV‚FG&W72FÜW2ˆ66˜VÁFñÊrFßW7F÷VÁG2˜WG6ñFRFÜR6ˆÊfñwW&VBFÇˆ∆ñ7íÊBÁíVÊ6˜fW&VBWáFW&Ê¬÷WáVÁ6RW&ñˆG2‡†¢““–†¢2&WGW&‚6∆R’W&ñˆB∆ñÊVvRWfñFVÊ6Rc#s◊c#É(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“˜6óFófR6∆R˜7FñÊrWfñFVÊ6RWáG&7FVBg&ˆ“˜¶ˆ‚Fñ«ífñÊÊ6P†•∑Ö“6∆RWfñFVÊ6R&WW6W2FÜRW&ñˆB&ˆfóBfñÊÊ6U6W'fñ6R&VB◊6W76ñˆ‚66ÜP†•∑Ö“&WGW&‚&V6˜&G2÷F6ÜVBFÚ˜6óFófR6∆RWfñFVÊ6R'í˜7FñÊuˆÁV÷&W"≤4µP†•∑Ö“6÷R˜7FñÊrvóFÇFñffW&VÁB4µRFˆW2Ê˜B6ˆÊfó&“∆ñÊVvP†•∑Ö“ˆÊRVÊóVR˜6óFófR6∆R÷67'V¬FFRñÁ6ñFRFÜR6V∆V7FVBW&ñˆBó2÷F6ÜVB∆ñÊVvP†•∑Ö“◊V«Fó∆R˜6óFófR6∆RFFW2&V÷ñ‚÷&ñwV˜W0†•∑Ö“÷ó76ñÊrfñÊÊ6RFó2∂VW∆ñÊVvR'Fñ¿†•∑Ö“÷∆f˜&÷VB˜6óFófR◊6∆RWfñFVÊ6R6ÊÊ˜B&V6ˆ÷R6∆V‚WfñFVÊ6P†•∑Ö“ñÊ6ˆ◊∆WFR&WGW&Á2vñÊFñˆ‚&WfVÁG2vw&VvFR6∆R◊W&ñˆB6ˆÊfó&÷Fñˆ‡†•∑Ö“&WGW&‚4Ùu26ÊFñFFR&V6˜&G2Wá˜6R∆ñÊVvR7FGW2ÊB÷F6ÜVB67'V¬FFP†•∑Ö“FV∆Vw&“Wá∆ñÁ26ˆÊfó&÷VB˜"'Fñ¬6V∆V7FVB◊W&ñˆB∆ñÊVvP†•∑Ö“W&ñˆB&ˆfóB6˜fW&vRWá˜6W26∆R÷∆ñÊVvR6ˆÊfó&÷Fñˆ‚vóFÜ˜WB6ÜÊvñÊr&ˆfó@†•&W6W'fVC††¢“6ˆÊfó&÷VEˆ6ˆw5˜&V6˜fW'ïˆ÷˜VÁC”∞¢“&ˆfóEˆFßW7F÷VÁEˆ∆∆˜vVC‘f«6V∞¢“WFˆ÷Fñ5˜&V6˜fW'ïˆ∆∆˜vVC‘f«6V∞¢“Üó7F˜&ñ6≈ˆ6˜7Eˆ&6ó5ˆ6ˆÊfó&÷VC‘f«6V∞¢“6∆V&∆UˆñÁfVÁF˜'ï˜&V6˜fW'ïˆ6ˆÊfó&÷VC‘f«6V∞¢“FV6ó6ñˆ‚3c∞¢“FV6ó6ñˆ‚3s∞¢“FV6ó6ñˆ‚3É∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ„∞¢“ÊÚ&ˆfóB÷f˜&◊V∆6ÜÊvS∞¢“ÊÚW'6ó7FVÊ6R÷6ˆÁG&7B6ÜÊvS∞¢“ÊÚF˜V&∆R7V'G&7Fñˆ„∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7BFˆ72◊&V6ˆÊ6ñ∆VB÷ñ‚3Sff3ì#VSVVñf&#ìFFsfCcsCf¢fW&ñgí3sB¬#s76VBÚfñ∆VC∞¢“fñ∆VBF#&3f3fìs#336ÜcÜf6S3&Vc6VV36&S¢fW&ñgí3É¬#s76VBÚfñ∆VC∞¢“6Ê6V∆∆VBñÁFW&÷VFñFR4Ñ26''íÊÚG&Á6fW&&∆R7V66W72WfñFVÊ6S∞¢“fñÊ¬fVGW&RSìff#c3scCsÉSsCVc##f3ñ3CfCÉSvSìc&V¢fW&ñgí3É2¬#ÉR76VBÚfñ∆VC∞¢“"33ì7ñÁFÜWFñ2#fCf6Sñ#&Vc&#F3SÜ63fSv&C6&cS&&ff6¢fW&ñgí3ÉB¬#ÉR76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚V3VCF&CC#vS6cF&66S3ssSÉñSsSc3#ÉÜ#¢fW&ñgí3ÉR¬#ÉR76VBÚfñ∆VB‡†§ÊWáB66˜VÁFñÊr&ñ˜&óGì††¢“FBWfñFVÊ6R÷&˜VÊBÜó7F˜&ñ6¬&ˆGV7B6˜7BÜó7F˜'í∆ñ6&∆RFÚ˜&ñvñÊFñÊr6∆W2vóFÜ˜WB&6∂fñ∆∆ñÊrVÊ∂Ê˜v‚Üó7F˜'í'í77V◊Fñˆ„∞¢“6W&FV«í&˜fR6∆V&∆R˜&W7F˜&VBñÁfVÁF˜'í&V6˜fW'ì∞¢“∂VW4Ùu2&WfW'6¬&∆ˆ6∂VBVÁFñ¬&˜FÇ&R&˜fV„∞¢“FÜV‚&W6ˆ«fR6ˆ◊VÁ6Fñˆ‚Fñ÷ñÊrˆ66˜VÁFñÊrÊB&V÷ñÊñÊrWáFW&Ê¬FÇˆWáVÁ6Rv2‡†¢““–†¢2Üó7F˜&ñ6¬&ˆGV7B6˜7BWfñFVÊ6Rc#É◊c#ì(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“FV6ó6ñˆ‚3ífW'6ñˆÊVBÜó7F˜&ñ6¬&ˆGV7B6˜7BWfñFVÊ6R6ˆÁG&7@†•∑Ö“6W&FRVÊB÷ˆÊ«í&ˆGV7Eˆ6˜7EˆÜó7F˜'ñF&∆P†•∑Ö“WÜó7FñÊr◊WF&∆R&ˆGV7Eˆ6˜7G67W'&VÁB÷6˜7B6ˆÁG&7B&W6W'fV@†•∑Ö“ÊÚWFˆ÷Fñ2÷ñw&Fñˆ‚ˆ&6∂fñ∆¬g&ˆ“7W'&VÁB6˜7BñÁFÚÜó7F˜'ê†•∑Ö“Wá∆ñ6óBVffV7FófUˆg&ˆ÷&WVó&VBf˜"Üó7F˜&ñ6¬6˜7BfW'6ñˆÁ0†•∑Ö“GW∆ñ6FR&ˆGV7EˆñB≤VffV7FófUˆg&ˆ÷fW'6ñˆÁ2&V¶V7FV@†•∑Ö“Üó7F˜&ñ6¬∆ˆˆ∑W6V∆V7G2∆FW7BWá∆ñ6óBfW'6ñˆ‚VffV7FófRˆ‚6∆RFFP†•∑Ö“ñFVÁFñfñW"÷&ñwVóGí&V÷ñÁ2VÊ6ˆÊfó&÷V@†•∑Ö“FFW2&Vf˜&Rfó'7BWá∆ñ6óBfW'6ñˆ‚&V÷ñ‚VÊ∂Ê˜v‡†•∑Ö“&V6˜&E˜&ˆGV7Eˆ6˜7EˆÜó7F˜'íÁñFFVBf˜"Wá∆ñ6óB∆ˆ6¬WfñFVÊ6RñÁW@†•∑Ö“&WGW&‚4Ùu26ÊFñFFW2&W6ˆ«fRÜó7F˜&ñ6¬6˜7BˆÊ«ígFW"÷F6ÜVB6∆R∆ñÊVvP†•∑Ö“Üó7F˜&ñ6¬6ÊFñFFRf«VRWá˜6VBvóFÜ˜WB6ÜÊvñÊrW&ñˆB&ˆfó@†•∑Ö“FV∆Vw&“Fó7FñÊwVó6ÜW27W'&VÁB÷6˜7BFñvÊ˜7Fñ2f«VRg&ˆ“Üó7F˜&ñ6¬÷6˜7BWfñFVÊ6P†•∑Ö“6˜fW&vRWá˜6W2Üó7F˜&ñ6¬6˜7B6ˆÊfó&÷Fñˆ‚7FFP†•&W6W'fVC††¢“6∆V&∆UˆñÁfVÁF˜'ï˜&V6˜fW'ïˆ6ˆÊfó&÷VC‘f«6V∞¢“6ˆÊfó&÷VEˆ6ˆw5˜&V6˜fW'ïˆ÷˜VÁC”∞¢“&ˆfóEˆFßW7F÷VÁEˆ∆∆˜vVC‘f«6V∞¢“WFˆ÷Fñ5˜&V6˜fW'ïˆ∆∆˜vVC‘f«6V∞¢“FV6ó6ñˆ‚3c∞¢“FV6ó6ñˆ‚3s∞¢“FV6ó6ñˆ‚3É∞¢“ÊÚW&ñˆB&ˆfóBf˜&◊V∆6ÜÊvS∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ„∞¢“ÊÚ&ˆGV7BFV6ó6ñˆ‚ı&ˆGV7BF6≤G&gBWÜV7WFñˆ„∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7BFˆ72◊&V6ˆÊ6ñ∆VB÷ñ‚#&FcSsV63cÉì3#ìSFCC#Sì&fCÉcc#3ìSf¢fW&ñgí3ìR¬#ÉR76VBÚfñ∆VC∞¢“ÊÚfñ∆VB&ˆGV7Fñˆ‚4Ñˆ67W'&VC∞¢“6Ê6V∆∆VBñÁFW&÷VFñFR4Ñ26''íÊÚG&Á6fW&&∆R7V66W72WfñFVÊ6S∞¢“fñÊ¬fVGW&Rc6f6#ÉSÉÜc3ìFV#VSSìCF6#É&VCSñFcscCñ¢fW&ñgí32¬#ìR76VBÚfñ∆VC∞¢“"33ì27ñÁFÜWFñ2cs&SÜcìCscÉsC#ìvFcñ3ÉÜ3CÜV3CsfCñfC6V¢fW&ñgí3B¬#ìR76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚ñ6CCìvFFccSsf#É#6CCCS#c3#vSÉ¢fW&ñgí3R¬#ìR76VBÚfñ∆VB‡†§ÊWáB66˜VÁFñÊr&ñ˜&óGì††¢“&˜fR6∆V&∆R˜&W7F˜&VBñÁfVÁF˜'í&V6˜fW'ígFW"7W7Fˆ÷W"&WGW&Á3∞¢“Fó7FñÊwVó6Ç6∆V&∆R&V6˜fW'í¬VÁ&W6ˆ«fVBˆÊˆ‚◊6∆V&∆R˜WF6ˆ÷W2ÊB6ˆ◊VÁ6Fñˆ„∞¢“&WfVÁBF˜V&∆R6˜VÁFñÊr&WGvVV‚ñÁfVÁF˜'í&V6˜fW'íÊB˜¶ˆ‚6ˆ◊VÁ6Fñˆ„∞¢“∂VWWFˆ÷Fñ24Ùu2&WfW'6¬&∆ˆ6∂VBVÁFñ¬&V6˜fW'í◊7FFRWfñFVÊ6Ró26ˆ◊∆WFR‡†¢““–†¢2&WGW&‚ñÁfVÁF˜'í&V6˜fW'íWfñFVÊ6Rc#ì◊c3(	B##b”í”0†§6ˆ◊∆WFVC††•∑Ö“FV6ó6ñˆ‚CWá∆ñ6óB&WGW&‚÷∆WfV¬ñÁfVÁF˜'í&V6˜fW'íWfñFVÊ6R6ˆÁG&7@†•∑Ö“VÊB÷ˆÊ«í&WGW&ÂˆñÁfVÁF˜'ï˜&V6˜fW'ïˆÜó7F˜'ñ †•∑Ö“Wá∆ñ6óB4ƒT$ƒUı$U5Dı$TFÊB‰ÙÂı4ƒT$ƒV7FFW0†•∑Ö“WÜ7B&WGW&ÂˆñB≤˜7FñÊuˆÁV÷&W"≤4µRñFVÁFóGí&WVó&V@†•∑Ö“6ÊFñFFRVÁFóGí◊W7BWÜ7F«í÷F6Ç&V6˜fW'íWfñFVÊ6RVÁFóGê†•∑Ö“÷ó76ñÊr&V6˜fW'íWfñFVÊ6R&V÷ñÁ2VÊ∂Ê˜v‡†•∑Ö“ñFVÁFóGíG&ñgB&V÷ñÁ26ˆÊf∆ñ7FñÊr˜VÊ6ˆÊfó&÷VBWfñFVÊ6P†•∑Ö“7Fˆ6≤6Ê6Ü˜G2ˆFV«F2&RÊ˜B66WFVB2WFˆ÷Fñ2&V6˜fW'í&ˆˆ`†•∑Ö“6ˆ◊VÁ6FVB&WGW&Á2&V÷ñ‚˜WG6ñFRWFˆ÷Fñ26∆V&∆R&V6˜fW'ê†•∑Ö“&WGW&‚4Ùu26ÊFñFFR&˜w2Wá˜6R&V6˜fW'í7FFR˜6˜W&6RˆFFP†•∑Ö“6˜fW&vRWá˜6W2ñÁfVÁF˜'í&V6˜fW'í7FFP†•∑Ö“FV∆Vw&“Wá∆ñÁ26ˆÊfó&÷VB˜'Fñ¬&V6˜fW'í7FFP†•&W6W'fVC††¢“&V6˜fW'ï˜W&ñˆEˆGG&ñ'WFñˆÂˆ6ˆÊfó&÷VC‘f«6V∞¢“6ˆÊfó&÷VEˆ6ˆw5˜&V6˜fW'ïˆ÷˜VÁC”∞¢“&ˆfóEˆFßW7F÷VÁEˆ∆∆˜vVC‘f«6V∞¢“WFˆ÷Fñ5˜&V6˜fW'ïˆ∆∆˜vVC‘f«6V∞¢“FV6ó6ñˆ‚3bÛ3rÛ3ÇÛ3ì∞¢“ÊÚW&ñˆB&ˆfóBf˜&◊V∆6ÜÊvS∞¢“ÊÚ˜¶ˆ‚◊WFFñˆ„∞¢“FF˜W6W'2Êß6ˆÊVÊ6ÜÊvVC∞¢“WáFW&Ê∆«ï˜fW&ñfñVC‘f«6V‡†•fW&ñfñ6Fñˆ„††¢“VÁFW&ñÊrWÜ7BFˆ72◊&V6ˆÊ6ñ∆VB÷ñ‚vcÉSñCs333Ü3V3CFVFVÜfSSSsCCcSS#¢fW&ñgí3R¬#ìR76VBÚfñ∆VC∞¢“fñ∆VBC#CñVF6C&ìcf&cCñSÜSÉ36vV33ÉÉf¢fW&ñgí3#R¬6ˆ◊ñ∆Rfñ«W&S∞¢“fñ∆VBCcC3#c3#Ü3ñSCcs&S3cVcvcìFsSCñSÉñ¢fW&ñgí3#b¬6ˆ◊ñ∆Rfñ«W&S∞¢“fñ∆VBCìSCñC#3Üf#Cf#ì&3#SS#3cÜS&F&f¢fW&ñgí3#r¬6ˆ◊ñ∆Rfñ«W&S∞¢“fñ∆VB6SF6f&6ccv&#c3V#Éìs3v#cñcsñ36CS¢fW&ñgí3#Ç¬##276VBÚRfñ∆VC∞¢“6Ê6V∆∆VBñÁFW&÷VFñFR4Ñ26''íÊÚG&Á6fW&&∆R7V66W72WfñFVÊ6S∞¢“fñÊ¬fVGW&RÉ6SSCcf&fV&Csì3sSìSsf6S#C6#sñ&#ccÜF¢fW&ñgí3#í¬##Ç76VBÚfñ∆VC∞¢“"33ìR7ñÁFÜWFñ2vCv#6VSÉ#SSÉS3CV63sS6vCC&3ì6&f¢fW&ñgí33¬##Ç76VBÚfñ∆VC∞¢“7V6Ç÷ñ‚6cÉ&#cSSF&vCÜ#ììÉÉ63ìs3sv&F#3SSvf¢fW&ñgí33¬##Ç76VBÚfñ∆VB‡†§ÊWáB66˜VÁFñÊr&ñ˜&óGì††¢“&˜fRFÜR66˜VÁFñÊrW&ñˆBñ‚vÜñ6Ç6ˆÊfó&÷VB6∆V&∆R&WGW&‚&V6˜fW'í6Ü˜V∆B&WfW'6R4Ùu3∞¢“fW&ñgí˜&ñvñÊFñÊr◊6∆RVÁFóGí6ˆÁ6ó7FVÊ7ì∞¢“∂VW6ˆ◊VÁ6Fñˆ‚G&VF÷VÁB6W&FRÊB&WfVÁBF˜V&∆R6˜VÁFñÊs∞¢“∂VWWFˆ÷Fñ24Ùu2&WfW'6¬&∆ˆ6∂VBVÁFñ¬FÜW6R&V÷ñÊñÊrf7G2&R6ˆ◊∆WFR‡†¢““–†¢2W&ñˆB&ˆfóBFVÊÁB6ˆÁFWáB&˜vFñˆ‚(	B##b”í”@†§6ˆ◊∆WFVC††•∑Ö“G&6VBFV∆Vw&“6∆∆&6≤˜FWáB&ˆGV7Fñˆ‚vó&ñÊrFá&˜VvÇW&ñˆB&ˆfóBfñÊÊ6R&VfWF6Ä•∑Ö“ñFVÁFñfñVB∆˜7BFVÊÁB6ˆÁFWáEf"BFá&VEˆˆƒWÜV7WF˜"&˜VÊF'ê•∑Ö“&˜vFVB‚ñÊFWVÊFVÁB&WVW7B6ˆÁFWáBñÁFÚWfW'í$TB‘Ù‰≈ífñÊÊ6Rv˜&∂W •∑Ö“6˜fW&VBtB¬#ÑB¬SdB¬ìB¬ÊB7W7Fˆ“FFR&ÊvRFá&˜VvÇFV∆Vw&‘&˜E6W'fñ6P•∑Ö“&W6W'fVBfñ¬÷6∆˜6VBfñÊÊ6R˜VÁFóGíWfñFVÊ6RÊBÜó7F˜&ñ6¬ı&WGW&‚4Ùu2WFÜ˜&óGê†¢““–†¢26fRW&ñˆB&ˆfóBfñÊÊ6RFñvÊ˜7Fñ72(	B##b”í”@†§6ˆ◊∆WFVC††•∑Ö“&W6W'fR6fRfñÊÊ6Rfñ«W&RñFVÁFóGí7&˜72FÜR&∆∆V¬&VfWF6Ç&˜VÊF'ê•∑Ö“Wá˜6RˆÊ«í6ÊóFó¶VBFñvÊ˜7Fñ26ˆFW2ñ‚FV∆Vw&–•∑Ö“∂VW˜¶ˆ‚ñ∆ˆG2¬7&VFVÁFñ«2¬ñFVÁFñfñW'2¬ÊB÷˜VÁG2ÜñFFV‡†¢““–†¢2W&ñˆB&ˆfóB÷ˆÊWF'íf∆ñFFñˆ‚7FvRFñvÊ˜7Fñ72(	B##b”í”@†§6ˆ◊∆WFVC††•∑Ö“Fó7FñÊwVó6Ç67'V¬∆ó7B˜&V6˜&B¬F˜F¬÷˜VÁB¬˜7FñÊr¬&ˆGV7G2¬6ˆ÷÷ó76ñˆ‚¬ÊB6∆R÷6ˆ◊ˆÊVÁB&∆ˆ6∂W'0•∑Ö“&W6W'fRFÜRWÜó7FñÊrfñ¬÷6∆˜6VB÷ˆÊWF'í&W7V«@•∑Ö“Wá˜6RÊÚñ∆ˆB¬ñFVÁFñfñW'2¬7&VFVÁFñ«2¬˜"÷ˆÊWF'íf«VW0†¢““–†¢2W&ñˆB&ˆfóB&V∆FVB’4µR'VÁFñ÷R&6RfóÇ(	B##b”í”@†§6ˆ◊∆WFVC††•∑Ö“G&6VB∆ófRdî‰‰4UıU$îÙEı$ÙdïEÙ‘Ù‰UïıT‰dîƒ$ƒUÙ4Ù‘‘ï54îÙ‚FÚFÜR3SSÇ6∆ñVÁBñÊÜW&óFÊ6R&Vw&W76ñˆ‡•∑Ö“&W7F˜&VBW&ñˆE&ˆfóE'VÁFñ÷T˜¶ˆ‰6∆ñVÁB2FÜR&V∆FVB’4µR6∆ñVÁBw2fñÊÊ6R÷Ê˜&÷∆ó¶Fñˆ‚&6P•∑Ö“&W6W'fVB66˜VÁBF˜F≈ˆ÷˜VÁBf˜"Êˆ‚◊6∆R˜7FñÊw2vóFÜ˜WBñÁfVÁFñÊr4µR&WfVÁVR˜"VÁFóGê•∑Ö“∂WB÷∆f˜&÷VB˜'Fñ¬6ˆ÷÷ó76ñˆ‚WfñFVÊ6Rfñ¬÷6∆˜6V@•∑Ö“&W6W'fVBÜó7F˜&ñ6¬VffV7FófR÷6˜7BWFÜ˜&óGíÊB&WGW&‚4Ùu2vFW0†¢““–†¢26V∆V7FVB’4µR&˜VÊFVB&WfW'6RñFVÁFóGí∆ˆˆ∑W(	B##b”í”# †§6ˆ◊∆WFVC††•∑Ö“&˜fVBFÜR&V÷ñÊñÊr∆FVÊ7ív266˜VÁB◊vñFR˜c2˜˜7FñÊrˆf&Úˆ∆ó7FvñÊFñˆ‡•∑Ö“&W∆6VBáVÊG&VG2ˆbd$ÚvW2vóFÇˆÊR∆ˆˆ∑Wf˜"FÜR6V∆V7FVB7W'&VÁB4µP•∑Ö“&WW6VBFÜR&˜fV‚&V∆FVBñFVÁFóGíñ‚F˜vÁ7G&V“fñÊÊ6R66˜ñÊp•∑Ö“∂WB÷ó76ñÊrˆ÷&ñwV˜W2ñFVÁFóGífñ¬÷6∆˜6V@•∑Ö“FFVB&Vw&W76ñˆ‚6˜fW&vRf˜"SVÁ&V∆FVBfñÊÊ6R4µW2ÊB¶W&Úd$Ú∆ó7B6∆«0•∑Ö“FFVB&˜VÊFVBFó&V7FñˆÊ¬&V∆FVB’4µRFó66˜fW'íf˜"7ñ÷÷WG&ñ2˜¶ˆ‚&V∆FñˆÁ0•∑Ö“FFVBWÜ7B&F6ÜVBfñÊÊ6R◊˜7FñÊr4µRWfñFVÊ6RFÚ6V∆V7FVB&Vfñ«FW •∑Ö“W'6ó7Bf7B6V∆V7FVB’4µRñFVÁFóGífñ«W&RFñvÊ˜7Fñ72ñ÷÷VFñFV«ê•∑Ö“6˜fW"FÜRG&6VB&ˆGV7Fñˆ‚VÁG'óˆñÁBvñÁ7BFñvÊ˜7Fñ2Ê÷TW'&˜"&Vw&W76ñˆÁ0•∑Ö“&W6ˆ«fR&Ww&óGFV‚˜7FñÊr4µR'í&˜VÊFVB&∆∆V¬WÜ7B÷ˆffW"6◊∆W0•∑Ö“wVñFRFÜR6V∆∆W"Fá&˜VvÇÜó7F˜&ñ6¬’4µRñFVÁFóGí6ˆÊfó&÷Fñˆ‚ñ‚FV∆Vw&–•∑Ö“&Wf∆ñFFR6ÊFñFFRvñÁ7B7W'&VÁB˜7FñÊrWfñFVÊ6R&Vf˜&RW'6ó7FVÊ6P•∑Ö“&WG'íFÜR˜&ñvñÊ¬6V∆V7FVB’4µRW&ñˆBWFˆ÷Fñ6∆«ígFW"6ˆÊfó&÷Fñˆ‡•∑Ö“∆WBFÜR6V∆∆W"&Wfˆ∂RˆÊRWÜ7BñÊ6˜'&V7BÜó7F˜&ñ6¬ˆ7W'&VÁB4µRñFVÁFóGê•∑Ö“&W6W'fR∆ˆ6¬&Wfˆ6Fñˆ‚VFóB6Ê6Ü˜BÊBñÁf∆ñFFR&ñ˜"&W˜'BwVñFÊ6P•∑Ö“Wá˜6R&Wfˆ6Fñˆ‚Fó&V7F«íˆ‚FÜR&W˜'B7&VFVBg&ˆ“6ˆÊfó&÷VB4µR÷ñÊp•∑Ö“Wá˜6RWÜ7B&Wfˆ6Fñˆ‚ˆ‚WfW'í&W˜'BFÜB6ˆÁ7V÷W26ˆÊfó&÷VB∆ñ0•∑Ö“&F6Ç&W˜'B÷ñÊr∆ˆˆ∑WñÁFÚˆÊR∆ˆ6¬5∆óFR&VBÊB¶W&Ú˜¶ˆ‚6∆«0•∑Ö“6Ü˜r6V∆V7FVB’4µR÷ˆÊWF'í∆ñÊW2vóFÇFÜVó"&WfVÁVR6Ü&Rñ‚&VÁFÜW6W0•∑Ö“FBFó66˜fW&&∆RFFR÷ˆÊ«í7W7Fˆ“◊W&ñˆBñÁWBFÚFÜRW&ñˆB&ˆfóB÷VÁP•∑Ö“ó6ˆ∆FRVÊFñÊr7W7Fˆ“◊W&ñˆBñÁWBW"FV∆Vw&“W6W •∑Ö“&WW6R6ÊˆÊñ6¬6V∆∆W"÷6˜7B6˜fW&vRñ‚˜7F'FÊB6∂ó6ˆ◊∆WFVB6WGW •∑Ö“&W6ˆ«fRW&ñˆB&ˆfóBFÇˆ∆ñ7íg&ˆ“FÜR7FófR7F˜&Rˆ‚WfW'í&WVW7@
