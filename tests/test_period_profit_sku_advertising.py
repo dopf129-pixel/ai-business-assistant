@@ -26,6 +26,21 @@ class _Client:
         }
 
 
+class _HistoricalClient:
+    def __init__(self, client_id, client_secret):
+        assert client_id == "performance-id"
+        assert client_secret == "secret"
+
+    def _access_token(self, force=False):
+        return {"access_token": "token"}
+
+    def _request(self, method, endpoint, token, **kwargs):
+        assert method == "get"
+        assert endpoint == "/api/client/campaign"
+        assert token == "token"
+        return {"list": [{"id": "1001", "paymentType": "CAMPAIGN_TYPE_INVALID"}]}
+
+
 def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
     monkeypatch.setattr(
         "services.period_profit_sku_advertising_service.get_current_tenant_user_id",
@@ -51,6 +66,42 @@ def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
         "external_call_count": 1,
     }
     assert _Client.calls == 1
+
+
+def test_historical_campaign_payment_type_survives_advertising_service():
+    service = PeriodProfitSkuAdvertisingService(
+        repository=_Repository(), client_factory=_HistoricalClient
+    )
+
+    result = service.load("2026-08-01", "2026-08-30", {"101"})
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+
+
+def test_runtime_shows_safe_historical_campaign_diagnostic():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+                "campaign_payment_type": "CAMPAIGN_TYPE_INVALID",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert result["error"] is True
+    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+    assert "paymentType: CAMPAIGN_TYPE_INVALID" in result["message"]
+    assert "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN" in result["message"]
 
 
 def test_runtime_replaces_already_booked_finance_ad_with_exact_sku_ad():

@@ -16,8 +16,9 @@ import requests
 
 
 class HistoricalReportError(Exception):
-    def __init__(self, code):
+    def __init__(self, code, campaign_payment_type=None):
         self.code = code
+        self.campaign_payment_type = campaign_payment_type
         super().__init__(code)
 
 
@@ -84,6 +85,19 @@ class HistoricalPerformanceReports:
         self.client = client
         self.calls = 0
 
+    @staticmethod
+    def _safe_campaign_payment_type(value):
+        text = str(value or "").strip().upper()
+        if not text:
+            return "MISSING"
+        if (
+            len(text) > 64
+            or not text.isascii()
+            or not all(character.isalnum() or character == "_" for character in text)
+        ):
+            return "UNRECOGNIZED_VALUE"
+        return text
+
     def _json(self, method, endpoint, **kwargs):
         token = self.client._access_token()
         if token.get("error"):
@@ -118,7 +132,12 @@ class HistoricalPerformanceReports:
                 if item.get("paymentType") == "CPC":
                     ids.append(str(item["id"]))
                 elif item.get("paymentType") not in ("CPO", "CPM"):
-                    raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN")
+                    raise HistoricalReportError(
+                        "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+                        campaign_payment_type=self._safe_campaign_payment_type(
+                            item.get("paymentType")
+                        ),
+                    )
             if len(items) < 100:
                 return list(dict.fromkeys(ids))
         raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INCOMPLETE")
@@ -207,4 +226,11 @@ class HistoricalPerformanceReports:
                 current = finish + timedelta(days=1)
             return {"rows": rows, "external_call_count": self.calls}
         except HistoricalReportError as exc:
-            return {"error": True, "code": exc.code, "external_call_count": self.calls}
+            result = {
+                "error": True,
+                "code": exc.code,
+                "external_call_count": self.calls,
+            }
+            if exc.campaign_payment_type is not None:
+                result["campaign_payment_type"] = exc.campaign_payment_type
+            return result
