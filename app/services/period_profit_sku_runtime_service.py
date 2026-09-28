@@ -222,6 +222,16 @@ class PeriodProfitSkuRuntimeService:
                 for key in ("failed_window_from", "failed_window_to", "status_code"):
                     if key in loaded:
                         failure[key] = loaded[key]
+                if loaded.get("code") == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN":
+                    payment_type = self._safe_campaign_payment_type(
+                        loaded.get("campaign_payment_type")
+                    )
+                    failure["campaign_payment_type"] = payment_type
+                    failure["message"] = (
+                        "Не распознан тип рекламной кампании Ozon.\n"
+                        "paymentType: " + payment_type + "\n"
+                        "Код диагностики: OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+                    )
             return failure
         if loaded.get("configured") is not True:
             return {**loaded, "applied": False}
@@ -897,6 +907,18 @@ class PeriodProfitSkuRuntimeService:
 
     @staticmethod
     def _text(value): return "" if value is None else str(value).strip()
+
+    @staticmethod
+    def _safe_campaign_payment_type(value):
+        text = str(value or "").strip().upper()
+        if (
+            not text
+            or len(text) > 64
+            or not text.isascii()
+            or not all(character.isalnum() or character == "_" for character in text)
+        ):
+            return "UNRECOGNIZED_VALUE"
+        return text
 
     @staticmethod
     def _number(value):

@@ -55,6 +55,26 @@ def test_campaign_list_fails_closed_for_unrecognized_payment_types():
     with pytest.raises(HistoricalReportError) as exc:
         service._campaign_ids()
     assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert exc.value.campaign_payment_type == "NEW_TYPE"
+
+
+def test_historical_campaign_error_returns_payment_type_diagnostic():
+    service = HistoricalPerformanceReports(_Client([
+        {"id": "123", "paymentType": "CAMPAIGN_TYPE_INVALID"},
+    ]))
+
+    result = service.load("2026-08-01", "2026-08-30")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
+
+
+def test_historical_campaign_diagnostic_sanitizes_unexpected_values():
+    assert HistoricalPerformanceReports._safe_campaign_payment_type(None) == "MISSING"
+    assert HistoricalPerformanceReports._safe_campaign_payment_type(
+        "private token=do-not-show"
+    ) == "UNRECOGNIZED_VALUE"
 
 
 def test_historical_requests_all_windows_and_types_without_manual_files():
