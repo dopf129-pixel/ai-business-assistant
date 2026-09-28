@@ -130,13 +130,20 @@ class HistoricalPerformanceReports:
                 # Only CPC campaigns are part of this report. The API also
                 # exposes CPM as a valid paymentType; it is outside the
                 # CPC+CPO SKU scope and must not abort the whole report.
-                if item.get("paymentType") == "CPC":
+                payment_type = item.get("paymentType")
+                missing_payment_type = not str(payment_type or "").strip()
+                # This endpoint is explicitly filtered to advObjectType=SKU,
+                # which Ozon defines as pay-per-click. Some campaign records
+                # omit paymentType; use the filter as the CPC fallback only
+                # when the response does not contradict that scope.
+                sku_campaign = item.get("advObjectType") in (None, "", "SKU")
+                if payment_type == "CPC" or (missing_payment_type and sku_campaign):
                     ids.append(str(item["id"]))
-                elif item.get("paymentType") not in ("CPO", "CPM"):
+                elif payment_type not in ("CPO", "CPM"):
                     raise HistoricalReportError(
                         "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
                         campaign_payment_type=self._safe_campaign_payment_type(
-                            item.get("paymentType")
+                            payment_type
                         ),
                         campaign_id=str(item["id"]),
                     )
