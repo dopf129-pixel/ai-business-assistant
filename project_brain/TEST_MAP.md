@@ -61,7 +61,8 @@ Test:
 - `tests/test_ozon_performance_historical_reports.py`
 
 Проверяет разбор SKU-level CPC/CPO reports, выбор колонки рекламного расхода,
-разбиение периода на окна, пропуск известного CPM вне поддерживаемого CPC+CPO
+разбор итоговой строки `Bcero` с безопасным отказом для ненулевого или пустого
+итога без SKU-разбивки, разбиение периода на окна, пропуск известного CPM вне поддерживаемого CPC+CPO
 scope, fallback на CPC для записей без `paymentType` только в запросе,
 ограниченном `advObjectType=SKU`, отклонение конфликтующего scope и fail-closed
 реакцию на неизвестный payment type. Проверяет передачу безопасных `paymentType`
