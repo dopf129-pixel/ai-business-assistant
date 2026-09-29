@@ -61,17 +61,30 @@ def parse_report_csv(data, kind):
                 continue
             sku_col, expense_col = sku_cols[0], expense_cols[0]
             output = []
+            summary_expenses = []
             for row in csv.reader(lines[i + 1:], delimiter=delimiter):
                 if not row or not any(x.strip() for x in row):
                     continue
                 if len(row) <= max(sku_col, expense_col):
                     raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
                 sku = row[sku_col].strip()
-                if sku.lower() in {"всего", "итого", "total"}:
+                if sku.lower() in {"всего", "итого", "total", "bcero"}:
+                    # Ozon's CPC CSV can label its total row "Bcero".
+                    # Ignore it when product rows exist, but do not turn a
+                    # positive or missing campaign-only total into zero SKU spend.
+                    summary_expenses.append(row[expense_col].strip())
                     continue
                 if not sku.isdecimal():
                     raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})
+            if not output and summary_expenses:
+                for value in summary_expenses:
+                    try:
+                        expense = _number(value)
+                    except HistoricalReportError as exc:
+                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT") from exc
+                    if expense > 0:
+                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
             return output
     raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
 
