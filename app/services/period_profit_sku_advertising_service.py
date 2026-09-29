@@ -47,6 +47,7 @@ class PeriodProfitSkuAdvertisingService:
                 **({key: result[key] for key in (
                     "failed_window_from", "failed_window_to", "status_code",
                     "campaign_payment_type", "campaign_id",
+                    "report_format_stage",
                 ) if key in result} if isinstance(result, dict) else {}),
             }
         rows = result.get("rows")

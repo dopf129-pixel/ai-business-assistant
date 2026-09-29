@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from api.ozon_performance_historical_reports import HistoricalPerformanceReports
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 
@@ -81,6 +82,27 @@ def test_historical_campaign_payment_type_survives_advertising_service():
     assert result["campaign_id"] == "1001"
 
 
+def test_historical_report_format_stage_survives_advertising_service(monkeypatch):
+    monkeypatch.setattr(
+        HistoricalPerformanceReports,
+        "load",
+        lambda *_args: {
+            "error": True,
+            "code": "OZON_HISTORICAL_REPORT_FORMAT",
+            "report_format_stage": "CSV_HEADER_NOT_FOUND",
+        },
+    )
+    service = PeriodProfitSkuAdvertisingService(
+        repository=_Repository(), client_factory=_HistoricalClient
+    )
+
+    result = service.load("2026-08-01", "2026-08-30", {"101"})
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
+
+
 def test_runtime_shows_safe_historical_campaign_diagnostic():
     class _Advertising:
         def load(self, *_args):
@@ -129,6 +151,52 @@ def test_runtime_omits_non_numeric_campaign_id_from_diagnostic():
 
     assert "ID кампании" not in result["message"]
     assert "secret" not in result["message"]
+
+
+def test_runtime_shows_safe_historical_report_format_stage():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_REPORT_FORMAT",
+                "report_format_stage": "CSV_HEADER_NOT_FOUND",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
+    assert "Этап: CSV_HEADER_NOT_FOUND" in result["message"]
+    assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
+
+
+def test_runtime_hides_unrecognized_report_format_stage():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_REPORT_FORMAT",
+                "report_format_stage": "CSV_HEADER_NOT_FOUND\nsecret",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "report_format_stage" not in result
+    assert "message" not in result
+    assert "secret" not in str(result)
 
 
 def test_runtime_replaces_already_booked_finance_ad_with_exact_sku_ad():

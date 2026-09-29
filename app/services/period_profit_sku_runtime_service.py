@@ -32,6 +32,15 @@ class _RequestScopedProductProvider:
 class PeriodProfitSkuRuntimeService:
     """Present SKU-attributed rows produced by the canonical Period Profit query."""
 
+    HISTORICAL_REPORT_FORMAT_STAGES = frozenset({
+        "CSV_HEADER_NOT_FOUND",
+        "CSV_ROW_TOO_SHORT",
+        "CSV_UNKNOWN_ROW_LABEL",
+        "CSV_SUMMARY_WITHOUT_SKU",
+        "ZIP_LIMITS_EXCEEDED",
+        "ZIP_MEMBER_NOT_CSV",
+        "ZIP_INVALID",
+    })
     PERIODS = (
         ("Сегодня", "TODAY"),
         ("7 дней", "7D"),
@@ -238,6 +247,17 @@ class PeriodProfitSkuRuntimeService:
                     failure["message"] += (
                         "Код диагностики: OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
                     )
+                elif loaded.get("code") == "OZON_HISTORICAL_REPORT_FORMAT":
+                    format_stage = self._safe_historical_report_format_stage(
+                        loaded.get("report_format_stage")
+                    )
+                    if format_stage:
+                        failure["report_format_stage"] = format_stage
+                        failure["message"] = (
+                            "Не удалось разобрать CSV-отчёт Ozon.\n"
+                            "Этап: " + format_stage + "\n"
+                            "Код диагностики: OZON_HISTORICAL_REPORT_FORMAT"
+                        )
             return failure
         if loaded.get("configured") is not True:
             return {**loaded, "applied": False}
@@ -925,6 +945,12 @@ class PeriodProfitSkuRuntimeService:
         ):
             return "UNRECOGNIZED_VALUE"
         return text
+
+    @classmethod
+    def _safe_historical_report_format_stage(cls, value):
+        if not isinstance(value, str):
+            return None
+        return value if value in cls.HISTORICAL_REPORT_FORMAT_STAGES else None
 
     @staticmethod
     def _number(value):

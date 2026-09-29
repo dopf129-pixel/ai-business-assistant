@@ -16,10 +16,14 @@ import requests
 
 
 class HistoricalReportError(Exception):
-    def __init__(self, code, campaign_payment_type=None, campaign_id=None):
+    def __init__(
+        self, code, campaign_payment_type=None, campaign_id=None,
+        report_format_stage=None,
+    ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
         self.campaign_id = campaign_id
+        self.report_format_stage = report_format_stage
         super().__init__(code)
 
 
@@ -66,7 +70,10 @@ def parse_report_csv(data, kind):
                 if not row or not any(x.strip() for x in row):
                     continue
                 if len(row) <= max(sku_col, expense_col):
-                    raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+                    raise HistoricalReportError(
+                        "OZON_HISTORICAL_REPORT_FORMAT",
+                        report_format_stage="CSV_ROW_TOO_SHORT",
+                    )
                 sku = row[sku_col].strip()
                 if sku.lower() in {"всего", "итого", "total", "bcero"}:
                     # Ozon's CPC CSV can label its total row "Bcero".
@@ -75,18 +82,30 @@ def parse_report_csv(data, kind):
                     summary_expenses.append(row[expense_col].strip())
                     continue
                 if not sku.isdecimal():
-                    raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+                    raise HistoricalReportError(
+                        "OZON_HISTORICAL_REPORT_FORMAT",
+                        report_format_stage="CSV_UNKNOWN_ROW_LABEL",
+                    )
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})
             if not output and summary_expenses:
                 for value in summary_expenses:
                     try:
                         expense = _number(value)
                     except HistoricalReportError as exc:
-                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT") from exc
+                        raise HistoricalReportError(
+                            "OZON_HISTORICAL_REPORT_FORMAT",
+                            report_format_stage="CSV_SUMMARY_WITHOUT_SKU",
+                        ) from exc
                     if expense > 0:
-                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+                        raise HistoricalReportError(
+                            "OZON_HISTORICAL_REPORT_FORMAT",
+                            report_format_stage="CSV_SUMMARY_WITHOUT_SKU",
+                        )
             return output
-    raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+    raise HistoricalReportError(
+        "OZON_HISTORICAL_REPORT_FORMAT",
+        report_format_stage="CSV_HEADER_NOT_FOUND",
+    )
 
 
 class HistoricalPerformanceReports:
@@ -210,12 +229,21 @@ class HistoricalPerformanceReports:
                 with ZipFile(BytesIO(data)) as archive:
                     members = archive.infolist()
                     if not members or len(members) > 100 or sum(m.file_size for m in members) > self.MAX_DOWNLOAD_BYTES:
-                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+                        raise HistoricalReportError(
+                            "OZON_HISTORICAL_REPORT_FORMAT",
+                            report_format_stage="ZIP_LIMITS_EXCEEDED",
+                        )
                     if any(not m.filename.lower().endswith(".csv") for m in members):
-                        raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT")
+                        raise HistoricalReportError(
+                            "OZON_HISTORICAL_REPORT_FORMAT",
+                            report_format_stage="ZIP_MEMBER_NOT_CSV",
+                        )
                     return [row for m in members for row in parse_report_csv(archive.read(m), kind)]
             except BadZipFile as exc:
-                raise HistoricalReportError("OZON_HISTORICAL_REPORT_FORMAT") from exc
+                raise HistoricalReportError(
+                    "OZON_HISTORICAL_REPORT_FORMAT",
+                    report_format_stage="ZIP_INVALID",
+                ) from exc
         return parse_report_csv(data, kind)
 
     def load(self, date_from, date_to):
@@ -257,4 +285,6 @@ class HistoricalPerformanceReports:
                 result["campaign_payment_type"] = exc.campaign_payment_type
             if exc.campaign_id is not None:
                 result["campaign_id"] = exc.campaign_id
+            if exc.report_format_stage is not None:
+                result["report_format_stage"] = exc.report_format_stage
             return result
