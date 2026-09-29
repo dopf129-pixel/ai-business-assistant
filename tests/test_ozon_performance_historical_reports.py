@@ -19,8 +19,11 @@ def test_cpc_and_cpo_columns_do_not_double_count():
 
 
 def test_unknown_columns_fail_closed():
-    with pytest.raises(HistoricalReportError):
+    with pytest.raises(HistoricalReportError) as exc:
         parse_report_csv(b"sku;revenue\n123;200\n", "CPC")
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert exc.value.report_format_stage == "CSV_HEADER_NOT_FOUND"
 
 
 def test_cpc_summary_row_with_b_cero_marker_is_accepted_when_zero():
@@ -39,6 +42,7 @@ def test_positive_campaign_total_without_sku_rows_stays_fail_closed():
         parse_report_csv(report, "CPC")
 
     assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert exc.value.report_format_stage == "CSV_SUMMARY_WITHOUT_SKU"
 
 
 def test_missing_campaign_total_without_sku_rows_stays_fail_closed():
@@ -48,6 +52,35 @@ def test_missing_campaign_total_without_sku_rows_stays_fail_closed():
         parse_report_csv(report, "CPC")
 
     assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert exc.value.report_format_stage == "CSV_SUMMARY_WITHOUT_SKU"
+
+
+def test_unknown_row_label_fails_with_safe_format_stage():
+    report = "SKU;Расход\nПримечание;0\n".encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPC")
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
+
+
+def test_load_returns_report_format_stage():
+    service = HistoricalPerformanceReports(_Client())
+    service._campaign_ids = lambda: ["123"]
+
+    def invalid_report(*_args):
+        raise HistoricalReportError(
+            "OZON_HISTORICAL_REPORT_FORMAT",
+            report_format_stage="CSV_HEADER_NOT_FOUND",
+        )
+
+    service._generate = invalid_report
+    result = service.load("2026-08-01", "2026-08-30")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
 
 
 class _Client:
