@@ -110,8 +110,8 @@ def parse_report_csv(data, kind):
 
 class HistoricalPerformanceReports:
     WINDOW_DAYS = 62
-    MAX_POLLS = 12
-    POLL_SECONDS = 2
+    MAX_POLLS = 30
+    POLL_SECONDS = 5
     MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 
     def __init__(self, client):
