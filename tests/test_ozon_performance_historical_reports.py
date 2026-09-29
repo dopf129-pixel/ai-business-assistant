@@ -23,6 +23,33 @@ def test_unknown_columns_fail_closed():
         parse_report_csv(b"sku;revenue\n123;200\n", "CPC")
 
 
+def test_cpc_summary_row_with_b_cero_marker_is_accepted_when_zero():
+    report = (
+        "sku;Название товара;Расход, Р, с НДС;Клики\n"
+        "Bcero;;0;0\n"
+    ).encode()
+
+    assert parse_report_csv(report, "CPC") == []
+
+
+def test_positive_campaign_total_without_sku_rows_stays_fail_closed():
+    report = "SKU;Расход, Р, с НДС\nBcero;12,50\n".encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPC")
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+
+
+def test_missing_campaign_total_without_sku_rows_stays_fail_closed():
+    report = "SKU;Расход, Р, с НДС\nBcero;\n".encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPC")
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+
+
 class _Client:
     def __init__(self, campaigns=None):
         self._token = {"access_token": "token"}
