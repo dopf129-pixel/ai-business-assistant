@@ -1,4 +1,5 @@
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -101,6 +102,69 @@ class _Client:
         assert token == "token"
         assert kwargs["params"]["advObjectType"] == "SKU"
         return {"list": self.campaigns}
+
+
+class _AsyncReportClient:
+    BASE_URL = "https://performance.test"
+
+    def __init__(self, states):
+        self.states = list(states)
+        self.poll_calls = 0
+        self.session = SimpleNamespace(get=self._download)
+
+    def _access_token(self, force=False):
+        return {"access_token": "token"}
+
+    def _request(self, method, endpoint, token, **kwargs):
+        assert token == "token"
+        if method == "post":
+            assert endpoint == "/api/client/statistics"
+            return {"UUID": "00000000-0000-0000-0000-000000000000"}
+        assert method == "get"
+        assert endpoint == "/api/client/statistics/00000000-0000-0000-0000-000000000000"
+        self.poll_calls += 1
+        return self.states[min(self.poll_calls - 1, len(self.states) - 1)]
+
+    @staticmethod
+    def _download(*_args, **_kwargs):
+        return SimpleNamespace(
+            status_code=200,
+            content="SKU;Название;Расход, Р, с НДС\n3921245627;Test;1,25\n".encode(),
+        )
+
+
+def test_async_report_polling_waits_past_previous_timeout_limit():
+    client = _AsyncReportClient(
+        [{"state": "IN_PROGRESS"}] * 12
+        + [{"state": "OK", "link": "https://report.test/file.csv"}]
+    )
+    service = HistoricalPerformanceReports(client)
+
+    with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
+        rows = service._generate(
+            "/api/client/statistics", {"campaigns": ["123"]}, "CPC"
+        )
+
+    assert rows[0]["sku"] == "3921245627"
+    assert rows[0]["expense"] == Decimal("1.25")
+    assert client.poll_calls == 13
+    assert sleep.call_count == 12
+    sleep.assert_called_with(5)
+
+
+def test_async_report_polling_still_times_out_at_the_bounded_limit():
+    client = _AsyncReportClient([{"state": "IN_PROGRESS"}])
+    service = HistoricalPerformanceReports(client)
+
+    with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
+        with pytest.raises(HistoricalReportError) as exc:
+            service._generate(
+                "/api/client/statistics", {"campaigns": ["123"]}, "CPC"
+            )
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_TIMEOUT"
+    assert client.poll_calls == HistoricalPerformanceReports.MAX_POLLS
+    assert sleep.call_count == HistoricalPerformanceReports.MAX_POLLS - 1
 
 
 def test_campaign_list_skips_known_out_of_scope_payment_types():
