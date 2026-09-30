@@ -115,6 +115,7 @@ def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
             "error": True,
             "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
             "dependency_stage": "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+            "dependency_error_type": "TIMEOUT",
         },
     )
     service = PeriodProfitSkuAdvertisingService(
@@ -126,6 +127,7 @@ def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
     assert result["error"] is True
     assert result["code"] == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
     assert result["dependency_stage"] == "CPO_ALL_SKU_ORDERS_REPORT_CREATE"
+    assert result["dependency_error_type"] == "TIMEOUT"
 
 
 def test_runtime_shows_safe_historical_campaign_diagnostic():
@@ -212,6 +214,7 @@ def test_runtime_shows_safe_historical_dependency_stage():
                 "error": True,
                 "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
                 "dependency_stage": "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+                "dependency_error_type": "TIMEOUT",
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -225,7 +228,9 @@ def test_runtime_shows_safe_historical_dependency_stage():
 
     assert result["error"] is True
     assert result["dependency_stage"] == "CPO_ALL_SKU_ORDERS_REPORT_CREATE"
+    assert result["dependency_error_type"] == "TIMEOUT"
     assert "Этап запроса: CPO_ALL_SKU_ORDERS_REPORT_CREATE" in result["message"]
+    assert "Тип сбоя: TIMEOUT" in result["message"]
     assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
 
 

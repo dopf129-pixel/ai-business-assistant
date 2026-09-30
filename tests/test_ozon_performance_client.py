@@ -1,3 +1,5 @@
+import requests
+
 from api.ozon_performance_client import OzonPerformanceClient
 
 
@@ -77,3 +79,33 @@ def test_invalid_dates_do_not_make_requests():
     assert client.get_sku_expenses("2026-09-30", "2026-09-01")["error"] is True
     assert client.get_sku_expenses("invalid", "2026-09-01")["error"] is True
     assert session.calls == []
+
+
+def test_request_timeout_has_safe_dependency_category():
+    class _TimeoutSession:
+        def get(self, *_args, **_kwargs):
+            raise requests.exceptions.ReadTimeout("private request details")
+
+    result = OzonPerformanceClient(
+        "client", "secret", session=_TimeoutSession()
+    )._request("get", "/api/client/statistics/test", "token")
+
+    assert result == {
+        "error": True,
+        "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+        "dependency_error_type": "TIMEOUT",
+    }
+    assert "private request details" not in str(result)
+
+
+def test_connection_failure_has_safe_dependency_category():
+    class _ConnectionFailureSession:
+        def get(self, *_args, **_kwargs):
+            raise requests.exceptions.ConnectionError("private host details")
+
+    result = OzonPerformanceClient(
+        "client", "secret", session=_ConnectionFailureSession()
+    )._request("get", "/api/client/statistics/test", "token")
+
+    assert result["dependency_error_type"] == "CONNECTION_ERROR"
+    assert "private host details" not in str(result)

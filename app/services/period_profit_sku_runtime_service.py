@@ -50,6 +50,9 @@ class PeriodProfitSkuRuntimeService:
         "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
         "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
     })
+    HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES = frozenset({
+        "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
+    })
     PERIODS = (
         ("Сегодня", "TODAY"),
         ("7 дней", "7D"),
@@ -244,13 +247,25 @@ class PeriodProfitSkuRuntimeService:
                     dependency_stage = self._safe_historical_report_dependency_stage(
                         loaded.get("dependency_stage")
                     )
+                    dependency_error_type = (
+                        self._safe_historical_report_dependency_error_type(
+                            loaded.get("dependency_error_type")
+                        )
+                    )
                     if dependency_stage:
                         failure["dependency_stage"] = dependency_stage
-                        failure["message"] = (
-                            "Не удалось обратиться к Ozon Performance.\n"
-                            "Этап запроса: " + dependency_stage + "\n"
+                    if dependency_error_type:
+                        failure["dependency_error_type"] = dependency_error_type
+                    if dependency_stage or dependency_error_type:
+                        details = "Не удалось обратиться к Ozon Performance.\n"
+                        if dependency_stage:
+                            details += "Этап запроса: " + dependency_stage + "\n"
+                        if dependency_error_type:
+                            details += "Тип сбоя: " + dependency_error_type + "\n"
+                        details += (
                             "Код диагностики: OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
                         )
+                        failure["message"] = details
                 elif loaded.get("code") == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN":
                     payment_type = self._safe_campaign_payment_type(
                         loaded.get("campaign_payment_type")
@@ -995,6 +1010,12 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, str):
             return None
         return value if value in cls.HISTORICAL_REPORT_DEPENDENCY_STAGES else None
+
+    @classmethod
+    def _safe_historical_report_dependency_error_type(cls, value):
+        if not isinstance(value, str):
+            return None
+        return value if value in cls.HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES else None
 
     @staticmethod
     def _safe_historical_report_format_kind(value):

@@ -124,8 +124,20 @@ class OzonPerformanceClient:
                 timeout=30,
                 **kwargs,
             )
-        except requests.exceptions.RequestException:
-            return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
+        except requests.exceptions.RequestException as exc:
+            if isinstance(exc, requests.exceptions.Timeout):
+                error_type = "TIMEOUT"
+            elif isinstance(exc, requests.exceptions.SSLError):
+                error_type = "TLS_ERROR"
+            elif isinstance(exc, requests.exceptions.ConnectionError):
+                error_type = "CONNECTION_ERROR"
+            else:
+                error_type = "REQUEST_ERROR"
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+                "dependency_error_type": error_type,
+            }
         if response.status_code >= 400:
             # Never expose the raw body: it may echo credentials or request data.
             # HTTP status and failing date window suffice to locate the request.
