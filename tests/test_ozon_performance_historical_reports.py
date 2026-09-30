@@ -13,10 +13,28 @@ from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvert
 def test_cpc_and_cpo_columns_do_not_double_count():
     cpc = ("Кампания;123\nSKU;Название товара;Расход, Р, с НДС;Клики\n"
            "3921245627;Test;12,50;3\nВсего;;12,50;3\n").encode()
-    cpo = ("SKU;Расход, ₽;Расход (Оплата за клик), ₽\n"
-           "3921245627;7,25;12,50\n").encode()
+    cpo = ("SKU;SKU продвигаемого товара;Расход, ₽;Расход (Оплата за клик), ₽\n"
+           "1234567890;3921245627;7,25;12,50\n").encode()
     assert parse_report_csv(cpc, "CPC")[0]["expense"] == Decimal("12.50")
-    assert parse_report_csv(cpo, "CPO")[0]["expense"] == Decimal("7.25")
+    cpo_row = parse_report_csv(cpo, "CPO")[0]
+    assert cpo_row["sku"] == "3921245627"
+    assert cpo_row["expense"] == Decimal("7.25")
+
+
+def test_cpo_product_settings_without_expense_are_not_a_spend_report():
+    report = (
+        "SKU;Артикул;Название товара;Категория товара;Продвижение;"
+        "Предельная цена;Ставка, %;Ставка, ₽;Последнее изменение\n"
+        "1234567890;ARTICLE;Product;Category;Enabled;100;5;10;2026-08-01\n"
+    ).encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPO")
+
+    assert exc.value.report_format_stage == "CSV_HEADER_NOT_FOUND"
+    assert exc.value.report_format_kind == "CPO"
+    assert "Ставка, ₽" in exc.value.report_format_columns
+    assert "расход" not in " ".join(exc.value.report_format_columns).lower()
 
 
 def test_unknown_columns_fail_closed():
@@ -141,8 +159,15 @@ class _Client:
 class _AsyncReportClient:
     BASE_URL = "https://performance.test"
 
-    def __init__(self, states):
+    def __init__(self, states, create_method="post",
+                 create_endpoint="/api/client/statistics", download_content=None):
         self.states = list(states)
+        self.create_method = create_method
+        self.create_endpoint = create_endpoint
+        self.create_kwargs = None
+        self.download_content = download_content or (
+            "SKU;Название;Расход, Р, с НДС\n3921245627;Test;1,25\n".encode()
+        )
         self.poll_calls = 0
         self.session = SimpleNamespace(get=self._download)
 
@@ -151,19 +176,19 @@ class _AsyncReportClient:
 
     def _request(self, method, endpoint, token, **kwargs):
         assert token == "token"
-        if method == "post":
-            assert endpoint == "/api/client/statistics"
+        if endpoint == self.create_endpoint:
+            assert method == self.create_method
+            self.create_kwargs = kwargs
             return {"UUID": "00000000-0000-0000-0000-000000000000"}
         assert method == "get"
         assert endpoint == "/api/client/statistics/00000000-0000-0000-0000-000000000000"
         self.poll_calls += 1
         return self.states[min(self.poll_calls - 1, len(self.states) - 1)]
 
-    @staticmethod
-    def _download(*_args, **_kwargs):
+    def _download(self, *_args, **_kwargs):
         return SimpleNamespace(
             status_code=200,
-            content="SKU;Название;Расход, Р, с НДС\n3921245627;Test;1,25\n".encode(),
+            content=self.download_content,
         )
 
 
@@ -199,6 +224,30 @@ def test_async_report_polling_still_times_out_at_the_bounded_limit():
     assert exc.value.code == "OZON_HISTORICAL_REPORT_TIMEOUT"
     assert client.poll_calls == HistoricalPerformanceReports.MAX_POLLS
     assert sleep.call_count == HistoricalPerformanceReports.MAX_POLLS - 1
+
+
+def test_all_sku_cpo_orders_report_uses_time_bounds_query_and_promoted_sku():
+    content = (
+        "Дата;ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"
+        "2026-08-01;order-1;1234567890;3921245627;ARTICLE;7,25\n"
+    ).encode()
+    endpoint = "/api/client/statistics/all_sku_promo/orders/generate"
+    client = _AsyncReportClient(
+        [{"state": "OK", "link": "https://report.test/file.csv"}],
+        create_method="get", create_endpoint=endpoint, download_content=content,
+    )
+    service = HistoricalPerformanceReports(client)
+    params = {
+        "timeBounds.from": "2026-08-01T00:00:00Z",
+        "timeBounds.to": "2026-08-30T23:59:59Z",
+    }
+
+    rows = service._generate(
+        endpoint, params, "CPO", method="get", query_params=True
+    )
+
+    assert client.create_kwargs == {"params": params}
+    assert rows == [{"sku": "3921245627", "expense": Decimal("7.25"), "kind": "CPO"}]
 
 
 def test_campaign_list_skips_known_out_of_scope_payment_types():
@@ -265,16 +314,28 @@ def test_historical_requests_all_windows_and_types_without_manual_files():
     service._campaign_ids = lambda: ["123"]
     seen = []
 
-    def generate(endpoint, payload, kind):
-        seen.append((endpoint, payload, kind))
+    def generate(endpoint, payload, kind, **kwargs):
+        seen.append((endpoint, payload, kind, kwargs))
         return [{"sku": "3921245627", "expense": Decimal("1"), "kind": kind}]
 
     service._generate = generate
     result = service.load("2026-05-03", "2026-09-23")
     assert "error" not in result
     assert len([s for s in seen if s[2] == "CPC"]) == 3
-    assert len([s for s in seen if s[2] == "CPO"]) == 3
-    assert len(result["rows"]) == 6
+    selected_cpo = [s for s in seen if s[0] == "/api/client/statistic/orders/generate"]
+    all_products_cpo = [
+        s for s in seen
+        if s[0] == "/api/client/statistics/all_sku_promo/orders/generate"
+    ]
+    assert len(selected_cpo) == 3
+    assert len(all_products_cpo) == 3
+    assert all(call[3] == {} for call in selected_cpo)
+    assert all("from" in call[1] and "to" in call[1] for call in selected_cpo)
+    assert all(call[3] == {"method": "get", "query_params": True}
+               for call in all_products_cpo)
+    assert all("timeBounds.from" in call[1] and "timeBounds.to" in call[1]
+               for call in all_products_cpo)
+    assert len(result["rows"]) == 9
 
 
 def test_historical_failure_never_becomes_zero():
