@@ -461,6 +461,108 @@ def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
     )
 
 
+def test_campaign_lookup_retries_http_429_after_provider_cooldown():
+    class _RateLimitedLookupClient:
+        calls = 0
+
+        def _access_token(self, force=False):
+            return {"access_token": "token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            type(self).calls += 1
+            assert method == "get"
+            assert endpoint == "/api/client/campaign"
+            assert token == "token"
+            if "campaignIds" not in kwargs["params"]:
+                return {"list": [{
+                    "id": "27107278", "advObjectType": "SKU",
+                    "state": "CAMPAIGN_STATE_ARCHIVED",
+                    "fromDate": "2026-05-17", "createdAt": "2026-05-17",
+                }]}
+            if type(self).calls == 2:
+                return {
+                    "error": True,
+                    "code": "OZON_PERFORMANCE_HTTP_429",
+                    "status_code": 429,
+                    "retry_after_seconds": 7,
+                }
+            return {"list": [{
+                "id": "27107278", "paymentType": "CPC",
+                "advObjectType": "SKU",
+            }]}
+
+    client = _RateLimitedLookupClient()
+    with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
+        campaigns = HistoricalPerformanceReports(client)._campaign_ids(
+            date(2026, 8, 1), date(2026, 8, 30)
+        )
+
+    assert campaigns == ["27107278"]
+    assert client.calls == 3
+    sleep.assert_called_once_with(7)
+
+
+def test_campaign_lookup_does_not_retry_beyond_bounded_provider_cooldown():
+    class _LongCooldownClient:
+        calls = 0
+
+        def _access_token(self, force=False):
+            return {"access_token": "token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            type(self).calls += 1
+            if "campaignIds" in kwargs["params"]:
+                return {
+                    "error": True,
+                    "code": "OZON_PERFORMANCE_HTTP_429",
+                    "status_code": 429,
+                    "retry_after_seconds": 120,
+                }
+            return {"list": [{"id": "27107278", "advObjectType": "SKU"}]}
+
+    client = _LongCooldownClient()
+    with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
+        result = HistoricalPerformanceReports(client).load(
+            "2026-08-01", "2026-08-30"
+        )
+
+    assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert result["campaign_diagnostics"][0]["lookup_status"] == "HTTP_429"
+    assert client.calls == 2
+    sleep.assert_not_called()
+
+
+def test_http_429_does_not_retry_report_creation_get():
+    class _RateLimitedReportClient:
+        calls = 0
+
+        def _access_token(self, force=False):
+            return {"access_token": "token"}
+
+        def _request(self, *_args, **_kwargs):
+            type(self).calls += 1
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_HTTP_429",
+                "status_code": 429,
+                "retry_after_seconds": 1,
+            }
+
+    client = _RateLimitedReportClient()
+    service = HistoricalPerformanceReports(client)
+    with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
+        with pytest.raises(HistoricalReportError) as exc:
+            service._json(
+                "get",
+                "/api/client/statistics/all_sku_promo/orders/generate",
+                dependency_stage="CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+                params={"timeBounds.from": "2026-08-01T00:00:00Z"},
+            )
+
+    assert exc.value.code == "OZON_PERFORMANCE_HTTP_429"
+    assert client.calls == 1
+    sleep.assert_not_called()
+
 def test_campaign_missing_from_exact_lookup_remains_fail_closed():
     client = _Client(
         [{"id": "27107278", "advObjectType": "SKU"}], lookup_campaigns=[]

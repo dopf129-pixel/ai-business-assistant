@@ -176,6 +176,8 @@ class HistoricalPerformanceReports:
     CAMPAIGN_LOOKUP_BATCH_SIZE = 50
     MAX_CAMPAIGN_LOOKUP_IDS = 100
     MAX_CAMPAIGN_DIAGNOSTICS = 10
+    RATE_LIMIT_DEFAULT_RETRY_SECONDS = 5
+    RATE_LIMIT_MAX_RETRY_SECONDS = 60
     DEPENDENCY_ERROR_TYPES = frozenset({
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
@@ -337,6 +339,28 @@ class HistoricalPerformanceReports:
                 if token.get("error"):
                     raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
                 continue
+            if (
+                result.get("status_code") == 429
+                and attempt == 0
+                and str(method or "").lower() == "get"
+                and dependency_stage in self.RETRYABLE_DEPENDENCY_STAGES
+            ):
+                retry_after = result.get("retry_after_seconds")
+                if retry_after is None:
+                    retry_seconds = self.RATE_LIMIT_DEFAULT_RETRY_SECONDS
+                elif (
+                    isinstance(retry_after, (int, float))
+                    and not isinstance(retry_after, bool)
+                    and 0 <= retry_after <= self.RATE_LIMIT_MAX_RETRY_SECONDS
+                ):
+                    retry_seconds = retry_after
+                else:
+                    # Keep the error visible when the provider's cooldown is
+                    # longer than this worker may wait.
+                    retry_seconds = None
+                if retry_seconds is not None:
+                    time.sleep(retry_seconds)
+                    continue
             if result.get("error"):
                 code = result.get("code", "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE")
                 safe_stage = (
