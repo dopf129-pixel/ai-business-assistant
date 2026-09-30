@@ -1,5 +1,17 @@
 # Test Map
 
+## Ozon Performance HTTP 429 backoff
+
+Updated:
+
+- app/api/ozon_performance_client.py
+- app/api/ozon_performance_historical_reports.py
+- tests/test_ozon_performance_client.py
+- tests/test_ozon_performance_historical_reports.py
+
+Covers safe Retry-After parsing, one bounded retry for idempotent GET requests,
+no early retry beyond the wait cap, and no retry for GET report creation.
+
 ## Ozon campaign lookup failure diagnostics
 
 Updated:
