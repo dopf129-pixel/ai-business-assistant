@@ -102,7 +102,8 @@ def parse_report_csv(data, kind):
     }
     for delimiter in (";", ",", "\t"):
         for i, line in enumerate(lines[:12]):
-            header = [x.strip().strip("\ufeff").lower() for x in next(csv.reader([line], delimiter=delimiter))]
+            header_cells = next(csv.reader([line], delimiter=delimiter))
+            header = [x.strip().strip("\ufeff").lower() for x in header_cells]
             sku_cols = [j for j, value in enumerate(header) if value in aliases["sku"]]
             expense_cols = [j for j, value in enumerate(header) if value in aliases["expense"]]
             if len(sku_cols) != 1 or len(expense_cols) != 1:
@@ -118,6 +119,14 @@ def parse_report_csv(data, kind):
                         "OZON_HISTORICAL_REPORT_FORMAT",
                         report_format_stage="CSV_ROW_TOO_SHORT",
                     )
+                normalized_row = [
+                    cell.strip().strip("\ufeff").lower() for cell in row
+                ]
+                if len(normalized_row) == len(header) and normalized_row == header:
+                    # Some exported reports repeat the table header between
+                    # sections. It is unambiguous because every cell matches;
+                    # arbitrary non-numeric SKU labels still fail closed.
+                    continue
                 sku = row[sku_col].strip()
                 if sku.lower() in {"всего", "итого", "total", "bcero"}:
                     # Ozon's CPC CSV can label its total row "Bcero".
@@ -129,6 +138,8 @@ def parse_report_csv(data, kind):
                     raise HistoricalReportError(
                         "OZON_HISTORICAL_REPORT_FORMAT",
                         report_format_stage="CSV_UNKNOWN_ROW_LABEL",
+                        report_format_columns=header_cells,
+                        report_format_kind=kind,
                     )
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})
             if not output and summary_expenses:

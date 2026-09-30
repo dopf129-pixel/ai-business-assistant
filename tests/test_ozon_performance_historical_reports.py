@@ -104,7 +104,19 @@ def test_missing_campaign_total_without_sku_rows_stays_fail_closed():
     assert exc.value.report_format_stage == "CSV_SUMMARY_WITHOUT_SKU"
 
 
-def test_unknown_row_label_fails_with_safe_format_stage():
+def test_repeated_full_header_row_is_skipped():
+    report = (
+        "SKU продвигаемого товара;Название товара;Расход, ₽\n"
+        "SKU продвигаемого товара;Название товара;Расход, ₽\n"
+        "3921245627;Test;7,25\n"
+    ).encode()
+
+    assert parse_report_csv(report, "CPO") == [
+        {"sku": "3921245627", "expense": Decimal("7.25"), "kind": "CPO"},
+    ]
+
+
+def test_unknown_row_label_fails_with_safe_format_context():
     report = "SKU;Расход\nПримечание;0\n".encode()
 
     with pytest.raises(HistoricalReportError) as exc:
@@ -112,6 +124,9 @@ def test_unknown_row_label_fails_with_safe_format_stage():
 
     assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
+    assert exc.value.report_format_kind == "CPC"
+    assert exc.value.report_format_columns == ["SKU", "Расход"]
+    assert "Примечание" not in str(exc.value.report_format_columns)
 
 
 def test_load_returns_report_format_stage():
@@ -121,8 +136,8 @@ def test_load_returns_report_format_stage():
     def invalid_report(*_args):
         raise HistoricalReportError(
             "OZON_HISTORICAL_REPORT_FORMAT",
-            report_format_stage="CSV_HEADER_NOT_FOUND",
-            report_format_columns=["SKU товара", "Сумма расходов"],
+            report_format_stage="CSV_UNKNOWN_ROW_LABEL",
+            report_format_columns=["SKU продвигаемого товара", "Расход, ₽"],
             report_format_kind="CPO",
         )
 
@@ -131,8 +146,8 @@ def test_load_returns_report_format_stage():
 
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
-    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
-    assert result["report_format_columns"] == ["SKU товара", "Сумма расходов"]
+    assert result["report_format_stage"] == "CSV_UNKNOWN_ROW_LABEL"
+    assert result["report_format_columns"] == ["SKU продвигаемого товара", "Расход, ₽"]
     assert result["report_format_kind"] == "CPO"
 
 
