@@ -18,6 +18,7 @@ import requests
 class HistoricalReportError(Exception):
     def __init__(
         self, code, campaign_payment_type=None, campaign_id=None,
+        campaign_diagnostics=None, campaign_unknown_count=None,
         report_format_stage=None, report_format_columns=None,
         report_format_kind=None, dependency_stage=None,
         dependency_error_type=None,
@@ -25,6 +26,8 @@ class HistoricalReportError(Exception):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
         self.campaign_id = campaign_id
+        self.campaign_diagnostics = campaign_diagnostics
+        self.campaign_unknown_count = campaign_unknown_count
         self.report_format_stage = report_format_stage
         self.report_format_columns = report_format_columns
         self.report_format_kind = report_format_kind
@@ -170,6 +173,9 @@ class HistoricalPerformanceReports:
     MAX_POLLS = 30
     POLL_SECONDS = 5
     MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+    CAMPAIGN_LOOKUP_BATCH_SIZE = 50
+    MAX_CAMPAIGN_LOOKUP_IDS = 100
+    MAX_CAMPAIGN_DIAGNOSTICS = 10
     DEPENDENCY_ERROR_TYPES = frozenset({
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
@@ -180,6 +186,19 @@ class HistoricalPerformanceReports:
 
     @staticmethod
     def _safe_campaign_payment_type(value):
+        text = str(value or "").strip().upper()
+        if not text:
+            return "MISSING"
+        if (
+            len(text) > 64
+            or not text.isascii()
+            or not all(character.isalnum() or character == "_" for character in text)
+        ):
+            return "UNRECOGNIZED_VALUE"
+        return text
+
+    @staticmethod
+    def _safe_campaign_enum(value):
         text = str(value or "").strip().upper()
         if not text:
             return "MISSING"
@@ -227,6 +246,65 @@ class HistoricalPerformanceReports:
             or (ends is not None and ends < date_from)
             or (created is not None and created > date_to)
         )
+
+    @classmethod
+    def _campaign_diagnostic(cls, item, lookup_status):
+        def safe_date(key):
+            raw = item.get(key)
+            parsed = cls._campaign_date(raw)
+            if parsed is not None:
+                return parsed.isoformat()
+            return "MISSING" if raw in (None, "") else "UNPARSEABLE"
+
+        return {
+            "campaign_id": str(item.get("id", "")),
+            "payment_type": cls._safe_campaign_payment_type(item.get("paymentType")),
+            "adv_object_type": cls._safe_campaign_enum(item.get("advObjectType")),
+            "state": cls._safe_campaign_enum(item.get("state")),
+            "from_date": safe_date("fromDate"),
+            "to_date": safe_date("toDate"),
+            "created_at": safe_date("createdAt"),
+            "lookup_status": lookup_status,
+        }
+
+    def _lookup_campaigns(self, campaigns):
+        """Recheck ambiguous campaign IDs without the initial object-type filter."""
+        refreshed = {}
+        lookup_status = {}
+        campaign_ids = list(dict.fromkeys(str(item["id"]) for item in campaigns))
+        lookup_ids = campaign_ids[:self.MAX_CAMPAIGN_LOOKUP_IDS]
+        lookup_status.update({
+            campaign_id: "LOOKUP_LIMIT_REACHED"
+            for campaign_id in campaign_ids[self.MAX_CAMPAIGN_LOOKUP_IDS:]
+        })
+        for offset in range(0, len(lookup_ids), self.CAMPAIGN_LOOKUP_BATCH_SIZE):
+            batch = lookup_ids[offset:offset + self.CAMPAIGN_LOOKUP_BATCH_SIZE]
+            try:
+                result = self._json(
+                    "get", "/api/client/campaign",
+                    params={"campaignIds": batch, "page": 1, "pageSize": len(batch)},
+                    dependency_stage="CAMPAIGN_LIST",
+                )
+            except HistoricalReportError as exc:
+                if exc.code == "OZON_PERFORMANCE_AUTH_UNAVAILABLE":
+                    raise
+                lookup_status.update({campaign_id: "UNAVAILABLE" for campaign_id in batch})
+                continue
+            items = result.get("list")
+            if not isinstance(items, list):
+                lookup_status.update({campaign_id: "INVALID_RESPONSE" for campaign_id in batch})
+                continue
+            batch_set = set(batch)
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                campaign_id = str(item.get("id", ""))
+                if campaign_id in batch_set and campaign_id.isdecimal():
+                    refreshed[campaign_id] = item
+                    lookup_status[campaign_id] = "FOUND"
+            for campaign_id in batch:
+                lookup_status.setdefault(campaign_id, "NOT_FOUND")
+        return refreshed, lookup_status
 
     def _json(self, method, endpoint, *, dependency_stage=None, **kwargs):
         token = self.client._access_token()
@@ -277,6 +355,7 @@ class HistoricalPerformanceReports:
 
     def _campaign_ids(self, date_from=None, date_to=None):
         ids = []
+        unknown_campaigns = []
         for page in range(1, 101):
             result = self._json("get", "/api/client/campaign",
                                 params={"advObjectType": "SKU", "page": page, "pageSize": 100},
@@ -304,16 +383,50 @@ class HistoricalPerformanceReports:
                 if payment_type == "CPC":
                     ids.append(str(item["id"]))
                 elif payment_type not in ("CPO", "CPM"):
-                    raise HistoricalReportError(
-                        "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
-                        campaign_payment_type=self._safe_campaign_payment_type(
-                            payment_type
-                        ),
-                        campaign_id=str(item["id"]),
-                    )
+                    unknown_campaigns.append(dict(item))
             if len(items) < 100:
-                return list(dict.fromkeys(ids))
-        raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INCOMPLETE")
+                break
+        else:
+            raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INCOMPLETE")
+
+        if unknown_campaigns:
+            refreshed, lookup_status = self._lookup_campaigns(unknown_campaigns)
+            unresolved = []
+            for listed_item in unknown_campaigns:
+                campaign_id = str(listed_item["id"])
+                item = dict(listed_item)
+                detailed_item = refreshed.get(campaign_id)
+                if detailed_item:
+                    # Prefer non-empty values from the unfiltered lookup while
+                    # retaining useful fields from the paginated listing.
+                    item.update({
+                        key: value for key, value in detailed_item.items()
+                        if value not in (None, "")
+                    })
+                if (
+                    date_from is not None
+                    and date_to is not None
+                    and self._campaign_outside_period(item, date_from, date_to)
+                ):
+                    continue
+                payment_type = item.get("paymentType")
+                if payment_type == "CPC":
+                    ids.append(campaign_id)
+                elif payment_type not in ("CPO", "CPM"):
+                    unresolved.append(self._campaign_diagnostic(
+                        item, lookup_status.get(campaign_id, "UNAVAILABLE")
+                    ))
+            if unresolved:
+                first = unresolved[0]
+                raise HistoricalReportError(
+                    "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+                    campaign_payment_type=first["payment_type"],
+                    campaign_id=first["campaign_id"],
+                    campaign_diagnostics=unresolved[:self.MAX_CAMPAIGN_DIAGNOSTICS],
+                    campaign_unknown_count=len(unresolved),
+                )
+
+        return list(dict.fromkeys(ids))
 
     def _download(self, uuid):
         token = self.client._access_token()
@@ -456,6 +569,10 @@ class HistoricalPerformanceReports:
                 result["campaign_payment_type"] = exc.campaign_payment_type
             if exc.campaign_id is not None:
                 result["campaign_id"] = exc.campaign_id
+            if exc.campaign_diagnostics:
+                result["campaign_diagnostics"] = exc.campaign_diagnostics
+            if exc.campaign_unknown_count is not None:
+                result["campaign_unknown_count"] = exc.campaign_unknown_count
             if exc.report_format_stage is not None:
                 result["report_format_stage"] = exc.report_format_stage
             if exc.report_format_columns:
