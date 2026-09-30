@@ -27,6 +27,25 @@ def test_unknown_columns_fail_closed():
     assert exc.value.report_format_stage == "CSV_HEADER_NOT_FOUND"
 
 
+def test_unknown_header_reports_safe_column_names_without_data_rows():
+    report = (
+        "Кампания № 42104957, период 01.08.2026-30.08.2026\n"
+        "SKU товара;Расходы на продвижение, ₽;Выручка, ₽\n"
+        "3921245627;12,50;100,00\n"
+    ).encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPC")
+
+    assert exc.value.report_format_stage == "CSV_HEADER_NOT_FOUND"
+    assert exc.value.report_format_kind == "CPC"
+    assert exc.value.report_format_columns == [
+        "SKU товара", "Расходы на продвижение, ₽", "Выручка, ₽",
+    ]
+    assert "3921245627" not in str(exc.value.report_format_columns)
+    assert "12,50" not in str(exc.value.report_format_columns)
+
+
 def test_cpc_summary_row_with_b_cero_marker_is_accepted_when_zero():
     report = (
         "sku;Название товара;Расход, Р, с НДС;Клики\n"
@@ -74,6 +93,8 @@ def test_load_returns_report_format_stage():
         raise HistoricalReportError(
             "OZON_HISTORICAL_REPORT_FORMAT",
             report_format_stage="CSV_HEADER_NOT_FOUND",
+            report_format_columns=["SKU товара", "Сумма расходов"],
+            report_format_kind="CPO",
         )
 
     service._generate = invalid_report
@@ -82,6 +103,8 @@ def test_load_returns_report_format_stage():
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
     assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
+    assert result["report_format_columns"] == ["SKU товара", "Сумма расходов"]
+    assert result["report_format_kind"] == "CPO"
 
 
 class _Client:
