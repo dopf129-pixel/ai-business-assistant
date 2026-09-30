@@ -1,5 +1,7 @@
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from math import ceil, isfinite
 from threading import Lock
 
 import requests
@@ -113,6 +115,34 @@ class OzonPerformanceClient:
         self._token_expires_at = time.monotonic() + lifetime
         return {"error": False, "access_token": token, "cache_hit": False}
 
+    @staticmethod
+    def _retry_after_seconds(response):
+        headers = getattr(response, "headers", None)
+        get_header = getattr(headers, "get", None)
+        raw = get_header("Retry-After") if callable(get_header) else None
+        if raw is None:
+            return None
+        raw = str(raw).strip()
+        if not raw:
+            return None
+        try:
+            seconds = float(raw)
+        except (TypeError, ValueError, OverflowError):
+            try:
+                retry_at = parsedate_to_datetime(raw)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return None
+        if not isfinite(seconds) or seconds < 0:
+            return None
+        # Preserve a sentinel above the retry cap so callers never retry early
+        # when Ozon asks for a longer cooldown.
+        if seconds > 86400:
+            return 86401
+        return int(ceil(seconds))
+
     def _request(self, method, endpoint, token, **kwargs):
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if token:
@@ -141,11 +171,16 @@ class OzonPerformanceClient:
         if response.status_code >= 400:
             # Never expose the raw body: it may echo credentials or request data.
             # HTTP status and failing date window suffice to locate the request.
-            return {
+            result = {
                 "error": True,
                 "code": "OZON_PERFORMANCE_HTTP_" + str(response.status_code),
                 "status_code": response.status_code,
             }
+            if response.status_code == 429:
+                retry_after = self._retry_after_seconds(response)
+                if retry_after is not None:
+                    result["retry_after_seconds"] = retry_after
+            return result
         try:
             result = response.json()
         except (TypeError, ValueError):
