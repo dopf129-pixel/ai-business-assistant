@@ -274,7 +274,7 @@ class HistoricalPerformanceReports:
             if error_type in cls.DEPENDENCY_ERROR_TYPES:
                 return "DEPENDENCY_" + error_type
             return "DEPENDENCY_UNAVAILABLE"
-        match = re.fullmatch(r"OZON_PERFORMANCE_HTTP_(\\d{3})", str(exc.code))
+        match = re.fullmatch(r"OZON_PERFORMANCE_HTTP_(\d{3})", str(exc.code))
         if match:
             status_code = int(match.group(1))
             if 400 <= status_code <= 599:
