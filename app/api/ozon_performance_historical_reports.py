@@ -89,7 +89,11 @@ def parse_report_csv(data, kind):
     text = _decode(data)
     lines = text.splitlines()
     aliases = {
-        "sku": {"sku", "sku товара", "sku продвигаемого товара"},
+        # For pay-per-order order reports, the cost belongs to the promoted
+        # product. The separate order SKU can be different and must not receive
+        # the advertising expense.
+        "sku": ({"sku", "sku товара", "sku продвигаемого товара"}
+                if kind == "CPC" else {"sku продвигаемого товара"}),
         "expense": ({"расход, р, с ндс", "расход, ₽, с ндс", "расход, ₽", "расход, р", "расход"}
                     if kind == "CPC" else {"расход, ₽", "расход, р", "расход"}),
     }
@@ -245,8 +249,9 @@ class HistoricalPerformanceReports:
             return response.content
         raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED")
 
-    def _generate(self, endpoint, payload, kind):
-        created = self._json("post", endpoint, json=payload)
+    def _generate(self, endpoint, payload, kind, *, method="post", query_params=False):
+        request_payload = {"params" if query_params else "json": payload}
+        created = self._json(method, endpoint, **request_payload)
         uuid = str(created.get("UUID") or "")
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid):
             raise HistoricalReportError("OZON_HISTORICAL_REPORT_ID_INVALID")
@@ -306,12 +311,18 @@ class HistoricalPerformanceReports:
                         {"campaigns": batch, "dateFrom": current.isoformat(),
                          "dateTo": finish.isoformat()},
                         "CPC"))
-                # CPO selected products are a distinct cost, never the
-                # "Расход (Оплата за клик)" comparison field in this report.
+                # CPO spend comes from order-level reports so the charge can be
+                # assigned to the promoted SKU. Selected products and the
+                # account-wide all-products promotion use separate reports.
                 rows.extend(self._generate(
-                    "/api/client/statistic/products/generate",
+                    "/api/client/statistic/orders/generate",
                     {"from": current.isoformat() + "T00:00:00Z",
                      "to": finish.isoformat() + "T23:59:59Z"}, "CPO"))
+                rows.extend(self._generate(
+                    "/api/client/statistics/all_sku_promo/orders/generate",
+                    {"timeBounds.from": current.isoformat() + "T00:00:00Z",
+                     "timeBounds.to": finish.isoformat() + "T23:59:59Z"}, "CPO",
+                    method="get", query_params=True))
                 current = finish + timedelta(days=1)
             return {"rows": rows, "external_call_count": self.calls}
         except HistoricalReportError as exc:
