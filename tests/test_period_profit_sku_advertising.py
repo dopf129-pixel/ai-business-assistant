@@ -300,7 +300,7 @@ def test_runtime_shows_exact_campaign_lookup_and_safe_record_metadata():
                     "from_date": "2026-08-01",
                     "to_date": "2026-08-30",
                     "created_at": "MISSING",
-                    "lookup_status": "NOT_FOUND",
+                    "lookup_status": "HTTP_400",
                 }],
             }
 
@@ -313,9 +313,21 @@ def test_runtime_shows_exact_campaign_lookup_and_safe_record_metadata():
         {"sku": "101"},
     )
 
-    assert "lookup=NOT_FOUND" in result["message"]
+    assert "lookup=HTTP_400" in result["message"]
     assert "state=CAMPAIGN_STATE_FINISHED" in result["message"]
     assert "fromDate=2026-08-01" in result["message"]
+
+
+def test_runtime_preserves_safe_campaign_lookup_categories():
+    diagnostics = PeriodProfitSkuRuntimeService._safe_historical_campaign_diagnostics([
+        {"campaign_id": "1", "lookup_status": "HTTP_400"},
+        {"campaign_id": "2", "lookup_status": "DEPENDENCY_TIMEOUT"},
+        {"campaign_id": "3", "lookup_status": "HTTP_600"},
+    ])
+
+    assert [item["lookup_status"] for item in diagnostics] == [
+        "HTTP_400", "DEPENDENCY_TIMEOUT", "UNAVAILABLE",
+    ]
 
 
 def test_runtime_filters_unsafe_campaign_metadata():
