@@ -27,6 +27,17 @@ def test_unknown_columns_fail_closed():
     assert exc.value.report_format_stage == "CSV_HEADER_NOT_FOUND"
 
 
+def test_cpc_expense_column_with_ruble_symbol_and_vat_is_supported():
+    report = (
+        "SKU;Название товара;Расход, ₽, с НДС\\n"
+        "3921245627;Test;12,50\\n"
+    ).encode()
+
+    rows = parse_report_csv(report, "CPC")
+
+    assert rows == [{"sku": "3921245627", "expense": Decimal("12.50"), "kind": "CPC"}]
+
+
 def test_unknown_header_reports_safe_column_names_without_data_rows():
     report = (
         "Кампания № 42104957, период 01.08.2026-30.08.2026\n"
