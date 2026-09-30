@@ -4,9 +4,10 @@ from api.ozon_performance_client import OzonPerformanceClient
 
 
 class _Response:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self.payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self):
         return self.payload
@@ -72,6 +73,27 @@ def test_failed_window_returns_error_without_partial_rows_or_private_body():
                       "failed_window_to": "2026-07-01"}
     assert len(_statistics(session)) == 2
 
+
+def test_http_429_exposes_only_safe_retry_after_seconds():
+    class _RateLimitedSession:
+        def get(self, *_args, **_kwargs):
+            return _Response(
+                {"message": "private response body"},
+                429,
+                {"Retry-After": "12"},
+            )
+
+    result = OzonPerformanceClient(
+        "client", "secret", session=_RateLimitedSession()
+    )._request("get", "/api/client/campaign", "token")
+
+    assert result == {
+        "error": True,
+        "code": "OZON_PERFORMANCE_HTTP_429",
+        "status_code": 429,
+        "retry_after_seconds": 12,
+    }
+    assert "private response body" not in str(result)
 
 def test_invalid_dates_do_not_make_requests():
     session = _Session()
