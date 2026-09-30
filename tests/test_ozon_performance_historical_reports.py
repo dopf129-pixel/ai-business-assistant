@@ -155,9 +155,9 @@ class _Client:
     def __init__(self, campaigns=None):
         self._token = {"access_token": "token"}
         self.campaigns = campaigns or [
-            {"id": "123", "paymentType": "CPC"},
-            {"id": "456", "paymentType": "CPM"},
-            {"id": "789", "paymentType": "CPO"},
+            {"id": "123", "paymentType": "CPC", "advObjectType": "SKU"},
+            {"id": "456", "paymentType": "CPM", "advObjectType": "BANNER"},
+            {"id": "789", "paymentType": "CPO", "advObjectType": "SKU"},
         ]
 
     def _access_token(self, force=False):
@@ -270,27 +270,29 @@ def test_campaign_list_skips_known_out_of_scope_payment_types():
     assert service._campaign_ids() == ["123"]
 
 
-def test_campaign_list_uses_sku_filter_when_payment_type_is_missing():
-    service = HistoricalPerformanceReports(_Client([
-        {"id": "42104957", "advObjectType": "SKU"},
-        # advObjectType is optional in some campaign responses. The request
-        # itself is filtered to SKU, so an omitted field still has that scope.
-        {"id": "42104958"},
-    ]))
-
-    assert service._campaign_ids() == ["42104957", "42104958"]
-
-
-def test_campaign_list_rejects_conflicting_scope_when_payment_type_is_missing():
-    service = HistoricalPerformanceReports(_Client([
-        {"id": "123", "advObjectType": "BANNER"},
-    ]))
+@pytest.mark.parametrize("campaign", [
+    {"id": "42104957", "advObjectType": "SKU"},
+    # Some responses omit advObjectType too; neither missing field identifies
+    # the payment model.
+    {"id": "42104958"},
+])
+def test_campaign_list_fails_closed_when_payment_type_is_missing(campaign):
+    service = HistoricalPerformanceReports(_Client([campaign]))
 
     with pytest.raises(HistoricalReportError) as exc:
         service._campaign_ids()
 
     assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert exc.value.campaign_payment_type == "MISSING"
+    assert exc.value.campaign_id == campaign["id"]
+
+
+def test_campaign_list_ignores_cpo_sku_campaigns_for_cpc_report():
+    service = HistoricalPerformanceReports(_Client([
+        {"id": "123", "paymentType": "CPO", "advObjectType": "SKU"},
+    ]))
+
+    assert service._campaign_ids() == []
 
 
 def test_campaign_list_fails_closed_for_unrecognized_payment_types():
@@ -306,15 +308,15 @@ def test_campaign_list_fails_closed_for_unrecognized_payment_types():
 
 def test_historical_campaign_error_returns_payment_type_diagnostic():
     service = HistoricalPerformanceReports(_Client([
-        {"id": "123", "paymentType": "CAMPAIGN_TYPE_INVALID"},
+        {"id": "42104957", "advObjectType": "SKU"},
     ]))
 
     result = service.load("2026-08-01", "2026-08-30")
 
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
-    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
-    assert result["campaign_id"] == "123"
+    assert result["campaign_payment_type"] == "MISSING"
+    assert result["campaign_id"] == "42104957"
 
 
 def test_historical_campaign_diagnostic_sanitizes_unexpected_values():
