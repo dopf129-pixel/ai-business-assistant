@@ -29,7 +29,7 @@ def test_unknown_columns_fail_closed():
 
 def test_cpc_expense_column_with_ruble_symbol_and_vat_is_supported():
     report = (
-        "SKU;Название товара;Расход, ₽, с НДС\\n"
+        "SKU;Название товара;Расход, ₽, с НДС\n"
         "3921245627;Test;12,50\\n"
     ).encode()
 
