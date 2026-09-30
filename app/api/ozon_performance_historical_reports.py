@@ -18,12 +18,15 @@ import requests
 class HistoricalReportError(Exception):
     def __init__(
         self, code, campaign_payment_type=None, campaign_id=None,
-        report_format_stage=None,
+        report_format_stage=None, report_format_columns=None,
+        report_format_kind=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
         self.campaign_id = campaign_id
         self.report_format_stage = report_format_stage
+        self.report_format_columns = report_format_columns
+        self.report_format_kind = report_format_kind
         super().__init__(code)
 
 
@@ -45,6 +48,40 @@ def _decode(data):
         except UnicodeDecodeError:
             continue
     raise HistoricalReportError("OZON_HISTORICAL_REPORT_ENCODING")
+
+
+def _report_header_columns(lines):
+    hints = (
+        "sku", "артикул", "товар", "расход", "expense", "spend",
+        "стоим", "оплат", "заказ", "кампан", "клик", "показ",
+        "выруч", "сумма", "дата",
+    )
+    candidates = []
+    for delimiter_index, delimiter in enumerate((";", ",", "\t")):
+        for line_index, line in enumerate(lines[:12]):
+            try:
+                cells = next(csv.reader([line], delimiter=delimiter))
+            except csv.Error:
+                continue
+            cells = [
+                " ".join(cell.replace("\ufeff", "").replace("\u00a0", " ").split())
+                for cell in cells
+            ]
+            cells = [cell for cell in cells if cell]
+            if not 2 <= len(cells) <= 24:
+                continue
+            if any(len(cell) > 64 or any(char.isdigit() for char in cell) for cell in cells):
+                continue
+            hint_count = sum(
+                any(hint in cell.casefold() for hint in hints)
+                for cell in cells
+            )
+            if hint_count < 2:
+                continue
+            candidates.append((len(cells), line_index, -delimiter_index, cells))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[:3])[3]
 
 
 def parse_report_csv(data, kind):
@@ -105,6 +142,8 @@ def parse_report_csv(data, kind):
     raise HistoricalReportError(
         "OZON_HISTORICAL_REPORT_FORMAT",
         report_format_stage="CSV_HEADER_NOT_FOUND",
+        report_format_columns=_report_header_columns(lines),
+        report_format_kind=kind,
     )
 
 
@@ -287,4 +326,8 @@ class HistoricalPerformanceReports:
                 result["campaign_id"] = exc.campaign_id
             if exc.report_format_stage is not None:
                 result["report_format_stage"] = exc.report_format_stage
+            if exc.report_format_columns:
+                result["report_format_columns"] = exc.report_format_columns
+            if exc.report_format_kind in {"CPC", "CPO"}:
+                result["report_format_kind"] = exc.report_format_kind
             return result
