@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -131,7 +132,7 @@ def test_unknown_row_label_fails_with_safe_format_context():
 
 def test_load_returns_report_format_stage():
     service = HistoricalPerformanceReports(_Client())
-    service._campaign_ids = lambda: ["123"]
+    service._campaign_ids = lambda *_args: ["123"]
 
     def invalid_report(*_args):
         raise HistoricalReportError(
@@ -268,6 +269,49 @@ def test_all_sku_cpo_orders_report_uses_time_bounds_query_and_promoted_sku():
 def test_campaign_list_skips_known_out_of_scope_payment_types():
     service = HistoricalPerformanceReports(_Client())
     assert service._campaign_ids() == ["123"]
+
+
+@pytest.mark.parametrize("campaign_dates", [
+    {"fromDate": "2026-08-31"},
+    {"createdAt": "2026-08-31T00:00:00Z"},
+    {"toDate": "2026-07-31"},
+])
+def test_campaign_list_skips_campaigns_outside_requested_period(campaign_dates):
+    service = HistoricalPerformanceReports(_Client([{
+        "id": "42104957", "advObjectType": "SKU", **campaign_dates,
+    }]))
+
+    assert service._campaign_ids(date(2026, 8, 1), date(2026, 8, 30)) == []
+
+
+def test_load_ignores_later_campaign_with_missing_payment_type():
+    service = HistoricalPerformanceReports(_Client([{
+        "id": "42104957", "advObjectType": "SKU",
+        "fromDate": "2026-09-01", "createdAt": "2026-09-01T00:00:00Z",
+    }]))
+    generated = []
+    service._generate = lambda endpoint, *_args, **_kwargs: generated.append(endpoint) or []
+
+    result = service.load("2026-08-01", "2026-08-30")
+
+    assert "error" not in result
+    assert generated == [
+        "/api/client/statistic/orders/generate",
+        "/api/client/statistics/all_sku_promo/orders/generate",
+    ]
+
+
+def test_missing_payment_type_still_fails_when_campaign_overlaps_period():
+    service = HistoricalPerformanceReports(_Client([{
+        "id": "42104957", "advObjectType": "SKU",
+        "fromDate": "2026-08-30", "createdAt": "2026-08-01T00:00:00Z",
+    }]))
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._campaign_ids(date(2026, 8, 1), date(2026, 8, 30))
+
+    assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert exc.value.campaign_id == "42104957"
 
 
 @pytest.mark.parametrize("campaign", [
@@ -482,7 +526,7 @@ def test_post_dependency_failure_is_not_retried():
 
 def test_historical_requests_all_windows_and_types_without_manual_files():
     service = HistoricalPerformanceReports(_Client())
-    service._campaign_ids = lambda: ["123"]
+    service._campaign_ids = lambda *_args: ["123"]
     seen = []
 
     def generate(endpoint, payload, kind, **kwargs):
@@ -511,7 +555,7 @@ def test_historical_requests_all_windows_and_types_without_manual_files():
 
 def test_historical_failure_never_becomes_zero():
     service = HistoricalPerformanceReports(_Client())
-    service._campaign_ids = lambda: ["123"]
+    service._campaign_ids = lambda *_args: ["123"]
     def failed(*_args):
         raise HistoricalReportError("OZON_HISTORICAL_REPORT_FAILED")
     service._generate = failed
