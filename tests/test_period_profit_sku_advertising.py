@@ -182,6 +182,7 @@ def test_historical_campaign_payment_type_survives_advertising_service():
     assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert result["campaign_payment_type"] == "MISSING"
     assert result["campaign_id"] == "42104957"
+    assert result["campaign_diagnostics"][0]["lookup_status"] == "FOUND"
 
 
 def test_historical_report_format_stage_survives_advertising_service(monkeypatch):
@@ -280,6 +281,66 @@ def test_runtime_omits_non_numeric_campaign_id_from_diagnostic():
 
     assert "ID кампании" not in result["message"]
     assert "secret" not in result["message"]
+
+
+def test_runtime_shows_exact_campaign_lookup_and_safe_record_metadata():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+                "campaign_payment_type": "MISSING",
+                "campaign_id": "27107278",
+                "campaign_unknown_count": 1,
+                "campaign_diagnostics": [{
+                    "campaign_id": "27107278",
+                    "payment_type": "MISSING",
+                    "adv_object_type": "SKU",
+                    "state": "CAMPAIGN_STATE_FINISHED",
+                    "from_date": "2026-08-01",
+                    "to_date": "2026-08-30",
+                    "created_at": "MISSING",
+                    "lookup_status": "NOT_FOUND",
+                }],
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "lookup=NOT_FOUND" in result["message"]
+    assert "state=CAMPAIGN_STATE_FINISHED" in result["message"]
+    assert "fromDate=2026-08-01" in result["message"]
+
+
+def test_runtime_filters_unsafe_campaign_metadata():
+    assert PeriodProfitSkuRuntimeService._safe_historical_campaign_diagnostics([
+        {
+            "campaign_id": "27107278",
+            "payment_type": "MISSING",
+            "adv_object_type": "SKU\nTOKEN",
+            "state": "campaign <private>",
+            "from_date": ["not-a-date"],
+            "to_date": "2026-08-30",
+            "created_at": "MISSING",
+            "lookup_status": "TOKEN=bad",
+        },
+        {"campaign_id": "id\ninjection"},
+    ]) == [{
+        "campaign_id": "27107278",
+        "payment_type": "MISSING",
+        "adv_object_type": "UNRECOGNIZED_VALUE",
+        "state": "UNRECOGNIZED_VALUE",
+        "from_date": "UNPARSEABLE",
+        "to_date": "2026-08-30",
+        "created_at": "MISSING",
+        "lookup_status": "UNAVAILABLE",
+    }]
 
 
 def test_runtime_shows_safe_historical_report_format_stage():

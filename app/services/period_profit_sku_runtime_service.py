@@ -1,5 +1,6 @@
 from math import isfinite
 from contextvars import ContextVar
+from datetime import date
 
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -267,18 +268,57 @@ class PeriodProfitSkuRuntimeService:
                         )
                         failure["message"] = details
                 elif loaded.get("code") == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN":
-                    payment_type = self._safe_campaign_payment_type(
-                        loaded.get("campaign_payment_type")
+                    campaign_diagnostics = self._safe_historical_campaign_diagnostics(
+                        loaded.get("campaign_diagnostics")
+                    )
+                    payment_type = (
+                        campaign_diagnostics[0]["payment_type"]
+                        if campaign_diagnostics
+                        else self._safe_campaign_payment_type(
+                            loaded.get("campaign_payment_type")
+                        )
                     )
                     failure["campaign_payment_type"] = payment_type
                     failure["message"] = (
                         "Не распознан тип рекламной кампании Ozon.\n"
                         "paymentType: " + payment_type + "\n"
                     )
-                    campaign_id = str(loaded.get("campaign_id") or "").strip()
+                    campaign_id = (
+                        campaign_diagnostics[0]["campaign_id"]
+                        if campaign_diagnostics
+                        else str(loaded.get("campaign_id") or "").strip()
+                    )
                     if campaign_id.isascii() and campaign_id.isdecimal():
                         failure["campaign_id"] = campaign_id
                         failure["message"] += "ID кампании: " + campaign_id + "\n"
+                    if campaign_diagnostics:
+                        failure["campaign_diagnostics"] = campaign_diagnostics
+                        unknown_count = loaded.get("campaign_unknown_count")
+                        if (
+                            isinstance(unknown_count, int)
+                            and not isinstance(unknown_count, bool)
+                            and unknown_count >= len(campaign_diagnostics)
+                        ):
+                            failure["campaign_unknown_count"] = unknown_count
+                        else:
+                            unknown_count = len(campaign_diagnostics)
+                        for item in campaign_diagnostics:
+                            failure["message"] += (
+                                "Сверка Ozon: ID " + item["campaign_id"]
+                                + "; paymentType=" + item["payment_type"]
+                                + "; advObjectType=" + item["adv_object_type"]
+                                + "; state=" + item["state"]
+                                + "; fromDate=" + item["from_date"]
+                                + "; toDate=" + item["to_date"]
+                                + "; createdAt=" + item["created_at"]
+                                + "; lookup=" + item["lookup_status"] + "\n"
+                            )
+                        if unknown_count > len(campaign_diagnostics):
+                            failure["message"] += (
+                                "Показаны первые " + str(len(campaign_diagnostics))
+                                + " из " + str(unknown_count)
+                                + " кампаний с неизвестным типом.\n"
+                            )
                     failure["message"] += (
                         "Код диагностики: OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
                     )
@@ -990,14 +1030,75 @@ class PeriodProfitSkuRuntimeService:
     @staticmethod
     def _safe_campaign_payment_type(value):
         text = str(value or "").strip().upper()
+        if not text:
+            return "MISSING"
         if (
-            not text
-            or len(text) > 64
+            len(text) > 64
             or not text.isascii()
             or not all(character.isalnum() or character == "_" for character in text)
         ):
             return "UNRECOGNIZED_VALUE"
         return text
+
+    @staticmethod
+    def _safe_campaign_enum(value):
+        text = str(value or "").strip().upper()
+        if not text:
+            return "MISSING"
+        if (
+            len(text) > 64
+            or not text.isascii()
+            or not all(character.isalnum() or character == "_" for character in text)
+        ):
+            return "UNRECOGNIZED_VALUE"
+        return text
+
+    @staticmethod
+    def _safe_campaign_date(value):
+        if not isinstance(value, str):
+            return "UNPARSEABLE"
+        if value in {"MISSING", "UNPARSEABLE"}:
+            return value
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError:
+            return "UNPARSEABLE"
+
+    @classmethod
+    def _safe_historical_campaign_diagnostics(cls, value):
+        if not isinstance(value, (list, tuple)):
+            return []
+        diagnostics = []
+        lookup_statuses = {
+            "FOUND", "NOT_FOUND", "UNAVAILABLE", "INVALID_RESPONSE",
+            "LOOKUP_LIMIT_REACHED",
+        }
+        for item in value[:10]:
+            if not isinstance(item, dict):
+                continue
+            campaign_id = str(item.get("campaign_id") or "").strip()
+            if not campaign_id.isascii() or not campaign_id.isdecimal():
+                continue
+            lookup_status = item.get("lookup_status")
+            diagnostics.append({
+                "campaign_id": campaign_id,
+                "payment_type": cls._safe_campaign_payment_type(
+                    item.get("payment_type")
+                ),
+                "adv_object_type": cls._safe_campaign_enum(
+                    item.get("adv_object_type")
+                ),
+                "state": cls._safe_campaign_enum(item.get("state")),
+                "from_date": cls._safe_campaign_date(item.get("from_date")),
+                "to_date": cls._safe_campaign_date(item.get("to_date")),
+                "created_at": cls._safe_campaign_date(item.get("created_at")),
+                "lookup_status": (
+                    lookup_status
+                    if isinstance(lookup_status, str) and lookup_status in lookup_statuses
+                    else "UNAVAILABLE"
+                ),
+            })
+        return diagnostics
 
     @classmethod
     def _safe_historical_report_format_stage(cls, value):
