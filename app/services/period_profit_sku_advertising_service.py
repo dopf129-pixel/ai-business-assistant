@@ -47,6 +47,7 @@ class PeriodProfitSkuAdvertisingService:
                 **({key: result[key] for key in (
                     "failed_window_from", "failed_window_to", "status_code",
                     "campaign_payment_type", "campaign_id",
+                    "campaign_diagnostics", "campaign_unknown_count",
                     "report_format_stage", "report_format_columns",
                     "report_format_kind", "dependency_stage",
                     "dependency_error_type",
