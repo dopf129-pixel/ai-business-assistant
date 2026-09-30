@@ -186,9 +186,9 @@ def test_runtime_shows_safe_historical_report_format_stage():
             return {
                 "error": True,
                 "code": "OZON_HISTORICAL_REPORT_FORMAT",
-                "report_format_stage": "CSV_HEADER_NOT_FOUND",
+                "report_format_stage": "CSV_UNKNOWN_ROW_LABEL",
                 "report_format_kind": "CPO",
-                "report_format_columns": ["SKU товара", "Расходы на продвижение, ₽"],
+                "report_format_columns": ["SKU продвигаемого товара", "Расход, ₽"],
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -200,10 +200,10 @@ def test_runtime_shows_safe_historical_report_format_stage():
         {"sku": "101"},
     )
 
-    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
-    assert "Этап: CSV_HEADER_NOT_FOUND" in result["message"]
+    assert result["report_format_stage"] == "CSV_UNKNOWN_ROW_LABEL"
+    assert "Этап: CSV_UNKNOWN_ROW_LABEL" in result["message"]
     assert "Тип отчёта: CPO" in result["message"]
-    assert "Заголовки CSV: SKU товара; Расходы на продвижение, ₽" in result["message"]
+    assert "Заголовки CSV: SKU продвигаемого товара; Расход, ₽" in result["message"]
     assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
 
 

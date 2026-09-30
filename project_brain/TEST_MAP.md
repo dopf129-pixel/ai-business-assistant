@@ -11,6 +11,17 @@ Updated:
 Covers sanitized timeout/connection categories, one retry for idempotent GET
 requests, no retry for report-creation POST, and Telegram propagation.
 
+## Ozon Performance unknown CSV row labels
+
+Updated:
+
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+
+Covers skipping an exact repeated full header row, rejecting any other unknown
+SKU row label, and propagating only the report kind and safe column names into
+the user-facing diagnostic.
+
 ## Historical Ozon Performance dependency stage diagnostics
 
 Updated:
