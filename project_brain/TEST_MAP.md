@@ -1,5 +1,16 @@
 # Test Map
 
+## Historical Ozon Performance dependency stage diagnostics
+
+Updated:
+
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+
+Covers safe stage labels for campaign discovery, CPC report creation/status, both
+CPO order report creation/status paths, and propagation through the advertising
+service into Telegram diagnostics; unexpected labels are suppressed.
+
 
 ## Current Status
 

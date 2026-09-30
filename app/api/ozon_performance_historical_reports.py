@@ -19,7 +19,7 @@ class HistoricalReportError(Exception):
     def __init__(
         self, code, campaign_payment_type=None, campaign_id=None,
         report_format_stage=None, report_format_columns=None,
-        report_format_kind=None,
+        report_format_kind=None, dependency_stage=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
@@ -27,6 +27,7 @@ class HistoricalReportError(Exception):
         self.report_format_stage = report_format_stage
         self.report_format_columns = report_format_columns
         self.report_format_kind = report_format_kind
+        self.dependency_stage = dependency_stage
         super().__init__(code)
 
 
@@ -174,7 +175,7 @@ class HistoricalPerformanceReports:
             return "UNRECOGNIZED_VALUE"
         return text
 
-    def _json(self, method, endpoint, **kwargs):
+    def _json(self, method, endpoint, *, dependency_stage=None, **kwargs):
         token = self.client._access_token()
         if token.get("error"):
             raise HistoricalReportError(token.get("code", "OZON_PERFORMANCE_AUTH_UNAVAILABLE"))
@@ -187,7 +188,14 @@ class HistoricalPerformanceReports:
                     raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
                 continue
             if result.get("error"):
-                raise HistoricalReportError(result.get("code", "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"))
+                code = result.get("code", "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE")
+                safe_stage = (
+                    dependency_stage
+                    if code == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+                    and dependency_stage in self.DEPENDENCY_STAGES
+                    else None
+                )
+                raise HistoricalReportError(code, dependency_stage=safe_stage)
             return result
         raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
 
@@ -195,7 +203,8 @@ class HistoricalPerformanceReports:
         ids = []
         for page in range(1, 101):
             result = self._json("get", "/api/client/campaign",
-                                params={"advObjectType": "SKU", "page": page, "pageSize": 100})
+                                params={"advObjectType": "SKU", "page": page, "pageSize": 100},
+                                dependency_stage="CAMPAIGN_LIST")
             items = result.get("list")
             if not isinstance(items, list):
                 raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INVALID")
@@ -249,14 +258,40 @@ class HistoricalPerformanceReports:
             return response.content
         raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED")
 
+    DEPENDENCY_STAGES = frozenset({
+        "CAMPAIGN_LIST",
+        "CPC_REPORT_CREATE",
+        "CPC_REPORT_STATUS",
+        "CPO_SELECTED_ORDERS_REPORT_CREATE",
+        "CPO_SELECTED_ORDERS_REPORT_STATUS",
+        "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+        "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
+    })
+
+    REPORT_DEPENDENCY_PREFIXES = {
+        "/api/client/statistics": "CPC_REPORT",
+        "/api/client/statistic/orders/generate": "CPO_SELECTED_ORDERS_REPORT",
+        "/api/client/statistics/all_sku_promo/orders/generate": "CPO_ALL_SKU_ORDERS_REPORT",
+    }
+
     def _generate(self, endpoint, payload, kind, *, method="post", query_params=False):
+        dependency_prefix = self.REPORT_DEPENDENCY_PREFIXES.get(
+            endpoint, "HISTORICAL_REPORT"
+        )
         request_payload = {"params" if query_params else "json": payload}
-        created = self._json(method, endpoint, **request_payload)
+        created = self._json(
+            method, endpoint,
+            dependency_stage=dependency_prefix + "_CREATE",
+            **request_payload,
+        )
         uuid = str(created.get("UUID") or "")
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid):
             raise HistoricalReportError("OZON_HISTORICAL_REPORT_ID_INVALID")
         for attempt in range(self.MAX_POLLS):
-            status = self._json("get", "/api/client/statistics/" + uuid)
+            status = self._json(
+                "get", "/api/client/statistics/" + uuid,
+                dependency_stage=dependency_prefix + "_STATUS",
+            )
             if status.get("state") == "OK":
                 if not status.get("link"):
                     raise HistoricalReportError("OZON_HISTORICAL_REPORT_LINK_MISSING")
@@ -341,4 +376,6 @@ class HistoricalPerformanceReports:
                 result["report_format_columns"] = exc.report_format_columns
             if exc.report_format_kind in {"CPC", "CPO"}:
                 result["report_format_kind"] = exc.report_format_kind
+            if exc.dependency_stage in self.DEPENDENCY_STAGES:
+                result["dependency_stage"] = exc.dependency_stage
             return result

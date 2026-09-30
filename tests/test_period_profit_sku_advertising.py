@@ -107,6 +107,27 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
     assert result["report_format_kind"] == "CPO"
 
 
+def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
+    monkeypatch.setattr(
+        HistoricalPerformanceReports,
+        "load",
+        lambda *_args: {
+            "error": True,
+            "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+            "dependency_stage": "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+        },
+    )
+    service = PeriodProfitSkuAdvertisingService(
+        repository=_Repository(), client_factory=_HistoricalClient
+    )
+
+    result = service.load("2026-08-01", "2026-08-30", {"101"})
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+    assert result["dependency_stage"] == "CPO_ALL_SKU_ORDERS_REPORT_CREATE"
+
+
 def test_runtime_shows_safe_historical_campaign_diagnostic():
     class _Advertising:
         def load(self, *_args):
@@ -182,6 +203,53 @@ def test_runtime_shows_safe_historical_report_format_stage():
     assert "Тип отчёта: CPO" in result["message"]
     assert "Заголовки CSV: SKU товара; Расходы на продвижение, ₽" in result["message"]
     assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
+
+
+def test_runtime_shows_safe_historical_dependency_stage():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+                "dependency_stage": "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert result["error"] is True
+    assert result["dependency_stage"] == "CPO_ALL_SKU_ORDERS_REPORT_CREATE"
+    assert "Этап запроса: CPO_ALL_SKU_ORDERS_REPORT_CREATE" in result["message"]
+    assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
+
+
+def test_runtime_hides_unrecognized_historical_dependency_stage():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+                "dependency_stage": "CPO_REPORT_CREATE\nsecret",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "dependency_stage" not in result
+    assert "message" not in result
+    assert "secret" not in str(result)
 
 
 def test_runtime_filters_report_format_columns_to_safe_labels():
