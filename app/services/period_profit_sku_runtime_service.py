@@ -41,6 +41,15 @@ class PeriodProfitSkuRuntimeService:
         "ZIP_MEMBER_NOT_CSV",
         "ZIP_INVALID",
     })
+    HISTORICAL_REPORT_DEPENDENCY_STAGES = frozenset({
+        "CAMPAIGN_LIST",
+        "CPC_REPORT_CREATE",
+        "CPC_REPORT_STATUS",
+        "CPO_SELECTED_ORDERS_REPORT_CREATE",
+        "CPO_SELECTED_ORDERS_REPORT_STATUS",
+        "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+        "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
+    })
     PERIODS = (
         ("Сегодня", "TODAY"),
         ("7 дней", "7D"),
@@ -231,7 +240,18 @@ class PeriodProfitSkuRuntimeService:
                 for key in ("failed_window_from", "failed_window_to", "status_code"):
                     if key in loaded:
                         failure[key] = loaded[key]
-                if loaded.get("code") == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN":
+                if loaded.get("code") == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE":
+                    dependency_stage = self._safe_historical_report_dependency_stage(
+                        loaded.get("dependency_stage")
+                    )
+                    if dependency_stage:
+                        failure["dependency_stage"] = dependency_stage
+                        failure["message"] = (
+                            "Не удалось обратиться к Ozon Performance.\n"
+                            "Этап запроса: " + dependency_stage + "\n"
+                            "Код диагностики: OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+                        )
+                elif loaded.get("code") == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN":
                     payment_type = self._safe_campaign_payment_type(
                         loaded.get("campaign_payment_type")
                     )
@@ -969,6 +989,12 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, str):
             return None
         return value if value in cls.HISTORICAL_REPORT_FORMAT_STAGES else None
+
+    @classmethod
+    def _safe_historical_report_dependency_stage(cls, value):
+        if not isinstance(value, str):
+            return None
+        return value if value in cls.HISTORICAL_REPORT_DEPENDENCY_STAGES else None
 
     @staticmethod
     def _safe_historical_report_format_kind(value):

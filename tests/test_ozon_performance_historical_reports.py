@@ -309,6 +309,86 @@ def test_historical_campaign_diagnostic_sanitizes_unexpected_values():
     ) == "UNRECOGNIZED_VALUE"
 
 
+class _DependencyUnavailableClient:
+    def __init__(self, failed_stage):
+        self.failed_stage = failed_stage
+
+    def _access_token(self, force=False):
+        return {"access_token": "token"}
+
+    def _request(self, method, endpoint, token, **kwargs):
+        assert token == "token"
+        if endpoint == "/api/client/campaign":
+            if self.failed_stage == "CAMPAIGN_LIST":
+                return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
+            return {"list": [{"id": "123", "paymentType": "CPC"}]}
+        if endpoint in HistoricalPerformanceReports.REPORT_DEPENDENCY_PREFIXES:
+            prefix = HistoricalPerformanceReports.REPORT_DEPENDENCY_PREFIXES[endpoint]
+            if self.failed_stage == prefix + "_CREATE":
+                return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
+            return {"UUID": "00000000-0000-0000-0000-000000000000"}
+        if endpoint.startswith("/api/client/statistics/"):
+            if self.failed_stage.endswith("_STATUS"):
+                return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
+            return {"state": "OK", "link": "https://report.test/file.csv"}
+        raise AssertionError("unexpected endpoint")
+
+
+def test_campaign_list_dependency_failure_returns_safe_stage():
+    result = HistoricalPerformanceReports(
+        _DependencyUnavailableClient("CAMPAIGN_LIST")
+    ).load("2026-08-01", "2026-08-30")
+
+    assert result["code"] == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+    assert result["dependency_stage"] == "CAMPAIGN_LIST"
+
+
+@pytest.mark.parametrize(("endpoint", "kind", "expected_stage"), [
+    ("/api/client/statistics", "CPC", "CPC_REPORT_CREATE"),
+    ("/api/client/statistic/orders/generate", "CPO",
+     "CPO_SELECTED_ORDERS_REPORT_CREATE"),
+    ("/api/client/statistics/all_sku_promo/orders/generate", "CPO",
+     "CPO_ALL_SKU_ORDERS_REPORT_CREATE"),
+])
+def test_report_creation_dependency_failure_returns_specific_stage(
+    endpoint, kind, expected_stage,
+):
+    client = _DependencyUnavailableClient(expected_stage)
+    service = HistoricalPerformanceReports(client)
+    method = "get" if "all_sku_promo" in endpoint else "post"
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._generate(
+            endpoint, {}, kind, method=method, query_params=method == "get"
+        )
+
+    assert exc.value.code == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+    assert exc.value.dependency_stage == expected_stage
+
+
+@pytest.mark.parametrize(("endpoint", "kind", "expected_stage"), [
+    ("/api/client/statistics", "CPC", "CPC_REPORT_STATUS"),
+    ("/api/client/statistic/orders/generate", "CPO",
+     "CPO_SELECTED_ORDERS_REPORT_STATUS"),
+    ("/api/client/statistics/all_sku_promo/orders/generate", "CPO",
+     "CPO_ALL_SKU_ORDERS_REPORT_STATUS"),
+])
+def test_report_status_dependency_failure_returns_specific_stage(
+    endpoint, kind, expected_stage,
+):
+    client = _DependencyUnavailableClient(expected_stage)
+    service = HistoricalPerformanceReports(client)
+    method = "get" if "all_sku_promo" in endpoint else "post"
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._generate(
+            endpoint, {}, kind, method=method, query_params=method == "get"
+        )
+
+    assert exc.value.code == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
+    assert exc.value.dependency_stage == expected_stage
+
+
 def test_historical_requests_all_windows_and_types_without_manual_files():
     service = HistoricalPerformanceReports(_Client())
     service._campaign_ids = lambda: ["123"]
