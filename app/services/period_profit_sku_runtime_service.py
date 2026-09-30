@@ -253,9 +253,27 @@ class PeriodProfitSkuRuntimeService:
                     )
                     if format_stage:
                         failure["report_format_stage"] = format_stage
+                        format_kind = self._safe_historical_report_format_kind(
+                            loaded.get("report_format_kind")
+                        )
+                        format_columns = self._safe_historical_report_format_columns(
+                            loaded.get("report_format_columns")
+                        )
+                        if format_kind:
+                            failure["report_format_kind"] = format_kind
+                        if format_columns:
+                            failure["report_format_columns"] = format_columns
                         failure["message"] = (
                             "Не удалось разобрать CSV-отчёт Ozon.\n"
                             "Этап: " + format_stage + "\n"
+                        )
+                        if format_kind:
+                            failure["message"] += "Тип отчёта: " + format_kind + "\n"
+                        if format_columns:
+                            failure["message"] += (
+                                "Заголовки CSV: " + "; ".join(format_columns) + "\n"
+                            )
+                        failure["message"] += (
                             "Код диагностики: OZON_HISTORICAL_REPORT_FORMAT"
                         )
             return failure
@@ -951,6 +969,33 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, str):
             return None
         return value if value in cls.HISTORICAL_REPORT_FORMAT_STAGES else None
+
+    @staticmethod
+    def _safe_historical_report_format_kind(value):
+        return value if value in {"CPC", "CPO"} else None
+
+    @staticmethod
+    def _safe_historical_report_format_columns(value):
+        if not isinstance(value, (list, tuple)):
+            return []
+        columns = []
+        allowed_punctuation = " _.,%()/+-:#№₽$€"
+        for item in value[:24]:
+            if not isinstance(item, str):
+                continue
+            label = " ".join(item.split())
+            if (
+                not label
+                or len(label) > 64
+                or any(character.isdigit() for character in label)
+                or any(
+                    not (character.isalnum() or character in allowed_punctuation)
+                    for character in label
+                )
+            ):
+                continue
+            columns.append(label)
+        return columns
 
     @staticmethod
     def _number(value):
