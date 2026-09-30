@@ -191,6 +191,43 @@ class HistoricalPerformanceReports:
             return "UNRECOGNIZED_VALUE"
         return text
 
+    @staticmethod
+    def _campaign_date(value):
+        if value in (None, ""):
+            return None
+        if not isinstance(value, str):
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            try:
+                # Campaign dates are date-only values; createdAt is an ISO
+                # timestamp. Its calendar day is enough for the conservative
+                # outside-period check.
+                return datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ).date()
+            except ValueError:
+                # Unparseable optional dates cannot justify excluding a
+                # campaign. A missing/unknown payment type will still fail
+                # closed below.
+                return None
+
+    @classmethod
+    def _campaign_outside_period(cls, item, date_from, date_to):
+        starts = cls._campaign_date(item.get("fromDate"))
+        ends = cls._campaign_date(item.get("toDate"))
+        created = cls._campaign_date(item.get("createdAt"))
+        # A future start, a past end, or creation after the requested window
+        # proves that the campaign could not have incurred spend in that
+        # period. Keep unknown-type campaigns that overlap or lack dates
+        # fail-closed so no potentially relevant expense is silently omitted.
+        return (
+            (starts is not None and starts > date_to)
+            or (ends is not None and ends < date_from)
+            or (created is not None and created > date_to)
+        )
+
     def _json(self, method, endpoint, *, dependency_stage=None, **kwargs):
         token = self.client._access_token()
         if token.get("error"):
@@ -238,7 +275,7 @@ class HistoricalPerformanceReports:
             return result
         raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
 
-    def _campaign_ids(self):
+    def _campaign_ids(self, date_from=None, date_to=None):
         ids = []
         for page in range(1, 101):
             result = self._json("get", "/api/client/campaign",
@@ -250,6 +287,12 @@ class HistoricalPerformanceReports:
             for item in items:
                 if not isinstance(item, dict) or not str(item.get("id", "")).isdecimal():
                     raise HistoricalReportError("OZON_HISTORICAL_CAMPAIGNS_INVALID")
+                if (
+                    date_from is not None
+                    and date_to is not None
+                    and self._campaign_outside_period(item, date_from, date_to)
+                ):
+                    continue
                 # Only CPC campaigns are part of this report. The API also
                 # exposes CPM as a valid paymentType; it is outside the
                 # CPC+CPO SKU scope and must not abort the whole report.
@@ -376,7 +419,7 @@ class HistoricalPerformanceReports:
         except ValueError:
             return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
         try:
-            campaigns = self._campaign_ids()
+            campaigns = self._campaign_ids(start, end)
             rows = []
             current = start
             while current <= end:
