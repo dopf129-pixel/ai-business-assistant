@@ -90,6 +90,8 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
             "error": True,
             "code": "OZON_HISTORICAL_REPORT_FORMAT",
             "report_format_stage": "CSV_HEADER_NOT_FOUND",
+            "report_format_columns": ["SKU товара", "Сумма расходов"],
+            "report_format_kind": "CPO",
         },
     )
     service = PeriodProfitSkuAdvertisingService(
@@ -101,6 +103,8 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
     assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
+    assert result["report_format_columns"] == ["SKU товара", "Сумма расходов"]
+    assert result["report_format_kind"] == "CPO"
 
 
 def test_runtime_shows_safe_historical_campaign_diagnostic():
@@ -160,6 +164,8 @@ def test_runtime_shows_safe_historical_report_format_stage():
                 "error": True,
                 "code": "OZON_HISTORICAL_REPORT_FORMAT",
                 "report_format_stage": "CSV_HEADER_NOT_FOUND",
+                "report_format_kind": "CPO",
+                "report_format_columns": ["SKU товара", "Расходы на продвижение, ₽"],
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -173,7 +179,38 @@ def test_runtime_shows_safe_historical_report_format_stage():
 
     assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
     assert "Этап: CSV_HEADER_NOT_FOUND" in result["message"]
+    assert "Тип отчёта: CPO" in result["message"]
+    assert "Заголовки CSV: SKU товара; Расходы на продвижение, ₽" in result["message"]
     assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
+
+
+def test_runtime_filters_report_format_columns_to_safe_labels():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_REPORT_FORMAT",
+                "report_format_stage": "CSV_HEADER_NOT_FOUND",
+                "report_format_kind": "CPC",
+                "report_format_columns": [
+                    "SKU товара", "Расход, ₽", "3921245627",
+                    "Итого: 12,50", "<script>alert(1)</script>",
+                ],
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "Заголовки CSV: SKU товара; Расход, ₽" in result["message"]
+    assert "3921245627" not in result["message"]
+    assert "12,50" not in result["message"]
+    assert "<script>" not in result["message"]
 
 
 def test_runtime_hides_unrecognized_report_format_stage():
@@ -183,6 +220,11 @@ def test_runtime_hides_unrecognized_report_format_stage():
                 "error": True,
                 "code": "OZON_HISTORICAL_REPORT_FORMAT",
                 "report_format_stage": "CSV_HEADER_NOT_FOUND\nsecret",
+                "report_format_kind": "CPC\nsecret",
+                "report_format_columns": [
+                    "SKU товара", "secret\namount", "3921245627",
+                    "<script>alert(1)</script>",
+                ],
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -197,6 +239,8 @@ def test_runtime_hides_unrecognized_report_format_stage():
     assert "report_format_stage" not in result
     assert "message" not in result
     assert "secret" not in str(result)
+    assert "report_format_columns" not in result
+    assert "report_format_kind" not in result
 
 
 def test_runtime_replaces_already_booked_finance_ad_with_exact_sku_ad():
