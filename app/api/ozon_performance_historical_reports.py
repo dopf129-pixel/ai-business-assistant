@@ -267,6 +267,22 @@ class HistoricalPerformanceReports:
             "lookup_status": lookup_status,
         }
 
+    @classmethod
+    def _campaign_lookup_failure_status(cls, exc):
+        if exc.code == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE":
+            error_type = exc.dependency_error_type
+            if error_type in cls.DEPENDENCY_ERROR_TYPES:
+                return "DEPENDENCY_" + error_type
+            return "DEPENDENCY_UNAVAILABLE"
+        match = re.fullmatch(r"OZON_PERFORMANCE_HTTP_(\\d{3})", str(exc.code))
+        if match:
+            status_code = int(match.group(1))
+            if 400 <= status_code <= 599:
+                return "HTTP_" + str(status_code)
+        if exc.code == "OZON_PERFORMANCE_RESPONSE_INVALID":
+            return "RESPONSE_INVALID"
+        return "LOOKUP_FAILED"
+
     def _lookup_campaigns(self, campaigns):
         """Recheck ambiguous campaign IDs without the initial object-type filter."""
         refreshed = {}
@@ -283,12 +299,15 @@ class HistoricalPerformanceReports:
                 result = self._json(
                     "get", "/api/client/campaign",
                     params={"campaignIds": batch, "page": 1, "pageSize": len(batch)},
-                    dependency_stage="CAMPAIGN_LIST",
+                    dependency_stage="CAMPAIGN_LOOKUP",
                 )
             except HistoricalReportError as exc:
                 if exc.code == "OZON_PERFORMANCE_AUTH_UNAVAILABLE":
                     raise
-                lookup_status.update({campaign_id: "UNAVAILABLE" for campaign_id in batch})
+                failure_status = self._campaign_lookup_failure_status(exc)
+                lookup_status.update({
+                    campaign_id: failure_status for campaign_id in batch
+                })
                 continue
             items = result.get("list")
             if not isinstance(items, list):
@@ -453,6 +472,7 @@ class HistoricalPerformanceReports:
 
     DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_LOOKUP",
         "CPC_REPORT_CREATE",
         "CPC_REPORT_STATUS",
         "CPO_SELECTED_ORDERS_REPORT_CREATE",
@@ -462,6 +482,7 @@ class HistoricalPerformanceReports:
     })
     RETRYABLE_DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_LOOKUP",
         "CPC_REPORT_STATUS",
         "CPO_SELECTED_ORDERS_REPORT_STATUS",
         "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
