@@ -406,6 +406,61 @@ def test_unknown_campaign_diagnostic_rechecks_id_and_collects_safe_metadata():
     }]
 
 
+@pytest.mark.parametrize(("failure", "expected_status"), [
+    (
+        {"error": True, "code": "OZON_PERFORMANCE_HTTP_400",
+         "status_code": 400, "message": "private response text"},
+        "HTTP_400",
+    ),
+    (
+        {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+         "dependency_error_type": "TIMEOUT"},
+        "DEPENDENCY_TIMEOUT",
+    ),
+    (
+        {"error": True, "code": "OZON_PERFORMANCE_RESPONSE_INVALID"},
+        "RESPONSE_INVALID",
+    ),
+    (
+        {"error": True, "code": "UNEXPECTED_PRIVATE_ERROR",
+         "message": "private response text"},
+        "LOOKUP_FAILED",
+    ),
+])
+def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
+    class _FailingLookupClient:
+        lookup_calls = 0
+
+        def _access_token(self, force=False):
+            return {"access_token": "token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            assert method == "get"
+            assert endpoint == "/api/client/campaign"
+            assert token == "token"
+            if "campaignIds" in kwargs["params"]:
+                type(self).lookup_calls += 1
+                return dict(failure)
+            return {"list": [{
+                "id": "27107278", "advObjectType": "SKU",
+                "state": "CAMPAIGN_STATE_ARCHIVED",
+                "fromDate": "2026-05-17", "createdAt": "2026-05-17",
+            }]}
+
+    client = _FailingLookupClient()
+    with patch("api.ozon_performance_historical_reports.time.sleep"):
+        result = HistoricalPerformanceReports(client).load(
+            "2026-08-01", "2026-08-30"
+        )
+
+    assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert result["campaign_diagnostics"][0]["lookup_status"] == expected_status
+    assert "message" not in result
+    assert client.lookup_calls == (
+        2 if expected_status == "DEPENDENCY_TIMEOUT" else 1
+    )
+
+
 def test_campaign_missing_from_exact_lookup_remains_fail_closed():
     client = _Client(
         [{"id": "27107278", "advObjectType": "SKU"}], lookup_campaigns=[]
