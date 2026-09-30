@@ -49,6 +49,7 @@ class PeriodProfitSkuAdvertisingService:
                     "campaign_payment_type", "campaign_id",
                     "report_format_stage", "report_format_columns",
                     "report_format_kind", "dependency_stage",
+                    "dependency_error_type",
                 ) if key in result} if isinstance(result, dict) else {}),
             }
         rows = result.get("rows")

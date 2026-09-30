@@ -20,6 +20,7 @@ class HistoricalReportError(Exception):
         self, code, campaign_payment_type=None, campaign_id=None,
         report_format_stage=None, report_format_columns=None,
         report_format_kind=None, dependency_stage=None,
+        dependency_error_type=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
@@ -28,6 +29,7 @@ class HistoricalReportError(Exception):
         self.report_format_columns = report_format_columns
         self.report_format_kind = report_format_kind
         self.dependency_stage = dependency_stage
+        self.dependency_error_type = dependency_error_type
         super().__init__(code)
 
 
@@ -157,6 +159,9 @@ class HistoricalPerformanceReports:
     MAX_POLLS = 30
     POLL_SECONDS = 5
     MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+    DEPENDENCY_ERROR_TYPES = frozenset({
+        "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
+    })
 
     def __init__(self, client):
         self.client = client
@@ -195,7 +200,30 @@ class HistoricalPerformanceReports:
                     and dependency_stage in self.DEPENDENCY_STAGES
                     else None
                 )
-                raise HistoricalReportError(code, dependency_stage=safe_stage)
+                if code == "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE":
+                    error_type = result.get("dependency_error_type")
+                    safe_error_type = (
+                        error_type
+                        if isinstance(error_type, str)
+                        and error_type in self.DEPENDENCY_ERROR_TYPES
+                        else None
+                    )
+                    # Only known read operations are safe to repeat. All-
+                    # products report creation uses GET too, so the HTTP verb
+                    # alone cannot determine retry safety.
+                    if (
+                        dependency_stage in self.RETRYABLE_DEPENDENCY_STAGES
+                        and str(method or "").lower() == "get"
+                        and attempt == 0
+                    ):
+                        time.sleep(1)
+                        continue
+                    raise HistoricalReportError(
+                        code,
+                        dependency_stage=safe_stage,
+                        dependency_error_type=safe_error_type,
+                    )
+                raise HistoricalReportError(code)
             return result
         raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
 
@@ -265,6 +293,12 @@ class HistoricalPerformanceReports:
         "CPO_SELECTED_ORDERS_REPORT_CREATE",
         "CPO_SELECTED_ORDERS_REPORT_STATUS",
         "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
+        "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
+    })
+    RETRYABLE_DEPENDENCY_STAGES = frozenset({
+        "CAMPAIGN_LIST",
+        "CPC_REPORT_STATUS",
+        "CPO_SELECTED_ORDERS_REPORT_STATUS",
         "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
     })
 
@@ -378,4 +412,9 @@ class HistoricalPerformanceReports:
                 result["report_format_kind"] = exc.report_format_kind
             if exc.dependency_stage in self.DEPENDENCY_STAGES:
                 result["dependency_stage"] = exc.dependency_stage
+            if (
+                isinstance(exc.dependency_error_type, str)
+                and exc.dependency_error_type in self.DEPENDENCY_ERROR_TYPES
+            ):
+                result["dependency_error_type"] = exc.dependency_error_type
             return result

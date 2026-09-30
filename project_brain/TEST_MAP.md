@@ -1,5 +1,16 @@
 # Test Map
 
+## Ozon Performance transient request failures
+
+Updated:
+
+- `tests/test_ozon_performance_client.py`
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+
+Covers sanitized timeout/connection categories, one retry for idempotent GET
+requests, no retry for report-creation POST, and Telegram propagation.
+
 ## Historical Ozon Performance dependency stage diagnostics
 
 Updated:
