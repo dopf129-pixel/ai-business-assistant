@@ -66,6 +66,11 @@ class _ReportChainClient:
             return {"list": [
                 {"id": "101", "paymentType": "CPC", "advObjectType": "SKU"},
                 {"id": "202", "paymentType": "CPO", "advObjectType": "SKU"},
+                # This campaign was created after the requested August
+                # window. Its missing paymentType must not block that report.
+                {"id": "42104957", "advObjectType": "SKU",
+                 "fromDate": "2026-09-01",
+                 "createdAt": "2026-09-01T00:00:00Z"},
             ]}
         if endpoint in HistoricalPerformanceReports.REPORT_DEPENDENCY_PREFIXES:
             self.report_endpoints.append((method, endpoint, kwargs))
