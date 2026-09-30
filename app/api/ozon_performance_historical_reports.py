@@ -90,7 +90,7 @@ def parse_report_csv(data, kind):
     lines = text.splitlines()
     aliases = {
         "sku": {"sku", "sku товара", "sku продвигаемого товара"},
-        "expense": ({"расход, р, с ндс", "расход, ₽", "расход, р", "расход"}
+        "expense": ({"расход, р, с ндс", "расход, ₽, с ндс", "расход, ₽", "расход, р", "расход"}
                     if kind == "CPC" else {"расход, ₽", "расход, р", "расход"}),
     }
     for delimiter in (";", ",", "\t"):
