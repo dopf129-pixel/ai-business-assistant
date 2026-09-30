@@ -1078,7 +1078,7 @@ class PeriodProfitSkuRuntimeService:
             return value
         if value.startswith("HTTP_"):
             status = value[5:]
-            if status.isascii() and status.isdecimal() and 400 <= int(status) <= 599:
+            if len(status) == 3 and status.isascii() and status.isdecimal() and 400 <= int(status) <= 599:
                 return value
         if value.startswith("DEPENDENCY_"):
             error_type = value[len("DEPENDENCY_"):]
