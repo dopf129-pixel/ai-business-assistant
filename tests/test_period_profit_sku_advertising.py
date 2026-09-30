@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 from api.ozon_performance_historical_reports import HistoricalPerformanceReports
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
@@ -39,7 +40,67 @@ class _HistoricalClient:
         assert method == "get"
         assert endpoint == "/api/client/campaign"
         assert token == "token"
-        return {"list": [{"id": "1001", "paymentType": "CAMPAIGN_TYPE_INVALID"}]}
+        return {"list": [{"id": "42104957", "advObjectType": "SKU"}]}
+
+
+class _ReportChainClient:
+    """Fake Ozon transport for campaign discovery through report CSV parsing."""
+
+    BASE_URL = "https://performance.test"
+
+    def __init__(self, client_id, client_secret):
+        assert client_id == "performance-id"
+        assert client_secret == "secret"
+        self.created_reports = {}
+        self.report_endpoints = []
+        self.session = SimpleNamespace(get=self._download)
+
+    def _access_token(self, force=False):
+        return {"access_token": "token"}
+
+    def _request(self, method, endpoint, token, **kwargs):
+        assert token == "token"
+        if endpoint == "/api/client/campaign":
+            assert method == "get"
+            assert kwargs["params"]["advObjectType"] == "SKU"
+            return {"list": [
+                {"id": "101", "paymentType": "CPC", "advObjectType": "SKU"},
+                {"id": "202", "paymentType": "CPO", "advObjectType": "SKU"},
+            ]}
+        if endpoint in HistoricalPerformanceReports.REPORT_DEPENDENCY_PREFIXES:
+            self.report_endpoints.append((method, endpoint, kwargs))
+            report_id = f"{len(self.report_endpoints):08d}-0000-0000-0000-000000000000"
+            self.created_reports[report_id] = endpoint
+            return {"UUID": report_id}
+        if endpoint.startswith("/api/client/statistics/"):
+            report_id = endpoint.rsplit("/", 1)[-1]
+            assert report_id in self.created_reports
+            return {"state": "OK", "link": "https://report.test/file.csv"}
+        raise AssertionError(f"unexpected Ozon endpoint: {endpoint}")
+
+    def _download(self, _url, params=None, **_kwargs):
+        report_id = params["UUID"]
+        endpoint = self.created_reports[report_id]
+        reports = {
+            "/api/client/statistics": (
+                "SKU;Название товара;Расход, ₽, с НДС\n"
+                "101;Target;5,00\n"
+                "999;Other;90,00\n"
+            ),
+            "/api/client/statistic/orders/generate": (
+                "Дата;ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"
+                "2026-08-01;order-1;999;101;A;10,00\n"
+            ),
+            "/api/client/statistics/all_sku_promo/orders/generate": (
+                "Дата;ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"
+                "2026-08-02;order-2;999;101;A;20,00\n"
+                "2026-08-02;order-3;999;999;B;80,00\n"
+            ),
+        }
+        return SimpleNamespace(
+            status_code=200,
+            content=reports[endpoint].encode(),
+        )
 
 
 def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
@@ -69,6 +130,42 @@ def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
     assert _Client.calls == 1
 
 
+def test_historical_cpc_and_cpo_report_chain_attributes_spend_to_selected_sku():
+    client = _ReportChainClient("performance-id", "secret")
+    service = PeriodProfitSkuAdvertisingService(
+        repository=_Repository(), client_factory=lambda *_args: client
+    )
+
+    result = service.load("2026-08-01", "2026-08-30", {"101"})
+
+    assert result == {
+        "error": False,
+        "status": "PERIOD_PROFIT_SKU_ADVERTISING_READY",
+        "configured": True,
+        "complete": True,
+        "scope": "OZON_PERFORMANCE_CPC_AND_CPO_SKU",
+        "expense": 35.0,
+        "matched_row_count": 3,
+        "campaign_count": 0,
+        "external_call_count": 10,
+    }
+    assert [(method, endpoint) for method, endpoint, _ in client.report_endpoints] == [
+        ("post", "/api/client/statistics"),
+        ("post", "/api/client/statistic/orders/generate"),
+        ("get", "/api/client/statistics/all_sku_promo/orders/generate"),
+    ]
+    assert client.report_endpoints[0][2]["json"] == {
+        "campaigns": ["101"], "dateFrom": "2026-08-01", "dateTo": "2026-08-30",
+    }
+    assert client.report_endpoints[1][2]["json"] == {
+        "from": "2026-08-01T00:00:00Z", "to": "2026-08-30T23:59:59Z",
+    }
+    assert client.report_endpoints[2][2]["params"] == {
+        "timeBounds.from": "2026-08-01T00:00:00Z",
+        "timeBounds.to": "2026-08-30T23:59:59Z",
+    }
+
+
 def test_historical_campaign_payment_type_survives_advertising_service():
     service = PeriodProfitSkuAdvertisingService(
         repository=_Repository(), client_factory=_HistoricalClient
@@ -78,8 +175,8 @@ def test_historical_campaign_payment_type_survives_advertising_service():
 
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
-    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
-    assert result["campaign_id"] == "1001"
+    assert result["campaign_payment_type"] == "MISSING"
+    assert result["campaign_id"] == "42104957"
 
 
 def test_historical_report_format_stage_survives_advertising_service(monkeypatch):
@@ -136,8 +233,8 @@ def test_runtime_shows_safe_historical_campaign_diagnostic():
             return {
                 "error": True,
                 "code": "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
-                "campaign_payment_type": "CAMPAIGN_TYPE_INVALID",
-                "campaign_id": "1001",
+                "campaign_payment_type": "MISSING",
+                "campaign_id": "42104957",
             }
 
     runtime = object.__new__(PeriodProfitSkuRuntimeService)
@@ -150,10 +247,10 @@ def test_runtime_shows_safe_historical_campaign_diagnostic():
     )
 
     assert result["error"] is True
-    assert result["campaign_payment_type"] == "CAMPAIGN_TYPE_INVALID"
-    assert result["campaign_id"] == "1001"
-    assert "paymentType: CAMPAIGN_TYPE_INVALID" in result["message"]
-    assert "ID кампании: 1001" in result["message"]
+    assert result["campaign_payment_type"] == "MISSING"
+    assert result["campaign_id"] == "42104957"
+    assert "paymentType: MISSING" in result["message"]
+    assert "ID кампании: 42104957" in result["message"]
     assert "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN" in result["message"]
 
 
