@@ -1,5 +1,16 @@
 # Test Map
 
+## Ozon campaign lookup failure diagnostics
+
+Updated:
+
+- tests/test_ozon_performance_historical_reports.py
+- tests/test_period_profit_sku_advertising.py
+
+Covers safe propagation of HTTP status, transient dependency category, invalid
+response, generic unknown failure, bounded retry, and suppression of provider
+response text in the user-facing diagnostic.
+
 ## Ozon Performance transient request failures
 
 Updated:
