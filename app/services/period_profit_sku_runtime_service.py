@@ -44,6 +44,7 @@ class PeriodProfitSkuRuntimeService:
     })
     HISTORICAL_REPORT_DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_LOOKUP",
         "CPC_REPORT_CREATE",
         "CPC_REPORT_STATUS",
         "CPO_SELECTED_ORDERS_REPORT_CREATE",
@@ -1065,14 +1066,31 @@ class PeriodProfitSkuRuntimeService:
             return "UNPARSEABLE"
 
     @classmethod
+    def _safe_historical_campaign_lookup_status(cls, value):
+        allowed = {
+            "FOUND", "NOT_FOUND", "UNAVAILABLE", "INVALID_RESPONSE",
+            "LOOKUP_LIMIT_REACHED", "LOOKUP_FAILED", "RESPONSE_INVALID",
+            "DEPENDENCY_UNAVAILABLE",
+        }
+        if not isinstance(value, str):
+            return "UNAVAILABLE"
+        if value in allowed:
+            return value
+        if value.startswith("HTTP_"):
+            status = value[5:]
+            if status.isascii() and status.isdecimal() and 400 <= int(status) <= 599:
+                return value
+        if value.startswith("DEPENDENCY_"):
+            error_type = value[len("DEPENDENCY_"):]
+            if error_type in cls.HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES:
+                return value
+        return "UNAVAILABLE"
+
+    @classmethod
     def _safe_historical_campaign_diagnostics(cls, value):
         if not isinstance(value, (list, tuple)):
             return []
         diagnostics = []
-        lookup_statuses = {
-            "FOUND", "NOT_FOUND", "UNAVAILABLE", "INVALID_RESPONSE",
-            "LOOKUP_LIMIT_REACHED",
-        }
         for item in value[:10]:
             if not isinstance(item, dict):
                 continue
@@ -1092,10 +1110,8 @@ class PeriodProfitSkuRuntimeService:
                 "from_date": cls._safe_campaign_date(item.get("from_date")),
                 "to_date": cls._safe_campaign_date(item.get("to_date")),
                 "created_at": cls._safe_campaign_date(item.get("created_at")),
-                "lookup_status": (
+                "lookup_status": cls._safe_historical_campaign_lookup_status(
                     lookup_status
-                    if isinstance(lookup_status, str) and lookup_status in lookup_statuses
-                    else "UNAVAILABLE"
                 ),
             })
         return diagnostics
