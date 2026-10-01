@@ -1095,6 +1095,9 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, (list, tuple)):
             return []
         diagnostics = []
+        object_lookup_statuses = {
+            "FOUND", "UNAVAILABLE", "EMPTY_OR_INVALID", "NOT_APPLICABLE",
+        }
         for item in value[:10]:
             if not isinstance(item, dict):
                 continue

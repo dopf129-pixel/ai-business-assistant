@@ -168,6 +168,8 @@ class _Client:
 
     def _request(self, method, endpoint, token, **kwargs):
         assert method == "get"
+        if endpoint.endswith("/objects"):
+            return {"list": []}
         assert endpoint == "/api/client/campaign"
         assert token == "token"
         params = kwargs["params"]
@@ -436,6 +438,8 @@ def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
 
         def _request(self, method, endpoint, token, **kwargs):
             assert method == "get"
+            if endpoint.endswith("/objects"):
+                return {"list": []}
             assert endpoint == "/api/client/campaign"
             assert token == "token"
             if "campaignIds" in kwargs["params"]:
@@ -471,6 +475,8 @@ def test_campaign_lookup_retries_http_429_after_provider_cooldown():
         def _request(self, method, endpoint, token, **kwargs):
             type(self).calls += 1
             assert method == "get"
+            if endpoint.endswith("/objects"):
+                return {"list": []}
             assert endpoint == "/api/client/campaign"
             assert token == "token"
             if "campaignIds" not in kwargs["params"]:
