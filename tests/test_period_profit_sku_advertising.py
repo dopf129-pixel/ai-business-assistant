@@ -547,3 +547,9 @@ def test_runtime_sanitizes_campaign_objects_lookup_status():
             "objects_lookup_status": "private payload",
         },
     ])[0]["objects_lookup_status"] == "UNAVAILABLE"
+
+
+def test_runtime_sanitizes_unknown_csv_row_label():
+    safe = PeriodProfitSkuRuntimeService._safe_historical_report_format_row_label
+    assert safe("  Примечание  ") == "Примечание"
+    assert safe("row\n<private>") == "UNRECOGNIZED_VALUE"

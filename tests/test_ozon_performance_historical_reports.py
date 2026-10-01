@@ -127,6 +127,7 @@ def test_unknown_row_label_fails_with_safe_format_context():
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
     assert exc.value.report_format_kind == "CPC"
     assert exc.value.report_format_columns == ["SKU", "Расход"]
+    assert exc.value.report_format_row_label == "Примечание"
     assert "Примечание" not in str(exc.value.report_format_columns)
 
 
@@ -139,6 +140,7 @@ def test_load_returns_report_format_stage():
             "OZON_HISTORICAL_REPORT_FORMAT",
             report_format_stage="CSV_UNKNOWN_ROW_LABEL",
             report_format_columns=["SKU продвигаемого товара", "Расход, ₽"],
+            report_format_row_label="Примечание",
             report_format_kind="CPO",
         )
 
@@ -150,6 +152,7 @@ def test_load_returns_report_format_stage():
     assert result["report_format_stage"] == "CSV_UNKNOWN_ROW_LABEL"
     assert result["report_format_columns"] == ["SKU продвигаемого товара", "Расход, ₽"]
     assert result["report_format_kind"] == "CPO"
+    assert result["report_format_row_label"] == "Примечание"
 
 
 class _Client:

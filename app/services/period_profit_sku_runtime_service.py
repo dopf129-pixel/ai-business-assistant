@@ -339,6 +339,9 @@ class PeriodProfitSkuRuntimeService:
                         format_columns = self._safe_historical_report_format_columns(
                             loaded.get("report_format_columns")
                         )
+                        format_row_label = self._safe_historical_report_format_row_label(
+                            loaded.get("report_format_row_label")
+                        )
                         if format_kind:
                             failure["report_format_kind"] = format_kind
                         if format_columns:
@@ -352,6 +355,12 @@ class PeriodProfitSkuRuntimeService:
                         if format_columns:
                             failure["message"] += (
                                 "Заголовки CSV: " + "; ".join(format_columns) + "\n"
+                            )
+                        if format_row_label:
+                            failure["report_format_row_label"] = format_row_label
+                            failure["message"] += (
+                                "Нераспознанная метка в столбце SKU: "
+                                + format_row_label + "\n"
                             )
                         failure["message"] += (
                             "Код диагностики: OZON_HISTORICAL_REPORT_FORMAT"
@@ -1175,6 +1184,21 @@ class PeriodProfitSkuRuntimeService:
                 continue
             columns.append(label)
         return columns
+
+    @staticmethod
+    def _safe_historical_report_format_row_label(value):
+        if not isinstance(value, str):
+            return None
+        label = " ".join(value.split())
+        allowed_punctuation = " _.,%()/+-:#№₽$€"
+        if not label:
+            return None
+        if len(label) > 80 or any(
+            not (character.isalnum() or character in allowed_punctuation)
+            for character in label
+        ):
+            return "UNRECOGNIZED_VALUE"
+        return label
 
     @staticmethod
     def _number(value):
