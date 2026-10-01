@@ -1,3 +1,17 @@
+## End-to-end CPO CSV row-label diagnostics
+
+Updated:
+
+- app/api/ozon_performance_historical_reports.py
+- app/services/period_profit_sku_advertising_service.py
+- app/services/period_profit_sku_runtime_service.py
+- tests/test_period_profit_sku_advertising.py
+
+Covers a real CSV parse failure flowing through the historical report loader,
+advertising service, runtime sanitizer, and user-facing diagnostic message.
+The promoted-SKU cell value is preserved safely instead of being dropped.
+
+
 # Test Map
 
 ## Ozon Performance HTTP 429 backoff
