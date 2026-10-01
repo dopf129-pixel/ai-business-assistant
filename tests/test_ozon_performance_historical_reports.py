@@ -131,8 +131,14 @@ def test_unknown_row_label_fails_with_safe_format_context():
     assert "Примечание" not in str(exc.value.report_format_columns)
 
 
-def test_empty_unknown_row_label_uses_safe_placeholder():
+def test_empty_promoted_sku_with_zero_expense_is_ignored():
     report = "SKU продвигаемого товара;Расход, ₽\n;0\n".encode()
+
+    assert parse_report_csv(report, "CPO") == []
+
+
+def test_empty_promoted_sku_with_positive_expense_fails_with_placeholder():
+    report = "SKU продвигаемого товара;Расход, ₽\n;5\n".encode()
 
     with pytest.raises(HistoricalReportError) as exc:
         parse_report_csv(report, "CPO")

@@ -1,3 +1,13 @@
+# Empty promoted SKU with zero or positive spend
+
+Updated:
+
+- app/api/ozon_performance_historical_reports.py
+- tests/test_ozon_performance_historical_reports.py
+- tests/test_period_profit_sku_advertising.py
+
+Covers skipping a blank promoted-SKU row only when its expense parses to zero; positive expense remains a safe format error and reaches the user diagnostic.
+
 # Empty promoted SKU in CPO diagnostics
 
 Updated:
