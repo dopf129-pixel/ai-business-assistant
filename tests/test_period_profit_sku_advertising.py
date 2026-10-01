@@ -194,8 +194,9 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
         lambda *_args: {
             "error": True,
             "code": "OZON_HISTORICAL_REPORT_FORMAT",
-            "report_format_stage": "CSV_HEADER_NOT_FOUND",
-            "report_format_columns": ["SKU товара", "Сумма расходов"],
+            "report_format_stage": "CSV_UNKNOWN_ROW_LABEL",
+            "report_format_columns": ["SKU продвигаемого товара", "Расход, ₽"],
+            "report_format_row_label": "Примечание",
             "report_format_kind": "CPO",
         },
     )
@@ -207,9 +208,10 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
 
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
-    assert result["report_format_stage"] == "CSV_HEADER_NOT_FOUND"
-    assert result["report_format_columns"] == ["SKU товара", "Сумма расходов"]
+    assert result["report_format_stage"] == "CSV_UNKNOWN_ROW_LABEL"
+    assert result["report_format_columns"] == ["SKU продвигаемого товара", "Расход, ₽"]
     assert result["report_format_kind"] == "CPO"
+    assert result["report_format_row_label"] == "Примечание"
 
 
 def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
