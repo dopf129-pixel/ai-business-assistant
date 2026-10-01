@@ -555,3 +555,52 @@ def test_runtime_sanitizes_unknown_csv_row_label():
     safe = PeriodProfitSkuRuntimeService._safe_historical_report_format_row_label
     assert safe("  Примечание  ") == "Примечание"
     assert safe("row\n<private>") == "UNRECOGNIZED_VALUE"
+
+
+
+def test_cpo_unknown_row_label_reaches_runtime_user_message():
+    csv_data = (
+        "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
+        "Артикул;Источник заказов;Название товара;Количество;"
+        "Стоимость продажи, ₽;Стоимость, ₽;Ставка, %;Ставка, ₽;Расход, ₽\n"
+        "01.08.2026;123;123;3921245627;Примечание;A-1;Поиск;Товар;"
+        "1;100;5;5;1;5\n"
+    ).encode("utf-8")
+
+    class _CsvClient:
+        BASE_URL = "https://performance.test"
+
+        def __init__(self, *_args):
+            self.session = SimpleNamespace(get=self._download)
+
+        def _access_token(self, force=False):
+            return {"access_token": "token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            if endpoint == "/api/client/campaign":
+                return {"list": []}
+            if endpoint == "/api/client/statistic/orders/generate":
+                return {"UUID": "12345678-1234-1234-1234-123456789abc"}
+            if endpoint == "/api/client/statistics/12345678-1234-1234-1234-123456789abc":
+                return {"state": "OK", "link": "https://performance.test/report"}
+            raise AssertionError("Unexpected Ozon Performance endpoint: " + endpoint)
+
+        def _download(self, *_args, **_kwargs):
+            return SimpleNamespace(status_code=200, content=csv_data)
+
+    advertising = PeriodProfitSkuAdvertisingService(
+        repository=_Repository(), client_factory=_CsvClient
+    )
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = advertising
+
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "3921245627"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "3921245627"},
+    )
+
+    assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert result["report_format_row_label"] == "Примечание"
+    assert "Нераспознанная метка в столбце SKU: Примечание" in result["message"]
