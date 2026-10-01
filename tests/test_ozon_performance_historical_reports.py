@@ -823,3 +823,41 @@ def test_historical_failure_never_becomes_zero():
         raise HistoricalReportError("OZON_HISTORICAL_REPORT_FAILED")
     service._generate = failed
     assert service.load("2026-05-03", "2026-09-23")["error"] is True
+
+
+
+@pytest.mark.parametrize("object_list", [[{"id": "3921245627"}], [{"id": 3921245627}]])
+def test_missing_payment_type_is_resolved_by_documented_campaign_objects(object_list):
+    class ObjectsClient(_Client):
+        def _request(self, method, endpoint, token, **kwargs):
+            if endpoint.endswith("/objects"):
+                assert method == "get"
+                assert endpoint == "/api/client/campaign/27107278/objects"
+                return {"list": object_list}
+            return super()._request(method, endpoint, token, **kwargs)
+
+    client = ObjectsClient(
+        [{"id": "27107278", "advObjectType": "SKU"}],
+        lookup_campaigns=[{"id": "27107278", "advObjectType": "SKU"}],
+    )
+
+    assert HistoricalPerformanceReports(client)._campaign_ids() == ["27107278"]
+
+
+def test_empty_campaign_objects_does_not_guess_unknown_payment_type():
+    class ObjectsClient(_Client):
+        def _request(self, method, endpoint, token, **kwargs):
+            if endpoint.endswith("/objects"):
+                return {"list": []}
+            return super()._request(method, endpoint, token, **kwargs)
+
+    client = ObjectsClient(
+        [{"id": "27107278", "advObjectType": "SKU"}],
+        lookup_campaigns=[{"id": "27107278", "advObjectType": "SKU"}],
+    )
+
+    with pytest.raises(HistoricalReportError) as exc:
+        HistoricalPerformanceReports(client)._campaign_ids()
+
+    assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
+    assert exc.value.campaign_diagnostics[0]["objects_lookup_status"] == "EMPTY_OR_INVALID"

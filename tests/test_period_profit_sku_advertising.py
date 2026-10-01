@@ -528,3 +528,20 @@ def test_runtime_fails_closed_when_double_count_cannot_be_excluded():
     )
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
+
+
+
+def test_runtime_sanitizes_campaign_objects_lookup_status():
+    assert PeriodProfitSkuRuntimeService._safe_historical_campaign_diagnostics([
+        {
+            "campaign_id": "27107278",
+            "payment_type": "MISSING",
+            "adv_object_type": "SKU",
+            "state": "CAMPAIGN_STATE_INACTIVE",
+            "from_date": "2026-05-17",
+            "to_date": "MISSING",
+            "created_at": "2026-05-17",
+            "lookup_status": "FOUND",
+            "objects_lookup_status": "private payload",
+        },
+    ])[0]["objects_lookup_status"] == "UNAVAILABLE"

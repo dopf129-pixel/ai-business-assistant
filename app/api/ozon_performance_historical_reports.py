@@ -456,9 +456,42 @@ class HistoricalPerformanceReports:
                 if payment_type == "CPC":
                     ids.append(campaign_id)
                 elif payment_type not in ("CPO", "CPM"):
-                    unresolved.append(self._campaign_diagnostic(
-                        item, lookup_status.get(campaign_id, "UNAVAILABLE")
-                    ))
+                    # Ozon documents /objects for CPC, banner and video
+                    # campaigns, and points CPO campaigns to separate
+                    # search_promo methods. A non-empty object list therefore
+                    # identifies an SKU campaign as CPC. Empty or failed
+                    # lookups remain ambiguous; never infer from state or
+                    # advObjectType alone.
+                    object_status = "NOT_APPLICABLE"
+                    if item.get("advObjectType") == "SKU":
+                        object_status = "UNAVAILABLE"
+                        try:
+                            objects = self._json(
+                                "get",
+                                "/api/client/campaign/" + campaign_id + "/objects",
+                                dependency_stage="CAMPAIGN_OBJECTS",
+                            )
+                        except HistoricalReportError as exc:
+                            if exc.code == "OZON_PERFORMANCE_AUTH_UNAVAILABLE":
+                                raise
+                            objects = None
+                        if isinstance(objects, dict) and isinstance(objects.get("list"), list):
+                            object_ids = [
+                                str(value.get("id", ""))
+                                for value in objects["list"]
+                                if isinstance(value, dict)
+                            ]
+                            if object_ids and all(value.isdecimal() for value in object_ids):
+                                ids.append(campaign_id)
+                                object_status = "FOUND"
+                            else:
+                                object_status = "EMPTY_OR_INVALID"
+                    if object_status != "FOUND":
+                        diagnostic = self._campaign_diagnostic(
+                            item, lookup_status.get(campaign_id, "UNAVAILABLE")
+                        )
+                        diagnostic["objects_lookup_status"] = object_status
+                        unresolved.append(diagnostic)
             if unresolved:
                 first = unresolved[0]
                 raise HistoricalReportError(
@@ -496,6 +529,7 @@ class HistoricalPerformanceReports:
 
     DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_OBJECTS",
         "CAMPAIGN_LOOKUP",
         "CPC_REPORT_CREATE",
         "CPC_REPORT_STATUS",
@@ -506,6 +540,7 @@ class HistoricalPerformanceReports:
     })
     RETRYABLE_DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_OBJECTS",
         "CAMPAIGN_LOOKUP",
         "CPC_REPORT_STATUS",
         "CPO_SELECTED_ORDERS_REPORT_STATUS",
