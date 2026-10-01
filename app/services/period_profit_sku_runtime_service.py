@@ -44,6 +44,7 @@ class PeriodProfitSkuRuntimeService:
     })
     HISTORICAL_REPORT_DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
+        "CAMPAIGN_OBJECTS",
         "CAMPAIGN_LOOKUP",
         "CPC_REPORT_CREATE",
         "CPC_REPORT_STATUS",
@@ -312,7 +313,10 @@ class PeriodProfitSkuRuntimeService:
                                 + "; fromDate=" + item["from_date"]
                                 + "; toDate=" + item["to_date"]
                                 + "; createdAt=" + item["created_at"]
-                                + "; lookup=" + item["lookup_status"] + "\n"
+                                + "; lookup=" + item["lookup_status"]
+                                + ("; objects=" + item["objects_lookup_status"]
+                                   if item.get("objects_lookup_status") else "")
+                                + "\n"
                             )
                         if unknown_count > len(campaign_diagnostics):
                             failure["message"] += (
@@ -1091,6 +1095,9 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, (list, tuple)):
             return []
         diagnostics = []
+        object_lookup_statuses = {
+            "FOUND", "UNAVAILABLE", "EMPTY_OR_INVALID", "NOT_APPLICABLE",
+        }
         for item in value[:10]:
             if not isinstance(item, dict):
                 continue
@@ -1114,6 +1121,14 @@ class PeriodProfitSkuRuntimeService:
                     lookup_status
                 ),
             })
+            objects_lookup_status = item.get("objects_lookup_status")
+            if objects_lookup_status is not None:
+                diagnostics[-1]["objects_lookup_status"] = (
+                    objects_lookup_status
+                    if isinstance(objects_lookup_status, str)
+                    and objects_lookup_status in object_lookup_statuses
+                    else "UNAVAILABLE"
+                )
         return diagnostics
 
     @classmethod
