@@ -131,6 +131,18 @@ def test_unknown_row_label_fails_with_safe_format_context():
     assert "Примечание" not in str(exc.value.report_format_columns)
 
 
+def test_empty_unknown_row_label_uses_safe_placeholder():
+    report = "SKU продвигаемого товара;Расход, ₽\n;0\n".encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPO")
+
+    assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
+    assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
+    assert exc.value.report_format_kind == "CPO"
+    assert exc.value.report_format_row_label == "(пусто)"
+
+
 def test_load_returns_report_format_stage():
     service = HistoricalPerformanceReports(_Client())
     service._campaign_ids = lambda *_args: ["123"]

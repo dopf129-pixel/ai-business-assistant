@@ -1,3 +1,4 @@
+import pytest
 from datetime import date, timedelta
 from types import SimpleNamespace
 
@@ -558,12 +559,16 @@ def test_runtime_sanitizes_unknown_csv_row_label():
 
 
 
-def test_cpo_unknown_row_label_reaches_runtime_user_message():
+@pytest.mark.parametrize(
+    ("row_label", "expected_label"),
+    [("Примечание", "Примечание"), ("", "(пусто)")],
+)
+def test_cpo_unknown_row_label_reaches_runtime_user_message(row_label, expected_label):
     csv_data = (
         "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
         "Артикул;Источник заказов;Название товара;Количество;"
         "Стоимость продажи, ₽;Стоимость, ₽;Ставка, %;Ставка, ₽;Расход, ₽\n"
-        "01.08.2026;123;123;3921245627;Примечание;A-1;Поиск;Товар;"
+        "01.08.2026;123;123;3921245627;" + row_label + ";A-1;Поиск;Товар;"
         "1;100;5;5;1;5\n"
     ).encode("utf-8")
 
@@ -602,5 +607,5 @@ def test_cpo_unknown_row_label_reaches_runtime_user_message():
     )
 
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
-    assert result["report_format_row_label"] == "Примечание"
-    assert "Нераспознанная метка в столбце SKU: Примечание" in result["message"]
+    assert result["report_format_row_label"] == expected_label
+    assert "Нераспознанная метка в столбце SKU: " + expected_label in result["message"]
