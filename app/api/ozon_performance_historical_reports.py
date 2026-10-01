@@ -465,6 +465,10 @@ class HistoricalPerformanceReports:
                     object_status = "NOT_APPLICABLE"
                     if item.get("advObjectType") == "SKU":
                         object_status = "UNAVAILABLE"
+                    if (
+                        item.get("advObjectType") == "SKU"
+                        and lookup_status.get(campaign_id) == "FOUND"
+                    ):
                         try:
                             objects = self._json(
                                 "get",

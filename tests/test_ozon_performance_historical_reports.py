@@ -394,12 +394,14 @@ def test_unknown_campaign_diagnostic_rechecks_id_and_collects_safe_metadata():
             "adv_object_type": "SKU", "state": "CAMPAIGN_STATE_FINISHED",
             "from_date": "2026-08-01", "to_date": "2026-08-30",
             "created_at": "MISSING", "lookup_status": "FOUND",
+            "objects_lookup_status": "EMPTY_OR_INVALID",
         },
         {
             "campaign_id": "42104957", "payment_type": "MISSING",
             "adv_object_type": "SKU", "state": "CAMPAIGN_STATE_RUNNING",
             "from_date": "2026-08-15", "to_date": "MISSING",
             "created_at": "2026-08-01", "lookup_status": "FOUND",
+            "objects_lookup_status": "EMPTY_OR_INVALID",
         },
     ]
     assert exc.value.campaign_unknown_count == 2
