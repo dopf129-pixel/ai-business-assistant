@@ -139,6 +139,14 @@ def parse_report_csv(data, kind):
                     summary_expenses.append(row[expense_col].strip())
                     continue
                 if not sku.isdecimal():
+                    if not sku:
+                        try:
+                            if _number(row[expense_col]) == 0:
+                                # A row with no promoted SKU and no spend cannot
+                                # change SKU profit; ignore it safely.
+                                continue
+                        except HistoricalReportError:
+                            pass
                     raise HistoricalReportError(
                         "OZON_HISTORICAL_REPORT_FORMAT",
                         report_format_stage="CSV_UNKNOWN_ROW_LABEL",
