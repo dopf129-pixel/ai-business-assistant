@@ -20,7 +20,7 @@ class HistoricalReportError(Exception):
         self, code, campaign_payment_type=None, campaign_id=None,
         campaign_diagnostics=None, campaign_unknown_count=None,
         report_format_stage=None, report_format_columns=None,
-        report_format_kind=None, dependency_stage=None,
+        report_format_row_label=None, report_format_kind=None, dependency_stage=None,
         dependency_error_type=None,
     ):
         self.code = code
@@ -30,6 +30,7 @@ class HistoricalReportError(Exception):
         self.campaign_unknown_count = campaign_unknown_count
         self.report_format_stage = report_format_stage
         self.report_format_columns = report_format_columns
+        self.report_format_row_label = report_format_row_label
         self.report_format_kind = report_format_kind
         self.dependency_stage = dependency_stage
         self.dependency_error_type = dependency_error_type
@@ -142,6 +143,7 @@ def parse_report_csv(data, kind):
                         "OZON_HISTORICAL_REPORT_FORMAT",
                         report_format_stage="CSV_UNKNOWN_ROW_LABEL",
                         report_format_columns=header_cells,
+                        report_format_row_label=sku[:80],
                         report_format_kind=kind,
                     )
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})
@@ -661,6 +663,8 @@ class HistoricalPerformanceReports:
                 result["report_format_stage"] = exc.report_format_stage
             if exc.report_format_columns:
                 result["report_format_columns"] = exc.report_format_columns
+            if exc.report_format_row_label is not None:
+                result["report_format_row_label"] = exc.report_format_row_label
             if exc.report_format_kind in {"CPC", "CPO"}:
                 result["report_format_kind"] = exc.report_format_kind
             if exc.dependency_stage in self.DEPENDENCY_STAGES:
