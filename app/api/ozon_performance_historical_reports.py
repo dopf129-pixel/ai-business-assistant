@@ -143,7 +143,7 @@ def parse_report_csv(data, kind):
                         "OZON_HISTORICAL_REPORT_FORMAT",
                         report_format_stage="CSV_UNKNOWN_ROW_LABEL",
                         report_format_columns=header_cells,
-                        report_format_row_label=sku[:80],
+                        report_format_row_label=sku[:80] if sku else "(пусто)",
                         report_format_kind=kind,
                     )
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})

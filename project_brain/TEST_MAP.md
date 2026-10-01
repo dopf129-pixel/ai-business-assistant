@@ -1,3 +1,13 @@
+# Empty promoted SKU in CPO diagnostics
+
+Updated:
+
+- app/api/ozon_performance_historical_reports.py
+- tests/test_ozon_performance_historical_reports.py
+- tests/test_period_profit_sku_advertising.py
+
+Covers a blank promoted-SKU cell from CSV parser through the historical advertising runtime to the Telegram message, and confirms it is presented as `(пусто)`.
+
 ## End-to-end CPO CSV row-label diagnostics
 
 Updated:
