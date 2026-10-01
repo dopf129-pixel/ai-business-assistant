@@ -132,7 +132,7 @@ def test_unknown_row_label_fails_with_safe_format_context():
 
 
 def test_empty_unknown_row_label_uses_safe_placeholder():
-    report = "SKU;Расход\n;0\n".encode()
+    report = "SKU продвигаемого товара;Расход, ₽\n;0\n".encode()
 
     with pytest.raises(HistoricalReportError) as exc:
         parse_report_csv(report, "CPO")
