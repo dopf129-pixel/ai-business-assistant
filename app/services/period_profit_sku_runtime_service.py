@@ -42,6 +42,10 @@ class PeriodProfitSkuRuntimeService:
         "ZIP_MEMBER_NOT_CSV",
         "ZIP_INVALID",
     })
+    HISTORICAL_REPORT_FORMAT_ENDPOINTS = frozenset({
+        "/api/client/statistic/orders/generate",
+        "/api/client/statistics/all_sku_promo/orders/generate",
+    })
     HISTORICAL_REPORT_DEPENDENCY_STAGES = frozenset({
         "CAMPAIGN_LIST",
         "CAMPAIGN_OBJECTS",
@@ -339,6 +343,14 @@ class PeriodProfitSkuRuntimeService:
                         format_columns = self._safe_historical_report_format_columns(
                             loaded.get("report_format_columns")
                         )
+                        format_endpoint = self._safe_historical_report_format_endpoint(
+                            loaded.get("report_format_endpoint")
+                        )
+                        order_sku_present = loaded.get(
+                            "report_format_order_sku_present"
+                        )
+                        if not isinstance(order_sku_present, bool):
+                            order_sku_present = None
                         format_row_label = self._safe_historical_report_format_row_label(
                             loaded.get("report_format_row_label")
                         )
@@ -346,12 +358,28 @@ class PeriodProfitSkuRuntimeService:
                             failure["report_format_kind"] = format_kind
                         if format_columns:
                             failure["report_format_columns"] = format_columns
+                        if format_endpoint:
+                            failure["report_format_endpoint"] = format_endpoint
+                        if order_sku_present is not None:
+                            failure["report_format_order_sku_present"] = (
+                                order_sku_present
+                            )
                         failure["message"] = (
                             "Не удалось разобрать CSV-отчёт Ozon.\n"
                             "Этап: " + format_stage + "\n"
                         )
                         if format_kind:
                             failure["message"] += "Тип отчёта: " + format_kind + "\n"
+                        if format_endpoint:
+                            failure["message"] += (
+                                "Endpoint: " + format_endpoint + "\n"
+                            )
+                        if order_sku_present is not None:
+                            failure["message"] += (
+                                "Обычный SKU в строке: "
+                                + ("заполнен" if order_sku_present else "пустой")
+                                + "\n"
+                            )
                         if format_columns:
                             failure["message"] += (
                                 "Заголовки CSV: " + "; ".join(format_columns) + "\n"
@@ -1162,6 +1190,12 @@ class PeriodProfitSkuRuntimeService:
     def _safe_historical_report_format_kind(value):
         return value if value in {"CPC", "CPO"} else None
 
+    @classmethod
+    def _safe_historical_report_format_endpoint(cls, value):
+        if not isinstance(value, str):
+            return None
+        return value if value in cls.HISTORICAL_REPORT_FORMAT_ENDPOINTS else None
+
     @staticmethod
     def _safe_historical_report_format_columns(value):
         if not isinstance(value, (list, tuple)):
@@ -1189,16 +1223,10 @@ class PeriodProfitSkuRuntimeService:
     def _safe_historical_report_format_row_label(value):
         if not isinstance(value, str):
             return None
-        label = " ".join(value.split())
-        allowed_punctuation = " _.,%()/+-:#№₽$€"
-        if not label:
-            return None
-        if len(label) > 80 or any(
-            not (character.isalnum() or character in allowed_punctuation)
-            for character in label
-        ):
-            return "UNRECOGNIZED_VALUE"
-        return label
+        return {
+            "EMPTY": "пустая",
+            "NON_NUMERIC": "нечисловая",
+        }.get(value)
 
     @staticmethod
     def _number(value):

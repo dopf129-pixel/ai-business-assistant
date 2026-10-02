@@ -127,7 +127,7 @@ def test_unknown_row_label_fails_with_safe_format_context():
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
     assert exc.value.report_format_kind == "CPC"
     assert exc.value.report_format_columns == ["SKU", "Расход"]
-    assert exc.value.report_format_row_label == "Примечание"
+    assert exc.value.report_format_row_label == "NON_NUMERIC"
     assert "Примечание" not in str(exc.value.report_format_columns)
 
 
@@ -146,7 +146,7 @@ def test_empty_promoted_sku_with_positive_expense_fails_with_placeholder():
     assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
     assert exc.value.report_format_kind == "CPO"
-    assert exc.value.report_format_row_label == "(пусто)"
+    assert exc.value.report_format_row_label == "EMPTY"
 
 
 def test_all_sku_cpo_blank_promoted_sku_uses_numeric_order_sku():
@@ -160,6 +160,24 @@ def test_all_sku_cpo_blank_promoted_sku_uses_numeric_order_sku():
     ) == [{"sku": "1234567890", "expense": Decimal("5"), "kind": "CPO"}]
 
 
+def test_selected_cpo_blank_promoted_sku_does_not_fall_back_to_order_sku():
+    endpoint = "/api/client/statistic/orders/generate"
+    report = (
+        "ID заказа;SKU;SKU продвигаемого товара;Расход, ₽\n"
+        "order-private;1234567890;;5\n"
+    ).encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPO", report_endpoint=endpoint)
+
+    assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
+    assert exc.value.report_format_row_label == "EMPTY"
+    assert exc.value.report_format_endpoint == endpoint
+    assert exc.value.report_format_order_sku_present is True
+    assert "order-private" not in repr(exc.value.__dict__)
+    assert "1234567890" not in repr(exc.value.__dict__)
+
+
 def test_all_sku_cpo_blank_promoted_sku_without_order_sku_still_fails():
     report = (
         "SKU;SKU продвигаемого товара;Расход, ₽\n"
@@ -170,7 +188,7 @@ def test_all_sku_cpo_blank_promoted_sku_without_order_sku_still_fails():
         parse_report_csv(report, "CPO", allow_order_sku_fallback=True)
 
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
-    assert exc.value.report_format_row_label == "(пусто)"
+    assert exc.value.report_format_row_label == "EMPTY"
 
 
 def test_load_returns_report_format_stage():
@@ -182,8 +200,12 @@ def test_load_returns_report_format_stage():
             "OZON_HISTORICAL_REPORT_FORMAT",
             report_format_stage="CSV_UNKNOWN_ROW_LABEL",
             report_format_columns=["SKU продвигаемого товара", "Расход, ₽"],
-            report_format_row_label="Примечание",
+            report_format_row_label="NON_NUMERIC",
             report_format_kind="CPO",
+            report_format_endpoint=(
+                "/api/client/statistic/orders/generate"
+            ),
+            report_format_order_sku_present=True,
         )
 
     service._generate = invalid_report
@@ -194,7 +216,11 @@ def test_load_returns_report_format_stage():
     assert result["report_format_stage"] == "CSV_UNKNOWN_ROW_LABEL"
     assert result["report_format_columns"] == ["SKU продвигаемого товара", "Расход, ₽"]
     assert result["report_format_kind"] == "CPO"
-    assert result["report_format_row_label"] == "Примечание"
+    assert result["report_format_row_label"] == "NON_NUMERIC"
+    assert result["report_format_endpoint"] == (
+        "/api/client/statistic/orders/generate"
+    )
+    assert result["report_format_order_sku_present"] is True
 
 
 class _Client:
@@ -322,6 +348,30 @@ def test_all_sku_cpo_orders_report_falls_back_to_order_sku_when_promoted_sku_bla
 
     assert client.create_kwargs == {"params": params}
     assert rows == [{"sku": "1234567890", "expense": Decimal("7.25"), "kind": "CPO"}]
+
+
+def test_selected_cpo_order_report_identifies_blank_promoted_row_source_safely():
+    endpoint = "/api/client/statistic/orders/generate"
+    content = (
+        "ID заказа;SKU;SKU продвигаемого товара;Расход, ₽\n"
+        "private-order-number;1234567890;;7,25\n"
+    ).encode()
+    client = _AsyncReportClient(
+        [{"state": "OK", "link": "https://report.test/file.csv"}],
+        create_endpoint=endpoint, download_content=content,
+    )
+
+    with pytest.raises(HistoricalReportError) as exc:
+        HistoricalPerformanceReports(client)._generate(
+            endpoint, {"from": "2026-08-01T00:00:00Z"}, "CPO"
+        )
+
+    assert exc.value.report_format_endpoint == endpoint
+    assert exc.value.report_format_order_sku_present is True
+    assert exc.value.report_format_row_label == "EMPTY"
+    diagnostic = repr(exc.value.__dict__)
+    assert "private-order-number" not in diagnostic
+    assert "1234567890" not in diagnostic
 
 
 def test_campaign_list_skips_known_out_of_scope_payment_types():

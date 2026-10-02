@@ -265,6 +265,57 @@ def test_production_telegram_callback_keeps_tenant_context_for_sku_query():
     assert get_current_tenant_user_id() is None
 
 
+def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
+    class Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_REPORT_FORMAT",
+                "report_format_stage": "CSV_UNKNOWN_ROW_LABEL",
+                "report_format_kind": "CPO",
+                "report_format_columns": [
+                    "SKU", "SKU продвигаемого товара", "Расход, ₽",
+                ],
+                "report_format_row_label": "EMPTY",
+                "report_format_endpoint": (
+                    "/api/client/statistic/orders/generate"
+                ),
+                "report_format_order_sku_present": True,
+            }
+
+    class Profiles:
+        def create_user(self, user_id):
+            return {"error": False, "user": {"user_id": str(user_id)}}
+
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("3921245627")]),
+        "previous_summary": None,
+    })
+    runtime = PeriodProfitSkuRuntimeService(
+        query, advertising_service=Advertising()
+    )
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=object(),
+        period_profit_sku_runtime_service=runtime,
+    )
+    adapter = AssistantTelegramAdapter(
+        object(), AssistantKeyboardService(), handler, Profiles()
+    )
+
+    result = TelegramBotService(adapter).on_callback(
+        "seller-a", "period_profit_sku:3921245627:7D"
+    )
+
+    assert result["error"] is True
+    assert "Endpoint: /api/client/statistic/orders/generate" in result["message"]
+    assert "Обычный SKU в строке: заполнен" in result["message"]
+    assert "Товар" not in result["message"]
+    assert "Номер заказа" not in result["message"]
+
+
 def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():
     query = Query({
         "error": True,

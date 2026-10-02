@@ -50,6 +50,8 @@ class PeriodProfitSkuAdvertisingService:
                     "campaign_diagnostics", "campaign_unknown_count",
                     "report_format_stage", "report_format_columns",
                     "report_format_row_label", "report_format_kind",
+                    "report_format_endpoint",
+                    "report_format_order_sku_present",
                     "dependency_stage",
                     "dependency_error_type",
                 ) if key in result} if isinstance(result, dict) else {}),

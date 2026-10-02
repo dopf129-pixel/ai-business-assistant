@@ -1,3 +1,16 @@
+# CPO endpoint and ordinary SKU diagnostics
+
+Updated:
+
+- app/api/ozon_performance_historical_reports.py
+- app/services/period_profit_sku_advertising_service.py
+- app/services/period_profit_sku_runtime_service.py
+- tests/test_ozon_performance_historical_reports.py
+- tests/test_period_profit_sku_advertising.py
+- tests/test_period_profit_sku_telegram_flow.py
+
+Covers a blank promoted SKU with a populated ordinary order SKU in the selected-products CPO report. The endpoint and a boolean presence flag reach the Telegram message, while order IDs, SKU values, product names, and raw row labels stay out of diagnostics. Confirms selected-product spend remains fail-closed and only the all-products endpoint may use its existing fallback.
+
 # Empty promoted SKU with zero or positive spend
 
 Updated:
@@ -16,7 +29,7 @@ Updated:
 - tests/test_ozon_performance_historical_reports.py
 - tests/test_period_profit_sku_advertising.py
 
-Covers a blank promoted-SKU cell from CSV parser through the historical advertising runtime to the Telegram message, and confirms it is presented as `(пусто)`.
+Covers a blank promoted-SKU cell from CSV parser through the historical advertising runtime to the Telegram message, where it is presented as a safe empty category.
 
 ## End-to-end CPO CSV row-label diagnostics
 
@@ -29,7 +42,8 @@ Updated:
 
 Covers a real CSV parse failure flowing through the historical report loader,
 advertising service, runtime sanitizer, and user-facing diagnostic message.
-The promoted-SKU cell value is preserved safely instead of being dropped.
+Only a categorical empty/non-numeric marker is retained; raw row values are not
+passed to Telegram.
 
 
 # Test Map
