@@ -15,13 +15,20 @@ from zipfile import ZipFile, BadZipFile
 import requests
 
 
+CPO_REPORT_ENDPOINTS = frozenset({
+    "/api/client/statistic/orders/generate",
+    "/api/client/statistics/all_sku_promo/orders/generate",
+})
+
+
 class HistoricalReportError(Exception):
     def __init__(
         self, code, campaign_payment_type=None, campaign_id=None,
         campaign_diagnostics=None, campaign_unknown_count=None,
         report_format_stage=None, report_format_columns=None,
         report_format_row_label=None, report_format_kind=None, dependency_stage=None,
-        dependency_error_type=None,
+        dependency_error_type=None, report_format_endpoint=None,
+        report_format_order_sku_present=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
@@ -32,6 +39,8 @@ class HistoricalReportError(Exception):
         self.report_format_columns = report_format_columns
         self.report_format_row_label = report_format_row_label
         self.report_format_kind = report_format_kind
+        self.report_format_endpoint = report_format_endpoint
+        self.report_format_order_sku_present = report_format_order_sku_present
         self.dependency_stage = dependency_stage
         self.dependency_error_type = dependency_error_type
         super().__init__(code)
@@ -91,7 +100,9 @@ def _report_header_columns(lines):
     return max(candidates, key=lambda candidate: candidate[:3])[3]
 
 
-def parse_report_csv(data, kind, *, allow_order_sku_fallback=False):
+def parse_report_csv(
+    data, kind, *, allow_order_sku_fallback=False, report_endpoint=None,
+):
     """Parse the SKU-level table, not its 'Всего' or campaign summary rows."""
     text = _decode(data)
     lines = text.splitlines()
@@ -119,7 +130,7 @@ def parse_report_csv(data, kind, *, allow_order_sku_fallback=False):
             ]
             order_sku_col = (
                 order_sku_cols[0]
-                if allow_order_sku_fallback and kind == "CPO" and len(order_sku_cols) == 1
+                if kind == "CPO" and len(order_sku_cols) == 1
                 else None
             )
             output = []
@@ -157,7 +168,8 @@ def parse_report_csv(data, kind, *, allow_order_sku_fallback=False):
                         except HistoricalReportError:
                             pass
                         if (
-                            order_sku_col is not None
+                            allow_order_sku_fallback
+                            and order_sku_col is not None
                             and len(row) > order_sku_col
                             and row[order_sku_col].strip().isdecimal()
                         ):
@@ -170,8 +182,22 @@ def parse_report_csv(data, kind, *, allow_order_sku_fallback=False):
                             "OZON_HISTORICAL_REPORT_FORMAT",
                             report_format_stage="CSV_UNKNOWN_ROW_LABEL",
                             report_format_columns=header_cells,
-                            report_format_row_label=sku[:80] if sku else "(пусто)",
+                            # Avoid exposing row contents: a malformed SKU cell
+                            # can contain order or product data.
+                            report_format_row_label="EMPTY" if not sku else "NON_NUMERIC",
                             report_format_kind=kind,
+                            report_format_endpoint=(
+                                report_endpoint if kind == "CPO"
+                                and report_endpoint in CPO_REPORT_ENDPOINTS else None
+                            ),
+                            report_format_order_sku_present=(
+                                bool(
+                                    order_sku_col is not None
+                                    and len(row) > order_sku_col
+                                    and row[order_sku_col].strip()
+                                )
+                                if kind == "CPO" else None
+                            ),
                         )
                 output.append({"sku": sku, "expense": _number(row[expense_col]), "kind": kind})
             if not output and summary_expenses:
@@ -614,6 +640,7 @@ class HistoricalPerformanceReports:
                         for row in parse_report_csv(
                             archive.read(m), kind,
                             allow_order_sku_fallback=allow_order_sku_fallback,
+                            report_endpoint=endpoint,
                         )
                     ]
             except BadZipFile as exc:
@@ -622,7 +649,8 @@ class HistoricalPerformanceReports:
                     report_format_stage="ZIP_INVALID",
                 ) from exc
         return parse_report_csv(
-            data, kind, allow_order_sku_fallback=allow_order_sku_fallback
+            data, kind, allow_order_sku_fallback=allow_order_sku_fallback,
+            report_endpoint=endpoint,
         )
 
     def load(self, date_from, date_to):
@@ -683,6 +711,12 @@ class HistoricalPerformanceReports:
                 result["report_format_row_label"] = exc.report_format_row_label
             if exc.report_format_kind in {"CPC", "CPO"}:
                 result["report_format_kind"] = exc.report_format_kind
+            if exc.report_format_endpoint in CPO_REPORT_ENDPOINTS:
+                result["report_format_endpoint"] = exc.report_format_endpoint
+            if isinstance(exc.report_format_order_sku_present, bool):
+                result["report_format_order_sku_present"] = (
+                    exc.report_format_order_sku_present
+                )
             if exc.dependency_stage in self.DEPENDENCY_STAGES:
                 result["dependency_stage"] = exc.dependency_stage
             if (
