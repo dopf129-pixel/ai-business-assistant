@@ -425,15 +425,18 @@ class HistoricalPerformanceReports:
                     and self._campaign_outside_period(item, date_from, date_to)
                 ):
                     continue
-                # Only CPC campaigns are part of this report. The API also
-                # exposes CPM as a valid paymentType; it is outside the
-                # CPC+CPO SKU scope and must not abort the whole report.
+                # Ozon documents SKU as "Оплата за клик" and
+                # SEARCH_PROMO as "Оплата за заказ". Legacy campaign records
+                # may omit paymentType; use the documented SKU type only for
+                # a missing/invalid placeholder. An explicit paymentType wins.
                 payment_type = item.get("paymentType")
-                # advObjectType describes the advertised object; it does not
-                # identify the billing model. In particular, an SKU campaign
-                # may use CPC or CPO, so a missing paymentType cannot safely be
-                # inferred from this endpoint's SKU filter.
-                if payment_type == "CPC":
+                missing_payment_type = (
+                    not str(payment_type or "").strip()
+                    or str(payment_type).strip().upper() == "CAMPAIGN_TYPE_INVALID"
+                )
+                if payment_type == "CPC" or (
+                    missing_payment_type and item.get("advObjectType") == "SKU"
+                ):
                     ids.append(str(item["id"]))
                 elif payment_type not in ("CPO", "CPM"):
                     unknown_campaigns.append(dict(item))
@@ -463,49 +466,23 @@ class HistoricalPerformanceReports:
                 ):
                     continue
                 payment_type = item.get("paymentType")
-                if payment_type == "CPC":
+                missing_payment_type = (
+                    not str(payment_type or "").strip()
+                    or str(payment_type).strip().upper() == "CAMPAIGN_TYPE_INVALID"
+                )
+                if payment_type == "CPC" or (
+                    missing_payment_type and item.get("advObjectType") == "SKU"
+                ):
                     ids.append(campaign_id)
                 elif payment_type not in ("CPO", "CPM"):
-                    # Ozon documents /objects for CPC, banner and video
-                    # campaigns, and points CPO campaigns to separate
-                    # search_promo methods. A non-empty object list therefore
-                    # identifies an SKU campaign as CPC. Empty or failed
-                    # lookups remain ambiguous; never infer from state or
-                    # advObjectType alone.
-                    object_status = "NOT_APPLICABLE"
-                    if item.get("advObjectType") == "SKU":
-                        object_status = "UNAVAILABLE"
-                    if (
-                        item.get("advObjectType") == "SKU"
-                        and lookup_status.get(campaign_id) == "FOUND"
-                    ):
-                        try:
-                            objects = self._json(
-                                "get",
-                                "/api/client/campaign/" + campaign_id + "/objects",
-                                dependency_stage="CAMPAIGN_OBJECTS",
-                            )
-                        except HistoricalReportError as exc:
-                            if exc.code == "OZON_PERFORMANCE_AUTH_UNAVAILABLE":
-                                raise
-                            objects = None
-                        if isinstance(objects, dict) and isinstance(objects.get("list"), list):
-                            object_ids = [
-                                str(value.get("id", ""))
-                                for value in objects["list"]
-                                if isinstance(value, dict)
-                            ]
-                            if object_ids and all(value.isdecimal() for value in object_ids):
-                                ids.append(campaign_id)
-                                object_status = "FOUND"
-                            else:
-                                object_status = "EMPTY_OR_INVALID"
-                    if object_status != "FOUND":
-                        diagnostic = self._campaign_diagnostic(
-                            item, lookup_status.get(campaign_id, "UNAVAILABLE")
-                        )
-                        diagnostic["objects_lookup_status"] = object_status
-                        unresolved.append(diagnostic)
+                    # Keep explicit unknown payment values fail-closed. The
+                    # objects response cannot override the declared payment
+                    # model, and is unnecessary when Ozon documents SKU as CPC.
+                    diagnostic = self._campaign_diagnostic(
+                        item, lookup_status.get(campaign_id, "UNAVAILABLE")
+                    )
+                    diagnostic["objects_lookup_status"] = "NOT_APPLICABLE"
+                    unresolved.append(diagnostic)
             if unresolved:
                 first = unresolved[0]
                 raise HistoricalReportError(
