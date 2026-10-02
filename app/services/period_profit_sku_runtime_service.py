@@ -351,6 +351,11 @@ class PeriodProfitSkuRuntimeService:
                         )
                         if not isinstance(order_sku_present, bool):
                             order_sku_present = None
+                        article_present = loaded.get(
+                            "report_format_article_present"
+                        )
+                        if not isinstance(article_present, bool):
+                            article_present = None
                         format_row_label = self._safe_historical_report_format_row_label(
                             loaded.get("report_format_row_label")
                         )
@@ -363,6 +368,10 @@ class PeriodProfitSkuRuntimeService:
                         if order_sku_present is not None:
                             failure["report_format_order_sku_present"] = (
                                 order_sku_present
+                            )
+                        if article_present is not None:
+                            failure["report_format_article_present"] = (
+                                article_present
                             )
                         failure["message"] = (
                             "Не удалось разобрать CSV-отчёт Ozon.\n"
@@ -378,6 +387,12 @@ class PeriodProfitSkuRuntimeService:
                             failure["message"] += (
                                 "Обычный SKU в строке: "
                                 + ("заполнен" if order_sku_present else "пустой")
+                                + "\n"
+                            )
+                        if article_present is not None:
+                            failure["message"] += (
+                                "Артикул в строке: "
+                                + ("заполнен" if article_present else "пустой")
                                 + "\n"
                             )
                         if format_columns:

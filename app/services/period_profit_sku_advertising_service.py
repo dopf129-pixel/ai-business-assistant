@@ -52,6 +52,7 @@ class PeriodProfitSkuAdvertisingService:
                     "report_format_row_label", "report_format_kind",
                     "report_format_endpoint",
                     "report_format_order_sku_present",
+                    "report_format_article_present",
                     "dependency_stage",
                     "dependency_error_type",
                 ) if key in result} if isinstance(result, dict) else {}),

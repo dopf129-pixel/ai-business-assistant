@@ -28,7 +28,7 @@ class HistoricalReportError(Exception):
         report_format_stage=None, report_format_columns=None,
         report_format_row_label=None, report_format_kind=None, dependency_stage=None,
         dependency_error_type=None, report_format_endpoint=None,
-        report_format_order_sku_present=None,
+        report_format_order_sku_present=None, report_format_article_present=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
@@ -41,6 +41,7 @@ class HistoricalReportError(Exception):
         self.report_format_kind = report_format_kind
         self.report_format_endpoint = report_format_endpoint
         self.report_format_order_sku_present = report_format_order_sku_present
+        self.report_format_article_present = report_format_article_present
         self.dependency_stage = dependency_stage
         self.dependency_error_type = dependency_error_type
         super().__init__(code)
@@ -133,6 +134,14 @@ def parse_report_csv(
                 if kind == "CPO" and len(order_sku_cols) == 1
                 else None
             )
+            article_cols = [
+                j for j, value in enumerate(header) if value == "артикул"
+            ]
+            article_col = (
+                article_cols[0]
+                if kind == "CPO" and len(article_cols) == 1
+                else None
+            )
             output = []
             summary_expenses = []
             for row in csv.reader(lines[i + 1:], delimiter=delimiter):
@@ -195,6 +204,14 @@ def parse_report_csv(
                                     order_sku_col is not None
                                     and len(row) > order_sku_col
                                     and row[order_sku_col].strip()
+                                )
+                                if kind == "CPO" else None
+                            ),
+                            report_format_article_present=(
+                                bool(
+                                    article_col is not None
+                                    and len(row) > article_col
+                                    and row[article_col].strip()
                                 )
                                 if kind == "CPO" else None
                             ),
@@ -716,6 +733,10 @@ class HistoricalPerformanceReports:
             if isinstance(exc.report_format_order_sku_present, bool):
                 result["report_format_order_sku_present"] = (
                     exc.report_format_order_sku_present
+                )
+            if isinstance(exc.report_format_article_present, bool):
+                result["report_format_article_present"] = (
+                    exc.report_format_article_present
                 )
             if exc.dependency_stage in self.DEPENDENCY_STAGES:
                 result["dependency_stage"] = exc.dependency_stage
