@@ -149,6 +149,30 @@ def test_empty_promoted_sku_with_positive_expense_fails_with_placeholder():
     assert exc.value.report_format_row_label == "(пусто)"
 
 
+def test_all_sku_cpo_blank_promoted_sku_uses_numeric_order_sku():
+    report = (
+        "SKU;SKU продвигаемого товара;Расход, ₽\n"
+        "1234567890;;5\n"
+    ).encode()
+
+    assert parse_report_csv(
+        report, "CPO", allow_order_sku_fallback=True
+    ) == [{"sku": "1234567890", "expense": Decimal("5"), "kind": "CPO"}]
+
+
+def test_all_sku_cpo_blank_promoted_sku_without_order_sku_still_fails():
+    report = (
+        "SKU;SKU продвигаемого товара;Расход, ₽\n"
+        "order-1;;5\n"
+    ).encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPO", allow_order_sku_fallback=True)
+
+    assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
+    assert exc.value.report_format_row_label == "(пусто)"
+
+
 def test_load_returns_report_format_stage():
     service = HistoricalPerformanceReports(_Client())
     service._campaign_ids = lambda *_args: ["123"]
@@ -275,10 +299,10 @@ def test_async_report_polling_still_times_out_at_the_bounded_limit():
     assert sleep.call_count == HistoricalPerformanceReports.MAX_POLLS - 1
 
 
-def test_all_sku_cpo_orders_report_uses_time_bounds_query_and_promoted_sku():
+def test_all_sku_cpo_orders_report_falls_back_to_order_sku_when_promoted_sku_blank():
     content = (
         "Дата;ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"
-        "2026-08-01;order-1;1234567890;3921245627;ARTICLE;7,25\n"
+        "2026-08-01;order-1;1234567890;;ARTICLE;7,25\n"
     ).encode()
     endpoint = "/api/client/statistics/all_sku_promo/orders/generate"
     client = _AsyncReportClient(
@@ -292,11 +316,12 @@ def test_all_sku_cpo_orders_report_uses_time_bounds_query_and_promoted_sku():
     }
 
     rows = service._generate(
-        endpoint, params, "CPO", method="get", query_params=True
+        endpoint, params, "CPO", method="get", query_params=True,
+        allow_order_sku_fallback=True,
     )
 
     assert client.create_kwargs == {"params": params}
-    assert rows == [{"sku": "3921245627", "expense": Decimal("7.25"), "kind": "CPO"}]
+    assert rows == [{"sku": "1234567890", "expense": Decimal("7.25"), "kind": "CPO"}]
 
 
 def test_campaign_list_skips_known_out_of_scope_payment_types():
@@ -824,8 +849,10 @@ def test_historical_requests_all_windows_and_types_without_manual_files():
     assert len(all_products_cpo) == 3
     assert all(call[3] == {} for call in selected_cpo)
     assert all("from" in call[1] and "to" in call[1] for call in selected_cpo)
-    assert all(call[3] == {"method": "get", "query_params": True}
-               for call in all_products_cpo)
+    assert all(call[3] == {
+        "method": "get", "query_params": True,
+        "allow_order_sku_fallback": True,
+    } for call in all_products_cpo)
     assert all("timeBounds.from" in call[1] and "timeBounds.to" in call[1]
                for call in all_products_cpo)
     assert len(result["rows"]) == 9

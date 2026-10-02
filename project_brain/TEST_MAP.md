@@ -6,7 +6,7 @@ Updated:
 - tests/test_ozon_performance_historical_reports.py
 - tests/test_period_profit_sku_advertising.py
 
-Covers skipping a blank promoted-SKU row only when its expense parses to zero; positive expense remains a safe format error and reaches the user diagnostic.
+Covers skipping a blank promoted-SKU row with zero spend; all-products CPO falls back to a numeric order SKU for positive spend, while selected-product reports and rows without a numeric order SKU remain fail-closed.
 
 # Empty promoted SKU in CPO diagnostics
 
