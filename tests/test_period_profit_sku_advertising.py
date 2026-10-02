@@ -203,6 +203,7 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
                 "/api/client/statistic/orders/generate"
             ),
             "report_format_order_sku_present": True,
+            "report_format_article_present": True,
         },
     )
     service = PeriodProfitSkuAdvertisingService(
@@ -221,6 +222,7 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
         "/api/client/statistic/orders/generate"
     )
     assert result["report_format_order_sku_present"] is True
+    assert result["report_format_article_present"] is True
 
 
 def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
@@ -381,6 +383,7 @@ def test_runtime_shows_safe_historical_report_format_stage():
                     "/api/client/statistic/orders/generate"
                 ),
                 "report_format_order_sku_present": True,
+                "report_format_article_present": True,
                 "report_format_row_label": "EMPTY",
             }
 
@@ -398,6 +401,8 @@ def test_runtime_shows_safe_historical_report_format_stage():
     assert "Тип отчёта: CPO" in result["message"]
     assert "Endpoint: /api/client/statistic/orders/generate" in result["message"]
     assert "Обычный SKU в строке: заполнен" in result["message"]
+    assert result["report_format_article_present"] is True
+    assert "Артикул в строке: заполнен" in result["message"]
     assert "Заголовки CSV: SKU продвигаемого товара; Расход, ₽" in result["message"]
     assert "Нераспознанная метка в столбце SKU: пустая" in result["message"]
     assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
@@ -583,13 +588,19 @@ def test_runtime_sanitizes_unknown_csv_row_label():
     ("row_label", "expected_label"),
     [("Примечание", "нечисловая"), ("", "пустая")],
 )
-def test_cpo_unknown_row_label_reaches_runtime_user_message(row_label, expected_label):
+@pytest.mark.parametrize(
+    ("order_sku", "order_sku_present"),
+    [("3921245627", True), ("", False)],
+)
+def test_cpo_unknown_row_label_reaches_runtime_user_message(
+    row_label, expected_label, order_sku, order_sku_present,
+):
     csv_data = (
         "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
         "Артикул;Источник заказов;Название товара;Количество;"
         "Стоимость продажи, ₽;Стоимость, ₽;Ставка, %;Ставка, ₽;Расход, ₽\n"
         "01.08.2026;ORDER-DO-NOT-LEAK;ORDER-NUMBER-DO-NOT-LEAK;"
-        "3921245627;" + row_label + ";ARTICLE-DO-NOT-LEAK;Поиск;"
+        + order_sku + ";" + row_label + ";ARTICLE-DO-NOT-LEAK;Поиск;"
         "PRODUCT-NAME-DO-NOT-LEAK;"
         "1;100;5;5;1;5\n"
     ).encode("utf-8")
@@ -634,8 +645,14 @@ def test_cpo_unknown_row_label_reaches_runtime_user_message(row_label, expected_
     assert result["report_format_endpoint"] == (
         "/api/client/statistic/orders/generate"
     )
-    assert result["report_format_order_sku_present"] is True
-    assert "Обычный SKU в строке: заполнен" in result["message"]
+    assert result["report_format_order_sku_present"] is order_sku_present
+    assert (
+        "Обычный SKU в строке: "
+        + ("заполнен" if order_sku_present else "пустой")
+        in result["message"]
+    )
+    assert result["report_format_article_present"] is True
+    assert "Артикул в строке: заполнен" in result["message"]
     assert "ORDER-DO-NOT-LEAK" not in result["message"]
     assert "ORDER-NUMBER-DO-NOT-LEAK" not in result["message"]
     assert "3921245627" not in result["message"]

@@ -281,6 +281,7 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
                     "/api/client/statistic/orders/generate"
                 ),
                 "report_format_order_sku_present": True,
+                "report_format_article_present": True,
             }
 
     class Profiles:
@@ -312,6 +313,7 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
     assert result["error"] is True
     assert "Endpoint: /api/client/statistic/orders/generate" in result["message"]
     assert "Обычный SKU в строке: заполнен" in result["message"]
+    assert "Артикул в строке: заполнен" in result["message"]
     assert "Товар" not in result["message"]
     assert "Номер заказа" not in result["message"]
 

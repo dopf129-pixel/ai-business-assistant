@@ -174,8 +174,26 @@ def test_selected_cpo_blank_promoted_sku_does_not_fall_back_to_order_sku():
     assert exc.value.report_format_row_label == "EMPTY"
     assert exc.value.report_format_endpoint == endpoint
     assert exc.value.report_format_order_sku_present is True
+    assert exc.value.report_format_article_present is False
     assert "order-private" not in repr(exc.value.__dict__)
     assert "1234567890" not in repr(exc.value.__dict__)
+
+
+def test_selected_cpo_error_keeps_only_article_presence_boolean():
+    endpoint = "/api/client/statistic/orders/generate"
+    report = (
+        "ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"
+        "order-private;;;article-private;5\n"
+    ).encode()
+
+    with pytest.raises(HistoricalReportError) as exc:
+        parse_report_csv(report, "CPO", report_endpoint=endpoint)
+
+    assert exc.value.report_format_row_label == "EMPTY"
+    assert exc.value.report_format_order_sku_present is False
+    assert exc.value.report_format_article_present is True
+    assert "order-private" not in repr(exc.value.__dict__)
+    assert "article-private" not in repr(exc.value.__dict__)
 
 
 def test_all_sku_cpo_blank_promoted_sku_without_order_sku_still_fails():
@@ -206,6 +224,7 @@ def test_load_returns_report_format_stage():
                 "/api/client/statistic/orders/generate"
             ),
             report_format_order_sku_present=True,
+            report_format_article_present=True,
         )
 
     service._generate = invalid_report
@@ -221,6 +240,7 @@ def test_load_returns_report_format_stage():
         "/api/client/statistic/orders/generate"
     )
     assert result["report_format_order_sku_present"] is True
+    assert result["report_format_article_present"] is True
 
 
 class _Client:

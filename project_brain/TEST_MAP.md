@@ -48,6 +48,23 @@ passed to Telegram.
 
 # Test Map
 
+## CPO article-presence diagnostics
+
+Updated:
+
+- `app/api/ozon_performance_historical_reports.py`
+- `app/services/period_profit_sku_advertising_service.py`
+- `app/services/period_profit_sku_runtime_service.py`
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers the boolean-only presence of the `Артикул` column value for selected CPO
+rows with blank promoted and order SKUs, propagation through report loading and
+advertising runtime, and display in Telegram. The article value, order data,
+product name, and expense are not copied into diagnostics; article is not used
+as a SKU mapping or expense-assignment fallback.
+
 ## Ozon Performance HTTP 429 backoff
 
 Updated:
