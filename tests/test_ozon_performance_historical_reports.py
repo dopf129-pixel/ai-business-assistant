@@ -334,39 +334,28 @@ def test_load_ignores_later_campaign_with_missing_payment_type():
     ]
 
 
-def test_missing_payment_type_still_fails_when_campaign_overlaps_period():
+def test_missing_payment_type_uses_documented_sku_campaign_type():
     service = HistoricalPerformanceReports(_Client([{
         "id": "42104957", "advObjectType": "SKU",
         "fromDate": "2026-08-30", "createdAt": "2026-08-01T00:00:00Z",
     }]))
 
-    with pytest.raises(HistoricalReportError) as exc:
-        service._campaign_ids(date(2026, 8, 1), date(2026, 8, 30))
-
-    assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
-    assert exc.value.campaign_id == "42104957"
+    assert service._campaign_ids(date(2026, 8, 1), date(2026, 8, 30)) == [
+        "42104957",
+    ]
 
 
-def test_campaign_type_is_rechecked_without_object_type_filter():
-    client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}],
-        lookup_campaigns=[{
-            "id": "27107278", "paymentType": "CPC", "advObjectType": "SKU",
-            "fromDate": "2026-08-01", "toDate": "2026-08-30",
-        }],
-    )
-    service = HistoricalPerformanceReports(client)
+def test_missing_payment_type_does_not_require_exact_lookup_for_sku_campaign():
+    client = _Client([{"id": "27107278", "advObjectType": "SKU"}])
 
-    assert service._campaign_ids(date(2026, 8, 1), date(2026, 8, 30)) == ["27107278"]
-    assert client.lookup_requests == [{
-        "campaignIds": ["27107278"], "page": 1, "pageSize": 1,
-    }]
+    assert HistoricalPerformanceReports(client)._campaign_ids() == ["27107278"]
+    assert client.lookup_requests == []
 
 
 @pytest.mark.parametrize("payment_type", ["CPO", "CPM"])
 def test_exact_campaign_lookup_excludes_other_payment_types(payment_type):
     client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}],
+        [{"id": "27107278"}],
         lookup_campaigns=[{
             "id": "27107278", "paymentType": payment_type,
             "advObjectType": "SKU",
@@ -378,7 +367,7 @@ def test_exact_campaign_lookup_excludes_other_payment_types(payment_type):
 
 def test_exact_campaign_lookup_can_exclude_campaign_outside_period():
     client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}],
+        [{"id": "27107278"}],
         lookup_campaigns=[{
             "id": "27107278", "advObjectType": "SKU",
             "fromDate": "2026-09-01", "createdAt": "2026-09-01T00:00:00Z",
@@ -392,13 +381,13 @@ def test_exact_campaign_lookup_can_exclude_campaign_outside_period():
 def test_unknown_campaign_diagnostic_rechecks_id_and_collects_safe_metadata():
     client = _Client(
         [
-            {"id": "27107278", "advObjectType": "SKU"},
-            {"id": "42104957", "advObjectType": "SKU"},
+            {"id": "27107278", "state": "CAMPAIGN_STATE_FINISHED"},
+            {"id": "42104957", "state": "CAMPAIGN_STATE_RUNNING"},
         ],
         lookup_campaigns=[
-            {"id": "27107278", "advObjectType": "SKU", "state": "CAMPAIGN_STATE_FINISHED",
+            {"id": "27107278", "state": "CAMPAIGN_STATE_FINISHED",
              "fromDate": "2026-08-01", "toDate": "2026-08-30"},
-            {"id": "42104957", "advObjectType": "SKU", "state": "CAMPAIGN_STATE_RUNNING",
+            {"id": "42104957", "state": "CAMPAIGN_STATE_RUNNING",
              "fromDate": "2026-08-15", "createdAt": "2026-08-01T10:20:30Z"},
         ],
     )
@@ -412,17 +401,17 @@ def test_unknown_campaign_diagnostic_rechecks_id_and_collects_safe_metadata():
     assert exc.value.campaign_diagnostics == [
         {
             "campaign_id": "27107278", "payment_type": "MISSING",
-            "adv_object_type": "SKU", "state": "CAMPAIGN_STATE_FINISHED",
+            "adv_object_type": "MISSING", "state": "CAMPAIGN_STATE_FINISHED",
             "from_date": "2026-08-01", "to_date": "2026-08-30",
             "created_at": "MISSING", "lookup_status": "FOUND",
-            "objects_lookup_status": "EMPTY_OR_INVALID",
+            "objects_lookup_status": "NOT_APPLICABLE",
         },
         {
             "campaign_id": "42104957", "payment_type": "MISSING",
-            "adv_object_type": "SKU", "state": "CAMPAIGN_STATE_RUNNING",
+            "adv_object_type": "MISSING", "state": "CAMPAIGN_STATE_RUNNING",
             "from_date": "2026-08-15", "to_date": "MISSING",
             "created_at": "2026-08-01", "lookup_status": "FOUND",
-            "objects_lookup_status": "EMPTY_OR_INVALID",
+            "objects_lookup_status": "NOT_APPLICABLE",
         },
     ]
     assert exc.value.campaign_unknown_count == 2
@@ -469,7 +458,7 @@ def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
                 type(self).lookup_calls += 1
                 return dict(failure)
             return {"list": [{
-                "id": "27107278", "advObjectType": "SKU",
+                "id": "27107278",
                 "state": "CAMPAIGN_STATE_ARCHIVED",
                 "fromDate": "2026-05-17", "createdAt": "2026-05-17",
             }]}
@@ -504,7 +493,7 @@ def test_campaign_lookup_retries_http_429_after_provider_cooldown():
             assert token == "token"
             if "campaignIds" not in kwargs["params"]:
                 return {"list": [{
-                    "id": "27107278", "advObjectType": "SKU",
+                    "id": "27107278",
                     "state": "CAMPAIGN_STATE_ARCHIVED",
                     "fromDate": "2026-05-17", "createdAt": "2026-05-17",
                 }]}
@@ -547,7 +536,7 @@ def test_campaign_lookup_does_not_retry_beyond_bounded_provider_cooldown():
                     "status_code": 429,
                     "retry_after_seconds": 120,
                 }
-            return {"list": [{"id": "27107278", "advObjectType": "SKU"}]}
+            return {"list": [{"id": "27107278"}]}
 
     client = _LongCooldownClient()
     with patch("api.ozon_performance_historical_reports.time.sleep") as sleep:
@@ -594,7 +583,7 @@ def test_http_429_does_not_retry_report_creation_get():
 
 def test_campaign_missing_from_exact_lookup_remains_fail_closed():
     client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}], lookup_campaigns=[]
+        [{"id": "27107278"}], lookup_campaigns=[]
     )
     result = HistoricalPerformanceReports(client).load(
         "2026-08-01", "2026-08-30"
@@ -607,12 +596,9 @@ def test_campaign_missing_from_exact_lookup_remains_fail_closed():
 
 
 @pytest.mark.parametrize("campaign", [
-    {"id": "42104957", "advObjectType": "SKU"},
-    # Some responses omit advObjectType too; neither missing field identifies
-    # the payment model.
     {"id": "42104958"},
 ])
-def test_campaign_list_fails_closed_when_payment_type_is_missing(campaign):
+def test_campaign_list_fails_closed_when_payment_and_object_types_are_missing(campaign):
     service = HistoricalPerformanceReports(_Client([campaign]))
 
     with pytest.raises(HistoricalReportError) as exc:
@@ -644,7 +630,7 @@ def test_campaign_list_fails_closed_for_unrecognized_payment_types():
 
 def test_historical_campaign_error_returns_payment_type_diagnostic():
     service = HistoricalPerformanceReports(_Client([
-        {"id": "42104957", "advObjectType": "SKU"},
+        {"id": "42104957"},
     ]))
 
     result = service.load("2026-08-01", "2026-08-30")
@@ -855,38 +841,29 @@ def test_historical_failure_never_becomes_zero():
 
 
 
-@pytest.mark.parametrize("object_list", [[{"id": "3921245627"}], [{"id": 3921245627}]])
-def test_missing_payment_type_is_resolved_by_documented_campaign_objects(object_list):
-    class ObjectsClient(_Client):
-        def _request(self, method, endpoint, token, **kwargs):
-            if endpoint.endswith("/objects"):
-                assert method == "get"
-                assert endpoint == "/api/client/campaign/27107278/objects"
-                return {"list": object_list}
-            return super()._request(method, endpoint, token, **kwargs)
-
-    client = ObjectsClient(
-        [{"id": "27107278", "advObjectType": "SKU"}],
+def test_missing_payment_type_is_resolved_from_documented_sku_type():
+    client = _Client(
+        [{"id": "27107278"}],
         lookup_campaigns=[{"id": "27107278", "advObjectType": "SKU"}],
     )
 
     assert HistoricalPerformanceReports(client)._campaign_ids() == ["27107278"]
+    assert client.lookup_requests == [{
+        "campaignIds": ["27107278"], "page": 1, "pageSize": 1,
+    }]
 
 
-def test_empty_campaign_objects_does_not_guess_unknown_payment_type():
-    class ObjectsClient(_Client):
-        def _request(self, method, endpoint, token, **kwargs):
-            if endpoint.endswith("/objects"):
-                return {"list": []}
-            return super()._request(method, endpoint, token, **kwargs)
-
-    client = ObjectsClient(
-        [{"id": "27107278", "advObjectType": "SKU"}],
-        lookup_campaigns=[{"id": "27107278", "advObjectType": "SKU"}],
-    )
+def test_unrecognized_payment_type_remains_fail_closed():
+    client = _Client([
+        {"id": "27107278", "advObjectType": "SKU", "paymentType": "NEW_TYPE"},
+    ])
 
     with pytest.raises(HistoricalReportError) as exc:
         HistoricalPerformanceReports(client)._campaign_ids()
 
     assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
-    assert exc.value.campaign_diagnostics[0]["objects_lookup_status"] == "EMPTY_OR_INVALID"
+    assert exc.value.campaign_id == "27107278"
+    assert exc.value.campaign_diagnostics[0]["objects_lookup_status"] == "NOT_APPLICABLE"
+    assert client.lookup_requests == [{
+        "campaignIds": ["27107278"], "page": 1, "pageSize": 1,
+    }]
