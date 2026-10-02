@@ -355,7 +355,7 @@ def test_missing_payment_type_does_not_require_exact_lookup_for_sku_campaign():
 @pytest.mark.parametrize("payment_type", ["CPO", "CPM"])
 def test_exact_campaign_lookup_excludes_other_payment_types(payment_type):
     client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}],
+        [{"id": "27107278"}],
         lookup_campaigns=[{
             "id": "27107278", "paymentType": payment_type,
             "advObjectType": "SKU",
@@ -367,7 +367,7 @@ def test_exact_campaign_lookup_excludes_other_payment_types(payment_type):
 
 def test_exact_campaign_lookup_can_exclude_campaign_outside_period():
     client = _Client(
-        [{"id": "27107278", "advObjectType": "SKU"}],
+        [{"id": "27107278"}],
         lookup_campaigns=[{
             "id": "27107278", "advObjectType": "SKU",
             "fromDate": "2026-09-01", "createdAt": "2026-09-01T00:00:00Z",
@@ -493,7 +493,7 @@ def test_campaign_lookup_retries_http_429_after_provider_cooldown():
             assert token == "token"
             if "campaignIds" not in kwargs["params"]:
                 return {"list": [{
-                    "id": "27107278", "advObjectType": "SKU",
+                    "id": "27107278",
                     "state": "CAMPAIGN_STATE_ARCHIVED",
                     "fromDate": "2026-05-17", "createdAt": "2026-05-17",
                 }]}
@@ -864,4 +864,6 @@ def test_unrecognized_payment_type_remains_fail_closed():
     assert exc.value.code == "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN"
     assert exc.value.campaign_id == "27107278"
     assert exc.value.campaign_diagnostics[0]["objects_lookup_status"] == "NOT_APPLICABLE"
-    assert client.lookup_requests == []
+    assert client.lookup_requests == [{
+        "campaignIds": ["27107278"], "page": 1, "pageSize": 1,
+    }]

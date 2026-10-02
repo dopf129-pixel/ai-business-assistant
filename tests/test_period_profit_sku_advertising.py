@@ -43,7 +43,7 @@ class _HistoricalClient:
             return {"list": []}
         assert endpoint == "/api/client/campaign"
         assert token == "token"
-        return {"list": [{"id": "42104957", "advObjectType": "SKU"}]}
+        return {"list": [{"id": "42104957"}]}
 
 
 class _ReportChainClient:
