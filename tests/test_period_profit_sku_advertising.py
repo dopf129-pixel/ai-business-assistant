@@ -437,6 +437,34 @@ def test_runtime_shows_safe_historical_dependency_stage():
     assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
 
 
+def test_runtime_shows_endpoint_and_unclassified_type_when_dependency_type_is_missing():
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+                "dependency_stage": "CPO_SELECTED_ORDERS_REPORT_STATUS",
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert result["error"] is True
+    assert result["dependency_endpoint"] == (
+        "GET /api/client/statistics/{UUID}"
+    )
+    assert "Этап запроса: CPO_SELECTED_ORDERS_REPORT_STATUS" in result["message"]
+    assert "Endpoint: GET /api/client/statistics/{UUID}" in result["message"]
+    assert "Тип сбоя: UNCLASSIFIED" in result["message"]
+    assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
+
+
 def test_runtime_hides_unrecognized_historical_dependency_stage():
     class _Advertising:
         def load(self, *_args):

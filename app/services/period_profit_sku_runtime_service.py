@@ -57,6 +57,25 @@ class PeriodProfitSkuRuntimeService:
         "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
         "CPO_ALL_SKU_ORDERS_REPORT_STATUS",
     })
+    HISTORICAL_REPORT_DEPENDENCY_ENDPOINTS = {
+        "CAMPAIGN_LIST": "GET /api/client/campaign",
+        "CAMPAIGN_OBJECTS": "GET /api/client/campaign/{campaignId}/objects",
+        "CAMPAIGN_LOOKUP": "GET /api/client/campaign",
+        "CPC_REPORT_CREATE": "POST /api/client/statistics",
+        "CPC_REPORT_STATUS": "GET /api/client/statistics/{UUID}",
+        "CPO_SELECTED_ORDERS_REPORT_CREATE": (
+            "POST /api/client/statistic/orders/generate"
+        ),
+        "CPO_SELECTED_ORDERS_REPORT_STATUS": (
+            "GET /api/client/statistics/{UUID}"
+        ),
+        "CPO_ALL_SKU_ORDERS_REPORT_CREATE": (
+            "GET /api/client/statistics/all_sku_promo/orders/generate"
+        ),
+        "CPO_ALL_SKU_ORDERS_REPORT_STATUS": (
+            "GET /api/client/statistics/{UUID}"
+        ),
+    }
     HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES = frozenset({
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
@@ -259,16 +278,30 @@ class PeriodProfitSkuRuntimeService:
                             loaded.get("dependency_error_type")
                         )
                     )
+                    dependency_endpoint = (
+                        self._safe_historical_report_dependency_endpoint(
+                            dependency_stage
+                        )
+                    )
                     if dependency_stage:
                         failure["dependency_stage"] = dependency_stage
                     if dependency_error_type:
                         failure["dependency_error_type"] = dependency_error_type
+                    if dependency_endpoint:
+                        failure["dependency_endpoint"] = dependency_endpoint
                     if dependency_stage or dependency_error_type:
                         details = "Не удалось обратиться к Ozon Performance.\n"
                         if dependency_stage:
                             details += "Этап запроса: " + dependency_stage + "\n"
+                        if dependency_endpoint:
+                            details += "Endpoint: " + dependency_endpoint + "\n"
                         if dependency_error_type:
                             details += "Тип сбоя: " + dependency_error_type + "\n"
+                        elif dependency_stage:
+                            # Keep diagnostics useful if a wrapper/provider
+                            # supplied the internal error code without the
+                            # request exception classification.
+                            details += "Тип сбоя: UNCLASSIFIED\n"
                         details += (
                             "Код диагностики: OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"
                         )
@@ -1200,6 +1233,12 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, str):
             return None
         return value if value in cls.HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES else None
+
+    @classmethod
+    def _safe_historical_report_dependency_endpoint(cls, value):
+        if not isinstance(value, str):
+            return None
+        return cls.HISTORICAL_REPORT_DEPENDENCY_ENDPOINTS.get(value)
 
     @staticmethod
     def _safe_historical_report_format_kind(value):

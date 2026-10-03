@@ -65,6 +65,20 @@ advertising runtime, and display in Telegram. The article value, order data,
 product name, and expense are not copied into diagnostics; article is not used
 as a SKU mapping or expense-assignment fallback.
 
+## CPO status dependency endpoint diagnostics
+
+Updated:
+
+- `app/services/period_profit_sku_runtime_service.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers allowlisted mapping from `CPO_SELECTED_ORDERS_REPORT_STATUS` to the
+status-poll endpoint, an explicit `UNCLASSIFIED` marker when the dependency
+error type is absent, and propagation through the historical report loader,
+advertising service, selected-SKU runtime, and Telegram response using fixtures.
+The report UUID and all credentials remain out of the message.
+
 ## Ozon Performance HTTP 429 backoff
 
 Updated:

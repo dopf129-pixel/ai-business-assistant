@@ -1,9 +1,13 @@
+from api.ozon_performance_client import OzonPerformanceClient
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
+from services.period_profit_sku_advertising_service import (
+    PeriodProfitSkuAdvertisingService,
+)
 from services.tenant_context import get_current_tenant_user_id
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
@@ -316,6 +320,103 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
     assert "Артикул в строке: заполнен" in result["message"]
     assert "Товар" not in result["message"]
     assert "Номер заказа" not in result["message"]
+
+
+def test_telegram_displays_selected_cpo_status_endpoint_when_error_type_is_missing(
+    monkeypatch,
+):
+    from api import ozon_performance_historical_reports
+
+    monkeypatch.setattr(
+        ozon_performance_historical_reports.time, "sleep", lambda *_args: None
+    )
+
+    report_uuid = "00000000-0000-0000-0000-000000000000"
+
+    class Response:
+        status_code = 200
+        headers = {}
+        content = b""
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def json(self):
+            return self.payload
+
+    class Session:
+        def post(self, url, **_kwargs):
+            if url.endswith("/api/client/token"):
+                return Response({"access_token": "fixture-token", "expires_in": 3600})
+            if url.endswith("/api/client/statistic/orders/generate"):
+                return Response({"UUID": report_uuid})
+            raise AssertionError("unexpected POST endpoint")
+
+        def get(self, url, **_kwargs):
+            if url.endswith("/api/client/campaign"):
+                return Response({"list": []})
+            if url.endswith("/api/client/statistics/" + report_uuid):
+                # Simulate a dependency error returned without a recognized
+                # transport classification; response content stays in the fixture.
+                return Response({
+                    "error": True,
+                    "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+                })
+            raise AssertionError("unexpected GET endpoint")
+
+    class Repository:
+        def get_performance(self, tenant):
+            assert tenant == "seller-a"
+            return {"client_id": "fixture-id", "client_secret": "fixture-secret"}
+
+    def client_factory(client_id, client_secret):
+        return OzonPerformanceClient(
+            client_id, client_secret, session=Session()
+        )
+
+    query = Query({
+        "error": False,
+        "summary": _summary(
+            [_row("3921245627")], "2020-08-01", "2020-08-30"
+        ),
+        "previous_summary": None,
+    })
+    advertising = PeriodProfitSkuAdvertisingService(
+        repository=Repository(), client_factory=client_factory
+    )
+    sku_runtime = PeriodProfitSkuRuntimeService(
+        query, advertising_service=advertising
+    )
+
+    class Profiles:
+        def create_user(self, user_id):
+            return {"error": False, "user": {"user_id": str(user_id)}}
+
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=object(),
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+    adapter = AssistantTelegramAdapter(
+        object(), AssistantKeyboardService(), handler, Profiles()
+    )
+
+    result = TelegramBotService(adapter).on_callback(
+        "seller-a", "period_profit_sku:3921245627:90D"
+    )
+
+    assert result["error"] is True
+    assert result["dependency_stage"] == "CPO_SELECTED_ORDERS_REPORT_STATUS"
+    assert result["dependency_endpoint"] == (
+        "GET /api/client/statistics/{UUID}"
+    )
+    assert "Endpoint: GET /api/client/statistics/{UUID}" in result["message"]
+    assert "Тип сбоя: UNCLASSIFIED" in result["message"]
+    assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
+    assert report_uuid not in result["message"]
+    assert "fixture-token" not in result["message"]
+    assert "fixture-secret" not in result["message"]
 
 
 def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():
