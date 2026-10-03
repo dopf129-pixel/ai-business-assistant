@@ -44,6 +44,7 @@ class PeriodProfitSkuRuntimeService:
         "ZIP_INVALID",
     })
     HISTORICAL_REPORT_FORMAT_ENDPOINTS = frozenset({
+        "/api/client/statistics",
         "/api/client/statistic/orders/generate",
         "/api/client/statistics/all_sku_promo/orders/generate",
     })
@@ -393,6 +394,11 @@ class PeriodProfitSkuRuntimeService:
                         format_row_label = self._safe_historical_report_format_row_label(
                             loaded.get("report_format_row_label")
                         )
+                        format_expense_category = (
+                            self._safe_historical_report_expense_category(
+                                loaded.get("report_format_expense_category")
+                            )
+                        )
                         format_saved_path = self._safe_historical_report_saved_path(
                             loaded.get("report_format_saved_path")
                         )
@@ -442,10 +448,30 @@ class PeriodProfitSkuRuntimeService:
                                 "Нераспознанная метка в столбце SKU: "
                                 + format_row_label + "\n"
                             )
+                        if format_expense_category:
+                            failure["report_format_expense_category"] = (
+                                format_expense_category
+                            )
+                            category_label = {
+                                "ZERO": "нулевой",
+                                "POSITIVE": "положительный",
+                                "MISSING": "не заполнен",
+                                "INVALID": "некорректный",
+                            }[format_expense_category]
+                            failure["message"] += (
+                                "Расход в нераспознанной строке: "
+                                + category_label + "\n"
+                            )
                         if format_kind == "CPO" and format_saved_path:
                             failure["report_format_saved_path"] = format_saved_path
                             failure["message"] += (
                                 "Локальная копия CSV сохранена: "
+                                + format_saved_path + "\n"
+                            )
+                        elif format_kind == "CPC" and format_saved_path:
+                            failure["report_format_saved_path"] = format_saved_path
+                            failure["message"] += (
+                                "Локальная копия отчёта сохранена: "
                                 + format_saved_path + "\n"
                             )
                         failure["message"] += (
@@ -1261,13 +1287,21 @@ class PeriodProfitSkuRuntimeService:
         return value if value in cls.HISTORICAL_REPORT_FORMAT_ENDPOINTS else None
 
     @staticmethod
+    def _safe_historical_report_expense_category(value):
+        if not isinstance(value, str):
+            return None
+        return value if value in {"ZERO", "POSITIVE", "MISSING", "INVALID"} else None
+
+    @staticmethod
     def _safe_historical_report_saved_path(value):
         if not isinstance(value, str):
             return None
         pattern = (
-            r"\.runtime-data/ozon-cpo-diagnostics/[0-9a-f]{16}/"
+            r"(?:\.runtime-data/ozon-cpo-diagnostics/[0-9a-f]{16}/"
             r"(?:selected_orders|all_products_orders)_"
-            r"[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12}\.(?:csv|zip)"
+            r"[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12}"
+            r"|\.runtime-data/ozon-cpc-diagnostics/[0-9a-f]{16}/"
+            r"unknown_sku_[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12})\.(?:csv|zip)"
         )
         return value if re.fullmatch(pattern, value) else None
 

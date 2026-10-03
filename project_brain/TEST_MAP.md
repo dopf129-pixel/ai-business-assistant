@@ -65,6 +65,23 @@ passed to Telegram.
 
 # Test Map
 
+## Unknown SKU label in historical CPC report
+
+Updated:
+
+- `app/api/ozon_performance_historical_reports.py`
+- `app/services/period_profit_sku_advertising_service.py`
+- `app/services/period_profit_sku_runtime_service.py`
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers skipping a nonnumeric CPC SKU row only when its expense parses to zero,
+preserving fail-closed behavior for positive/invalid expenses, and safely saving
+the failed CPC CSV/ZIP. Verifies endpoint, expense category, and the sanitized
+path through the selected-SKU Telegram callback without exposing row values or
+credentials.
+
 ## Selected-SKU profit excludes CPO
 
 Updated:

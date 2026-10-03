@@ -120,17 +120,29 @@ def test_repeated_full_header_row_is_skipped():
 
 
 def test_unknown_row_label_fails_with_safe_format_context():
-    report = "SKU;Расход\nПримечание;0\n".encode()
+    report = "SKU;Расход\nПримечание;5\n".encode()
 
     with pytest.raises(HistoricalReportError) as exc:
-        parse_report_csv(report, "CPC")
+        parse_report_csv(
+            report, "CPC", report_endpoint="/api/client/statistics"
+        )
 
     assert exc.value.code == "OZON_HISTORICAL_REPORT_FORMAT"
     assert exc.value.report_format_stage == "CSV_UNKNOWN_ROW_LABEL"
     assert exc.value.report_format_kind == "CPC"
     assert exc.value.report_format_columns == ["SKU", "Расход"]
     assert exc.value.report_format_row_label == "NON_NUMERIC"
+    assert exc.value.report_format_endpoint == "/api/client/statistics"
+    assert exc.value.report_format_expense_category == "POSITIVE"
     assert "Примечание" not in str(exc.value.report_format_columns)
+
+
+def test_nonnumeric_sku_row_with_zero_expense_is_skipped_safely():
+    report = "SKU;Расход\nПримечание;0\n".encode()
+
+    assert parse_report_csv(
+        report, "CPC", report_endpoint="/api/client/statistics"
+    ) == []
 
 
 def test_empty_promoted_sku_with_zero_expense_is_ignored():
@@ -437,6 +449,39 @@ def test_selected_cpo_parse_error_saves_exact_csv_in_private_scoped_folder(
     assert exc.value.report_format_endpoint == endpoint
     # Saving the report does not copy its contents into exception diagnostics.
     assert "private-order" not in repr(exc.value.__dict__)
+    assert "private-product" not in repr(exc.value.__dict__)
+
+
+def test_cpc_parse_error_saves_exact_csv_with_safe_row_diagnostics(
+    monkeypatch, tmp_path,
+):
+    endpoint = "/api/client/statistics"
+    content = (
+        "sku;Название товара;Расход, ₽, с НДС\n"
+        "private-sku-label;private-product;7,25\n"
+    ).encode("utf-8")
+    client = _AsyncReportClient(
+        [{"state": "OK", "link": "https://report.test/file.csv"}],
+        create_endpoint=endpoint, download_content=content,
+    )
+    monkeypatch.setattr(
+        HistoricalPerformanceReports, "CPC_DIAGNOSTICS_ROOT", tmp_path
+    )
+    service = HistoricalPerformanceReports(client, diagnostic_scope="seller-fixture")
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._generate(endpoint, {"campaigns": ["123"]}, "CPC")
+
+    saved_files = list(tmp_path.rglob("*.csv"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == content
+    assert exc.value.report_format_endpoint == endpoint
+    assert exc.value.report_format_expense_category == "POSITIVE"
+    assert exc.value.report_format_saved_path.startswith(
+        ".runtime-data/ozon-cpc-diagnostics/"
+    )
+    assert "seller-fixture" not in exc.value.report_format_saved_path
+    assert "private-sku-label" not in repr(exc.value.__dict__)
     assert "private-product" not in repr(exc.value.__dict__)
 
 

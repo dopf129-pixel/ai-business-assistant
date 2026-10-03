@@ -443,6 +443,134 @@ def test_telegram_selected_sku_profit_keeps_cpc_and_skips_cpo_reports(monkeypatc
     assert "fixture-secret" not in result["text"]
 
 
+def test_telegram_cpc_unknown_positive_sku_row_is_captured_and_reported_safely(
+    monkeypatch, tmp_path,
+):
+    from api import ozon_performance_historical_reports
+
+    monkeypatch.setattr(
+        ozon_performance_historical_reports.time, "sleep", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        ozon_performance_historical_reports.HistoricalPerformanceReports,
+        "CPC_DIAGNOSTICS_ROOT",
+        tmp_path,
+    )
+
+    report_uuid = "00000000-0000-0000-0000-000000000000"
+    base_url = OzonPerformanceClient.BASE_URL
+    report_content = (
+        "sku;Название товара;Предельная цена, ₽;Показы;Клики;CTR, %;"
+        "Добавления в корзину;Средняя стоимость клика, ₽;"
+        "Расход, ₽, с НДС;Продано товаров;Продажи в продвижении, ₽;"
+        "Продано товаров модели;Продажи в продвижении с заказов модели, ₽;"
+        "ДРР в продвижении, %;ДРР, %;Дата добавления\n"
+        "private-sku-label;private-product-name;100;20;2;10;1;1,50;"
+        "7,25;0;0;0;0;0;0;2026-08-01\n"
+    ).encode("utf-8")
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def __init__(self, payload=None, content=b""):
+            self.payload = payload
+            self.content = content
+
+        def json(self):
+            return self.payload
+
+    class Session:
+        def __init__(self):
+            self.endpoints = []
+
+        def post(self, url, **_kwargs):
+            endpoint = url.removeprefix(base_url)
+            self.endpoints.append(("POST", endpoint))
+            if endpoint == "/api/client/token":
+                return Response({"access_token": "fixture-token", "expires_in": 3600})
+            if endpoint == "/api/client/statistics":
+                return Response({"UUID": report_uuid})
+            raise AssertionError("unexpected POST endpoint: " + endpoint)
+
+        def get(self, url, params=None, **_kwargs):
+            endpoint = url.removeprefix(base_url)
+            self.endpoints.append(("GET", endpoint))
+            if endpoint == "/api/client/campaign":
+                return Response({"list": [{
+                    "id": "123",
+                    "paymentType": "CPC",
+                    "advObjectType": "SKU",
+                }]})
+            if endpoint == "/api/client/statistics/" + report_uuid:
+                return Response({"state": "OK", "link": "https://performance.test/report"})
+            if endpoint == "/api/client/statistics/report":
+                return Response(content=report_content)
+            raise AssertionError("unexpected GET endpoint: " + endpoint)
+
+    class Repository:
+        def get_performance(self, tenant):
+            assert tenant == "seller-a"
+            return {"client_id": "fixture-id", "client_secret": "fixture-secret"}
+
+    session = Session()
+
+    def client_factory(client_id, client_secret):
+        return OzonPerformanceClient(client_id, client_secret, session=session)
+
+    query = Query({
+        "error": False,
+        "summary": _summary(
+            [_row("3921245627")], "2026-08-01", "2026-08-30"
+        ),
+        "previous_summary": None,
+        "advertising_financial_evidence": {
+            "policy_configured": True,
+            "matched_amount": 0,
+        },
+    })
+    advertising = PeriodProfitSkuAdvertisingService(
+        repository=Repository(), client_factory=client_factory
+    )
+    sku_runtime = PeriodProfitSkuRuntimeService(
+        query, advertising_service=advertising
+    )
+
+    class Profiles:
+        def create_user(self, user_id):
+            return {"error": False, "user": {"user_id": str(user_id)}}
+
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=object(),
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+    adapter = AssistantTelegramAdapter(
+        object(), AssistantKeyboardService(), handler, Profiles()
+    )
+
+    result = TelegramBotService(adapter).on_callback(
+        "seller-a", "period_profit_sku:3921245627:90D"
+    )
+
+    saved_files = list(tmp_path.rglob("*.csv"))
+    assert result["error"] is True
+    assert "Тип отчёта: CPC" in result["message"]
+    assert "Endpoint: /api/client/statistics" in result["message"]
+    assert "Нераспознанная метка в столбце SKU: нечисловая" in result["message"]
+    assert "Расход в нераспознанной строке: положительный" in result["message"]
+    assert "Локальная копия отчёта сохранена: " in result["message"]
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == report_content
+    assert not any("orders/generate" in endpoint for _, endpoint in session.endpoints)
+    assert "private-sku-label" not in repr(result)
+    assert "private-product-name" not in repr(result)
+    assert "fixture-token" not in repr(result)
+    assert "fixture-secret" not in repr(result)
+    assert report_uuid not in result["message"]
+
+
 def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():
     query = Query({
         "error": True,
