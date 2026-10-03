@@ -197,6 +197,7 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
             ),
             "report_format_order_sku_present": True,
             "report_format_article_present": True,
+            "report_format_expense_category": "POSITIVE",
         },
     )
     service = PeriodProfitSkuAdvertisingService(
@@ -216,6 +217,7 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
     )
     assert result["report_format_order_sku_present"] is True
     assert result["report_format_article_present"] is True
+    assert result["report_format_expense_category"] == "POSITIVE"
 
 
 def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
@@ -401,6 +403,43 @@ def test_runtime_shows_safe_historical_report_format_stage():
     assert "OZON_HISTORICAL_REPORT_FORMAT" in result["message"]
     assert "Примечание" not in result["message"]
     assert "1234567890" not in result["message"]
+
+
+def test_runtime_shows_safe_cpc_endpoint_expense_category_and_saved_path():
+    saved_path = (
+        ".runtime-data/ozon-cpc-diagnostics/0123456789abcdef/"
+        "unknown_sku_20261003T120000000000Z_abcdef012345.csv"
+    )
+
+    class _Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_HISTORICAL_REPORT_FORMAT",
+                "report_format_stage": "CSV_UNKNOWN_ROW_LABEL",
+                "report_format_kind": "CPC",
+                "report_format_columns": ["sku", "Название товара", "Расход, ₽"],
+                "report_format_endpoint": "/api/client/statistics",
+                "report_format_row_label": "NON_NUMERIC",
+                "report_format_expense_category": "POSITIVE",
+                "report_format_saved_path": saved_path,
+            }
+
+    runtime = object.__new__(PeriodProfitSkuRuntimeService)
+    runtime.advertising_service = _Advertising()
+    result = runtime._load_advertising(
+        {},
+        {"products": [{"sku": "101"}]},
+        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
+        {"sku": "101"},
+    )
+
+    assert "Тип отчёта: CPC" in result["message"]
+    assert "Endpoint: /api/client/statistics" in result["message"]
+    assert "Нераспознанная метка в столбце SKU: нечисловая" in result["message"]
+    assert "Расход в нераспознанной строке: положительный" in result["message"]
+    assert "Локальная копия отчёта сохранена: " + saved_path in result["message"]
+    assert "private" not in result["message"]
 
 
 def test_runtime_shows_safe_historical_dependency_stage():
@@ -608,6 +647,11 @@ def test_runtime_sanitizes_unknown_csv_row_label():
         "selected_orders_20261003T120000000000Z_abcdef012345.csv"
     )
     assert safe_path(expected_path) == expected_path
+    expected_cpc_path = (
+        ".runtime-data/ozon-cpc-diagnostics/0123456789abcdef/"
+        "unknown_sku_20261003T120000000000Z_abcdef012345.csv"
+    )
+    assert safe_path(expected_cpc_path) == expected_cpc_path
     assert safe_path("../../.env") is None
     assert safe_path(expected_path + "?token=private") is None
 
