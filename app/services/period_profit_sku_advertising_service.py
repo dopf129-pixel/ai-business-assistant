@@ -37,7 +37,9 @@ class PeriodProfitSkuAdvertisingService:
             historical = date.fromisoformat(date_from) < date.today() - timedelta(days=1)
         except ValueError:
             return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
-        result = (HistoricalPerformanceReports(client).load(date_from, date_to)
+        result = (HistoricalPerformanceReports(
+                      client, diagnostic_scope=tenant
+                  ).load(date_from, date_to)
                   if historical else client.get_sku_expenses(date_from, date_to))
         if not isinstance(result, dict) or result.get("error") is True:
             return {
@@ -53,6 +55,7 @@ class PeriodProfitSkuAdvertisingService:
                     "report_format_endpoint",
                     "report_format_order_sku_present",
                     "report_format_article_present",
+                    "report_format_saved_path",
                     "dependency_stage",
                     "dependency_error_type",
                 ) if key in result} if isinstance(result, dict) else {}),

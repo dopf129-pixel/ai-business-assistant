@@ -1,3 +1,20 @@
+# Local capture of malformed CPO reports
+
+Updated:
+
+- `app/api/ozon_performance_historical_reports.py`
+- `app/services/period_profit_sku_advertising_service.py`
+- `app/services/period_profit_sku_runtime_service.py`
+- `tests/test_ozon_performance_historical_reports.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers saving the exact failed CPO CSV or whole ZIP under the ignored
+`.runtime-data` directory, tenant-scoped storage paths, propagation of the safe
+relative path through the advertising/runtime layers to the Telegram response,
+and suppression of raw report values from exception and message diagnostics.
+CPC reports are not captured, and no CPO spend fallback is added.
+
 # CPO endpoint and ordinary SKU diagnostics
 
 Updated:

@@ -5,11 +5,15 @@ SKU and expense column. Missing campaigns, failed jobs or unknown formats
 must not be interpreted as zero advertising cost.
 """
 import csv
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO, TextIOWrapper
+import hashlib
+import os
+from pathlib import Path
 import re
 import time
+from uuid import uuid4
 from zipfile import ZipFile, BadZipFile
 
 import requests
@@ -29,6 +33,7 @@ class HistoricalReportError(Exception):
         report_format_row_label=None, report_format_kind=None, dependency_stage=None,
         dependency_error_type=None, report_format_endpoint=None,
         report_format_order_sku_present=None, report_format_article_present=None,
+        report_format_saved_path=None,
     ):
         self.code = code
         self.campaign_payment_type = campaign_payment_type
@@ -42,6 +47,7 @@ class HistoricalReportError(Exception):
         self.report_format_endpoint = report_format_endpoint
         self.report_format_order_sku_present = report_format_order_sku_present
         self.report_format_article_present = report_format_article_present
+        self.report_format_saved_path = report_format_saved_path
         self.dependency_stage = dependency_stage
         self.dependency_error_type = dependency_error_type
         super().__init__(code)
@@ -248,15 +254,84 @@ class HistoricalPerformanceReports:
     CAMPAIGN_LOOKUP_BATCH_SIZE = 50
     MAX_CAMPAIGN_LOOKUP_IDS = 100
     MAX_CAMPAIGN_DIAGNOSTICS = 10
+    DIAGNOSTICS_ROOT = (
+        Path(__file__).resolve().parents[2]
+        / ".runtime-data"
+        / "ozon-cpo-diagnostics"
+    )
     RATE_LIMIT_DEFAULT_RETRY_SECONDS = 5
     RATE_LIMIT_MAX_RETRY_SECONDS = 60
     DEPENDENCY_ERROR_TYPES = frozenset({
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
 
-    def __init__(self, client):
+    def __init__(self, client, diagnostic_scope=None):
         self.client = client
         self.calls = 0
+        scope = "anonymous" if diagnostic_scope is None else str(diagnostic_scope)
+        self._diagnostic_scope = hashlib.sha256(
+            scope.encode("utf-8", errors="replace")
+        ).hexdigest()[:16]
+
+    def _save_cpo_diagnostic_report(self, data, endpoint, extension):
+        if endpoint not in CPO_REPORT_ENDPOINTS or extension not in {"csv", "zip"}:
+            return None
+        endpoint_name = {
+            "/api/client/statistic/orders/generate": "selected_orders",
+            "/api/client/statistics/all_sku_promo/orders/generate": "all_products_orders",
+        }[endpoint]
+        filename = (
+            endpoint_name + "_"
+            + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            + "_" + uuid4().hex[:12] + "." + extension
+        )
+        relative_path = Path(
+            ".runtime-data", "ozon-cpo-diagnostics", self._diagnostic_scope,
+            filename,
+        )
+        destination = self.DIAGNOSTICS_ROOT / self._diagnostic_scope / filename
+        descriptor = None
+        created_file = False
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(
+                str(destination), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            created_file = True
+            with os.fdopen(descriptor, "wb") as report_file:
+                descriptor = None
+                report_file.write(data)
+            return relative_path.as_posix()
+        except OSError:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if created_file:
+                try:
+                    destination.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            # Saving is diagnostic-only and must never mask the original
+            # fail-closed report error.
+            return None
+
+    def _parse_downloaded_csv(
+        self, data, kind, *, allow_order_sku_fallback, endpoint,
+    ):
+        try:
+            return parse_report_csv(
+                data, kind,
+                allow_order_sku_fallback=allow_order_sku_fallback,
+                report_endpoint=endpoint,
+            )
+        except HistoricalReportError as exc:
+            if kind == "CPO":
+                exc.report_format_saved_path = self._save_cpo_diagnostic_report(
+                    data, endpoint, "csv"
+                )
+            raise
 
     @staticmethod
     def _safe_campaign_payment_type(value):
@@ -652,22 +727,42 @@ class HistoricalPerformanceReports:
                             "OZON_HISTORICAL_REPORT_FORMAT",
                             report_format_stage="ZIP_MEMBER_NOT_CSV",
                         )
-                    return [
-                        row for m in members
-                        for row in parse_report_csv(
-                            archive.read(m), kind,
-                            allow_order_sku_fallback=allow_order_sku_fallback,
-                            report_endpoint=endpoint,
-                        )
-                    ]
+                    rows = []
+                    for member in members:
+                        try:
+                            rows.extend(parse_report_csv(
+                                archive.read(member), kind,
+                                allow_order_sku_fallback=allow_order_sku_fallback,
+                                report_endpoint=endpoint,
+                            ))
+                        except HistoricalReportError as exc:
+                            if kind == "CPO":
+                                exc.report_format_saved_path = (
+                                    self._save_cpo_diagnostic_report(
+                                        data, endpoint, "zip"
+                                    )
+                                )
+                            raise
+                    return rows
             except BadZipFile as exc:
-                raise HistoricalReportError(
+                error = HistoricalReportError(
                     "OZON_HISTORICAL_REPORT_FORMAT",
                     report_format_stage="ZIP_INVALID",
-                ) from exc
-        return parse_report_csv(
+                )
+                if kind == "CPO":
+                    error.report_format_saved_path = self._save_cpo_diagnostic_report(
+                        data, endpoint, "zip"
+                    )
+                raise error from exc
+            except HistoricalReportError as exc:
+                if kind == "CPO" and exc.report_format_saved_path is None:
+                    exc.report_format_saved_path = self._save_cpo_diagnostic_report(
+                        data, endpoint, "zip"
+                    )
+                raise
+        return self._parse_downloaded_csv(
             data, kind, allow_order_sku_fallback=allow_order_sku_fallback,
-            report_endpoint=endpoint,
+            endpoint=endpoint,
         )
 
     def load(self, date_from, date_to):
@@ -738,6 +833,8 @@ class HistoricalPerformanceReports:
                 result["report_format_article_present"] = (
                     exc.report_format_article_present
                 )
+            if isinstance(exc.report_format_saved_path, str):
+                result["report_format_saved_path"] = exc.report_format_saved_path
             if exc.dependency_stage in self.DEPENDENCY_STAGES:
                 result["dependency_stage"] = exc.dependency_stage
             if (
