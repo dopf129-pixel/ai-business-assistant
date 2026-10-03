@@ -1,7 +1,9 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import pytest
 
@@ -225,6 +227,11 @@ def test_load_returns_report_format_stage():
             ),
             report_format_order_sku_present=True,
             report_format_article_present=True,
+            report_format_saved_path=(
+                ".runtime-data/ozon-cpo-diagnostics/"
+                "0123456789abcdef/selected_orders_20261003T120000000000Z_"
+                "abcdef012345.csv"
+            ),
         )
 
     service._generate = invalid_report
@@ -241,6 +248,7 @@ def test_load_returns_report_format_stage():
     )
     assert result["report_format_order_sku_present"] is True
     assert result["report_format_article_present"] is True
+    assert result["report_format_saved_path"].endswith("abcdef012345.csv")
 
 
 class _Client:
@@ -392,6 +400,75 @@ def test_selected_cpo_order_report_identifies_blank_promoted_row_source_safely()
     diagnostic = repr(exc.value.__dict__)
     assert "private-order-number" not in diagnostic
     assert "1234567890" not in diagnostic
+
+
+def test_selected_cpo_parse_error_saves_exact_csv_in_private_scoped_folder(
+    monkeypatch, tmp_path,
+):
+    endpoint = "/api/client/statistic/orders/generate"
+    content = (
+        "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
+        "Артикул;Название товара;Расход, ₽\n"
+        "2026-08-01;private-order;private-order-number;1234567890;;"
+        "private-article;private-product;7,25\n"
+    ).encode("utf-8")
+    client = _AsyncReportClient(
+        [{"state": "OK", "link": "https://report.test/file.csv"}],
+        create_endpoint=endpoint, download_content=content,
+    )
+    monkeypatch.setattr(
+        HistoricalPerformanceReports, "DIAGNOSTICS_ROOT", tmp_path
+    )
+    service = HistoricalPerformanceReports(client, diagnostic_scope="seller-fixture")
+
+    with pytest.raises(HistoricalReportError) as exc:
+        service._generate(endpoint, {"from": "2026-08-01T00:00:00Z"}, "CPO")
+
+    saved_files = list(tmp_path.rglob("*.csv"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == content
+    saved_path = exc.value.report_format_saved_path
+    assert saved_path.startswith(
+        ".runtime-data/ozon-cpo-diagnostics/"
+    )
+    assert "/seller-fixture/" not in saved_path
+    assert "private-order" not in saved_path
+    assert "1234567890" not in saved_path
+    assert exc.value.report_format_endpoint == endpoint
+    # Saving the report does not copy its contents into exception diagnostics.
+    assert "private-order" not in repr(exc.value.__dict__)
+    assert "private-product" not in repr(exc.value.__dict__)
+
+
+def test_selected_cpo_zip_parse_error_saves_original_archive(monkeypatch, tmp_path):
+    endpoint = "/api/client/statistic/orders/generate"
+    content = (
+        "Дата;ID заказа;SKU;SKU продвигаемого товара;Название товара;Расход, ₽\n"
+        "2026-08-01;private-order;1234567890;;private-product;7,25\n"
+    ).encode("utf-8")
+    archive_bytes = BytesIO()
+    with ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("private-file-name.csv", content)
+    downloaded_archive = archive_bytes.getvalue()
+    client = _AsyncReportClient(
+        [{"state": "OK", "link": "https://report.test/file.zip"}],
+        create_endpoint=endpoint, download_content=downloaded_archive,
+    )
+    monkeypatch.setattr(
+        HistoricalPerformanceReports, "DIAGNOSTICS_ROOT", tmp_path
+    )
+
+    with pytest.raises(HistoricalReportError) as exc:
+        HistoricalPerformanceReports(client, diagnostic_scope="seller-fixture")._generate(
+            endpoint, {"from": "2026-08-01T00:00:00Z"}, "CPO"
+        )
+
+    saved_files = list(tmp_path.rglob("*.zip"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == downloaded_archive
+    assert exc.value.report_format_saved_path.endswith(".zip")
+    assert "private-file-name" not in exc.value.report_format_saved_path
+    assert "private-product" not in repr(exc.value.__dict__)
 
 
 def test_campaign_list_skips_known_out_of_scope_payment_types():

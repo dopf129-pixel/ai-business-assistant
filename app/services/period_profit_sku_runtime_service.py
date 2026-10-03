@@ -1,6 +1,7 @@
 from math import isfinite
 from contextvars import ContextVar
 from datetime import date
+import re
 
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -392,6 +393,9 @@ class PeriodProfitSkuRuntimeService:
                         format_row_label = self._safe_historical_report_format_row_label(
                             loaded.get("report_format_row_label")
                         )
+                        format_saved_path = self._safe_historical_report_saved_path(
+                            loaded.get("report_format_saved_path")
+                        )
                         if format_kind:
                             failure["report_format_kind"] = format_kind
                         if format_columns:
@@ -437,6 +441,12 @@ class PeriodProfitSkuRuntimeService:
                             failure["message"] += (
                                 "Нераспознанная метка в столбце SKU: "
                                 + format_row_label + "\n"
+                            )
+                        if format_kind == "CPO" and format_saved_path:
+                            failure["report_format_saved_path"] = format_saved_path
+                            failure["message"] += (
+                                "Локальная копия CSV сохранена: "
+                                + format_saved_path + "\n"
                             )
                         failure["message"] += (
                             "Код диагностики: OZON_HISTORICAL_REPORT_FORMAT"
@@ -1249,6 +1259,17 @@ class PeriodProfitSkuRuntimeService:
         if not isinstance(value, str):
             return None
         return value if value in cls.HISTORICAL_REPORT_FORMAT_ENDPOINTS else None
+
+    @staticmethod
+    def _safe_historical_report_saved_path(value):
+        if not isinstance(value, str):
+            return None
+        pattern = (
+            r"\.runtime-data/ozon-cpo-diagnostics/[0-9a-f]{16}/"
+            r"(?:selected_orders|all_products_orders)_"
+            r"[0-9]{8}T[0-9]{12}Z_[0-9a-f]{12}\.(?:csv|zip)"
+        )
+        return value if re.fullmatch(pattern, value) else None
 
     @staticmethod
     def _safe_historical_report_format_columns(value):

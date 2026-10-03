@@ -609,6 +609,14 @@ def test_runtime_sanitizes_unknown_csv_row_label():
     assert safe("EMPTY") == "пустая"
     assert safe("Примечание") is None
     assert safe("row\n<private>") is None
+    safe_path = PeriodProfitSkuRuntimeService._safe_historical_report_saved_path
+    expected_path = (
+        ".runtime-data/ozon-cpo-diagnostics/0123456789abcdef/"
+        "selected_orders_20261003T120000000000Z_abcdef012345.csv"
+    )
+    assert safe_path(expected_path) == expected_path
+    assert safe_path("../../.env") is None
+    assert safe_path(expected_path + "?token=private") is None
 
 
 
@@ -621,8 +629,11 @@ def test_runtime_sanitizes_unknown_csv_row_label():
     [("3921245627", True), ("", False)],
 )
 def test_cpo_unknown_row_label_reaches_runtime_user_message(
-    row_label, expected_label, order_sku, order_sku_present,
+    row_label, expected_label, order_sku, order_sku_present, monkeypatch, tmp_path,
 ):
+    monkeypatch.setattr(
+        HistoricalPerformanceReports, "DIAGNOSTICS_ROOT", tmp_path
+    )
     csv_data = (
         "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
         "Артикул;Источник заказов;Название товара;Количество;"
@@ -673,6 +684,14 @@ def test_cpo_unknown_row_label_reaches_runtime_user_message(
     assert result["report_format_endpoint"] == (
         "/api/client/statistic/orders/generate"
     )
+    saved_path = result["report_format_saved_path"]
+    assert saved_path.startswith(
+        ".runtime-data/ozon-cpo-diagnostics/"
+    )
+    assert "Локальная копия CSV сохранена: " + saved_path in result["message"]
+    saved_files = list(tmp_path.rglob("*.csv"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == csv_data
     assert result["report_format_order_sku_present"] is order_sku_present
     assert (
         "Обычный SKU в строке: "

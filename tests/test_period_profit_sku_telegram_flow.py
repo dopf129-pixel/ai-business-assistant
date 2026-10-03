@@ -286,6 +286,11 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
                 ),
                 "report_format_order_sku_present": True,
                 "report_format_article_present": True,
+                "report_format_saved_path": (
+                    ".runtime-data/ozon-cpo-diagnostics/"
+                    "0123456789abcdef/selected_orders_"
+                    "20261003T120000000000Z_abcdef012345.csv"
+                ),
             }
 
     class Profiles:
@@ -318,6 +323,8 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
     assert "Endpoint: /api/client/statistic/orders/generate" in result["message"]
     assert "Обычный SKU в строке: заполнен" in result["message"]
     assert "Артикул в строке: заполнен" in result["message"]
+    assert "Локальная копия CSV сохранена: " in result["message"]
+    assert result["report_format_saved_path"] in result["message"]
     assert "Товар" not in result["message"]
     assert "Номер заказа" not in result["message"]
 
