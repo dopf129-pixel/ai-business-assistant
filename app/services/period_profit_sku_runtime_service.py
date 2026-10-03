@@ -1074,7 +1074,7 @@ class PeriodProfitSkuRuntimeService:
             "Прочие SKU-расходы: " + self._money_with_revenue_share(
                 row["other_fees"], row["revenue"]
             ),
-            "Реклама по SKU: " + self._money_with_revenue_share(
+            "Реклама CPC по SKU: " + self._money_with_revenue_share(
                 -row.get("advertising_cost", 0.0), row["revenue"]
             ) if row.get("advertising_evidence", {}).get("applied") is True else None,
             "Себестоимость: " + self._money_with_revenue_share(
@@ -1094,9 +1094,9 @@ class PeriodProfitSkuRuntimeService:
             lines.append("К прошлому периоду: " + ("+" if delta > 0 else "") + self._money(delta))
         advertising = row.get("advertising_evidence") or {}
         if advertising.get("applied") is True:
-            warning = "⚠️ Включена подтверждённая реклама CPC по SKU. Остальные неатрибутированные расходы кабинета, реклама других типов, внешние расходы и Return COGS не включены и не считаются нулём."
+            warning = "⚠️ Включена подтверждённая реклама CPC по SKU. CPO и остальные неатрибутированные расходы кабинета, реклама других типов, внешние расходы и Return COGS не включены и не считаются нулём."
         else:
-            warning = "⚠️ Реклама по SKU не подключена. Неатрибутированные расходы кабинета, внешние расходы и Return COGS не включены и не считаются нулём. Подключение: /ozon_ads_connect."
+            warning = "⚠️ Реклама CPC по SKU не подключена. CPO и остальные неатрибутированные расходы кабинета, внешние расходы и Return COGS не включены и не считаются нулём. Подключение: /ozon_ads_connect."
         lines.extend(["", warning])
         return {
             "error": False,

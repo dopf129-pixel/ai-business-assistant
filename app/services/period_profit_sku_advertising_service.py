@@ -39,7 +39,7 @@ class PeriodProfitSkuAdvertisingService:
             return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
         result = (HistoricalPerformanceReports(
                       client, diagnostic_scope=tenant
-                  ).load(date_from, date_to)
+                  ).load(date_from, date_to, include_cpo=False)
                   if historical else client.get_sku_expenses(date_from, date_to))
         if not isinstance(result, dict) or result.get("error") is True:
             return {
@@ -91,8 +91,7 @@ class PeriodProfitSkuAdvertisingService:
             "status": "PERIOD_PROFIT_SKU_ADVERTISING_READY",
             "configured": True,
             "complete": True,
-            "scope": ("OZON_PERFORMANCE_CPC_AND_CPO_SKU" if historical
-                      else "OZON_PERFORMANCE_CPC_SKU"),
+            "scope": "OZON_PERFORMANCE_CPC_SKU",
             "expense": round(float(total), 2),
             "matched_row_count": matched,
             "campaign_count": len(campaigns),

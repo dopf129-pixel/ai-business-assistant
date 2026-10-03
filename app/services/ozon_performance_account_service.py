@@ -24,7 +24,7 @@ class OzonPerformanceAccountService:
         )
         if saved.get("error") is True:
             return {"error": True, "code": saved.get("code"), "message": "Не удалось безопасно сохранить рекламный доступ."}
-        return {"error": False, "status": "OZON_PERFORMANCE_CONNECTED", "message": "Performance API подключён к активному магазину. Реклама по SKU будет учитываться в расчёте прибыли."}
+        return {"error": False, "status": "OZON_PERFORMANCE_CONNECTED", "message": "Performance API подключён к активному магазину. В прибыли по SKU учитывается только реклама CPC; расходы CPO не включаются."}
 
     def status(self, user_id):
         connected = self.repository.get_performance(user_id) is not None

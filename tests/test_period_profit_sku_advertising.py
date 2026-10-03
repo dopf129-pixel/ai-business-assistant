@@ -138,7 +138,7 @@ def test_selected_sku_advertising_is_one_batched_performance_call(monkeypatch):
     assert _Client.calls == 1
 
 
-def test_historical_cpc_and_cpo_report_chain_attributes_spend_to_selected_sku():
+def test_selected_sku_historical_advertising_uses_cpc_without_cpo_reports():
     client = _ReportChainClient("performance-id", "secret")
     service = PeriodProfitSkuAdvertisingService(
         repository=_Repository(), client_factory=lambda *_args: client
@@ -151,27 +151,20 @@ def test_historical_cpc_and_cpo_report_chain_attributes_spend_to_selected_sku():
         "status": "PERIOD_PROFIT_SKU_ADVERTISING_READY",
         "configured": True,
         "complete": True,
-        "scope": "OZON_PERFORMANCE_CPC_AND_CPO_SKU",
-        "expense": 35.0,
-        "matched_row_count": 3,
+        "scope": "OZON_PERFORMANCE_CPC_SKU",
+        "expense": 5.0,
+        "matched_row_count": 1,
         "campaign_count": 0,
-        "external_call_count": 10,
+        "external_call_count": 4,
     }
     assert [(method, endpoint) for method, endpoint, _ in client.report_endpoints] == [
         ("post", "/api/client/statistics"),
-        ("post", "/api/client/statistic/orders/generate"),
-        ("get", "/api/client/statistics/all_sku_promo/orders/generate"),
     ]
     assert client.report_endpoints[0][2]["json"] == {
         "campaigns": ["101"], "dateFrom": "2026-08-01", "dateTo": "2026-08-30",
     }
-    assert client.report_endpoints[1][2]["json"] == {
-        "from": "2026-08-01T00:00:00Z", "to": "2026-08-30T23:59:59Z",
-    }
-    assert client.report_endpoints[2][2]["params"] == {
-        "timeBounds.from": "2026-08-01T00:00:00Z",
-        "timeBounds.to": "2026-08-30T23:59:59Z",
-    }
+    assert all("orders/generate" not in endpoint
+               for _, endpoint, _ in client.report_endpoints)
 
 
 def test_historical_campaign_payment_type_survives_advertising_service():
@@ -192,7 +185,7 @@ def test_historical_report_format_stage_survives_advertising_service(monkeypatch
     monkeypatch.setattr(
         HistoricalPerformanceReports,
         "load",
-        lambda *_args: {
+        lambda *_args, **_kwargs: {
             "error": True,
             "code": "OZON_HISTORICAL_REPORT_FORMAT",
             "report_format_stage": "CSV_UNKNOWN_ROW_LABEL",
@@ -229,7 +222,7 @@ def test_historical_dependency_stage_survives_advertising_service(monkeypatch):
     monkeypatch.setattr(
         HistoricalPerformanceReports,
         "load",
-        lambda *_args: {
+        lambda *_args, **_kwargs: {
             "error": True,
             "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
             "dependency_stage": "CPO_ALL_SKU_ORDERS_REPORT_CREATE",
@@ -620,88 +613,30 @@ def test_runtime_sanitizes_unknown_csv_row_label():
 
 
 
-@pytest.mark.parametrize(
-    ("row_label", "expected_label"),
-    [("Примечание", "нечисловая"), ("", "пустая")],
-)
-@pytest.mark.parametrize(
-    ("order_sku", "order_sku_present"),
-    [("3921245627", True), ("", False)],
-)
-def test_cpo_unknown_row_label_reaches_runtime_user_message(
-    row_label, expected_label, order_sku, order_sku_present, monkeypatch, tmp_path,
-):
-    monkeypatch.setattr(
-        HistoricalPerformanceReports, "DIAGNOSTICS_ROOT", tmp_path
-    )
-    csv_data = (
-        "Дата;ID заказа;Номер заказа;SKU;SKU продвигаемого товара;"
-        "Артикул;Источник заказов;Название товара;Количество;"
-        "Стоимость продажи, ₽;Стоимость, ₽;Ставка, %;Ставка, ₽;Расход, ₽\n"
-        "01.08.2026;ORDER-DO-NOT-LEAK;ORDER-NUMBER-DO-NOT-LEAK;"
-        + order_sku + ";" + row_label + ";ARTICLE-DO-NOT-LEAK;Поиск;"
-        "PRODUCT-NAME-DO-NOT-LEAK;"
-        "1;100;5;5;1;5\n"
-    ).encode("utf-8")
-
-    class _CsvClient:
-        BASE_URL = "https://performance.test"
-
+def test_selected_sku_advertising_requests_never_generate_cpo_reports():
+    class _CpoUnavailableClient:
         def __init__(self, *_args):
-            self.session = SimpleNamespace(get=self._download)
+            self.requested_endpoints = []
 
         def _access_token(self, force=False):
-            return {"access_token": "token"}
+            return {"access_token": "fixture-token"}
 
         def _request(self, method, endpoint, token, **kwargs):
+            self.requested_endpoints.append(endpoint)
             if endpoint == "/api/client/campaign":
                 return {"list": []}
-            if endpoint == "/api/client/statistic/orders/generate":
-                return {"UUID": "12345678-1234-1234-1234-123456789abc"}
-            if endpoint == "/api/client/statistics/12345678-1234-1234-1234-123456789abc":
-                return {"state": "OK", "link": "https://performance.test/report"}
-            raise AssertionError("Unexpected Ozon Performance endpoint: " + endpoint)
+            if "orders/generate" in endpoint:
+                raise AssertionError("selected-SKU advertising must skip CPO")
+            raise AssertionError("unexpected Ozon Performance endpoint: " + endpoint)
 
-        def _download(self, *_args, **_kwargs):
-            return SimpleNamespace(status_code=200, content=csv_data)
-
+    client = _CpoUnavailableClient()
     advertising = PeriodProfitSkuAdvertisingService(
-        repository=_Repository(), client_factory=_CsvClient
-    )
-    runtime = object.__new__(PeriodProfitSkuRuntimeService)
-    runtime.advertising_service = advertising
-
-    result = runtime._load_advertising(
-        {},
-        {"products": [{"sku": "3921245627"}]},
-        {"date_from": "2026-08-01", "date_to": "2026-08-30"},
-        {"sku": "3921245627"},
+        repository=_Repository(), client_factory=lambda *_args: client
     )
 
-    assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
-    assert result["report_format_row_label"] == expected_label
-    assert "Нераспознанная метка в столбце SKU: " + expected_label in result["message"]
-    assert result["report_format_endpoint"] == (
-        "/api/client/statistic/orders/generate"
-    )
-    saved_path = result["report_format_saved_path"]
-    assert saved_path.startswith(
-        ".runtime-data/ozon-cpo-diagnostics/"
-    )
-    assert "Локальная копия CSV сохранена: " + saved_path in result["message"]
-    saved_files = list(tmp_path.rglob("*.csv"))
-    assert len(saved_files) == 1
-    assert saved_files[0].read_bytes() == csv_data
-    assert result["report_format_order_sku_present"] is order_sku_present
-    assert (
-        "Обычный SKU в строке: "
-        + ("заполнен" if order_sku_present else "пустой")
-        in result["message"]
-    )
-    assert result["report_format_article_present"] is True
-    assert "Артикул в строке: заполнен" in result["message"]
-    assert "ORDER-DO-NOT-LEAK" not in result["message"]
-    assert "ORDER-NUMBER-DO-NOT-LEAK" not in result["message"]
-    assert "3921245627" not in result["message"]
-    assert "ARTICLE-DO-NOT-LEAK" not in result["message"]
-    assert "PRODUCT-NAME-DO-NOT-LEAK" not in result["message"]
+    result = advertising.load("2026-08-01", "2026-08-30", {"101"})
+
+    assert result["error"] is False
+    assert result["scope"] == "OZON_PERFORMANCE_CPC_SKU"
+    assert result["expense"] == 0.0
+    assert client.requested_endpoints == ["/api/client/campaign"]

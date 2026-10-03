@@ -765,7 +765,7 @@ class HistoricalPerformanceReports:
             endpoint=endpoint,
         )
 
-    def load(self, date_from, date_to):
+    def load(self, date_from, date_to, *, include_cpo=False):
         try:
             start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
             if start > end:
@@ -786,19 +786,20 @@ class HistoricalPerformanceReports:
                         {"campaigns": batch, "dateFrom": current.isoformat(),
                          "dateTo": finish.isoformat()},
                         "CPC"))
-                # CPO spend comes from order-level reports so the charge can be
-                # assigned to the promoted SKU. Selected products and the
-                # account-wide all-products promotion use separate reports.
-                rows.extend(self._generate(
-                    "/api/client/statistic/orders/generate",
-                    {"from": current.isoformat() + "T00:00:00Z",
-                     "to": finish.isoformat() + "T23:59:59Z"}, "CPO"))
-                rows.extend(self._generate(
-                    "/api/client/statistics/all_sku_promo/orders/generate",
-                    {"timeBounds.from": current.isoformat() + "T00:00:00Z",
-                     "timeBounds.to": finish.isoformat() + "T23:59:59Z"}, "CPO",
-                    method="get", query_params=True,
-                    allow_order_sku_fallback=True))
+                if include_cpo is True:
+                    # CPO spend is opt-in. The selected-SKU profit workflow
+                    # excludes it because those report paths are unreliable.
+                    # Keep both report shapes available to explicit callers.
+                    rows.extend(self._generate(
+                        "/api/client/statistic/orders/generate",
+                        {"from": current.isoformat() + "T00:00:00Z",
+                         "to": finish.isoformat() + "T23:59:59Z"}, "CPO"))
+                    rows.extend(self._generate(
+                        "/api/client/statistics/all_sku_promo/orders/generate",
+                        {"timeBounds.from": current.isoformat() + "T00:00:00Z",
+                         "timeBounds.to": finish.isoformat() + "T23:59:59Z"}, "CPO",
+                        method="get", query_params=True,
+                        allow_order_sku_fallback=True))
                 current = finish + timedelta(days=1)
             return {"rows": rows, "external_call_count": self.calls}
         except HistoricalReportError as exc:

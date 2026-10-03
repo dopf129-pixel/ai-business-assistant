@@ -65,6 +65,22 @@ passed to Telegram.
 
 # Test Map
 
+## Selected-SKU profit excludes CPO
+
+Updated:
+
+- `app/api/ozon_performance_historical_reports.py`
+- `app/services/period_profit_sku_advertising_service.py`
+- `app/services/period_profit_sku_runtime_service.py`
+- `app/services/ozon_performance_account_service.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+
+Covers CPC-only historical SKU profit, omission of both CPO order-report endpoints,
+and an end-to-end Telegram callback fixture where CPC spend is applied while CPO
+remains explicitly excluded from profit. The historical loader includes CPO only
+when a caller explicitly sets `include_cpo=True`.
+
 ## CPO article-presence diagnostics
 
 Updated:
@@ -88,13 +104,12 @@ Updated:
 
 - `app/services/period_profit_sku_runtime_service.py`
 - `tests/test_period_profit_sku_advertising.py`
-- `tests/test_period_profit_sku_telegram_flow.py`
 
 Covers allowlisted mapping from `CPO_SELECTED_ORDERS_REPORT_STATUS` to the
-status-poll endpoint, an explicit `UNCLASSIFIED` marker when the dependency
-error type is absent, and propagation through the historical report loader,
-advertising service, selected-SKU runtime, and Telegram response using fixtures.
-The report UUID and all credentials remain out of the message.
+status-poll endpoint and an explicit `UNCLASSIFIED` marker when the dependency
+error type is absent. This remains a sanitizer contract for explicit CPO loader
+use; production selected-SKU profit does not request CPO reports. The report UUID
+and all credentials remain out of diagnostics.
 
 ## Ozon Performance HTTP 429 backoff
 
@@ -149,8 +164,9 @@ Updated:
 - `tests/test_period_profit_sku_advertising.py`
 
 Covers safe stage labels for campaign discovery, CPC report creation/status, both
-CPO order report creation/status paths, and propagation through the advertising
-service into Telegram diagnostics; unexpected labels are suppressed.
+explicitly enabled CPO order report creation/status paths, and diagnostic
+sanitization; unexpected labels are suppressed. The selected-SKU advertising
+service opts out of CPO reports.
 
 
 ## Current Status

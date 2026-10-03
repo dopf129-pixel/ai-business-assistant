@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from api.ozon_performance_client import OzonPerformanceClient
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_period_profit_runtime_service import (
@@ -329,9 +331,7 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
     assert "Номер заказа" not in result["message"]
 
 
-def test_telegram_displays_selected_cpo_status_endpoint_when_error_type_is_missing(
-    monkeypatch,
-):
+def test_telegram_selected_sku_profit_keeps_cpc_and_skips_cpo_reports(monkeypatch):
     from api import ozon_performance_historical_reports
 
     monkeypatch.setattr(
@@ -339,37 +339,49 @@ def test_telegram_displays_selected_cpo_status_endpoint_when_error_type_is_missi
     )
 
     report_uuid = "00000000-0000-0000-0000-000000000000"
+    base_url = OzonPerformanceClient.BASE_URL
 
     class Response:
         status_code = 200
         headers = {}
-        content = b""
 
-        def __init__(self, payload):
+        def __init__(self, payload=None, content=b""):
             self.payload = payload
+            self.content = content
 
         def json(self):
             return self.payload
 
     class Session:
-        def post(self, url, **_kwargs):
-            if url.endswith("/api/client/token"):
-                return Response({"access_token": "fixture-token", "expires_in": 3600})
-            if url.endswith("/api/client/statistic/orders/generate"):
-                return Response({"UUID": report_uuid})
-            raise AssertionError("unexpected POST endpoint")
+        def __init__(self):
+            self.endpoints = []
 
-        def get(self, url, **_kwargs):
-            if url.endswith("/api/client/campaign"):
-                return Response({"list": []})
-            if url.endswith("/api/client/statistics/" + report_uuid):
-                # Simulate a dependency error returned without a recognized
-                # transport classification; response content stays in the fixture.
-                return Response({
-                    "error": True,
-                    "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
-                })
-            raise AssertionError("unexpected GET endpoint")
+        def post(self, url, **_kwargs):
+            endpoint = url.removeprefix(base_url)
+            self.endpoints.append(("POST", endpoint))
+            if endpoint == "/api/client/token":
+                return Response({"access_token": "fixture-token", "expires_in": 3600})
+            if endpoint == "/api/client/statistics":
+                return Response({"UUID": report_uuid})
+            raise AssertionError("unexpected POST endpoint: " + endpoint)
+
+        def get(self, url, params=None, **_kwargs):
+            endpoint = url.removeprefix(base_url)
+            self.endpoints.append(("GET", endpoint))
+            if endpoint == "/api/client/campaign":
+                return Response({"list": [{
+                    "id": "123",
+                    "paymentType": "CPC",
+                    "advObjectType": "SKU",
+                }]})
+            if endpoint == "/api/client/statistics/" + report_uuid:
+                return Response({"state": "OK", "link": "https://performance.test/report"})
+            if endpoint == "/api/client/statistics/report":
+                return Response(content=(
+                    "SKU;Название товара;Расход, ₽, с НДС\n"
+                    "3921245627;Fixture product;5,00\n"
+                ).encode("utf-8"))
+            raise AssertionError("unexpected GET endpoint: " + endpoint)
 
     class Repository:
         def get_performance(self, tenant):
@@ -378,15 +390,21 @@ def test_telegram_displays_selected_cpo_status_endpoint_when_error_type_is_missi
 
     def client_factory(client_id, client_secret):
         return OzonPerformanceClient(
-            client_id, client_secret, session=Session()
+            client_id, client_secret, session=session
         )
+
+    session = Session()
 
     query = Query({
         "error": False,
         "summary": _summary(
-            [_row("3921245627")], "2020-08-01", "2020-08-30"
+            [_row("3921245627")], "2026-08-01", "2026-08-30"
         ),
         "previous_summary": None,
+        "advertising_financial_evidence": {
+            "policy_configured": True,
+            "matched_amount": 0,
+        },
     })
     advertising = PeriodProfitSkuAdvertisingService(
         repository=Repository(), client_factory=client_factory
@@ -413,17 +431,16 @@ def test_telegram_displays_selected_cpo_status_endpoint_when_error_type_is_missi
         "seller-a", "period_profit_sku:3921245627:90D"
     )
 
-    assert result["error"] is True
-    assert result["dependency_stage"] == "CPO_SELECTED_ORDERS_REPORT_STATUS"
-    assert result["dependency_endpoint"] == (
-        "GET /api/client/statistics/{UUID}"
-    )
-    assert "Endpoint: GET /api/client/statistics/{UUID}" in result["message"]
-    assert "Тип сбоя: UNCLASSIFIED" in result["message"]
-    assert "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE" in result["message"]
-    assert report_uuid not in result["message"]
-    assert "fixture-token" not in result["message"]
-    assert "fixture-secret" not in result["message"]
+    assert result["error"] is False
+    assert result["advertising_included"] is True
+    assert result["summary"]["profit"] == 49.0
+    assert "Реклама CPC по SKU: -5 ₽ (-5%)" in result["text"]
+    assert "CPO и остальные неатрибутированные расходы" in result["text"]
+    assert "не включены и не считаются нулём" in result["text"]
+    assert not any("orders/generate" in endpoint for _, endpoint in session.endpoints)
+    assert report_uuid not in result["text"]
+    assert "fixture-token" not in result["text"]
+    assert "fixture-secret" not in result["text"]
 
 
 def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():

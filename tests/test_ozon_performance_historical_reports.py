@@ -235,7 +235,7 @@ def test_load_returns_report_format_stage():
         )
 
     service._generate = invalid_report
-    result = service.load("2026-08-01", "2026-08-30")
+    result = service.load("2026-08-01", "2026-08-30", include_cpo=True)
 
     assert result["error"] is True
     assert result["code"] == "OZON_HISTORICAL_REPORT_FORMAT"
@@ -497,7 +497,7 @@ def test_load_ignores_later_campaign_with_missing_payment_type():
     generated = []
     service._generate = lambda endpoint, *_args, **_kwargs: generated.append(endpoint) or []
 
-    result = service.load("2026-08-01", "2026-08-30")
+    result = service.load("2026-08-01", "2026-08-30", include_cpo=True)
 
     assert "error" not in result
     assert generated == [
@@ -984,7 +984,7 @@ def test_historical_requests_all_windows_and_types_without_manual_files():
         return [{"sku": "3921245627", "expense": Decimal("1"), "kind": kind}]
 
     service._generate = generate
-    result = service.load("2026-05-03", "2026-09-23")
+    result = service.load("2026-05-03", "2026-09-23", include_cpo=True)
     assert "error" not in result
     assert len([s for s in seen if s[2] == "CPC"]) == 3
     selected_cpo = [s for s in seen if s[0] == "/api/client/statistic/orders/generate"]
