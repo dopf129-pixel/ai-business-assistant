@@ -185,6 +185,30 @@ def test_accepts_internal_ozon_sku_as_identifier():
     assert result["delivered_units"] == 2
 
 
+def test_reads_one_bounded_fbo_window_instead_of_replaying_offset_pages():
+    response = {
+        "result": {"postings": _posting_items() * 2},
+        "has_next": True,
+    }
+    client = FakeOzonClient(response)
+    source = ReturnsBuyoutFactsSource(client)
+    source.POSTINGS_PAGE_SIZE = 2
+    source.MAX_PAGES = 2
+
+    postings, complete, error = source._load_postings("from", "to")
+
+    assert len(postings) == 6
+    assert complete is False
+    assert error is False
+    assert client.calls == [{
+        "since": "from",
+        "to": "to",
+        "limit": 4,
+        "offset": 0,
+        "direction": "DESC",
+    }]
+
+
 def test_preserves_cancel_reason_as_fact_only_when_returns_api_unavailable():
     source = ReturnsBuyoutFactsSource(FakeOzonClient(_response()))
 

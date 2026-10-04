@@ -122,6 +122,68 @@ class OzonFboV3ReturnsUnitEconomicsTests(unittest.TestCase):
         self.assertTrue(result["read_only"])
         self.assertFalse(result["executed"])
 
+    def test_quantity_listing_reads_one_bounded_cursor_window(self):
+        client = RecordingOzonClient(
+            [
+                {
+                    "postings": [{"posting_number": "posting-1"}],
+                    "cursor": "next-page",
+                    "has_next": True,
+                },
+                {
+                    "postings": [{"posting_number": "posting-2"}],
+                    "cursor": "done",
+                    "has_next": False,
+                },
+            ]
+        )
+        client.FBO_POSTINGS_V3_PAGE_SIZE = 1
+
+        result = client.get_fbo_postings_for_quantity(
+            since="2026-08-12T00:00:00Z",
+            to="2026-09-11T23:59:59Z",
+            posting_count=2,
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(
+            [item["posting_number"] for item in result["result"]["postings"]],
+            ["posting-1", "posting-2"],
+        )
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(client.calls[0]["data"]["cursor"], "")
+        self.assertEqual(client.calls[1]["data"]["cursor"], "next-page")
+        self.assertEqual(result["has_next"], False)
+
+    def test_quantity_listing_caps_one_pass_at_cursor_page_budget(self):
+        client = RecordingOzonClient(
+            [
+                {
+                    "postings": [{"posting_number": "posting-1"}],
+                    "cursor": "next-page",
+                    "has_next": True,
+                },
+                {
+                    "postings": [{"posting_number": "posting-2"}],
+                    "cursor": "next-page-2",
+                    "has_next": True,
+                },
+            ]
+        )
+        client.FBO_POSTINGS_V3_PAGE_SIZE = 1
+        client.FBO_POSTINGS_V3_MAX_PAGES = 2
+
+        result = client.get_fbo_postings_for_quantity(
+            since="2026-08-12T00:00:00Z",
+            to="2026-09-11T23:59:59Z",
+            posting_count=20,
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(len(result["result"]["postings"]), 2)
+        self.assertTrue(result["has_next"])
+        self.assertEqual(len(client.calls), 2)
+
     def test_hook_2_returns_facts_no_longer_fail_when_v3_postings_are_available(self):
         ozon = ReturnsFlowOzon()
         ozon.client.FBO_POSTINGS_V3_PAGE_SIZE = 1
@@ -146,6 +208,7 @@ class OzonFboV3ReturnsUnitEconomicsTests(unittest.TestCase):
             {call["endpoint"] for call in ozon.client.calls},
             {"/v3/posting/fbo/list"},
         )
+        self.assertEqual(len(ozon.client.calls), 2)
 
     def test_repeated_v3_cursor_fails_closed_instead_of_looping(self):
         client = RecordingOzonClient(

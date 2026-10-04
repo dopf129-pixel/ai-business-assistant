@@ -24,7 +24,12 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
 
     OFFER_KEY_PREFIX = "@offer:"
 
+    @staticmethod
+    def _text(value):
+        return str(value or "").strip()
+
     def calculate(self, date_from, date_to, products):
+        self._begin_quantity_evidence_session()
         # PeriodProfitSaleQuantitySummaryService.calculate() reconciles quantity
         # immediately after the critical finance summary. Insert stable identity
         # metadata at that boundary so a retired finance SKU does not erase the
