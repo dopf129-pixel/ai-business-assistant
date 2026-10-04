@@ -4,6 +4,10 @@ from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
+from services.assistant_core_service import AssistantCoreService
+from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
+from telegram_app_layer.telegram_bot_service import TelegramBotService
+from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
 
 
 class Query:
@@ -227,6 +231,179 @@ def test_custom_period_button_accepts_date_only_for_same_user():
         "compare_previous": True,
         "today": None,
     }]
+
+
+def test_general_period_prompt_replaces_abandoned_selected_sku_prompt():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED",
+            }
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+
+    runtime.begin_custom_sku_period("seller-1", "3921245627")
+    runtime.begin_custom_period("seller-1")
+    result = runtime.handle_text(
+        "01.08.2026 - 31.08.2026",
+        user_id="seller-1",
+    )
+
+    assert result["error"] is False
+    assert result["text"] == "ok"
+    assert query.calls == [{
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "compare_previous": True,
+        "today": None,
+    }]
+    assert sku_runtime.calls == []
+
+
+def test_selected_sku_prompt_replaces_abandoned_general_period_prompt():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED",
+            }
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+
+    runtime.begin_custom_period("seller-1")
+    runtime.begin_custom_sku_period("seller-1", "3921245627")
+    result = runtime.handle_text(
+        "01.08.2026 - 31.08.2026",
+        user_id="seller-1",
+    )
+
+    assert result["code"] == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
+    assert sku_runtime.calls == [(
+        "3921245627",
+        "2026-08-01",
+        "2026-08-31",
+    )]
+    assert query.calls == []
+
+
+def test_general_custom_button_navigation_replaces_pending_sku_prompt():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {"error": True, "code": "SKU_PATH_USED"}
+
+        def open_sku_menu(self):
+            return {"error": False, "message": "Выберите SKU"}
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=runtime,
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+
+    handler.handle("period_profit_sku:3921245627:custom", "seller-1")
+    handler.handle("period_profit", "seller-1")
+    handler.handle("period_profit:custom", "seller-1")
+    result = runtime.handle_text(
+        "01.08.2026 - 31.08.2026",
+        user_id="seller-1",
+    )
+
+    assert result["error"] is False
+    assert query.calls == [{
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "compare_previous": True,
+        "today": None,
+    }]
+    assert sku_runtime.calls == []
+
+
+def test_bot_general_period_dates_stay_on_general_path_after_sku_flow():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {"error": True, "code": "SKU_PATH_USED"}
+
+        def open_sku_menu(self):
+            return {"error": False, "message": "Выберите SKU"}
+
+    class Orchestrator:
+        def __init__(self, entry):
+            self.entry = entry
+
+        def process(self, text, context, user_id):
+            return self.entry.handle(text, context, user_id)
+
+    class Profiles:
+        def create_user(self, user_id):
+            return {"error": False, "user": {"user_id": str(user_id)}}
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+    keyboard = AssistantKeyboardService()
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+    entry = AssistantEntryService(
+        main_flow_service=MainFlow(),
+        sales_context_provider=Provider(),
+        stock_context_provider=Provider(),
+        finance_context_provider=FinanceProvider(),
+        period_profit_runtime_service=runtime,
+    )
+    core = AssistantCoreService(Orchestrator(entry))
+    adapter = AssistantTelegramAdapter(
+        core,
+        keyboard,
+        handler,
+        Profiles(),
+    )
+    bot = TelegramBotService(adapter)
+
+    bot.on_callback(
+        "seller-1", "period_profit_sku:3921245627:custom"
+    )
+    bot.on_callback("seller-1", "period_profit")
+    bot.on_callback("seller-1", "period_profit:custom")
+    result = bot.on_message("seller-1", "01.08.2026 - 31.08.2026")
+
+    assert result["error"] is False
+    assert TelegramResponseFormatter().format(result) == "ok"
+    assert query.calls == [{
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "compare_previous": True,
+        "today": None,
+    }]
+    assert sku_runtime.calls == []
 
 
 def test_invalid_custom_period_keeps_prompt_active_until_valid_input():

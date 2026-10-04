@@ -65,6 +65,25 @@ passed to Telegram.
 
 # Test Map
 
+## Routing between total-period and selected-SKU profit
+
+Updated:
+
+- `app/services/assistant_period_profit_runtime_service.py`
+- `app/services/assistant_button_handler_service.py`
+- `app/services/period_profit_sku_runtime_service.py`
+- `app/telegram_app_layer/telegram_response_formatter.py`
+- `tests/test_telegram_custom_period_date_input_v1171_v1180.py`
+- `tests/test_period_profit_sku_advertising.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+- `tests/test_telegram_response_formatter.py`
+
+Covers replacing stale custom-period input when users switch between general,
+pre-cost, and selected-SKU profit paths; verifies custom dates remain on the
+chosen route through Telegram formatting. CPC double-count protection remains
+fail-closed, its selected-SKU error has a safe user message, and unformatted
+error dictionaries never expose attached context.
+
 ## Unknown SKU label in historical CPC report
 
 Updated:

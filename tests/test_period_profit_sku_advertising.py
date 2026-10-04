@@ -616,6 +616,11 @@ def test_runtime_fails_closed_when_double_count_cannot_be_excluded():
     )
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
+    assert "расход на рекламу CPC" in result["message"]
+    assert "не подтверждено" in result["message"]
+    assert "CPO в этот расчёт не включается" in result["message"]
+    assert result["read_only"] is True
+    assert result["executed"] is False
 
 
 

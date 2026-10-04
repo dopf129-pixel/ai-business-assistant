@@ -2,6 +2,11 @@ from types import SimpleNamespace
 
 from api.ozon_performance_client import OzonPerformanceClient
 from services.assistant_button_handler_service import AssistantButtonHandlerService
+from services.assistant_core_service import AssistantCoreService
+from services.assistant_entry_service import AssistantEntryService
+from services.assistant_period_profit_runtime_service import (
+    AssistantPeriodProfitRuntimeService,
+)
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
@@ -13,6 +18,7 @@ from services.period_profit_sku_advertising_service import (
 from services.tenant_context import get_current_tenant_user_id
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
+from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
 
 
 def _row(sku, product_id="p1", catalog_sku=None, revenue=100, net=80, cost=20, units=2):
@@ -477,6 +483,86 @@ def test_telegram_selected_sku_profit_keeps_cpc_and_skips_cpo_reports(monkeypatc
     assert report_uuid not in result["text"]
     assert "fixture-token" not in result["text"]
     assert "fixture-secret" not in result["text"]
+
+
+def test_telegram_selected_sku_cpc_mapping_error_is_a_safe_user_message():
+    class Advertising:
+        def load(self, *_args):
+            return {
+                "error": False,
+                "configured": True,
+                "expense": 10.0,
+            }
+
+    class Profiles:
+        def create_user(self, user_id):
+            return {"error": False, "user": {"user_id": str(user_id)}}
+
+    class UserContext:
+        def get_context(self, _user_id):
+            return {
+                "error": False,
+                "context": {"last_action": "private-action-fixture"},
+                "memory": {"name": "private-name-fixture"},
+            }
+
+        def update(self, _user_id, _key, _value):
+            return {"error": False, "updated": True}
+
+    class Orchestrator:
+        def __init__(self, entry):
+            self.entry = entry
+
+        def process(self, text, context, user_id):
+            return self.entry.handle(text, context, user_id)
+
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("3921245627")]),
+        "previous_summary": None,
+        "advertising_financial_evidence": {"policy_configured": False},
+    })
+    sku_runtime = PeriodProfitSkuRuntimeService(
+        query,
+        advertising_service=Advertising(),
+    )
+    period_runtime = AssistantPeriodProfitRuntimeService(
+        query,
+        sku_runtime_service=sku_runtime,
+    )
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=period_runtime,
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+    entry = AssistantEntryService(
+        main_flow_service=object(),
+        period_profit_runtime_service=period_runtime,
+    )
+    core = AssistantCoreService(
+        Orchestrator(entry),
+        user_context_service=UserContext(),
+    )
+    adapter = AssistantTelegramAdapter(
+        core, AssistantKeyboardService(), handler, Profiles()
+    )
+
+    bot = TelegramBotService(adapter)
+    bot.on_callback(
+        "seller-a", "period_profit_sku:3921245627:custom"
+    )
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    message = TelegramResponseFormatter().format(result)
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
+    assert message == result["message"]
+    assert "расход на рекламу CPC" in message
+    assert "CPO в этот расчёт не включается" in message
+    assert "context" not in message
+    assert "private-action-fixture" not in message
+    assert "private-name-fixture" not in message
 
 
 def test_telegram_cpc_unknown_positive_sku_row_is_captured_and_reported_safely(

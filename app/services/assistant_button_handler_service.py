@@ -439,11 +439,46 @@ class AssistantButtonHandlerService:
         return None
 
 
+    def _clear_period_profit_custom_input_for_new_flow(
+        self,
+        button_id,
+        user_id,
+    ):
+        if not isinstance(button_id, str):
+            return
+        if not (
+            button_id == "main_menu"
+            or button_id in {
+                "period_profit",
+                "period_profit_pre_cogs",
+                "period_profit_sku",
+            }
+            or button_id.startswith((
+                "period_profit:",
+                "period_profit_pre_cogs:",
+                "period_profit_sku:",
+            ))
+        ):
+            return
+        clear_pending = getattr(
+            self.period_profit_runtime_service,
+            "clear_pending_custom_period_input",
+            None,
+        )
+        if callable(clear_pending):
+            clear_pending(user_id)
+
+
     def handle(
         self,
         button_id,
         user_id=None
     ):
+
+        self._clear_period_profit_custom_input_for_new_flow(
+            button_id,
+            user_id,
+        )
 
         if button_id == "help":
             return build_telegram_help_response()
