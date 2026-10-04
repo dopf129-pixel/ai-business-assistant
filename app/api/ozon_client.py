@@ -1,4 +1,6 @@
 from api.base_ozon_client import OzonClient as BaseOzonClient
+from datetime import date
+
 from services.ozon_credential_provider import OzonCredentialProvider
 
 
@@ -23,6 +25,69 @@ class OzonClient(BaseOzonClient):
         self._initializing_base = True
         super().__init__()
         self._initializing_base = False
+
+    def get_analytics_data(
+        self,
+        date_from,
+        date_to,
+        metrics,
+        dimension=("day",),
+        limit=1000,
+        offset=0,
+    ):
+        """Read Ozon analytics data for a bounded, explicit date window."""
+        try:
+            start = self._text(date_from)
+            end = self._text(date_to)
+            parsed_start = date.fromisoformat(start)
+            parsed_end = date.fromisoformat(end)
+            page_limit = int(limit)
+            page_offset = int(offset)
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "error": True,
+                "code": "OZON_ANALYTICS_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if not isinstance(metrics, (list, tuple)) or not isinstance(
+            dimension, (list, tuple)
+        ):
+            return {
+                "error": True,
+                "code": "OZON_ANALYTICS_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        metric_values = [str(value or "").strip() for value in metrics]
+        dimension_values = [str(value or "").strip() for value in dimension]
+        if (
+            parsed_start > parsed_end
+            or not metric_values
+            or any(not value for value in metric_values)
+            or any(not value for value in dimension_values)
+            or not 1 <= page_limit <= 1000
+            or page_offset < 0
+        ):
+            return {
+                "error": True,
+                "code": "OZON_ANALYTICS_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        return self._post(
+            "/v1/analytics/data",
+            {
+                "date_from": parsed_start.isoformat(),
+                "date_to": parsed_end.isoformat(),
+                "metrics": metric_values,
+                "dimension": dimension_values,
+                "limit": page_limit,
+                "offset": page_offset,
+            },
+            timeout=30,
+            max_attempts=3,
+        )
 
     @property
     def client_id(self):

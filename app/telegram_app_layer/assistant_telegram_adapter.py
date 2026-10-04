@@ -178,6 +178,22 @@ class AssistantTelegramAdapter:
             if onboarding.get("handled") is True:
                 return onboarding
 
+        pending_text_handler = getattr(self.button_handler, "handle_text", None)
+        if callable(pending_text_handler):
+            try:
+                pending_result = call_with_legacy_arity(
+                    pending_text_handler,
+                    (text, user_id),
+                    (text,),
+                )
+            except Exception:
+                return {"error": True, "message": "TELEGRAM_EXPERIMENTAL_TEXT_FAILED"}
+            if pending_result is not None:
+                return self._validated_runtime_result(
+                    pending_result,
+                    "INVALID_TELEGRAM_EXPERIMENTAL_TEXT_RESULT",
+                )
+
         if (
             self.memory_command_service
         ):

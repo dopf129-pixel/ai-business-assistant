@@ -82,6 +82,10 @@ from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeSer
 from services.ozon_account_service import OzonAccountService
 from services.ozon_performance_account_service import OzonPerformanceAccountService
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
+from services.experimental_store_economics_runtime_service import (
+    ExperimentalStoreEconomicsRuntimeService,
+)
+from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
 
@@ -215,11 +219,13 @@ def create_telegram_assistant():
 
     period_profit_cost_service = PeriodProfitEffectiveCostService()
 
+    period_profit_advertising_service = PeriodProfitSkuAdvertisingService()
+
     period_profit_sku_runtime_service = (
         PeriodProfitSkuRuntimeService(
             period_profit_runtime_service.query_service,
             cost_service=period_profit_cost_service,
-            advertising_service=PeriodProfitSkuAdvertisingService(),
+            advertising_service=period_profit_advertising_service,
         )
         if period_profit_runtime_service is not None
         else None
@@ -228,6 +234,16 @@ def create_telegram_assistant():
         period_profit_runtime_service.sku_runtime_service = (
             period_profit_sku_runtime_service
         )
+
+    experimental_store_economics_runtime_service = (
+        ExperimentalStoreEconomicsRuntimeService(
+            period_profit_runtime_service.query_service,
+            advertising_service=period_profit_advertising_service,
+            analytics_client=OzonClient(),
+        )
+        if period_profit_runtime_service is not None
+        else None
+    )
 
     button_handler = (
         AssistantButtonHandlerService(
@@ -266,6 +282,9 @@ def create_telegram_assistant():
             ),
             period_profit_sku_runtime_service=(
                 period_profit_sku_runtime_service
+            ),
+            experimental_store_economics_runtime_service=(
+                experimental_store_economics_runtime_service
             ),
         )
     )

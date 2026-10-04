@@ -66,6 +66,56 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": [
                 {
+                    "text": "🏪 Экономика магазина за период",
+                    "callback": "experimental_store_economics",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_experimental_store_economics_period_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": label, "callback": "experimental_store_economics:" + code}
+                for label, code in (
+                    ("Сегодня", "TODAY"),
+                    ("7 дней", "7D"),
+                    ("28 дней", "28D"),
+                    ("56 дней", "56D"),
+                    ("90 дней", "90D"),
+                )
+            ]
+            + [
+                {
+                    "text": "📅 Указать период",
+                    "callback": "experimental_store_economics:custom",
+                },
+                {
+                    "text": "↩️ Эксперименты",
+                    "callback": "experimental_calculations",
+                },
+            ],
+        }
+
+    def build_experimental_store_economics_result_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "📅 Выбрать другой период",
+                    "callback": "experimental_store_economics",
+                },
+                {
+                    "text": "↩️ Эксперименты",
+                    "callback": "experimental_calculations",
+                },
+                {
                     "text": "↩️ Главное меню",
                     "callback": "main_menu",
                 },

@@ -60,13 +60,22 @@ def test_experimental_calculations_button_uses_isolated_read_only_menu():
     result = bot.on_callback("seller-a", "experimental_calculations")
 
     assert result["error"] is False
-    assert "Пока здесь нет готовых экспериментов" in result["message"]
-    assert "не повлияют на основные расчёты" in result["message"]
+    assert "не меняют основные отчёты" in result["message"]
     assert result["read_only"] is True
     assert result["executed"] is False
-    assert _callbacks(result) == ["main_menu"]
+    assert _callbacks(result) == [
+        "experimental_store_economics",
+        "main_menu",
+    ]
 
-    main_menu = bot.on_callback("seller-a", _callbacks(result)[0])
+    periods = bot.on_callback("seller-a", _callbacks(result)[0])
+    assert periods["error"] is False
+    assert _callbacks(periods)[-2:] == [
+        "experimental_store_economics:custom",
+        "experimental_calculations",
+    ]
+
+    main_menu = bot.on_callback("seller-a", _callbacks(result)[1])
     assert main_menu["error"] is False
     assert "experimental_calculations" in _callbacks(main_menu)
 
