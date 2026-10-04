@@ -95,6 +95,7 @@ def test_sku_identity_stage_survives_production_telegram_wiring():
         "finance_diagnostic_code": (
             "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
         ),
+        "unresolved_finance_skus": ["3398133813"],
         "message": "must not escape",
         "read_only": True,
         "executed": False,
@@ -103,9 +104,13 @@ def test_sku_identity_stage_survives_production_telegram_wiring():
     result = runtime.handle_callback("period_profit:90D")
 
     assert result["message"].startswith(
-        "Операции Ozon найдены, но не все исторические SKU"
+        "Не удалось определить, к какому товару из каталога "
+        "относятся операции Ozon."
     )
     assert "Выбрать товар и исправить связь" in result["message"]
+    assert "исторические SKU" not in result["message"]
+    assert "[номер из карточки товара]" in result["message"]
+    assert "сами скобки не отправляйте" in result["message"]
     assert result["message"].endswith(
         "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
     )
@@ -132,8 +137,8 @@ def test_multiple_identity_blockers_show_safe_unresolved_skus():
 
     result = runtime.handle_callback("period_profit:28D")
 
-    assert "SKU без подтверждённой связи: OLD-1, OLD-2" in result["message"]
-    assert "SKU OLD-1 и SKU ТЕКУЩИЙ_SKU — один товар" in result["message"]
+    assert "SKU из операций Ozon: OLD-1, OLD-2" in result["message"]
+    assert "SKU OLD-1 и SKU [номер из карточки товара] — один товар" in result["message"]
     assert result["keyboard"] == {
         "error": False,
         "type": "inline_keyboard",

@@ -4720,7 +4720,7 @@ Tests:
 
 - `tests/test_period_profit_finance_safe_diagnostics.py`
 
-Covers safe HTTP classification, canonical finance error preservation, payload removal, and read-only Telegram diagnostic presentation.
+Covers safe HTTP classification, canonical finance error preservation, payload removal, read-only Telegram diagnostic presentation, and plain-language guidance for confirming an unresolved Ozon SKU against a catalog SKU.
 
 ---
 
