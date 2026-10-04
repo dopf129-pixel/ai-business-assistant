@@ -33,6 +33,10 @@ class AssistantKeyboardService:
                     "callback": "period_profit"
                 },
                 {
+                    "text": "🧪 Экспериментальные расчёты",
+                    "callback": "experimental_calculations"
+                },
+                {
                     "text": "💰 Себестоимость",
                     "callback": "seller_cost"
                 },
@@ -53,6 +57,19 @@ class AssistantKeyboardService:
                     "callback": "help"
                 }
             ]
+        }
+
+
+    def build_experimental_calculations_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
         }
 
 

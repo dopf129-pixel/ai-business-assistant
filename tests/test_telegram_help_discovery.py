@@ -51,6 +51,24 @@ def test_main_menu_makes_help_discoverable():
 
     assert "help" in _callbacks({"keyboard": keyboard})
     assert "ozon_stores" in _callbacks({"keyboard": keyboard})
+    assert "experimental_calculations" in _callbacks({"keyboard": keyboard})
+
+
+def test_experimental_calculations_button_uses_isolated_read_only_menu():
+    bot = _production_wired_bot()
+
+    result = bot.on_callback("seller-a", "experimental_calculations")
+
+    assert result["error"] is False
+    assert "Пока здесь нет готовых экспериментов" in result["message"]
+    assert "не повлияют на основные расчёты" in result["message"]
+    assert result["read_only"] is True
+    assert result["executed"] is False
+    assert _callbacks(result) == ["main_menu"]
+
+    main_menu = bot.on_callback("seller-a", _callbacks(result)[0])
+    assert main_menu["error"] is False
+    assert "experimental_calculations" in _callbacks(main_menu)
 
 
 def test_store_selector_button_routes_to_existing_store_list():
