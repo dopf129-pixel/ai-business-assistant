@@ -4719,8 +4719,9 @@ Covers:
 Tests:
 
 - `tests/test_period_profit_finance_safe_diagnostics.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
 
-Covers safe HTTP classification, canonical finance error preservation, payload removal, read-only Telegram diagnostic presentation, and plain-language guidance for confirming an unresolved Ozon SKU against a catalog SKU.
+Covers safe HTTP classification, canonical finance error preservation, payload removal, read-only Telegram diagnostic presentation, plain-language guidance for confirming an unresolved Ozon SKU against a catalog SKU, and the warning-button route through product and period selection before confirmation.
 
 ---
 

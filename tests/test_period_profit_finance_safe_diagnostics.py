@@ -107,7 +107,7 @@ def test_sku_identity_stage_survives_production_telegram_wiring():
         "Не удалось определить, к какому товару из каталога "
         "относятся операции Ozon."
     )
-    assert "Выбрать товар и исправить связь" in result["message"]
+    assert "Выбрать товар для проверки" in result["message"]
     assert "исторические SKU" not in result["message"]
     assert "[номер из карточки товара]" in result["message"]
     assert "сами скобки не отправляйте" in result["message"]
@@ -139,11 +139,13 @@ def test_multiple_identity_blockers_show_safe_unresolved_skus():
 
     assert "SKU из операций Ozon: OLD-1, OLD-2" in result["message"]
     assert "SKU OLD-1 и SKU [номер из карточки товара] — один товар" in result["message"]
+    assert "выберите карточку товара и период" in result["message"]
+    assert "только после вашего отдельного подтверждения" in result["message"]
     assert result["keyboard"] == {
         "error": False,
         "type": "inline_keyboard",
         "buttons": [{
-            "text": "🔎 Выбрать товар и исправить связь",
+            "text": "🔎 Выбрать товар для проверки",
             "callback": "period_profit_sku",
         }],
     }
