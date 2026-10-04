@@ -212,6 +212,11 @@ class ExperimentalStoreEconomicsRuntimeService:
         ):
             return {"status": "INCOMPLETE", "cpc": None, "campaign_count": None}
         campaign_count = self._integer(result.get("campaign_count"))
+        # Historical Performance CSV rows do not include campaign IDs, so the
+        # advertising service may report zero IDs even when it found spend.
+        # Zero therefore means "not available" here, not "no campaigns".
+        if campaign_count == 0:
+            campaign_count = None
         return {
             "status": "READY",
             "cpc": amount,
@@ -222,7 +227,10 @@ class ExperimentalStoreEconomicsRuntimeService:
     def _load_analytics(self, date_from, date_to):
         getter = getattr(self.analytics_client, "get_analytics_data", None)
         if not callable(getter):
-            return {"status": "UNAVAILABLE", "ordered_units": None, "cancellations": None}
+            return _analytics_result(
+                None, None, "UNAVAILABLE",
+                "ANALYTICS_CLIENT_UNAVAILABLE", "ANALYTICS_CLIENT_UNAVAILABLE",
+            )
         try:
             response = getter(
                 date_from,
@@ -233,33 +241,96 @@ class ExperimentalStoreEconomicsRuntimeService:
                 offset=0,
             )
         except Exception:
-            return {"status": "UNAVAILABLE", "ordered_units": None, "cancellations": None}
+            return _analytics_result(
+                None, None, "UNAVAILABLE",
+                "ANALYTICS_REQUEST_FAILED", "ANALYTICS_REQUEST_FAILED",
+            )
         if not isinstance(response, dict) or response.get("error") is True:
-            return {"status": "UNAVAILABLE", "ordered_units": None, "cancellations": None}
+            return _analytics_result(
+                None, None, "UNAVAILABLE",
+                "ANALYTICS_RESPONSE_UNAVAILABLE", "ANALYTICS_RESPONSE_UNAVAILABLE",
+            )
         result = response.get("result")
         rows = result.get("data") if isinstance(result, dict) else None
-        if not isinstance(rows, list) or len(rows) >= self.ANALYTICS_PAGE_SIZE:
-            return {"status": "INCOMPLETE", "ordered_units": None, "cancellations": None}
+        if not isinstance(rows, list):
+            return _analytics_result(
+                None, None, "INVALID", "ANALYTICS_DATA_MISSING",
+                "ANALYTICS_DATA_MISSING",
+            )
+        if len(rows) >= self.ANALYTICS_PAGE_SIZE:
+            return _analytics_result(
+                None, None, "INCOMPLETE", "ANALYTICS_PAGE_LIMIT_REACHED",
+                "ANALYTICS_PAGE_LIMIT_REACHED",
+            )
 
-        totals = [Decimal("0"), Decimal("0")]
+        totals = result.get("totals") if isinstance(result, dict) else None
+        values = []
+        issues = []
+        for index, metric_name in enumerate(self.ANALYTICS_METRICS):
+            total_value = None
+            total_issue = None
+            if isinstance(totals, list) and index < len(totals):
+                total_value, total_issue = _analytics_metric_value(
+                    totals[index], metric_name
+                )
+                if total_issue is None:
+                    values.append(total_value)
+                    issues.append(None)
+                    continue
+
+            value, issue = self._sum_analytics_rows(rows, index, metric_name)
+            if issue is None:
+                values.append(value)
+                issues.append(None)
+            else:
+                values.append(None)
+                issues.append(total_issue or issue)
+
+        public_values = [
+            _public_analytics_number(values[0]),
+            _public_analytics_number(values[1]),
+        ]
+        for index, value in enumerate(values):
+            if value is not None and public_values[index] is None:
+                issues[index] = self.ANALYTICS_METRICS[index].upper() + "_TOTAL_INVALID"
+        ready_count = sum(issue is None for issue in issues)
+        if ready_count == len(issues):
+            status = "READY"
+        elif ready_count:
+            status = "PARTIAL"
+        elif all(_is_missing_analytics_metric(issue) for issue in issues):
+            status = "UNAVAILABLE"
+        elif any(issue == "ANALYTICS_PAGE_LIMIT_REACHED" for issue in issues):
+            status = "INCOMPLETE"
+        else:
+            status = "INVALID"
+        return _analytics_result(
+            public_values[0],
+            public_values[1],
+            status,
+            issues[0],
+            issues[1],
+        )
+
+    def _sum_analytics_rows(self, rows, metric_index, metric_name):
+        total = Decimal("0")
         for row in rows:
-            values = row.get("metrics") if isinstance(row, dict) else None
-            if not isinstance(values, list) or len(values) != len(totals):
-                return {"status": "INVALID", "ordered_units": None, "cancellations": None}
-            for index, value in enumerate(values):
-                number = self._decimal(value)
-                if number is None or number < 0:
-                    return {"status": "INVALID", "ordered_units": None, "cancellations": None}
-                totals[index] += number
-                if not totals[index].is_finite():
-                    return {"status": "INVALID", "ordered_units": None, "cancellations": None}
-        if any(not value.to_integral_value() == value for value in totals):
-            return {"status": "INVALID", "ordered_units": None, "cancellations": None}
-        return {
-            "status": "READY",
-            "ordered_units": int(totals[0]),
-            "cancellations": int(totals[1]),
-        }
+            if not isinstance(row, dict):
+                return None, "ANALYTICS_ROW_INVALID"
+            values = row.get("metrics")
+            if not isinstance(values, list):
+                return None, "ANALYTICS_METRICS_INVALID"
+            if metric_index >= len(values):
+                return None, metric_name.upper() + "_NOT_RETURNED"
+            amount, issue = _analytics_metric_value(
+                values[metric_index], metric_name
+            )
+            if issue is not None:
+                return None, issue
+            total += amount
+            if not total.is_finite():
+                return None, metric_name.upper() + "_TOTAL_INVALID"
+        return total, None
 
     @classmethod
     def _fee_subcategories(cls, summary):
@@ -311,8 +382,16 @@ class ExperimentalStoreEconomicsRuntimeService:
             "9. Последняя миля: " + _fee_or_unconfirmed(fees.get("last_mile")),
             "10. Кросс-докинг: " + _fee_or_unconfirmed(fees.get("cross_docking")),
             "11. Платное хранение: " + _fee_or_unconfirmed(fees.get("paid_storage")),
-            "12. Заказанные единицы: " + _unit_or_unconfirmed(analytics.get("ordered_units"), analytics.get("status")),
-            "13. Отменённые единицы: " + _unit_or_unconfirmed(analytics.get("cancellations"), analytics.get("status")),
+            "12. Заказанные единицы: " + _unit_or_unconfirmed(
+                analytics.get("ordered_units"),
+                analytics.get("ordered_units_status"),
+                analytics.get("ordered_units_diagnostic"),
+            ),
+            "13. Отменённые единицы: " + _unit_or_unconfirmed(
+                analytics.get("cancellations"),
+                analytics.get("cancellations_status"),
+                analytics.get("cancellations_diagnostic"),
+            ),
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
             "Расход CPC сопоставляется только с SKU каталога и финансового отчёта; CPO, CPM и другие типы не считаются нулём и не входят в сумму. Реклама показана отдельно и не вычтена из прибыли в строке 4.",
@@ -418,11 +497,87 @@ def _fee_or_unconfirmed(value):
     return _money(value)
 
 
-def _unit_or_unconfirmed(value, status):
+def _unit_or_unconfirmed(value, status, diagnostic=None):
     if value is not None:
-        return f"{value:,}".replace(",", " ")
-    labels = {
-        "INCOMPLETE": "данные неполные",
-        "INVALID": "данные некорректны",
+        number = Decimal(str(value))
+        if number == number.to_integral_value():
+            return f"{int(number):,}".replace(",", " ")
+        formatted = f"{number:,.2f}".rstrip("0").rstrip(".")
+        return formatted.replace(",", " ").replace(".", ",")
+    if status == "UNAVAILABLE":
+        if (
+            isinstance(diagnostic, str)
+            and re.fullmatch(r"[A-Z0-9_]{1,64}", diagnostic)
+            and _is_missing_analytics_metric(diagnostic)
+        ):
+            return f"метрика Ozon не вернулась ({diagnostic})"
+        return "аналитика Ozon недоступна"
+    if status in {"INVALID", "INCOMPLETE"}:
+        label = "данные неполные" if status == "INCOMPLETE" else "данные некорректны"
+        if isinstance(diagnostic, str) and re.fullmatch(r"[A-Z0-9_]{1,64}", diagnostic):
+            return f"{label} ({diagnostic})"
+        return label
+    return "данные Ozon не предоставлены"
+
+
+def _analytics_metric_value(value, metric_name):
+    if value is None:
+        return None, metric_name.upper() + "_VALUE_MISSING"
+    if isinstance(value, bool):
+        return None, metric_name.upper() + "_VALUE_INVALID"
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        return None, metric_name.upper() + "_VALUE_INVALID"
+    if not number.is_finite():
+        return None, metric_name.upper() + "_VALUE_INVALID"
+    if number < 0:
+        return None, metric_name.upper() + "_NEGATIVE_VALUE"
+    return number, None
+
+
+def _public_analytics_number(value):
+    if value is None:
+        return None
+    if value == value.to_integral_value():
+        return int(value)
+    output = float(value)
+    return output if isfinite(output) else None
+
+
+def _analytics_result(
+    ordered_units,
+    cancellations,
+    status,
+    ordered_units_diagnostic,
+    cancellations_diagnostic,
+):
+    return {
+        "status": status,
+        "ordered_units": ordered_units,
+        "cancellations": cancellations,
+        "ordered_units_status": _analytics_field_status(
+            ordered_units, ordered_units_diagnostic, status
+        ),
+        "cancellations_status": _analytics_field_status(
+            cancellations, cancellations_diagnostic, status
+        ),
+        "ordered_units_diagnostic": ordered_units_diagnostic,
+        "cancellations_diagnostic": cancellations_diagnostic,
     }
-    return labels.get(status, "аналитика Ozon недоступна")
+
+
+def _analytics_field_status(value, diagnostic, overall_status):
+    if value is not None:
+        return "READY"
+    if overall_status in {"UNAVAILABLE", "INCOMPLETE"}:
+        return overall_status
+    if _is_missing_analytics_metric(diagnostic):
+        return "UNAVAILABLE"
+    return "INVALID"
+
+
+def _is_missing_analytics_metric(diagnostic):
+    return isinstance(diagnostic, str) and diagnostic.endswith(
+        ("_VALUE_MISSING", "_NOT_RETURNED")
+    )

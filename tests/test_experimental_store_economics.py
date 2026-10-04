@@ -211,6 +211,76 @@ def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero(
     assert "Платное хранение: не выделено отдельной строкой" in result["text"]
 
 
+def test_unknown_historical_campaign_count_is_not_rendered_as_zero():
+    query, runtime = _service(
+        advertising=_Advertising({
+            "error": False,
+            "configured": True,
+            "complete": True,
+            "expense": 84467.35,
+            "campaign_count": 0,
+        })
+    )
+
+    result = runtime.calculate("2026-08-01", "2026-08-31")
+
+    assert result["metrics"]["advertising"]["cpc"] == 84467.35
+    assert result["metrics"]["advertising"]["campaign_count"] is None
+    assert "84 467.35 ₽" in result["text"]
+    assert "0 камп." not in result["text"]
+
+
+def test_one_missing_analytics_metric_keeps_the_other_and_reaches_telegram():
+    query = _Query()
+    analytics = _Analytics({
+        "error": False,
+        "result": {
+            "data": [
+                {"metrics": [12, None]},
+                {"metrics": [5, None]},
+            ],
+        },
+    })
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=analytics,
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["analytics"]["status"] == "PARTIAL"
+    assert result["metrics"]["analytics"]["ordered_units"] == 17
+    assert result["metrics"]["analytics"]["cancellations"] is None
+    assert result["metrics"]["analytics"]["cancellations_status"] == "UNAVAILABLE"
+    assert result["metrics"]["analytics"]["cancellations_diagnostic"] == (
+        "CANCELLATIONS_VALUE_MISSING"
+    )
+    assert "Заказанные единицы: 17" in text
+    assert "Отменённые единицы: метрика Ozon не вернулась (CANCELLATIONS_VALUE_MISSING)" in text
+
+
+def test_analytics_totals_are_used_and_fractional_units_are_preserved():
+    query, runtime = _service(
+        analytics=_Analytics({
+            "error": False,
+            "result": {
+                "data": [{"metrics": [10, 8]}],
+                "totals": [2.5, 1],
+            },
+        })
+    )
+
+    result = runtime.calculate("2026-10-01", "2026-10-02")
+
+    assert result["metrics"]["analytics"]["ordered_units"] == 2.5
+    assert result["metrics"]["analytics"]["cancellations"] == 1
+    assert "Заказанные единицы: 2,5" in result["text"]
+    assert "Отменённые единицы: 1" in result["text"]
+
+
 def test_generic_storage_label_is_not_reported_as_paid_storage():
     result = ExperimentalStoreEconomicsRuntimeService._fee_subcategories(
         {"fee_breakdown": {"Хранение товара": -350.0, "Storage": -125.0}}
@@ -251,7 +321,7 @@ def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     assert query.summary_service.calls[0][:2] == ("2026-10-01", "2026-10-02")
 
 
-def test_invalid_analytics_rows_fail_closed_without_exposing_partial_totals():
+def test_invalid_analytics_metric_does_not_discard_a_valid_other_metric():
     query = _Query()
     analytics = _Analytics({
         "error": False,
@@ -265,10 +335,12 @@ def test_invalid_analytics_rows_fail_closed_without_exposing_partial_totals():
 
     result = runtime.calculate("2026-10-01", "2026-10-02")
 
-    assert result["metrics"]["analytics"] == {
-        "status": "INVALID",
-        "ordered_units": None,
-        "cancellations": None,
-    }
-    assert "Заказанные единицы: данные некорректны" in result["text"]
-    assert "Отменённые единицы: данные некорректны" in result["text"]
+    analytics_result = result["metrics"]["analytics"]
+    assert analytics_result["status"] == "PARTIAL"
+    assert analytics_result["ordered_units"] == 10
+    assert analytics_result["cancellations"] is None
+    assert analytics_result["cancellations_diagnostic"] == (
+        "CANCELLATIONS_VALUE_INVALID"
+    )
+    assert "Заказанные единицы: 10" in result["text"]
+    assert "Отменённые единицы: данные некорректны (CANCELLATIONS_VALUE_INVALID)" in result["text"]
