@@ -23,6 +23,10 @@ class PeriodProfitFinanceService(FinanceService):
             "period_profit_daily_accrual_cache_" + str(id(self)),
             default=None,
         )
+        self._daily_accrual_cache_generation_context = ContextVar(
+            "period_profit_daily_accrual_cache_generation_" + str(id(self)),
+            default=None,
+        )
         super().__init__()
         # FinanceService initializes its cache through the property below.
         # Ensure copied worker contexts start empty and lazily create their own
@@ -36,11 +40,13 @@ class PeriodProfitFinanceService(FinanceService):
         if cache is None:
             cache = {}
             self._daily_accrual_cache_context.set(cache)
+            self._daily_accrual_cache_generation_context.set(object())
         return cache
 
     @_daily_accrual_cache.setter
     def _daily_accrual_cache(self, value):
         self._daily_accrual_cache_context.set(value)
+        self._daily_accrual_cache_generation_context.set(object())
 
     @property
     def ozon(self):
@@ -63,9 +69,21 @@ class PeriodProfitFinanceService(FinanceService):
         )
 
     def begin_read_session(self):
-        super().begin_read_session()
         period = getattr(self._period_profit_session, "prefetch_period", None)
         self._period_profit_session.prefetch_period = None
+
+        # The production SKU-scope layer has to read finance first to discover
+        # which catalog products belong in the summary. It prefetches those days
+        # in parallel before entering this read session. Reuse that exact,
+        # request-local evidence instead of clearing it and downloading every
+        # day again. A different period, missing cache entry, or a new context
+        # still starts from a fresh cache as before.
+        if period is not None and self._is_prefetched_period_cached(period):
+            self._clear_prefetched_period_marker()
+            return
+
+        super().begin_read_session()
+        self._clear_prefetched_period_marker()
         if period is None:
             return
         result = self.prefetch_daily_accruals(*period)
@@ -104,6 +122,7 @@ class PeriodProfitFinanceService(FinanceService):
             current += timedelta(days=1)
 
         if not dates:
+            self._remember_prefetched_period(start, end)
             return {
                 "error": False,
                 "status": "PERIOD_PROFIT_FINANCE_PREFETCH_READY",
@@ -137,6 +156,8 @@ class PeriodProfitFinanceService(FinanceService):
         for key, response in zip(dates, responses):
             self._daily_accrual_cache[key] = response
 
+        self._remember_prefetched_period(start, end)
+
         return {
             "error": False,
             "status": "PERIOD_PROFIT_FINANCE_PREFETCH_READY",
@@ -144,6 +165,51 @@ class PeriodProfitFinanceService(FinanceService):
             "read_only": True,
             "executed": False,
         }
+
+    def _remember_prefetched_period(self, start, end):
+        self._period_profit_session.prefetched_period = (
+            start.isoformat(),
+            end.isoformat(),
+        )
+        self._period_profit_session.prefetched_cache_generation = (
+            self._daily_accrual_cache_generation_context.get()
+        )
+
+    def _is_prefetched_period_cached(self, period):
+        if (
+            tuple(period)
+            != getattr(self._period_profit_session, "prefetched_period", None)
+            or getattr(
+                self._period_profit_session,
+                "prefetched_cache_generation",
+                None,
+            ) is not self._daily_accrual_cache_generation_context.get()
+        ):
+            return False
+
+        try:
+            start = date.fromisoformat(str(period[0]))
+            end = date.fromisoformat(str(period[1]))
+        except (TypeError, ValueError):
+            return False
+        if start > end:
+            return False
+
+        current = start
+        while current <= end:
+            response = self._daily_accrual_cache.get(current.isoformat())
+            if (
+                not isinstance(response, dict)
+                or response.get("error") is True
+                or not isinstance(response.get("accruals"), list)
+            ):
+                return False
+            current += timedelta(days=1)
+        return True
+
+    def _clear_prefetched_period_marker(self):
+        self._period_profit_session.prefetched_period = None
+        self._period_profit_session.prefetched_cache_generation = None
 
     def get_daily_finance(self, accrual_date, sku=None):
         result = super().get_daily_finance(accrual_date, sku=sku)
