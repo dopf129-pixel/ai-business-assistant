@@ -13,6 +13,20 @@ class TelegramResponseFormatter:
 
 
 
+        if result.get("error") is True:
+
+            if result.get("message"):
+
+                return result["message"]
+
+            if result.get("text"):
+
+                return result["text"]
+
+            return "Не удалось обработать запрос."
+
+
+
         if result.get("memory") is not None:
 
             memory = (

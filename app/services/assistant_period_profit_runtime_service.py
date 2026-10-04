@@ -44,6 +44,7 @@ class AssistantPeriodProfitRuntimeService:
         if not user_key or not sku_key or self.sku_runtime_service is None:
             return self._custom_period_input_invalid()
         with self._custom_period_lock:
+            self._clear_pending_custom_period_input_locked(user_key)
             self._custom_sku_period_users[user_key] = sku_key
         return {
             "error": False,
@@ -64,6 +65,7 @@ class AssistantPeriodProfitRuntimeService:
                 "executed": False,
             }
         with self._custom_period_lock:
+            self._clear_pending_custom_period_input_locked(user_key)
             self._custom_period_users.add(user_key)
         return {
             "error": False,
@@ -78,6 +80,7 @@ class AssistantPeriodProfitRuntimeService:
         if not user_key:
             return self._custom_period_input_invalid()
         with self._custom_period_lock:
+            self._clear_pending_custom_period_input_locked(user_key)
             self._custom_pre_cogs_users.add(user_key)
         return {
             "error": False,
@@ -363,6 +366,19 @@ class AssistantPeriodProfitRuntimeService:
     def _user_key(user_id):
         value = str(user_id or "").strip()
         return value or None
+
+    def clear_pending_custom_period_input(self, user_id):
+        """Clear a seller's pending custom-period prompt when they navigate away."""
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return
+        with self._custom_period_lock:
+            self._clear_pending_custom_period_input_locked(user_key)
+
+    def _clear_pending_custom_period_input_locked(self, user_key):
+        self._custom_period_users.discard(user_key)
+        self._custom_pre_cogs_users.discard(user_key)
+        self._custom_sku_period_users.pop(user_key, None)
 
     @staticmethod
     def _present(result):

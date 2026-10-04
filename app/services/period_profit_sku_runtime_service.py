@@ -1366,4 +1366,19 @@ class PeriodProfitSkuRuntimeService:
 
     @staticmethod
     def _error(code):
-        return {"error": True, "code": code, "status": "PERIOD_PROFIT_SKU_UNAVAILABLE", "read_only": True, "executed": False}
+        result = {
+            "error": True,
+            "code": code,
+            "status": "PERIOD_PROFIT_SKU_UNAVAILABLE",
+            "read_only": True,
+            "executed": False,
+        }
+        if code == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED":
+            result["message"] = (
+                "Прибыль по выбранному SKU за период не рассчитана: обнаружен "
+                "расход на рекламу CPC, но не подтверждено, какие расходы уже "
+                "включены в финансовые начисления Ozon. Чтобы не задвоить сумму, "
+                "расчёт остановлен до подтверждённой сверки. CPO в этот расчёт "
+                "не включается.\nКод диагностики: " + code
+            )
+        return result
