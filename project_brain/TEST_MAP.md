@@ -65,6 +65,30 @@ passed to Telegram.
 
 # Test Map
 
+## Period Profit bounded Ozon quantity reads
+
+Updated:
+
+- `app/api/ozon_client.py`
+- `app/services/period_profit_sale_quantity_summary_service.py`
+- `app/services/period_profit_effective_cost_sale_quantity_summary_service.py`
+- `app/services/period_profit_realization_offer_quantity_summary_service.py`
+- `app/services/returns_buyout_facts_source.py`
+- `app/tests/test_ozon_fbo_v3_returns_unit_economics.py`
+- `app/tests/test_period_profit_direct_finance_quantity_chain.py`
+- `app/tests/test_period_profit_sale_quantity_authority.py`
+- `tests/test_returns_buyout_facts_source.py`
+
+Covers exact realization evidence skipping redundant finance quantity batches,
+retaining direct finance reads for unresolved postings in both total-period and
+selected-SKU mode, one bounded FBO cursor pass with exact-detail fallback, and
+the prohibition on account-wide FBO listing for selected SKU. Covers exact-full
+cursor completion in the returns loader so offset windows cannot replay earlier
+pages. Telegram progress, result formatting and production callback wiring are
+verified by `tests/test_telegram_loading_feedback_v1451_v1460.py`,
+`tests/test_telegram_period_profit_analyst_wiring_v1161_v1170.py`, and
+`tests/test_period_profit_tenant_context_production_wiring.py`.
+
 ## Period Profit daily finance prefetch reuse
 
 Updated:

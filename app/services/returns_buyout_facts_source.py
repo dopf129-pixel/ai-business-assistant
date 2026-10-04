@@ -286,30 +286,30 @@ class ReturnsBuyoutFactsSource:
         }
 
     def _load_postings(self, since, to):
-        all_postings = []
-        offset = 0
-
-        for _ in range(self.MAX_PAGES):
+        # Ozon v3 is cursor-paginated. The compatibility client accepts an
+        # offset, but each call starts a fresh cursor scan; requesting successive
+        # offset windows here would replay all earlier pages. Ask for one bounded
+        # window and trust the cursor completion marker to report completeness.
+        limit = self.POSTINGS_PAGE_SIZE * self.MAX_PAGES
+        try:
             response = self.ozon_client.get_fbo_postings(
                 since=since,
                 to=to,
-                limit=self.POSTINGS_PAGE_SIZE,
-                offset=offset,
+                limit=limit,
+                offset=0,
                 direction="DESC",
             )
+        except Exception:
+            return [], False, True
 
-            if not response or response.get("error"):
-                return [], False, True
+        if not response or response.get("error"):
+            return [], False, True
 
-            page = self._extract_postings(response)
-            all_postings.extend(page)
-
-            if len(page) < self.POSTINGS_PAGE_SIZE:
-                return all_postings, True, False
-
-            offset += len(page)
-
-        return all_postings, False, False
+        postings = self._extract_postings(response)
+        has_next = response.get("has_next")
+        if has_next is False or len(postings) < limit:
+            return postings, True, False
+        return postings, False, False
 
     def _load_returns(self, target_sku, since, to):
         all_returns = []

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from math import isfinite
+from threading import local
 
 from services.period_profit_critical_finance_summary_service import (
     PeriodProfitCriticalFinanceSummaryService,
@@ -33,11 +34,59 @@ class PeriodProfitSaleQuantitySummaryService(
     ):
         super().__init__(finance_service, cost_service, tax_rate=tax_rate)
         self.sale_quantity_ozon_client = sale_quantity_ozon_client
+        self._quantity_cache_local = local()
+
+    def _quantity_cache(self, name):
+        local_state = getattr(self, "_quantity_cache_local", None)
+        if local_state is None:
+            # Keep __new__-based test/service construction compatible while the
+            # production instance uses worker-local caches below.
+            return self.__dict__.setdefault("_" + name + "_fallback", {})
+        cache = getattr(local_state, name, None)
+        if cache is None:
+            cache = {}
+            setattr(local_state, name, cache)
+        return cache
+
+    def _set_quantity_cache(self, name, value):
+        local_state = getattr(self, "_quantity_cache_local", None)
+        if local_state is None:
+            self.__dict__["_" + name + "_fallback"] = value
+        else:
+            setattr(local_state, name, value)
+
+    @property
+    def _realization_quantity_cache(self):
+        return self._quantity_cache("realization_quantity_cache")
+
+    @_realization_quantity_cache.setter
+    def _realization_quantity_cache(self, value):
+        self._set_quantity_cache("realization_quantity_cache", value)
+
+    @property
+    def _posting_quantity_cache(self):
+        return self._quantity_cache("posting_quantity_cache")
+
+    @_posting_quantity_cache.setter
+    def _posting_quantity_cache(self, value):
+        self._set_quantity_cache("posting_quantity_cache", value)
+
+    @property
+    def _fbo_list_quantity_cache(self):
+        return self._quantity_cache("fbo_list_quantity_cache")
+
+    @_fbo_list_quantity_cache.setter
+    def _fbo_list_quantity_cache(self, value):
+        self._set_quantity_cache("fbo_list_quantity_cache", value)
+
+    def _begin_quantity_evidence_session(self):
+        """Keep account-specific posting evidence local to one calculation."""
         self._realization_quantity_cache = {}
         self._posting_quantity_cache = {}
         self._fbo_list_quantity_cache = {}
 
     def calculate(self, date_from, date_to, products):
+        self._begin_quantity_evidence_session()
         result = super().calculate(date_from, date_to, products)
         if not isinstance(result, dict) or result.get("error") is not False:
             return result
@@ -259,6 +308,16 @@ class PeriodProfitSaleQuantitySummaryService(
     def _load_fbo_list_quantity_map(self, records):
         if not records:
             return {}
+        selected_scope = any(
+            isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+            for product in (getattr(self, "_active_quantity_products", []) or [])
+        )
+        if selected_scope:
+            # Decision 041: selected-SKU work must never enumerate account-wide
+            # FBO history. Exact posting detail remains available for these few
+            # unresolved selected-sale keys.
+            return {}
         getter = getattr(self.sale_quantity_ozon_client, "get_fbo_postings", None)
         if not callable(getter):
             return None
@@ -280,6 +339,42 @@ class PeriodProfitSaleQuantitySummaryService(
 
         since = since_date.isoformat() + "T00:00:00Z"
         to = to_date.isoformat() + "T23:59:59Z"
+
+        # The tenant-aware v3 adapter can fetch one cursor window efficiently.
+        # Repeated legacy offset windows restart the cursor at page one and turn
+        # a full scan into quadratic network work. A partial map is safe here:
+        # unresolved exact posting/SKU pairs still use the exact detail fallback.
+        quantity_getter = getattr(
+            self.sale_quantity_ozon_client,
+            "get_fbo_postings_for_quantity",
+            None,
+        )
+        if callable(quantity_getter):
+            posting_numbers = {
+                str(record.get("posting_number") or "").strip()
+                for record in records
+                if isinstance(record, dict)
+            }
+            posting_numbers.discard("")
+            try:
+                response = quantity_getter(
+                    since,
+                    to,
+                    posting_count=len(posting_numbers),
+                    direction="ASC",
+                    status="",
+                )
+            except Exception:
+                self._fbo_list_quantity_cache[cache_key] = None
+                return None
+            parsed = self._parse_fbo_posting_list(response)
+            if parsed is None:
+                self._fbo_list_quantity_cache[cache_key] = None
+                return None
+            page_map, _row_count, _has_next = parsed
+            self._fbo_list_quantity_cache[cache_key] = page_map
+            return page_map
+
         combined = {}
         offset = 0
         limit = 1000

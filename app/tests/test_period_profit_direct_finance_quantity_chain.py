@@ -90,8 +90,85 @@ class _Cost:
 
 
 class _NoPhysicalFallback:
+    def get_realization_posting(self, year, month):
+        return {"error": True}
+
     def __getattr__(self, name):
         raise AssertionError("fallback Ozon quantity source must not be used: " + name)
+
+
+class _RealizationOzon(_NoPhysicalFallback):
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.realization_calls = []
+
+    def get_realization_posting(self, year, month):
+        self.realization_calls.append((year, month))
+        return {"rows": list(self.rows)}
+
+
+class _MixedFinance(_Finance):
+    OPEN_POSTING = "open-posting"
+
+    def get_daily_sale_posting_evidence(self, day):
+        if day != "2026-09-10":
+            return {"error": False, "complete": True, "records": []}
+        return {
+            "error": False,
+            "complete": True,
+            "records": [
+                {
+                    "posting_number": POSTING_NUMBER,
+                    "sku": LEGACY_SKU,
+                    "accrual_date": day,
+                    "source": "OZON_FINANCE_ACCRUAL_BY_DAY",
+                },
+                {
+                    "posting_number": self.OPEN_POSTING,
+                    "sku": LEGACY_SKU,
+                    "accrual_date": day,
+                    "source": "OZON_FINANCE_ACCRUAL_BY_DAY",
+                },
+            ],
+        }
+
+    def get_sale_posting_quantity_evidence(self, posting_numbers):
+        self.quantity_calls.append(list(posting_numbers))
+        records = []
+        if self.OPEN_POSTING in posting_numbers:
+            records.append({
+                "posting_number": self.OPEN_POSTING,
+                "sku": LEGACY_SKU,
+                "quantity": 2,
+                "source": "OZON_FINANCE_ACCRUAL_POSTINGS",
+            })
+        return {"error": False, "complete": True, "records": records}
+
+
+class _SelectedFinance(_Finance):
+    OTHER_POSTING = "other-product-posting"
+
+    def get_daily_sale_posting_evidence(self, day):
+        if day != "2026-09-10":
+            return {"error": False, "complete": True, "records": []}
+        return {
+            "error": False,
+            "complete": True,
+            "records": [
+                {
+                    "posting_number": POSTING_NUMBER,
+                    "sku": LEGACY_SKU,
+                    "accrual_date": day,
+                    "source": "OZON_FINANCE_ACCRUAL_BY_DAY",
+                },
+                {
+                    "posting_number": self.OTHER_POSTING,
+                    "sku": "unselected-finance-sku",
+                    "accrual_date": day,
+                    "source": "OZON_FINANCE_ACCRUAL_BY_DAY",
+                },
+            ],
+        }
 
 
 class _UnavailablePhysicalFallback:
@@ -186,6 +263,70 @@ class PeriodProfitDirectFinanceQuantityChainTests(unittest.TestCase):
         )
         self.assertIn("OZON_FINANCE_ACCRUAL_POSTINGS", result["sale_quantity_source"])
         self.assertEqual(result["legacy_current_cost_bucket_count"], 0)
+
+    def test_exact_realization_quantity_skips_direct_finance_lookup(self):
+        finance = _Finance()
+        physical = _RealizationOzon([{
+            "order": {"posting_number": POSTING_NUMBER},
+            "item": {"sku": LEGACY_SKU, "offer_id": OFFER_ID},
+            "delivery_commission": {"quantity": 3},
+        }])
+        service = _service(finance, physical)
+
+        result = service._reconcile_sale_quantities(
+            _summary(),
+            "2026-09-10",
+            "2026-09-10",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 3)
+        self.assertEqual(result["product_cost"], 51.0)
+        self.assertEqual(result["direct_finance_quantity_record_count"], 0)
+        self.assertEqual(finance.quantity_calls, [])
+        self.assertIn((2026, 9), physical.realization_calls)
+
+    def test_direct_finance_lookup_only_receives_unresolved_general_period_postings(self):
+        finance = _MixedFinance()
+        physical = _RealizationOzon([{
+            "order": {"posting_number": POSTING_NUMBER},
+            "item": {"sku": LEGACY_SKU, "offer_id": OFFER_ID},
+            "delivery_commission": {"quantity": 3},
+        }])
+        service = _service(finance, physical)
+
+        result = service._reconcile_sale_quantities(
+            _summary(),
+            "2026-09-10",
+            "2026-09-10",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 5)
+        self.assertEqual(result["product_cost"], 85.0)
+        self.assertEqual(
+            finance.quantity_calls,
+            [[_MixedFinance.OPEN_POSTING]],
+        )
+
+    def test_selected_sku_only_requests_its_unresolved_postings(self):
+        finance = _SelectedFinance()
+        physical = _UnavailablePhysicalFallback()
+        service = _service(finance, physical)
+        service._active_quantity_products = [{
+            "sku": LEGACY_SKU,
+            "_period_profit_selected_scope": True,
+        }]
+
+        result = service._reconcile_sale_quantities(
+            _summary(),
+            "2026-09-10",
+            "2026-09-10",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 3)
+        self.assertEqual(finance.quantity_calls, [[POSTING_NUMBER]])
 
     def test_single_line_posting_bridges_legacy_finance_sku_to_current_quantity_sku(self):
         finance = _Finance(quantity_sku=CURRENT_SKU)

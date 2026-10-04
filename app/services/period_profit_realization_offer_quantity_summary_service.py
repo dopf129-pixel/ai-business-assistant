@@ -3,18 +3,25 @@ from datetime import timedelta
 from services.period_profit_effective_cost_sale_quantity_summary_service import (
     PeriodProfitEffectiveCostSaleQuantitySummaryService,
 )
+from services.period_profit_operation_diagnostics import (
+    current_period_profit_trace,
+)
+from services.period_profit_sale_quantity_summary_service import (
+    PeriodProfitSaleQuantitySummaryService,
+)
 
 
 class PeriodProfitRealizationOfferQuantitySummaryService(
     PeriodProfitEffectiveCostSaleQuantitySummaryService
 ):
-    """Reconcile sale quantity using direct finance evidence before legacy fallbacks.
+    """Reconcile sale quantity from exact evidence with bounded Ozon reads.
 
-    The current Ozon finance family exposes ``/v1/finance/accrual/postings`` with
-    exact ``posting_number``, ``sku`` and ``quantity``. That evidence is the first
-    physical-quantity authority because it belongs to the same finance lineage as
-    the by-day monetary evidence. Realization and posting APIs remain strict
-    READ-ONLY fallbacks when the direct finance endpoint has no usable row.
+    Monthly realization is used first when it proves an exact posting/SKU or
+    stable-offer quantity. The current finance endpoint
+    ``/v1/finance/accrual/postings`` is queried only for unresolved postings,
+    including open rows not represented in realization. This keeps the finance
+    source available for ambiguous cases without scaling requests with every
+    historical order in a long period.
 
     Stable seller offer identity is still used when realization/FBO SKU no longer
     matches the finance SKU. Conflicting direct finance quantities fail closed.
@@ -62,7 +69,12 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
 
         return parsed
 
-    def _load_direct_finance_quantity_map(self, date_from, date_to):
+    def _load_direct_finance_quantity_map(
+        self,
+        date_from,
+        date_to,
+        product_rows=None,
+    ):
         start = self._date(date_from)
         end = self._date(date_to)
         if start is None or end is None or start > end:
@@ -82,7 +94,15 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
             return {"map": {}, "expected": set(), "fatal": None}
 
         expected = set()
-        posting_numbers = set()
+        selected_finance_skus = {
+            self._text(product.get("sku"))
+            for product in (
+                getattr(self, "_active_quantity_products", []) or []
+            )
+            if isinstance(product, dict)
+            and product.get("_period_profit_selected_scope") is True
+            and self._text(product.get("sku"))
+        }
         current = start
         while current <= end:
             try:
@@ -103,16 +123,76 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
                     continue
                 posting_number = self._text(record.get("posting_number"))
                 sku = self._text(record.get("sku"))
-                if posting_number and sku:
-                    posting_numbers.add(posting_number)
+                if (
+                    posting_number
+                    and sku
+                    and (
+                        not selected_finance_skus
+                        or sku in selected_finance_skus
+                    )
+                ):
                     expected.add((posting_number, sku))
             current += timedelta(days=1)
 
-        if not posting_numbers:
+        if not expected:
+            return {"map": {}, "expected": expected, "fatal": None}
+
+        # Use exact monthly realization evidence for rows it already proves.
+        # Direct finance-by-posting remains the source for unresolved postings,
+        # especially open rows absent from realization, instead of issuing one
+        # batched request for every historical shipment in a long period.
+        try:
+            realization_map = (
+                PeriodProfitSaleQuantitySummaryService
+                ._load_realization_quantity_map(self, start, end)
+            )
+        except Exception:
+            realization_map = None
+        if not isinstance(realization_map, dict):
+            realization_map = {}
+
+        row_by_finance_sku = {}
+        for row in product_rows or []:
+            if not isinstance(row, dict):
+                continue
+            finance_sku = self._text(row.get("finance_sku") or row.get("sku"))
+            if finance_sku:
+                row_by_finance_sku[finance_sku] = row
+
+        unresolved_postings = set()
+        for posting_number, finance_sku in expected:
+            row = row_by_finance_sku.get(finance_sku) or {
+                "finance_sku": finance_sku,
+                "sku": finance_sku,
+            }
+            quantity = self._quantity_from_identity_map(
+                realization_map,
+                posting_number,
+                finance_sku,
+                row,
+                allow_offer=True,
+            )
+            if quantity is None:
+                unresolved_postings.add(posting_number)
+
+        trace = current_period_profit_trace()
+        if trace is not None:
+            trace.record_identity_stage(
+                "sale_quantity_source_prefilter",
+                record_count=len(expected),
+                related_item_count=len(unresolved_postings),
+                status=(
+                    "DIRECT_FINANCE_REQUIRED"
+                    if unresolved_postings
+                    else "REALIZATION_COVERS_SCOPE"
+                ),
+            )
+
+        if not unresolved_postings:
             return {"map": {}, "expected": expected, "fatal": None}
 
         try:
-            evidence = quantity_getter(sorted(posting_numbers))
+            evidence = quantity_getter(sorted(unresolved_postings))
         except Exception:
             return {"map": {}, "expected": expected, "fatal": None}
 
@@ -186,8 +266,8 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
             return direct if direct else None
 
         merged = dict(fallback)
-        # Direct finance posting quantity is intentionally authoritative over the
-        # older monthly realization representation for the exact same identity.
+        # Direct finance posting quantity is authoritative for keys it resolves;
+        # realization remains the bounded source for already-proven delivered keys.
         merged.update(direct)
         return merged
 
@@ -209,7 +289,13 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
         )
 
     def _reconcile_sale_quantities(self, result, date_from, date_to):
-        direct = self._load_direct_finance_quantity_map(date_from, date_to)
+        self._direct_finance_quantity_map = {}
+        self._direct_finance_expected_keys = set()
+        direct = self._load_direct_finance_quantity_map(
+            date_from,
+            date_to,
+            product_rows=(result.get("products") if isinstance(result, dict) else None),
+        )
         fatal = direct.get("fatal") if isinstance(direct, dict) else None
         if fatal:
             return self._quantity_error(fatal)

@@ -1,6 +1,8 @@
 import os
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, local
 
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -64,6 +66,26 @@ class FakeOzon:
     def get_fbs_posting(self, posting_number):
         self.fbs_calls.append(posting_number)
         return self.fbs.get(posting_number, {"error": True})
+
+
+class SinglePassFboOzon(FakeOzon):
+    def __init__(self, first_page, fbo=None):
+        super().__init__(fbo=fbo)
+        self.first_page = first_page
+        self.quantity_list_calls = []
+
+    def get_fbo_postings_for_quantity(
+        self,
+        since,
+        to,
+        posting_count,
+        direction="ASC",
+        status="",
+    ):
+        self.quantity_list_calls.append(
+            (since, to, posting_count, direction, status)
+        )
+        return self.first_page
 
 
 def sale_record(posting_number, sku, accrual_date="2026-05-01"):
@@ -143,6 +165,34 @@ class PeriodProfitSaleQuantityAuthorityTests(unittest.TestCase):
         service._posting_quantity_cache = {}
         service._fbo_list_quantity_cache = {}
         return service
+
+    def test_quantity_evidence_caches_are_worker_local(self):
+        service = object.__new__(PeriodProfitSaleQuantitySummaryService)
+        service._quantity_cache_local = local()
+        barrier = Barrier(2)
+
+        def write_cache(value):
+            cache = service._realization_quantity_cache
+            cache["marker"] = value
+            barrier.wait(timeout=5)
+            return cache["marker"]
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            values = list(executor.map(write_cache, ("tenant-a", "tenant-b")))
+
+        self.assertEqual(values, ["tenant-a", "tenant-b"])
+
+    def test_quantity_evidence_session_clears_previous_worker_cache(self):
+        service = self.service(FakeFinance({}), FakeOzon())
+        service._realization_quantity_cache["2026-09"] = {("p", "s"): 1}
+        service._posting_quantity_cache[("p", "s")] = 1
+        service._fbo_list_quantity_cache[("a", "b")] = {}
+
+        service._begin_quantity_evidence_session()
+
+        self.assertEqual(service._realization_quantity_cache, {})
+        self.assertEqual(service._posting_quantity_cache, {})
+        self.assertEqual(service._fbo_list_quantity_cache, {})
 
     def test_multi_unit_realization_row_reconciles_cogs(self):
         finance = FakeFinance({
@@ -247,6 +297,61 @@ class PeriodProfitSaleQuantityAuthorityTests(unittest.TestCase):
         self.assertEqual(result["units_sold"], 3)
         self.assertEqual([call[3] for call in ozon.fbo_list_calls], [0, 1000])
         self.assertEqual(ozon.fbo_calls, [])
+
+    def test_fbo_quantity_lookup_uses_one_cursor_window_then_exact_detail(self):
+        finance = FakeFinance({
+            "2026-09-07": {
+                "error": False,
+                "complete": True,
+                "records": [
+                    sale_record("open-1", "3921245627", "2026-09-07"),
+                    sale_record("open-2", "3921245627", "2026-09-07"),
+                ],
+            }
+        })
+        ozon = SinglePassFboOzon(
+            {
+                "result": [fbo_posting("open-1", "3921245627", 2)],
+                "has_next": True,
+            },
+            fbo={"open-2": {
+                "result": {
+                    "posting_number": "open-2",
+                    "products": [{"sku": "3921245627", "quantity": 3}],
+                }
+            }},
+        )
+        service = self.service(finance, ozon)
+
+        result = service._reconcile_sale_quantities(
+            result_fixture(units=1),
+            "2026-09-07",
+            "2026-09-07",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["units_sold"], 5)
+        self.assertEqual(len(ozon.quantity_list_calls), 1)
+        self.assertEqual(ozon.quantity_list_calls[0][2], 2)
+        self.assertEqual(ozon.fbo_list_calls, [])
+        self.assertEqual(ozon.fbo_calls, ["open-2"])
+
+    def test_selected_sku_never_lists_account_wide_fbo_postings(self):
+        finance = FakeFinance({})
+        ozon = SinglePassFboOzon({"result": [], "has_next": False})
+        service = self.service(finance, ozon)
+        service._active_quantity_products = [{
+            "sku": "3921245627",
+            "_period_profit_selected_scope": True,
+        }]
+
+        result = service._load_fbo_list_quantity_map([
+            sale_record("open-1", "3921245627", "2026-09-07"),
+        ])
+
+        self.assertEqual(result, {})
+        self.assertEqual(ozon.quantity_list_calls, [])
+        self.assertEqual(ozon.fbo_list_calls, [])
 
     def test_missing_realization_row_uses_exact_fbo_posting_detail(self):
         finance = FakeFinance({

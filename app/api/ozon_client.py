@@ -154,6 +154,45 @@ class OzonClient(BaseOzonClient):
             "executed": False,
         }
 
+    def get_fbo_postings_for_quantity(
+        self,
+        since,
+        to,
+        posting_count,
+        direction="ASC",
+        status="",
+    ):
+        """Read one bounded cursor window for quantity reconciliation.
+
+        The quantity service can fall back to exact posting details for missing
+        keys, so this method needs one forward cursor pass only. Calling the
+        legacy offset adapter once per page would restart the v3 cursor and
+        repeatedly fetch earlier postings.
+        """
+        try:
+            requested_count = int(posting_count)
+        except (TypeError, ValueError):
+            return self._fbo_postings_error("OZON_FBO_POSTINGS_PAGINATION_INVALID")
+        if requested_count <= 0:
+            return self._fbo_postings_error("OZON_FBO_POSTINGS_PAGINATION_INVALID")
+
+        max_window = (
+            self.FBO_POSTINGS_V3_PAGE_SIZE
+            * self.FBO_POSTINGS_V3_MAX_PAGES
+        )
+        requested_limit = min(
+            max(self.FBO_POSTINGS_V3_PAGE_SIZE, requested_count),
+            max_window,
+        )
+        return self.get_fbo_postings(
+            since,
+            to,
+            limit=requested_limit,
+            offset=0,
+            direction=direction,
+            status=status,
+        )
+
     @staticmethod
     def _fbo_postings_error(code):
         return {
