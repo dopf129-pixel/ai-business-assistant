@@ -75,6 +75,31 @@ def test_pre_cogs_mode_calculates_even_without_cost_and_is_explicitly_incomplete
     assert cost_excluded() is False
 
 
+def test_pre_cogs_report_groups_large_money_values_with_spaces():
+    query = _Query()
+    query.summary_service.calculate = lambda date_from, date_to, products: {
+        "error": False,
+        "status": "PERIOD_PROFIT_SUMMARY_READY",
+        "date_from": date_from,
+        "date_to": date_to,
+        "products": products,
+        "revenue": 2357461.84,
+        "net_accrual": 673581.22,
+        "tax": 101052.74,
+        "profit": 572528.48,
+        "margin_percent": 24.29,
+    }
+    result = AssistantPeriodProfitRuntimeService(query).handle_callback(
+        "period_profit_pre_cogs:7D", today="2026-09-23"
+    )
+
+    assert result["error"] is False
+    assert "Выручка: 2 357 461.84 ₽" in result["text"]
+    assert "Начисления Ozon: 673 581.22 ₽" in result["text"]
+    assert "Налог: 101 052.74 ₽" in result["text"]
+    assert "Результат до себестоимости: 572 528.48 ₽" in result["text"]
+
+
 def test_pre_cogs_custom_period_pending_state_is_per_user():
     query = _Query()
     runtime = AssistantPeriodProfitRuntimeService(query)

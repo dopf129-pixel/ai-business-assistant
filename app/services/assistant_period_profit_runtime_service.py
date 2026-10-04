@@ -313,7 +313,7 @@ class AssistantPeriodProfitRuntimeService:
     @staticmethod
     def _money(value):
         try:
-            return f"{float(value):.2f} ₽"
+            return f"{float(value):,.2f} ₽".replace(",", " ")
         except (TypeError, ValueError):
             return "—"
 
