@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -11,6 +12,9 @@ if APP_ROOT not in sys.path:
     sys.path.insert(0, APP_ROOT)
 
 from services.period_profit_finance_service import PeriodProfitFinanceService  # noqa: E402
+from services.period_profit_finance_posting_identity_scope_service import (  # noqa: E402
+    PeriodProfitFinancePostingIdentityScopeService,
+)
 from services.tenant_context import (  # noqa: E402
     get_current_tenant_user_id,
     reset_current_tenant_user_id,
@@ -84,6 +88,39 @@ class _TenantScopedOzon:
         }
 
 
+class _PeriodScopeOzon:
+    def __init__(self):
+        self.day_calls = []
+
+    def get_accruals_by_day(self, accrual_date):
+        self.day_calls.append(str(accrual_date))
+        return {
+            "error": False,
+            "accruals": [{
+                "accrued_category": "POSTING",
+                "posting": {
+                    "products": [{"sku": "fixture-sku"}],
+                },
+            }],
+            "last_id": "",
+        }
+
+    def get_realization_posting(self, _year, _month):
+        return {"error": False, "rows": []}
+
+
+class _SummaryBeginningPreparedSession:
+    def __init__(self, finance_service):
+        self.finance_service = finance_service
+        self.cost_service = None
+        self.tax_rate = 0.0
+
+    def calculate(self, date_from, date_to, _products):
+        self.finance_service.prepare_read_session(date_from, date_to)
+        self.finance_service.begin_read_session()
+        return {"error": False, "profit": 0.0}
+
+
 class PeriodProfitParallelFinanceReadTests(unittest.TestCase):
     def test_prepared_read_session_prefetches_days_in_parallel_and_populates_normal_cache(self):
         service = PeriodProfitFinanceService()
@@ -101,6 +138,91 @@ class PeriodProfitParallelFinanceReadTests(unittest.TestCase):
         evidence = service.get_daily_sale_posting_evidence("2026-09-10")
         self.assertFalse(evidence["error"])
         self.assertEqual(len(ozon.day_calls), before)
+
+    def test_general_and_selected_profit_reuse_scope_prefetch_in_summary(self):
+        for selected_scope in (False, True):
+            with self.subTest(selected_scope=selected_scope):
+                finance = PeriodProfitFinanceService()
+                ozon = _PeriodScopeOzon()
+                finance.ozon = ozon
+                summary = _SummaryBeginningPreparedSession(finance)
+                scope = PeriodProfitFinancePostingIdentityScopeService(
+                    summary,
+                    finance,
+                )
+                product = {
+                    "product_id": "fixture-product",
+                    "offer_id": "fixture-offer",
+                    "sku": "fixture-sku",
+                }
+                if selected_scope:
+                    product["_period_profit_selected_scope"] = True
+
+                result = scope.calculate(
+                    "2026-09-08",
+                    "2026-09-14",
+                    [product],
+                )
+
+                self.assertFalse(result["error"])
+                self.assertEqual(len(ozon.day_calls), 7)
+                self.assertEqual(len(set(ozon.day_calls)), 7)
+
+    def test_prepared_session_refreshes_cache_for_a_different_period(self):
+        service = PeriodProfitFinanceService()
+        ozon = _ConcurrentOzon()
+        service.ozon = ozon
+
+        service.prefetch_daily_accruals("2026-09-08", "2026-09-08")
+        service.prepare_read_session("2026-09-09", "2026-09-09")
+        service.begin_read_session()
+
+        self.assertEqual(
+            sorted(ozon.day_calls),
+            ["2026-09-08", "2026-09-09"],
+        )
+        self.assertEqual(
+            set(service._daily_accrual_cache),
+            {"2026-09-09"},
+        )
+
+    def test_prepared_session_refetches_when_same_period_cache_is_incomplete(self):
+        service = PeriodProfitFinanceService()
+        ozon = _ConcurrentOzon()
+        service.ozon = ozon
+
+        service.prefetch_daily_accruals("2026-09-08", "2026-09-09")
+        del service._daily_accrual_cache["2026-09-08"]
+        service.prepare_read_session("2026-09-08", "2026-09-09")
+        service.begin_read_session()
+
+        self.assertEqual(len(ozon.day_calls), 4)
+        self.assertEqual(
+            set(service._daily_accrual_cache),
+            {"2026-09-08", "2026-09-09"},
+        )
+
+    def test_prefetched_period_marker_does_not_cross_request_contexts(self):
+        service = PeriodProfitFinanceService()
+        ozon = _ConcurrentOzon()
+        service.ozon = ozon
+        context_a = copy_context()
+        context_b = copy_context()
+
+        prefetched = context_a.run(
+            service.prefetch_daily_accruals,
+            "2026-09-08",
+            "2026-09-08",
+        )
+
+        def begin_other_tenant_session():
+            service.prepare_read_session("2026-09-08", "2026-09-08")
+            service.begin_read_session()
+
+        context_b.run(begin_other_tenant_session)
+
+        self.assertFalse(prefetched["error"])
+        self.assertEqual(len(ozon.day_calls), 2)
 
     def test_overlapping_store_reads_keep_daily_accrual_cache_request_local(self):
         service = PeriodProfitFinanceService()

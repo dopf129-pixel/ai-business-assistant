@@ -65,6 +65,18 @@ passed to Telegram.
 
 # Test Map
 
+## Period Profit daily finance prefetch reuse
+
+Updated:
+
+- `app/services/period_profit_finance_service.py`
+- `app/tests/test_period_profit_parallel_finance_reads.py`
+
+Covers reuse of a complete request-local daily finance prefetch when the general
+or selected-SKU calculation enters its summary read session, preventing the same
+period's Ozon accruals from being downloaded twice. A different period or an
+incomplete cache or request context still triggers a fresh bounded prefetch.
+
 ## Routing between total-period and selected-SKU profit
 
 Updated:
