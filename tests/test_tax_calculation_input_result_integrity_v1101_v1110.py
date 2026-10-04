@@ -250,3 +250,34 @@ def test_v1110_unit_economics_treats_invalid_tax_result_as_unknown():
         "marketplace_fees",
     ):
         assert math.isfinite(result[key])
+
+
+def test_usn_income_subtracts_discount_points_from_tax_base():
+    result = TaxService().calculate(
+        mode="USN_INCOME",
+        revenue=1000.0,
+        gross_profit=400.0,
+        tax_rate=6.0,
+        discount_points=100.0,
+    )
+
+    assert result["error"] is False
+    assert result["tax_base"] == 900.0
+    assert result["tax_amount"] == 54.0
+
+
+def test_minimum_tax_uses_revenue_after_discount_points():
+    result = TaxService().calculate(
+        mode="USN_INCOME_MINUS_EXPENSES",
+        revenue=1000.0,
+        gross_profit=150.0,
+        tax_rate=15.0,
+        minimum_tax_rate=1.0,
+        discount_points=100.0,
+    )
+
+    assert result["error"] is False
+    assert result["tax_base"] == 50.0
+    assert result["regular_tax"] == 7.5
+    assert result["minimum_tax"] == 9.0
+    assert result["tax_amount"] == 9.0

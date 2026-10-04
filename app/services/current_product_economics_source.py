@@ -91,7 +91,10 @@ class CurrentProductEconomicsSource:
             "commission": commission["amount"],
             "logistics": logistics,
             "last_mile": last_mile,
-            "acquiring": acquiring
+            "acquiring": acquiring,
+            "discount_points_per_unit": finance[
+                "discount_points_per_unit"
+            ],
         }
 
         return {
@@ -110,6 +113,9 @@ class CurrentProductEconomicsSource:
             "logistics": logistics,
             "last_mile": last_mile,
             "acquiring_average": acquiring,
+            "discount_points_per_unit": finance[
+                "discount_points_per_unit"
+            ],
             "current_delivery_tariff": commission[
                 "delivery_to_customer"
             ],
@@ -144,6 +150,7 @@ class CurrentProductEconomicsSource:
             "logistics": None,
             "last_mile": None,
             "acquiring_average": None,
+            "discount_points_per_unit": None,
             "current_delivery_tariff": None,
             "finance_sample_sales": 0,
             "finance_sample_days": 0,
@@ -232,7 +239,8 @@ class CurrentProductEconomicsSource:
             "logistics": None,
             "last_mile": None,
             "sales_count": 0,
-            "days": 0
+            "days": 0,
+            "discount_points_per_unit": None,
         }
         if not self.finance_service or not accrual_dates:
             return empty
@@ -244,6 +252,8 @@ class CurrentProductEconomicsSource:
         logistics_seen = False
         last_mile_seen = False
         sales_count = 0
+        discount_points_total = 0.0
+        discount_points_seen = False
         days = 0
 
         for accrual_date in accrual_dates:
@@ -260,6 +270,15 @@ class CurrentProductEconomicsSource:
 
             days += 1
             sales_count += day_sales
+            if "discount_points" in result:
+                points = self._number(result.get("discount_points"))
+                if points is None:
+                    return empty
+                discount_points_total += points
+                discount_points_seen = True
+            else:
+                # Legacy/test finance adapters do not expose this newer field.
+                discount_points_seen = True
             breakdown = result.get("fee_breakdown") or {}
 
             if "Эквайринг" in breakdown:
@@ -302,7 +321,12 @@ class CurrentProductEconomicsSource:
                 else None
             ),
             "sales_count": sales_count,
-            "days": days
+            "days": days,
+            "discount_points_per_unit": (
+                round(discount_points_total / sales_count, 2)
+                if discount_points_seen and sales_count > 0
+                else None
+            )
         }
 
     def _buyout_rate(self, sku, since, to, sample_size):

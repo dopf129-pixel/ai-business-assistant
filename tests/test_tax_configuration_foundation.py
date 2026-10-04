@@ -1,6 +1,10 @@
 from services.business_profit_service import (
     BusinessProfitService
 )
+from services.business_analytics_service import (
+    BusinessAnalyticsService,
+)
+from services.profit_service import ProfitService
 from services.product_unit_economics_provider import (
     ProductUnitEconomicsProvider
 )
@@ -61,6 +65,32 @@ def test_usn_income_policy_configures_tax_service(tmp_path):
     assert result["configured"] is True
     assert result["mode"] == "USN_INCOME"
     assert result["tax_amount"] == 60.0
+
+
+def test_business_analytics_passes_discount_points_to_tax_calculation():
+    service = BusinessAnalyticsService(
+        tax_mode="USN_INCOME",
+        tax_rate=6.0,
+        minimum_tax_rate=1.0,
+        advertising_cost=None,
+    )
+
+    product_profit = ProfitService().calculate(
+        {
+            "error": False,
+            "sales_count": 10,
+            "gross_sales": 1000.0,
+            "discount_points": 100.0,
+            "net_accrual": 800.0,
+        },
+        30.0,
+    )
+    result = service.calculate([product_profit])
+
+    assert result["error"] is False
+    assert result["store_profit"]["discount_points"] == 100.0
+    assert result["tax"]["tax_base"] == 900.0
+    assert result["tax"]["tax_amount"] == 54.0
 
 
 def test_usn_income_minus_expenses_policy(tmp_path):

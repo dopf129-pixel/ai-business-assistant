@@ -66,7 +66,8 @@ class FakePeriodProfitService:
 def make_profit(
     product_id="101",
     sku="hook-2",
-    sales_count=2
+    sales_count=2,
+    discount_points=0.0,
 ):
     return {
         "error": False,
@@ -77,6 +78,7 @@ def make_profit(
         "net_accrual": 2240.0,
         "total_cost": 1040.0,
         "gross_profit": 1200.0,
+        "discount_points": discount_points,
         "margin_percent": 40.27
     }
 
@@ -143,6 +145,22 @@ def test_query_finds_sku_and_returns_unit_economics():
     assert period_profit_service.calls[0][
         "products"
     ][0]["sku"] == "hook-2"
+
+
+def test_historical_unit_economics_shows_effective_tax_percent_next_to_amount():
+    service, _ = make_query_service(
+        products=[{"product_id": "101", "sku": "hook-2"}],
+        profits=[make_profit(discount_points=100.0)],
+    )
+
+    result = service.query("hook-2")
+    response = service.format_response(result)
+
+    assert result["tax"] == 86.4
+    assert result["tax_effective_percent"] == 5.8
+    assert "Баллы за скидки:\n50.00 ₽ — 3.4%" in response
+    assert "Выручка для расчёта налога:\n1440.00 ₽ — 96.6%" in response
+    assert "Налог:\n86.40 ₽ — 5.8%" in response
 
 
 def test_query_returns_not_found_for_unknown_sku():

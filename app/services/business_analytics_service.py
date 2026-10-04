@@ -354,6 +354,10 @@ class BusinessAnalyticsService:
             )
 
         configured_rate = None
+        discount_points = store_profit.get(
+            "discount_points",
+            0.0,
+        )
 
         if tax_rate is not None and tax_rate > 0:
 
@@ -372,6 +376,7 @@ class BusinessAnalyticsService:
                     0
                 ),
                 tax_rate=configured_rate,
+                discount_points=discount_points,
                 minimum_tax_rate=(
                     minimum_tax_rate
                 )

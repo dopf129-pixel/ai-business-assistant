@@ -35,6 +35,7 @@ class ProductUnitEconomicsQueryService:
         "logistics": "Логистика",
         "last_mile": "Последняя миля",
         "acquiring_average": "Эквайринг",
+        "discount_points": "Баллы за скидки",
         "tax": "Налог"
     }
 
@@ -354,6 +355,21 @@ class ProductUnitEconomicsQueryService:
                 tax,
                 units_sold
             ),
+            "discount_points": self._per_unit(
+                metric.get("discount_points"),
+                units_sold,
+            ),
+            "revenue_tax_base": self._per_unit(
+                metric.get("revenue_tax_base"),
+                units_sold,
+            ),
+            "tax_base": self._per_unit(
+                metric.get("tax_base"),
+                units_sold,
+            ),
+            "tax_effective_percent": metric.get(
+                "tax_effective_percent"
+            ),
             "net_profit_per_unit": metric.get(
                 "profit_per_unit"
             ),
@@ -385,6 +401,17 @@ class ProductUnitEconomicsQueryService:
                 result.get("unit_price")
             ),
             "",
+            "Баллы за скидки:",
+            self._format_money_with_share(
+                result.get("discount_points"),
+                result.get("unit_price"),
+            ),
+            "Выручка для расчёта налога:",
+            self._format_money_with_share(
+                result.get("revenue_tax_base"),
+                result.get("unit_price"),
+            ),
+            "",
             "Себестоимость:",
             self._format_money(
                 result.get("cost")
@@ -396,8 +423,9 @@ class ProductUnitEconomicsQueryService:
             ),
             "",
             "Налог:",
-            self._format_money(
-                result.get("tax")
+            self._format_money_with_share(
+                result.get("tax"),
+                result.get("unit_price"),
             )
         ]
 
@@ -454,6 +482,17 @@ class ProductUnitEconomicsQueryService:
             self._format_money_with_share(
                 price,
                 price
+            ),
+            "",
+            "Баллы за скидки:",
+            self._format_money_with_share(
+                result.get("discount_points"),
+                price,
+            ),
+            "Выручка для расчёта налога:",
+            self._format_money_with_share(
+                result.get("revenue_tax_base"),
+                price,
             ),
             "",
             "Комиссия Ozon:",
@@ -1092,7 +1131,11 @@ class ProductUnitEconomicsQueryService:
             "last_mile": facts.get("last_mile"),
             "acquiring": facts.get("acquiring_average"),
             "marketplace_fees": None,
+            "discount_points": facts.get("discount_points_per_unit"),
+            "revenue_tax_base": None,
+            "tax_base": None,
             "tax": None,
+            "tax_effective_percent": None,
             "net_profit_per_unit": None,
             "margin_percent": None,
             "missing_fields": missing,

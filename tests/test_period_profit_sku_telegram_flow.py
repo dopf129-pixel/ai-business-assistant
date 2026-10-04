@@ -161,6 +161,27 @@ def test_selected_sku_report_shows_revenue_share_for_each_money_line():
     assert "Прибыль: 54 ₽ (54%)" in text
 
 
+def test_selected_sku_tax_subtracts_points_before_telegram_message():
+    row = _row("3921245627", revenue=1000, net=800, cost=300, units=10)
+    row["discount_points"] = 100
+    query = Query({
+        "error": False,
+        "summary": _summary([row]),
+        "previous_summary": None,
+    })
+
+    result = PeriodProfitSkuRuntimeService(query).handle_callback(
+        "period_profit_sku:3921245627:7D"
+    )
+
+    assert result["error"] is False
+    assert result["summary"]["revenue_tax_base"] == 900.0
+    assert result["summary"]["tax"] == 54.0
+    assert "Баллы за скидки: 100 ₽ (10%)" in result["text"]
+    assert "Выручка для расчёта налога: 900 ₽ (90%)" in result["text"]
+    assert "Налог: 54 ₽ (5.4%)" in result["text"]
+
+
 def test_selected_sku_zero_revenue_does_not_invent_percentages():
     row = _row("3921245627", revenue=0, net=0, cost=0, units=0)
     row.update({

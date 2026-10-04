@@ -44,6 +44,20 @@ def build_period_profit_response(
             )
         ),
         (
+            "Баллы за скидки: "
+            + _money_with_revenue_share(
+                source.get("discount_points"),
+                revenue,
+            )
+        ),
+        (
+            "Выручка для расчёта налога: "
+            + _money_with_revenue_share(
+                source.get("revenue_tax_base"),
+                revenue,
+            )
+        ),
+        (
             "Начисления Ozon после комиссий/услуг: "
             + _money_with_revenue_share(
                 source.get("net_accrual"),

@@ -152,6 +152,22 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Хранение" not in response
 
 
+def test_current_unit_economics_subtracts_points_and_shows_effective_tax_percent():
+    service, _, _ = _service(
+        _facts(discount_points_per_unit=10.0)
+    )
+
+    result = service.query("hook-2")
+    response = service.format_response(result)
+
+    assert result["revenue_tax_base"] == 86.0
+    assert result["tax"] == 5.16
+    assert result["tax_effective_percent"] == 5.38
+    assert "Баллы за скидки:\n10.00 ₽ — 10.4%" in response
+    assert "Выручка для расчёта налога:\n86.00 ₽ — 89.6%" in response
+    assert "Налог:\n5.16 ₽ — 5.4%" in response
+
+
 def test_missing_logistics_keeps_profit_unknown():
     service, _, _ = _service(
         _facts(

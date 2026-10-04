@@ -1,3 +1,22 @@
+# Налоговая база и баллы за скидки Ozon
+
+Обновлены:
+
+- `app/tests/test_period_profit_finance_reconciliation.py`
+- `tests/test_tax_calculation_input_result_integrity_v1101_v1110.py`
+- `tests/test_period_profit_summary_service.py`
+- `tests/test_discount_points_tax_end_to_end.py`
+- `tests/test_tax_configuration_foundation.py`
+- `tests/test_period_profit_sku_telegram_flow.py`
+- `tests/test_period_profit_final_application_v1381_v1390.py`
+- `tests/test_product_unit_economics.py`
+- `tests/test_product_unit_economics_query.py`
+- `tests/test_current_unit_economics_integration.py`
+- `tests/test_period_profit_response.py`
+- `tests/test_period_profit_compact_report_v1431_v1440.py`
+
+Покрыты извлечение `commission.bonus`, общий и выбранный налоговый расчёт, минимум УСН «Доходы минус расходы», прохождение до сообщений периода и SKU, повторное вычисление после Return COGS, а также фактический процент налога для исторической и текущей юнит-экономики.
+
 # Local capture of malformed CPO reports
 
 Updated:

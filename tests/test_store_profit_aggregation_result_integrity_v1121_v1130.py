@@ -18,6 +18,7 @@ def _profit(**overrides):
         "error": False,
         "sales_count": 2,
         "gross_sales": 1000.0,
+        "discount_points": 0.0,
         "net_accrual": 700.0,
         "total_cost": 400.0,
         "gross_profit": 300.0,
@@ -141,6 +142,7 @@ def test_v1126_failed_product_rows_remain_skipped():
     assert result == {
         "sales_count": 2,
         "gross_sales": 1000.0,
+        "discount_points": 0.0,
         "net_accrual": 700.0,
         "total_cost": 400.0,
         "gross_profit": 300.0,
@@ -162,6 +164,7 @@ def test_v1127_missing_numeric_fields_preserve_zero_defaults():
     assert result == {
         "sales_count": 0,
         "gross_sales": 0.0,
+        "discount_points": 0.0,
         "net_accrual": 0.0,
         "total_cost": 0.0,
         "gross_profit": 0.0,
@@ -194,6 +197,7 @@ def test_v1128_valid_numeric_strings_and_losses_remain_compatible():
     assert result == {
         "sales_count": 5,
         "gross_sales": 1500.0,
+        "discount_points": 0.0,
         "net_accrual": 1050.0,
         "total_cost": 600.0,
         "gross_profit": 50.0,
