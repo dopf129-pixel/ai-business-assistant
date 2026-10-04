@@ -203,6 +203,7 @@ class AssistantButtonHandlerService:
         product_decision_user_action_checklist_builder=None,
         period_profit_runtime_service=None,
         period_profit_sku_runtime_service=None,
+        experimental_store_economics_runtime_service=None,
     ):
 
         self.assistant = (
@@ -262,6 +263,9 @@ class AssistantButtonHandlerService:
             period_profit_runtime_service
         )
         self.period_profit_sku_runtime_service = period_profit_sku_runtime_service
+        self.experimental_store_economics_runtime_service = (
+            experimental_store_economics_runtime_service
+        )
 
 
     def prepare_context(
@@ -453,11 +457,13 @@ class AssistantButtonHandlerService:
                 "period_profit_pre_cogs",
                 "period_profit_sku",
                 "experimental_calculations",
+                "experimental_store_economics",
             }
             or button_id.startswith((
                 "period_profit:",
                 "period_profit_pre_cogs:",
                 "period_profit_sku:",
+                "experimental_store_economics:",
             ))
         ):
             return
@@ -469,6 +475,53 @@ class AssistantButtonHandlerService:
         if callable(clear_pending):
             clear_pending(user_id)
 
+    def _clear_experimental_store_economics_input_for_new_flow(
+        self,
+        button_id,
+        user_id,
+    ):
+        if button_id == "experimental_store_economics:custom":
+            return
+        clearer = getattr(
+            self.experimental_store_economics_runtime_service,
+            "clear_pending_custom_period_input",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
+
+    def handle_text(self, text, user_id=None):
+        runtime = self.experimental_store_economics_runtime_service
+        handler = getattr(runtime, "handle_text", None)
+        if not callable(handler):
+            return None
+        try:
+            result = handler(text, user_id=user_id)
+        except Exception:
+            return {
+                "error": True,
+                "code": "EXPERIMENTAL_STORE_ECONOMICS_TEXT_FAILED",
+                "message": "Не удалось обработать период экспериментального расчёта.",
+                "read_only": True,
+                "executed": False,
+            }
+        if result is None:
+            return None
+        return self._with_experimental_result_keyboard(result)
+
+    def _with_experimental_result_keyboard(self, result):
+        if not isinstance(result, dict):
+            return result
+        output = dict(result)
+        builder = getattr(
+            self.keyboard_service,
+            "build_experimental_store_economics_result_keyboard",
+            None,
+        )
+        if callable(builder) and "keyboard" not in output:
+            output["keyboard"] = builder()
+        return output
+
 
     def handle(
         self,
@@ -477,6 +530,10 @@ class AssistantButtonHandlerService:
     ):
 
         self._clear_period_profit_custom_input_for_new_flow(
+            button_id,
+            user_id,
+        )
+        self._clear_experimental_store_economics_input_for_new_flow(
             button_id,
             user_id,
         )
@@ -511,8 +568,8 @@ class AssistantButtonHandlerService:
                 "error": False,
                 "message": (
                     "🧪 Экспериментальные расчёты\n\n"
-                    "Пока здесь нет готовых экспериментов. Новые варианты "
-                    "будут показываться отдельно и не повлияют на основные расчёты."
+                    "Здесь находятся пробные варианты расчётов. Они не "
+                    "меняют основные отчёты."
                 ),
                 "keyboard": (
                     self.keyboard_service
@@ -521,6 +578,39 @@ class AssistantButtonHandlerService:
                 "read_only": True,
                 "executed": False,
             }
+
+        if button_id == "experimental_store_economics":
+            return {
+                "error": False,
+                "status": "EXPERIMENTAL_STORE_ECONOMICS_PERIOD_REQUIRED",
+                "message": "Выберите период для экспериментальной экономики магазина:",
+                "keyboard": self.keyboard_service.build_experimental_store_economics_period_keyboard(),
+                "read_only": True,
+                "executed": False,
+            }
+
+        if button_id.startswith("experimental_store_economics:"):
+            runtime = self.experimental_store_economics_runtime_service
+            callback = getattr(runtime, "handle_callback", None)
+            if not callable(callback):
+                return {
+                    "error": True,
+                    "code": "EXPERIMENTAL_STORE_ECONOMICS_UNAVAILABLE",
+                    "message": "Экспериментальный расчёт сейчас недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                result = callback(button_id, user_id=user_id)
+            except Exception:
+                result = {
+                    "error": True,
+                    "code": "EXPERIMENTAL_STORE_ECONOMICS_CALLBACK_FAILED",
+                    "message": "Не удалось сформировать экспериментальный расчёт.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            return self._with_experimental_result_keyboard(result)
 
         if button_id == "period_profit":
 
