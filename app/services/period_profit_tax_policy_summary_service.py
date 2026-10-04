@@ -74,16 +74,27 @@ class PeriodProfitTaxPolicySummaryService:
 
     def _recalculate_record(self, record, policy):
         revenue = self._number(record.get("revenue"))
+        discount_points = self._number(record.get("discount_points", 0.0))
         net_accrual = self._number(record.get("net_accrual"))
         product_cost = self._number(record.get("product_cost"))
-        if revenue is None or net_accrual is None or product_cost is None:
+        if (
+            revenue is None
+            or discount_points is None
+            or net_accrual is None
+            or product_cost is None
+        ):
             return self._error("PERIOD_PROFIT_TAX_INPUT_INVALID")
 
         pre_tax_profit = net_accrual - product_cost
         if not isfinite(pre_tax_profit):
             return self._error("PERIOD_PROFIT_TAX_INPUT_INVALID")
 
-        calculation = self._calculate_tax(policy, revenue, pre_tax_profit)
+        calculation = self._calculate_tax(
+            policy,
+            revenue,
+            pre_tax_profit,
+            discount_points,
+        )
         if calculation is None:
             return self._error("PERIOD_PROFIT_TAX_CALCULATION_UNAVAILABLE")
 
@@ -100,13 +111,18 @@ class PeriodProfitTaxPolicySummaryService:
         adjusted["margin_percent"] = self._margin(profit, revenue)
         adjusted["tax_mode"] = calculation.get("mode")
         adjusted["tax_base"] = calculation.get("tax_base")
+        adjusted["revenue_tax_base"] = calculation.get(
+            "revenue_tax_base",
+            max(0.0, revenue - discount_points),
+        )
+        adjusted["discount_points"] = round(discount_points, 2)
         adjusted["tax_rate_percent"] = calculation.get("tax_rate")
         adjusted["minimum_tax_rate_percent"] = calculation.get("minimum_tax_rate")
         adjusted["regular_tax"] = calculation.get("regular_tax")
         adjusted["minimum_tax"] = calculation.get("minimum_tax")
         return adjusted
 
-    def _calculate_tax(self, policy, revenue, pre_tax_profit):
+    def _calculate_tax(self, policy, revenue, pre_tax_profit, discount_points):
         calculate = getattr(self.tax_service, "calculate", None)
         if not callable(calculate):
             return None
@@ -117,12 +133,18 @@ class PeriodProfitTaxPolicySummaryService:
                 pre_tax_profit,
                 tax_rate=policy.get("tax_rate"),
                 minimum_tax_rate=policy.get("minimum_tax_rate", 1.0),
+                discount_points=discount_points,
             )
         except Exception:
             return None
         if not isinstance(result, dict) or result.get("error") is not False:
             return None
-        return result
+        output = dict(result)
+        output["revenue_tax_base"] = max(
+            0.0,
+            revenue - discount_points,
+        )
+        return output
 
     def _policy(self):
         source = self.tax_policy_result

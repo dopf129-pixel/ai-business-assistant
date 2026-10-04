@@ -142,6 +142,7 @@ class FinanceService:
             "operations": 0,
             "sales_count": 0,
             "gross_sales": Decimal("0"),
+            "discount_points": Decimal("0"),
             "net_accrual": Decimal("0"),
             "commission": Decimal("0"),
             "logistics": Decimal("0"),
@@ -545,6 +546,14 @@ class FinanceService:
                 )
             )
 
+            bonus = commission_data.get("bonus")
+            if bonus is not None:
+                bonus_amount = self._money_amount(bonus)
+                if bonus_amount is None:
+                    result["_discount_points_invalid"] = True
+                else:
+                    result["discount_points"] += bonus_amount
+
             if sale_amount > Decimal("0"):
                 result["sales_count"] += 1
             result["gross_sales"] += (
@@ -689,8 +698,16 @@ class FinanceService:
         result
     ):
 
+        if result.pop("_discount_points_invalid", False):
+            return {
+                "error": True,
+                "code": "FINANCE_DISCOUNT_POINTS_INVALID",
+                "date": result.get("date"),
+            }
+
         decimal_fields = (
             "gross_sales",
+            "discount_points",
             "net_accrual",
             "commission",
             "logistics",
@@ -720,3 +737,13 @@ class FinanceService:
         }
 
         return result
+
+    @staticmethod
+    def _money_amount(money):
+        if not isinstance(money, dict) or money.get("amount") is None:
+            return None
+        try:
+            amount = Decimal(str(money["amount"]))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return amount if amount.is_finite() else None

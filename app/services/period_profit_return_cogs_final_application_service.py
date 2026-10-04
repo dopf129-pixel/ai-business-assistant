@@ -64,10 +64,17 @@ class PeriodProfitReturnCogsFinalApplicationService:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_TOTAL_MISMATCH")
 
         revenue = self._number(summary.get("revenue"))
+        discount_points = self._number(summary.get("discount_points", 0.0))
         net_accrual = self._number(summary.get("net_accrual"))
         product_cost = self._number(summary.get("product_cost"))
         original_profit = self._number(summary.get("profit"))
-        if None in (revenue, net_accrual, product_cost, original_profit):
+        if None in (
+            revenue,
+            discount_points,
+            net_accrual,
+            product_cost,
+            original_profit,
+        ):
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_SUMMARY_MONETARY_INVALID")
 
         pre_tax_profit = net_accrual - product_cost + committed_total
@@ -77,7 +84,12 @@ class PeriodProfitReturnCogsFinalApplicationService:
         policy = self._policy()
         if policy is None:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_TAX_POLICY_UNAVAILABLE")
-        tax = self._calculate_tax(policy, revenue, pre_tax_profit)
+        tax = self._calculate_tax(
+            policy,
+            revenue,
+            pre_tax_profit,
+            discount_points,
+        )
         if tax is None:
             return self._unavailable("RETURN_COGS_FINAL_APPLICATION_TAX_UNAVAILABLE")
         tax_amount = self._number(tax.get("tax_amount"))
@@ -100,6 +112,11 @@ class PeriodProfitReturnCogsFinalApplicationService:
         adjusted_summary["margin_percent"] = margin
         adjusted_summary["tax_mode"] = tax.get("mode")
         adjusted_summary["tax_base"] = tax.get("tax_base")
+        adjusted_summary["revenue_tax_base"] = tax.get(
+            "revenue_tax_base",
+            max(0.0, revenue - discount_points),
+        )
+        adjusted_summary["discount_points"] = round(discount_points, 2)
         adjusted_summary["tax_rate_percent"] = tax.get("tax_rate")
         adjusted_summary["minimum_tax_rate_percent"] = tax.get("minimum_tax_rate")
         adjusted_summary["regular_tax"] = tax.get("regular_tax")
@@ -265,7 +282,7 @@ class PeriodProfitReturnCogsFinalApplicationService:
             "executed": False,
         }
 
-    def _calculate_tax(self, policy, revenue, pre_tax_profit):
+    def _calculate_tax(self, policy, revenue, pre_tax_profit, discount_points):
         calculate = getattr(self.tax_service, "calculate", None)
         if not callable(calculate):
             return None
@@ -276,12 +293,18 @@ class PeriodProfitReturnCogsFinalApplicationService:
                 pre_tax_profit,
                 tax_rate=policy.get("tax_rate"),
                 minimum_tax_rate=policy.get("minimum_tax_rate", 1.0),
+                discount_points=discount_points,
             )
         except Exception:
             return None
         if not isinstance(result, dict) or result.get("error") is not False:
             return None
-        return result
+        output = dict(result)
+        output["revenue_tax_base"] = max(
+            0.0,
+            revenue - discount_points,
+        )
+        return output
 
     def _policy(self):
         source = self.tax_policy_result

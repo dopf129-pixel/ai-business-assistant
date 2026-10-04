@@ -17,7 +17,8 @@ class TaxService:
         revenue,
         gross_profit,
         tax_rate=None,
-        minimum_tax_rate=1.0
+        minimum_tax_rate=1.0,
+        discount_points=0.0,
     ):
 
         if mode is None or str(mode).strip() == "":
@@ -63,10 +64,14 @@ class TaxService:
         gross_profit = self._normalize_amount(
             gross_profit
         )
+        discount_points = self._normalize_amount(
+            discount_points
+        )
 
         if (
             revenue is None
             or gross_profit is None
+            or discount_points is None
         ):
 
             return {
@@ -75,6 +80,12 @@ class TaxService:
                     "Некорректные данные для расчёта налога"
                 )
             }
+
+        taxable_revenue = max(
+            0.0,
+            revenue - discount_points,
+        )
+        taxable_profit = gross_profit - discount_points
 
         if mode == "USN_INCOME":
 
@@ -92,10 +103,7 @@ class TaxService:
                     )
                 }
 
-            tax_base = max(
-                0.0,
-                revenue
-            )
+            tax_base = taxable_revenue
 
             tax_amount = (
                 tax_base
@@ -164,7 +172,7 @@ class TaxService:
 
             tax_base = max(
                 0.0,
-                gross_profit
+                taxable_profit
             )
 
             regular_tax = (
@@ -174,10 +182,7 @@ class TaxService:
             )
 
             minimum_tax = (
-                max(
-                    0.0,
-                    revenue
-                )
+                taxable_revenue
                 * normalized_minimum_rate
                 / 100
             )

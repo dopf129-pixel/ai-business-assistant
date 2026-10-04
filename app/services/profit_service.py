@@ -30,6 +30,13 @@ class ProfitService:
             )
         )
 
+        discount_points = float(
+            finance.get(
+                "discount_points",
+                0
+            )
+        )
+
         net_accrual = float(
             finance.get(
                 "net_accrual",
@@ -75,6 +82,10 @@ class ProfitService:
             "sales_count": sales_count,
             "gross_sales": round(
                 gross_sales,
+                2
+            ),
+            "discount_points": round(
+                discount_points,
                 2
             ),
             "cost_price": round(

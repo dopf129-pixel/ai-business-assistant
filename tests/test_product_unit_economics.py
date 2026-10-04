@@ -19,7 +19,8 @@ def _profit_record(
     total_cost=400,
     net_accrual=700,
     gross_profit=300,
-    margin_percent=30
+    margin_percent=30,
+    discount_points=0,
 ):
     return {
         "error": False,
@@ -31,6 +32,7 @@ def _profit_record(
         "total_cost": total_cost,
         "net_accrual": net_accrual,
         "gross_profit": gross_profit,
+        "discount_points": discount_points,
         "profit_per_unit": 60,
         "margin_percent": margin_percent
     }
@@ -51,14 +53,34 @@ def test_product_unit_economics_includes_existing_tax_calculation():
             "sku": "sku-101",
             "units_sold": 5,
             "revenue": 1000.0,
+            "discount_points": 0.0,
+            "revenue_tax_base": 1000.0,
+            "tax_base": 1000.0,
             "product_cost": 400.0,
             "marketplace_fees": 300.0,
             "tax": 60.0,
+            "tax_effective_percent": 6.0,
             "net_profit": 240.0,
             "profit_per_unit": 48.0,
             "margin_percent": 24.0
         }
     ]
+
+
+def test_product_unit_economics_subtracts_points_and_reports_actual_tax_percent():
+    result = ProductUnitEconomicsProvider(
+        tax_service=TaxService(),
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+    ).build([
+        _profit_record(discount_points=100),
+    ])[0]
+
+    assert result["tax_base"] == 900.0
+    assert result["revenue_tax_base"] == 900.0
+    assert result["tax"] == 54.0
+    assert result["tax_effective_percent"] == 5.4
+    assert result["net_profit"] == 246.0
 
 
 def test_product_unit_economics_without_tax_data_is_explicitly_incomplete():

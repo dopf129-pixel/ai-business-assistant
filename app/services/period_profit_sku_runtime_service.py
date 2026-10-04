@@ -89,7 +89,7 @@ class PeriodProfitSkuRuntimeService:
         ("90 дней", "90D"),
     )
     AMOUNTS = (
-        "revenue", "net_accrual", "commission", "logistics",
+        "revenue", "discount_points", "net_accrual", "commission", "logistics",
         "acquiring", "other_fees", "product_cost", "tax", "profit",
     )
 
@@ -956,7 +956,9 @@ class PeriodProfitSkuRuntimeService:
         output["units_sold"] = 0
         for row in rows:
             for field in self.AMOUNTS:
-                value = self._number(row.get(field))
+                value = self._number(
+                    row.get(field, 0.0 if field == "discount_points" else None)
+                )
                 if value is None:
                     return self._error("PERIOD_PROFIT_SKU_AMOUNT_INVALID")
                 output[field] += value
@@ -971,11 +973,19 @@ class PeriodProfitSkuRuntimeService:
             return cost_override
         if cost_override is not None:
             output["product_cost"] = cost_override
-        tax = self._tax(summary, output["revenue"], output["net_accrual"] - output["product_cost"])
-        if tax is None:
+        tax_calculation = self._tax(
+            summary,
+            output["revenue"],
+            output["net_accrual"] - output["product_cost"],
+            output["discount_points"],
+        )
+        if tax_calculation is None:
             return self._error("PERIOD_PROFIT_SKU_TAX_UNAVAILABLE")
+        tax = tax_calculation["tax_amount"]
         output["tax"] = tax
         output["profit"] = output["net_accrual"] - output["product_cost"] - tax
+        output["tax_base"] = tax_calculation["tax_base"]
+        output["revenue_tax_base"] = tax_calculation["revenue_tax_base"]
         output = {key: round(value, 2) if key != "units_sold" else value for key, value in output.items()}
         output["margin_percent"] = round(output["profit"] / output["revenue"] * 100, 2) if output["revenue"] else 0.0
         output["date_from"] = summary.get("date_from")
@@ -1062,18 +1072,32 @@ class PeriodProfitSkuRuntimeService:
             return self._error("PERIOD_PROFIT_SKU_COST_INVALID")
         return round(unit_cost * units_sold, 2)
 
-    def _tax(self, summary, revenue, pre_tax_profit):
+    def _tax(self, summary, revenue, pre_tax_profit, discount_points):
         mode = self._text(summary.get("tax_mode")).upper()
         rate = self._number(summary.get("tax_rate_percent"))
         minimum_rate = self._number(summary.get("minimum_tax_rate_percent"))
+        revenue_tax_base = max(0.0, revenue - discount_points)
         if mode == "NONE":
-            return 0.0
+            return {
+                "tax_amount": 0.0,
+                "tax_base": 0.0,
+                "revenue_tax_base": revenue_tax_base,
+            }
         if mode == "USN_INCOME" and rate is not None:
-            return revenue * rate / 100.0
+            return {
+                "tax_amount": revenue_tax_base * rate / 100.0,
+                "tax_base": revenue_tax_base,
+                "revenue_tax_base": revenue_tax_base,
+            }
         if mode == "USN_INCOME_MINUS_EXPENSES" and rate is not None and minimum_rate is not None:
-            regular = max(pre_tax_profit, 0.0) * rate / 100.0
-            minimum = revenue * minimum_rate / 100.0
-            return max(regular, minimum)
+            profit_tax_base = max(pre_tax_profit - discount_points, 0.0)
+            regular = profit_tax_base * rate / 100.0
+            minimum = revenue_tax_base * minimum_rate / 100.0
+            return {
+                "tax_amount": max(regular, minimum),
+                "tax_base": profit_tax_base,
+                "revenue_tax_base": revenue_tax_base,
+            }
         return None
 
     def _present(self, row, identity, previous):
@@ -1084,6 +1108,12 @@ class PeriodProfitSkuRuntimeService:
             "Продано: " + str(row["units_sold"]),
             "Выручка: " + self._money_with_revenue_share(
                 row["revenue"], row["revenue"]
+            ),
+            "Баллы за скидки: " + self._money_with_revenue_share(
+                row["discount_points"], row["revenue"]
+            ),
+            "Выручка для расчёта налога: " + self._money_with_revenue_share(
+                row["revenue_tax_base"], row["revenue"]
             ),
             "Начисления Ozon по SKU: " + self._money_with_revenue_share(
                 row["net_accrual"], row["revenue"]

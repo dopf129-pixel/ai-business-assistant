@@ -13,12 +13,13 @@ class StubTaxService:
         profit,
         tax_rate=None,
         minimum_tax_rate=1.0,
+        discount_points=0.0,
     ):
         return {
             "error": False,
             "mode": mode,
             "tax_amount": 0.0,
-            "tax_base": revenue,
+            "tax_base": max(0.0, revenue - discount_points),
             "tax_rate": tax_rate,
             "minimum_tax_rate": minimum_tax_rate,
             "regular_tax": 0.0,

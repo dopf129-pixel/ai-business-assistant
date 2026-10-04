@@ -106,6 +106,10 @@ class PeriodProfitOzonClient(OzonClient):
                         return self._finance_money_error("SALE_AMOUNT_COMPONENTS")
                     commission["sale_amount"] = recovered_sale_amount
 
+                bonus = commission.get("bonus")
+                if bonus is not None and not self._valid_money(bonus):
+                    return self._finance_money_error("DISCOUNT_POINTS")
+
                 # total_amount and sale_amount are formula-critical. seller_price is
                 # diagnostic only. Commission/delivery/item-fee money is decomposition
                 # only because authoritative Ozon economics already live in total_amount.

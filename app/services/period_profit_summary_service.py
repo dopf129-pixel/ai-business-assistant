@@ -9,6 +9,7 @@ class PeriodProfitSummaryService:
 
     DAILY_AMOUNT_FIELDS = (
         "gross_sales",
+        "discount_points",
         "net_accrual",
         "commission",
         "logistics",
@@ -18,6 +19,8 @@ class PeriodProfitSummaryService:
 
     TOTAL_AMOUNT_FIELDS = (
         "revenue",
+        "discount_points",
+        "tax_base",
         "net_accrual",
         "commission",
         "logistics",
@@ -167,6 +170,7 @@ class PeriodProfitSummaryService:
 
             for field in (
                 "revenue",
+                "discount_points",
                 "net_accrual",
                 "commission",
                 "logistics",
@@ -178,8 +182,12 @@ class PeriodProfitSummaryService:
                 )
 
             try:
+                totals["tax_base"] = max(
+                    0.0,
+                    totals["revenue"] - totals["discount_points"],
+                )
                 totals["tax"] = (
-                    totals["revenue"]
+                    totals["tax_base"]
                     * self.tax_rate
                 )
                 totals["profit"] = (
@@ -214,6 +222,10 @@ class PeriodProfitSummaryService:
         rounded = self._rounded_totals(totals)
         if rounded is None:
             return self._aggregate_error()
+        rounded["revenue_tax_base"] = round(
+            max(0.0, rounded["revenue"] - rounded["discount_points"]),
+            2,
+        )
 
         fee_breakdown = self._rounded_breakdown(fee_breakdown)
         if fee_breakdown is None:
@@ -277,6 +289,7 @@ class PeriodProfitSummaryService:
 
         values = {
             "revenue": 0.0,
+            "discount_points": 0.0,
             "net_accrual": 0.0,
             "commission": 0.0,
             "logistics": 0.0,
@@ -352,6 +365,9 @@ class PeriodProfitSummaryService:
             increments = {
                 "revenue": daily[
                     "gross_sales"
+                ],
+                "discount_points": daily[
+                    "discount_points"
                 ],
                 "net_accrual": daily[
                     "net_accrual"
@@ -497,7 +513,11 @@ class PeriodProfitSummaryService:
 
             try:
                 product_cost = sales * cost
-                tax = amounts["gross_sales"] * self.tax_rate
+                tax_base = max(
+                    0.0,
+                    amounts["gross_sales"] - amounts["discount_points"],
+                )
+                tax = tax_base * self.tax_rate
                 profit = (
                     amounts["net_accrual"]
                     - product_cost
@@ -518,6 +538,8 @@ class PeriodProfitSummaryService:
 
             increments = {
                 "revenue": amounts["gross_sales"],
+                "discount_points": amounts["discount_points"],
+                "tax_base": tax_base,
                 "net_accrual": amounts["net_accrual"],
                 "commission": amounts["commission"],
                 "logistics": amounts["logistics"],
@@ -860,6 +882,8 @@ class PeriodProfitSummaryService:
         return {
             "units_sold": 0,
             "revenue": 0.0,
+            "discount_points": 0.0,
+            "tax_base": 0.0,
             "net_accrual": 0.0,
             "commission": 0.0,
             "logistics": 0.0,

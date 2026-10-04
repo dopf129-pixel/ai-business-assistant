@@ -17,6 +17,7 @@ class StoreProfitService:
 
         total_sales = 0
         total_gross_sales = 0.0
+        total_discount_points = 0.0
         total_net_accrual = 0.0
         total_cost = 0.0
         total_profit = 0.0
@@ -50,6 +51,13 @@ class StoreProfitService:
                 )
             )
 
+            discount_points = self._number(
+                profit.get(
+                    "discount_points",
+                    0,
+                )
+            )
+
             net_accrual = self._number(
                 profit.get(
                     "net_accrual",
@@ -74,6 +82,7 @@ class StoreProfitService:
             if (
                 sales_count is None
                 or gross_sales is None
+                or discount_points is None
                 or net_accrual is None
                 or total_cost_value is None
                 or gross_profit is None
@@ -83,6 +92,7 @@ class StoreProfitService:
 
             total_sales += sales_count
             total_gross_sales += gross_sales
+            total_discount_points += discount_points
             total_net_accrual += net_accrual
             total_cost += total_cost_value
             total_profit += gross_profit
@@ -91,6 +101,7 @@ class StoreProfitService:
                 math.isfinite(value)
                 for value in (
                     total_gross_sales,
+                    total_discount_points,
                     total_net_accrual,
                     total_cost,
                     total_profit
@@ -124,6 +135,10 @@ class StoreProfitService:
             "sales_count": total_sales,
             "gross_sales": round(
                 total_gross_sales,
+                2
+            ),
+            "discount_points": round(
+                total_discount_points,
                 2
             ),
             "net_accrual": round(

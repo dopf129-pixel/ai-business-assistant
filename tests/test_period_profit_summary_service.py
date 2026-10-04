@@ -54,6 +54,32 @@ def test_calculates_period_profit_with_explicit_scope():
     assert result["advertising_included"] is False
 
 
+def test_period_profit_tax_uses_revenue_after_discount_points():
+    finance = Finance({
+        ("2026-08-01", "100"): {
+            "error": False,
+            "sales_count": 10,
+            "gross_sales": 1000,
+            "discount_points": 100,
+            "net_accrual": 800,
+        },
+    })
+    costs = Costs({"10": ("10", "100", "hook", 30.0, "RUB", None)})
+
+    result = PeriodProfitSummaryService(finance, costs, tax_rate=0.06).calculate(
+        "2026-08-01",
+        "2026-08-01",
+        [{"product_id": "10", "sku": "100", "offer_id": "hook"}],
+    )
+
+    assert result["error"] is False
+    assert result["revenue"] == 1000
+    assert result["discount_points"] == 100
+    assert result["revenue_tax_base"] == 900
+    assert result["tax"] == 54
+    assert result["profit"] == 446
+
+
 def test_aggregates_multiple_products():
     rows = {
         ("2026-08-01", "100"): {"error": False, "sales_count": 1, "gross_sales": 100, "net_accrual": 80},

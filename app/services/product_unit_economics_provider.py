@@ -63,22 +63,30 @@ class ProductUnitEconomicsProvider:
             gross_profit = float(
                 item.get("gross_profit")
             )
+            discount_points = float(
+                item.get("discount_points", 0.0) or 0.0
+            )
 
             marketplace_fees = (
                 revenue - net_accrual
             )
 
-            tax = self._calculate_tax(
+            tax_result = self._calculate_tax(
                 revenue=revenue,
                 gross_profit=gross_profit,
-                tax_policy=tax_policy
+                tax_policy=tax_policy,
+                discount_points=discount_points,
             )
 
-            if tax is None:
+            if tax_result is None:
+                tax = None
+                tax_base = None
                 net_profit = None
                 profit_per_unit = None
                 margin_percent = None
             else:
+                tax = float(tax_result.get("tax_amount", 0) or 0)
+                tax_base = self._number(tax_result.get("tax_base"))
                 net_profit = gross_profit - tax
                 profit_per_unit = (
                     net_profit / units_sold
@@ -104,6 +112,12 @@ class ProductUnitEconomicsProvider:
                         revenue,
                         2
                     ),
+                    "discount_points": round(discount_points, 2),
+                    "revenue_tax_base": round(
+                        max(0.0, revenue - discount_points),
+                        2,
+                    ),
+                    "tax_base": self._round(tax_base),
                     "product_cost": round(
                         product_cost,
                         2
@@ -116,6 +130,11 @@ class ProductUnitEconomicsProvider:
                         round(tax, 2)
                         if tax is not None
                         else None
+                    ),
+                    "tax_effective_percent": (
+                        round(tax / revenue * 100, 2)
+                        if tax is not None and revenue > 0
+                        else 0.0 if tax is not None else None
                     ),
                     "net_profit": (
                         round(net_profit, 2)
@@ -149,6 +168,9 @@ class ProductUnitEconomicsProvider:
         compensation = self._number(
             facts.get("ozon_discount_compensation")
         )
+        discount_points = self._number(
+            facts.get("discount_points_per_unit", 0.0)
+        )
         requested_tax_policy = str(
             facts.get("tax_base_policy")
             or "SELLER_PRICE"
@@ -178,6 +200,8 @@ class ProductUnitEconomicsProvider:
             and buyer_price is None
         ):
             missing_fields.append("buyer_price")
+        if discount_points is None:
+            missing_fields.append("discount_points")
         if cost is None:
             missing_fields.append("cost")
         for field, value in values.items():
@@ -195,6 +219,12 @@ class ProductUnitEconomicsProvider:
         net_profit = None
         margin_percent = None
         tax_effective_percent = None
+        calculated_tax_base = None
+        revenue_tax_base = (
+            max(0.0, tax_base - discount_points)
+            if tax_base is not None and discount_points is not None
+            else None
+        )
 
         if not missing_fields:
             marketplace_fees = sum(
@@ -210,14 +240,20 @@ class ProductUnitEconomicsProvider:
                 - marketplace_fees
                 - cost
             )
-            tax = self._calculate_tax(
+            tax_result = self._calculate_tax(
                 revenue=tax_base,
                 gross_profit=gross_profit,
-                tax_policy=tax_policy
+                tax_policy=tax_policy,
+                discount_points=discount_points,
             )
-            if tax is None:
+            if tax_result is None:
+                tax = None
                 missing_fields.append("tax")
             else:
+                tax = float(tax_result.get("tax_amount", 0) or 0)
+                calculated_tax_base = self._number(
+                    tax_result.get("tax_base")
+                )
                 net_profit = gross_profit - tax
                 margin_percent = (
                     net_profit / seller_price * 100
@@ -248,8 +284,10 @@ class ProductUnitEconomicsProvider:
             "ozon_discount_compensation": self._round(
                 compensation
             ),
+            "discount_points": self._round(discount_points),
             "tax_base_policy": tax_base_policy,
-            "tax_base": self._round(tax_base),
+            "tax_base": self._round(calculated_tax_base),
+            "revenue_tax_base": self._round(revenue_tax_base),
             "tax_rate": self._number(tax_policy["tax_rate"]),
             "tax_effective_percent": self._round(
                 tax_effective_percent
@@ -297,7 +335,8 @@ class ProductUnitEconomicsProvider:
         self,
         revenue,
         gross_profit,
-        tax_policy=None
+        tax_policy=None,
+        discount_points=0.0,
     ):
         policy = tax_policy or self._resolve_tax_policy()
         if not self.tax_service or not policy["mode"]:
@@ -310,16 +349,14 @@ class ProductUnitEconomicsProvider:
             tax_rate=policy["tax_rate"],
             minimum_tax_rate=(
                 policy["minimum_tax_rate"]
-            )
+            ),
+            discount_points=discount_points,
         )
 
         if result.get("error"):
             return None
 
-        return float(
-            result.get("tax_amount", 0)
-            or 0
-        )
+        return result
 
     def _resolve_tax_policy(self):
         if self.tax_configuration_service is None:

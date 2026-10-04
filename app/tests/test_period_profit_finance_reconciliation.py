@@ -18,7 +18,13 @@ def money(amount, currency=None):
     return result
 
 
-def posting_accrual(*, total_amount, sale_amount, sku="SKU-1"):
+def posting_accrual(*, total_amount, sale_amount, sku="SKU-1", bonus=None):
+    commission = {
+        "sale_amount": money(sale_amount),
+        "sale_commission": money("0"),
+    }
+    if bonus is not None:
+        commission["bonus"] = money(bonus)
     return {
         "accrued_category": "POSTING",
         "total_amount": money(total_amount),
@@ -26,10 +32,7 @@ def posting_accrual(*, total_amount, sale_amount, sku="SKU-1"):
             "products": [
                 {
                     "sku": sku,
-                    "commission": {
-                        "sale_amount": money(sale_amount),
-                        "sale_commission": money("0"),
-                    },
+                    "commission": commission,
                 }
             ]
         },
@@ -85,6 +88,44 @@ class FinanceServiceSaleUnitReconciliationTests(unittest.TestCase):
         self.assertEqual(result["sales_count"], 0)
         self.assertEqual(result["gross_sales"], -30.0)
         self.assertEqual(result["net_accrual"], -20.0)
+
+    def test_discount_points_are_preserved_for_account_and_sku_finance(self):
+        service = self._service_with_accruals([
+            posting_accrual(
+                total_amount="800",
+                sale_amount="1000",
+                bonus="100",
+            ),
+        ])
+
+        account = service.get_daily_account_finance("2026-08-09")
+        selected = service.get_daily_finance("2026-08-09", sku="SKU-1")
+
+        self.assertEqual(account["gross_sales"], 1000.0)
+        self.assertEqual(account["discount_points"], 100.0)
+        self.assertEqual(selected["discount_points"], 100.0)
+
+    def test_invalid_discount_points_fail_closed(self):
+        service = self._service_with_accruals([
+            {
+                "accrued_category": "POSTING",
+                "total_amount": money("800"),
+                "posting": {
+                    "products": [{
+                        "sku": "SKU-1",
+                        "commission": {
+                            "sale_amount": money("1000"),
+                            "sale_commission": money("0"),
+                            "bonus": money("not-a-number"),
+                        },
+                    }],
+                },
+            },
+        ])
+
+        result = service.get_daily_finance("2026-08-09", sku="SKU-1")
+
+        self.assertEqual(result["code"], "FINANCE_DISCOUNT_POINTS_INVALID")
 
 
 class PeriodProfitOzonRevenueReconciliationTests(unittest.TestCase):

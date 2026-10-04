@@ -17,6 +17,8 @@ def _result(**overrides):
             "date_from": "2026-08-09",
             "date_to": "2026-09-05",
             "revenue": 454034.93,
+            "discount_points": 0.0,
+            "revenue_tax_base": 454034.93,
             "units_sold": 64,
             "net_accrual": 175004.50,
             "product_cost": 121212.00,
@@ -56,6 +58,8 @@ def test_compact_report_matches_approved_management_format():
         "💰 Прибыль за период 09.08–05.09\n"
         "\n"
         "Выручка: 454 035 ₽\n"
+        "Баллы за скидки: 0 ₽\n"
+        "Выручка для расчёта налога: 454 035 ₽\n"
         "Продано SKU: 64 шт.\n"
         "Начисления Ozon: 175 005 ₽\n"
         "Себестоимость: 121 212 ₽\n"

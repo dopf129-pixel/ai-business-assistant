@@ -131,12 +131,16 @@ def test_v1381_none_tax_applies_committed_return_cogs_once_read_only():
 
 def test_v1382_usn_income_keeps_revenue_tax_base_when_return_cogs_is_applied():
     service = PeriodProfitReturnCogsFinalApplicationService(TaxService(), _policy("USN_INCOME", 6.0))
-    result = service.apply(_summary(tax=60.0, profit=340.0), _committed_evidence())
+    summary = _summary(tax=60.0, profit=340.0)
+    summary["discount_points"] = 100.0
+    result = service.apply(summary, _committed_evidence())
 
     assert result["error"] is False
-    assert result["summary"]["tax"] == 60.0
-    assert result["summary"]["tax_base"] == 1000.0
-    assert result["summary"]["profit"] == 440.0
+    assert result["summary"]["discount_points"] == 100.0
+    assert result["summary"]["revenue_tax_base"] == 900.0
+    assert result["summary"]["tax"] == 54.0
+    assert result["summary"]["tax_base"] == 900.0
+    assert result["summary"]["profit"] == 446.0
 
 
 def test_v1383_usn_income_minus_expenses_recomputes_regular_and_minimum_tax():

@@ -68,6 +68,10 @@ def compact_period_profit_result(result):
         + _period(summary.get("date_from"), summary.get("date_to")),
         "",
         "Выручка: " + _money(summary.get("revenue")),
+        "Баллы за скидки: " + _money(summary.get("discount_points")),
+        "Выручка для расчёта налога: " + _money(
+            summary.get("revenue_tax_base")
+        ),
         "Продано SKU: " + _units(summary.get("units_sold")),
         "Начисления Ozon: " + _money(summary.get("net_accrual")),
         "Себестоимость: " + _money(summary.get("product_cost")),

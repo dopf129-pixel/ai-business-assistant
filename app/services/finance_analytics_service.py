@@ -6,6 +6,7 @@ class FinanceAnalyticsService:
 
     AMOUNT_FIELDS = (
         "gross_sales",
+        "discount_points",
         "net_accrual",
         "commission",
         "logistics",
@@ -84,6 +85,7 @@ class FinanceAnalyticsService:
             "operations": 0,
             "sales_count": 0,
             "gross_sales": 0.0,
+            "discount_points": 0.0,
             "net_accrual": 0.0,
             "commission": 0.0,
             "logistics": 0.0,
