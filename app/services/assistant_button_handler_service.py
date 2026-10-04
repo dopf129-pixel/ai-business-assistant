@@ -452,6 +452,7 @@ class AssistantButtonHandlerService:
                 "period_profit",
                 "period_profit_pre_cogs",
                 "period_profit_sku",
+                "experimental_calculations",
             }
             or button_id.startswith((
                 "period_profit:",
@@ -503,6 +504,22 @@ class AssistantButtonHandlerService:
                 "text": "Главное меню",
                 "message": "Главное меню",
                 "keyboard": self.keyboard_service.build_main_keyboard(),
+            }
+
+        if button_id == "experimental_calculations":
+            return {
+                "error": False,
+                "message": (
+                    "🧪 Экспериментальные расчёты\n\n"
+                    "Пока здесь нет готовых экспериментов. Новые варианты "
+                    "будут показываться отдельно и не повлияют на основные расчёты."
+                ),
+                "keyboard": (
+                    self.keyboard_service
+                    .build_experimental_calculations_keyboard()
+                ),
+                "read_only": True,
+                "executed": False,
             }
 
         if button_id == "period_profit":

@@ -1,3 +1,13 @@
+# Отдельный раздел экспериментальных расчётов
+
+Updated:
+
+- `app/services/assistant_keyboard_service.py`
+- `app/services/assistant_button_handler_service.py`
+- `tests/test_telegram_help_discovery.py`
+
+Проверяет наличие кнопки в главном меню, полный маршрут callback через Telegram-адаптер, безопасное пустое состояние раздела и возврат в главное меню. Раздел не запускает расчёты.
+
 # Форматирование прибыли без себестоимости
 
 Updated:
