@@ -228,6 +228,42 @@ def test_production_button_wiring_opens_sku_and_period_menus():
     )
 
 
+def test_unresolved_identity_button_explains_and_opens_product_period_check():
+    warning_query = Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+        "code": "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE",
+        "finance_diagnostic_code": (
+            "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_UNRESOLVED"
+        ),
+        "unresolved_finance_skus": ["3398133813"],
+    })
+    period_runtime = AssistantPeriodProfitRuntimeService(warning_query)
+    sku_runtime = PeriodProfitSkuRuntimeService(Query({"error": False}))
+    handler = AssistantButtonHandlerService(
+        object(),
+        keyboard_service=AssistantKeyboardService(),
+        period_profit_runtime_service=period_runtime,
+        period_profit_sku_runtime_service=sku_runtime,
+    )
+
+    warning = period_runtime.handle_callback("period_profit:7D")
+    button = warning["keyboard"]["buttons"][0]
+    assert button["text"] == "🔎 Выбрать товар для проверки"
+    assert "затем выберите карточку товара и период" in warning["message"]
+
+    product_menu = handler.handle(button["callback"], "seller-a")
+    assert product_menu["message"] == (
+        "Выберите товар, по которому хотите посмотреть прибыль:"
+    )
+    period_menu = handler.handle(
+        "period_profit_sku:3921245627", "seller-a"
+    )
+    assert period_menu["message"] == (
+        "За какой период показать прибыль по SKU 3921245627?"
+    )
+
+
 def test_production_factory_exposes_sku_runtime(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(
