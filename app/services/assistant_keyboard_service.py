@@ -108,10 +108,6 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": [
                 {
-                    "text": "📅 Выбрать другой период",
-                    "callback": "experimental_store_economics",
-                },
-                {
                     "text": "↩️ Эксперименты",
                     "callback": "experimental_calculations",
                 },

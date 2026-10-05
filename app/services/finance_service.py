@@ -196,6 +196,15 @@ class FinanceService:
                 sku,
                 result
             )
+            if sku is None:
+                self._process_fee_nodes(
+                    accrual.get("non_item_fee"),
+                    result,
+                )
+                self._process_fee_nodes(
+                    accrual.get("container_fees"),
+                    result,
+                )
 
         result["other_fees"] = (
             result["net_accrual"]
@@ -638,6 +647,40 @@ class FinanceService:
                         .get("amount")
                     )
                 )
+
+    def _process_fee_nodes(
+        self,
+        node,
+        result,
+    ):
+
+        """Collect fee detail from seller-level and container accrual nodes.
+
+        The daily accrual response contains fee leaves in more than one place.
+        This records their type breakdown for reports without changing the
+        account totals, which continue to come from ``total_amount``.
+        """
+
+        if isinstance(node, list):
+            for item in node:
+                self._process_fee_nodes(item, result)
+            return
+
+        if not isinstance(node, dict):
+            return
+
+        accrued = node.get("accrued")
+        type_id = node.get("type_id")
+        if type_id is not None and isinstance(accrued, dict):
+            self._add_fee(
+                result,
+                type_id,
+                self.to_decimal(accrued.get("amount")),
+            )
+            return
+
+        for value in node.values():
+            self._process_fee_nodes(value, result)
 
     def _add_fee(
         self,

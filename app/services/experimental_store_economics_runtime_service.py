@@ -15,18 +15,48 @@ class ExperimentalStoreEconomicsRuntimeService:
     """Read-only experimental store economics based on existing Ozon services."""
 
     PERIOD_CODES = {"TODAY", "7D", "28D", "56D", "90D"}
-    ANALYTICS_METRICS = ("ordered_units", "cancellations")
+    ANALYTICS_METRICS = ("ordered_units", "cancellations", "returns")
     ANALYTICS_DIMENSIONS = ("day",)
     ANALYTICS_PAGE_SIZE = 1000
     FEE_LABEL_MATCHERS = {
-        "last_mile": ("последняя миля", "последней мили", "last mile", "last-mile"),
-        "cross_docking": ("кросс-док", "кросс док", "cross-dock", "cross dock"),
+        "last_mile": (
+            "последняя миля",
+            "последней мили",
+            "last mile",
+            "last-mile",
+            "lastmile",
+        ),
+        "cross_docking": (
+            "кросс-док",
+            "кросс док",
+            "cross-dock",
+            "cross dock",
+            "crossdock",
+        ),
         "paid_storage": (
             "платное хран",
+            "плата за хранение",
             "paid storage",
+            "paidstorage",
             "storage fee",
         ),
     }
+    ADVERTISING_FEE_MATCHERS = (
+        "реклам",
+        "продвиж",
+        "оплата за клик",
+        "оплата за заказ",
+        "оплата за показ",
+        "payperclick",
+        "pay per click",
+        "advertising",
+        "marketplacemarketing",
+        "marketing action",
+        "promotion",
+        "cpc",
+        "cpo",
+        "cpm",
+    )
 
     def __init__(self, query_service, advertising_service=None, analytics_client=None):
         self.query_service = query_service
@@ -158,6 +188,10 @@ class ExperimentalStoreEconomicsRuntimeService:
         )
         metrics["analytics"] = self._load_analytics(date_from, date_to)
         metrics["fee_subcategories"] = self._fee_subcategories(summary)
+        metrics["fee_breakdown"] = self._fee_breakdown(summary)
+        metrics["finance_advertising"] = self._finance_advertising(
+            metrics["fee_breakdown"]
+        )
 
         return {
             "error": False,
@@ -178,10 +212,13 @@ class ExperimentalStoreEconomicsRuntimeService:
             "revenue",
             "revenue_tax_base",
             "discount_points",
+            "net_accrual",
+            "tax",
             "profit",
             "acquiring",
             "commission",
             "logistics",
+            "other_fees",
         )
         result = {}
         for field in fields:
@@ -227,9 +264,8 @@ class ExperimentalStoreEconomicsRuntimeService:
     def _load_analytics(self, date_from, date_to):
         getter = getattr(self.analytics_client, "get_analytics_data", None)
         if not callable(getter):
-            return _analytics_result(
-                None, None, "UNAVAILABLE",
-                "ANALYTICS_CLIENT_UNAVAILABLE", "ANALYTICS_CLIENT_UNAVAILABLE",
+            return self._empty_analytics_result(
+                "UNAVAILABLE", "ANALYTICS_CLIENT_UNAVAILABLE"
             )
         try:
             response = getter(
@@ -241,26 +277,22 @@ class ExperimentalStoreEconomicsRuntimeService:
                 offset=0,
             )
         except Exception:
-            return _analytics_result(
-                None, None, "UNAVAILABLE",
-                "ANALYTICS_REQUEST_FAILED", "ANALYTICS_REQUEST_FAILED",
+            return self._empty_analytics_result(
+                "UNAVAILABLE", "ANALYTICS_REQUEST_FAILED"
             )
         if not isinstance(response, dict) or response.get("error") is True:
-            return _analytics_result(
-                None, None, "UNAVAILABLE",
-                "ANALYTICS_RESPONSE_UNAVAILABLE", "ANALYTICS_RESPONSE_UNAVAILABLE",
+            return self._empty_analytics_result(
+                "UNAVAILABLE", "ANALYTICS_RESPONSE_UNAVAILABLE"
             )
         result = response.get("result")
         rows = result.get("data") if isinstance(result, dict) else None
         if not isinstance(rows, list):
-            return _analytics_result(
-                None, None, "INVALID", "ANALYTICS_DATA_MISSING",
-                "ANALYTICS_DATA_MISSING",
+            return self._empty_analytics_result(
+                "INVALID", "ANALYTICS_DATA_MISSING"
             )
         if len(rows) >= self.ANALYTICS_PAGE_SIZE:
-            return _analytics_result(
-                None, None, "INCOMPLETE", "ANALYTICS_PAGE_LIMIT_REACHED",
-                "ANALYTICS_PAGE_LIMIT_REACHED",
+            return self._empty_analytics_result(
+                "INCOMPLETE", "ANALYTICS_PAGE_LIMIT_REACHED"
             )
 
         totals = result.get("totals") if isinstance(result, dict) else None
@@ -287,8 +319,8 @@ class ExperimentalStoreEconomicsRuntimeService:
                 issues.append(total_issue or issue)
 
         public_values = [
-            _public_analytics_number(values[0]),
-            _public_analytics_number(values[1]),
+            _public_analytics_number(value)
+            for value in values
         ]
         for index, value in enumerate(values):
             if value is not None and public_values[index] is None:
@@ -305,11 +337,17 @@ class ExperimentalStoreEconomicsRuntimeService:
         else:
             status = "INVALID"
         return _analytics_result(
-            public_values[0],
-            public_values[1],
+            dict(zip(self.ANALYTICS_METRICS, public_values)),
+            dict(zip(self.ANALYTICS_METRICS, issues)),
             status,
-            issues[0],
-            issues[1],
+        )
+
+    @classmethod
+    def _empty_analytics_result(cls, status, diagnostic):
+        return _analytics_result(
+            {metric: None for metric in cls.ANALYTICS_METRICS},
+            {metric: diagnostic for metric in cls.ANALYTICS_METRICS},
+            status,
         )
 
     def _sum_analytics_rows(self, rows, metric_index, metric_name):
@@ -353,11 +391,85 @@ class ExperimentalStoreEconomicsRuntimeService:
             )
         return result
 
+    @classmethod
+    def _fee_breakdown(cls, summary):
+        source = summary.get("fee_breakdown")
+        if not isinstance(source, dict):
+            return []
+        result = []
+        for raw_label, raw_amount in source.items():
+            label = " ".join(cls._text(raw_label).split())
+            amount = cls._number(raw_amount)
+            if not label or amount is None or amount == 0:
+                continue
+            result.append({"label": label[:72], "amount": round(amount, 2)})
+        return sorted(
+            result,
+            key=lambda item: (-abs(item["amount"]), item["label"].casefold()),
+        )
+
+    @classmethod
+    def _finance_advertising(cls, fee_breakdown):
+        groups = {
+            "CPC": {"amount": 0.0, "count": 0, "labels": []},
+            "CPO": {"amount": 0.0, "count": 0, "labels": []},
+            "CPM": {"amount": 0.0, "count": 0, "labels": []},
+            "OTHER": {"amount": 0.0, "count": 0, "labels": []},
+        }
+        for item in fee_breakdown:
+            label = item["label"]
+            normalized = label.casefold().replace("_", " ")
+            if not any(
+                matcher in normalized
+                for matcher in cls.ADVERTISING_FEE_MATCHERS
+            ):
+                continue
+            if any(token in normalized for token in ("cpc", "click", "клик")):
+                group = "CPC"
+            elif any(token in normalized for token in ("cpo", "заказ", "order")):
+                group = "CPO"
+            elif any(token in normalized for token in ("cpm", "показ", "impression")):
+                group = "CPM"
+            else:
+                group = "OTHER"
+            target = groups[group]
+            target["amount"] = round(target["amount"] + item["amount"], 2)
+            target["count"] += 1
+            target["labels"].append(label)
+        return {
+            "groups": groups,
+            "has_explicit_types": any(group["count"] for group in groups.values()),
+        }
+
+    @classmethod
+    def _other_fee_details(cls, fee_breakdown):
+        excluded_matchers = (
+            *cls.ADVERTISING_FEE_MATCHERS,
+            "эквайр",
+            "acquir",
+            "комисс",
+            "commission",
+            "логист",
+            "достав",
+            "logistic",
+            "delivery",
+            *(matcher for matchers in cls.FEE_LABEL_MATCHERS.values() for matcher in matchers),
+        )
+        return [
+            item
+            for item in fee_breakdown
+            if not any(
+                matcher in item["label"].casefold()
+                for matcher in excluded_matchers
+            )
+        ]
+
     @staticmethod
     def _render(date_from, date_to, metrics):
         advertising = metrics["advertising"]
         analytics = metrics["analytics"]
         fees = metrics["fee_subcategories"]
+        finance_advertising = metrics["finance_advertising"]
         cpc_text = _money_or_status(
             advertising.get("cpc"),
             advertising.get("status"),
@@ -365,39 +477,89 @@ class ExperimentalStoreEconomicsRuntimeService:
         campaign_count = advertising.get("campaign_count")
         if isinstance(campaign_count, int) and not isinstance(campaign_count, bool):
             cpc_text += f" ({campaign_count} камп.)"
+        ad_groups = finance_advertising["groups"]
+        ad_lines = []
+        if finance_advertising["has_explicit_types"]:
+            for group_name in ("CPC", "CPO", "CPM", "OTHER"):
+                group = ad_groups[group_name]
+                if not group["count"]:
+                    continue
+                title = "другие явные рекламные услуги" if group_name == "OTHER" else group_name
+                ad_lines.append(
+                    f"   • По начислениям Ozon, {title}: "
+                    f"{_money(group['amount'])}"
+                )
+        else:
+            ad_lines.append(
+                "   • Рекламные типы не распознаны в начислениях Ozon"
+            )
+        ad_lines.append(
+            "   • Performance CPC по сопоставленным SKU (для сверки): "
+            + cpc_text
+        )
+        other_fee_details = ExperimentalStoreEconomicsRuntimeService._other_fee_details(
+            metrics["fee_breakdown"]
+        )
         lines = [
             f"🧪 Экономика магазина за период {date_from} — {date_to}",
             "",
             "1. Выручка общая (100%): " + _money(metrics["revenue"]),
             "2. Выручка ФНС (выручка − баллы): " + _money(metrics["revenue_tax_base"]),
             "3. Баллы за скидки: " + _money(metrics["discount_points"]),
-            "4. Прибыль без себестоимости: " + _money(metrics["profit"]),
-            "5. Расходы на рекламу:",
-            "   • CPC по сопоставленным SKU (не общий бюджет): " + cpc_text,
-            "   • CPO: не включён — нет надёжного подтверждённого источника в этом эксперименте",
-            "   • CPM и другие типы: не включены",
-            "6. Эквайринг: " + _money(metrics["acquiring"]),
-            "7. Вознаграждение Ozon: " + _money(metrics["commission"]),
-            "8. Логистика всего: " + _money(metrics["logistics"]),
-            "9. Последняя миля: " + _fee_or_unconfirmed(fees.get("last_mile")),
-            "10. Кросс-докинг: " + _fee_or_unconfirmed(fees.get("cross_docking")),
-            "11. Платное хранение: " + _fee_or_unconfirmed(fees.get("paid_storage")),
-            "12. Заказанные единицы: " + _unit_or_unconfirmed(
+            "4. Начисления Ozon нетто: " + _money(metrics["net_accrual"]),
+            "5. Налог: " + _money(metrics["tax"]),
+            "6. Прибыль без себестоимости: " + _money(metrics["profit"]),
+            "7. Расходы на рекламу:",
+            *ad_lines,
+            "8. Эквайринг: " + _money(metrics["acquiring"]),
+            "9. Вознаграждение Ozon: " + _money(metrics["commission"]),
+            "10. Логистика всего: " + _money(metrics["logistics"]),
+            "11. Последняя миля: " + _fee_or_unconfirmed(fees.get("last_mile")),
+            "12. Кросс-докинг: " + _fee_or_unconfirmed(fees.get("cross_docking")),
+            "13. Платное хранение: " + _fee_or_unconfirmed(fees.get("paid_storage")),
+            "14. Прочие начисления Ozon (включая рекламные и складские услуги): "
+            + _money(metrics["other_fees"]),
+            "15. Заказанные единицы (Analytics): " + _unit_or_unconfirmed(
                 analytics.get("ordered_units"),
                 analytics.get("ordered_units_status"),
                 analytics.get("ordered_units_diagnostic"),
+                "заказанных единиц",
             ),
-            "13. Отменённые единицы: " + _unit_or_unconfirmed(
+            "16. Отменённые единицы (Analytics): " + _unit_or_unconfirmed(
                 analytics.get("cancellations"),
                 analytics.get("cancellations_status"),
                 analytics.get("cancellations_diagnostic"),
+                "отменённых единиц",
+            ),
+            "17. Возвраты (Analytics): " + _unit_or_unconfirmed(
+                analytics.get("returns"),
+                analytics.get("returns_status"),
+                analytics.get("returns_diagnostic"),
+                "возвратов",
             ),
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
-            "Расход CPC сопоставляется только с SKU каталога и финансового отчёта; CPO, CPM и другие типы не считаются нулём и не входят в сумму. Реклама показана отдельно и не вычтена из прибыли в строке 4.",
-            "Строки последней мили, кросс-докинга и хранения выделяются только по явной подписи в начислениях; они входят в общие начисления Ozon и повторно не вычитаются.",
+            "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы, отмены и возвраты — Analytics; CPC по SKU — Ozon Performance.",
+            "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
+            "Подтипы ниже раскрывают итоги, а не добавляются к ним: последняя миля входит в логистику; рекламные и складские услуги входят в прочие начисления, если они выставлены Ozon.",
+            "Разделение рекламы по типам возможно только по явным названиям начислений; отчёт по начислениям не содержит разбивки по кампаниям.",
             "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
         ]
+        if other_fee_details:
+            lines.extend(
+                [
+                    "",
+                    "Детализация прочих начислений (уже входит в строку 14):",
+                ]
+            )
+            for item in other_fee_details[:5]:
+                lines.append(
+                    f"   • {item['label']}: {_money(item['amount'])}"
+                )
+            if len(other_fee_details) > 5:
+                lines.append(
+                    f"   • Ещё типов начислений: {len(other_fee_details) - 5}"
+                )
         return "\n".join(lines)
 
     def _summary_dependencies(self):
@@ -493,11 +655,11 @@ def _money_or_status(value, status):
 
 def _fee_or_unconfirmed(value):
     if value is None:
-        return "не выделено отдельной строкой в начислениях Ozon"
+        return "не найдено начисление с однозначной подписью в Ozon"
     return _money(value)
 
 
-def _unit_or_unconfirmed(value, status, diagnostic=None):
+def _unit_or_unconfirmed(value, status, diagnostic=None, label="показателя"):
     if value is not None:
         number = Decimal(str(value))
         if number == number.to_integral_value():
@@ -510,14 +672,15 @@ def _unit_or_unconfirmed(value, status, diagnostic=None):
             and re.fullmatch(r"[A-Z0-9_]{1,64}", diagnostic)
             and _is_missing_analytics_metric(diagnostic)
         ):
-            return f"метрика Ozon не вернулась ({diagnostic})"
-        return "аналитика Ozon недоступна"
+            return f"Ozon Analytics не вернул показатель «{label}»"
+        return f"показатель «{label}» недоступен в Ozon Analytics"
     if status in {"INVALID", "INCOMPLETE"}:
-        label = "данные неполные" if status == "INCOMPLETE" else "данные некорректны"
-        if isinstance(diagnostic, str) and re.fullmatch(r"[A-Z0-9_]{1,64}", diagnostic):
-            return f"{label} ({diagnostic})"
-        return label
-    return "данные Ozon не предоставлены"
+        return (
+            "данные неполные"
+            if status == "INCOMPLETE"
+            else f"данные по показателю «{label}» не прошли проверку"
+        )
+    return f"Ozon Analytics не предоставил показатель «{label}»"
 
 
 def _analytics_metric_value(value, metric_name):
@@ -546,25 +709,19 @@ def _public_analytics_number(value):
 
 
 def _analytics_result(
-    ordered_units,
-    cancellations,
+    values,
+    diagnostics,
     status,
-    ordered_units_diagnostic,
-    cancellations_diagnostic,
 ):
-    return {
-        "status": status,
-        "ordered_units": ordered_units,
-        "cancellations": cancellations,
-        "ordered_units_status": _analytics_field_status(
-            ordered_units, ordered_units_diagnostic, status
-        ),
-        "cancellations_status": _analytics_field_status(
-            cancellations, cancellations_diagnostic, status
-        ),
-        "ordered_units_diagnostic": ordered_units_diagnostic,
-        "cancellations_diagnostic": cancellations_diagnostic,
-    }
+    result = {"status": status}
+    for metric_name, value in values.items():
+        diagnostic = diagnostics.get(metric_name)
+        result[metric_name] = value
+        result[metric_name + "_status"] = _analytics_field_status(
+            value, diagnostic, status
+        )
+        result[metric_name + "_diagnostic"] = diagnostic
+    return result
 
 
 def _analytics_field_status(value, diagnostic, overall_status):
