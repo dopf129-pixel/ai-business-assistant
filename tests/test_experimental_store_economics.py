@@ -25,15 +25,21 @@ class _Summary:
             "revenue": 100000.0,
             "revenue_tax_base": 92000.0,
             "discount_points": 8000.0,
+            "net_accrual": 18520.0,
+            "tax": 5520.0,
             "profit": 13000.0,
             "acquiring": -1500.0,
             "commission": -22000.0,
             "logistics": -18000.0,
+            "other_fees": -3600.0,
             "products": [{"sku": "9001"}],
             "fee_breakdown": {
                 "Доставка до покупателя — последняя миля": -8000.0,
                 "Услуги кросс-докинга": -1200.0,
                 "Платное хранение товара": -350.0,
+                "PayPerClick CPC": -3000.0,
+                "Оплата за заказ CPO": -400.0,
+                "Услуги комплектации": -200.0,
             },
         }
 
@@ -66,8 +72,8 @@ class _Analytics:
             "error": False,
             "result": {
                 "data": [
-                    {"metrics": [12, 2]},
-                    {"metrics": [5, 1]},
+                    {"metrics": [12, 2, 1]},
+                    {"metrics": [5, 1, 0]},
                 ]
             },
         }
@@ -145,31 +151,39 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert result["metrics"]["advertising"]["cpc"] == 345.67
     assert result["metrics"]["analytics"]["ordered_units"] == 17
     assert result["metrics"]["analytics"]["cancellations"] == 3
+    assert result["metrics"]["analytics"]["returns"] == 1
     assert result["metrics"]["fee_subcategories"] == {
         "last_mile": -8000.0,
         "cross_docking": -1200.0,
         "paid_storage": -350.0,
     }
+    assert result["metrics"]["finance_advertising"]["groups"]["CPC"]["amount"] == -3000.0
+    assert result["metrics"]["finance_advertising"]["groups"]["CPO"]["amount"] == -400.0
     assert "1. Выручка общая (100%): 100 000.00 ₽" in result["text"]
     assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽" in result["text"]
     assert "3. Баллы за скидки: 8 000.00 ₽" in result["text"]
-    assert "4. Прибыль без себестоимости: 13 000.00 ₽" in result["text"]
-    assert "5. Расходы на рекламу:" in result["text"]
-    assert "CPC по сопоставленным SKU (не общий бюджет): 345.67 ₽" in result["text"]
-    assert "CPO: не включён" in result["text"]
-    assert "CPM и другие типы: не включены" in result["text"]
-    assert "6. Эквайринг: -1 500.00 ₽" in result["text"]
-    assert "7. Вознаграждение Ozon: -22 000.00 ₽" in result["text"]
-    assert "8. Логистика всего: -18 000.00 ₽" in result["text"]
-    assert "9. Последняя миля: -8 000.00 ₽" in result["text"]
-    assert "10. Кросс-докинг: -1 200.00 ₽" in result["text"]
-    assert "11. Платное хранение: -350.00 ₽" in result["text"]
-    assert "12. Заказанные единицы: 17" in result["text"]
-    assert "13. Отменённые единицы: 3" in result["text"]
+    assert "4. Начисления Ozon нетто: 18 520.00 ₽" in result["text"]
+    assert "5. Налог: 5 520.00 ₽" in result["text"]
+    assert "6. Прибыль без себестоимости: 13 000.00 ₽" in result["text"]
+    assert "7. Расходы на рекламу:" in result["text"]
+    assert "По начислениям Ozon, CPC: -3 000.00 ₽" in result["text"]
+    assert "По начислениям Ozon, CPO: -400.00 ₽" in result["text"]
+    assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (2 камп.)" in result["text"]
+    assert "8. Эквайринг: -1 500.00 ₽" in result["text"]
+    assert "9. Вознаграждение Ozon: -22 000.00 ₽" in result["text"]
+    assert "10. Логистика всего: -18 000.00 ₽" in result["text"]
+    assert "11. Последняя миля: -8 000.00 ₽" in result["text"]
+    assert "12. Кросс-докинг: -1 200.00 ₽" in result["text"]
+    assert "13. Платное хранение: -350.00 ₽" in result["text"]
+    assert "14. Прочие начисления Ozon (включая рекламные и складские услуги): -3 600.00 ₽" in result["text"]
+    assert "15. Заказанные единицы (Analytics): 17" in result["text"]
+    assert "16. Отменённые единицы (Analytics): 3" in result["text"]
+    assert "17. Возвраты (Analytics): 1" in result["text"]
+    assert "Performance CPC показан для сверки и может пересекаться" in result["text"]
     assert query.summary_service.calls[0][3] is True
     assert cost_excluded() is False
     assert ads.calls[0][2] == {"1001", "2002", "9001"}
-    assert analytics.calls[0][2]["metrics"] == ["ordered_units", "cancellations"]
+    assert analytics.calls[0][2]["metrics"] == ["ordered_units", "cancellations", "returns"]
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():
@@ -182,10 +196,13 @@ def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero(
         "revenue": 100.0,
         "revenue_tax_base": 90.0,
         "discount_points": 10.0,
+        "net_accrual": 17.4,
+        "tax": 5.4,
         "profit": 12.0,
         "acquiring": 0.0,
         "commission": 0.0,
         "logistics": 0.0,
+        "other_fees": 0.0,
         "products": [],
         "fee_breakdown": {},
     }
@@ -203,12 +220,13 @@ def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero(
     assert result["metrics"]["advertising"]["cpc"] is None
     assert result["metrics"]["analytics"]["ordered_units"] is None
     assert result["metrics"]["analytics"]["cancellations"] is None
-    assert "CPC по сопоставленным SKU (не общий бюджет): Performance не подключён" in result["text"]
-    assert "Заказанные единицы: аналитика Ozon недоступна" in result["text"]
-    assert "Отменённые единицы: аналитика Ozon недоступна" in result["text"]
-    assert "Последняя миля: не выделено отдельной строкой" in result["text"]
-    assert "Кросс-докинг: не выделено отдельной строкой" in result["text"]
-    assert "Платное хранение: не выделено отдельной строкой" in result["text"]
+    assert "Performance CPC по сопоставленным SKU (для сверки): Performance не подключён" in result["text"]
+    assert "показатель «заказанных единиц» недоступен в Ozon Analytics" in result["text"]
+    assert "показатель «отменённых единиц» недоступен в Ozon Analytics" in result["text"]
+    assert "показатель «возвратов» недоступен в Ozon Analytics" in result["text"]
+    assert "Последняя миля: не найдено начисление с однозначной подписью" in result["text"]
+    assert "Кросс-докинг: не найдено начисление с однозначной подписью" in result["text"]
+    assert "Платное хранение: не найдено начисление с однозначной подписью" in result["text"]
 
 
 def test_unknown_historical_campaign_count_is_not_rendered_as_zero():
@@ -258,8 +276,8 @@ def test_one_missing_analytics_metric_keeps_the_other_and_reaches_telegram():
     assert result["metrics"]["analytics"]["cancellations_diagnostic"] == (
         "CANCELLATIONS_VALUE_MISSING"
     )
-    assert "Заказанные единицы: 17" in text
-    assert "Отменённые единицы: метрика Ozon не вернулась (CANCELLATIONS_VALUE_MISSING)" in text
+    assert "Заказанные единицы (Analytics): 17" in text
+    assert "Отменённые единицы (Analytics): Ozon Analytics не вернул показатель «отменённых единиц»" in text
 
 
 def test_analytics_totals_are_used_and_fractional_units_are_preserved():
@@ -277,8 +295,8 @@ def test_analytics_totals_are_used_and_fractional_units_are_preserved():
 
     assert result["metrics"]["analytics"]["ordered_units"] == 2.5
     assert result["metrics"]["analytics"]["cancellations"] == 1
-    assert "Заказанные единицы: 2,5" in result["text"]
-    assert "Отменённые единицы: 1" in result["text"]
+    assert "Заказанные единицы (Analytics): 2,5" in result["text"]
+    assert "Отменённые единицы (Analytics): 1" in result["text"]
 
 
 def test_generic_storage_label_is_not_reported_as_paid_storage():
@@ -316,7 +334,14 @@ def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     assert TelegramResponseFormatter().format(result) == result["text"]
     assert result["read_only"] is True
     assert result["executed"] is False
-    assert result["keyboard"]["buttons"][0]["callback"] == "experimental_store_economics"
+    assert [button["callback"] for button in result["keyboard"]["buttons"]] == [
+        "experimental_calculations",
+        "main_menu",
+    ]
+    assert all(
+        "Выбрать другой период" not in button["text"]
+        for button in result["keyboard"]["buttons"]
+    )
     assert assistant.calls == [("01.10.2026 - 02.10.2026", "seller-b")]
     assert query.summary_service.calls[0][:2] == ("2026-10-01", "2026-10-02")
 
@@ -342,5 +367,5 @@ def test_invalid_analytics_metric_does_not_discard_a_valid_other_metric():
     assert analytics_result["cancellations_diagnostic"] == (
         "CANCELLATIONS_VALUE_INVALID"
     )
-    assert "Заказанные единицы: 10" in result["text"]
-    assert "Отменённые единицы: данные некорректны (CANCELLATIONS_VALUE_INVALID)" in result["text"]
+    assert "Заказанные единицы (Analytics): 10" in result["text"]
+    assert "Отменённые единицы (Analytics): данные по показателю «отменённых единиц» не прошли проверку" in result["text"]
