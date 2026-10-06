@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 37013)
-Total output lines: 4175
-
 # 2026-10-05 — Доли выручки и источники экспериментальной экономики
 
 - Денежные суммы экспериментального отчёта показывают процент от общей выручки; количества отмен и возвратов — процент от заказанных единиц.
@@ -1679,7 +1676,827 @@ Verified product baseline:
 - entering main `9c2f783710e125b183e8a314e1ac4c2eac1754f1`: #449, 1666 passed / 0 failed, digest `sha256:a292cffdbb1309e47f33c028062ce699fd1364f18f3db1007cf50e46295b51fa`
 - final feature `dd6a5984026f591941fa0f2db62fc260a48f9e02`: #451, 1674 passed / 0 failed, digest `sha256:328c9cc03f7b0b8e292ceb1e42cc78895ba5f86bc32875916c4fc5a5d46ecd02`
 - PR #288 synthetic merge `83a8863f79f3ad76d721d4f7fd9eee2ed28a2b20`: #452, 1674 passed / 0 failed, digest `sha256:3c38001164cc6a7eb1b9f2838356843aff9a546ce7f15c5048eed2966251da3c`
-- squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d…7013 tokens truncated… `f21c1ca4b21b57a634a502ecb754e93fabb78e18`: Verify #693 cancelled;
+- squash main `1bd23e97a565e15b2c2ef6e2067278eacac6caa0`: #453, 1674 passed / 0 failed, digest `sha256:46778bcf50f95fbf335d2d03c2e64aedf648461ec980818c8348fa8d627fca26`
+- no failed/cancelled intermediate production SHA occurred in v766-v773
+- `externally_verified=False`
+
+
+---
+
+# Telegram History / Memory Read Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] missing History service is unavailable, not empty success
+[x] missing Memory service is unavailable, not empty success
+[x] missing user context is failure, not zero/clean evidence
+[x] History/Memory read exceptions are sanitized
+[x] results require dict + real boolean error
+[x] History success requires list; Memory success requires dict
+[x] explicit downstream failure is preserved
+[x] legitimate empty history and memory remain success
+
+Verified product baseline:
+
+- entering main `c889ff8614c589853b3a29b41caf739067672db0`: #457, 1674 passed / 0 failed, digest `sha256:8eac2e70c655e3c8d3974aa05efdbdfa53b47db31acb8f1a70bfc23684bcc0d6`
+- final feature `f4b9b2b8c840a9b5245eb19bfe04430196bc565c`: #459, 1684 passed / 0 failed, digest `sha256:afaafbe46852fe59d83140d69ef0c891db5ebbaeeb55141d83d4b5578427a496`
+- PR #290 synthetic merge `69d5928a49ab871fa845b25362fcd581173db484`: #460, 1684 passed / 0 failed, digest `sha256:039b2734f83708c1b48acb6706a16afc214af30fba459ac60afb77c9c50e648c`
+- squash main `f432814d74ee4e175d291b69c79767d86d506e0a`: #461, 1684 passed / 0 failed, digest `sha256:e4a08c01b1fc1a83019ca8c947954ce0bf7321d4409e79687263dc8efa03d7b3`
+- no failed/cancelled intermediate production SHA occurred in v774-v783
+- `externally_verified=False`
+
+
+---
+
+# Telegram Context Preparation Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] analyze/plan validate last_action context update before current_task update
+[x] failed/malformed first context update stops assistant and history side effects
+[x] current_task update result is validated independently
+[x] failure after successful last_action reports partial committed context state
+[x] malformed/exceptional second update remains unknown and does not fabricate rollback
+[x] context exception text is sanitized
+[x] internal TypeError is not retried
+[x] valid preparation still invokes assistant once and history once
+[x] optional no-service/no-user context behavior remains compatible
+
+Verified product evidence:
+
+- entering main `656ff93a0cba3194481b007c288f0eeadbaf1441`: push Verify #465, 1684 passed / 0 failed, digest `sha256:69bbe78f6231f4824e1d5fec9f46e09edea685e6ecba001ec75fca57f73e3ed8`
+- cancelled intermediate `67e08c87de7564dc76c60fe2e9caebf05ba8f793`: push Verify #466, conclusion cancelled; test step completed 1693 passed / 0 failed; digest `sha256:0f6297bec68de51f7f461208d22f6d63d5f03e39bd8b5b4f39bb8edb9a9495eb`; cancelled evidence only, not green
+- final feature `80f85b1b45e1e49279c334078c5991eac2757cc7`: push Verify #468, 1693 passed / 0 failed, digest `sha256:9da810f8425014178cd51fa58fd682582af85d11042998ff3c0c4df8be0e204d`
+- PR #292 synthetic merge `978b6e0170693ac5d8d39471dd45983ab394c0c3`: Verify #469, 1693 passed / 0 failed, digest `sha256:0cb7f1a3be2f36c446597636103e4b8778072da5c5e1ffdd8a0abcc15603aaa8`
+- squash main `a7748785341ccea0a459ec06c7de460213cec038`: push Verify #470, 1693 passed / 0 failed, digest `sha256:b1fee9bfe0ccdf6d154bd2a2a3786ecd5515fdc1b0ceb7f53dd87bcec9138259`
+- `externally_verified=False`
+
+
+---
+
+# Product Task Draft Freshness Telegram Presentation Integrity v1 — 2026-08-31
+
+Completed:
+
+[x] malformed readiness/freshness metadata fails closed before presentation
+[x] partial freshness count maps cannot invent missing categories as zero
+[x] malformed optional evidence maps do not become seller-facing synthetic zeros
+[x] invalid detail status/age/reasons/coverage/guidance fails closed with stable non-secret result
+[x] unknown enum strings are not surfaced as business facts
+[x] legitimate all-zero freshness counts remain success
+[x] legitimate UNKNOWN freshness and evidence-limited guidance remain read-only success
+[x] Product Task Draft remains non-executable
+
+Verified product evidence:
+
+- entering main `3f59d0d71f4ac5dea9e2b915d6b4e0a7fc7008c5`: push Verify #474, 1693 passed / 0 failed, digest `sha256:a334436fd6e357ab6c9948baf907d472e67331442860fdf8fa0c15d5a3afeff0`
+- final feature `e0cbd9e4ba3e56600e81f76d7740ef381dbfb124`: push Verify #476, 1703 passed / 0 failed, digest `sha256:b35bb81059445bcc1ca089d5237874461b904ec7795d08db69c2d5383179349a`
+- PR #294 synthetic merge `1fc456087126b0cc91e6b3354a6560477a989b4c`: Verify #477, 1703 passed / 0 failed, digest `sha256:f286f803fc87a2c4a65c4f32afb6d606df31635c5b1ad7be1b1aaae21cc0e231`
+- squash main `701b5a31575a2e37d76da22af260c206d4a68b50`: push Verify #478, 1703 passed / 0 failed, digest `sha256:640190ca4afe1dad7c2aa6cc326b351064e44121cd539db488f7d7e5eddf8848`
+- no failed/cancelled intermediate production SHA occurred in v793-v802
+- `externally_verified=False`
+
+
+---
+
+# Telegram Adapter Runtime Exception Containment v1 — 2026-08-31
+
+Completed:
+
+[x] assistant dispatch exceptions are contained at the Telegram adapter boundary
+[x] button-handler exceptions are contained without retry-after-exception
+[x] internal TypeError is not retried with legacy arity
+[x] legacy arity selection remains pre-call only
+[x] keyboard-builder exceptions do not claim successful start
+[x] internal exception text is not exposed to sellers
+
+Verified product evidence:
+
+- entering main `ad3692c46e31d4eceeef504e4b55d7cbaa829a09`: push Verify #482, 1703 passed / 0 failed
+- cancelled duplicate branch run #483 remains cancelled evidence only
+- failed intermediate `c3336160fccddbc25a9d8e2b1f7aeccccaa8be70`: push Verify #484, 1710 passed / 1 failed
+- final feature `21776a8cdd61dd35e28a885b5c573a2db3b15c92`: push Verify #485, 1711 passed / 0 failed
+- PR #296 synthetic merge `929a1bd4c8ace607ff0bf6c67924aa14ec84b612`: Verify #486, 1711 passed / 0 failed
+- squash main `01300c69d1ab54731657ea741687cc728c9e5600`: push Verify #487, 1711 passed / 0 failed
+- `externally_verified=False`
+
+Preserved:
+
+- no Product Decision/Product Task Draft execution
+- no Ozon mutation
+- no quantity or price inference
+- `data/users.json` unchanged
+
+
+---
+
+# Post-Decision Observation Integrity v1 — 2026-09-01
+
+Completed:
+
+[x] malformed checklist and later-decision inputs fail closed
+[x] checklist status requires explicit error=False and USER_REPORT evidence
+[x] numeric identifiers are not coerced into canonical identities
+[x] later decision requires explicit boolean error state
+[x] explicit downstream decision failure remains failure
+[x] decision type / priority / confidence are validated against canonical values
+[x] reasons require a real list of non-empty strings
+[x] valid observation remains observation-only and non-causal
+
+Verified product evidence:
+
+- entering main `6d06cca860fbc1b423db02f0166554c562e2b67c`: push Verify #492, 1711 passed / 0 failed, digest `sha256:365511645081a003af4df8d00daf2e78c865d0e81b066d40557ffc2724672064`
+- final feature `68c42c5fe4331d776eefe828263dfb930e9c8cd7`: push Verify #494, 1721 passed / 0 failed, digest `sha256:45f9677ae94b941606bfd4ef99ace1722c100d265e7e4354e15e1d6e8823998f`
+- PR #298 synthetic merge `ffee00d5b609aa8c0e2c547db0e587dd4be93b94`: Verify #495, 1721 passed / 0 failed, digest `sha256:c184f12cabf364705cc115c94fb8bf7a0d2911d1f66a6b93583c7b40e44bdd8f`
+- squash main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed, digest `sha256:9ad01f64be4b80f26bf79cdf8f8127339aa4e88453542d8b27a5b92eba7612c5`
+- no failed intermediate production SHA occurred in v811-v820
+- `externally_verified=False`
+
+Preserved:
+
+- no Product Decision recomputation or mutation
+- no Product Task Draft execution
+- no Action Executor connection
+- no Ozon mutation
+- `data/users.json` unchanged
+
+
+---
+
+# Task Persistence Operator Presentation Integrity v1 — 2026-09-01
+
+Completed:
+
+[x] operator operational/release/provenance presentation requires explicit error=False
+[x] blockers, warnings and incident categories require real unique string lists
+[x] operational counts/state/attention claims are internally consistent
+[x] release-ready / incident / human-review claims are validated
+[x] provenance revision and CI-binding metadata is structurally validated
+[x] external-verification and execution/mutation overclaims fail closed
+[x] valid operator messages remain read-only and non-sensitive
+
+Verified product evidence:
+
+- entering main `cc485098da06834f31fcd09430d83bd96b96f1e1`: push Verify #496, 1721 passed / 0 failed
+- failed intermediate `41c289221c100ce4dc1462603b42349434f2f406`: push Verify #498, 1730 passed / 1 failed; failure was a new test wording expectation and remains failed evidence
+- final feature `a0e977595238dd256e9ae0d54e68ac337b04bb91`: push Verify #499, 1731 passed / 0 failed, digest `sha256:173173c93a222338ef8efd942fcb4a9af425df2e9768d6530f2d957c7b2c1cc6`
+- PR #299 synthetic merge `c77df0221826e27e444f3d68150419e4adf9bc8d`: Verify #500, 1731 passed / 0 failed, digest `sha256:8f80f8bf4a7c0a4c03a912bdd4adeead94198f10b4e262e776eb3f88292b2f95`
+- squash main `c2f1bd3d26fc5e2be33d725b8ecd2898a7b1dbfa`: push Verify #501, 1731 passed / 0 failed, digest `sha256:30db2fb7e7f68ed1460aee79cafee957467eccfd0468bacaa1953816e0340d09`
+- `externally_verified=False`
+
+Preserved:
+
+- task persistence ownership and storage format
+- no automatic retry or lock deletion
+- no business execution readiness
+- no Product Decision/Product Task Draft execution
+- no Ozon mutation
+- `data/users.json` unchanged
+
+
+---
+
+# Product Decision Persistence Verification Integrity v831-v840 — 2026-09-01
+
+Completed:
+
+[x] Non-mapping persistence-verification application input fails closed
+
+[x] Product Decision lineage IDs and SKU are not coerced from non-string identities
+
+[x] Explicit persisted-preview error markers are structurally validated
+
+[x] Canonical decision type, priority and confidence are required
+
+[x] Reasons require a real non-empty list of non-empty strings
+
+[x] Durable history snapshot semantics fail closed before verification success
+
+[x] Recorded-at lineage requires an explicit string binding
+
+[x] Valid verification remains read-only, non-executable and externally_verified=False
+
+Verified exact main:
+
+`a3aa88f351985e8519f754923880165f96fb29ad`
+
+GitHub Actions push Verify #518: 1741 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring in this package;
+- no Ozon mutation;
+- `data/users.json` unchanged.
+
+
+---
+
+# Product Decision User Action Guidance Integrity v841-v850 — 2026-09-01
+
+Completed:
+
+[x] Guidance accepts only mapping-shaped verification input
+
+[x] Verification/application IDs and SKU require canonical non-empty strings
+
+[x] Explicit verifier error=False and verified status are required
+
+[x] Non-empty verification mismatch evidence blocks seller guidance
+
+[x] External-verification and execution/persistence overclaims fail closed
+
+[x] Verified recorded-at is bound to the exact durable snapshot timestamp
+
+[x] Priority and confidence use canonical enums
+
+[x] Reasons require real non-empty string-list evidence
+
+[x] Valid guidance carries exact verified lineage forward without enabling execution
+
+Verified exact main:
+
+`e793ca7ab241d54a12af8b3b402b1dc862652bf2`
+
+GitHub Actions push Verify #534: 1751 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Integrity v851-v860 — 2026-09-01
+
+Completed:
+
+[x] Checklist accepts only mapping-shaped guidance input
+
+[x] Guidance / verification / application IDs, SKU and verified-recorded-at require canonical non-empty strings
+
+[x] Explicit guidance error=False, ready status and decision-persistence verification are required
+
+[x] Verification remains bound to the persistence application ID
+
+[x] External-verification and persistence/execution overclaims fail closed
+
+[x] Decision/action pairing, priority, confidence, title and reasons are structurally validated
+
+[x] Manual checklist steps require real non-empty strings and are never coercively stringified
+
+[x] Valid checklist carries exact verified persistence lineage forward without enabling execution
+
+Verified exact main:
+
+`405fdea64008e21173e7851e8b370b63eae7ef73`
+
+GitHub Actions push Verify #550: 1761 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Evidence Integrity v861-v870 — 2026-09-01
+
+Completed:
+
+[x] Completion evidence accepts only mapping-shaped checklist input
+
+[x] Checklist / guidance / verification / application IDs, SKU, item ID and verified-recorded-at require canonical strings
+
+[x] Exact guidance → verification → application lineage is preserved
+
+[x] Explicit checklist error=False, ready status and persisted-decision verification are required
+
+[x] Non-string completion decisions are not coerced
+
+[x] External-verification and persistence/execution overclaims fail closed
+
+[x] Item count, completed count and checklist item structure are validated
+
+[x] User-reported completion carries verified persistence lineage forward without enabling execution
+
+Verified exact main:
+
+`c788760babc8b0c6becb886f37937f20d5d09028`
+
+GitHub Actions push Verify #567: 1771 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Persistence Integrity v871-v880 — 2026-09-01
+
+Completed:
+
+[x] Completion persistence accepts only mapping-shaped evidence input
+
+[x] Exact completion → checklist → guidance → verification → application lineage is required
+
+[x] Completion status, decision and user-reported boolean are mutually consistent
+
+[x] Root and revision evidence IDs use canonical deterministic lineage
+
+[x] Malformed storage containers and records fail closed
+
+[x] Explicit save=False is not reported as durable success
+
+[x] Successful persistence carries exact verified lineage and item/revision metadata forward
+
+[x] Completion revisions preserve verified lineage without enabling execution
+
+Verified exact main:
+
+`834df2a9ded1c3e05731a9c249683d15b188c661`
+
+GitHub Actions push Verify #584: 1781 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring for the newer user-action chain;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Completion Revision Predecessor Integrity v881-v890 — 2026-09-01
+
+Completed:
+
+[x] Completion revision 2+ requires exactly one durable predecessor
+
+[x] Duplicate predecessor IDs fail closed as ambiguous
+
+[x] Predecessor exact verified lineage and user-owned safety state are validated
+
+[x] Predecessor status/decision/report consistency is validated
+
+[x] Revision 3+ requires canonical predecessor revision/root/previous-ID lineage
+
+[x] Duplicate current revision IDs fail closed
+
+[x] Valid root → revision 2 → revision 3 requires actual durable predecessor records
+
+Verified exact main:
+
+`73c349d50dad1a5562a09777df5a69f661869645`
+
+GitHub Actions push Verify #599: 1791 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Checklist Status Persistence Lineage Integrity v891-v900 — 2026-09-01
+
+Completed:
+
+[x] Checklist-status input and report collection shapes fail closed
+
+[x] Exact checklist → guidance → verification → application lineage is required
+
+[x] Matching persisted USER_REPORT receipts require canonical verified lineage
+
+[x] Matching malformed receipts cannot degrade into NO_USER_REPORTS
+
+[x] Completion revisions require real integers and canonical root/evidence/previous IDs
+
+[x] Duplicate item+revision receipts fail closed as ambiguous
+
+[x] Per-item persisted revision chains must be contiguous from revision 1
+
+[x] Valid aggregate output carries verified persistence lineage while remaining non-executable
+
+Verified exact main:
+
+`3dec82f8aa93c1a35a699aa9270dcfd8e91c1f46`
+
+GitHub Actions push Verify #616: 1801 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Observation Lineage Integrity v901-v910 — 2026-09-01
+
+Completed:
+
+[x] Canonical checklist-status ID and exact checklist/guidance/verification/application lineage required
+
+[x] Persisted Product Decision verification preserved into observation
+
+[x] USER_REPORTED_COMPLETE requires exact item/reported/completed consistency
+
+[x] Reported/completed item identities remain canonical and non-coercive
+
+[x] Later Product Decision result remains explicit and SKU-bound
+
+[x] Observation carries verified lineage while remaining read-only, non-causal and non-executable
+
+Failed intermediate evidence retained:
+
+`0896d8112971966aec9fb61c7a2250436f19d76a` / Verify #623 / 1804 passed / 7 failed.
+
+Verified exact main:
+
+`c7c864814ec609b0f2c58b4578a522b2e5e8dad1`
+
+GitHub Actions push Verify #626: 1811 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Post-Decision Outcome Lineage Integrity v911-v920 — 2026-09-01
+
+Completed:
+
+[x] Observation → outcome boundary requires exact persisted Product Decision lineage
+
+[x] Complete USER_REPORT counts and item identities remain canonical
+
+[x] Prior/later decision type, priority, confidence and reasons require canonical contracts
+
+[x] Prior SKU must match observed SKU exactly
+
+[x] Noncanonical MEDIUM priority is rejected
+
+[x] Canonical NONE priority is supported for INSUFFICIENT_DATA outcomes
+
+[x] Valid outcome remains non-causal, externally unverified and non-executable
+
+Verified exact main:
+
+`82867cd9efb6a0b4a187d72ca097ee6bda0c0f39`
+
+GitHub Actions push Verify #634: 1821 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision threshold/rule change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Summary Outcome Integrity v921-v930 — 2026-09-01
+
+Completed:
+
+[x] Non-list outcome collections fail closed
+
+[x] Non-mapping/malformed outcome rows fail closed instead of disappearing
+
+[x] Exact v911-v920 outcome lineage and persisted Product Decision verification required
+
+[x] Complete USER_REPORT evidence remains exact through learning summary
+
+[x] Unsafe or contradictory outcome classification blocks
+
+[x] Duplicate outcome IDs cannot inflate descriptive learning counts
+
+[x] Canonical NONE priority outcomes remain valid; MEDIUM remains rejected
+
+[x] Only a real empty list can produce zero-observation success
+
+Failed intermediate evidence retained:
+
+`21051b20acdfc0036a15d875d01b488283791ff3` / Verify #640 / 1830 passed / 1 failed.
+
+Verified exact main:
+
+`b492b655030791d5e703c8aa607d2763d455e486`
+
+GitHub Actions push Verify #643: 1831 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision threshold/rule change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Evidence Quality Summary Integrity v931-v940 — 2026-09-01
+
+Completed:
+
+[x] Learning summary input and explicit success are validated
+
+[x] Counts are exact integers and never string/missing coercions
+
+[x] Outcome/priority/SKU aggregate maps must be canonical and mathematically consistent
+
+[x] Outcome IDs are exact, unique, and count-bound
+
+[x] Zero evidence requires truly empty aggregates
+
+[x] Existing evidence-quality thresholds remain unchanged
+
+Failed intermediate evidence retained:
+
+`849b0d0e78e441f3080631419ecbc0ea192890ec` / Verify #649 / 1840 passed / 1 failed.
+
+Verified exact main:
+
+`9a504323b6b4bb0adb2a6d5a75507b4c0b6f19f9`
+
+GitHub Actions push Verify #652: 1841 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision User Action Learning Confidence Evidence Integrity v941-v950 — 2026-09-01
+
+Completed:
+
+[x] Learning evidence-quality input and explicit success are validated
+
+[x] Counts are exact integers and never string/missing coercions
+
+[x] Quality name and score must match actual sample shape
+
+[x] Outcome/priority/SKU aggregate maps remain mathematically consistent
+
+[x] Outcome IDs remain exact, unique and count-bound
+
+[x] Existing confidence thresholds remain unchanged
+
+[x] Confidence output remains descriptive-only and non-executable
+
+Verified exact main:
+
+`0671c0a0b06c662e935b4dcbf00e4cad12e32175`
+
+GitHub Actions push Verify #660: 1851 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no persistence-owner change;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Telegram production wiring;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Action Proposal Result Integrity v951-v960 — 2026-09-01
+
+Completed:
+
+[x] Action proposal result must be a mapping
+
+[x] Proposal safety booleans and automation prohibition are exact
+
+[x] Proposal SKU / priority / decision type / reasons remain Product Decision-bound
+
+[x] Proposal type and confirmation semantics are decision-bound
+
+[x] Proposal exceptions fail closed without secret leakage
+
+[x] Malformed proposal is not cached and cannot enter task-draft lifecycle
+
+[x] Assortment query fails closed instead of counting malformed proposal state
+
+[x] Telegram renders neutral failure without proposal controls
+
+Verified exact main:
+
+`7637177202c21d3f2894105e39137efd86855b8c`
+
+GitHub Actions push Verify #668: 1861 passed / 0 failed.
+
+Integration finding:
+
+- verified Product Decision user-action guidance/checklist remains intentionally unwired from Telegram;
+- current durable Product Decision history does not store exact persistence-application receipt lineage;
+- do not synthesize lineage IDs or invoke persistence application as a read side effect.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision History Context Result Integrity v961-v970 — 2026-09-01
+
+Completed:
+
+[x] History record context is mapping-only and whitelisted
+
+[x] History context cannot overwrite Product Decision identity/error fields
+
+[x] Malformed or exceptional history context becomes explicit unknown/unavailable state
+
+[x] Unknown history count remains None and is not coerced to zero
+
+[x] Invalid history context is not cached
+
+[x] Invalid history context cannot enter task-draft lifecycle
+
+[x] Telegram latest history rejects malformed, cross-SKU and unknown-status records
+
+[x] Telegram task draft attachment requires exact SKU/proposal/revision and non-execution safety
+
+Verified exact main:
+
+`10977368ac4179f1f7168943a38fcdbc01ecfd78`
+
+GitHub Actions push Verify #677: 1871 passed / 0 failed.
+
+Preserved failed evidence:
+
+- `bfcc3551166431288f38ba0c06912133bed56818`: Verify #674, 1870 passed / 1 failed;
+- failure was a production NameError in the new draft-copy path;
+- final feature head `ab24a87c19072b5bbb3b9efd6b1630b513bf6645`: Verify #675, 1871 passed / 0 failed.
+
+Preserved:
+
+- no Product Decision rule/threshold change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Unit Economics Returns Finance Impact Integrity v971-v980 — 2026-09-01
+
+Completed:
+
+[x] Returns impact requires explicit success/error contract
+
+[x] Complete/classification/finance markers are exact booleans
+
+[x] Required categories and counts are validated without zero coercion
+
+[x] Observed/matched/event count consistency is enforced
+
+[x] Invalid evidence cannot become known zero return cost
+
+[x] Invalid evidence cannot become confirmed risk-adjusted profit
+
+[x] Invalid evidence cannot remove returns from missing data
+
+[x] Valid estimated and confirmed paths preserve prior numeric behavior
+
+Verified exact main:
+
+`db5ab92503f499dfe470402ffefc00b15b9c6e59`
+
+GitHub Actions push Verify #686: 1881 passed / 0 failed.
+
+Preserved failed evidence:
+
+- `b4f0d33d163ee0a81d0252e466519169c55fd1f2`: Verify #683, 1880 passed / 1 failed;
+- failure was a legacy cache fixture using a pre-contract minimal success shape;
+- production validation remained strict;
+- final feature `0a2ece03b60e019b264b5ecda8a010bca873e7bb`: Verify #684, 1881 passed / 0 failed.
+
+Preserved:
+
+- unknown finance values remain unknown;
+- no Product Decision threshold/rule change;
+- no new persistence owner;
+- no Product Task Draft execution;
+- no Action Executor connection;
+- no Ozon mutation;
+- `data/users.json` unchanged;
+- `externally_verified=False`.
+
+
+---
+
+# Product Decision Result Integrity v981-v990 — 2026-09-01
+
+Completed:
+
+[x] Product Decision service result must be a mapping
+
+[x] Unexpected error/code injection is rejected
+
+[x] Product ID and SKU are exact query-bound identity
+
+[x] Decision type and priority pairing is canonical
+
+[x] Confidence, reasons and missing-data contracts are validated
+
+[x] Invalid decision cannot reach history/proposal/cache/draft lifecycle
+
+[x] Invalid decision gets deterministic seller-safe Telegram failure
+
+Verified exact main:
+
+`5f0534bb72dba2471c3c339a69cd7041552dfb4a`
+
+GitHub Actions push Verify #698: 1891 passed / 0 failed.
+
+Cancelled intermediate evidence retained:
+
+- `f21c1ca4b21b57a634a502ecb754e93fabb78e18`: Verify #693 cancelled;
 - `689fd2b9db65861f8853251accb0f2a3e0cf86d8`: Verify #694 cancelled.
 
 Failed intermediate evidence retained:
@@ -3355,4 +4172,3 @@ Completed:
 [x] Isolate pending custom-period input per Telegram user
 [x] Reuse canonical seller-cost coverage in `/start` and skip completed setup
 [x] Resolve Period Profit tax policy from the active store on every request
-
