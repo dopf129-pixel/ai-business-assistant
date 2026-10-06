@@ -50,6 +50,14 @@ class ExperimentalStoreEconomicsRuntimeService:
             "paidstorage",
             "storage fee",
         ),
+        "reverse_logistics": (
+            "обратная логист",
+            "возвратная логист",
+            "логистика возврата",
+            "return flow logistic",
+            "returnflowlogistic",
+            "reverse logistics",
+        ),
     }
     ADVERTISING_FEE_MATCHERS = (
         "реклам",
@@ -534,7 +542,26 @@ class ExperimentalStoreEconomicsRuntimeService:
             if isinstance(breakdown, dict):
                 for label, value in breakdown.items():
                     normalized = cls._text(label).casefold()
-                    if any(matcher in normalized for matcher in matchers):
+                    matched = any(
+                        matcher in normalized for matcher in matchers
+                    )
+                    if (
+                        not matched
+                        and category == "paid_storage"
+                    ):
+                        # Ozon's accrual type dictionary can expose the
+                        # placement type simply as "Размещение" (or
+                        # "Placements"), while the Seller UI uses the longer
+                        # label "Размещение на складе".
+                        last_word = re.sub(
+                            r"[^a-zа-яё]+",
+                            " ",
+                            normalized,
+                        ).split()
+                        matched = bool(last_word) and last_word[-1].startswith(
+                            ("размещ", "placement")
+                        )
+                    if matched:
                         amount = cls._number(value)
                         if amount is not None:
                             amounts.append(amount)
@@ -610,10 +637,17 @@ class ExperimentalStoreEconomicsRuntimeService:
             "delivery",
             *(matcher for matchers in cls.FEE_LABEL_MATCHERS.values() for matcher in matchers),
         )
+        reverse_logistics_matchers = cls.FEE_LABEL_MATCHERS[
+            "reverse_logistics"
+        ]
         return [
             item
             for item in fee_breakdown
-            if not any(
+            if any(
+                matcher in item["label"].casefold()
+                for matcher in reverse_logistics_matchers
+            )
+            or not any(
                 matcher in item["label"].casefold()
                 for matcher in excluded_matchers
             )
@@ -722,11 +756,11 @@ class ExperimentalStoreEconomicsRuntimeService:
             *ad_lines,
             "8. Эквайринг: " + _money_with_revenue_share(metrics["acquiring"], revenue),
             "9. Комиссия Ozon (вознаграждение за продажу): " + _money_with_revenue_share(metrics["commission"], revenue),
-            "10. Логистика всего: " + _money_with_revenue_share(metrics["logistics"], revenue),
+            "10. Логистика доставки (без обратной логистики): " + _money_with_revenue_share(metrics["logistics"], revenue),
             "11. Доставка до места выдачи и выдача товара (части «последней мили»): " + _fee_with_revenue_share(fees.get("last_mile"), revenue),
             "12. Кросс-докинг: " + _fee_with_revenue_share(fees.get("cross_docking"), revenue),
             "13. Стоимость размещения на складе Ozon: " + _fee_with_revenue_share(fees.get("paid_storage"), revenue),
-            "14. Прочие начисления Ozon (расчётный остаток): "
+            "14. Остаток начислений Ozon после основных категорий: "
             + _money_with_revenue_share(metrics["other_fees"], revenue),
             "15. Заказанные единицы (Analytics): " + ordered_text,
             f"16. {cancellation_label}: {cancellation_text}",
@@ -736,7 +770,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
             "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Строка 14 рассчитана как начисления нетто минус выручка, эквайринг, комиссия и логистика. Подтипы раскрывают уже учтённые суммы: доставка до места выдачи и выдача товара входят в логистику, а реклама, кросс-докинг и размещение могут входить в остаток строки 14. Не складывайте их повторно.",
+            "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
             "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
             "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
             "Разделение рекламы по типам возможно только по явным названиям начислений; отчёт по начислениям не содержит разбивки по кампаниям.",
@@ -746,12 +780,12 @@ class ExperimentalStoreEconomicsRuntimeService:
             lines.extend(
                 [
                     "",
-                    "Детализация прочих начислений (уже входит в строку 14):",
+                    "Детализация типов начислений, вошедших в строку 14 (группы типов Ozon могут объединять несколько операций из XLSX):",
                 ]
             )
             for item in other_fee_details[:5]:
                 lines.append(
-                    f"   • {item['label']}: "
+                    f"   • Тип Ozon «{item['label']}»: "
                     f"{_money_with_revenue_share(item['amount'], revenue)}"
                 )
             if len(other_fee_details) > 5:
