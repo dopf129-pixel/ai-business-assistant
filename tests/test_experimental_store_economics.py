@@ -41,6 +41,9 @@ class _Summary:
                 "PayPerClick CPC": -3000.0,
                 "Оплата за заказ CPO": -400.0,
                 "Услуги комплектации": -200.0,
+                "Обратная логистика": -4482.24,
+                "Обработка товара": -1650.0,
+                "Размещение": -1.74,
             },
         }
 
@@ -156,7 +159,8 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert result["metrics"]["fee_subcategories"] == {
         "last_mile": -8500.0,
         "cross_docking": -1200.0,
-        "paid_storage": -350.0,
+        "paid_storage": -351.74,
+        "reverse_logistics": -4482.24,
     }
     assert result["metrics"]["finance_advertising"]["groups"]["CPC"]["amount"] == -3000.0
     assert result["metrics"]["finance_advertising"]["groups"]["CPO"]["amount"] == -400.0
@@ -172,12 +176,16 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
     assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in result["text"]
     assert "9. Комиссия Ozon (вознаграждение за продажу): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
-    assert "10. Логистика всего: -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
+    assert "10. Логистика доставки (без обратной логистики): -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
     assert "11. Доставка до места выдачи и выдача товара (части «последней мили»): -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
     assert "12. Кросс-докинг: -1 200.00 ₽ (-1,20% от общей выручки)" in result["text"]
-    assert "13. Стоимость размещения на складе Ozon: -350.00 ₽ (-0,35% от общей выручки)" in result["text"]
-    assert "14. Прочие начисления Ozon (расчётный остаток): -3 600.00 ₽ (-3,60% от общей выручки)" in result["text"]
-    assert "Строка 14 рассчитана как начисления нетто минус выручка, эквайринг, комиссия и логистика." in result["text"]
+    assert "13. Стоимость размещения на складе Ozon: -351.74 ₽ (-0,35% от общей выручки)" in result["text"]
+    assert "14. Остаток начислений Ozon после основных категорий: -3 600.00 ₽ (-3,60% от общей выручки)" in result["text"]
+    assert "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки." in result["text"]
+    assert "Это не дополнительная сумма к вычитанию" in result["text"]
+    assert "Тип Ozon «Обратная логистика»: -4 482.24 ₽ (-4,48% от общей выручки)" in result["text"]
+    assert "Тип Ozon «Обработка товара»: -1 650.00 ₽ (-1,65% от общей выручки)" in result["text"]
+    assert "группы типов Ozon могут объединять несколько операций из XLSX" in result["text"]
     assert "15. Заказанные единицы (Analytics): 17 шт. (100% базы для долей)" in result["text"]
     assert "16. Отменённые единицы (Analytics): 3 шт. (17,65% от заказанных единиц)" in result["text"]
     assert "17. Возвраты (Analytics): 1 шт. (5,88% от заказанных единиц)" in result["text"]
@@ -318,12 +326,13 @@ def test_ozon_names_for_delivery_to_pickup_and_placement_are_recognized():
                 "Доставка до места выдачи партнёрами": -27.5,
                 "Выдача товара": -9.0,
                 "Стоимость размещения на складе Ozon": -410.0,
+                "Услуги FBO → Размещение": -1.74,
             }
         }
     )
 
     assert result["last_mile"] == -36.5
-    assert result["paid_storage"] == -410.0
+    assert result["paid_storage"] == -411.74
 
 
 class _SellerApiFallback(_Analytics):
