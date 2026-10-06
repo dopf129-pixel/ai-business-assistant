@@ -18,10 +18,15 @@ class ExperimentalStoreEconomicsRuntimeService:
     ANALYTICS_METRICS = ("ordered_units", "cancellations", "returns")
     ANALYTICS_DIMENSIONS = ("day",)
     ANALYTICS_PAGE_SIZE = 1000
+    OPERATIONAL_POSTING_MAX_PAGES = 20
+    OPERATIONAL_RETURN_MAX_PAGES = 20
     FEE_LABEL_MATCHERS = {
         "last_mile": (
             "последняя миля",
             "последней мили",
+            "доставка до места выдачи",
+            "доставка к месту выдачи",
+            "выдача товара",
             "last mile",
             "last-mile",
             "lastmile",
@@ -36,6 +41,11 @@ class ExperimentalStoreEconomicsRuntimeService:
         "paid_storage": (
             "платное хран",
             "плата за хранение",
+            "платное размещение",
+            "плата за размещение",
+            "стоимость размещения",
+            "размещение на складе",
+            "вынужденное размещение",
             "paid storage",
             "paidstorage",
             "storage fee",
@@ -187,6 +197,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             accepted_skus,
         )
         metrics["analytics"] = self._load_analytics(date_from, date_to)
+        metrics["analytics"] = self._fill_analytics_from_seller_api(
+            metrics["analytics"], date_from, date_to
+        )
         metrics["fee_subcategories"] = self._fee_subcategories(summary)
         metrics["fee_breakdown"] = self._fee_breakdown(summary)
         metrics["finance_advertising"] = self._finance_advertising(
@@ -342,6 +355,148 @@ class ExperimentalStoreEconomicsRuntimeService:
             status,
         )
 
+    def _fill_analytics_from_seller_api(self, analytics, date_from, date_to):
+        """Use complete Seller API operational records when Analytics omits a metric.
+
+        Cancellation counts are based on FBO/FBS postings created in the
+        requested window that are currently cancelled. Return counts are based
+        on FBO/FBS return records whose status changed in that window. These
+        are explicitly named as fallbacks in the report because their date
+        semantics differ from the Analytics metrics.
+        """
+        result = dict(analytics or {})
+        if result.get("cancellations") is None:
+            value = self._load_cancelled_posting_units(date_from, date_to)
+            if value is not None:
+                result["cancellations"] = value
+                result["cancellations_status"] = "READY"
+                result["cancellations_diagnostic"] = None
+                result["cancellations_source"] = "SELLER_POSTINGS"
+            else:
+                result["cancellations_source"] = "SELLER_API_UNAVAILABLE"
+        else:
+            result["cancellations_source"] = "ANALYTICS"
+
+        if result.get("returns") is None:
+            value = self._load_return_units(date_from, date_to)
+            if value is not None:
+                result["returns"] = value
+                result["returns_status"] = "READY"
+                result["returns_diagnostic"] = None
+                result["returns_source"] = "SELLER_RETURNS"
+            else:
+                result["returns_source"] = "SELLER_API_UNAVAILABLE"
+        else:
+            result["returns_source"] = "ANALYTICS"
+
+        return result
+
+    def _load_cancelled_posting_units(self, date_from, date_to):
+        client = self.analytics_client
+        fbo_getter = getattr(client, "get_fbo_postings", None)
+        fbs_getter = getattr(client, "get_fbs_postings", None)
+        if not callable(fbo_getter) or not callable(fbs_getter):
+            return None
+
+        postings = []
+        try:
+            fbo = fbo_getter(
+                since=date_from,
+                to=date_to,
+                limit=(
+                    100 * self.OPERATIONAL_POSTING_MAX_PAGES
+                ),
+                offset=0,
+                direction="ASC",
+                status="cancelled",
+            )
+            fbs = fbs_getter(
+                since=date_from,
+                to=date_to,
+                status="cancelled",
+                max_pages=self.OPERATIONAL_POSTING_MAX_PAGES,
+            )
+        except Exception:
+            return None
+
+        fbo_postings, fbo_complete = _extract_postings_page(fbo)
+        fbs_postings, fbs_complete = _extract_postings_page(fbs)
+        if not fbo_complete or not fbs_complete:
+            return None
+        postings.extend(fbo_postings)
+        postings.extend(fbs_postings)
+
+        total = 0
+        for posting in postings:
+            if not isinstance(posting, dict):
+                return None
+            if str(posting.get("status") or "").casefold() != "cancelled":
+                continue
+            products = posting.get("products")
+            if not isinstance(products, list):
+                return None
+            for product in products:
+                if not isinstance(product, dict):
+                    return None
+                quantity = self._integer(product.get("quantity"))
+                if quantity is None:
+                    return None
+                total += quantity
+        return total
+
+    def _load_return_units(self, date_from, date_to):
+        getter = getattr(self.analytics_client, "get_returns", None)
+        if not callable(getter):
+            return None
+
+        total = 0
+        for schema in ("FBO", "FBS"):
+            last_id = 0
+            seen_ids = set()
+            for page_number in range(self.OPERATIONAL_RETURN_MAX_PAGES):
+                try:
+                    response = getter(
+                        return_schema=schema,
+                        since=date_from,
+                        to=date_to,
+                        limit=500,
+                        last_id=last_id,
+                    )
+                except Exception:
+                    return None
+                if not isinstance(response, dict) or response.get("error") is True:
+                    return None
+                rows = response.get("returns")
+                if not isinstance(rows, list):
+                    return None
+                for row in rows:
+                    if not isinstance(row, dict):
+                        return None
+                    if str(row.get("type") or "").casefold() != "clientreturn":
+                        continue
+                    product = row.get("product")
+                    if not isinstance(product, dict):
+                        return None
+                    quantity = self._integer(product.get("quantity"))
+                    if quantity is None:
+                        return None
+                    total += quantity
+                if response.get("has_next") is not True:
+                    break
+                if not rows:
+                    return None
+                try:
+                    next_id = int(rows[-1].get("id"))
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    return None
+                if next_id <= last_id or next_id in seen_ids:
+                    return None
+                seen_ids.add(next_id)
+                last_id = next_id
+            else:
+                return None
+        return total
+
     @classmethod
     def _empty_analytics_result(cls, status, diagnostic):
         return _analytics_result(
@@ -470,13 +625,16 @@ class ExperimentalStoreEconomicsRuntimeService:
         analytics = metrics["analytics"]
         fees = metrics["fee_subcategories"]
         finance_advertising = metrics["finance_advertising"]
+        revenue = metrics["revenue"]
         cpc_text = _money_or_status(
             advertising.get("cpc"),
             advertising.get("status"),
         )
+        if advertising.get("cpc") is not None:
+            cpc_text = _money_with_revenue_share(
+                advertising["cpc"], revenue
+            )
         campaign_count = advertising.get("campaign_count")
-        if isinstance(campaign_count, int) and not isinstance(campaign_count, bool):
-            cpc_text += f" ({campaign_count} камп.)"
         ad_groups = finance_advertising["groups"]
         ad_lines = []
         if finance_advertising["has_explicit_types"]:
@@ -487,7 +645,7 @@ class ExperimentalStoreEconomicsRuntimeService:
                 title = "другие явные рекламные услуги" if group_name == "OTHER" else group_name
                 ad_lines.append(
                     f"   • По начислениям Ozon, {title}: "
-                    f"{_money(group['amount'])}"
+                    f"{_money_with_revenue_share(group['amount'], revenue)}"
                 )
         else:
             ad_lines.append(
@@ -497,51 +655,90 @@ class ExperimentalStoreEconomicsRuntimeService:
             "   • Performance CPC по сопоставленным SKU (для сверки): "
             + cpc_text
         )
+        if isinstance(campaign_count, int) and not isinstance(campaign_count, bool):
+            ad_lines[-1] += f" ({campaign_count} камп.)"
         other_fee_details = ExperimentalStoreEconomicsRuntimeService._other_fee_details(
             metrics["fee_breakdown"]
         )
-        lines = [
-            f"🧪 Экономика магазина за период {date_from} — {date_to}",
-            "",
-            "1. Выручка общая (100%): " + _money(metrics["revenue"]),
-            "2. Выручка ФНС (выручка − баллы): " + _money(metrics["revenue_tax_base"]),
-            "3. Баллы за скидки: " + _money(metrics["discount_points"]),
-            "4. Начисления Ozon нетто: " + _money(metrics["net_accrual"]),
-            "5. Налог: " + _money(metrics["tax"]),
-            "6. Прибыль без себестоимости: " + _money(metrics["profit"]),
-            "7. Расходы на рекламу:",
-            *ad_lines,
-            "8. Эквайринг: " + _money(metrics["acquiring"]),
-            "9. Вознаграждение Ozon: " + _money(metrics["commission"]),
-            "10. Логистика всего: " + _money(metrics["logistics"]),
-            "11. Последняя миля: " + _fee_or_unconfirmed(fees.get("last_mile")),
-            "12. Кросс-докинг: " + _fee_or_unconfirmed(fees.get("cross_docking")),
-            "13. Платное хранение: " + _fee_or_unconfirmed(fees.get("paid_storage")),
-            "14. Прочие начисления Ozon (включая рекламные и складские услуги): "
-            + _money(metrics["other_fees"]),
-            "15. Заказанные единицы (Analytics): " + _unit_or_unconfirmed(
-                analytics.get("ordered_units"),
-                analytics.get("ordered_units_status"),
-                analytics.get("ordered_units_diagnostic"),
-                "заказанных единиц",
-            ),
-            "16. Отменённые единицы (Analytics): " + _unit_or_unconfirmed(
+        ordered_units = analytics.get("ordered_units")
+        ordered_text = _units_with_order_share(
+            ordered_units,
+            ordered_units,
+            ordered=True,
+        )
+        cancellation_text = _units_with_order_share(
+            analytics.get("cancellations"), ordered_units
+        )
+        returns_text = _units_with_order_share(
+            analytics.get("returns"), ordered_units
+        )
+        cancellations_source = analytics.get("cancellations_source")
+        returns_source = analytics.get("returns_source")
+        cancellation_label = (
+            "Отменённые единицы (FBO/FBS, заказы периода)"
+            if cancellations_source == "SELLER_POSTINGS"
+            else "Отменённые единицы (Analytics)"
+        )
+        returns_label = (
+            "Возвраты (FBO/FBS, статус изменён в периоде)"
+            if returns_source == "SELLER_RETURNS"
+            else "Возвраты (Analytics)"
+        )
+        if cancellation_text is None:
+            cancellation_text = _unit_or_unconfirmed(
                 analytics.get("cancellations"),
                 analytics.get("cancellations_status"),
                 analytics.get("cancellations_diagnostic"),
                 "отменённых единиц",
-            ),
-            "17. Возвраты (Analytics): " + _unit_or_unconfirmed(
+            )
+            if cancellations_source == "SELLER_API_UNAVAILABLE":
+                cancellation_text += "; Seller API не вернул полный набор"
+        if returns_text is None:
+            returns_text = _unit_or_unconfirmed(
                 analytics.get("returns"),
                 analytics.get("returns_status"),
                 analytics.get("returns_diagnostic"),
                 "возвратов",
-            ),
+            )
+            if returns_source == "SELLER_API_UNAVAILABLE":
+                returns_text += "; Seller API не вернул полный набор"
+        if ordered_text is None:
+            ordered_text = _unit_or_unconfirmed(
+                ordered_units,
+                analytics.get("ordered_units_status"),
+                analytics.get("ordered_units_diagnostic"),
+                "заказанных единиц",
+            )
+        lines = [
+            f"🧪 Экономика магазина за период {date_from} — {date_to}",
+            "",
+            "1. Выручка общая (100%): " + _money(metrics["revenue"]),
+            "2. Выручка ФНС (выручка − баллы): " + _money_with_revenue_share(metrics["revenue_tax_base"], revenue),
+            "3. Баллы за скидки: " + _money_with_revenue_share(metrics["discount_points"], revenue),
+            "4. Начисления Ozon нетто: " + _money_with_revenue_share(metrics["net_accrual"], revenue),
+            "5. Налог: " + _money_with_revenue_share(metrics["tax"], revenue),
+            "6. Прибыль без себестоимости: " + _money_with_revenue_share(metrics["profit"], revenue),
+            "7. Расходы на рекламу:",
+            *ad_lines,
+            "8. Эквайринг: " + _money_with_revenue_share(metrics["acquiring"], revenue),
+            "9. Комиссия Ozon (вознаграждение за продажу): " + _money_with_revenue_share(metrics["commission"], revenue),
+            "10. Логистика всего: " + _money_with_revenue_share(metrics["logistics"], revenue),
+            "11. Доставка до места выдачи и выдача товара (части «последней мили»): " + _fee_with_revenue_share(fees.get("last_mile"), revenue),
+            "12. Кросс-докинг: " + _fee_with_revenue_share(fees.get("cross_docking"), revenue),
+            "13. Стоимость размещения на складе Ozon: " + _fee_with_revenue_share(fees.get("paid_storage"), revenue),
+            "14. Прочие начисления Ozon (расчётный остаток): "
+            + _money_with_revenue_share(metrics["other_fees"], revenue),
+            "15. Заказанные единицы (Analytics): " + ordered_text,
+            f"16. {cancellation_label}: {cancellation_text}",
+            f"17. {returns_label}: {returns_text}",
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
-            "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы, отмены и возвраты — Analytics; CPC по SKU — Ozon Performance.",
+            "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
+            "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Подтипы ниже раскрывают итоги, а не добавляются к ним: последняя миля входит в логистику; рекламные и складские услуги входят в прочие начисления, если они выставлены Ozon.",
+            "Строка 14 рассчитана как начисления нетто минус выручка, эквайринг, комиссия и логистика. Подтипы раскрывают уже учтённые суммы: доставка до места выдачи и выдача товара входят в логистику, а реклама, кросс-докинг и размещение могут входить в остаток строки 14. Не складывайте их повторно.",
+            "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
+            "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
             "Разделение рекламы по типам возможно только по явным названиям начислений; отчёт по начислениям не содержит разбивки по кампаниям.",
             "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
         ]
@@ -554,7 +751,8 @@ class ExperimentalStoreEconomicsRuntimeService:
             )
             for item in other_fee_details[:5]:
                 lines.append(
-                    f"   • {item['label']}: {_money(item['amount'])}"
+                    f"   • {item['label']}: "
+                    f"{_money_with_revenue_share(item['amount'], revenue)}"
                 )
             if len(other_fee_details) > 5:
                 lines.append(
@@ -643,6 +841,51 @@ def _money(value):
     return f"{float(value):,.2f} ₽".replace(",", " ")
 
 
+def _money_with_revenue_share(value, revenue):
+    amount = ExperimentalStoreEconomicsRuntimeService._number(value)
+    denominator = ExperimentalStoreEconomicsRuntimeService._number(revenue)
+    if amount is None:
+        return "—"
+    if denominator is None or denominator <= 0:
+        return _money(amount)
+    share = amount / denominator * 100
+    percent = f"{share:.2f}".replace(".", ",")
+    return f"{_money(amount)} ({percent}% от общей выручки)"
+
+
+def _fee_with_revenue_share(value, revenue):
+    if value is None:
+        return "не найдено начисление с однозначной подписью в Ozon"
+    return _money_with_revenue_share(value, revenue)
+
+
+def _units_with_order_share(value, ordered_units, ordered=False):
+    if value is None:
+        return None
+    number = ExperimentalStoreEconomicsRuntimeService._number(value)
+    if number is None:
+        return None
+    formatted = _format_units(number)
+    if ordered:
+        if number > 0:
+            return f"{formatted} шт. (100% базы для долей)"
+        return f"{formatted} шт."
+    denominator = ExperimentalStoreEconomicsRuntimeService._number(ordered_units)
+    if denominator is None or denominator <= 0:
+        return f"{formatted} шт."
+    share = number / denominator * 100
+    percent = f"{share:.2f}".replace(".", ",")
+    return f"{formatted} шт. ({percent}% от заказанных единиц)"
+
+
+def _format_units(value):
+    number = Decimal(str(value))
+    if number == number.to_integral_value():
+        return f"{int(number):,}".replace(",", " ")
+    formatted = f"{number:,.2f}".rstrip("0").rstrip(".")
+    return formatted.replace(",", " ").replace(".", ",")
+
+
 def _money_or_status(value, status):
     if value is not None:
         return _money(value)
@@ -661,11 +904,7 @@ def _fee_or_unconfirmed(value):
 
 def _unit_or_unconfirmed(value, status, diagnostic=None, label="показателя"):
     if value is not None:
-        number = Decimal(str(value))
-        if number == number.to_integral_value():
-            return f"{int(number):,}".replace(",", " ")
-        formatted = f"{number:,.2f}".rstrip("0").rstrip(".")
-        return formatted.replace(",", " ").replace(".", ",")
+        return _format_units(value) + " шт."
     if status == "UNAVAILABLE":
         if (
             isinstance(diagnostic, str)
@@ -738,3 +977,17 @@ def _is_missing_analytics_metric(diagnostic):
     return isinstance(diagnostic, str) and diagnostic.endswith(
         ("_VALUE_MISSING", "_NOT_RETURNED")
     )
+
+
+def _extract_postings_page(response):
+    if not isinstance(response, dict) or response.get("error") is True:
+        return [], False
+    if response.get("complete") is True:
+        postings = response.get("postings")
+        return (postings, isinstance(postings, list))
+    result = response.get("result")
+    postings = result.get("postings") if isinstance(result, dict) else None
+    if not isinstance(postings, list):
+        return [], False
+    return postings, response.get("has_next") is False
+

@@ -34,9 +34,10 @@ class _Summary:
             "other_fees": -3600.0,
             "products": [{"sku": "9001"}],
             "fee_breakdown": {
-                "Доставка до покупателя — последняя миля": -8000.0,
+                "Доставка до места выдачи": -8000.0,
+            "Выдача товара": -500.0,
                 "Услуги кросс-докинга": -1200.0,
-                "Платное хранение товара": -350.0,
+                "Плата за вынужденное размещение на складе": -350.0,
                 "PayPerClick CPC": -3000.0,
                 "Оплата за заказ CPO": -400.0,
                 "Услуги комплектации": -200.0,
@@ -153,32 +154,34 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert result["metrics"]["analytics"]["cancellations"] == 3
     assert result["metrics"]["analytics"]["returns"] == 1
     assert result["metrics"]["fee_subcategories"] == {
-        "last_mile": -8000.0,
+        "last_mile": -8500.0,
         "cross_docking": -1200.0,
         "paid_storage": -350.0,
     }
     assert result["metrics"]["finance_advertising"]["groups"]["CPC"]["amount"] == -3000.0
     assert result["metrics"]["finance_advertising"]["groups"]["CPO"]["amount"] == -400.0
     assert "1. Выручка общая (100%): 100 000.00 ₽" in result["text"]
-    assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽" in result["text"]
-    assert "3. Баллы за скидки: 8 000.00 ₽" in result["text"]
-    assert "4. Начисления Ozon нетто: 18 520.00 ₽" in result["text"]
-    assert "5. Налог: 5 520.00 ₽" in result["text"]
-    assert "6. Прибыль без себестоимости: 13 000.00 ₽" in result["text"]
+    assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽ (92,00% от общей выручки)" in result["text"]
+    assert "3. Баллы за скидки: 8 000.00 ₽ (8,00% от общей выручки)" in result["text"]
+    assert "4. Начисления Ozon нетто: 18 520.00 ₽ (18,52% от общей выручки)" in result["text"]
+    assert "5. Налог: 5 520.00 ₽ (5,52% от общей выручки)" in result["text"]
+    assert "6. Прибыль без себестоимости: 13 000.00 ₽ (13,00% от общей выручки)" in result["text"]
     assert "7. Расходы на рекламу:" in result["text"]
-    assert "По начислениям Ozon, CPC: -3 000.00 ₽" in result["text"]
-    assert "По начислениям Ozon, CPO: -400.00 ₽" in result["text"]
-    assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (2 камп.)" in result["text"]
-    assert "8. Эквайринг: -1 500.00 ₽" in result["text"]
-    assert "9. Вознаграждение Ozon: -22 000.00 ₽" in result["text"]
-    assert "10. Логистика всего: -18 000.00 ₽" in result["text"]
-    assert "11. Последняя миля: -8 000.00 ₽" in result["text"]
-    assert "12. Кросс-докинг: -1 200.00 ₽" in result["text"]
-    assert "13. Платное хранение: -350.00 ₽" in result["text"]
-    assert "14. Прочие начисления Ozon (включая рекламные и складские услуги): -3 600.00 ₽" in result["text"]
-    assert "15. Заказанные единицы (Analytics): 17" in result["text"]
-    assert "16. Отменённые единицы (Analytics): 3" in result["text"]
-    assert "17. Возвраты (Analytics): 1" in result["text"]
+    assert "По начислениям Ozon, CPC: -3 000.00 ₽ (-3,00% от общей выручки)" in result["text"]
+    assert "По начислениям Ozon, CPO: -400.00 ₽ (-0,40% от общей выручки)" in result["text"]
+    assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
+    assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in result["text"]
+    assert "9. Комиссия Ozon (вознаграждение за продажу): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
+    assert "10. Логистика всего: -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
+    assert "11. Доставка до места выдачи и выдача товара (части «последней мили»): -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
+    assert "12. Кросс-докинг: -1 200.00 ₽ (-1,20% от общей выручки)" in result["text"]
+    assert "13. Стоимость размещения на складе Ozon: -350.00 ₽ (-0,35% от общей выручки)" in result["text"]
+    assert "14. Прочие начисления Ozon (расчётный остаток): -3 600.00 ₽ (-3,60% от общей выручки)" in result["text"]
+    assert "Строка 14 рассчитана как начисления нетто минус выручка, эквайринг, комиссия и логистика." in result["text"]
+    assert "15. Заказанные единицы (Analytics): 17 шт. (100% базы для долей)" in result["text"]
+    assert "16. Отменённые единицы (Analytics): 3 шт. (17,65% от заказанных единиц)" in result["text"]
+    assert "17. Возвраты (Analytics): 1 шт. (5,88% от заказанных единиц)" in result["text"]
+    assert "Для количества показана доля от заказанных единиц" in result["text"]
     assert "Performance CPC показан для сверки и может пересекаться" in result["text"]
     assert query.summary_service.calls[0][3] is True
     assert cost_excluded() is False
@@ -224,9 +227,10 @@ def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero(
     assert "показатель «заказанных единиц» недоступен в Ozon Analytics" in result["text"]
     assert "показатель «отменённых единиц» недоступен в Ozon Analytics" in result["text"]
     assert "показатель «возвратов» недоступен в Ozon Analytics" in result["text"]
-    assert "Последняя миля: не найдено начисление с однозначной подписью" in result["text"]
+    assert "Доставка до места выдачи и выдача товара (части «последней мили»): не найдено начисление с однозначной подписью" in result["text"]
     assert "Кросс-докинг: не найдено начисление с однозначной подписью" in result["text"]
-    assert "Платное хранение: не найдено начисление с однозначной подписью" in result["text"]
+    assert "Стоимость размещения на складе Ozon: не найдено начисление с однозначной подписью" in result["text"]
+    assert "проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период" in result["text"]
 
 
 def test_unknown_historical_campaign_count_is_not_rendered_as_zero():
@@ -307,6 +311,110 @@ def test_generic_storage_label_is_not_reported_as_paid_storage():
     assert result["paid_storage"] is None
 
 
+def test_ozon_names_for_delivery_to_pickup_and_placement_are_recognized():
+    result = ExperimentalStoreEconomicsRuntimeService._fee_subcategories(
+        {
+            "fee_breakdown": {
+                "Доставка до места выдачи партнёрами": -27.5,
+                "Выдача товара": -9.0,
+                "Стоимость размещения на складе Ozon": -410.0,
+            }
+        }
+    )
+
+    assert result["last_mile"] == -36.5
+    assert result["paid_storage"] == -410.0
+
+
+class _SellerApiFallback(_Analytics):
+    def get_fbo_postings(self, **kwargs):
+        self.fbo_calls = getattr(self, "fbo_calls", []) + [kwargs]
+        return {
+            "error": False,
+            "result": {
+                "postings": [{
+                    "status": "cancelled",
+                    "products": [{"quantity": 2}],
+                }]
+            },
+            "has_next": False,
+        }
+
+    def get_fbs_postings(self, **kwargs):
+        self.fbs_calls = getattr(self, "fbs_calls", []) + [kwargs]
+        return {
+            "error": False,
+            "postings": [{
+                "status": "cancelled",
+                "products": [{"quantity": 3}],
+            }],
+            "complete": True,
+        }
+
+    def get_returns(self, **kwargs):
+        self.return_calls = getattr(self, "return_calls", []) + [kwargs]
+        rows = ([
+            {"id": 12, "type": "ClientReturn", "product": {"quantity": 1}},
+            {"id": 13, "type": "Cancellation", "product": {"quantity": 99}},
+        ] if kwargs["return_schema"] == "FBO" else [])
+        return {"error": False, "returns": rows, "has_next": False}
+
+
+def test_missing_analytics_cancellations_and_returns_use_complete_seller_api_data():
+    query = _Query()
+    analytics = _SellerApiFallback({
+        "error": False,
+        "result": {
+            "data": [{"metrics": [17, None, None]}],
+        },
+    })
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=analytics,
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback(
+        "seller-a", "experimental_store_economics:7D"
+    )
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["analytics"]["cancellations"] == 5
+    assert result["metrics"]["analytics"]["cancellations_source"] == "SELLER_POSTINGS"
+    assert result["metrics"]["analytics"]["returns"] == 1
+    assert result["metrics"]["analytics"]["returns_source"] == "SELLER_RETURNS"
+    assert "16. Отменённые единицы (FBO/FBS, заказы периода): 5 шт. (29,41% от заказанных единиц)" in telegram_text
+    assert "17. Возвраты (FBO/FBS, статус изменён в периоде): 1 шт. (5,88% от заказанных единиц)" in telegram_text
+    assert analytics.fbo_calls[0]["status"] == "cancelled"
+    assert analytics.fbs_calls[0]["status"] == "cancelled"
+    assert {call["return_schema"] for call in analytics.return_calls} == {"FBO", "FBS"}
+
+
+def test_incomplete_seller_api_fallback_keeps_missing_cancellations_unknown():
+    query = _Query()
+    analytics = _SellerApiFallback({
+        "error": False,
+        "result": {"data": [{"metrics": [17, None, None]}]},
+    })
+    analytics.get_fbo_postings = lambda **_kwargs: {
+        "error": False,
+        "result": {"postings": [{"status": "cancelled", "products": [{"quantity": 2}]}]},
+        "has_next": True,
+    }
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=analytics,
+    )
+
+    result = runtime.calculate("2026-10-01", "2026-10-02")
+
+    assert result["metrics"]["analytics"]["cancellations"] is None
+    assert result["metrics"]["analytics"]["returns"] == 1
+    assert "16. Отменённые единицы (Analytics): Ozon Analytics не вернул показатель" in result["text"]
+
+
 def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     query, runtime = _service()
     bot, assistant = _bot(runtime)
@@ -369,3 +477,4 @@ def test_invalid_analytics_metric_does_not_discard_a_valid_other_metric():
     )
     assert "Заказанные единицы (Analytics): 10" in result["text"]
     assert "Отменённые единицы (Analytics): данные по показателю «отменённых единиц» не прошли проверку" in result["text"]
+

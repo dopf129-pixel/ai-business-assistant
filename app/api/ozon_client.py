@@ -15,6 +15,8 @@ class OzonClient(BaseOzonClient):
 
     FBO_POSTINGS_V3_PAGE_SIZE = 100
     FBO_POSTINGS_V3_MAX_PAGES = 200
+    FBS_POSTINGS_V4_PAGE_SIZE = 100
+    FBS_POSTINGS_V4_MAX_PAGES = 200
 
     def __init__(self, client_id=None, api_key=None, credential_provider=None):
         self._explicit_client_id = self._text(client_id)
@@ -258,6 +260,83 @@ class OzonClient(BaseOzonClient):
             status=status,
         )
 
+    def get_fbs_postings(
+        self,
+        since,
+        to,
+        status="",
+        max_pages=200,
+    ):
+        """Read a complete bounded FBS posting window through Seller API v4."""
+        try:
+            page_limit = min(
+                self.FBS_POSTINGS_V4_MAX_PAGES,
+                max(1, int(max_pages)),
+            )
+        except (TypeError, ValueError, OverflowError):
+            return self._fbs_postings_error("OZON_FBS_POSTINGS_PAGINATION_INVALID")
+
+        filter_data = {"since": str(since), "to": str(to)}
+        status_text = str(status or "").strip()
+        if status_text:
+            filter_data["status"] = [status_text]
+
+        cursor = ""
+        seen_cursors = set()
+        postings = []
+        for _ in range(page_limit):
+            response = self._post(
+                "/v4/posting/fbs/list",
+                {
+                    "cursor": cursor,
+                    "filter": filter_data,
+                    "limit": self.FBS_POSTINGS_V4_PAGE_SIZE,
+                    "sort_dir": "ASC",
+                    "with": {
+                        "analytics_data": False,
+                        "barcodes": False,
+                        "financial_data": False,
+                        "translit": False,
+                    },
+                },
+                timeout=30,
+                max_attempts=3,
+            )
+            if not isinstance(response, dict) or response.get("error") is True:
+                return response if isinstance(response, dict) else self._fbs_postings_error(
+                    "OZON_FBS_POSTINGS_RESPONSE_INVALID"
+                )
+            page = response.get("postings")
+            if not isinstance(page, list):
+                return self._fbs_postings_error("OZON_FBS_POSTINGS_RESPONSE_INVALID")
+            postings.extend(page)
+            if response.get("has_next") is not True:
+                return {
+                    "error": False,
+                    "postings": postings,
+                    "complete": True,
+                    "has_next": False,
+                    "read_only": True,
+                    "executed": False,
+                }
+            next_cursor = str(response.get("cursor") or "").strip()
+            if not next_cursor or next_cursor == cursor or next_cursor in seen_cursors:
+                return self._fbs_postings_error("OZON_FBS_POSTINGS_CURSOR_INVALID")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+
+        return self._fbs_postings_error("OZON_FBS_POSTINGS_PAGE_LIMIT_REACHED")
+
+    @staticmethod
+    def _fbs_postings_error(code):
+        return {
+            "error": True,
+            "code": code,
+            "message": "FBS postings недоступны",
+            "read_only": True,
+            "executed": False,
+        }
+
     @staticmethod
     def _fbo_postings_error(code):
         return {
@@ -289,3 +368,4 @@ class OzonClient(BaseOzonClient):
     def _text(value):
         text = str(value or "").strip()
         return text or None
+
