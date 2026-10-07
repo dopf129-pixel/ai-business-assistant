@@ -48,6 +48,32 @@ class _Summary:
         }
 
 
+class _CommissionSummary(_Summary):
+    def calculate(self, date_from, date_to, products):
+        result = super().calculate(date_from, date_to, products)
+        result.update(
+            {
+                "revenue": 489721.93,
+                "revenue_tax_base": 365690.33,
+                "discount_points": 124031.60,
+                "net_accrual": 177282.17,
+                "tax": 21941.42,
+                "profit": 155340.75,
+                "acquiring": -6176.40,
+                "commission": -69163.97,
+                "logistics": -131128.88,
+                "other_fees": -105970.51,
+            }
+        )
+        result["fee_breakdown"].update(
+            {
+                "Вознаграждение за продажу": -69193.10,
+                "Возврат вознаграждения": 25.20,
+            }
+        )
+        return result
+
+
 class _Query:
     def __init__(self):
         self.summary_service = _Summary()
@@ -195,6 +221,35 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert cost_excluded() is False
     assert ads.calls[0][2] == {"1001", "2002", "9001"}
     assert analytics.calls[0][2]["metrics"] == ["ordered_units", "cancellations", "returns"]
+
+
+def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram():
+    query = _Query()
+    query.summary_service = _CommissionSummary()
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["commission"] == -69167.90
+    assert result["metrics"]["other_fees"] == -105966.58
+    assert round(
+        result["metrics"]["revenue"]
+        + result["metrics"]["acquiring"]
+        + result["metrics"]["commission"]
+        + result["metrics"]["logistics"]
+        + result["metrics"]["other_fees"],
+        2,
+    ) == result["metrics"]["net_accrual"]
+    assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽ (-14,12% от общей выручки)" in telegram_text
+    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
+    assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
+    assert "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():
