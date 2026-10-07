@@ -90,6 +90,7 @@ class PeriodProfitSummaryService:
         rows = []
         totals = self._empty_totals()
         fee_breakdown = {}
+        accrual_type_breakdown = {}
 
         for product in normalized_products:
 
@@ -131,6 +132,15 @@ class PeriodProfitSummaryService:
             if not self._merge_fee_breakdown(
                 fee_breakdown,
                 row.get("fee_breakdown"),
+            ):
+                return self._aggregate_error()
+
+            row_accrual_types = self._normalize_accrual_type_breakdown(
+                row.get("accrual_type_breakdown")
+            )
+            if row_accrual_types is None or not self._merge_accrual_type_breakdown(
+                accrual_type_breakdown,
+                row_accrual_types,
             ):
                 return self._aggregate_error()
 
@@ -218,6 +228,11 @@ class PeriodProfitSummaryService:
                 )
                 or {}
             )
+            accrual_type_breakdown = self._normalize_accrual_type_breakdown(
+                account_finance.get("accrual_type_breakdown")
+            )
+            if accrual_type_breakdown is None:
+                return self._aggregate_error()
 
         rounded = self._rounded_totals(totals)
         if rounded is None:
@@ -249,6 +264,7 @@ class PeriodProfitSummaryService:
             "products": rows,
             **rounded,
             "fee_breakdown": fee_breakdown,
+            "accrual_type_breakdown": accrual_type_breakdown,
             "returns_included": False,
             "advertising_included": False,
             "storage_included": False,
@@ -297,6 +313,7 @@ class PeriodProfitSummaryService:
             "other_fees": 0.0,
         }
         fee_breakdown = {}
+        accrual_type_breakdown = {}
         current = start
 
         while current <= end:
@@ -362,6 +379,12 @@ class PeriodProfitSummaryService:
                     current
                 )
 
+            daily_accrual_types = self._normalize_accrual_type_breakdown(
+                finance.get("accrual_type_breakdown")
+            )
+            if daily_accrual_types is None:
+                return self._finance_invalid(current)
+
             increments = {
                 "revenue": daily[
                     "gross_sales"
@@ -403,6 +426,12 @@ class PeriodProfitSummaryService:
             ):
                 return self._aggregate_error()
 
+            if not self._merge_accrual_type_breakdown(
+                accrual_type_breakdown,
+                daily_accrual_types,
+            ):
+                return self._aggregate_error()
+
             current += timedelta(days=1)
 
         rounded = {
@@ -424,6 +453,7 @@ class PeriodProfitSummaryService:
             "fee_breakdown": (
                 rounded_breakdown
             ),
+            "accrual_type_breakdown": accrual_type_breakdown,
         }
 
     @classmethod
@@ -453,6 +483,7 @@ class PeriodProfitSummaryService:
     ):
         values = self._empty_totals()
         fee_breakdown = {}
+        accrual_type_breakdown = {}
         current = start
 
         while current <= end:
@@ -509,6 +540,12 @@ class PeriodProfitSummaryService:
                 finance.get("fee_breakdown")
             )
             if daily_fee_breakdown is None:
+                return self._finance_invalid(current)
+
+            daily_accrual_types = self._normalize_accrual_type_breakdown(
+                finance.get("accrual_type_breakdown")
+            )
+            if daily_accrual_types is None:
                 return self._finance_invalid(current)
 
             try:
@@ -568,8 +605,16 @@ class PeriodProfitSummaryService:
             ):
                 return self._aggregate_error()
 
+            next_accrual_types = dict(accrual_type_breakdown)
+            if not self._merge_accrual_type_breakdown(
+                next_accrual_types,
+                daily_accrual_types,
+            ):
+                return self._aggregate_error()
+
             values = next_values
             fee_breakdown = next_fee_breakdown
+            accrual_type_breakdown = next_accrual_types
             current += timedelta(days=1)
 
         rounded = self._rounded_totals(values)
@@ -598,6 +643,7 @@ class PeriodProfitSummaryService:
             "cost_per_unit": round(cost, 2),
             **rounded,
             "fee_breakdown": rounded_fee_breakdown,
+            "accrual_type_breakdown": accrual_type_breakdown,
         }
 
     def _merge_totals(self, target, source):
@@ -679,6 +725,69 @@ class PeriodProfitSummaryService:
             result[str(name)] = value
 
         return result
+
+    @classmethod
+    def _normalize_accrual_type_breakdown(cls, source):
+        if source is None:
+            return {}
+        if not isinstance(source, dict):
+            return None
+
+        result = {}
+        for raw_id, raw_entry in source.items():
+            if not isinstance(raw_entry, dict):
+                return None
+            try:
+                accrual_id = int(raw_id)
+            except (TypeError, ValueError, OverflowError):
+                return None
+            amount = cls._number(raw_entry.get("amount"))
+            if amount is None:
+                return None
+            result[str(accrual_id)] = {
+                "name": cls._optional_text(raw_entry.get("name")),
+                "description": cls._optional_text(
+                    raw_entry.get("description")
+                ),
+                "amount": amount,
+            }
+        return result
+
+    @classmethod
+    def _merge_accrual_type_breakdown(cls, target, source):
+        normalized = cls._normalize_accrual_type_breakdown(source)
+        if normalized is None:
+            return False
+
+        next_values = {
+            key: dict(value)
+            for key, value in target.items()
+        }
+        for accrual_id, entry in normalized.items():
+            existing = next_values.get(
+                accrual_id,
+                {"name": None, "description": None, "amount": 0.0},
+            )
+            amount = existing["amount"] + entry["amount"]
+            if not isfinite(amount):
+                return False
+            next_values[accrual_id] = {
+                "name": existing.get("name") or entry.get("name"),
+                "description": existing.get("description")
+                or entry.get("description"),
+                "amount": round(amount, 2),
+            }
+
+        target.clear()
+        target.update(next_values)
+        return True
+
+    @staticmethod
+    def _optional_text(value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @staticmethod
     def _normalize_product(product):

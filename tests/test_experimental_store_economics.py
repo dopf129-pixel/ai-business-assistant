@@ -65,12 +65,24 @@ class _CommissionSummary(_Summary):
                 "other_fees": -105970.51,
             }
         )
-        result["fee_breakdown"].update(
-            {
-                "Вознаграждение за продажу": -69193.10,
-                "Возврат вознаграждения": 25.20,
-            }
-        )
+        result["fee_breakdown"].pop("Размещение", None)
+        result["accrual_type_breakdown"] = {
+            "501": {
+                "name": "SaleCommission",
+                "description": "Вознаграждение за продажу",
+                "amount": -69193.10,
+            },
+            "502": {
+                "name": "CommissionRefund",
+                "description": "Возврат вознаграждения",
+                "amount": 25.20,
+            },
+            "503": {
+                "name": "WarehousePlacement",
+                "description": "Размещение на складе",
+                "amount": -1.74,
+            },
+        }
         return result
 
 
@@ -247,6 +259,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
         2,
     ) == result["metrics"]["net_accrual"]
     assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽ (-14,12% от общей выручки)" in telegram_text
+    assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
     assert "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text

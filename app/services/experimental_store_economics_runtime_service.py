@@ -557,31 +557,23 @@ class ExperimentalStoreEconomicsRuntimeService:
     @classmethod
     def _fee_subcategories(cls, summary):
         breakdown = summary.get("fee_breakdown")
+        accrual_types = cls._accrual_type_entries(summary)
         result = {}
         for category, matchers in cls.FEE_LABEL_MATCHERS.items():
             amounts = []
-            if isinstance(breakdown, dict):
-                for label, value in breakdown.items():
-                    normalized = cls._text(label).casefold()
-                    matched = any(
-                        matcher in normalized for matcher in matchers
-                    )
-                    if (
-                        not matched
-                        and category == "paid_storage"
+            if category == "paid_storage" and accrual_types:
+                for entry in accrual_types:
+                    if cls._matches_fee_category(
+                        entry["labels"], category, matchers
                     ):
-                        # Ozon's accrual type dictionary can expose the
-                        # placement type simply as "Размещение" (or
-                        # "Placements"), while the Seller UI uses the longer
-                        # label "Размещение на складе".
-                        last_word = re.sub(
-                            r"[^a-zа-яё]+",
-                            " ",
-                            normalized,
-                        ).split()
-                        matched = bool(last_word) and last_word[-1].startswith(
-                            ("размещ", "placement")
-                        )
+                        amount = cls._number(entry["amount"])
+                        if amount is not None:
+                            amounts.append(amount)
+            if not amounts and isinstance(breakdown, dict):
+                for label, value in breakdown.items():
+                    matched = cls._matches_fee_category(
+                        [label], category, matchers
+                    )
                     if matched:
                         amount = cls._number(value)
                         if amount is not None:
@@ -596,14 +588,24 @@ class ExperimentalStoreEconomicsRuntimeService:
 
     @classmethod
     def _commission_from_explicit_types(cls, summary):
+        accrual_types = cls._accrual_type_entries(summary)
+        amounts = []
+        for entry in accrual_types:
+            if cls._is_explicit_commission_label(entry["labels"]):
+                amount = cls._number(entry["amount"])
+                if amount is None:
+                    return None
+                amounts.append(amount)
+        if amounts:
+            total = sum(amounts)
+            return round(total, 2) if isfinite(total) else None
+
         breakdown = summary.get("fee_breakdown")
         if not isinstance(breakdown, dict):
             return None
         amounts = []
         for label, value in breakdown.items():
-            normalized = " ".join(cls._text(label).casefold().split())
-            normalized = normalized.rstrip(" .:;")
-            if normalized not in cls.COMMISSION_FEE_LABELS:
+            if not cls._is_explicit_commission_label([label]):
                 continue
             amount = cls._number(value)
             if amount is None:
@@ -613,6 +615,61 @@ class ExperimentalStoreEconomicsRuntimeService:
             return None
         total = sum(amounts)
         return round(total, 2) if isfinite(total) else None
+
+    @classmethod
+    def _accrual_type_entries(cls, summary):
+        source = summary.get("accrual_type_breakdown")
+        if not isinstance(source, dict):
+            return []
+        entries = []
+        for raw_id, raw_entry in source.items():
+            if not isinstance(raw_entry, dict):
+                continue
+            try:
+                int(raw_id)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            labels = [
+                cls._text(raw_entry.get("description")),
+                cls._text(raw_entry.get("name")),
+            ]
+            labels = [label for label in labels if label]
+            amount = cls._number(raw_entry.get("amount"))
+            if labels and amount is not None:
+                entries.append(
+                    {"id": str(raw_id), "labels": labels, "amount": amount}
+                )
+        return entries
+
+    @classmethod
+    def _is_explicit_commission_label(cls, labels):
+        aliases = tuple(cls.COMMISSION_FEE_LABELS)
+        for label in labels:
+            normalized = " ".join(cls._text(label).casefold().split())
+            normalized = normalized.rstrip(" .:;")
+            if normalized in cls.COMMISSION_FEE_LABELS:
+                return True
+            if any(alias in normalized for alias in aliases):
+                return True
+        return False
+
+    @classmethod
+    def _matches_fee_category(cls, labels, category, matchers):
+        for label in labels:
+            normalized = cls._text(label).casefold()
+            if any(matcher in normalized for matcher in matchers):
+                return True
+            if category == "paid_storage":
+                # The accrual dictionary may use the compact type name
+                # "Размещение" while the Seller UI uses a longer label.
+                last_word = re.sub(
+                    r"[^a-zа-яё]+", " ", normalized
+                ).split()
+                if last_word and last_word[-1].startswith(
+                    ("размещ", "placement")
+                ):
+                    return True
+        return False
 
     @classmethod
     def _fee_breakdown(cls, summary):
