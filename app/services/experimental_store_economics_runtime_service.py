@@ -75,6 +75,16 @@ class ExperimentalStoreEconomicsRuntimeService:
         "cpo",
         "cpm",
     )
+    COMMISSION_FEE_LABELS = frozenset(
+        {
+            "вознаграждение за продажу",
+            "возврат вознаграждения",
+            "sale commission",
+            "commission for sale",
+            "commission refund",
+            "refund of commission",
+        }
+    )
 
     def __init__(self, query_service, advertising_service=None, analytics_client=None):
         self.query_service = query_service
@@ -192,6 +202,17 @@ class ExperimentalStoreEconomicsRuntimeService:
         metrics = self._base_metrics(summary)
         if metrics is None:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_FINANCE_INVALID")
+        explicit_commission = self._commission_from_explicit_types(summary)
+        if explicit_commission is not None:
+            commission_delta = round(
+                explicit_commission - metrics["commission"],
+                2,
+            )
+            metrics["commission"] = explicit_commission
+            metrics["other_fees"] = round(
+                metrics["other_fees"] - commission_delta,
+                2,
+            )
 
         accepted_skus = self._catalog_skus(products)
         for row in summary.get("products") or []:
@@ -574,6 +595,26 @@ class ExperimentalStoreEconomicsRuntimeService:
         return result
 
     @classmethod
+    def _commission_from_explicit_types(cls, summary):
+        breakdown = summary.get("fee_breakdown")
+        if not isinstance(breakdown, dict):
+            return None
+        amounts = []
+        for label, value in breakdown.items():
+            normalized = " ".join(cls._text(label).casefold().split())
+            normalized = normalized.rstrip(" .:;")
+            if normalized not in cls.COMMISSION_FEE_LABELS:
+                continue
+            amount = cls._number(value)
+            if amount is None:
+                return None
+            amounts.append(amount)
+        if not amounts:
+            return None
+        total = sum(amounts)
+        return round(total, 2) if isfinite(total) else None
+
+    @classmethod
     def _fee_breakdown(cls, summary):
         source = summary.get("fee_breakdown")
         if not isinstance(source, dict):
@@ -643,13 +684,17 @@ class ExperimentalStoreEconomicsRuntimeService:
         return [
             item
             for item in fee_breakdown
-            if any(
-                matcher in item["label"].casefold()
-                for matcher in reverse_logistics_matchers
-            )
-            or not any(
-                matcher in item["label"].casefold()
-                for matcher in excluded_matchers
+            if " ".join(item["label"].casefold().split()).rstrip(" .:;")
+            not in cls.COMMISSION_FEE_LABELS
+            and (
+                any(
+                    matcher in item["label"].casefold()
+                    for matcher in reverse_logistics_matchers
+                )
+                or not any(
+                    matcher in item["label"].casefold()
+                    for matcher in excluded_matchers
+                )
             )
         ]
 
@@ -770,6 +815,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
             "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
+            "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения», если они есть в начислениях. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
             "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
             "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
             "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
