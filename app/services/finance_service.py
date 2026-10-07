@@ -148,7 +148,8 @@ class FinanceService:
             "logistics": Decimal("0"),
             "acquiring": Decimal("0"),
             "other_fees": Decimal("0"),
-            "fee_breakdown": {}
+            "fee_breakdown": {},
+            "accrual_type_breakdown": {},
         }
 
         for accrual in response.get(
@@ -177,6 +178,18 @@ class FinanceService:
 
             result["net_accrual"] += (
                 total_amount
+            )
+
+            # Ozon renamed the root accrual type field from ``type_id`` to
+            # ``accrual_id``. Keep this operation-level breakdown separate
+            # from nested fee leaves: its totals are useful for classification,
+            # but must not be added to the account totals a second time.
+            self._add_accrual_type(
+                result,
+                accrual.get("accrual_id")
+                if accrual.get("accrual_id") is not None
+                else accrual.get("type_id"),
+                total_amount,
             )
 
             category = accrual.get(
@@ -736,6 +749,29 @@ class FinanceService:
                 amount
             )
 
+    def _add_accrual_type(
+        self,
+        result,
+        accrual_id,
+        amount,
+    ):
+        try:
+            accrual_id = int(accrual_id)
+        except (TypeError, ValueError):
+            return
+
+        type_info = self.accrual_types.get(accrual_id) or {}
+        key = str(accrual_id)
+        entry = result["accrual_type_breakdown"].setdefault(
+            key,
+            {
+                "name": type_info.get("name"),
+                "description": type_info.get("description"),
+                "amount": Decimal("0"),
+            },
+        )
+        entry["amount"] += amount
+
     def _serialize_result(
         self,
         result
@@ -776,6 +812,21 @@ class FinanceService:
             for key, value
             in result[
                 "fee_breakdown"
+            ].items()
+        }
+
+        result["accrual_type_breakdown"] = {
+            key: {
+                "name": value.get("name"),
+                "description": value.get("description"),
+                "amount": float(
+                    value["amount"].quantize(
+                        Decimal("0.01")
+                    )
+                ),
+            }
+            for key, value in result[
+                "accrual_type_breakdown"
             ].items()
         }
 

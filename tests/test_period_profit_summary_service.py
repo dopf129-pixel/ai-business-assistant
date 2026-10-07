@@ -54,6 +54,71 @@ def test_calculates_period_profit_with_explicit_scope():
     assert result["advertising_included"] is False
 
 
+def test_period_summary_preserves_root_accrual_type_breakdown():
+    class AccountFinance(Finance):
+        def get_daily_account_finance(self, day):
+            return {
+                "error": False,
+                "gross_sales": 100.0,
+                "discount_points": 0.0,
+                "net_accrual": 80.0,
+                "commission": -5.0,
+                "logistics": -10.0,
+                "acquiring": -1.0,
+                "other_fees": -4.0,
+                "fee_breakdown": {},
+                "accrual_type_breakdown": {
+                    "501": {
+                        "name": "SaleCommission",
+                        "description": "Вознаграждение за продажу",
+                        "amount": -6.0,
+                    },
+                    "503": {
+                        "name": "WarehousePlacement",
+                        "description": "Размещение на складе",
+                        "amount": -0.25,
+                    },
+                },
+            }
+
+    finance = AccountFinance({
+        ("2026-08-01", "100"): {
+            "error": False,
+            "sales_count": 1,
+            "gross_sales": 100.0,
+            "discount_points": 0.0,
+            "net_accrual": 80.0,
+            "commission": -5.0,
+            "logistics": -10.0,
+            "acquiring": -1.0,
+            "other_fees": -4.0,
+            "fee_breakdown": {},
+            "accrual_type_breakdown": {},
+        },
+    })
+
+    result = PeriodProfitSummaryService(finance, Costs({})).calculate(
+        "2026-08-01",
+        "2026-08-01",
+        [{"sku": "100", "offer_id": "hook", "cost": 10.0}],
+    )
+
+    assert result["error"] is False
+    assert result["net_accrual"] == 80.0
+    assert result["accrual_type_breakdown"] == {
+        "501": {
+            "name": "SaleCommission",
+            "description": "Вознаграждение за продажу",
+            "amount": -6.0,
+        },
+        "503": {
+            "name": "WarehousePlacement",
+            "description": "Размещение на складе",
+            "amount": -0.25,
+        },
+    }
+
+
 def test_period_profit_tax_uses_revenue_after_discount_points():
     finance = Finance({
         ("2026-08-01", "100"): {
