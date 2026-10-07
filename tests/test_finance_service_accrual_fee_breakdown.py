@@ -108,7 +108,7 @@ def test_account_finance_breakdown_preserves_explicit_commission_operation_types
     }
 
 
-def test_account_finance_breakdown_reads_current_root_accrual_id_field():
+def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
     service = FinanceService()
     service.accrual_types = {
         501: {
@@ -128,7 +128,8 @@ def test_account_finance_breakdown_reads_current_root_accrual_id_field():
         "error": False,
         "accruals": [
             {
-                "accrual_id": 501,
+                "accrual_id": 900001,
+                "type_id": 501,
                 "accrued_category": "POSTING",
                 "total_amount": {"amount": "-69193.10"},
                 "posting": {
@@ -144,14 +145,24 @@ def test_account_finance_breakdown_reads_current_root_accrual_id_field():
                 },
             },
             {
-                "accrual_id": 502,
+                "accrual_id": 900002,
+                "type_id": 502,
                 "accrued_category": "NON_ITEM",
                 "total_amount": {"amount": "25.20"},
+                "non_item_fee": {
+                    "type_id": 502,
+                    "accrued": {"amount": "25.20"},
+                },
             },
             {
-                "accrual_id": 503,
+                "accrual_id": 900003,
+                "type_id": 503,
                 "accrued_category": "NON_ITEM",
                 "total_amount": {"amount": "-1.74"},
+                "non_item_fee": {
+                    "type_id": 503,
+                    "accrued": {"amount": "-1.74"},
+                },
             },
         ],
     }
@@ -176,5 +187,48 @@ def test_account_finance_breakdown_reads_current_root_accrual_id_field():
             "name": "WarehousePlacement",
             "description": "Размещение на складе",
             "amount": -1.74,
+        },
+    }
+
+
+def test_unknown_unique_accrual_id_is_not_used_as_a_type_id():
+    service = FinanceService()
+    service.accrual_types = {
+        503: {
+            "name": "WarehousePlacement",
+            "description": "Размещение на складе",
+        },
+    }
+    service._get_accruals_by_day = lambda _day: {
+        "error": False,
+        "accruals": [
+            {
+                "accrual_id": 900003,
+                "total_amount": {"amount": "-1.74"},
+                "type_id": 503,
+                "non_item_fee": {
+                    "type_id": 503,
+                    "accrued": {"amount": "-1.74"},
+                },
+            },
+            {
+                "accrual_id": 900004,
+                "total_amount": {"amount": "-0.58"},
+                "type_id": 503,
+                "non_item_fee": {
+                    "type_id": 503,
+                    "accrued": {"amount": "-0.58"},
+                },
+            },
+        ],
+    }
+
+    result = service.get_daily_account_finance("2026-08-01")
+
+    assert result["accrual_type_breakdown"] == {
+        "503": {
+            "name": "WarehousePlacement",
+            "description": "Размещение на складе",
+            "amount": -2.32,
         },
     }
