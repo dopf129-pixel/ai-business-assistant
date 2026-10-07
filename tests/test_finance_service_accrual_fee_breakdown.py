@@ -1,6 +1,54 @@
 from services.finance_service import FinanceService
 
 
+def test_period_posting_numbers_collects_unique_posting_rows_only():
+    service = FinanceService()
+    service._get_accruals_by_day = lambda day: {
+        "error": False,
+        "accruals": [
+            {
+                "accrued_category": "POSTING",
+                "unit_number": "fixture-posting-2",
+            },
+            {
+                "accrued_category": "POSTING",
+                "unit_number": "fixture-posting-1",
+            },
+            {
+                "accrued_category": "POSTING",
+                "unit_number": "fixture-posting-2",
+            },
+            {
+                "accrued_category": "NON_ITEM",
+                "unit_number": "fixture-service-unit",
+            },
+        ],
+    }
+
+    result = service.get_period_posting_numbers("2026-08-01", "2026-08-02")
+
+    assert result == {
+        "error": False,
+        "posting_numbers": ["fixture-posting-1", "fixture-posting-2"],
+        "posting_count": 2,
+    }
+
+
+def test_period_posting_numbers_fails_closed_on_posting_without_unit_number():
+    service = FinanceService()
+    service._get_accruals_by_day = lambda _day: {
+        "error": False,
+        "accruals": [{"accrued_category": "POSTING"}],
+    }
+
+    result = service.get_period_posting_numbers("2026-08-01", "2026-08-01")
+
+    assert result == {
+        "error": True,
+        "code": "OZON_FINANCE_POSTING_NUMBERS_INVALID",
+    }
+
+
 def test_account_finance_breakdown_includes_non_item_and_container_fees_once():
     service = FinanceService()
     service.accrual_types = {

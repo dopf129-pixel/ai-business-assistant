@@ -92,6 +92,7 @@ class _FinanceBackedCommissionSummary:
 
     def __init__(self):
         self.finance = FinanceService()
+        self.finance_service = self.finance
         self.finance.accrual_types = {
             1: {"name": "Acquiring", "description": "Эквайринг"},
             29: {"name": "Logistics", "description": "Логистика"},
@@ -103,6 +104,10 @@ class _FinanceBackedCommissionSummary:
                 "name": "SaleCommission",
                 "description": "Вознаграждение за продажу",
             },
+            70: {
+                "name": "CommissionRefund",
+                "description": "Возврат вознаграждения",
+            },
         }
         self.finance._get_accruals_by_day = lambda _day: {
             "error": False,
@@ -110,6 +115,7 @@ class _FinanceBackedCommissionSummary:
                 {
                     "accrual_id": 9000001,
                     "accrued_category": "POSTING",
+                    "unit_number": "fixture-posting-1",
                     "total_amount": {"amount": "177282.17"},
                     "posting": {
                         "products": [
@@ -163,35 +169,37 @@ class _FinanceBackedCommissionSummary:
         }
 
 
-class _FinanceTransactions:
+class _FinanceAccrualPostings:
     def __init__(self, result=None):
         self.calls = []
         self.result = result or {
             "error": False,
-            "operations": [
+            "posting_accruals": [
                 {
-                    "operation_type_name": "Вознаграждение за продажу",
-                    "amount": -69193.10,
-                    "sale_commission": -69189.17,
-                },
-                {
-                    "operation_type_name": "Возврат вознаграждения",
-                    "amount": 25.20,
-                },
-                *[
-                    {
-                        "operation_type_name": "Услуги FBO",
-                        "services": [
-                            {"name": "Размещение на складе", "price": -0.58}
+                    "posting_number": "fixture-posting-1",
+                    "accruals": [
+                        {
+                            "type_id": 69,
+                            "accrued": {"amount": "-69193.10"},
+                        },
+                        {
+                            "type_id": 70,
+                            "accrued": {"amount": "25.20"},
+                        },
+                        *[
+                            {
+                                "type_id": 46,
+                                "accrued": {"amount": "-0.58"},
+                            }
+                            for _ in range(3)
                         ],
-                    }
-                    for _ in range(3)
-                ],
+                    ],
+                }
             ],
         }
 
-    def get_finance_transactions(self, date_from, date_to):
-        self.calls.append((date_from, date_to))
+    def get_accruals_by_postings(self, posting_numbers):
+        self.calls.append(list(posting_numbers))
         return self.result
 
 
@@ -318,10 +326,11 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     }
     assert (
         "Диагностика разбивки (/v1/finance/accrual/by-day и "
-        "/v3/finance/transaction/list): вложенных типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; список транзакций недоступен "
-        "(OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE), "
-        "операций 0, строк комиссии 0, услуг размещения 0."
+        "/v1/finance/accrual/postings): типов начислений 10, "
+        "совпадений комиссии 0, размещения 2; "
+        "источник начислений по отправлениям недоступен "
+        "(OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE), "
+        "отправлений 0, строк начислений 0, строк комиссии 0, строк размещения 0."
     ) in result["text"]
     diagnostic_line = next(
         line for line in result["text"].splitlines()
@@ -389,7 +398,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
-    assert "Комиссия берётся из сумм явных операций «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text
+    assert "Комиссия берётся из явных начислений «Вознаграждение за продажу» и «Возврат вознаграждения» по отправлениям" in telegram_text
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 3,
         "commission_matches": 2,
@@ -401,7 +410,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
 def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
-    transactions = _FinanceTransactions()
+    transactions = _FinanceAccrualPostings()
     runtime = ExperimentalStoreEconomicsRuntimeService(
         query,
         advertising_service=_Advertising(),
@@ -418,42 +427,74 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽" in telegram_text
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
-    assert result["metrics"]["commission_source"] == "FINANCE_TRANSACTION_LIST"
+    assert result["metrics"]["commission_source"] == "FINANCE_ACCRUAL_POSTINGS"
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 2,
         "commission_matches": 0,
         "storage_matches": 0,
     }
-    assert result["metrics"]["transaction_category_diagnostics"] == {
+    assert result["metrics"]["accrual_posting_category_diagnostics"] == {
         "available": True,
         "failure_code": None,
+        "posting_count": 1,
         "operation_count": 5,
         "commission_operation_count": 2,
         "storage_service_count": 3,
     }
-    assert transactions.calls == [(result["date_from"], result["date_to"])]
+    assert transactions.calls == [["fixture-posting-1"]]
+    assert "fixture-posting-1" not in telegram_text
+    assert "fixture-sku" not in telegram_text
     assert "Диагностика начислений (" not in telegram_text
 
 
-def test_finance_transaction_categories_split_31_day_period_without_overlap():
+def test_accrual_posting_categories_batch_postings_without_overlap():
+    from services.experimental_store_economics_runtime_service import (
+        ExperimentalStoreEconomicsRuntimeService,
+    )
+
+    class Finance:
+        accrual_types = {
+            46: {"name": "WarehousePlacement", "description": "Размещение на складе"}
+        }
+
+        @staticmethod
+        def get_period_posting_numbers(_date_from, _date_to):
+            return {
+                "error": False,
+                "posting_numbers": [f"fixture-{index}" for index in range(205)],
+            }
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def get_accruals_by_postings(self, posting_numbers):
+            self.calls.append(list(posting_numbers))
+            return {
+                "error": False,
+                "posting_accruals": [
+                    {"posting_number": value, "accruals": []}
+                    for value in posting_numbers
+                ],
+            }
+
+    client = Client()
     runtime = ExperimentalStoreEconomicsRuntimeService(
         _Query(),
-        finance_transaction_client=_FinanceTransactions(
-            {"error": False, "operations": []}
-        ),
+        finance_transaction_client=client,
     )
 
-    result = runtime._load_finance_transaction_categories(
+    result = runtime._load_finance_accrual_posting_categories(
         "2026-08-01",
         "2026-08-31",
+        finance_service=Finance(),
     )
 
-    assert runtime.finance_transaction_client.calls == [
-        ("2026-08-01", "2026-08-28"),
-        ("2026-08-29", "2026-08-31"),
-    ]
+    assert sorted(len(batch) for batch in client.calls) == [5, 100, 100]
+    assert len({value for batch in client.calls for value in batch}) == 205
     assert result["available"] is True
     assert result["operation_count"] == 0
+    assert result["posting_count"] == 205
 
 
 def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers():
@@ -465,10 +506,11 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
 
     expected = (
         "Диагностика разбивки (/v1/finance/accrual/by-day и "
-        "/v3/finance/transaction/list): вложенных типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; список транзакций недоступен "
-        "(OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE), "
-        "операций 0, строк комиссии 0, услуг размещения 0."
+        "/v1/finance/accrual/postings): типов начислений 10, "
+        "совпадений комиссии 0, размещения 2; "
+        "источник начислений по отправлениям недоступен "
+        "(OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE), "
+        "отправлений 0, строк начислений 0, строк комиссии 0, строк размещения 0."
     )
     assert expected in telegram_text
     diagnostic_line = next(
@@ -479,9 +521,10 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
     assert "501" not in diagnostic_line
 
 
-def test_transaction_http_failure_code_reaches_telegram_without_api_message():
+def test_accrual_posting_http_failure_reaches_telegram_without_api_message():
     query = _Query()
-    transactions = _FinanceTransactions(
+    query.summary_service = _FinanceBackedCommissionSummary()
+    transactions = _FinanceAccrualPostings(
         {
             "error": True,
             "code": "OZON_HTTP_403",
@@ -499,11 +542,11 @@ def test_transaction_http_failure_code_reaches_telegram_without_api_message():
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
     telegram_text = TelegramResponseFormatter().format(result)
 
-    assert result["metrics"]["transaction_category_diagnostics"]["failure_code"] == (
-        "OZON_HTTP_403"
-    )
-    assert "список транзакций недоступен (OZON_HTTP_403)" in telegram_text
+    assert result["metrics"]["accrual_posting_category_diagnostics"]["failure_code"] == "OZON_HTTP_403"
+    assert "источник начислений по отправлениям недоступен (OZON_HTTP_403)" in telegram_text
     assert "private Ozon response detail" not in telegram_text
+    assert "fixture-posting-1" not in telegram_text
+    assert "fixture-sku" not in telegram_text
     assert "9. Комиссия Ozon (предварительно, по данным отправлений)" in telegram_text
 
 

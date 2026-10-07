@@ -1,4 +1,6 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from math import isfinite
@@ -18,6 +20,8 @@ class ExperimentalStoreEconomicsRuntimeService:
     ANALYTICS_METRICS = ("ordered_units", "cancellations", "returns")
     ANALYTICS_DIMENSIONS = ("day",)
     ANALYTICS_PAGE_SIZE = 1000
+    ACCRUAL_POSTING_BATCH_SIZE = 100
+    ACCRUAL_POSTING_WORKERS = 4
     OPERATIONAL_POSTING_MAX_PAGES = 20
     OPERATIONAL_RETURN_MAX_PAGES = 20
     FEE_LABEL_MATCHERS = {
@@ -85,36 +89,22 @@ class ExperimentalStoreEconomicsRuntimeService:
             "refund of commission",
         }
     )
-    TRANSACTION_COMMISSION_LABELS = frozenset(
-        {
-            "вознаграждение за продажу",
-            "возврат вознаграждения",
-            "sale commission",
-            "commission refund",
-        }
-    )
-    TRANSACTION_STORAGE_LABELS = frozenset(
-        {
-            "размещение на складе",
-            "размещение на складе ozon",
-            "плата за размещение на складе",
-            "плата за размещение на складе ozon",
-        }
-    )
-    TRANSACTION_FAILURE_CODES = frozenset(
+    ACCRUAL_POSTING_FAILURE_CODES = frozenset(
         {
             "OZON_API_TOTAL_TIMEOUT",
             "OZON_API_TIMEOUT",
             "OZON_CREDENTIALS_UNAVAILABLE",
             "OZON_NETWORK_ERROR",
             "OZON_RATE_LIMITED",
-            "OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE",
-            "OZON_FINANCE_TRANSACTION_CLIENT_EXCEPTION",
-            "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID",
-            "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_INVALID",
-            "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_REACHED",
-            "OZON_FINANCE_TRANSACTIONS_REQUEST_FAILED",
-            "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+            "OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE",
+            "OZON_FINANCE_POSTING_CLIENT_EXCEPTION",
+            "OZON_FINANCE_POSTING_DATE_RANGE_INVALID",
+            "OZON_FINANCE_POSTING_NUMBERS_UNAVAILABLE",
+            "OZON_FINANCE_POSTING_NUMBERS_INVALID",
+            "OZON_FINANCE_POSTING_NUMBERS_EMPTY",
+            "OZON_FINANCE_ACCRUAL_TYPES_UNAVAILABLE",
+            "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID",
+            "OZON_FINANCE_ACCRUAL_POSTINGS_SCOPE_INVALID",
         }
     )
 
@@ -241,22 +231,25 @@ class ExperimentalStoreEconomicsRuntimeService:
         metrics = self._base_metrics(summary)
         if metrics is None:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_FINANCE_INVALID")
-        transaction_categories = self._load_finance_transaction_categories(
+        finance_service = getattr(summary_service, "finance_service", None)
+        accrual_posting_categories = self._load_finance_accrual_posting_categories(
             date_from,
             date_to,
+            finance_service=finance_service,
         )
-        metrics["transaction_category_diagnostics"] = {
-            key: transaction_categories[key]
+        metrics["accrual_posting_category_diagnostics"] = {
+            key: accrual_posting_categories[key]
             for key in (
                 "available",
                 "failure_code",
+                "posting_count",
                 "operation_count",
                 "commission_operation_count",
                 "storage_service_count",
             )
         }
-        explicit_commission = transaction_categories.get("commission")
-        commission_source = "FINANCE_TRANSACTION_LIST"
+        explicit_commission = accrual_posting_categories.get("commission")
+        commission_source = "FINANCE_ACCRUAL_POSTINGS"
         if explicit_commission is None:
             explicit_commission = self._commission_from_explicit_types(summary)
             commission_source = "ACCRUAL_FEE_TYPES"
@@ -290,9 +283,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             metrics["analytics"], date_from, date_to
         )
         metrics["fee_subcategories"] = self._fee_subcategories(summary)
-        transaction_storage = transaction_categories.get("paid_storage")
-        if transaction_storage is not None:
-            metrics["fee_subcategories"]["paid_storage"] = transaction_storage
+        posting_storage = accrual_posting_categories.get("paid_storage")
+        if posting_storage is not None:
+            metrics["fee_subcategories"]["paid_storage"] = posting_storage
         metrics["fee_breakdown"] = self._fee_breakdown(summary)
         metrics["finance_advertising"] = self._finance_advertising(
             metrics["fee_breakdown"]
@@ -737,66 +730,137 @@ class ExperimentalStoreEconomicsRuntimeService:
             ),
         }
 
-    def _load_finance_transaction_categories(self, date_from, date_to):
+    def _load_finance_accrual_posting_categories(
+        self,
+        date_from,
+        date_to,
+        finance_service=None,
+    ):
+        """Read explicit fee types from the active Seller API accrual endpoint.
+
+        Posting numbers are taken from the period's already-read by-day rows.
+        They are used only as lookup keys here; no cost is attributed to a SKU.
+        """
         getter = getattr(
             self.finance_transaction_client,
-            "get_finance_transactions",
+            "get_accruals_by_postings",
             None,
         )
         if not callable(getter):
-            return self._empty_transaction_categories()
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE"
+            )
 
+        posting_number_getter = getattr(
+            finance_service,
+            "get_period_posting_numbers",
+            None,
+        )
+        if not callable(posting_number_getter):
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_NUMBERS_UNAVAILABLE"
+            )
         try:
-            start = date.fromisoformat(str(date_from))
-            end = date.fromisoformat(str(date_to))
-        except (TypeError, ValueError):
-            return self._empty_transaction_categories(
-                "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID"
+            numbers_result = posting_number_getter(date_from, date_to)
+        except Exception:
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_NUMBERS_UNAVAILABLE"
             )
-        if end < start:
-            return self._empty_transaction_categories(
-                "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID"
+        if not isinstance(numbers_result, dict) or numbers_result.get("error") is True:
+            return self._empty_accrual_posting_categories(
+                self._safe_accrual_posting_failure_code(
+                    numbers_result.get("code")
+                    if isinstance(numbers_result, dict)
+                    else None
+                )
             )
 
-        operations = []
-        current = start
-        while current <= end:
-            chunk_end = min(current + timedelta(days=27), end)
-            try:
-                response = getter(current.isoformat(), chunk_end.isoformat())
-            except Exception:
-                return self._empty_transaction_categories(
-                    "OZON_FINANCE_TRANSACTION_CLIENT_EXCEPTION"
-                )
+        posting_numbers = numbers_result.get("posting_numbers")
+        if not isinstance(posting_numbers, list) or any(
+            not isinstance(value, str) or not value.strip()
+            for value in posting_numbers
+        ):
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_NUMBERS_INVALID"
+            )
+        posting_numbers = list(dict.fromkeys(value.strip() for value in posting_numbers))
+        if not posting_numbers:
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_NUMBERS_EMPTY"
+            )
+
+        accrual_types = getattr(finance_service, "accrual_types", None)
+        if not isinstance(accrual_types, dict) or not accrual_types:
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_ACCRUAL_TYPES_UNAVAILABLE"
+            )
+
+        batches = [
+            posting_numbers[offset:offset + self.ACCRUAL_POSTING_BATCH_SIZE]
+            for offset in range(0, len(posting_numbers), self.ACCRUAL_POSTING_BATCH_SIZE)
+        ]
+        workers = min(self.ACCRUAL_POSTING_WORKERS, len(batches))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(copy_context().run, getter, batch)
+                    for batch in batches
+                ]
+                responses = [future.result() for future in futures]
+        except Exception:
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_POSTING_CLIENT_EXCEPTION"
+            )
+
+        requested = set(posting_numbers)
+        returned = set()
+        accrual_rows = []
+        for response in responses:
             if not isinstance(response, dict):
-                return self._empty_transaction_categories(
-                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                return self._empty_accrual_posting_categories(
+                    "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID"
                 )
             if response.get("error") is True:
-                return self._empty_transaction_categories(
-                    self._safe_transaction_failure_code(response.get("code"))
+                return self._empty_accrual_posting_categories(
+                    self._safe_accrual_posting_failure_code(response.get("code"))
                 )
-            if (
-                response.get("error") is not False
-                or not isinstance(response.get("operations"), list)
+            posting_accruals = response.get("posting_accruals")
+            if response.get("error") is not False or not isinstance(
+                posting_accruals, list
             ):
-                return self._empty_transaction_categories(
-                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                return self._empty_accrual_posting_categories(
+                    "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID"
                 )
-            if any(
-                not isinstance(operation, dict)
-                for operation in response["operations"]
-            ):
-                return self._empty_transaction_categories(
-                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
-                )
-            operations.extend(response["operations"])
-            current = chunk_end + timedelta(days=1)
+            for posting in posting_accruals:
+                if not isinstance(posting, dict):
+                    return self._empty_accrual_posting_categories(
+                        "OZON_FINANCE_ACCRUAL_POSTINGS_RESPONSE_INVALID"
+                    )
+                posting_number = str(posting.get("posting_number") or "").strip()
+                accruals = posting.get("accruals")
+                if (
+                    not posting_number
+                    or posting_number not in requested
+                    or posting_number in returned
+                    or not isinstance(accruals, list)
+                    or any(not isinstance(item, dict) for item in accruals)
+                ):
+                    return self._empty_accrual_posting_categories(
+                        "OZON_FINANCE_ACCRUAL_POSTINGS_SCOPE_INVALID"
+                    )
+                returned.add(posting_number)
+                accrual_rows.extend(accruals)
+
+        if returned != requested:
+            return self._empty_accrual_posting_categories(
+                "OZON_FINANCE_ACCRUAL_POSTINGS_SCOPE_INVALID"
+            )
 
         result = {
-            **self._empty_transaction_categories(failure_code=None),
+            **self._empty_accrual_posting_categories(failure_code=None),
             "available": True,
-            "operation_count": len(operations),
+            "posting_count": len(returned),
+            "operation_count": len(accrual_rows),
         }
         commission_total = 0.0
         commission_count = 0
@@ -805,43 +869,40 @@ class ExperimentalStoreEconomicsRuntimeService:
         storage_count = 0
         storage_invalid = False
 
-        for operation in operations:
-            if not isinstance(operation, dict):
+        for accrual in accrual_rows:
+            try:
+                type_id = int(accrual.get("type_id"))
+            except (TypeError, ValueError, OverflowError):
                 continue
-            operation_label = self._normalized_transaction_label(
-                operation.get("operation_type_name")
+            type_info = accrual_types.get(type_id)
+            if not isinstance(type_info, dict):
+                continue
+            labels = [
+                self._text(type_info.get("description")),
+                self._text(type_info.get("name")),
+            ]
+            labels = [label for label in labels if label]
+            is_commission = self._is_explicit_commission_label(labels)
+            is_storage = self._matches_fee_category(
+                labels,
+                "paid_storage",
+                self.FEE_LABEL_MATCHERS["paid_storage"],
             )
-            if operation_label in self.TRANSACTION_COMMISSION_LABELS:
+            if not is_commission and not is_storage:
+                continue
+
+            accrued = accrual.get("accrued")
+            amount = self._number(
+                accrued.get("amount") if isinstance(accrued, dict) else None
+            )
+            if is_commission:
                 commission_count += 1
-                amount = self._number(operation.get("amount"))
                 if amount is None:
                     commission_invalid = True
                 else:
                     commission_total += amount
-                continue
-
-            if operation_label in self.TRANSACTION_STORAGE_LABELS:
+            if is_storage:
                 storage_count += 1
-                amount = self._number(operation.get("amount"))
-                if amount is None:
-                    storage_invalid = True
-                else:
-                    storage_total += amount
-                continue
-
-            services = operation.get("services")
-            if not isinstance(services, list):
-                continue
-            for service in services:
-                if not isinstance(service, dict):
-                    continue
-                service_label = self._normalized_transaction_label(
-                    service.get("name")
-                )
-                if service_label not in self.TRANSACTION_STORAGE_LABELS:
-                    continue
-                storage_count += 1
-                amount = self._number(service.get("price"))
                 if amount is None:
                     storage_invalid = True
                 else:
@@ -856,34 +917,29 @@ class ExperimentalStoreEconomicsRuntimeService:
         return result
 
     @classmethod
-    def _safe_transaction_failure_code(cls, code):
-        if isinstance(code, str) and code in cls.TRANSACTION_FAILURE_CODES:
+    def _safe_accrual_posting_failure_code(cls, code):
+        if isinstance(code, str) and code in cls.ACCRUAL_POSTING_FAILURE_CODES:
             return code
         if isinstance(code, str):
             match = re.fullmatch(r"OZON_HTTP_(\d{3})", code)
             if match and 100 <= int(match.group(1)) <= 599:
                 return code
-        return "OZON_FINANCE_TRANSACTIONS_REQUEST_FAILED"
+        return "OZON_FINANCE_ACCRUAL_POSTINGS_REQUEST_FAILED"
 
     @staticmethod
-    def _empty_transaction_categories(
-        failure_code="OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE",
+    def _empty_accrual_posting_categories(
+        failure_code="OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE",
     ):
         return {
             "available": False,
             "failure_code": failure_code,
+            "posting_count": 0,
             "operation_count": 0,
             "commission_operation_count": 0,
             "storage_service_count": 0,
             "commission": None,
             "paid_storage": None,
         }
-
-    @classmethod
-    def _normalized_transaction_label(cls, value):
-        return " ".join(
-            re.sub(r"[^a-zа-яё]+", " ", cls._text(value).casefold()).split()
-        )
 
     @classmethod
     def _is_explicit_commission_label(cls, labels):
@@ -1118,9 +1174,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
             "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
-            "Источники: суммы и удержания — финансовые начисления Ozon; категории комиссии и размещения сверяются по списку транзакций Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
+            "Источники: суммы и удержания — финансовые начисления Ozon; категории комиссии и размещения сверяются по типам начислений Seller API; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Комиссия берётся из сумм явных операций «Вознаграждение за продажу» и «Возврат вознаграждения» в списке транзакций. Если этот источник недоступен, сумма из данных отправлений помечается как предварительная. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
+            "Комиссия берётся из явных начислений «Вознаграждение за продажу» и «Возврат вознаграждения» по отправлениям (/v1/finance/accrual/postings). Если типы начислений не удалось подтвердить, сумма из данных отправлений помечается как предварительная. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
             "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
             "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
             "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
@@ -1128,36 +1184,37 @@ class ExperimentalStoreEconomicsRuntimeService:
             "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
         ]
         accrual_diagnostics = metrics.get("accrual_diagnostics") or {}
-        transaction_diagnostics = (
-            metrics.get("transaction_category_diagnostics") or {}
+        posting_diagnostics = (
+            metrics.get("accrual_posting_category_diagnostics") or {}
         )
         if (
-            metrics.get("commission_source") != "FINANCE_TRANSACTION_LIST"
+            metrics.get("commission_source") != "FINANCE_ACCRUAL_POSTINGS"
             or fees.get("paid_storage") is None
         ):
-            if transaction_diagnostics.get("available") is True:
-                transaction_source = "доступен"
+            if posting_diagnostics.get("available") is True:
+                posting_source = "доступен"
             else:
                 failure_code = (
-                    ExperimentalStoreEconomicsRuntimeService._safe_transaction_failure_code(
-                        transaction_diagnostics.get("failure_code")
+                    ExperimentalStoreEconomicsRuntimeService._safe_accrual_posting_failure_code(
+                        posting_diagnostics.get("failure_code")
                     )
                 )
-                transaction_source = f"недоступен ({failure_code})"
+                posting_source = f"недоступен ({failure_code})"
             lines.extend(
                 [
                     "",
                     "Диагностика разбивки (/v1/finance/accrual/by-day и "
-                    "/v3/finance/transaction/list): вложенных типов начислений "
+                    "/v1/finance/accrual/postings): типов начислений "
                     f"{accrual_diagnostics.get('fee_type_count', 0)}, "
                     f"совпадений комиссии {accrual_diagnostics.get('commission_matches', 0)}, "
                     f"размещения {accrual_diagnostics.get('storage_matches', 0)}; "
-                    f"список транзакций {transaction_source}, "
-                    f"операций {transaction_diagnostics.get('operation_count', 0)}, "
+                    f"источник начислений по отправлениям {posting_source}, "
+                    f"отправлений {posting_diagnostics.get('posting_count', 0)}, "
+                    f"строк начислений {posting_diagnostics.get('operation_count', 0)}, "
                     "строк комиссии "
-                    f"{transaction_diagnostics.get('commission_operation_count', 0)}, "
-                    "услуг размещения "
-                    f"{transaction_diagnostics.get('storage_service_count', 0)}."
+                    f"{posting_diagnostics.get('commission_operation_count', 0)}, "
+                    "строк размещения "
+                    f"{posting_diagnostics.get('storage_service_count', 0)}."
                 ]
             )
         if other_fee_details:
