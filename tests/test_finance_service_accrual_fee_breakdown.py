@@ -108,7 +108,7 @@ def test_account_finance_breakdown_preserves_explicit_commission_operation_types
     }
 
 
-def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
+def test_accrual_type_breakdown_uses_nested_fee_type_ids_not_row_ids():
     service = FinanceService()
     service.accrual_types = {
         501: {
@@ -129,7 +129,6 @@ def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
         "accruals": [
             {
                 "accrual_id": 900001,
-                "type_id": 501,
                 "accrued_category": "POSTING",
                 "total_amount": {"amount": "-69193.10"},
                 "posting": {
@@ -143,10 +142,22 @@ def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
                         }
                     ]
                 },
+                "item_fees": {
+                    "fees": [
+                        {
+                            "sku": "fixture-sku",
+                            "fees": [
+                                {
+                                    "type_id": 501,
+                                    "accrued": {"amount": "-69193.10"},
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             {
                 "accrual_id": 900002,
-                "type_id": 502,
                 "accrued_category": "NON_ITEM",
                 "total_amount": {"amount": "25.20"},
                 "non_item_fee": {
@@ -156,7 +167,6 @@ def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
             },
             {
                 "accrual_id": 900003,
-                "type_id": 503,
                 "accrued_category": "NON_ITEM",
                 "total_amount": {"amount": "-1.74"},
                 "non_item_fee": {
@@ -191,7 +201,7 @@ def test_account_finance_breakdown_groups_by_type_id_not_unique_accrual_id():
     }
 
 
-def test_unknown_unique_accrual_id_is_not_used_as_a_type_id():
+def test_accrual_type_breakdown_ignores_row_id_and_uses_nested_type_id():
     service = FinanceService()
     service.accrual_types = {
         503: {
@@ -205,7 +215,6 @@ def test_unknown_unique_accrual_id_is_not_used_as_a_type_id():
             {
                 "accrual_id": 900003,
                 "total_amount": {"amount": "-1.74"},
-                "type_id": 503,
                 "non_item_fee": {
                     "type_id": 503,
                     "accrued": {"amount": "-1.74"},
@@ -214,7 +223,6 @@ def test_unknown_unique_accrual_id_is_not_used_as_a_type_id():
             {
                 "accrual_id": 900004,
                 "total_amount": {"amount": "-0.58"},
-                "type_id": 503,
                 "non_item_fee": {
                     "type_id": 503,
                     "accrued": {"amount": "-0.58"},

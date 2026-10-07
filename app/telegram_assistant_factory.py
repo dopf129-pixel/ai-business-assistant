@@ -110,6 +110,15 @@ from telegram_app_layer.telegram_runner import (
 
 
 
+def _finance_transaction_client_for(period_profit_runtime_service):
+    if period_profit_runtime_service is None:
+        return None
+    query_service = getattr(period_profit_runtime_service, "query_service", None)
+    summary_service = getattr(query_service, "summary_service", None)
+    finance_service = getattr(summary_service, "finance_service", None)
+    return getattr(finance_service, "ozon", None)
+
+
 def create_telegram_assistant():
 
 
@@ -235,11 +244,16 @@ def create_telegram_assistant():
             period_profit_sku_runtime_service
         )
 
+    finance_transaction_client = _finance_transaction_client_for(
+        period_profit_runtime_service
+    )
+
     experimental_store_economics_runtime_service = (
         ExperimentalStoreEconomicsRuntimeService(
             period_profit_runtime_service.query_service,
             advertising_service=period_profit_advertising_service,
             analytics_client=OzonClient(),
+            finance_transaction_client=finance_transaction_client,
         )
         if period_profit_runtime_service is not None
         else None

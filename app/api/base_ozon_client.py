@@ -652,6 +652,113 @@ class OzonClient:
             )
         }
 
+    def get_finance_transactions(
+        self,
+        date_from,
+        date_to,
+        max_pages=200,
+    ):
+        """Read all finance transactions for a bounded date interval."""
+
+        operations = []
+        page = 1
+        expected_page_count = None
+        try:
+            page_limit = int(max_pages)
+        except (TypeError, ValueError, OverflowError):
+            page_limit = 0
+        if page_limit < 1:
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+
+        while page <= page_limit:
+            response = self._post(
+                "/v3/finance/transaction/list",
+                {
+                    "filter": {
+                        "date": {
+                            "from": f"{date_from}T00:00:00.000Z",
+                            "to": f"{date_to}T23:59:59.999Z",
+                        },
+                        "transaction_type": "all",
+                    },
+                    "page": page,
+                    "page_size": 1000,
+                },
+                timeout=30,
+                max_attempts=3,
+            )
+
+            if not isinstance(response, dict) or response.get("error") is True:
+                return response if isinstance(response, dict) else {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+
+            result = response.get("result")
+            if not isinstance(result, dict):
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+            page_operations = result.get("operations")
+            try:
+                page_count = int(result.get("page_count"))
+            except (TypeError, ValueError, OverflowError):
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+            if (
+                not isinstance(page_operations, list)
+                or page_count < 0
+                or any(
+                    not isinstance(operation, dict)
+                    for operation in page_operations
+                )
+                or (page_count == 0 and page_operations)
+                or (page_count > 0 and page_count < page)
+            ):
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+
+            if expected_page_count is None:
+                expected_page_count = page_count
+            elif page_count != expected_page_count:
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+
+            operations.extend(page_operations)
+            if page_count == 0 or page >= page_count:
+                return {
+                    "error": False,
+                    "operations": operations,
+                    "pages_loaded": page,
+                    "read_only": True,
+                    "executed": False,
+                }
+            if not page_operations:
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+                }
+            page += 1
+
+        return {
+            "error": True,
+            "code": "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_REACHED",
+            "read_only": True,
+            "executed": False,
+        }
+
     def get_accrual_types(self):
 
         return self._post(

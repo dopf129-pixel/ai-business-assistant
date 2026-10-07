@@ -95,28 +95,22 @@ class _FinanceBackedCommissionSummary:
         self.finance.accrual_types = {
             1: {"name": "Acquiring", "description": "Эквайринг"},
             29: {"name": "Logistics", "description": "Логистика"},
-            501: {
+            46: {
+                "name": "Placements",
+                "description": "Размещение на складе",
+            },
+            69: {
                 "name": "SaleCommission",
                 "description": "Вознаграждение за продажу",
             },
-            502: {
-                "name": "CommissionRefund",
-                "description": "Возврат вознаграждения",
-            },
-            503: {
-                "name": "WarehousePlacement",
-                "description": "Размещение на складе",
-            },
-            600: {"name": "Other", "description": "Прочее"},
         }
         self.finance._get_accruals_by_day = lambda _day: {
             "error": False,
             "accruals": [
                 {
                     "accrual_id": 9000001,
-                    "type_id": 700,
                     "accrued_category": "POSTING",
-                    "total_amount": {"amount": "489721.93"},
+                    "total_amount": {"amount": "177282.17"},
                     "posting": {
                         "products": [
                             {
@@ -140,46 +134,6 @@ class _FinanceBackedCommissionSummary:
                                 },
                             }
                         ]
-                    },
-                },
-                {
-                    "accrual_id": 9000002,
-                    "type_id": 501,
-                    "accrued_category": "NON_ITEM",
-                    "total_amount": {"amount": "-69193.10"},
-                    "non_item_fee": {
-                        "type_id": 501,
-                        "accrued": {"amount": "-69193.10"},
-                    },
-                },
-                {
-                    "accrual_id": 9000003,
-                    "type_id": 502,
-                    "accrued_category": "NON_ITEM",
-                    "total_amount": {"amount": "25.20"},
-                    "non_item_fee": {
-                        "type_id": 502,
-                        "accrued": {"amount": "25.20"},
-                    },
-                },
-                {
-                    "accrual_id": 9000004,
-                    "type_id": 503,
-                    "accrued_category": "NON_ITEM",
-                    "total_amount": {"amount": "-1.74"},
-                    "non_item_fee": {
-                        "type_id": 503,
-                        "accrued": {"amount": "-1.74"},
-                    },
-                },
-                {
-                    "accrual_id": 9000005,
-                    "type_id": 600,
-                    "accrued_category": "NON_ITEM",
-                    "total_amount": {"amount": "-243270.12"},
-                    "non_item_fee": {
-                        "type_id": 600,
-                        "accrued": {"amount": "-243270.12"},
                     },
                 },
             ],
@@ -207,6 +161,38 @@ class _FinanceBackedCommissionSummary:
             "fee_breakdown": daily["fee_breakdown"],
             "accrual_type_breakdown": daily["accrual_type_breakdown"],
         }
+
+
+class _FinanceTransactions:
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result or {
+            "error": False,
+            "operations": [
+                {
+                    "operation_type_name": "Вознаграждение за продажу",
+                    "amount": -69193.10,
+                    "sale_commission": -69189.17,
+                },
+                {
+                    "operation_type_name": "Возврат вознаграждения",
+                    "amount": 25.20,
+                },
+                *[
+                    {
+                        "operation_type_name": "Услуги FBO",
+                        "services": [
+                            {"name": "Размещение на складе", "price": -0.58}
+                        ],
+                    }
+                    for _ in range(3)
+                ],
+            ],
+        }
+
+    def get_finance_transactions(self, date_from, date_to):
+        self.calls.append((date_from, date_to))
+        return self.result
 
 
 class _Query:
@@ -326,22 +312,19 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert result["metrics"]["finance_advertising"]["groups"]["CPC"]["amount"] == -3000.0
     assert result["metrics"]["finance_advertising"]["groups"]["CPO"]["amount"] == -400.0
     assert result["metrics"]["accrual_diagnostics"] == {
-        "root_type_count": 0,
-        "root_labeled_type_count": 0,
         "fee_type_count": 10,
-        "root_commission_matches": 0,
-        "fee_commission_matches": 0,
-        "root_storage_matches": 0,
-        "fee_storage_matches": 2,
+        "commission_matches": 0,
+        "storage_matches": 2,
     }
     assert (
-        "Диагностика начислений (/v1/finance/accrual/by-day): "
-        "типов операций 0, с подписью 0; типов услуг 10; "
-        "совпадений комиссии 0+0, размещения 0+2."
+        "Диагностика разбивки (/v1/finance/accrual/by-day и "
+        "/v3/finance/transaction/list): вложенных типов начислений 10, "
+        "совпадений комиссии 0, размещения 2; список транзакций недоступен, "
+        "операций 0, строк комиссии 0, услуг размещения 0."
     ) in result["text"]
     diagnostic_line = next(
         line for line in result["text"].splitlines()
-        if line.startswith("Диагностика начислений (")
+        if line.startswith("Диагностика разбивки (")
     )
     assert "9001" not in diagnostic_line
     assert "501" not in diagnostic_line
@@ -356,7 +339,7 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert "По начислениям Ozon, CPO: -400.00 ₽ (-0,40% от общей выручки)" in result["text"]
     assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
     assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in result["text"]
-    assert "9. Комиссия Ozon (вознаграждение за продажу): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
+    assert "9. Комиссия Ozon (предварительно, по данным отправлений): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
     assert "10. Логистика доставки (без обратной логистики): -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
     assert "11. Доставка до места выдачи и выдача товара (части «последней мили»): -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
     assert "12. Кросс-докинг: -1 200.00 ₽ (-1,20% от общей выручки)" in result["text"]
@@ -405,15 +388,11 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
-    assert "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text
+    assert "Комиссия берётся из сумм явных операций «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text
     assert result["metrics"]["accrual_diagnostics"] == {
-        "root_type_count": 3,
-        "root_labeled_type_count": 3,
-        "fee_type_count": 9,
-        "root_commission_matches": 2,
-        "fee_commission_matches": 0,
-        "root_storage_matches": 1,
-        "fee_storage_matches": 1,
+        "fee_type_count": 3,
+        "commission_matches": 2,
+        "storage_matches": 1,
     }
     assert "Диагностика начислений (" not in telegram_text
 
@@ -421,10 +400,12 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
 def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
+    transactions = _FinanceTransactions()
     runtime = ExperimentalStoreEconomicsRuntimeService(
         query,
         advertising_service=_Advertising(),
         analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
     )
     bot, _ = _bot(runtime)
 
@@ -436,16 +417,41 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽" in telegram_text
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert result["metrics"]["commission_source"] == "FINANCE_TRANSACTION_LIST"
     assert result["metrics"]["accrual_diagnostics"] == {
-        "root_type_count": 5,
-        "root_labeled_type_count": 4,
-        "fee_type_count": 6,
-        "root_commission_matches": 2,
-        "fee_commission_matches": 2,
-        "root_storage_matches": 1,
-        "fee_storage_matches": 1,
+        "fee_type_count": 2,
+        "commission_matches": 0,
+        "storage_matches": 0,
     }
+    assert result["metrics"]["transaction_category_diagnostics"] == {
+        "available": True,
+        "operation_count": 5,
+        "commission_operation_count": 2,
+        "storage_service_count": 3,
+    }
+    assert transactions.calls == [(result["date_from"], result["date_to"])]
     assert "Диагностика начислений (" not in telegram_text
+
+
+def test_finance_transaction_categories_split_31_day_period_without_overlap():
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        _Query(),
+        finance_transaction_client=_FinanceTransactions(
+            {"error": False, "operations": []}
+        ),
+    )
+
+    result = runtime._load_finance_transaction_categories(
+        "2026-08-01",
+        "2026-08-31",
+    )
+
+    assert runtime.finance_transaction_client.calls == [
+        ("2026-08-01", "2026-08-28"),
+        ("2026-08-29", "2026-08-31"),
+    ]
+    assert result["available"] is True
+    assert result["operation_count"] == 0
 
 
 def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers():
@@ -456,14 +462,15 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
     telegram_text = TelegramResponseFormatter().format(result)
 
     expected = (
-        "Диагностика начислений (/v1/finance/accrual/by-day): "
-        "типов операций 0, с подписью 0; типов услуг 10; "
-        "совпадений комиссии 0+0, размещения 0+2."
+        "Диагностика разбивки (/v1/finance/accrual/by-day и "
+        "/v3/finance/transaction/list): вложенных типов начислений 10, "
+        "совпадений комиссии 0, размещения 2; список транзакций недоступен, "
+        "операций 0, строк комиссии 0, услуг размещения 0."
     )
     assert expected in telegram_text
     diagnostic_line = next(
         line for line in telegram_text.splitlines()
-        if line.startswith("Диагностика начислений (")
+        if line.startswith("Диагностика разбивки (")
     )
     assert "9001" not in diagnostic_line
     assert "501" not in diagnostic_line
