@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from threading import RLock
@@ -85,11 +85,34 @@ class ExperimentalStoreEconomicsRuntimeService:
             "refund of commission",
         }
     )
+    TRANSACTION_COMMISSION_LABELS = frozenset(
+        {
+            "вознаграждение за продажу",
+            "возврат вознаграждения",
+            "sale commission",
+            "commission refund",
+        }
+    )
+    TRANSACTION_STORAGE_LABELS = frozenset(
+        {
+            "размещение на складе",
+            "размещение на складе ozon",
+            "плата за размещение на складе",
+            "плата за размещение на складе ozon",
+        }
+    )
 
-    def __init__(self, query_service, advertising_service=None, analytics_client=None):
+    def __init__(
+        self,
+        query_service,
+        advertising_service=None,
+        analytics_client=None,
+        finance_transaction_client=None,
+    ):
         self.query_service = query_service
         self.advertising_service = advertising_service
         self.analytics_client = analytics_client
+        self.finance_transaction_client = finance_transaction_client
         self._pending_custom_period_users = set()
         self._pending_lock = RLock()
 
@@ -202,7 +225,26 @@ class ExperimentalStoreEconomicsRuntimeService:
         metrics = self._base_metrics(summary)
         if metrics is None:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_FINANCE_INVALID")
-        explicit_commission = self._commission_from_explicit_types(summary)
+        transaction_categories = self._load_finance_transaction_categories(
+            date_from,
+            date_to,
+        )
+        metrics["transaction_category_diagnostics"] = {
+            key: transaction_categories[key]
+            for key in (
+                "available",
+                "operation_count",
+                "commission_operation_count",
+                "storage_service_count",
+            )
+        }
+        explicit_commission = transaction_categories.get("commission")
+        commission_source = "FINANCE_TRANSACTION_LIST"
+        if explicit_commission is None:
+            explicit_commission = self._commission_from_explicit_types(summary)
+            commission_source = "ACCRUAL_FEE_TYPES"
+        if explicit_commission is None:
+            commission_source = "POSTING_SALE_COMMISSION"
         if explicit_commission is not None:
             commission_delta = round(
                 explicit_commission - metrics["commission"],
@@ -213,6 +255,7 @@ class ExperimentalStoreEconomicsRuntimeService:
                 metrics["other_fees"] - commission_delta,
                 2,
             )
+        metrics["commission_source"] = commission_source
 
         accepted_skus = self._catalog_skus(products)
         for row in summary.get("products") or []:
@@ -230,6 +273,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             metrics["analytics"], date_from, date_to
         )
         metrics["fee_subcategories"] = self._fee_subcategories(summary)
+        transaction_storage = transaction_categories.get("paid_storage")
+        if transaction_storage is not None:
+            metrics["fee_subcategories"]["paid_storage"] = transaction_storage
         metrics["fee_breakdown"] = self._fee_breakdown(summary)
         metrics["finance_advertising"] = self._finance_advertising(
             metrics["fee_breakdown"]
@@ -646,68 +692,146 @@ class ExperimentalStoreEconomicsRuntimeService:
 
     @classmethod
     def _accrual_category_diagnostics(cls, summary):
-        source = summary.get("accrual_type_breakdown")
-        root_type_count = 0
-        root_labeled_type_count = 0
-        root_commission_matches = 0
-        root_storage_matches = 0
-        if isinstance(source, dict):
-            for raw_id, raw_entry in source.items():
-                if not isinstance(raw_entry, dict):
-                    continue
-                try:
-                    int(raw_id)
-                except (TypeError, ValueError, OverflowError):
-                    continue
-                root_type_count += 1
-                labels = [
-                    cls._text(raw_entry.get("description")),
-                    cls._text(raw_entry.get("name")),
-                ]
-                labels = [label for label in labels if label]
-                if labels:
-                    root_labeled_type_count += 1
-                    root_commission_matches += int(
-                        cls._is_explicit_commission_label(labels)
-                    )
-                    root_storage_matches += int(
-                        cls._matches_fee_category(
-                            labels,
-                            "paid_storage",
-                            cls.FEE_LABEL_MATCHERS["paid_storage"],
-                        )
-                    )
-
-        breakdown = summary.get("fee_breakdown")
-        fee_type_count = 0
-        fee_commission_matches = 0
-        fee_storage_matches = 0
-        if isinstance(breakdown, dict):
-            for raw_label in breakdown:
-                label = cls._text(raw_label)
-                if not label:
-                    continue
-                fee_type_count += 1
-                fee_commission_matches += int(
-                    cls._is_explicit_commission_label([label])
-                )
-                fee_storage_matches += int(
+        entries = cls._accrual_type_entries(summary)
+        labels = (
+            [entry["labels"] for entry in entries]
+            if entries
+            else [
+                [cls._text(label)]
+                for label in (summary.get("fee_breakdown") or {})
+                if cls._text(label)
+            ]
+        )
+        return {
+            "fee_type_count": len(labels),
+            "commission_matches": sum(
+                int(cls._is_explicit_commission_label(type_labels))
+                for type_labels in labels
+            ),
+            "storage_matches": sum(
+                int(
                     cls._matches_fee_category(
-                        [label],
+                        type_labels,
                         "paid_storage",
                         cls.FEE_LABEL_MATCHERS["paid_storage"],
                     )
                 )
-
-        return {
-            "root_type_count": root_type_count,
-            "root_labeled_type_count": root_labeled_type_count,
-            "fee_type_count": fee_type_count,
-            "root_commission_matches": root_commission_matches,
-            "fee_commission_matches": fee_commission_matches,
-            "root_storage_matches": root_storage_matches,
-            "fee_storage_matches": fee_storage_matches,
+                for type_labels in labels
+            ),
         }
+
+    def _load_finance_transaction_categories(self, date_from, date_to):
+        getter = getattr(
+            self.finance_transaction_client,
+            "get_finance_transactions",
+            None,
+        )
+        if not callable(getter):
+            return self._empty_transaction_categories()
+
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except (TypeError, ValueError):
+            return self._empty_transaction_categories()
+        if end < start:
+            return self._empty_transaction_categories()
+
+        operations = []
+        current = start
+        while current <= end:
+            chunk_end = min(current + timedelta(days=27), end)
+            try:
+                response = getter(current.isoformat(), chunk_end.isoformat())
+            except Exception:
+                return self._empty_transaction_categories()
+            if (
+                not isinstance(response, dict)
+                or response.get("error") is not False
+                or not isinstance(response.get("operations"), list)
+            ):
+                return self._empty_transaction_categories()
+            operations.extend(response["operations"])
+            current = chunk_end + timedelta(days=1)
+
+        result = {
+            **self._empty_transaction_categories(),
+            "available": True,
+            "operation_count": len(operations),
+        }
+        commission_total = 0.0
+        commission_count = 0
+        commission_invalid = False
+        storage_total = 0.0
+        storage_count = 0
+        storage_invalid = False
+
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            operation_label = self._normalized_transaction_label(
+                operation.get("operation_type_name")
+            )
+            if operation_label in self.TRANSACTION_COMMISSION_LABELS:
+                commission_count += 1
+                amount = self._number(operation.get("amount"))
+                if amount is None:
+                    commission_invalid = True
+                else:
+                    commission_total += amount
+                continue
+
+            if operation_label in self.TRANSACTION_STORAGE_LABELS:
+                storage_count += 1
+                amount = self._number(operation.get("amount"))
+                if amount is None:
+                    storage_invalid = True
+                else:
+                    storage_total += amount
+                continue
+
+            services = operation.get("services")
+            if not isinstance(services, list):
+                continue
+            for service in services:
+                if not isinstance(service, dict):
+                    continue
+                service_label = self._normalized_transaction_label(
+                    service.get("name")
+                )
+                if service_label not in self.TRANSACTION_STORAGE_LABELS:
+                    continue
+                storage_count += 1
+                amount = self._number(service.get("price"))
+                if amount is None:
+                    storage_invalid = True
+                else:
+                    storage_total += amount
+
+        result["commission_operation_count"] = commission_count
+        result["storage_service_count"] = storage_count
+        if commission_count and not commission_invalid:
+            result["commission"] = round(commission_total, 2)
+        if storage_count and not storage_invalid:
+            result["paid_storage"] = round(storage_total, 2)
+        return result
+
+    @staticmethod
+    def _empty_transaction_categories():
+        return {
+            "available": False,
+            "operation_count": 0,
+            "commission_operation_count": 0,
+            "storage_service_count": 0,
+            "commission": None,
+            "paid_storage": None,
+        }
+
+    @classmethod
+    def _normalized_transaction_label(cls, value):
+        return " ".join(
+            re.sub(r"[^a-zа-яё]+", " ", cls._text(value).casefold()).split()
+        )
 
     @classmethod
     def _is_explicit_commission_label(cls, labels):
@@ -925,7 +1049,11 @@ class ExperimentalStoreEconomicsRuntimeService:
             "7. Расходы на рекламу:",
             *ad_lines,
             "8. Эквайринг: " + _money_with_revenue_share(metrics["acquiring"], revenue),
-            "9. Комиссия Ozon (вознаграждение за продажу): " + _money_with_revenue_share(metrics["commission"], revenue),
+            (
+                "9. Комиссия Ozon (предварительно, по данным отправлений): "
+                if metrics.get("commission_source") == "POSTING_SALE_COMMISSION"
+                else "9. Комиссия Ozon (вознаграждение за продажу): "
+            ) + _money_with_revenue_share(metrics["commission"], revenue),
             "10. Логистика доставки (без обратной логистики): " + _money_with_revenue_share(metrics["logistics"], revenue),
             "11. Доставка до места выдачи и выдача товара (части «последней мили»): " + _fee_with_revenue_share(fees.get("last_mile"), revenue),
             "12. Кросс-докинг: " + _fee_with_revenue_share(fees.get("cross_docking"), revenue),
@@ -938,9 +1066,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
             "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
-            "Источники: суммы и удержания — финансовые начисления Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
+            "Источники: суммы и удержания — финансовые начисления Ozon; категории комиссии и размещения сверяются по списку транзакций Ozon; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения», если они есть в начислениях. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
+            "Комиссия берётся из сумм явных операций «Вознаграждение за продажу» и «Возврат вознаграждения» в списке транзакций. Если этот источник недоступен, сумма из данных отправлений помечается как предварительная. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
             "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
             "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
             "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
@@ -948,26 +1076,32 @@ class ExperimentalStoreEconomicsRuntimeService:
             "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
         ]
         accrual_diagnostics = metrics.get("accrual_diagnostics") or {}
+        transaction_diagnostics = (
+            metrics.get("transaction_category_diagnostics") or {}
+        )
         if (
-            not accrual_diagnostics.get("root_commission_matches", 0)
-            and not accrual_diagnostics.get("fee_commission_matches", 0)
-        ) or (
-            not accrual_diagnostics.get("root_storage_matches", 0)
-            and not accrual_diagnostics.get("fee_storage_matches", 0)
+            metrics.get("commission_source") != "FINANCE_TRANSACTION_LIST"
+            or fees.get("paid_storage") is None
         ):
+            transaction_source = (
+                "доступен"
+                if transaction_diagnostics.get("available") is True
+                else "недоступен"
+            )
             lines.extend(
                 [
                     "",
-                    "Диагностика начислений (/v1/finance/accrual/by-day): "
-                    f"типов операций {accrual_diagnostics.get('root_type_count', 0)}, "
-                    f"с подписью {accrual_diagnostics.get('root_labeled_type_count', 0)}; "
-                    f"типов услуг {accrual_diagnostics.get('fee_type_count', 0)}; "
-                    "совпадений комиссии "
-                    f"{accrual_diagnostics.get('root_commission_matches', 0)}+"
-                    f"{accrual_diagnostics.get('fee_commission_matches', 0)}, "
-                    "размещения "
-                    f"{accrual_diagnostics.get('root_storage_matches', 0)}+"
-                    f"{accrual_diagnostics.get('fee_storage_matches', 0)}."
+                    "Диагностика разбивки (/v1/finance/accrual/by-day и "
+                    "/v3/finance/transaction/list): вложенных типов начислений "
+                    f"{accrual_diagnostics.get('fee_type_count', 0)}, "
+                    f"совпадений комиссии {accrual_diagnostics.get('commission_matches', 0)}, "
+                    f"размещения {accrual_diagnostics.get('storage_matches', 0)}; "
+                    f"список транзакций {transaction_source}, "
+                    f"операций {transaction_diagnostics.get('operation_count', 0)}, "
+                    "строк комиссии "
+                    f"{transaction_diagnostics.get('commission_operation_count', 0)}, "
+                    "услуг размещения "
+                    f"{transaction_diagnostics.get('storage_service_count', 0)}."
                 ]
             )
         if other_fee_details:

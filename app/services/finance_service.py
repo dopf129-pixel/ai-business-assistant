@@ -180,16 +180,6 @@ class FinanceService:
                 total_amount
             )
 
-            # ``accrual_id`` identifies an individual accrual row and can be
-            # different for every record. ``type_id`` is the category key used
-            # by the accrual type dictionary; grouping by ``accrual_id`` turns
-            # thousands of rows into thousands of unlabeled "types".
-            self._add_accrual_type(
-                result,
-                accrual.get("type_id"),
-                total_amount,
-            )
-
             category = accrual.get(
                 "accrued_category"
             )
@@ -706,6 +696,12 @@ class FinanceService:
             )
         )
 
+        self._add_accrual_type(
+            result,
+            type_id,
+            amount,
+        )
+
         result["fee_breakdown"][
             description
         ] = (
@@ -750,16 +746,16 @@ class FinanceService:
     def _add_accrual_type(
         self,
         result,
-        accrual_id,
+        type_id,
         amount,
     ):
         try:
-            accrual_id = int(accrual_id)
+            type_id = int(type_id)
         except (TypeError, ValueError):
             return
 
-        type_info = self.accrual_types.get(accrual_id) or {}
-        key = str(accrual_id)
+        type_info = self.accrual_types.get(type_id) or {}
+        key = str(type_id)
         entry = result["accrual_type_breakdown"].setdefault(
             key,
             {
