@@ -2,6 +2,7 @@ import unittest
 
 from api.base_ozon_client import OzonClient as BaseOzonClient
 from api.period_profit_ozon_client import PeriodProfitOzonClient
+from api.period_profit_runtime_ozon_client import PeriodProfitRuntimeOzonClient
 from services.period_profit_finance_service import PeriodProfitFinanceService
 
 
@@ -17,6 +18,27 @@ class RecordingOzonClient(PeriodProfitOzonClient):
                     "posting_number": "12345-1-1",
                     "accruals": [
                         {"sku": 3398133813, "quantity": 3},
+                    ],
+                }
+            ]
+        }
+
+
+class RecordingRuntimeOzonClient(PeriodProfitRuntimeOzonClient):
+    def __init__(self):
+        self.calls = []
+
+    def _post(self, endpoint, data, timeout=20, max_attempts=3):
+        self.calls.append((endpoint, data, timeout, max_attempts))
+        return {
+            "posting_accruals": [
+                {
+                    "posting_number": "fixture-posting-1",
+                    "accruals": [
+                        {
+                            "type_id": 69,
+                            "accrued": {"amount": "-16.53", "currency": "RUB"},
+                        }
                     ],
                 }
             ]
@@ -48,6 +70,24 @@ class TestPeriodProfitAccrualPostingsClient(unittest.TestCase):
             (
                 "/v1/finance/accrual/postings",
                 {"posting_numbers": ["12345-1-1"]},
+                30,
+                3,
+            )
+        ])
+
+    def test_runtime_client_requests_current_per_posting_accrual_endpoint(self):
+        ozon = RecordingRuntimeOzonClient()
+
+        result = ozon.get_accruals_by_postings(
+            ["fixture-posting-1", "fixture-posting-1"]
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["posting_accruals"][0]["accruals"][0]["accrued"]["amount"], "-16.53")
+        self.assertEqual(ozon.calls, [
+            (
+                "/v1/finance/accrual/postings",
+                {"posting_numbers": ["fixture-posting-1"]},
                 30,
                 3,
             )

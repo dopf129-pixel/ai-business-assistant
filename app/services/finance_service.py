@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from api.ozon_client import OzonClient
@@ -104,6 +105,66 @@ class FinanceService:
             accrual_date,
             sku=None
         )
+
+    def get_period_posting_numbers(self, date_from, date_to):
+        """Collect unique posting numbers from the already-read daily accruals.
+
+        The experimental economics report uses these identifiers to ask the
+        replacement accrual-postings endpoint for per-type amounts. Daily
+        responses are normally in this service's request-local cache, so this
+        does not add another by-day request after the period summary.
+        """
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except (TypeError, ValueError):
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_POSTING_DATE_RANGE_INVALID",
+            }
+        if end < start:
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_POSTING_DATE_RANGE_INVALID",
+            }
+
+        posting_numbers = set()
+        current = start
+        while current <= end:
+            response = self._get_accruals_by_day(current.isoformat())
+            if not isinstance(response, dict) or response.get("error") is True:
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_POSTING_NUMBERS_UNAVAILABLE",
+                }
+            accruals = response.get("accruals")
+            if not isinstance(accruals, list):
+                return {
+                    "error": True,
+                    "code": "OZON_FINANCE_POSTING_NUMBERS_INVALID",
+                }
+            for accrual in accruals:
+                if not isinstance(accrual, dict):
+                    return {
+                        "error": True,
+                        "code": "OZON_FINANCE_POSTING_NUMBERS_INVALID",
+                    }
+                if accrual.get("accrued_category") != "POSTING":
+                    continue
+                posting_number = str(accrual.get("unit_number") or "").strip()
+                if not posting_number:
+                    return {
+                        "error": True,
+                        "code": "OZON_FINANCE_POSTING_NUMBERS_INVALID",
+                    }
+                posting_numbers.add(posting_number)
+            current += timedelta(days=1)
+
+        return {
+            "error": False,
+            "posting_numbers": sorted(posting_numbers),
+            "posting_count": len(posting_numbers),
+        }
 
 
     def get_daily_finance(
