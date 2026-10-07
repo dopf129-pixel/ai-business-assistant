@@ -319,7 +319,8 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert (
         "Диагностика разбивки (/v1/finance/accrual/by-day и "
         "/v3/finance/transaction/list): вложенных типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; список транзакций недоступен, "
+        "совпадений комиссии 0, размещения 2; список транзакций недоступен "
+        "(OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE), "
         "операций 0, строк комиссии 0, услуг размещения 0."
     ) in result["text"]
     diagnostic_line = next(
@@ -425,6 +426,7 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     }
     assert result["metrics"]["transaction_category_diagnostics"] == {
         "available": True,
+        "failure_code": None,
         "operation_count": 5,
         "commission_operation_count": 2,
         "storage_service_count": 3,
@@ -464,7 +466,8 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
     expected = (
         "Диагностика разбивки (/v1/finance/accrual/by-day и "
         "/v3/finance/transaction/list): вложенных типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; список транзакций недоступен, "
+        "совпадений комиссии 0, размещения 2; список транзакций недоступен "
+        "(OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE), "
         "операций 0, строк комиссии 0, услуг размещения 0."
     )
     assert expected in telegram_text
@@ -474,6 +477,34 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
     )
     assert "9001" not in diagnostic_line
     assert "501" not in diagnostic_line
+
+
+def test_transaction_http_failure_code_reaches_telegram_without_api_message():
+    query = _Query()
+    transactions = _FinanceTransactions(
+        {
+            "error": True,
+            "code": "OZON_HTTP_403",
+            "message": "private Ozon response detail",
+        }
+    )
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["transaction_category_diagnostics"]["failure_code"] == (
+        "OZON_HTTP_403"
+    )
+    assert "список транзакций недоступен (OZON_HTTP_403)" in telegram_text
+    assert "private Ozon response detail" not in telegram_text
+    assert "9. Комиссия Ozon (предварительно, по данным отправлений)" in telegram_text
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():

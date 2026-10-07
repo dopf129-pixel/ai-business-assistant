@@ -81,6 +81,7 @@ class OzonClient:
         if not client_id or not api_key:
             return {
                 "error": True,
+                "code": "OZON_CREDENTIALS_UNAVAILABLE",
                 "message": "Нет ключей Ozon API"
             }
         headers = {
@@ -132,6 +133,7 @@ class OzonClient:
 
                         return {
                             "error": True,
+                            "code": "OZON_RATE_LIMITED",
                             "status_code": 429,
                             "message": (
                                 "Ozon API: превышен лимит запросов. "
@@ -190,6 +192,7 @@ class OzonClient:
 
                     return {
                         "error": True,
+                        "code": "OZON_API_TIMEOUT",
                         "message": (
                             "Ozon API: превышено "
                             "время ожидания"
@@ -238,6 +241,7 @@ class OzonClient:
 
                 return {
                     "error": True,
+                    "code": "OZON_HTTP_ERROR",
                     "status_code": (
                         response.status_code
                     ),
@@ -250,6 +254,7 @@ class OzonClient:
 
                     return {
                         "error": True,
+                        "code": "OZON_NETWORK_ERROR",
                         "message": str(
                             error
                         )
@@ -275,6 +280,7 @@ class OzonClient:
 
         return {
             "error": True,
+            "code": "OZON_API_REQUEST_FAILED",
             "message": (
                 "Ozon API: запрос не выполнен"
             )
@@ -693,11 +699,12 @@ class OzonClient:
                 max_attempts=3,
             )
 
-            if not isinstance(response, dict) or response.get("error") is True:
-                return response if isinstance(response, dict) else {
-                    "error": True,
-                    "code": "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
-                }
+            if not isinstance(response, dict):
+                return self._finance_transactions_error(
+                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                )
+            if response.get("error") is True:
+                return self._safe_finance_transactions_request_error(response)
 
             result = response.get("result")
             if not isinstance(result, dict):
@@ -758,6 +765,43 @@ class OzonClient:
             "read_only": True,
             "executed": False,
         }
+
+    @staticmethod
+    def _finance_transactions_error(code):
+        return {
+            "error": True,
+            "code": code,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @classmethod
+    def _safe_finance_transactions_request_error(cls, response):
+        status_code = response.get("status_code")
+        try:
+            status_code = int(status_code)
+        except (TypeError, ValueError, OverflowError):
+            status_code = None
+
+        if status_code == 429:
+            code = "OZON_RATE_LIMITED"
+        elif status_code is not None and 100 <= status_code <= 599:
+            code = f"OZON_HTTP_{status_code}"
+        else:
+            allowed_codes = {
+                "OZON_API_TOTAL_TIMEOUT",
+                "OZON_API_TIMEOUT",
+                "OZON_CREDENTIALS_UNAVAILABLE",
+                "OZON_NETWORK_ERROR",
+                "OZON_RATE_LIMITED",
+            }
+            candidate = response.get("code")
+            code = (
+                candidate
+                if isinstance(candidate, str) and candidate in allowed_codes
+                else "OZON_FINANCE_TRANSACTIONS_REQUEST_FAILED"
+            )
+        return cls._finance_transactions_error(code)
 
     def get_accrual_types(self):
 
