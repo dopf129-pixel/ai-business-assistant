@@ -101,6 +101,22 @@ class ExperimentalStoreEconomicsRuntimeService:
             "плата за размещение на складе ozon",
         }
     )
+    TRANSACTION_FAILURE_CODES = frozenset(
+        {
+            "OZON_API_TOTAL_TIMEOUT",
+            "OZON_API_TIMEOUT",
+            "OZON_CREDENTIALS_UNAVAILABLE",
+            "OZON_NETWORK_ERROR",
+            "OZON_RATE_LIMITED",
+            "OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE",
+            "OZON_FINANCE_TRANSACTION_CLIENT_EXCEPTION",
+            "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID",
+            "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_INVALID",
+            "OZON_FINANCE_TRANSACTIONS_PAGE_LIMIT_REACHED",
+            "OZON_FINANCE_TRANSACTIONS_REQUEST_FAILED",
+            "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID",
+        }
+    )
 
     def __init__(
         self,
@@ -233,6 +249,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             key: transaction_categories[key]
             for key in (
                 "available",
+                "failure_code",
                 "operation_count",
                 "commission_operation_count",
                 "storage_service_count",
@@ -733,9 +750,13 @@ class ExperimentalStoreEconomicsRuntimeService:
             start = date.fromisoformat(str(date_from))
             end = date.fromisoformat(str(date_to))
         except (TypeError, ValueError):
-            return self._empty_transaction_categories()
+            return self._empty_transaction_categories(
+                "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID"
+            )
         if end < start:
-            return self._empty_transaction_categories()
+            return self._empty_transaction_categories(
+                "OZON_FINANCE_TRANSACTION_DATE_RANGE_INVALID"
+            )
 
         operations = []
         current = start
@@ -744,18 +765,36 @@ class ExperimentalStoreEconomicsRuntimeService:
             try:
                 response = getter(current.isoformat(), chunk_end.isoformat())
             except Exception:
-                return self._empty_transaction_categories()
+                return self._empty_transaction_categories(
+                    "OZON_FINANCE_TRANSACTION_CLIENT_EXCEPTION"
+                )
+            if not isinstance(response, dict):
+                return self._empty_transaction_categories(
+                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                )
+            if response.get("error") is True:
+                return self._empty_transaction_categories(
+                    self._safe_transaction_failure_code(response.get("code"))
+                )
             if (
-                not isinstance(response, dict)
-                or response.get("error") is not False
+                response.get("error") is not False
                 or not isinstance(response.get("operations"), list)
             ):
-                return self._empty_transaction_categories()
+                return self._empty_transaction_categories(
+                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                )
+            if any(
+                not isinstance(operation, dict)
+                for operation in response["operations"]
+            ):
+                return self._empty_transaction_categories(
+                    "OZON_FINANCE_TRANSACTIONS_RESPONSE_INVALID"
+                )
             operations.extend(response["operations"])
             current = chunk_end + timedelta(days=1)
 
         result = {
-            **self._empty_transaction_categories(),
+            **self._empty_transaction_categories(failure_code=None),
             "available": True,
             "operation_count": len(operations),
         }
@@ -816,10 +855,23 @@ class ExperimentalStoreEconomicsRuntimeService:
             result["paid_storage"] = round(storage_total, 2)
         return result
 
+    @classmethod
+    def _safe_transaction_failure_code(cls, code):
+        if isinstance(code, str) and code in cls.TRANSACTION_FAILURE_CODES:
+            return code
+        if isinstance(code, str):
+            match = re.fullmatch(r"OZON_HTTP_(\d{3})", code)
+            if match and 100 <= int(match.group(1)) <= 599:
+                return code
+        return "OZON_FINANCE_TRANSACTIONS_REQUEST_FAILED"
+
     @staticmethod
-    def _empty_transaction_categories():
+    def _empty_transaction_categories(
+        failure_code="OZON_FINANCE_TRANSACTION_CLIENT_UNAVAILABLE",
+    ):
         return {
             "available": False,
+            "failure_code": failure_code,
             "operation_count": 0,
             "commission_operation_count": 0,
             "storage_service_count": 0,
@@ -1083,11 +1135,15 @@ class ExperimentalStoreEconomicsRuntimeService:
             metrics.get("commission_source") != "FINANCE_TRANSACTION_LIST"
             or fees.get("paid_storage") is None
         ):
-            transaction_source = (
-                "доступен"
-                if transaction_diagnostics.get("available") is True
-                else "недоступен"
-            )
+            if transaction_diagnostics.get("available") is True:
+                transaction_source = "доступен"
+            else:
+                failure_code = (
+                    ExperimentalStoreEconomicsRuntimeService._safe_transaction_failure_code(
+                        transaction_diagnostics.get("failure_code")
+                    )
+                )
+                transaction_source = f"недоступен ({failure_code})"
             lines.extend(
                 [
                     "",

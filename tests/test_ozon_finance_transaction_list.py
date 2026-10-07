@@ -58,6 +58,24 @@ def test_finance_transaction_list_fails_closed_on_invalid_pagination():
     assert "operations" not in result
 
 
+def test_finance_transaction_list_exposes_safe_http_failure_code_only():
+    client = OzonClient()
+    client._post = lambda *_args, **_kwargs: {
+        "error": True,
+        "status_code": 403,
+        "message": "private Ozon response detail",
+    }
+
+    result = client.get_finance_transactions("2026-08-01", "2026-08-28")
+
+    assert result == {
+        "error": True,
+        "code": "OZON_HTTP_403",
+        "read_only": True,
+        "executed": False,
+    }
+
+
 def test_finance_transaction_list_stops_when_page_limit_is_exceeded():
     client = OzonClient()
     client._post = lambda *_args, **_kwargs: {
