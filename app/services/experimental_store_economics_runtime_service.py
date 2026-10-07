@@ -234,6 +234,9 @@ class ExperimentalStoreEconomicsRuntimeService:
         metrics["finance_advertising"] = self._finance_advertising(
             metrics["fee_breakdown"]
         )
+        metrics["accrual_diagnostics"] = self._accrual_category_diagnostics(
+            summary
+        )
 
         return {
             "error": False,
@@ -642,6 +645,71 @@ class ExperimentalStoreEconomicsRuntimeService:
         return entries
 
     @classmethod
+    def _accrual_category_diagnostics(cls, summary):
+        source = summary.get("accrual_type_breakdown")
+        root_type_count = 0
+        root_labeled_type_count = 0
+        root_commission_matches = 0
+        root_storage_matches = 0
+        if isinstance(source, dict):
+            for raw_id, raw_entry in source.items():
+                if not isinstance(raw_entry, dict):
+                    continue
+                try:
+                    int(raw_id)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                root_type_count += 1
+                labels = [
+                    cls._text(raw_entry.get("description")),
+                    cls._text(raw_entry.get("name")),
+                ]
+                labels = [label for label in labels if label]
+                if labels:
+                    root_labeled_type_count += 1
+                    root_commission_matches += int(
+                        cls._is_explicit_commission_label(labels)
+                    )
+                    root_storage_matches += int(
+                        cls._matches_fee_category(
+                            labels,
+                            "paid_storage",
+                            cls.FEE_LABEL_MATCHERS["paid_storage"],
+                        )
+                    )
+
+        breakdown = summary.get("fee_breakdown")
+        fee_type_count = 0
+        fee_commission_matches = 0
+        fee_storage_matches = 0
+        if isinstance(breakdown, dict):
+            for raw_label in breakdown:
+                label = cls._text(raw_label)
+                if not label:
+                    continue
+                fee_type_count += 1
+                fee_commission_matches += int(
+                    cls._is_explicit_commission_label([label])
+                )
+                fee_storage_matches += int(
+                    cls._matches_fee_category(
+                        [label],
+                        "paid_storage",
+                        cls.FEE_LABEL_MATCHERS["paid_storage"],
+                    )
+                )
+
+        return {
+            "root_type_count": root_type_count,
+            "root_labeled_type_count": root_labeled_type_count,
+            "fee_type_count": fee_type_count,
+            "root_commission_matches": root_commission_matches,
+            "fee_commission_matches": fee_commission_matches,
+            "root_storage_matches": root_storage_matches,
+            "fee_storage_matches": fee_storage_matches,
+        }
+
+    @classmethod
     def _is_explicit_commission_label(cls, labels):
         aliases = tuple(cls.COMMISSION_FEE_LABELS)
         for label in labels:
@@ -879,6 +947,29 @@ class ExperimentalStoreEconomicsRuntimeService:
             "Разделение рекламы по типам возможно только по явным названиям начислений; отчёт по начислениям не содержит разбивки по кампаниям.",
             "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
         ]
+        accrual_diagnostics = metrics.get("accrual_diagnostics") or {}
+        if (
+            not accrual_diagnostics.get("root_commission_matches", 0)
+            and not accrual_diagnostics.get("fee_commission_matches", 0)
+        ) or (
+            not accrual_diagnostics.get("root_storage_matches", 0)
+            and not accrual_diagnostics.get("fee_storage_matches", 0)
+        ):
+            lines.extend(
+                [
+                    "",
+                    "Диагностика начислений (/v1/finance/accrual/by-day): "
+                    f"типов операций {accrual_diagnostics.get('root_type_count', 0)}, "
+                    f"с подписью {accrual_diagnostics.get('root_labeled_type_count', 0)}; "
+                    f"типов услуг {accrual_diagnostics.get('fee_type_count', 0)}; "
+                    "совпадений комиссии "
+                    f"{accrual_diagnostics.get('root_commission_matches', 0)}+"
+                    f"{accrual_diagnostics.get('fee_commission_matches', 0)}, "
+                    "размещения "
+                    f"{accrual_diagnostics.get('root_storage_matches', 0)}+"
+                    f"{accrual_diagnostics.get('fee_storage_matches', 0)}."
+                ]
+            )
         if other_fee_details:
             lines.extend(
                 [

@@ -202,6 +202,26 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     }
     assert result["metrics"]["finance_advertising"]["groups"]["CPC"]["amount"] == -3000.0
     assert result["metrics"]["finance_advertising"]["groups"]["CPO"]["amount"] == -400.0
+    assert result["metrics"]["accrual_diagnostics"] == {
+        "root_type_count": 0,
+        "root_labeled_type_count": 0,
+        "fee_type_count": 10,
+        "root_commission_matches": 0,
+        "fee_commission_matches": 0,
+        "root_storage_matches": 0,
+        "fee_storage_matches": 2,
+    }
+    assert (
+        "Диагностика начислений (/v1/finance/accrual/by-day): "
+        "типов операций 0, с подписью 0; типов услуг 10; "
+        "совпадений комиссии 0+0, размещения 0+2."
+    ) in result["text"]
+    diagnostic_line = next(
+        line for line in result["text"].splitlines()
+        if line.startswith("Диагностика начислений (")
+    )
+    assert "9001" not in diagnostic_line
+    assert "501" not in diagnostic_line
     assert "1. Выручка общая (100%): 100 000.00 ₽" in result["text"]
     assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽ (92,00% от общей выручки)" in result["text"]
     assert "3. Баллы за скидки: 8 000.00 ₽ (8,00% от общей выручки)" in result["text"]
@@ -263,6 +283,37 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
     assert "Комиссия считается по явным типам «Вознаграждение за продажу» и «Возврат вознаграждения»" in telegram_text
+    assert result["metrics"]["accrual_diagnostics"] == {
+        "root_type_count": 3,
+        "root_labeled_type_count": 3,
+        "fee_type_count": 9,
+        "root_commission_matches": 2,
+        "fee_commission_matches": 0,
+        "root_storage_matches": 1,
+        "fee_storage_matches": 1,
+    }
+    assert "Диагностика начислений (" not in telegram_text
+
+
+def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers():
+    query, runtime = _service()
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    expected = (
+        "Диагностика начислений (/v1/finance/accrual/by-day): "
+        "типов операций 0, с подписью 0; типов услуг 10; "
+        "совпадений комиссии 0+0, размещения 0+2."
+    )
+    assert expected in telegram_text
+    diagnostic_line = next(
+        line for line in telegram_text.splitlines()
+        if line.startswith("Диагностика начислений (")
+    )
+    assert "9001" not in diagnostic_line
+    assert "501" not in diagnostic_line
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():
