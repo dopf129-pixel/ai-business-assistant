@@ -3,6 +3,7 @@ from services.assistant_keyboard_service import AssistantKeyboardService
 from services.experimental_store_economics_runtime_service import (
     ExperimentalStoreEconomicsRuntimeService,
 )
+from services.finance_service import FinanceService
 from services.period_profit_cost_exclusion_context import cost_excluded
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
@@ -84,6 +85,128 @@ class _CommissionSummary(_Summary):
             },
         }
         return result
+
+
+class _FinanceBackedCommissionSummary:
+    """Use FinanceService's real accrual parser with stable API fixtures."""
+
+    def __init__(self):
+        self.finance = FinanceService()
+        self.finance.accrual_types = {
+            1: {"name": "Acquiring", "description": "Эквайринг"},
+            29: {"name": "Logistics", "description": "Логистика"},
+            501: {
+                "name": "SaleCommission",
+                "description": "Вознаграждение за продажу",
+            },
+            502: {
+                "name": "CommissionRefund",
+                "description": "Возврат вознаграждения",
+            },
+            503: {
+                "name": "WarehousePlacement",
+                "description": "Размещение на складе",
+            },
+            600: {"name": "Other", "description": "Прочее"},
+        }
+        self.finance._get_accruals_by_day = lambda _day: {
+            "error": False,
+            "accruals": [
+                {
+                    "accrual_id": 9000001,
+                    "type_id": 700,
+                    "accrued_category": "POSTING",
+                    "total_amount": {"amount": "489721.93"},
+                    "posting": {
+                        "products": [
+                            {
+                                "sku": "fixture-sku",
+                                "commission": {
+                                    "sale_amount": {"amount": "489721.93"},
+                                    "bonus": {"amount": "124031.60"},
+                                    "sale_commission": {"amount": "-69163.97"},
+                                },
+                                "delivery": {
+                                    "services": [
+                                        {
+                                            "type_id": 1,
+                                            "accrued": {"amount": "-6176.40"},
+                                        },
+                                        {
+                                            "type_id": 29,
+                                            "accrued": {"amount": "-131128.88"},
+                                        },
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                },
+                {
+                    "accrual_id": 9000002,
+                    "type_id": 501,
+                    "accrued_category": "NON_ITEM",
+                    "total_amount": {"amount": "-69193.10"},
+                    "non_item_fee": {
+                        "type_id": 501,
+                        "accrued": {"amount": "-69193.10"},
+                    },
+                },
+                {
+                    "accrual_id": 9000003,
+                    "type_id": 502,
+                    "accrued_category": "NON_ITEM",
+                    "total_amount": {"amount": "25.20"},
+                    "non_item_fee": {
+                        "type_id": 502,
+                        "accrued": {"amount": "25.20"},
+                    },
+                },
+                {
+                    "accrual_id": 9000004,
+                    "type_id": 503,
+                    "accrued_category": "NON_ITEM",
+                    "total_amount": {"amount": "-1.74"},
+                    "non_item_fee": {
+                        "type_id": 503,
+                        "accrued": {"amount": "-1.74"},
+                    },
+                },
+                {
+                    "accrual_id": 9000005,
+                    "type_id": 600,
+                    "accrued_category": "NON_ITEM",
+                    "total_amount": {"amount": "-243270.12"},
+                    "non_item_fee": {
+                        "type_id": 600,
+                        "accrued": {"amount": "-243270.12"},
+                    },
+                },
+            ],
+        }
+
+    def calculate(self, date_from, date_to, products):
+        daily = self.finance.get_daily_account_finance("2026-08-15")
+        revenue = daily["gross_sales"]
+        discount_points = daily["discount_points"]
+        tax = 21941.42
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_SUMMARY_READY",
+            "revenue": revenue,
+            "revenue_tax_base": round(revenue - discount_points, 2),
+            "discount_points": discount_points,
+            "net_accrual": daily["net_accrual"],
+            "tax": tax,
+            "profit": round(daily["net_accrual"] - tax, 2),
+            "acquiring": daily["acquiring"],
+            "commission": daily["commission"],
+            "logistics": daily["logistics"],
+            "other_fees": daily["other_fees"],
+            "products": products,
+            "fee_breakdown": daily["fee_breakdown"],
+            "accrual_type_breakdown": daily["accrual_type_breakdown"],
+        }
 
 
 class _Query:
@@ -289,6 +412,36 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
         "fee_type_count": 9,
         "root_commission_matches": 2,
         "fee_commission_matches": 0,
+        "root_storage_matches": 1,
+        "fee_storage_matches": 1,
+    }
+    assert "Диагностика начислений (" not in telegram_text
+
+
+def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["commission"] == -69167.90
+    assert result["metrics"]["other_fees"] == -105966.58
+    assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽" in telegram_text
+    assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
+    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert result["metrics"]["accrual_diagnostics"] == {
+        "root_type_count": 5,
+        "root_labeled_type_count": 4,
+        "fee_type_count": 6,
+        "root_commission_matches": 2,
+        "fee_commission_matches": 2,
         "root_storage_matches": 1,
         "fee_storage_matches": 1,
     }

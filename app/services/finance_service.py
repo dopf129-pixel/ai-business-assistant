@@ -180,15 +180,13 @@ class FinanceService:
                 total_amount
             )
 
-            # Ozon renamed the root accrual type field from ``type_id`` to
-            # ``accrual_id``. Keep this operation-level breakdown separate
-            # from nested fee leaves: its totals are useful for classification,
-            # but must not be added to the account totals a second time.
+            # ``accrual_id`` identifies an individual accrual row and can be
+            # different for every record. ``type_id`` is the category key used
+            # by the accrual type dictionary; grouping by ``accrual_id`` turns
+            # thousands of rows into thousands of unlabeled "types".
             self._add_accrual_type(
                 result,
-                accrual.get("accrual_id")
-                if accrual.get("accrual_id") is not None
-                else accrual.get("type_id"),
+                accrual.get("type_id"),
                 total_amount,
             )
 
