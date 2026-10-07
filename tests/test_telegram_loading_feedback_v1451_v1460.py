@@ -6,10 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "app"))
 
 from telegram_app_layer.telegram_progress_feedback import (
+    MAX_TELEGRAM_TEXT_UNITS,
     begin_progress,
     finish_progress,
     progress_text,
     should_show_progress,
+    split_telegram_text,
 )
 
 
@@ -113,6 +115,86 @@ class TestTelegramLoadingFeedbackV1451V1460(unittest.IsolatedAsyncioTestCase):
         handle = await begin_progress(message, text="Финансы")
         await finish_progress(message, handle, "⚠️ Ошибка загрузки")
         self.assertEqual(progress.edits[0][0], "⚠️ Ошибка загрузки")
+
+    async def test_long_report_is_split_and_keyboard_is_attached_to_last_part(self):
+        progress = FakeProgressMessage()
+        message = FakeMessage(progress=progress)
+        keyboard = object()
+        response = (
+            "🧪 Экономика магазина\n"
+            + "Детализация начислений Ozon — 123 456.78 ₽\n" * 180
+        )
+
+        mode = await finish_progress(
+            message,
+            progress,
+            response,
+            reply_markup=keyboard,
+        )
+
+        chunks = [progress.edits[0][0]] + [
+            item[0] for item in message.replies
+        ]
+        marks = [progress.edits[0][1]] + [
+            item[1] for item in message.replies
+        ]
+        self.assertEqual(mode, "split")
+        self.assertEqual("".join(chunks), response)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(
+            all(
+                len(chunk.encode("utf-16-le")) // 2
+                <= MAX_TELEGRAM_TEXT_UNITS
+                for chunk in chunks
+            )
+        )
+        self.assertTrue(all(mark is None for mark in marks[:-1]))
+        self.assertIs(marks[-1], keyboard)
+
+    async def test_long_report_falls_back_to_split_replies_if_edit_fails(self):
+        progress = FakeProgressMessage(fail_edit=True)
+        message = FakeMessage(progress=progress)
+        keyboard = object()
+        response = (
+            "🧪 "
+            + "Строка отчёта Ozon с подробной классификацией.\n" * 180
+        )
+
+        mode = await finish_progress(
+            message,
+            progress,
+            response,
+            reply_markup=keyboard,
+        )
+
+        chunks = [item[0] for item in message.replies]
+        marks = [item[1] for item in message.replies]
+        self.assertEqual(mode, "split")
+        self.assertEqual("".join(chunks), response)
+        self.assertTrue(
+            all(
+                len(chunk.encode("utf-16-le")) // 2
+                <= MAX_TELEGRAM_TEXT_UNITS
+                for chunk in chunks
+            )
+        )
+        self.assertTrue(all(mark is None for mark in marks[:-1]))
+        self.assertIs(marks[-1], keyboard)
+
+    def test_split_uses_utf16_units_for_emoji(self):
+        response = "🧪" * (MAX_TELEGRAM_TEXT_UNITS // 2 + 1)
+
+        chunks = split_telegram_text(response)
+
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual("".join(chunks), response)
+        self.assertTrue(
+            all(
+                len(chunk.encode("utf-16-le")) // 2
+                <= MAX_TELEGRAM_TEXT_UNITS
+                for chunk in chunks
+            )
+        )
 
 
 if __name__ == "__main__":
