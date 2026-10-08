@@ -558,6 +558,8 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
         "failure_code": None,
         "month_count": 1,
         "row_count": 1,
+        "delivery_commission_missing_row_count": 0,
+        "return_commission_missing_row_count": 0,
         "sale_operation_count": 1,
         "sale_commission_amount": -69193.10,
         "return_operation_count": 1,
@@ -568,6 +570,123 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
     assert "Диагностика комиссии (/v1/finance/realization/posting)" in telegram_text
     assert realization_calls == [(2026, 8)]
+    assert "private-order-number" not in telegram_text
+    assert "private product" not in telegram_text
+    assert "918273" not in telegram_text
+
+
+def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_telegram():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    realization_calls = []
+
+    def get_realization_posting(year, month):
+        realization_calls.append((year, month))
+        return {
+            "error": False,
+            "result": {
+                "rows": [
+                    {
+                        "order": {"posting_number": "private-sale-order"},
+                        "delivery_commission": {"commission": "-69193.10"},
+                    },
+                    {
+                        "order": {"posting_number": "private-return-order"},
+                        "item": {"name": "private product", "sku": 918273},
+                        "return_commission": {"commission": "25.20"},
+                    },
+                ]
+            },
+        }
+
+    query.summary_service.finance.ozon.get_realization_posting = (
+        get_realization_posting
+    )
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+    diagnostics = result["metrics"]["realization_commission_diagnostics"]
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69167.90
+    assert result["metrics"]["other_fees"] == -105966.58
+    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_POSTING"
+    assert diagnostics["available"] is True
+    assert diagnostics["row_count"] == 2
+    assert diagnostics["delivery_commission_missing_row_count"] == 1
+    assert diagnostics["return_commission_missing_row_count"] == 1
+    assert diagnostics["sale_operation_count"] == 1
+    assert diagnostics["sale_commission_amount"] == -69193.10
+    assert diagnostics["return_operation_count"] == 1
+    assert diagnostics["return_commission_amount"] == 25.20
+    assert diagnostics["commission"] == -69167.90
+    assert "9. Комиссия Ozon (отчёт о реализации): -69 167.90 ₽" in telegram_text
+    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert (
+        "строк 2 (без комиссии продажи: 1, без комиссии возврата: 1)"
+        in telegram_text
+    )
+    assert realization_calls == [(2026, 8)]
+    assert "private-sale-order" not in telegram_text
+    assert "private-return-order" not in telegram_text
+    assert "private product" not in telegram_text
+    assert "918273" not in telegram_text
+
+
+def test_realization_row_without_either_commission_fails_closed_in_telegram():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+        "error": False,
+        "result": {
+            "rows": [
+                {
+                    "order": {"posting_number": "private-order-number"},
+                    "item": {"name": "private product", "sku": 918273},
+                }
+            ]
+        },
+    }
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69159.91
+    assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
+    assert result["metrics"]["realization_commission_diagnostics"]["available"] is False
+    assert (
+        result["metrics"]["realization_commission_diagnostics"]["failure_code"]
+        == "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
+    )
+    assert (
+        "источник недоступен (OZON_FINANCE_REALIZATION_COMMISSION_MISSING); "
+        "использован предварительный источник по отправлениям."
+    ) in telegram_text
     assert "private-order-number" not in telegram_text
     assert "private product" not in telegram_text
     assert "918273" not in telegram_text
