@@ -439,12 +439,74 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
         "posting_count": 1,
         "operation_count": 5,
         "commission_operation_count": 2,
+        "commission_sale_operation_count": 1,
+        "commission_sale_amount": -69193.10,
+        "commission_refund_operation_count": 1,
+        "commission_refund_amount": 25.20,
+        "commission_other_operation_count": 0,
+        "commission_other_amount": None,
+        "unmapped_type_count": 0,
+        "unmapped_type_amount": None,
         "storage_service_count": 3,
+        "paid_storage": -1.74,
     }
     assert transactions.calls == [["fixture-posting-1"]]
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
-    assert "Диагностика начислений (" not in telegram_text
+    assert (
+        "Диагностика начислений (/v1/finance/accrual/postings): отправлений 1, "
+        "строк начислений 5, комиссия: продажа — операций 1, -69 193.10 ₽; "
+        "возврат — операций 1, 25.20 ₽; прочие явные типы — операций 0, "
+        "0.00 ₽; без типа в справочнике — операций 0, 0.00 ₽; "
+        "размещение — операций 3, -1.74 ₽."
+    ) in telegram_text
+
+
+def test_commission_posting_diagnostic_exposes_safe_subtotals_and_unmapped_rows():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69185.11"}},
+        {"type_id": 70, "accrued": {"amount": "25.20"}},
+        *[
+            {"type_id": 46, "accrued": {"amount": "-0.58"}}
+            for _ in range(3)
+        ],
+        {"type_id": 999, "accrued": {"amount": "-7.99"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    result = bot.on_callback("seller-a", "experimental_store_economics:7D")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["metrics"]["commission"] == -69159.91
+    assert result["metrics"]["other_fees"] == -105974.57
+    assert result["metrics"]["accrual_posting_category_diagnostics"][
+        "commission_sale_amount"
+    ] == -69185.11
+    assert result["metrics"]["accrual_posting_category_diagnostics"][
+        "commission_refund_amount"
+    ] == 25.20
+    assert result["metrics"]["accrual_posting_category_diagnostics"][
+        "unmapped_type_amount"
+    ] == -7.99
+    assert (
+        "Диагностика начислений (/v1/finance/accrual/postings): отправлений 1, "
+        "строк начислений 6, комиссия: продажа — операций 1, -69 185.11 ₽; "
+        "возврат — операций 1, 25.20 ₽; прочие явные типы — операций 0, "
+        "0.00 ₽; без типа в справочнике — операций 1, -7.99 ₽; "
+        "размещение — операций 3, -1.74 ₽."
+    ) in telegram_text
+    assert "fixture-posting-1" not in telegram_text
+    assert "fixture-sku" not in telegram_text
+    assert "private" not in telegram_text
 
 
 def test_accrual_posting_categories_batch_postings_without_overlap():

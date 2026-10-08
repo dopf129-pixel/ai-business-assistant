@@ -245,7 +245,16 @@ class ExperimentalStoreEconomicsRuntimeService:
                 "posting_count",
                 "operation_count",
                 "commission_operation_count",
+                "commission_sale_operation_count",
+                "commission_sale_amount",
+                "commission_refund_operation_count",
+                "commission_refund_amount",
+                "commission_other_operation_count",
+                "commission_other_amount",
+                "unmapped_type_count",
+                "unmapped_type_amount",
                 "storage_service_count",
+                "paid_storage",
             )
         }
         explicit_commission = accrual_posting_categories.get("commission")
@@ -865,6 +874,18 @@ class ExperimentalStoreEconomicsRuntimeService:
         commission_total = 0.0
         commission_count = 0
         commission_invalid = False
+        commission_sale_total = 0.0
+        commission_sale_count = 0
+        commission_sale_invalid = False
+        commission_refund_total = 0.0
+        commission_refund_count = 0
+        commission_refund_invalid = False
+        commission_other_total = 0.0
+        commission_other_count = 0
+        commission_other_invalid = False
+        unmapped_type_count = 0
+        unmapped_type_total = 0.0
+        unmapped_type_invalid = False
         storage_total = 0.0
         storage_count = 0
         storage_invalid = False
@@ -873,9 +894,31 @@ class ExperimentalStoreEconomicsRuntimeService:
             try:
                 type_id = int(accrual.get("type_id"))
             except (TypeError, ValueError, OverflowError):
+                unmapped_type_count += 1
+                raw_accrued = accrual.get("accrued")
+                amount = self._number(
+                    raw_accrued.get("amount")
+                    if isinstance(raw_accrued, dict)
+                    else None
+                )
+                if amount is None:
+                    unmapped_type_invalid = True
+                else:
+                    unmapped_type_total += amount
                 continue
             type_info = accrual_types.get(type_id)
             if not isinstance(type_info, dict):
+                unmapped_type_count += 1
+                raw_accrued = accrual.get("accrued")
+                amount = self._number(
+                    raw_accrued.get("amount")
+                    if isinstance(raw_accrued, dict)
+                    else None
+                )
+                if amount is None:
+                    unmapped_type_invalid = True
+                else:
+                    unmapped_type_total += amount
                 continue
             labels = [
                 self._text(type_info.get("description")),
@@ -883,6 +926,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             ]
             labels = [label for label in labels if label]
             is_commission = self._is_explicit_commission_label(labels)
+            commission_kind = self._commission_label_kind(labels)
             is_storage = self._matches_fee_category(
                 labels,
                 "paid_storage",
@@ -901,6 +945,24 @@ class ExperimentalStoreEconomicsRuntimeService:
                     commission_invalid = True
                 else:
                     commission_total += amount
+                if commission_kind == "sale":
+                    commission_sale_count += 1
+                    if amount is None:
+                        commission_sale_invalid = True
+                    else:
+                        commission_sale_total += amount
+                elif commission_kind == "refund":
+                    commission_refund_count += 1
+                    if amount is None:
+                        commission_refund_invalid = True
+                    else:
+                        commission_refund_total += amount
+                else:
+                    commission_other_count += 1
+                    if amount is None:
+                        commission_other_invalid = True
+                    else:
+                        commission_other_total += amount
             if is_storage:
                 storage_count += 1
                 if amount is None:
@@ -909,11 +971,26 @@ class ExperimentalStoreEconomicsRuntimeService:
                     storage_total += amount
 
         result["commission_operation_count"] = commission_count
+        result["commission_sale_operation_count"] = commission_sale_count
+        result["commission_refund_operation_count"] = commission_refund_count
+        result["commission_other_operation_count"] = commission_other_count
+        result["unmapped_type_count"] = unmapped_type_count
+        if unmapped_type_count and not unmapped_type_invalid:
+            result["unmapped_type_amount"] = round(unmapped_type_total, 2)
         result["storage_service_count"] = storage_count
+        if commission_sale_count and not commission_sale_invalid:
+            result["commission_sale_amount"] = round(commission_sale_total, 2)
+        if commission_refund_count and not commission_refund_invalid:
+            result["commission_refund_amount"] = round(commission_refund_total, 2)
+        if commission_other_count and not commission_other_invalid:
+            result["commission_other_amount"] = round(commission_other_total, 2)
         if commission_count and not commission_invalid:
             result["commission"] = round(commission_total, 2)
-        if storage_count and not storage_invalid:
-            result["paid_storage"] = round(storage_total, 2)
+        result["paid_storage"] = (
+            round(storage_total, 2)
+            if storage_count and not storage_invalid
+            else None
+        )
         return result
 
     @classmethod
@@ -936,10 +1013,50 @@ class ExperimentalStoreEconomicsRuntimeService:
             "posting_count": 0,
             "operation_count": 0,
             "commission_operation_count": 0,
+            "commission_sale_operation_count": 0,
+            "commission_sale_amount": None,
+            "commission_refund_operation_count": 0,
+            "commission_refund_amount": None,
+            "commission_other_operation_count": 0,
+            "commission_other_amount": None,
+            "unmapped_type_count": 0,
+            "unmapped_type_amount": None,
             "storage_service_count": 0,
-            "commission": None,
             "paid_storage": None,
+            "commission": None,
         }
+
+    @classmethod
+    def _commission_label_kind(cls, labels):
+        normalized = [
+            " ".join(cls._text(label).casefold().split()).rstrip(" .:;")
+            for label in labels
+        ]
+        refund_aliases = (
+            "возврат вознаграждения",
+            "commission refund",
+            "refund of commission",
+        )
+        if any(
+            alias in label
+            for label in normalized
+            for alias in refund_aliases
+        ):
+            return "refund"
+        sale_aliases = (
+            "вознаграждение за продажу",
+            "sale commission",
+            "commission for sale",
+        )
+        if any(
+            alias in label
+            for label in normalized
+            for alias in sale_aliases
+        ):
+            return "sale"
+        if cls._is_explicit_commission_label(labels):
+            return "other"
+        return None
 
     @classmethod
     def _is_explicit_commission_label(cls, labels):
@@ -1187,19 +1304,64 @@ class ExperimentalStoreEconomicsRuntimeService:
         posting_diagnostics = (
             metrics.get("accrual_posting_category_diagnostics") or {}
         )
-        if (
+        if posting_diagnostics.get("available") is True:
+            def diagnostic_subtotal(count, value):
+                if count == 0:
+                    return _money(0)
+                return (
+                    _money(value)
+                    if value is not None
+                    else "сумма не подтверждена"
+                )
+
+            commission_sale_count = posting_diagnostics.get(
+                "commission_sale_operation_count", 0
+            )
+            commission_refund_count = posting_diagnostics.get(
+                "commission_refund_operation_count", 0
+            )
+            commission_other_count = posting_diagnostics.get(
+                "commission_other_operation_count", 0
+            )
+            unmapped_type_count = posting_diagnostics.get(
+                "unmapped_type_count", 0
+            )
+            storage_service_count = posting_diagnostics.get(
+                "storage_service_count", 0
+            )
+            lines.extend(
+                [
+                    "",
+                    "Диагностика начислений (/v1/finance/accrual/postings): "
+                    f"отправлений {posting_diagnostics.get('posting_count', 0)}, "
+                    f"строк начислений {posting_diagnostics.get('operation_count', 0)}, "
+                    "комиссия: продажа — операций "
+                    f"{commission_sale_count}, "
+                    f"{diagnostic_subtotal(commission_sale_count, posting_diagnostics.get('commission_sale_amount'))}; "
+                    "возврат — операций "
+                    f"{commission_refund_count}, "
+                    f"{diagnostic_subtotal(commission_refund_count, posting_diagnostics.get('commission_refund_amount'))}; "
+                    "прочие явные типы — операций "
+                    f"{commission_other_count}, "
+                    f"{diagnostic_subtotal(commission_other_count, posting_diagnostics.get('commission_other_amount'))}; "
+                    "без типа в справочнике — операций "
+                    f"{unmapped_type_count}, "
+                    f"{diagnostic_subtotal(unmapped_type_count, posting_diagnostics.get('unmapped_type_amount'))}; "
+                    "размещение — операций "
+                    f"{storage_service_count}, "
+                    f"{diagnostic_subtotal(storage_service_count, posting_diagnostics.get('paid_storage'))}."
+                ]
+            )
+        elif (
             metrics.get("commission_source") != "FINANCE_ACCRUAL_POSTINGS"
             or fees.get("paid_storage") is None
         ):
-            if posting_diagnostics.get("available") is True:
-                posting_source = "доступен"
-            else:
-                failure_code = (
-                    ExperimentalStoreEconomicsRuntimeService._safe_accrual_posting_failure_code(
-                        posting_diagnostics.get("failure_code")
-                    )
+            failure_code = (
+                ExperimentalStoreEconomicsRuntimeService._safe_accrual_posting_failure_code(
+                    posting_diagnostics.get("failure_code")
                 )
-                posting_source = f"недоступен ({failure_code})"
+            )
+            posting_source = f"недоступен ({failure_code})"
             lines.extend(
                 [
                     "",
@@ -1211,10 +1373,8 @@ class ExperimentalStoreEconomicsRuntimeService:
                     f"источник начислений по отправлениям {posting_source}, "
                     f"отправлений {posting_diagnostics.get('posting_count', 0)}, "
                     f"строк начислений {posting_diagnostics.get('operation_count', 0)}, "
-                    "строк комиссии "
-                    f"{posting_diagnostics.get('commission_operation_count', 0)}, "
-                    "строк размещения "
-                    f"{posting_diagnostics.get('storage_service_count', 0)}."
+                    f"строк комиссии {posting_diagnostics.get('commission_operation_count', 0)}, "
+                    f"строк размещения {posting_diagnostics.get('storage_service_count', 0)}."
                 ]
             )
         if other_fee_details:
