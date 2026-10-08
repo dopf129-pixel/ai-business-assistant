@@ -806,17 +806,45 @@ class ExperimentalStoreEconomicsRuntimeService:
                     return self._empty_realization_commission(
                         "OZON_FINANCE_REALIZATION_ROW_INVALID"
                     )
+                result["row_count"] += 1
                 delivery = row.get("delivery_commission")
                 returned = row.get("return_commission")
-                if not isinstance(delivery, dict) or not isinstance(returned, dict):
-                    return self._empty_realization_commission(
-                        "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
+                delivery_missing = delivery is None
+                return_missing = returned is None
+                if delivery_missing:
+                    result["delivery_commission_missing_row_count"] += 1
+                if return_missing:
+                    result["return_commission_missing_row_count"] += 1
+                if delivery_missing and return_missing:
+                    return self._failed_realization_commission(
+                        "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
+                        result,
                     )
-                sale_amount = self._number(delivery.get("commission"))
-                return_amount = self._number(returned.get("commission"))
+                if (
+                    (not delivery_missing and not isinstance(delivery, dict))
+                    or (not return_missing and not isinstance(returned, dict))
+                ):
+                    return self._failed_realization_commission(
+                        "OZON_FINANCE_REALIZATION_ROW_INVALID",
+                        result,
+                    )
+                # A report row may describe only a delivery or only a return.
+                # Sum the commission object that Ozon supplied; fail closed if
+                # neither component is present or a present amount is invalid.
+                sale_amount = (
+                    0.0
+                    if delivery_missing
+                    else self._number(delivery.get("commission"))
+                )
+                return_amount = (
+                    0.0
+                    if return_missing
+                    else self._number(returned.get("commission"))
+                )
                 if sale_amount is None or return_amount is None:
-                    return self._empty_realization_commission(
-                        "OZON_FINANCE_REALIZATION_COMMISSION_INVALID"
+                    return self._failed_realization_commission(
+                        "OZON_FINANCE_REALIZATION_COMMISSION_INVALID",
+                        result,
                     )
                 sale_total += sale_amount
                 return_total += return_amount
@@ -824,7 +852,6 @@ class ExperimentalStoreEconomicsRuntimeService:
                     result["sale_operation_count"] += 1
                 if return_amount:
                     result["return_operation_count"] += 1
-                result["row_count"] += 1
 
             result["month_count"] += 1
             current = (
@@ -845,12 +872,26 @@ class ExperimentalStoreEconomicsRuntimeService:
             "failure_code": failure_code,
             "month_count": 0,
             "row_count": 0,
+            "delivery_commission_missing_row_count": 0,
+            "return_commission_missing_row_count": 0,
             "sale_operation_count": 0,
             "sale_commission_amount": None,
             "return_operation_count": 0,
             "return_commission_amount": None,
             "commission": None,
         }
+
+    @classmethod
+    def _failed_realization_commission(cls, failure_code, partial_result):
+        result = cls._empty_realization_commission(failure_code)
+        for key in (
+            "month_count",
+            "row_count",
+            "delivery_commission_missing_row_count",
+            "return_commission_missing_row_count",
+        ):
+            result[key] = partial_result.get(key, 0)
+        return result
 
     @classmethod
     def _safe_realization_commission_failure_code(cls, code, status_code=None):
@@ -1532,7 +1573,11 @@ class ExperimentalStoreEconomicsRuntimeService:
                     "",
                     "Диагностика комиссии (/v1/finance/realization/posting): "
                     f"полных месяцев {realization_diagnostics.get('month_count', 0)}, "
-                    f"строк {realization_diagnostics.get('row_count', 0)}; "
+                    f"строк {realization_diagnostics.get('row_count', 0)} "
+                    "(без комиссии продажи: "
+                    f"{realization_diagnostics.get('delivery_commission_missing_row_count', 0)}, "
+                    "без комиссии возврата: "
+                    f"{realization_diagnostics.get('return_commission_missing_row_count', 0)}); "
                     "продажа — операций "
                     f"{realization_diagnostics.get('sale_operation_count', 0)}, "
                     f"{_money(realization_diagnostics.get('sale_commission_amount'))}; "
