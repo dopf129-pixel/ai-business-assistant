@@ -290,6 +290,15 @@ class ExperimentalStoreEconomicsRuntimeService:
             date_to,
             finance_service=finance_service,
         )
+        if (
+            realization_commission.get("available") is True
+            and metrics["analytics"].get("returns") != 0
+            and realization_commission.get("return_commission_row_count", 0) == 0
+        ):
+            realization_commission = self._failed_realization_commission(
+                "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
+                realization_commission,
+            )
         metrics["realization_commission_diagnostics"] = realization_commission
         explicit_commission = realization_commission.get("commission")
         commission_source = "FINANCE_REALIZATION_POSTING"
@@ -813,8 +822,12 @@ class ExperimentalStoreEconomicsRuntimeService:
                 return_missing = returned is None
                 if delivery_missing:
                     result["delivery_commission_missing_row_count"] += 1
+                else:
+                    result["delivery_commission_row_count"] += 1
                 if return_missing:
                     result["return_commission_missing_row_count"] += 1
+                else:
+                    result["return_commission_row_count"] += 1
                 if delivery_missing and return_missing:
                     return self._failed_realization_commission(
                         "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
@@ -872,6 +885,8 @@ class ExperimentalStoreEconomicsRuntimeService:
             "failure_code": failure_code,
             "month_count": 0,
             "row_count": 0,
+            "delivery_commission_row_count": 0,
+            "return_commission_row_count": 0,
             "delivery_commission_missing_row_count": 0,
             "return_commission_missing_row_count": 0,
             "sale_operation_count": 0,
@@ -887,6 +902,8 @@ class ExperimentalStoreEconomicsRuntimeService:
         for key in (
             "month_count",
             "row_count",
+            "delivery_commission_row_count",
+            "return_commission_row_count",
             "delivery_commission_missing_row_count",
             "return_commission_missing_row_count",
         ):
