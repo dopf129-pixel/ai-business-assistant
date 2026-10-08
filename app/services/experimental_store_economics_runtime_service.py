@@ -1,4 +1,5 @@
 import re
+from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from datetime import date, datetime, timedelta
@@ -257,13 +258,42 @@ class ExperimentalStoreEconomicsRuntimeService:
                 "paid_storage",
             )
         }
-        explicit_commission = accrual_posting_categories.get("commission")
-        commission_source = "FINANCE_ACCRUAL_POSTINGS"
+        metrics["analytics"] = self._load_analytics(date_from, date_to)
+        metrics["analytics"] = self._fill_analytics_from_seller_api(
+            metrics["analytics"], date_from, date_to
+        )
+        realization_commission = self._load_finance_realization_commission(
+            date_from,
+            date_to,
+            finance_service=finance_service,
+        )
+        metrics["realization_commission_diagnostics"] = realization_commission
+        explicit_commission = realization_commission.get("commission")
+        commission_source = "FINANCE_REALIZATION_POSTING"
+        if explicit_commission is None:
+            explicit_commission = accrual_posting_categories.get("commission")
+            commission_source = "FINANCE_ACCRUAL_POSTINGS"
         if explicit_commission is None:
             explicit_commission = self._commission_from_explicit_types(summary)
             commission_source = "ACCRUAL_FEE_TYPES"
         if explicit_commission is None:
             commission_source = "POSTING_SALE_COMMISSION"
+        elif commission_source != "FINANCE_REALIZATION_POSTING":
+            refund_count = accrual_posting_categories.get(
+                "commission_refund_operation_count", 0
+            )
+            fee_breakdown = summary.get("fee_breakdown")
+            summary_has_refund = isinstance(fee_breakdown, dict) and any(
+                self._commission_label_kind([label]) == "refund"
+                for label in fee_breakdown
+            )
+            summary_has_refund = summary_has_refund or any(
+                self._commission_label_kind(entry["labels"]) == "refund"
+                for entry in self._accrual_type_entries(summary)
+            )
+            known_returns = metrics["analytics"].get("returns")
+            if not summary_has_refund and not refund_count and known_returns != 0:
+                commission_source = "POSTING_SALE_COMMISSION"
         if explicit_commission is not None:
             commission_delta = round(
                 explicit_commission - metrics["commission"],
@@ -286,10 +316,6 @@ class ExperimentalStoreEconomicsRuntimeService:
             date_from,
             date_to,
             accepted_skus,
-        )
-        metrics["analytics"] = self._load_analytics(date_from, date_to)
-        metrics["analytics"] = self._fill_analytics_from_seller_api(
-            metrics["analytics"], date_from, date_to
         )
         metrics["fee_subcategories"] = self._fee_subcategories(summary)
         posting_storage = accrual_posting_categories.get("paid_storage")
@@ -683,6 +709,119 @@ class ExperimentalStoreEconomicsRuntimeService:
             return None
         total = sum(amounts)
         return round(total, 2) if isfinite(total) else None
+
+    def _load_finance_realization_commission(
+        self,
+        date_from,
+        date_to,
+        finance_service=None,
+    ):
+        """Load sale and return commission from complete monthly realization reports.
+
+        The posting-accrual endpoint can omit return commission rows. The
+        realization report is therefore preferred when the requested interval is
+        made of whole calendar months. Partial-month results stay on the existing
+        fallback path and are marked provisional when return commission is not
+        evidenced.
+        """
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except (TypeError, ValueError):
+            return self._empty_realization_commission(
+                "OZON_FINANCE_REALIZATION_DATE_RANGE_INVALID"
+            )
+        if end < start:
+            return self._empty_realization_commission(
+                "OZON_FINANCE_REALIZATION_DATE_RANGE_INVALID"
+            )
+        if start.day != 1 or end.day != monthrange(end.year, end.month)[1]:
+            return self._empty_realization_commission(
+                "OZON_FINANCE_REALIZATION_PERIOD_NOT_FULL_MONTHS"
+            )
+
+        ozon_client = getattr(finance_service, "ozon", None)
+        getter = getattr(ozon_client, "get_realization_posting", None)
+        if not callable(getter):
+            return self._empty_realization_commission(
+                "OZON_FINANCE_REALIZATION_CLIENT_UNAVAILABLE"
+            )
+
+        result = self._empty_realization_commission(failure_code=None)
+        result["available"] = True
+        sale_total = 0.0
+        return_total = 0.0
+        current = date(start.year, start.month, 1)
+        while current <= end:
+            try:
+                response = getter(current.year, current.month)
+            except Exception:
+                return self._empty_realization_commission(
+                    "OZON_FINANCE_REALIZATION_REQUEST_FAILED"
+                )
+            if not isinstance(response, dict) or response.get("error") is True:
+                return self._empty_realization_commission(
+                    "OZON_FINANCE_REALIZATION_RESPONSE_UNAVAILABLE"
+                )
+            rows = response.get("rows")
+            if not isinstance(rows, list):
+                nested = response.get("result")
+                rows = nested.get("rows") if isinstance(nested, dict) else None
+            if not isinstance(rows, list) or not rows:
+                return self._empty_realization_commission(
+                    "OZON_FINANCE_REALIZATION_ROWS_UNAVAILABLE"
+                )
+
+            for row in rows:
+                if not isinstance(row, dict):
+                    return self._empty_realization_commission(
+                        "OZON_FINANCE_REALIZATION_ROW_INVALID"
+                    )
+                delivery = row.get("delivery_commission")
+                returned = row.get("return_commission")
+                if not isinstance(delivery, dict) or not isinstance(returned, dict):
+                    return self._empty_realization_commission(
+                        "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
+                    )
+                sale_amount = self._number(delivery.get("commission"))
+                return_amount = self._number(returned.get("commission"))
+                if sale_amount is None or return_amount is None:
+                    return self._empty_realization_commission(
+                        "OZON_FINANCE_REALIZATION_COMMISSION_INVALID"
+                    )
+                sale_total += sale_amount
+                return_total += return_amount
+                if sale_amount:
+                    result["sale_operation_count"] += 1
+                if return_amount:
+                    result["return_operation_count"] += 1
+                result["row_count"] += 1
+
+            result["month_count"] += 1
+            current = (
+                date(current.year + 1, 1, 1)
+                if current.month == 12
+                else date(current.year, current.month + 1, 1)
+            )
+
+        result["sale_commission_amount"] = round(sale_total, 2)
+        result["return_commission_amount"] = round(return_total, 2)
+        result["commission"] = round(sale_total + return_total, 2)
+        return result
+
+    @staticmethod
+    def _empty_realization_commission(failure_code):
+        return {
+            "available": False,
+            "failure_code": failure_code,
+            "month_count": 0,
+            "row_count": 0,
+            "sale_operation_count": 0,
+            "sale_commission_amount": None,
+            "return_operation_count": 0,
+            "return_commission_amount": None,
+            "commission": None,
+        }
 
     @classmethod
     def _accrual_type_entries(cls, summary):
@@ -1275,9 +1414,14 @@ class ExperimentalStoreEconomicsRuntimeService:
             *ad_lines,
             "8. Эквайринг: " + _money_with_revenue_share(metrics["acquiring"], revenue),
             (
-                "9. Комиссия Ozon (предварительно, по данным отправлений): "
+                "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена): "
                 if metrics.get("commission_source") == "POSTING_SALE_COMMISSION"
-                else "9. Комиссия Ozon (вознаграждение за продажу): "
+                else (
+                    "9. Комиссия Ozon (отчёт о реализации): "
+                    if metrics.get("commission_source")
+                    == "FINANCE_REALIZATION_POSTING"
+                    else "9. Комиссия Ozon (вознаграждение за продажу): "
+                )
             ) + _money_with_revenue_share(metrics["commission"], revenue),
             "10. Логистика доставки (без обратной логистики): " + _money_with_revenue_share(metrics["logistics"], revenue),
             "11. Доставка до места выдачи и выдача товара (части «последней мили»): " + _fee_with_revenue_share(fees.get("last_mile"), revenue),
@@ -1291,9 +1435,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             "",
             "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
             "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
-            "Источники: суммы и удержания — финансовые начисления Ozon; категории комиссии и размещения сверяются по типам начислений Seller API; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
+            "Источники: суммы и удержания — финансовые начисления Ozon; комиссия за полные месяцы — отчёт реализации; размещение — типы начислений Seller API; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
             "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Комиссия берётся из явных начислений «Вознаграждение за продажу» и «Возврат вознаграждения» по отправлениям (/v1/finance/accrual/postings). Если типы начислений не удалось подтвердить, сумма из данных отправлений помечается как предварительная. Переразнесение разницы между комиссией и строкой 14 не меняет начисления нетто.",
+            "Комиссия за полные календарные месяцы берётся из отчёта реализации (/v1/finance/realization/posting): отдельно суммируются комиссии за продажу и возврат. Для неполного месяца, если возвратная комиссия не подтверждена, сумма помечается как предварительная. Переразнесение между комиссией и строкой 14 не меняет начисления нетто.",
             "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
             "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
             "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
@@ -1304,7 +1448,25 @@ class ExperimentalStoreEconomicsRuntimeService:
         posting_diagnostics = (
             metrics.get("accrual_posting_category_diagnostics") or {}
         )
-        if posting_diagnostics.get("available") is True:
+        realization_diagnostics = (
+            metrics.get("realization_commission_diagnostics") or {}
+        )
+        if realization_diagnostics.get("available") is True:
+            lines.extend(
+                [
+                    "",
+                    "Диагностика комиссии (/v1/finance/realization/posting): "
+                    f"полных месяцев {realization_diagnostics.get('month_count', 0)}, "
+                    f"строк {realization_diagnostics.get('row_count', 0)}; "
+                    "продажа — операций "
+                    f"{realization_diagnostics.get('sale_operation_count', 0)}, "
+                    f"{_money(realization_diagnostics.get('sale_commission_amount'))}; "
+                    "возврат — операций "
+                    f"{realization_diagnostics.get('return_operation_count', 0)}, "
+                    f"{_money(realization_diagnostics.get('return_commission_amount'))}."
+                ]
+            )
+        elif posting_diagnostics.get("available") is True:
             def diagnostic_subtotal(count, value):
                 if count == 0:
                     return _money(0)

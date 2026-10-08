@@ -349,7 +349,7 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
     assert "По начислениям Ozon, CPO: -400.00 ₽ (-0,40% от общей выручки)" in result["text"]
     assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
     assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in result["text"]
-    assert "9. Комиссия Ozon (предварительно, по данным отправлений): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
+    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
     assert "10. Логистика доставки (без обратной логистики): -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
     assert "11. Доставка до места выдачи и выдача товара (части «последней мили»): -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
     assert "12. Кросс-докинг: -1 200.00 ₽ (-1,20% от общей выручки)" in result["text"]
@@ -398,7 +398,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
-    assert "Комиссия берётся из явных начислений «Вознаграждение за продажу» и «Возврат вознаграждения» по отправлениям" in telegram_text
+    assert "Комиссия за полные календарные месяцы берётся из отчёта реализации (/v1/finance/realization/posting)" in telegram_text
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 3,
         "commission_matches": 2,
@@ -509,6 +509,97 @@ def test_commission_posting_diagnostic_exposes_safe_subtotals_and_unmapped_rows(
     assert "private" not in telegram_text
 
 
+def test_full_month_realization_commission_reaches_telegram_with_sales_and_returns():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    realization_calls = []
+
+    def get_realization_posting(year, month):
+        realization_calls.append((year, month))
+        return {
+            "error": False,
+            "result": {
+                "rows": [
+                    {
+                        "order": {"posting_number": "private-order-number"},
+                        "item": {"name": "private product", "sku": 918273},
+                        "delivery_commission": {"commission": "-69193.10"},
+                        "return_commission": {"commission": "25.20"},
+                    }
+                ]
+            },
+        }
+
+    query.summary_service.finance.ozon.get_realization_posting = (
+        get_realization_posting
+    )
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69167.90
+    assert result["metrics"]["other_fees"] == -105966.58
+    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_POSTING"
+    assert result["metrics"]["realization_commission_diagnostics"] == {
+        "available": True,
+        "failure_code": None,
+        "month_count": 1,
+        "row_count": 1,
+        "sale_operation_count": 1,
+        "sale_commission_amount": -69193.10,
+        "return_operation_count": 1,
+        "return_commission_amount": 25.20,
+        "commission": -69167.90,
+    }
+    assert "9. Комиссия Ozon (отчёт о реализации): -69 167.90 ₽" in telegram_text
+    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert "Диагностика комиссии (/v1/finance/realization/posting)" in telegram_text
+    assert realization_calls == [(2026, 8)]
+    assert "private-order-number" not in telegram_text
+    assert "private product" not in telegram_text
+    assert "918273" not in telegram_text
+
+
+def test_partial_month_without_refund_commission_is_labeled_preliminary():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    realization_calls = []
+    query.summary_service.finance.ozon.get_realization_posting = (
+        lambda year, month: realization_calls.append((year, month))
+    )
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+
+    result = runtime.calculate("2026-08-01", "2026-08-30")
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69159.91
+    assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
+    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in result["text"]
+    assert realization_calls == []
+
+
 def test_accrual_posting_categories_batch_postings_without_overlap():
     from services.experimental_store_economics_runtime_service import (
         ExperimentalStoreEconomicsRuntimeService,
@@ -609,7 +700,7 @@ def test_accrual_posting_http_failure_reaches_telegram_without_api_message():
     assert "private Ozon response detail" not in telegram_text
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
-    assert "9. Комиссия Ozon (предварительно, по данным отправлений)" in telegram_text
+    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in telegram_text
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():
