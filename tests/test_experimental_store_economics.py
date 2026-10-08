@@ -573,6 +573,50 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
     assert "918273" not in telegram_text
 
 
+def test_realization_http_failure_reaches_telegram_as_safe_commission_diagnostic():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+        "error": True,
+        "code": "OZON_HTTP_ERROR",
+        "status_code": 404,
+        "message": "private Ozon response with seller and order details",
+    }
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69159.91
+    assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
+    assert (
+        result["metrics"]["realization_commission_diagnostics"]["failure_code"]
+        == "OZON_HTTP_404"
+    )
+    assert (
+        "Диагностика комиссии (/v1/finance/realization/posting): "
+        "источник недоступен (OZON_HTTP_404); "
+        "использован предварительный источник по отправлениям."
+    ) in telegram_text
+    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in telegram_text
+    assert "Диагностика начислений (/v1/finance/accrual/postings)" in telegram_text
+    assert "private Ozon response with seller and order details" not in telegram_text
+    assert "fixture-posting-1" not in telegram_text
+    assert "fixture-sku" not in telegram_text
+
+
 def test_partial_month_without_refund_commission_is_labeled_preliminary():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()

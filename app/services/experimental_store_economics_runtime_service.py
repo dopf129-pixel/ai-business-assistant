@@ -108,6 +108,29 @@ class ExperimentalStoreEconomicsRuntimeService:
             "OZON_FINANCE_ACCRUAL_POSTINGS_SCOPE_INVALID",
         }
     )
+    REALIZATION_FAILURE_CODES = frozenset(
+        {
+            "OZON_FINANCE_REALIZATION_DATE_RANGE_INVALID",
+            "OZON_FINANCE_REALIZATION_PERIOD_NOT_FULL_MONTHS",
+            "OZON_FINANCE_REALIZATION_CLIENT_UNAVAILABLE",
+            "OZON_FINANCE_REALIZATION_REQUEST_FAILED",
+            "OZON_FINANCE_REALIZATION_RESPONSE_UNAVAILABLE",
+            "OZON_FINANCE_REALIZATION_ROWS_UNAVAILABLE",
+            "OZON_FINANCE_REALIZATION_ROW_INVALID",
+            "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
+            "OZON_FINANCE_REALIZATION_COMMISSION_INVALID",
+        }
+    )
+    OZON_REQUEST_FAILURE_CODES = frozenset(
+        {
+            "OZON_API_TOTAL_TIMEOUT",
+            "OZON_API_TIMEOUT",
+            "OZON_API_REQUEST_FAILED",
+            "OZON_CREDENTIALS_UNAVAILABLE",
+            "OZON_NETWORK_ERROR",
+            "OZON_RATE_LIMITED",
+        }
+    )
 
     def __init__(
         self,
@@ -759,9 +782,15 @@ class ExperimentalStoreEconomicsRuntimeService:
                 return self._empty_realization_commission(
                     "OZON_FINANCE_REALIZATION_REQUEST_FAILED"
                 )
-            if not isinstance(response, dict) or response.get("error") is True:
+            if not isinstance(response, dict):
                 return self._empty_realization_commission(
                     "OZON_FINANCE_REALIZATION_RESPONSE_UNAVAILABLE"
+                )
+            if response.get("error") is True:
+                return self._empty_realization_commission(
+                    self._safe_realization_commission_failure_code(
+                        response.get("code"), response.get("status_code")
+                    )
                 )
             rows = response.get("rows")
             if not isinstance(rows, list):
@@ -822,6 +851,26 @@ class ExperimentalStoreEconomicsRuntimeService:
             "return_commission_amount": None,
             "commission": None,
         }
+
+    @classmethod
+    def _safe_realization_commission_failure_code(cls, code, status_code=None):
+        if code == "OZON_HTTP_ERROR":
+            try:
+                status = int(status_code)
+            except (TypeError, ValueError, OverflowError):
+                status = None
+            if status is not None and 100 <= status <= 599:
+                return f"OZON_HTTP_{status}"
+        if isinstance(code, str):
+            match = re.fullmatch(r"OZON_HTTP_(\d{3})", code)
+            if match and 100 <= int(match.group(1)) <= 599:
+                return code
+            if (
+                code in cls.REALIZATION_FAILURE_CODES
+                or code in cls.OZON_REQUEST_FAILURE_CODES
+            ):
+                return code
+        return "OZON_FINANCE_REALIZATION_RESPONSE_UNAVAILABLE"
 
     @classmethod
     def _accrual_type_entries(cls, summary):
@@ -1451,6 +1500,32 @@ class ExperimentalStoreEconomicsRuntimeService:
         realization_diagnostics = (
             metrics.get("realization_commission_diagnostics") or {}
         )
+        if (
+            realization_diagnostics.get("available") is not True
+            and realization_diagnostics.get("failure_code")
+        ):
+            failure_code = (
+                ExperimentalStoreEconomicsRuntimeService
+                ._safe_realization_commission_failure_code(
+                    realization_diagnostics.get("failure_code")
+                )
+            )
+            if failure_code == "OZON_FINANCE_REALIZATION_PERIOD_NOT_FULL_MONTHS":
+                diagnostic = "период неполный; месячный отчёт не запрашивался"
+            else:
+                fallback = (
+                    "использован предварительный источник по отправлениям"
+                    if metrics.get("commission_source") == "POSTING_SALE_COMMISSION"
+                    else "использован доступный источник начислений"
+                )
+                diagnostic = f"источник недоступен ({failure_code}); {fallback}"
+            lines.extend(
+                [
+                    "",
+                    "Диагностика комиссии (/v1/finance/realization/posting): "
+                    f"{diagnostic}.",
+                ]
+            )
         if realization_diagnostics.get("available") is True:
             lines.extend(
                 [
