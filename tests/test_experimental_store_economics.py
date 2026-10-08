@@ -558,6 +558,8 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
         "failure_code": None,
         "month_count": 1,
         "row_count": 1,
+        "delivery_commission_row_count": 1,
+        "return_commission_row_count": 1,
         "delivery_commission_missing_row_count": 0,
         "return_commission_missing_row_count": 0,
         "sale_operation_count": 1,
@@ -625,6 +627,8 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_POSTING"
     assert diagnostics["available"] is True
     assert diagnostics["row_count"] == 2
+    assert diagnostics["delivery_commission_row_count"] == 1
+    assert diagnostics["return_commission_row_count"] == 1
     assert diagnostics["delivery_commission_missing_row_count"] == 1
     assert diagnostics["return_commission_missing_row_count"] == 1
     assert diagnostics["sale_operation_count"] == 1
@@ -643,6 +647,50 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     assert "private-return-order" not in telegram_text
     assert "private product" not in telegram_text
     assert "918273" not in telegram_text
+
+
+def test_realization_sale_only_rows_with_known_returns_keep_commission_preliminary():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+        "error": False,
+        "result": {
+            "rows": [
+                {
+                    "order": {"posting_number": "private-order-number"},
+                    "delivery_commission": {"commission": "-69193.10"},
+                }
+            ]
+        },
+    }
+    transactions = _FinanceAccrualPostings()
+    transactions.result["posting_accruals"][0]["accruals"] = [
+        {"type_id": 69, "accrued": {"amount": "-69159.91"}},
+    ]
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+    diagnostics = result["metrics"]["realization_commission_diagnostics"]
+
+    assert result["metrics"]["analytics"]["returns"] == 1
+    assert result["metrics"]["commission"] == -69159.91
+    assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
+    assert diagnostics["available"] is False
+    assert diagnostics["failure_code"] == "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
+    assert diagnostics["return_commission_row_count"] == 0
+    assert (
+        "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)"
+        in telegram_text
+    )
+    assert "private-order-number" not in telegram_text
 
 
 def test_realization_row_without_either_commission_fails_closed_in_telegram():
