@@ -246,6 +246,43 @@ def test_v363_durability_warning_is_warning_not_false_write_failure():
     assert report["next_action"] == "CHECK_FILESYSTEM_DURABILITY"
 
 
+def test_unsupported_directory_fsync_is_a_valid_platform_warning():
+    fake = _FakeTaskService(
+        persistence={
+            "error": False,
+            "status": "TASK_PERSISTENCE_DIAGNOSTICS",
+            "load_source_state": "LOADED",
+            "last_save_state": "SUCCEEDED_WITH_DURABILITY_WARNING",
+            "last_save_issue": "TASK_DIRECTORY_FSYNC_UNSUPPORTED",
+            "last_save_rolled_back": False,
+            "optimistic_concurrency_guard": True,
+            "write_lock_guard": True,
+            "directory_fsync_required": True,
+            "last_lock_release_issue": None,
+            "loaded_task_count": 1,
+            "read_only": True,
+            "executed": False,
+        },
+        load={
+            "error": False,
+            "status": "TASK_PERSISTENCE_LOAD_DIAGNOSTICS",
+            "source_state": "LOADED",
+            "issue_count": 0,
+            "issues": [],
+            "loaded_task_count": 1,
+            "read_only": True,
+            "executed": False,
+        },
+    )
+
+    report = TaskPersistenceOperationalService(fake).build_report()
+
+    assert report["operational_state"] == "WARNING"
+    assert report["blockers"] == []
+    assert report["warnings"] == ["TASK_DIRECTORY_FSYNC_UNSUPPORTED"]
+    assert report["next_action"] == "CHECK_FILESYSTEM_DURABILITY"
+
+
 def test_v364_contradictory_lock_diagnostics_fail_closed():
     fake = _FakeTaskService(
         lock={

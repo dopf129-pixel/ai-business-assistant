@@ -238,7 +238,7 @@ def test_v438_cross_snapshot_capability_manifest_fails_lineage_check(tmp_path, m
         REVISION,
     )
 
-    monkeypatch.setattr(terminal_module, "fcntl", None)
+    monkeypatch.setattr(terminal_module, "_kernel_lock_backend", lambda: None)
     degraded_snapshot = release.build_snapshot()
     degraded_manifest = provenance.build_manifest(
         degraded_snapshot,

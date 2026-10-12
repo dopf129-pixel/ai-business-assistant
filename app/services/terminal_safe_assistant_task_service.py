@@ -1,12 +1,61 @@
 import hashlib
 import json
 import os
+import errno
 from copy import deepcopy
 
 try:
     import fcntl
 except ImportError:
     fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
+
+def _kernel_lock_backend():
+    if os.name == "nt":
+        return "msvcrt" if msvcrt is not None else None
+    if os.name == "posix":
+        return "fcntl" if fcntl is not None else None
+    return None
+
+
+def _acquire_kernel_file_lock(lock_fd):
+    backend = _kernel_lock_backend()
+    if backend == "msvcrt":
+        os.lseek(lock_fd, 0, os.SEEK_SET)
+        msvcrt.locking(lock_fd, msvcrt.LK_NBLCK, 1)
+        return
+    if backend == "fcntl":
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return
+    raise RuntimeError("TASK_FILE_KERNEL_LOCK_UNAVAILABLE")
+
+
+def _release_kernel_file_lock(lock_fd):
+    backend = _kernel_lock_backend()
+    if backend == "msvcrt":
+        os.lseek(lock_fd, 0, os.SEEK_SET)
+        msvcrt.locking(lock_fd, msvcrt.LK_UNLCK, 1)
+        return
+    if backend == "fcntl":
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        return
+    raise RuntimeError("TASK_FILE_KERNEL_LOCK_UNAVAILABLE")
+
+
+def _is_kernel_lock_contended(error):
+    if isinstance(error, BlockingIOError):
+        return True
+    if isinstance(error, OSError):
+        return (
+            error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}
+            or getattr(error, "winerror", None) in {33, 36}
+        )
+    return False
 
 from core.task_states import TaskStatus
 from services.assistant_task_service import AssistantTaskService
@@ -71,7 +120,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         return self.file_path + ".lock"
 
     def _acquire_write_lock(self):
-        if fcntl is None:
+        if _kernel_lock_backend() is None:
             raise RuntimeError("TASK_FILE_KERNEL_LOCK_UNAVAILABLE")
 
         if getattr(self, "_write_lock_fd", None) is not None:
@@ -88,14 +137,14 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         )
 
         try:
-            fcntl.flock(
-                lock_fd,
-                fcntl.LOCK_EX | fcntl.LOCK_NB,
-            )
-            os.fchmod(lock_fd, 0o600)
-        except BlockingIOError:
+            _acquire_kernel_file_lock(lock_fd)
+            if os.name == "posix":
+                os.fchmod(lock_fd, 0o600)
+        except OSError as error:
             os.close(lock_fd)
-            raise FileExistsError("TASK_FILE_WRITE_LOCKED") from None
+            if _is_kernel_lock_contended(error):
+                raise FileExistsError("TASK_FILE_WRITE_LOCKED") from None
+            raise
         except Exception:
             os.close(lock_fd)
             raise
@@ -111,10 +160,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         release_issue = None
 
         try:
-            if fcntl is None:
-                release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
-            else:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            _release_kernel_file_lock(lock_fd)
         except Exception:
             release_issue = "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
 
@@ -128,6 +174,9 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         self._last_lock_release_issue = release_issue
 
     def _sync_parent_directory(self):
+        if os.name == "nt":
+            return "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+
         folder = os.path.dirname(self.file_path) or "."
         directory_fd = None
 
@@ -175,6 +224,11 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
                     ensure_ascii=False,
                     indent=4,
                 ).encode("utf-8")
+                if os.linesep != "\n":
+                    expected_raw = expected_raw.replace(
+                        b"\n",
+                        os.linesep.encode("ascii"),
+                    )
             except Exception:
                 self._rollback_after_save_failure("TASK_FILE_SERIALIZATION_ERROR")
                 raise RuntimeError("TASK_FILE_SERIALIZATION_ERROR") from None
@@ -286,7 +340,7 @@ class TerminalSafeAssistantTaskService(AssistantTaskService):
         }
 
     def get_write_lock_diagnostics(self):
-        if fcntl is None:
+        if _kernel_lock_backend() is None:
             coordination_file_present = None
             inspection_state = "CHECK_ERROR"
             lock_present = None

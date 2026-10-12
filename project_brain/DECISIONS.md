@@ -335,6 +335,56 @@ Implemented
 
 ---
 
+## Decision 041
+
+Date:
+
+2026-10-12
+
+Topic:
+
+Cross-Platform Task Store Locking and Durability Reporting
+
+Decision:
+
+Keep the existing JSON task store and its optimistic fingerprint, atomic
+replace, and file-fsync contract. Use the operating system's non-blocking file
+lock for writer exclusion: `fcntl.flock` on POSIX and `msvcrt.locking` on
+Windows.
+
+Rules:
+
+- Both backends lock the same stable, empty `<tasks-file>.lock` coordination
+  file; it is not deleted and its presence is not evidence of an active owner.
+- If the platform has no supported OS lock backend, writes fail closed.
+- Windows lock contention is reported as `TASK_FILE_WRITE_LOCKED`; closing the
+  descriptor or exiting the process releases the OS lock.
+- Atomic replace and syncing the data file remain required. The current
+  directory-fsync mechanism is POSIX-only; Windows reports
+  `TASK_DIRECTORY_FSYNC_UNSUPPORTED` as a post-commit durability warning and
+  never claims that the directory entry was synced.
+- Task storage schema, file location, and public task contract remain
+  unchanged. No lock framework or recovery/deletion behavior is introduced.
+- Windows shutdown uses the existing `stop_signals=None` runtime contract;
+  POSIX continues to register SIGINT/SIGTERM.
+
+Reason:
+
+The supported local runtime is Windows 3.12, where `fcntl` is unavailable.
+Failing all writes there prevents local task persistence. A minimal native OS
+backend restores writer exclusion without replacing the task engine. Windows
+does not provide the POSIX directory-fsync operation used by the current
+implementation, so the committed write must surface that durability limit
+instead of reporting an unsupported operation as successful.
+
+Status:
+
+Implemented; Windows Python 3.12 full verification completed with the 35
+remaining financial test failures assigned to P02. Linux Python 3.11 CI is
+configured and awaits a remote run on the implementation revision.
+
+---
+
 ## Decision 043
 
 Date:

@@ -49,7 +49,13 @@ def test_v343_successful_save_fsyncs_parent_directory(tmp_path, monkeypatch):
 
     service.create_task(USER_ID, "Новая", [_action()])
 
-    assert directory_syncs
+    if os.name == "nt":
+        assert not directory_syncs
+        assert service.get_persistence_diagnostics()["last_save_issue"] == (
+            "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+        )
+    else:
+        assert directory_syncs
 
 
 def test_v344_directory_fsync_runs_while_write_lock_is_held(tmp_path, monkeypatch):
@@ -132,7 +138,12 @@ def test_v348_directory_open_failure_is_non_sensitive_durability_warning(tmp_pat
 
     assert result["saved"] is True
     diagnostics = service.get_persistence_diagnostics()
-    assert diagnostics["last_save_issue"] == "TASK_DIRECTORY_FSYNC_ERROR"
+    expected_issue = (
+        "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+        if os.name == "nt"
+        else "TASK_DIRECTORY_FSYNC_ERROR"
+    )
+    assert diagnostics["last_save_issue"] == expected_issue
     rendered = repr(diagnostics)
     assert "sensitive directory detail" not in rendered
     assert str(path) not in rendered
@@ -156,14 +167,10 @@ def test_v350_durability_and_kernel_unlock_warnings_remain_distinct(tmp_path, mo
     path = tmp_path / "tasks.json"
     service = TerminalSafeAssistantTaskService(file_path=str(path))
     monkeypatch.setattr(service, "_sync_parent_directory", lambda: "TASK_DIRECTORY_FSYNC_ERROR")
-    real_flock = terminal_module.fcntl.flock
+    def failing_unlock(fd):
+        raise OSError("sensitive lock release")
 
-    def failing_unlock(fd, operation):
-        if operation == terminal_module.fcntl.LOCK_UN:
-            raise OSError("sensitive lock release")
-        return real_flock(fd, operation)
-
-    monkeypatch.setattr(terminal_module.fcntl, "flock", failing_unlock)
+    monkeypatch.setattr(terminal_module, "_release_kernel_file_lock", failing_unlock)
 
     result = service.create_task(USER_ID, "Сохранено", [_action()])
 

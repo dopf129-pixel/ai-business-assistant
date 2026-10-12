@@ -1,3 +1,4 @@
+import os
 import signal
 from pathlib import Path
 
@@ -111,7 +112,11 @@ def test_telegram_main_registers_graceful_shutdown_signals(monkeypatch):
 
     assert calls == [
         {
-            "stop_signals": (signal.SIGINT, signal.SIGTERM),
+            "stop_signals": (
+                None
+                if os.name == "nt"
+                else (signal.SIGINT, signal.SIGTERM)
+            ),
         }
     ]
 

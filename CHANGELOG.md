@@ -1,3 +1,11 @@
+# 2026-10-12 — P01: Windows persistence и платформенная durability
+
+- Для task storage сохранён `fcntl.flock` на POSIX и добавлена блокировка диапазона байта через `msvcrt.locking` на Windows. Стабильный пустой `.lock` не удаляется, отсутствие backend закрывает запись, а contention остаётся отдельным сигналом.
+- Контроль optimistic fingerprint учитывает Windows newline translation, поэтому повторные записи тем же экземпляром не выглядят устаревшими.
+- На Windows успешная atomic replace и file fsync не выдаются за directory fsync: persistence возвращает `TASK_DIRECTORY_FSYNC_UNSUPPORTED` и сохраняет warning после committed write. User storage сообщает такое же ограничение явно.
+- В Verify workflow добавлен полный Windows Python 3.12 job; POSIX Linux Python 3.11 job сохранён.
+- Проверка на Windows 3.12 в изолированной копии без seller data и `.env`: `compileall` прошёл; полный `pytest`: 2 954 passed / 35 failed из 2 989. Все оставшиеся падения находятся в `app/tests` и назначены пакету P02; корневой `tests` suite прошёл.
+
 # 2026-10-12 — P00: восстановлена документация и полный pytest scope
 
 - Ветка `codex/p00-project-baseline` сохраняет исходную рабочую копию и локальную доработку месячной комиссии.

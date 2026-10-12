@@ -164,7 +164,7 @@ def test_v395_missing_kernel_lock_capability_blocks_release_fail_closed(tmp_path
     owner = TerminalSafeAssistantTaskService(
         file_path=str(tmp_path / "tasks.json")
     )
-    monkeypatch.setattr(terminal_module, "fcntl", None)
+    monkeypatch.setattr(terminal_module, "_kernel_lock_backend", lambda: None)
 
     snapshot = _release_service(owner).build_snapshot()
 
