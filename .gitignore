@@ -9,6 +9,8 @@ env/
 
 # Environment variables
 .env
+.env.backup*
+!.env.example
 
 # Local runtime storage
 .runtime-data/
@@ -16,12 +18,29 @@ env/
 # SQLite
 *.db
 *.sqlite3
+*.db.backup*
+*.sqlite3.backup*
 
 # Logs
 *.log
 
 # Reports
 reports/
+/period_profit_latest.txt
+/period_profit_*diagnostic.txt
+/return_cogs_diag.*
+/returns_raw_diag.*
+
+# Local pytest and verification scratch directories
+/.pytest_cache/
+/.pytest-*/
+/.codex-pytest-*/
+/.codex-test-*/
+/.codex-tax-*/
+/pytest-temp-*/
+/pytest-tax-*/
+/codex-pytest-*/
+/verification-temp-*/
 
 # Runtime decision memory
 data/product_decision_history.json
