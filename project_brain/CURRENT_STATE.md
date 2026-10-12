@@ -2,7 +2,7 @@
 
 Это краткий актуальный снимок; ниже сохранена история из последней читаемой ревизии `4d215dc`. Он описывает рабочую копию, не production.
 
-- Текущая ветка: `codex/p00-project-baseline`; P00 сохранён коммитами `9f65322` и `c53f6d2`. P01 реализован в текущем рабочем дереве; commit id будет добавлен в матрицу ТЗ после фиксации.
+- Текущая ветка: `codex/p00-project-baseline`; P00 сохранён коммитами `9f65322` и `c53f6d2`, P01 — `0057f92` (`Support Windows task persistence locking`).
 - Для task store POSIX использует `fcntl.flock`, Windows — OS-level `msvcrt.locking`; оба backend сохраняют optimistic fingerprint, atomic replace и file fsync. На Windows fingerprint учитывает переводы строк текстового режима.
 - `.lock` остаётся стабильным пустым coordination file: его наличие не доказывает живую блокировку, файл не удаляется, отсутствие OS backend блокирует запись. Добавлена отдельная межпроцессная проверка contention и автоматического освобождения после выхода владельца.
 - На Windows directory fsync обозначается как `TASK_DIRECTORY_FSYNC_UNSUPPORTED`; committed write не откатывается, но диагностика оставляет предупреждение. Linux directory fsync путь сохранён. Для user storage добавлено такое же явное предупреждение.
