@@ -1,3 +1,4 @@
+from api.base_ozon_client import OzonClient as BaseOzonClient
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.experimental_store_economics_runtime_service import (
@@ -398,7 +399,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
-    assert "Комиссия за полные календарные месяцы берётся из отчёта реализации (/v1/finance/realization/posting)" in telegram_text
+    assert "Комиссия за полные календарные месяцы берётся из месячного отчёта реализации товаров (/v2/finance/realization)" in telegram_text
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 3,
         "commission_matches": 2,
@@ -509,12 +510,31 @@ def test_commission_posting_diagnostic_exposes_safe_subtotals_and_unmapped_rows(
     assert "private" not in telegram_text
 
 
+def test_monthly_realization_api_uses_supported_v2_report_endpoint():
+    client = object.__new__(BaseOzonClient)
+    calls = []
+    client._post = lambda endpoint, payload, **kwargs: calls.append(
+        (endpoint, payload, kwargs)
+    ) or {"error": False, "result": {"rows": []}}
+
+    response = client.get_monthly_realization_report(2026, 8)
+
+    assert response == {"error": False, "result": {"rows": []}}
+    assert calls == [
+        (
+            "/v2/finance/realization",
+            {"month": 8, "year": 2026},
+            {"timeout": 30, "max_attempts": 3},
+        )
+    ]
+
+
 def test_full_month_realization_commission_reaches_telegram_with_sales_and_returns():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
     realization_calls = []
 
-    def get_realization_posting(year, month):
+    def get_monthly_realization_report(year, month):
         realization_calls.append((year, month))
         return {
             "error": False,
@@ -523,15 +543,23 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
                     {
                         "order": {"posting_number": "private-order-number"},
                         "item": {"name": "private product", "sku": 918273},
-                        "delivery_commission": {"commission": "-69193.10"},
-                        "return_commission": {"commission": "25.20"},
+                        # Ozon's monthly report may return commission=0 while
+                        # carrying the actual base fee in standard_fee.
+                        "delivery_commission": {
+                            "commission": 0,
+                            "standard_fee": 69193.10,
+                        },
+                        "return_commission": {
+                            "commission": 0,
+                            "standard_fee": 25.20,
+                        },
                     }
                 ]
             },
         }
 
-    query.summary_service.finance.ozon.get_realization_posting = (
-        get_realization_posting
+    query.summary_service.finance.ozon.get_monthly_realization_report = (
+        get_monthly_realization_report
     )
     transactions = _FinanceAccrualPostings()
     transactions.result["posting_accruals"][0]["accruals"] = [
@@ -552,7 +580,7 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69167.90
     assert result["metrics"]["other_fees"] == -105966.58
-    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_POSTING"
+    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_REPORT"
     assert result["metrics"]["realization_commission_diagnostics"] == {
         "available": True,
         "failure_code": None,
@@ -562,15 +590,15 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
         "return_commission_row_count": 1,
         "delivery_commission_missing_row_count": 0,
         "return_commission_missing_row_count": 0,
-        "sale_operation_count": 1,
+        "sale_fee_row_count": 1,
         "sale_commission_amount": -69193.10,
-        "return_operation_count": 1,
+        "return_fee_row_count": 1,
         "return_commission_amount": 25.20,
         "commission": -69167.90,
     }
-    assert "9. Комиссия Ozon (отчёт о реализации): -69 167.90 ₽" in telegram_text
+    assert "9. Комиссия Ozon (отчёт реализации товаров): -69 167.90 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
-    assert "Диагностика комиссии (/v1/finance/realization/posting)" in telegram_text
+    assert "Диагностика комиссии (/v2/finance/realization)" in telegram_text
     assert realization_calls == [(2026, 8)]
     assert "private-order-number" not in telegram_text
     assert "private product" not in telegram_text
@@ -582,7 +610,7 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     query.summary_service = _FinanceBackedCommissionSummary()
     realization_calls = []
 
-    def get_realization_posting(year, month):
+    def get_monthly_realization_report(year, month):
         realization_calls.append((year, month))
         return {
             "error": False,
@@ -590,19 +618,25 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
                 "rows": [
                     {
                         "order": {"posting_number": "private-sale-order"},
-                        "delivery_commission": {"commission": "-69193.10"},
+                        "delivery_commission": {
+                            "commission": 0,
+                            "standard_fee": 69193.10,
+                        },
                     },
                     {
                         "order": {"posting_number": "private-return-order"},
                         "item": {"name": "private product", "sku": 918273},
-                        "return_commission": {"commission": "25.20"},
+                        "return_commission": {
+                            "commission": 0,
+                            "standard_fee": 25.20,
+                        },
                     },
                 ]
             },
         }
 
-    query.summary_service.finance.ozon.get_realization_posting = (
-        get_realization_posting
+    query.summary_service.finance.ozon.get_monthly_realization_report = (
+        get_monthly_realization_report
     )
     transactions = _FinanceAccrualPostings()
     transactions.result["posting_accruals"][0]["accruals"] = [
@@ -624,24 +658,31 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69167.90
     assert result["metrics"]["other_fees"] == -105966.58
-    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_POSTING"
+    assert result["metrics"]["commission_source"] == "FINANCE_REALIZATION_REPORT"
     assert diagnostics["available"] is True
     assert diagnostics["row_count"] == 2
     assert diagnostics["delivery_commission_row_count"] == 1
     assert diagnostics["return_commission_row_count"] == 1
     assert diagnostics["delivery_commission_missing_row_count"] == 1
     assert diagnostics["return_commission_missing_row_count"] == 1
-    assert diagnostics["sale_operation_count"] == 1
+    assert diagnostics["sale_fee_row_count"] == 1
     assert diagnostics["sale_commission_amount"] == -69193.10
-    assert diagnostics["return_operation_count"] == 1
+    assert diagnostics["return_fee_row_count"] == 1
     assert diagnostics["return_commission_amount"] == 25.20
     assert diagnostics["commission"] == -69167.90
-    assert "9. Комиссия Ozon (отчёт о реализации): -69 167.90 ₽" in telegram_text
+    assert "9. Комиссия Ozon (отчёт реализации товаров): -69 167.90 ₽" in telegram_text
     assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
     assert (
-        "строк 2 (без комиссии продажи: 1, без комиссии возврата: 1)"
+        "строк отчёта 2 (без блока комиссии продажи: 1, без блока комиссии возврата: 1)"
         in telegram_text
     )
+    assert (
+        "строк с ненулевой суммой комиссии продажи 1, -69 193.10 ₽; "
+        "строк с ненулевой суммой комиссии возврата 1, 25.20 ₽."
+    ) in telegram_text
+    assert "Количество строк месячного отчёта не равно количеству заказов или проданных единиц." in telegram_text
+    assert "продажа — операций" not in telegram_text
+    assert "возврат — операций" not in telegram_text
     assert realization_calls == [(2026, 8)]
     assert "private-sale-order" not in telegram_text
     assert "private-return-order" not in telegram_text
@@ -649,16 +690,73 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     assert "918273" not in telegram_text
 
 
+def test_zero_monthly_realization_commission_is_rejected_and_falls_back_as_preliminary():
+    query = _Query()
+    query.summary_service = _FinanceBackedCommissionSummary()
+    query.summary_service.finance.ozon.get_monthly_realization_report = (
+        lambda _year, _month: {
+            "error": False,
+            "result": {
+                "rows": [
+                    {
+                        "delivery_commission": {
+                            "commission": 0,
+                            "standard_fee": 0,
+                        },
+                        "return_commission": {
+                            "commission": 0,
+                            "standard_fee": 0,
+                        },
+                    }
+                ]
+            },
+        }
+    )
+    transactions = _FinanceAccrualPostings(
+        {"error": True, "code": "OZON_RATE_LIMITED"}
+    )
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+        finance_transaction_client=transactions,
+    )
+    bot, _ = _bot(runtime)
+
+    bot.on_callback("seller-a", "experimental_store_economics:custom")
+    result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
+    telegram_text = TelegramResponseFormatter().format(result)
+
+    assert result["error"] is False
+    assert result["metrics"]["commission"] == -69163.97
+    assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
+    assert result["metrics"]["realization_commission_diagnostics"][
+        "available"
+    ] is False
+    assert result["metrics"]["realization_commission_diagnostics"][
+        "failure_code"
+    ] == "OZON_FINANCE_REALIZATION_COMMISSION_ZERO"
+    assert "0.00 ₽ (0,00% от общей выручки)" not in telegram_text
+    assert (
+        "Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)"
+        in telegram_text
+    )
+    assert "OZON_FINANCE_REALIZATION_COMMISSION_ZERO" in telegram_text
+
+
 def test_realization_sale_only_rows_with_known_returns_keep_commission_preliminary():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
-    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+    query.summary_service.finance.ozon.get_monthly_realization_report = lambda _year, _month: {
         "error": False,
         "result": {
             "rows": [
                 {
                     "order": {"posting_number": "private-order-number"},
-                    "delivery_commission": {"commission": "-69193.10"},
+                    "delivery_commission": {
+                        "commission": 0,
+                        "standard_fee": 69193.10,
+                    },
                 }
             ]
         },
@@ -696,7 +794,7 @@ def test_realization_sale_only_rows_with_known_returns_keep_commission_prelimina
 def test_realization_row_without_either_commission_fails_closed_in_telegram():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
-    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+    query.summary_service.finance.ozon.get_monthly_realization_report = lambda _year, _month: {
         "error": False,
         "result": {
             "rows": [
@@ -743,7 +841,7 @@ def test_realization_row_without_either_commission_fails_closed_in_telegram():
 def test_realization_http_failure_reaches_telegram_as_safe_commission_diagnostic():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
-    query.summary_service.finance.ozon.get_realization_posting = lambda _year, _month: {
+    query.summary_service.finance.ozon.get_monthly_realization_report = lambda _year, _month: {
         "error": True,
         "code": "OZON_HTTP_ERROR",
         "status_code": 404,
@@ -773,7 +871,7 @@ def test_realization_http_failure_reaches_telegram_as_safe_commission_diagnostic
         == "OZON_HTTP_404"
     )
     assert (
-        "Диагностика комиссии (/v1/finance/realization/posting): "
+        "Диагностика комиссии (/v2/finance/realization): "
         "источник недоступен (OZON_HTTP_404); "
         "использован предварительный источник по отправлениям."
     ) in telegram_text
@@ -788,7 +886,7 @@ def test_partial_month_without_refund_commission_is_labeled_preliminary():
     query = _Query()
     query.summary_service = _FinanceBackedCommissionSummary()
     realization_calls = []
-    query.summary_service.finance.ozon.get_realization_posting = (
+    query.summary_service.finance.ozon.get_monthly_realization_report = (
         lambda year, month: realization_calls.append((year, month))
     )
     transactions = _FinanceAccrualPostings()

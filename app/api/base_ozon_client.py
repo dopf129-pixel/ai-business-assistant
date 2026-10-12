@@ -437,6 +437,18 @@ class OzonClient:
             max_attempts=3
         )
 
+    def get_monthly_realization_report(self, year, month):
+
+        return self._post(
+            "/v2/finance/realization",
+            {
+                "month": int(month),
+                "year": int(year)
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_returns(
         self,
         offer_id=None,
