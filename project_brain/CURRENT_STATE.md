@@ -1,12 +1,12 @@
 # 2026-10-13 — актуальный статус P00–P08
 
 - P00–P08 реализованы в рабочей копии. Последняя полная изолированная проверка Windows Python 3.12: `pytest tests app/tests` — **3 077 passed in 12.06s**; `compileall app tests` прошёл. P07/P08 combined regression — **173 passed**.
-- Коммит `b2d86b0` (`Prepare P00-P08 verification snapshot`) отправлен в `origin/codex/p00-project-baseline`. GitHub Actions для него: Windows Python 3.12 — **3 077 passed in 37.57s**; Ubuntu Python 3.11 — **3 076 passed, 1 failed** из-за точного сравнения timeout `5.0` с корректным фактическим `4.999994`.
-- Ошибка была в хрупком утверждении теста, не в превышении бюджета: тест теперь подменяет монотонные часы детерминированным значением, сохраняя точную проверку `timeout == 5.0`. Локальная целевая проверка — **1 passed**. Исправление и повторный Linux full run ещё не отправлены; Docker build/smoke в неуспешном запуске были пропущены.
+- Коммит `b2d86b0` (`Prepare P00-P08 verification snapshot`) отправлен в `origin/codex/p00-project-baseline`. Первый GitHub Actions запуск: Windows Python 3.12 — **3 077 passed in 37.57s**; Ubuntu Python 3.11 — **3 076 passed, 1 failed** из-за точного сравнения timeout `5.0` с корректным фактическим `4.999994`; Docker build/smoke были пропущены после падения теста.
+- Исправление теста `9d17e33` использует контролируемые монотонные часы и сохраняет точную проверку `timeout == 5.0`; локальная целевая проверка — **1 passed**. Полный GitHub Actions run #2978 на `9d17e33`: Ubuntu Python 3.11 — **3 077 passed in 8.51s**, production Docker build и smoke прошли; Windows Python 3.12 — **3 077 passed in 29.43s**. Оба job завершились успешно.
 - P04 принят после обезличенной live-сверки Returns/Analytics и полного изолированного pytest (**3 016 passed** на момент приёмки); причины отсутствия Analytics `cancellations`/`returns` и расхождение CSV/API остаются неизвестными и не подменяются нулями. Подробности — в `P04_SOURCE_RECONCILIATION_2026-10-12.md`.
-- P01 реализация и Windows-regression завершены (**171 passed**), но внешняя приёмка остаётся открытой: необходимы Architecture Review и успешный Linux Python 3.11 runtime Verify после исправления assertion.
+- P01 реализация и Windows-regression завершены (**171 passed**); Linux Python 3.11 runtime Verify теперь прошёл на `9d17e33`. Внешняя приёмка P01 и P08 остаётся открытой до отдельного Architecture Review.
 - P07/P08 подключены к production composition factory; экран полноты остаётся read-only и использует ограниченный snapshot того же расчёта. Сводка приоритетов использует существующие сигналы, изолирует кэш по tenant/store и ограничивает длину Telegram-сообщения. P08 классифицирован как Architecture Review Required; отдельного независимого review в этой рабочей копии нет.
-- Ветка `codex/p00-project-baseline`. Изменение касается только детерминированности теста и документации; `data/users.json`, `data/tasks.json`, `data/tasks.json.lock` и локальные тестовые временные каталоги остаются отдельно от кода.
+- Ветка `codex/p00-project-baseline`, последний проверенный код — `9d17e33`. Изменение касается только детерминированности теста и документации; `data/users.json`, `data/tasks.json`, `data/tasks.json.lock` и локальные тестовые временные каталоги остаются отдельно от кода.
 
 ## Исторический снимок: P05 завершён; начат P06
 
