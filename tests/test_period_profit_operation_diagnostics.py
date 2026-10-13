@@ -115,6 +115,7 @@ def test_ozon_request_uses_remaining_operation_budget_and_stops_at_call_limit(
         observed_timeouts.append(timeout)
         return _Response()
 
+    monkeypatch.setattr("api.base_ozon_client.time.monotonic", lambda: 100.0)
     monkeypatch.setattr("api.base_ozon_client.requests.post", post)
     token = activate_period_profit_trace(trace)
     try:

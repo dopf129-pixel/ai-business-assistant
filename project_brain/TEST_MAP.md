@@ -445,6 +445,8 @@ fallback для multi-product posting.
 прибыли при недоступной identity только в previous comparison period.
 Проверяет production-style scope с 200 посторонними finance SKU: один realization
 request и отсутствие related/detail вызовов для чужих товаров.
+Проверка request timeout использует контролируемый монотонный таймер и точно
+подтверждает передачу оставшегося бюджета операции без временной флуктуации.
 
 ## Period Profit parallel finance reads
 
