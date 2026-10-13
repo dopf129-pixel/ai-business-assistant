@@ -1,8 +1,12 @@
 import re
+from collections import OrderedDict
+from copy import deepcopy
 from datetime import datetime
 from threading import RLock
+from uuid import uuid4
 
 from period_profit_compact_response import compact_period_profit_result
+from period_profit_completeness_view import PeriodProfitCompletenessViewService
 from services.period_profit_cost_confirmation_runtime_service import (
     PeriodProfitCostConfirmationRuntimeService,
 )
@@ -15,12 +19,14 @@ from services.period_profit_cost_exclusion_context import (
     activate_cost_exclusion,
     reset_cost_exclusion,
 )
+from services.tenant_context import get_current_tenant_user_id
 
 
 class AssistantPeriodProfitRuntimeService:
     """Narrow Period Profit route plus seller-confirmed local corrections."""
 
     PERIOD_CODES = {"TODAY", "7D", "28D", "56D", "90D"}
+    REPORT_VIEW_CACHE_MAX = 64
 
     def __init__(
         self,
@@ -28,15 +34,20 @@ class AssistantPeriodProfitRuntimeService:
         cost_confirmation_runtime_service=None,
         identity_confirmation_runtime_service=None,
         sku_runtime_service=None,
+        keyboard_service=None,
     ):
         self.query_service = query_service
         self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
         self.identity_confirmation_runtime_service = identity_confirmation_runtime_service
         self.sku_runtime_service = sku_runtime_service
+        self.keyboard_service = keyboard_service
+        self.completeness_view_service = PeriodProfitCompletenessViewService()
         self._custom_period_users = set()
         self._custom_pre_cogs_users = set()
         self._custom_sku_period_users = {}
         self._custom_period_lock = RLock()
+        self._custom_period_inflight = set()
+        self._report_views = OrderedDict()
 
     def begin_custom_sku_period(self, user_id, sku):
         user_key = self._user_key(user_id)
@@ -98,6 +109,20 @@ class AssistantPeriodProfitRuntimeService:
             custom_sku = self._custom_sku_period_users.get(user_key)
             custom_pre_cogs = user_key in self._custom_pre_cogs_users
             custom_period_pending = user_key in self._custom_period_users
+        if (
+            not custom_sku
+            and not custom_pre_cogs
+            and not custom_period_pending
+            and re.fullmatch(
+                r"\d{1,2}\.\d{1,2}\.\d{4}\s*-\s*"
+                r"\d{1,2}\.\d{1,2}\.\d{4}", value
+            )
+        ):
+            dates = self._extract_custom_dates(value)
+            if dates and len(dates) == 2 and self._has_custom_period_inflight(
+                user_key, dates
+            ):
+                return self._custom_period_in_progress()
         if custom_sku:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:
@@ -117,10 +142,16 @@ class AssistantPeriodProfitRuntimeService:
             dates = self._extract_custom_dates(value)
             if dates is None or len(dates) != 2:
                 return self._custom_period_input_invalid()
-            with self._custom_period_lock:
-                self._custom_sku_period_users.pop(user_key, None)
-            return self.sku_runtime_service.handle_custom_period(
-                custom_sku, dates[0], dates[1]
+            return self._run_custom_period_once(
+                user_key,
+                "sku:" + custom_sku,
+                dates,
+                lambda: self.sku_runtime_service.handle_custom_period(
+                    custom_sku, dates[0], dates[1]
+                ),
+                consume_pending=lambda: self._consume_custom_sku_period(
+                    user_key, custom_sku
+                ),
             )
         if custom_pre_cogs:
             if value in {"отмена", "cancel", "/cancel"}:
@@ -141,9 +172,17 @@ class AssistantPeriodProfitRuntimeService:
             dates = self._extract_custom_dates(value)
             if dates is None or len(dates) != 2:
                 return self._custom_period_input_invalid()
-            with self._custom_period_lock:
-                self._custom_pre_cogs_users.discard(user_key)
-            return self._query_pre_cogs(date_from=dates[0], date_to=dates[1])
+            return self._run_custom_period_once(
+                user_key,
+                "pre_cogs",
+                dates,
+                lambda: self._query_pre_cogs(
+                    date_from=dates[0], date_to=dates[1]
+                ),
+                consume_pending=lambda: self._consume_pending_user(
+                    self._custom_pre_cogs_users, user_key
+                ),
+            )
         if custom_period_pending:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:
@@ -164,12 +203,19 @@ class AssistantPeriodProfitRuntimeService:
             dates = self._extract_custom_dates(value)
             if dates is None or len(dates) != 2:
                 return self._custom_period_input_invalid()
-            with self._custom_period_lock:
-                self._custom_period_users.discard(user_key)
-            return self._present(
-                self._query_with_optional_comparison(
-                    date_from=dates[0], date_to=dates[1], today=today
-                )
+            return self._run_custom_period_once(
+                user_key,
+                "period_profit_custom",
+                dates,
+                lambda: self._present_report(
+                    self._query_with_optional_comparison(
+                        date_from=dates[0], date_to=dates[1], today=today
+                    ),
+                    user_id=user_id,
+                ),
+                consume_pending=lambda: self._consume_pending_user(
+                    self._custom_period_users, user_key
+                ),
             )
 
         if self._looks_like_identity_statement(value):
@@ -199,12 +245,18 @@ class AssistantPeriodProfitRuntimeService:
             if len(dates) != 2:
                 return self._invalid_custom_period()
 
-            return self._present(
-                self._query_with_optional_comparison(
-                    date_from=dates[0],
-                    date_to=dates[1],
-                    today=today,
-                )
+            return self._run_custom_period_once(
+                user_key,
+                "period_profit_text",
+                dates,
+                lambda: self._present_report(
+                    self._query_with_optional_comparison(
+                        date_from=dates[0],
+                        date_to=dates[1],
+                        today=today,
+                    ),
+                    user_id=user_id,
+                ),
             )
 
         period = self._resolve_period(value)
@@ -222,14 +274,20 @@ class AssistantPeriodProfitRuntimeService:
                 "executed": False,
             }
 
-        return self._present(
-            self._query_with_optional_comparison(
-                period_code=period,
-                today=today,
-            )
+        return self._run_custom_period_once(
+            user_key,
+            "period_profit_text",
+            (period,),
+            lambda: self._present_report(
+                self._query_with_optional_comparison(
+                    period_code=period,
+                    today=today,
+                ),
+                user_id=user_id,
+            ),
         )
 
-    def handle_callback(self, callback_data, today=None):
+    def handle_callback(self, callback_data, today=None, user_id=None):
         value = str(callback_data or "").strip().upper()
         pre_cogs_prefix = "PERIOD_PROFIT_PRE_COGS:"
         if value.startswith(pre_cogs_prefix):
@@ -249,12 +307,58 @@ class AssistantPeriodProfitRuntimeService:
                 "read_only": True,
                 "executed": False,
             }
-        return self._present(
+        return self._present_report(
             self._query_with_optional_comparison(
                 period_code=period,
                 today=today,
-            )
+            ),
+            user_id=user_id,
         )
+
+    def handle_cached_view(self, callback_data, user_id=None):
+        value = str(callback_data or "").strip()
+        view_prefixes = {
+            "period_profit_completeness": "completeness",
+            "period_profit_report": "report",
+        }
+        parts = value.split(":")
+        if len(parts) != 2 or parts[0] not in view_prefixes:
+            return self._cached_view_expired()
+        view_id = parts[1].lower()
+        if not re.fullmatch(r"[0-9a-f]{12}", view_id):
+            return self._cached_view_expired()
+        key = self._report_view_key(user_id, view_id)
+        if key is None:
+            return self._cached_view_expired()
+        with self._custom_period_lock:
+            cached = self._report_views.get(key)
+            if not isinstance(cached, dict):
+                return self._cached_view_expired()
+            self._report_views.move_to_end(key)
+            cached = deepcopy(cached)
+        if view_prefixes[parts[0]] == "report":
+            keyboard = self._build_report_keyboard(view_id)
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_CACHED_REPORT_READY",
+                "text": cached["report_text"],
+                "keyboard": keyboard,
+                "report_view_id": view_id,
+                "read_only": True,
+                "executed": False,
+            }
+        keyboard = self._build_completeness_keyboard(
+            view_id, cached.get("actions") or []
+        )
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_COMPLETENESS_READY",
+            "text": cached["completeness_text"],
+            "keyboard": keyboard,
+            "report_view_id": view_id,
+            "read_only": True,
+            "executed": False,
+        }
 
     def _query_pre_cogs(self, period_code=None, date_from=None, date_to=None, today=None):
         request = build_period_profit_request(
@@ -367,6 +471,68 @@ class AssistantPeriodProfitRuntimeService:
         value = str(user_id or "").strip()
         return value or None
 
+    def _run_custom_period_once(
+        self, user_key, mode, period_key, callback, consume_pending=None
+    ):
+        if not user_key:
+            return callback()
+        tenant_scope = str(get_current_tenant_user_id() or "")
+        key = (tenant_scope, user_key, str(mode), tuple(period_key))
+        with self._custom_period_lock:
+            if key in self._custom_period_inflight:
+                return self._custom_period_in_progress()
+            if callable(consume_pending) and not consume_pending():
+                return self._custom_period_input_stale()
+            self._custom_period_inflight.add(key)
+        try:
+            return callback()
+        finally:
+            with self._custom_period_lock:
+                self._custom_period_inflight.discard(key)
+
+    def _has_custom_period_inflight(self, user_key, period_key):
+        tenant_scope = str(get_current_tenant_user_id() or "")
+        normalized_period = tuple(period_key)
+        with self._custom_period_lock:
+            return any(
+                key[0] == tenant_scope
+                and key[1] == user_key
+                and key[3] == normalized_period
+                for key in self._custom_period_inflight
+            )
+
+    def _consume_custom_sku_period(self, user_key, sku):
+        if self._custom_sku_period_users.get(user_key) != sku:
+            return False
+        self._custom_sku_period_users.pop(user_key, None)
+        return True
+
+    def _consume_pending_user(self, pending_users, user_key):
+        if user_key not in pending_users:
+            return False
+        pending_users.discard(user_key)
+        return True
+
+    @staticmethod
+    def _custom_period_in_progress():
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_CUSTOM_PERIOD_ALREADY_RUNNING",
+            "message": "Этот расчёт уже выполняется. Дождитесь ответа на первый запрос.",
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _custom_period_input_stale():
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_ALREADY_USED",
+            "message": "Этот ввод периода уже обработан. Выберите период заново, если нужен повторный расчёт.",
+            "read_only": True,
+            "executed": False,
+        }
+
     def clear_pending_custom_period_input(self, user_id):
         """Clear a seller's pending custom-period prompt when they navigate away."""
         user_key = self._user_key(user_id)
@@ -384,6 +550,18 @@ class AssistantPeriodProfitRuntimeService:
     def _present(result):
         if isinstance(result, dict) and result.get("error") is True:
             code = str(result.get("code") or "").strip()
+            if code in {
+                "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
+                "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED",
+            }:
+                output = dict(result)
+                output["message"] = (
+                    "Расчёт остановлен по внутреннему лимиту времени или "
+                    "запросов к Ozon. Уменьшите период и повторите запрос."
+                )
+                output["read_only"] = True
+                output["executed"] = False
+                return output
             if (
                 code == "FINANCE_PERIOD_PROFIT_MONEY_UNAVAILABLE"
                 or code.startswith("OZON_FINANCE_")
@@ -475,6 +653,86 @@ class AssistantPeriodProfitRuntimeService:
                 output["executed"] = False
                 return output
         return compact_period_profit_result(result)
+
+    def _present_report(self, result, user_id=None):
+        output = self._present(result)
+        if (
+            isinstance(output, dict)
+            and output.get("error") is False
+            and output.get("status") == "PERIOD_PROFIT_QUERY_READY"
+            and isinstance(output.get("text"), str)
+        ):
+            self._save_completeness_view(output, result, user_id)
+        return output
+
+    def _save_completeness_view(self, compact_result, source_result, user_id):
+        scope = self._report_view_scope(user_id)
+        if scope is None:
+            return None
+        view = self.completeness_view_service.build(source_result)
+        if not isinstance(view, dict) or view.get("error") is not False:
+            return None
+        if view.get("status") != "PERIOD_PROFIT_COMPLETENESS_READY":
+            return None
+        view_id = uuid4().hex[:12]
+        key = (*scope, view_id)
+        with self._custom_period_lock:
+            self._report_views[key] = {
+                "report_text": str(compact_result["text"]),
+                "completeness_text": str(view["message"]),
+                "actions": list(view.get("actions") or []),
+            }
+            self._report_views.move_to_end(key)
+            while len(self._report_views) > self.REPORT_VIEW_CACHE_MAX:
+                self._report_views.popitem(last=False)
+        compact_result["report_view_id"] = view_id
+        compact_result["keyboard"] = self._build_report_keyboard(view_id)
+        return view_id
+
+    def _report_view_scope(self, user_id):
+        user_key = self._user_key(user_id)
+        if user_key is None:
+            return None
+        tenant_scope = self._user_key(get_current_tenant_user_id()) or user_key
+        return tenant_scope, user_key
+
+    def _report_view_key(self, user_id, view_id):
+        scope = self._report_view_scope(user_id)
+        if scope is None:
+            return None
+        return (*scope, view_id)
+
+    def _build_report_keyboard(self, view_id):
+        builder = getattr(self.keyboard_service, "build_period_profit_result_keyboard", None)
+        if callable(builder):
+            return builder(view_id)
+        return {"error": False, "type": "inline_keyboard", "buttons": [{
+            "text": "🔎 Полнота данных",
+            "callback": "period_profit_completeness:" + view_id,
+        }]}
+
+    def _build_completeness_keyboard(self, view_id, actions):
+        builder = getattr(
+            self.keyboard_service,
+            "build_period_profit_completeness_keyboard",
+            None,
+        )
+        if callable(builder):
+            return builder(view_id, actions)
+        return {"error": False, "type": "inline_keyboard", "buttons": [{
+            "text": "↩️ К расчёту",
+            "callback": "period_profit_report:" + view_id,
+        }]}
+
+    @staticmethod
+    def _cached_view_expired():
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_CACHED_VIEW_EXPIRED",
+            "message": "Снимок расчёта устарел или относится к другому магазину. Сформируйте отчёт заново.",
+            "read_only": True,
+            "executed": False,
+        }
 
     @staticmethod
     def _safe_trace_text(trace):

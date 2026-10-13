@@ -590,6 +590,8 @@ class PeriodProfitEffectiveCostSaleQuantitySummaryService(
             evidence = getter(
                 accrual_date,
                 product_id=row.get("product_id"),
+                # Stable seller/catalog identity is the cost authority for an
+                # accrual whose finance SKU may have been retired or rewritten.
                 sku=row.get("catalog_sku") or row.get("sku"),
                 offer_id=row.get("offer_id"),
             )

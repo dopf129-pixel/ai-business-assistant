@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
 from api.base_ozon_client import OzonClient as BaseOzonClient
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -289,6 +292,14 @@ def _bot(runtime):
     return bot, assistant
 
 
+def _report_text(result):
+    return "\n".join(
+        value
+        for value in (result.get("text"), result.get("details_text"))
+        if isinstance(value, str)
+    )
+
+
 def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_values():
     query = _Query()
     ads = _Advertising()
@@ -325,47 +336,55 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
         "commission_matches": 0,
         "storage_matches": 2,
     }
-    assert (
-        "Диагностика разбивки (/v1/finance/accrual/by-day и "
-        "/v1/finance/accrual/postings): типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; "
-        "источник начислений по отправлениям недоступен "
-        "(OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE), "
-        "отправлений 0, строк начислений 0, строк комиссии 0, строк размещения 0."
-    ) in result["text"]
-    diagnostic_line = next(
-        line for line in result["text"].splitlines()
-        if line.startswith("Диагностика разбивки (")
-    )
-    assert "9001" not in diagnostic_line
-    assert "501" not in diagnostic_line
-    assert "1. Выручка общая (100%): 100 000.00 ₽" in result["text"]
-    assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽ (92,00% от общей выручки)" in result["text"]
-    assert "3. Баллы за скидки: 8 000.00 ₽ (8,00% от общей выручки)" in result["text"]
-    assert "4. Начисления Ozon нетто: 18 520.00 ₽ (18,52% от общей выручки)" in result["text"]
-    assert "5. Налог: 5 520.00 ₽ (5,52% от общей выручки)" in result["text"]
-    assert "6. Прибыль без себестоимости: 13 000.00 ₽ (13,00% от общей выручки)" in result["text"]
-    assert "7. Расходы на рекламу:" in result["text"]
-    assert "По начислениям Ozon, CPC: -3 000.00 ₽ (-3,00% от общей выручки)" in result["text"]
-    assert "По начислениям Ozon, CPO: -400.00 ₽ (-0,40% от общей выручки)" in result["text"]
-    assert "Performance CPC по сопоставленным SKU (для сверки): 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
-    assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in result["text"]
-    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
-    assert "10. Логистика доставки (без обратной логистики): -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
-    assert "11. Доставка до места выдачи и выдача товара (части «последней мили»): -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
+    assert "Начисления по отправлениям недоступны (OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE)." in result["details_text"]
+    assert "Справочник типов начислений: 10 типов, явные совпадения комиссии 0, размещения 2." in result["details_text"]
+    assert "9001" not in result["details_text"]
+    assert "501" not in result["details_text"]
+    assert "1. Выручка общая (100%): 100 000.00 ₽" in _report_text(result)
+    assert "2. Выручка ФНС (выручка − баллы): 92 000.00 ₽ (92,00% от общей выручки)" in _report_text(result)
+    assert "3. Баллы за скидки: 8 000.00 ₽ (8,00% от общей выручки)" in _report_text(result)
+    assert "4. Начисления Ozon нетто: 18 520.00 ₽ (18,52% от общей выручки)" in _report_text(result)
+    assert "5. Налог: 5 520.00 ₽ (5,52% от общей выручки)" in _report_text(result)
+    assert "6. Прибыль без себестоимости: 13 000.00 ₽ (13,00% от общей выручки)" in _report_text(result)
+    assert "7. Реклама по начислениям Ozon:" in result["text"]
+    assert "CPC: -3 000.00 ₽ (-3,00% от общей выручки)" in result["text"]
+    assert "CPO: -400.00 ₽ (-0,40% от общей выручки)" in result["text"]
+    assert "Performance CPC для сверки, не входит в сумму: 345.67 ₽ (0,35% от общей выручки) (2 камп.)" in result["text"]
+    assert "8. Эквайринг: -1 500.00 ₽ (-1,50% от общей выручки)" in _report_text(result)
+    assert "9. Комиссия Ozon (предварительно; возвратная не подтверждена): -22 000.00 ₽ (-22,00% от общей выручки)" in result["text"]
+    assert "10. Логистика доставки: -18 000.00 ₽ (-18,00% от общей выручки)" in result["text"]
+    assert "До места выдачи и выдача товара, уже в логистике: -8 500.00 ₽ (-8,50% от общей выручки)" in result["text"]
+    assert "11. Обратная логистика: -4 482.24 ₽ (-4,48% от общей выручки)" in result["text"]
     assert "12. Кросс-докинг: -1 200.00 ₽ (-1,20% от общей выручки)" in result["text"]
-    assert "13. Стоимость размещения на складе Ozon: -351.74 ₽ (-0,35% от общей выручки)" in result["text"]
-    assert "14. Остаток начислений Ozon после основных категорий: -3 600.00 ₽ (-3,60% от общей выручки)" in result["text"]
-    assert "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки." in result["text"]
-    assert "Это не дополнительная сумма к вычитанию" in result["text"]
-    assert "Тип Ozon «Обратная логистика»: -4 482.24 ₽ (-4,48% от общей выручки)" in result["text"]
-    assert "Тип Ozon «Обработка товара»: -1 650.00 ₽ (-1,65% от общей выручки)" in result["text"]
-    assert "группы типов Ozon могут объединять несколько операций из XLSX" in result["text"]
-    assert "15. Заказанные единицы (Analytics): 17 шт. (100% базы для долей)" in result["text"]
-    assert "16. Отменённые единицы (Analytics): 3 шт. (17,65% от заказанных единиц)" in result["text"]
-    assert "17. Возвраты (Analytics): 1 шт. (5,88% от заказанных единиц)" in result["text"]
-    assert "Для количества показана доля от заказанных единиц" in result["text"]
-    assert "Performance CPC показан для сверки и может пересекаться" in result["text"]
+    assert "13. Размещение и хранение: -351.74 ₽ (-0,35% от общей выручки)" in result["text"]
+    assert "14. Остальные услуги по явным типам: -1 850.00 ₽ (-1,85% от общей выручки)" in result["text"]
+    assert "15. Неразнесённая сверочная разница (баланс, не отдельное начисление):" in result["text"]
+    assert "а не самостоятельное удержание" in result["details_text"]
+    assert "Обратная логистика" in result["details_text"]
+    assert "Обработка товара" in result["details_text"]
+    assert "16. Заказанные единицы (Analytics): 17 шт. (100% базы для долей)" in result["text"]
+    assert "17. Отменённые единицы (Analytics): 3 шт. (доля не показана:" in result["text"]
+    assert "18. Возвраты (Analytics): 1 шт. (доля не показана:" in result["text"]
+    assert sum(2 if ord(char) > 0xFFFF else 1 for char in result["text"]) <= 3500
+    breakdown = result["metrics"]["expense_breakdown"]
+    assert breakdown["period"] == {
+        "date_from": "2026-09-29",
+        "date_to": "2026-10-05",
+    }
+    assert breakdown["categories"]["advertising"]["CPC"]["amount"] == -3000.0
+    assert breakdown["categories"]["reverse_logistics"]["amount"] == -4482.24
+    assert breakdown["categories"]["cross_docking"]["amount"] == -1200.0
+    assert breakdown["last_mile"]["additive"] is False
+    assert breakdown["performance_cpc_additive"] is False
+    assert round(
+        result["metrics"]["revenue"]
+        + result["metrics"]["acquiring"]
+        + result["metrics"]["commission"]
+        + result["metrics"]["logistics"]
+        + breakdown["classified_other_fees"]
+        + breakdown["unallocated_adjustment"]["amount"],
+        2,
+    ) == result["metrics"]["net_accrual"]
     assert query.summary_service.calls[0][3] is True
     assert cost_excluded() is False
     assert ads.calls[0][2] == {"1001", "2002", "9001"}
@@ -383,7 +402,7 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
     bot, _ = _bot(runtime)
 
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["metrics"]["commission"] == -69167.90
     assert result["metrics"]["other_fees"] == -105966.58
@@ -395,11 +414,11 @@ def test_commission_uses_explicit_accrual_types_and_reconciles_through_telegram(
         + result["metrics"]["other_fees"],
         2,
     ) == result["metrics"]["net_accrual"]
-    assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽ (-14,12% от общей выручки)" in telegram_text
-    assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
-    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽ (-21,64% от общей выручки)" in telegram_text
+    assert "9. Комиссия Ozon (типы финансовых начислений): -69 167.90 ₽ (-14,12% от общей выручки)" in telegram_text
+    assert "13. Размещение и хранение: -1.74 ₽" in telegram_text
+    assert "Неразнесённая сверочная разница" in telegram_text
     assert "Тип Ozon «Вознаграждение за продажу»" not in telegram_text
-    assert "Комиссия за полные календарные месяцы берётся из месячного отчёта реализации товаров (/v2/finance/realization)" in telegram_text
+    assert "Месячный отчёт реализации не подтвердил комиссию" in telegram_text
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 3,
         "commission_matches": 2,
@@ -421,13 +440,13 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     bot, _ = _bot(runtime)
 
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["metrics"]["commission"] == -69167.90
     assert result["metrics"]["other_fees"] == -105966.58
-    assert "9. Комиссия Ozon (вознаграждение за продажу): -69 167.90 ₽" in telegram_text
-    assert "13. Стоимость размещения на складе Ozon: -1.74 ₽" in telegram_text
-    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert "9. Комиссия Ozon (начисления по отправлениям): -69 167.90 ₽" in telegram_text
+    assert "13. Размещение и хранение: -1.74 ₽" in telegram_text
+    assert "Неразнесённая сверочная разница" in telegram_text
     assert result["metrics"]["commission_source"] == "FINANCE_ACCRUAL_POSTINGS"
     assert result["metrics"]["accrual_diagnostics"] == {
         "fee_type_count": 2,
@@ -455,11 +474,10 @@ def test_unique_accrual_ids_do_not_hide_commission_or_storage_in_telegram():
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
     assert (
-        "Диагностика начислений (/v1/finance/accrual/postings): отправлений 1, "
-        "строк начислений 5, комиссия: продажа — операций 1, -69 193.10 ₽; "
-        "возврат — операций 1, 25.20 ₽; прочие явные типы — операций 0, "
-        "0.00 ₽; без типа в справочнике — операций 0, 0.00 ₽; "
-        "размещение — операций 3, -1.74 ₽."
+        "Список начислений по отправлениям: записей 1, строк начислений 5; "
+        "комиссия продажи — строк 1 / -69 193.10 ₽; возврат — строк 1 / "
+        "25.20 ₽; размещение — строк 3 / -1.74 ₽; "
+        "без типа в справочнике 0 строк."
     ) in telegram_text
 
 
@@ -485,7 +503,7 @@ def test_commission_posting_diagnostic_exposes_safe_subtotals_and_unmapped_rows(
     bot, _ = _bot(runtime)
 
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["metrics"]["commission"] == -69159.91
     assert result["metrics"]["other_fees"] == -105974.57
@@ -499,11 +517,10 @@ def test_commission_posting_diagnostic_exposes_safe_subtotals_and_unmapped_rows(
         "unmapped_type_amount"
     ] == -7.99
     assert (
-        "Диагностика начислений (/v1/finance/accrual/postings): отправлений 1, "
-        "строк начислений 6, комиссия: продажа — операций 1, -69 185.11 ₽; "
-        "возврат — операций 1, 25.20 ₽; прочие явные типы — операций 0, "
-        "0.00 ₽; без типа в справочнике — операций 1, -7.99 ₽; "
-        "размещение — операций 3, -1.74 ₽."
+        "Список начислений по отправлениям: записей 1, строк начислений 6; "
+        "комиссия продажи — строк 1 / -69 185.11 ₽; возврат — строк 1 / "
+        "25.20 ₽; размещение — строк 3 / -1.74 ₽; "
+        "без типа в справочнике 1 строк / -7.99 ₽."
     ) in telegram_text
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
@@ -575,7 +592,7 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69167.90
@@ -596,9 +613,9 @@ def test_full_month_realization_commission_reaches_telegram_with_sales_and_retur
         "return_commission_amount": 25.20,
         "commission": -69167.90,
     }
-    assert "9. Комиссия Ozon (отчёт реализации товаров): -69 167.90 ₽" in telegram_text
-    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
-    assert "Диагностика комиссии (/v2/finance/realization)" in telegram_text
+    assert "9. Комиссия Ozon (отчёт реализации): -69 167.90 ₽" in telegram_text
+    assert "15. Неразнесённая сверочная разница" in telegram_text
+    assert "Источник — месячный отчёт реализации Ozon (/v2/finance/realization)" in telegram_text
     assert realization_calls == [(2026, 8)]
     assert "private-order-number" not in telegram_text
     assert "private product" not in telegram_text
@@ -652,7 +669,7 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
     diagnostics = result["metrics"]["realization_commission_diagnostics"]
 
     assert result["error"] is False
@@ -670,17 +687,17 @@ def test_full_month_realization_commission_sums_sparse_sale_and_return_rows_to_t
     assert diagnostics["return_fee_row_count"] == 1
     assert diagnostics["return_commission_amount"] == 25.20
     assert diagnostics["commission"] == -69167.90
-    assert "9. Комиссия Ozon (отчёт реализации товаров): -69 167.90 ₽" in telegram_text
-    assert "14. Остаток начислений Ozon после основных категорий: -105 966.58 ₽" in telegram_text
+    assert "9. Комиссия Ozon (отчёт реализации): -69 167.90 ₽" in telegram_text
+    assert "15. Неразнесённая сверочная разница" in telegram_text
     assert (
-        "строк отчёта 2 (без блока комиссии продажи: 1, без блока комиссии возврата: 1)"
+        "полных месяцев 1, строк отчёта 2."
         in telegram_text
     )
     assert (
-        "строк с ненулевой суммой комиссии продажи 1, -69 193.10 ₽; "
-        "строк с ненулевой суммой комиссии возврата 1, 25.20 ₽."
+        "Комиссия продажи: 1 строк с суммой -69 193.10 ₽; возврат: "
+        "1 строк с суммой 25.20 ₽."
     ) in telegram_text
-    assert "Количество строк месячного отчёта не равно количеству заказов или проданных единиц." in telegram_text
+    assert "Число строк отчёта не является числом продаж или заказанных единиц." in telegram_text
     assert "продажа — операций" not in telegram_text
     assert "возврат — операций" not in telegram_text
     assert realization_calls == [(2026, 8)]
@@ -725,7 +742,7 @@ def test_zero_monthly_realization_commission_is_rejected_and_falls_back_as_preli
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69163.97
@@ -738,7 +755,7 @@ def test_zero_monthly_realization_commission_is_rejected_and_falls_back_as_preli
     ] == "OZON_FINANCE_REALIZATION_COMMISSION_ZERO"
     assert "0.00 ₽ (0,00% от общей выручки)" not in telegram_text
     assert (
-        "Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)"
+        "Комиссия Ozon (предварительно; возвратная не подтверждена)"
         in telegram_text
     )
     assert "OZON_FINANCE_REALIZATION_COMMISSION_ZERO" in telegram_text
@@ -775,7 +792,7 @@ def test_realization_sale_only_rows_with_known_returns_keep_commission_prelimina
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
     diagnostics = result["metrics"]["realization_commission_diagnostics"]
 
     assert result["metrics"]["analytics"]["returns"] == 1
@@ -785,7 +802,7 @@ def test_realization_sale_only_rows_with_known_returns_keep_commission_prelimina
     assert diagnostics["failure_code"] == "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
     assert diagnostics["return_commission_row_count"] == 0
     assert (
-        "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)"
+        "9. Комиссия Ozon (предварительно; возвратная не подтверждена)"
         in telegram_text
     )
     assert "private-order-number" not in telegram_text
@@ -819,7 +836,7 @@ def test_realization_row_without_either_commission_fails_closed_in_telegram():
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69159.91
@@ -830,8 +847,10 @@ def test_realization_row_without_either_commission_fails_closed_in_telegram():
         == "OZON_FINANCE_REALIZATION_COMMISSION_MISSING"
     )
     assert (
-        "источник недоступен (OZON_FINANCE_REALIZATION_COMMISSION_MISSING); "
-        "использован предварительный источник по отправлениям."
+        "Месячный отчёт реализации не подтвердил комиссию "
+        "(OZON_FINANCE_REALIZATION_COMMISSION_MISSING); использован источник "
+        "POSTING_SALE_COMMISSION, предварительная сумма может не включать "
+        "возвратную комиссию."
     ) in telegram_text
     assert "private-order-number" not in telegram_text
     assert "private product" not in telegram_text
@@ -861,7 +880,7 @@ def test_realization_http_failure_reaches_telegram_as_safe_commission_diagnostic
 
     bot.on_callback("seller-a", "experimental_store_economics:custom")
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69159.91
@@ -871,12 +890,12 @@ def test_realization_http_failure_reaches_telegram_as_safe_commission_diagnostic
         == "OZON_HTTP_404"
     )
     assert (
-        "Диагностика комиссии (/v2/finance/realization): "
-        "источник недоступен (OZON_HTTP_404); "
-        "использован предварительный источник по отправлениям."
+        "Месячный отчёт реализации не подтвердил комиссию (OZON_HTTP_404); "
+        "использован источник POSTING_SALE_COMMISSION, предварительная сумма "
+        "может не включать возвратную комиссию."
     ) in telegram_text
-    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in telegram_text
-    assert "Диагностика начислений (/v1/finance/accrual/postings)" in telegram_text
+    assert "9. Комиссия Ozon (предварительно; возвратная не подтверждена)" in telegram_text
+    assert "Список начислений по отправлениям:" in telegram_text
     assert "private Ozon response with seller and order details" not in telegram_text
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
@@ -905,7 +924,7 @@ def test_partial_month_without_refund_commission_is_labeled_preliminary():
     assert result["error"] is False
     assert result["metrics"]["commission"] == -69159.91
     assert result["metrics"]["commission_source"] == "POSTING_SALE_COMMISSION"
-    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in result["text"]
+    assert "9. Комиссия Ozon (предварительно; возвратная не подтверждена)" in _report_text(result)
     assert realization_calls == []
 
 
@@ -964,23 +983,12 @@ def test_unmatched_accrual_diagnostic_reaches_telegram_without_raw_identifiers()
     bot, _ = _bot(runtime)
 
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
-    expected = (
-        "Диагностика разбивки (/v1/finance/accrual/by-day и "
-        "/v1/finance/accrual/postings): типов начислений 10, "
-        "совпадений комиссии 0, размещения 2; "
-        "источник начислений по отправлениям недоступен "
-        "(OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE), "
-        "отправлений 0, строк начислений 0, строк комиссии 0, строк размещения 0."
-    )
-    assert expected in telegram_text
-    diagnostic_line = next(
-        line for line in telegram_text.splitlines()
-        if line.startswith("Диагностика разбивки (")
-    )
-    assert "9001" not in diagnostic_line
-    assert "501" not in diagnostic_line
+    assert "Начисления по отправлениям недоступны (OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE)." in telegram_text
+    assert "Справочник типов начислений: 10 типов, явные совпадения комиссии 0, размещения 2." in telegram_text
+    assert "9001" not in telegram_text
+    assert "501" not in telegram_text
 
 
 def test_accrual_posting_http_failure_reaches_telegram_without_api_message():
@@ -1002,14 +1010,14 @@ def test_accrual_posting_http_failure_reaches_telegram_without_api_message():
     bot, _ = _bot(runtime)
 
     result = bot.on_callback("seller-a", "experimental_store_economics:7D")
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["metrics"]["accrual_posting_category_diagnostics"]["failure_code"] == "OZON_HTTP_403"
-    assert "источник начислений по отправлениям недоступен (OZON_HTTP_403)" in telegram_text
+    assert "Начисления по отправлениям недоступны (OZON_HTTP_403)." in telegram_text
     assert "private Ozon response detail" not in telegram_text
     assert "fixture-posting-1" not in telegram_text
     assert "fixture-sku" not in telegram_text
-    assert "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена)" in telegram_text
+    assert "9. Комиссия Ozon (предварительно; возвратная не подтверждена)" in telegram_text
 
 
 def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero():
@@ -1046,14 +1054,14 @@ def test_unconfirmed_expenses_and_unavailable_analytics_are_never_shown_as_zero(
     assert result["metrics"]["advertising"]["cpc"] is None
     assert result["metrics"]["analytics"]["ordered_units"] is None
     assert result["metrics"]["analytics"]["cancellations"] is None
-    assert "Performance CPC по сопоставленным SKU (для сверки): Performance не подключён" in result["text"]
-    assert "показатель «заказанных единиц» недоступен в Ozon Analytics" in result["text"]
-    assert "показатель «отменённых единиц» недоступен в Ozon Analytics" in result["text"]
-    assert "показатель «возвратов» недоступен в Ozon Analytics" in result["text"]
-    assert "Доставка до места выдачи и выдача товара (части «последней мили»): не найдено начисление с однозначной подписью" in result["text"]
-    assert "Кросс-докинг: не найдено начисление с однозначной подписью" in result["text"]
-    assert "Стоимость размещения на складе Ozon: не найдено начисление с однозначной подписью" in result["text"]
-    assert "проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период" in result["text"]
+    assert "Performance CPC для сверки, не входит в сумму: Performance не подключён" in _report_text(result)
+    assert "показатель «заказанных единиц» недоступен в Ozon Analytics" in _report_text(result)
+    assert "показатель «отменённых единиц» недоступен в Ozon Analytics" in _report_text(result)
+    assert "показатель «возвратов» недоступен в Ozon Analytics" in _report_text(result)
+    assert "До места выдачи и выдача товара, уже в логистике: нет подтверждённой детализации" in _report_text(result)
+    assert "12. Кросс-докинг: нет подтверждённых начислений" in _report_text(result)
+    assert "13. Размещение и хранение: нет подтверждённых начислений" in _report_text(result)
+    assert "Плату за размещение можно сверить в Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период." in _report_text(result)
 
 
 def test_unknown_historical_campaign_count_is_not_rendered_as_zero():
@@ -1071,8 +1079,8 @@ def test_unknown_historical_campaign_count_is_not_rendered_as_zero():
 
     assert result["metrics"]["advertising"]["cpc"] == 84467.35
     assert result["metrics"]["advertising"]["campaign_count"] is None
-    assert "84 467.35 ₽" in result["text"]
-    assert "0 камп." not in result["text"]
+    assert "84 467.35 ₽" in _report_text(result)
+    assert "0 камп." not in _report_text(result)
 
 
 def test_one_missing_analytics_metric_keeps_the_other_and_reaches_telegram():
@@ -1122,8 +1130,8 @@ def test_analytics_totals_are_used_and_fractional_units_are_preserved():
 
     assert result["metrics"]["analytics"]["ordered_units"] == 2.5
     assert result["metrics"]["analytics"]["cancellations"] == 1
-    assert "Заказанные единицы (Analytics): 2,5" in result["text"]
-    assert "Отменённые единицы (Analytics): 1" in result["text"]
+    assert "Заказанные единицы (Analytics): 2,5" in _report_text(result)
+    assert "Отменённые единицы (Analytics): 1" in _report_text(result)
 
 
 def test_generic_storage_label_is_not_reported_as_paid_storage():
@@ -1157,6 +1165,7 @@ class _SellerApiFallback(_Analytics):
             "error": False,
             "result": {
                 "postings": [{
+                    "posting_number": "fbo-cancel-1",
                     "status": "cancelled",
                     "products": [{"quantity": 2}],
                 }]
@@ -1169,6 +1178,7 @@ class _SellerApiFallback(_Analytics):
         return {
             "error": False,
             "postings": [{
+                "posting_number": "fbs-cancel-1",
                 "status": "cancelled",
                 "products": [{"quantity": 3}],
             }],
@@ -1202,14 +1212,14 @@ def test_missing_analytics_cancellations_and_returns_use_complete_seller_api_dat
     result = bot.on_callback(
         "seller-a", "experimental_store_economics:7D"
     )
-    telegram_text = TelegramResponseFormatter().format(result)
+    telegram_text = _report_text(result)
 
     assert result["metrics"]["analytics"]["cancellations"] == 5
     assert result["metrics"]["analytics"]["cancellations_source"] == "SELLER_POSTINGS"
     assert result["metrics"]["analytics"]["returns"] == 1
     assert result["metrics"]["analytics"]["returns_source"] == "SELLER_RETURNS"
-    assert "16. Отменённые единицы (FBO/FBS, заказы периода): 5 шт. (29,41% от заказанных единиц)" in telegram_text
-    assert "17. Возвраты (FBO/FBS, статус изменён в периоде): 1 шт. (5,88% от заказанных единиц)" in telegram_text
+    assert "17. Отменённые единицы (FBO/FBS, заказы периода): 5 шт. (доля не показана:" in telegram_text
+    assert "18. Клиентские возвраты FBO/FBS (тип ClientReturn; статус изменён в периоде): 1 шт. (доля не показана:" in telegram_text
     assert analytics.fbo_calls[0]["status"] == "cancelled"
     assert analytics.fbs_calls[0]["status"] == "cancelled"
     assert {call["return_schema"] for call in analytics.return_calls} == {"FBO", "FBS"}
@@ -1236,7 +1246,445 @@ def test_incomplete_seller_api_fallback_keeps_missing_cancellations_unknown():
 
     assert result["metrics"]["analytics"]["cancellations"] is None
     assert result["metrics"]["analytics"]["returns"] == 1
-    assert "16. Отменённые единицы (Analytics): Ozon Analytics не вернул показатель" in result["text"]
+    assert "17. Отменённые единицы (Analytics): Ozon Analytics не вернул показатель" in _report_text(result)
+
+
+def test_analytics_paginates_until_a_short_terminal_page_and_sums_rows():
+    class PagedAnalytics:
+        def __init__(self):
+            self.offsets = []
+
+        def get_analytics_data(self, _date_from, _date_to, **kwargs):
+            self.offsets.append(kwargs["offset"])
+            if kwargs["offset"] == 0:
+                return {
+                    "error": False,
+                    "result": {
+                        "data": [
+                            {"metrics": [1, 0, 0]},
+                            {"metrics": [2, 0, 1]},
+                        ]
+                    },
+                }
+            return {
+                "error": False,
+                "result": {"data": [{"metrics": [3, 1, 0]}]},
+            }
+
+    analytics = PagedAnalytics()
+    _query, runtime = _service(analytics=analytics)
+    runtime.ANALYTICS_PAGE_SIZE = 2
+    runtime.ANALYTICS_MAX_PAGES = 3
+
+    result = runtime._load_analytics("2026-08-01", "2026-08-31")
+
+    assert analytics.offsets == [0, 2]
+    assert result["status"] == "READY"
+    assert result["ordered_units"] == 6
+    assert result["cancellations"] == 1
+    assert result["returns"] == 1
+
+
+def test_analytics_exhausted_page_budget_does_not_publish_partial_totals():
+    analytics = _Analytics({
+        "error": False,
+        "result": {"data": [{"metrics": [1, 0, 0]}, {"metrics": [2, 0, 0]}]},
+    })
+    offsets = []
+    original = analytics.get_analytics_data
+
+    def get_page(date_from, date_to, **kwargs):
+        offsets.append(kwargs["offset"])
+        return original(date_from, date_to, **kwargs)
+
+    analytics.get_analytics_data = get_page
+    _query, runtime = _service(analytics=analytics)
+    runtime.ANALYTICS_PAGE_SIZE = 2
+    runtime.ANALYTICS_MAX_PAGES = 2
+
+    result = runtime._load_analytics("2026-08-01", "2026-08-31")
+
+    assert offsets == [0, 2]
+    assert result["status"] == "INCOMPLETE"
+    assert result["ordered_units"] is None
+    assert result["ordered_units_diagnostic"] == "ANALYTICS_PAGE_LIMIT_REACHED"
+
+
+def test_analytics_access_and_rate_limit_failures_have_distinct_diagnostics():
+    for response, expected in (
+        ({"error": True, "code": "OZON_HTTP_403", "status_code": 403}, "ANALYTICS_ACCESS_DENIED"),
+        ({"error": True, "code": "OZON_RATE_LIMITED", "status_code": 429}, "ANALYTICS_RATE_LIMITED"),
+    ):
+        _query, runtime = _service(analytics=_Analytics(response))
+        result = runtime._load_analytics("2026-08-01", "2026-08-31")
+        assert result["ordered_units"] is None
+        assert result["ordered_units_diagnostic"] == expected
+
+
+def test_seller_api_duplicate_cancelled_postings_are_counted_once():
+    class DuplicatePostingClient:
+        def get_fbo_postings(self, **_kwargs):
+            posting = {
+                "posting_number": "same-fbo-posting",
+                "status": "cancelled",
+                "products": [{"sku": 11, "quantity": 2}],
+            }
+            return {
+                "error": False,
+                "result": {"postings": [posting, dict(posting)]},
+                "has_next": False,
+            }
+
+        def get_fbs_postings(self, **_kwargs):
+            return {"error": False, "postings": [], "complete": True}
+
+    _query, runtime = _service(analytics=DuplicatePostingClient())
+    assert runtime._load_cancelled_posting_units("2026-08-01", "2026-08-31") == 2
+
+
+def test_seller_api_duplicate_return_records_are_counted_once_and_conflicts_fail_closed():
+    class DuplicateReturnClient:
+        def __init__(self, quantity=1):
+            self.quantity = quantity
+
+        def get_returns(self, **kwargs):
+            if kwargs["return_schema"] == "FBS":
+                return {"error": False, "returns": [], "has_next": False}
+            first = {
+                "id": 41,
+                "type": "ClientReturn",
+                "status": "AcceptedFromCustomer",
+                "visual_status_change_moment": "2026-08-03T10:00:00Z",
+                "product": {"offer_id": "same-product", "quantity": self.quantity},
+            }
+            duplicate = dict(first)
+            duplicate["product"] = {
+                "offer_id": "same-product",
+                "quantity": self.quantity,
+            }
+            return {"error": False, "returns": [first, duplicate], "has_next": False}
+
+    _query, runtime = _service(analytics=DuplicateReturnClient())
+    assert runtime._load_return_units("2026-08-01", "2026-08-31") == 1
+
+    _query, conflicting_runtime = _service(analytics=DuplicateReturnClient(quantity=2))
+
+    class ConflictingPageClient(DuplicateReturnClient):
+        def get_returns(self, **kwargs):
+            response = super().get_returns(**kwargs)
+            if kwargs["return_schema"] == "FBO":
+                response["returns"][1]["product"]["quantity"] = 3
+            return response
+
+    conflicting_runtime.analytics_client = ConflictingPageClient()
+    assert conflicting_runtime._load_return_units("2026-08-01", "2026-08-31") is None
+
+    class ConflictingProductClient(DuplicateReturnClient):
+        def get_returns(self, **kwargs):
+            response = super().get_returns(**kwargs)
+            if kwargs["return_schema"] == "FBO":
+                response["returns"][1]["product"]["offer_id"] = "different-product"
+            return response
+
+    _query, conflicting_product_runtime = _service(
+        analytics=ConflictingProductClient()
+    )
+    assert conflicting_product_runtime._load_return_units(
+        "2026-08-01", "2026-08-31"
+    ) is None
+
+
+def test_returns_api_diagnostic_is_user_triggered_bounded_and_anonymized():
+    class DiagnosticClient(_Analytics):
+        def __init__(self):
+            super().__init__()
+            self.return_calls = []
+
+        def get_returns(self, **kwargs):
+            self.return_calls.append(dict(kwargs))
+            observer = kwargs.get("request_attempt_observer")
+            if callable(observer):
+                observer("/v1/returns/list")
+            rows = (
+                [
+                    {
+                        "id": 990001,
+                        "type": "ClientReturn",
+                        "schema": "FBO",
+                        "posting_number": "private-posting",
+                        "product": {
+                            "sku": "private-sku",
+                            "offer_id": "private-offer",
+                            "name": "private-product-name",
+                            "quantity": 2,
+                        },
+                        "visual": {
+                            "change_moment": "2026-08-12T09:10:11Z",
+                            "status": {
+                                "sys_name": "AcceptedFromCustomer",
+                                "display_name": "private-status-label",
+                            },
+                        },
+                    },
+                    {
+                        "id": 990002,
+                        "type": "FullReturn",
+                        "schema": "FBO",
+                        "product": {"quantity": 1},
+                        "visual": {
+                            "change_moment": "2026-08-15T09:10:11Z",
+                            "status": {"sys_name": "ArrivedAtReturnPlace"},
+                        },
+                    },
+                ]
+                if kwargs["return_schema"] == "FBO"
+                else []
+            )
+            return {"error": False, "returns": rows, "has_next": False}
+
+    analytics = DiagnosticClient()
+    query, runtime = _service(analytics=analytics)
+    runtime.calculate("2026-08-01", "2026-08-31", user_id="seller-a")
+    bot, _assistant = _bot(runtime)
+
+    result = bot.on_callback(
+        "seller-a", "experimental_returns_api_diagnostic"
+    )
+    message = result["message"]
+
+    assert result["status"] == "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_READY"
+    assert "API возвратов за 2026-08-01 — 2026-08-31" in message
+    assert "FBO: страниц 1, строк API 2, уникальных ID 2 (полностью прочитан)" in message
+    assert "ClientReturn: строк 1, quantity 2" in message
+    assert "FullReturn: строк 1, quantity 1" in message
+    assert "AcceptedFromCustomer: 1" in message
+    assert "Фактических HTTP-попыток: 2" in message
+    for private_value in (
+        "990001",
+        "private-posting",
+        "private-sku",
+        "private-offer",
+        "private-product-name",
+        "private-status-label",
+    ):
+        assert private_value not in message
+    assert [call["return_schema"] for call in analytics.return_calls] == [
+        "FBO",
+        "FBS",
+    ]
+    assert all(call["since"] == "2026-08-01" for call in analytics.return_calls)
+    assert all(call["to"] == "2026-08-31" for call in analytics.return_calls)
+    assert all(call["limit"] == 500 for call in analytics.return_calls)
+    assert all(call["max_attempts"] == 2 for call in analytics.return_calls)
+    assert len(query.summary_service.calls) == 1
+
+    foreign_user = bot.on_callback(
+        "seller-b", "experimental_returns_api_diagnostic"
+    )
+    assert foreign_user["status"] == "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_UNAVAILABLE"
+    assert len(analytics.return_calls) == 2
+
+
+def test_returns_api_diagnostic_stops_at_two_pages_and_marks_partial_result():
+    class PagedDiagnosticClient(_Analytics):
+        def __init__(self):
+            super().__init__()
+            self.return_calls = []
+
+        def get_returns(self, **kwargs):
+            self.return_calls.append(dict(kwargs))
+            observer = kwargs.get("request_attempt_observer")
+            if callable(observer):
+                observer("/v1/returns/list")
+            if kwargs["return_schema"] == "FBS":
+                return {"error": False, "returns": [], "has_next": False}
+            return {
+                "error": False,
+                "returns": [
+                    {
+                        "id": kwargs["last_id"] + 1,
+                        "type": "FullReturn",
+                        "schema": "FBO",
+                        "product": {"quantity": 1},
+                    }
+                ],
+                "has_next": True,
+            }
+
+    analytics = PagedDiagnosticClient()
+    _query, runtime = _service(analytics=analytics)
+    runtime.calculate("2026-08-01", "2026-08-31", user_id="seller-a")
+
+    result = runtime.handle_returns_api_diagnostic(user_id="seller-a")
+
+    assert "FBO: страниц 2, строк API 2, уникальных ID 2 (неполная страница)" in result["message"]
+    assert "Полная выборка FBO/FBS: нет; не считайте итог полным." in result["message"]
+    fbo_calls = [
+        call for call in analytics.return_calls
+        if call["return_schema"] == "FBO"
+    ]
+    assert [call["last_id"] for call in fbo_calls] == [0, 1]
+    assert len(analytics.return_calls) == 3
+
+
+def test_returns_api_diagnostic_keeps_telegram_message_under_limit():
+    _query, runtime = _service()
+    long_label = "Операция_" + ("x" * 54)
+    groups = {
+        f"{long_label}{index}": {
+            "rows": 999999,
+            "quantity": 999999,
+            "quantity_missing": 999999,
+        }
+        for index in range(20)
+    }
+    states = [
+        {
+            "schema": schema,
+            "page_count": 2,
+            "api_row_count": 1000,
+            "unique_count": 1000,
+            "complete": False,
+            "types": groups,
+            "statuses": {label: 1000 for label in groups},
+            "change_moments": ["2026-08-01T00:00:00Z", "2026-08-31T23:59:59Z"],
+        }
+        for schema in ("FBO", "FBS")
+    ]
+
+    message = runtime._render_returns_api_diagnostic(
+        "2026-08-01",
+        "2026-08-31",
+        states,
+        ["id=int", "type=string", "schema=string"],
+        8,
+        None,
+    )
+
+    assert len(message) < 4096
+    assert "Полная выборка FBO/FBS: нет" in message
+    assert "Фактических HTTP-попыток: 8" in message
+
+
+def test_analytics_api_diagnostic_is_bounded_anonymized_and_tenant_scoped():
+    class DiagnosticClient(_Analytics):
+        def __init__(self):
+            super().__init__()
+            self.analytics_calls = []
+
+        def get_analytics_data(self, date_from, date_to, **kwargs):
+            self.analytics_calls.append((date_from, date_to, dict(kwargs)))
+            observer = kwargs.get("request_attempt_observer")
+            if callable(observer):
+                observer("/v1/analytics/data")
+            return {
+                "error": False,
+                "result": {
+                    "totals": [5, 1, 1],
+                    "data": [
+                        {
+                            "dimensions": [
+                                {
+                                    "id": "2026-08-01",
+                                    "name": "Private Product Name",
+                                }
+                            ],
+                            "metrics": [2, 1, 0],
+                        },
+                        {
+                            "dimensions": [
+                                {
+                                    "id": "2026-08-02",
+                                    "name": "Private Product Name",
+                                }
+                            ],
+                            "metrics": [3, 0, 1],
+                        },
+                    ],
+                },
+            }
+
+    analytics = DiagnosticClient()
+    _query, runtime = _service(analytics=analytics)
+    runtime.calculate("2026-08-01", "2026-08-31", user_id="seller-a")
+    bot, _assistant = _bot(runtime)
+
+    result = bot.on_callback(
+        "seller-a", "experimental_analytics_api_diagnostic"
+    )
+    message = result["message"]
+
+    assert result["status"] == "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_READY"
+    assert "Ozon Analytics за 2026-08-01 — 2026-08-31" in message
+    assert "Строк дневных данных: 2; выборка до 1000 строк: полная." in message
+    assert "ordered_units: totals=5; сумма строк=5." in message
+    assert "cancellations: totals=1; сумма строк=1." in message
+    assert "returns: totals=1; сумма строк=1." in message
+    assert "Даты в строках: 2026-08-01 — 2026-08-02." in message
+    assert "HTTP-попыток: 1; максимум 2; одна страница." in message
+    assert "Private Product Name" not in message
+    diagnostic_call = analytics.analytics_calls[-1]
+    assert diagnostic_call[0:2] == ("2026-08-01", "2026-08-31")
+    assert diagnostic_call[2]["metrics"] == [
+        "ordered_units",
+        "cancellations",
+        "returns",
+    ]
+    assert diagnostic_call[2]["dimension"] == ["day"]
+    assert diagnostic_call[2]["limit"] == 1000
+    assert diagnostic_call[2]["offset"] == 0
+    assert diagnostic_call[2]["max_attempts"] == 2
+
+    foreign_user = bot.on_callback(
+        "seller-b", "experimental_analytics_api_diagnostic"
+    )
+    assert (
+        foreign_user["status"]
+        == "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_UNAVAILABLE"
+    )
+    assert len(analytics.analytics_calls) == 2
+
+
+def test_analytics_api_diagnostic_does_not_treat_missing_metrics_as_zero():
+    class MissingMetricsClient:
+        def get_analytics_data(self, _date_from, _date_to, **kwargs):
+            observer = kwargs.get("request_attempt_observer")
+            if callable(observer):
+                observer("/v1/analytics/data")
+            return {
+                "error": False,
+                "result": {
+                    "totals": [6117, None, None],
+                    "data": [
+                        {
+                            "dimensions": [{"id": "2026-08-01"}],
+                            "metrics": [6117, None, None],
+                        }
+                    ],
+                },
+            }
+
+    _query, runtime = _service(analytics=MissingMetricsClient())
+    runtime._save_report_views(
+        "seller-a",
+        "summary",
+        "details",
+        date_from="2026-08-01",
+        date_to="2026-08-31",
+    )
+
+    result = runtime.handle_analytics_api_diagnostic(user_id="seller-a")
+
+    assert "ordered_units: totals=6117; сумма строк=6117." in result["message"]
+    assert (
+        "cancellations: totals=нет в totals; "
+        "сумма строк=неполная (1 строк без значения)."
+    ) in result["message"]
+    assert (
+        "returns: totals=нет в totals; "
+        "сумма строк=неполная (1 строк без значения)."
+    ) in result["message"]
+    assert "cancellations: totals=0" not in result["message"]
 
 
 def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
@@ -1262,11 +1710,14 @@ def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     assert result["status"] == "EXPERIMENTAL_STORE_ECONOMICS_READY"
     assert result["date_from"] == "2026-10-01"
     assert result["date_to"] == "2026-10-02"
-    assert "Экономика магазина за период 2026-10-01 — 2026-10-02" in result["text"]
+    assert "Экономика магазина за период 2026-10-01 — 2026-10-02" in _report_text(result)
     assert TelegramResponseFormatter().format(result) == result["text"]
     assert result["read_only"] is True
     assert result["executed"] is False
     assert [button["callback"] for button in result["keyboard"]["buttons"]] == [
+        "experimental_analytics_api_diagnostic:" + result["report_view_id"],
+        "experimental_returns_api_diagnostic:" + result["report_view_id"],
+        "experimental_store_economics_details:" + result["report_view_id"],
         "experimental_calculations",
         "main_menu",
     ]
@@ -1276,6 +1727,131 @@ def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     )
     assert assistant.calls == [("01.10.2026 - 02.10.2026", "seller-b")]
     assert query.summary_service.calls[0][:2] == ("2026-10-01", "2026-10-02")
+
+    foreign_details = bot.on_callback(
+        "seller-b", "experimental_store_economics_details"
+    )
+    assert foreign_details["status"] == "EXPERIMENTAL_STORE_ECONOMICS_VIEW_EXPIRED"
+
+    details = bot.on_callback(
+        "seller-a", "experimental_store_economics_details"
+    )
+    assert details["status"] == "EXPERIMENTAL_STORE_ECONOMICS_DETAILS_READY"
+    assert "Подробности экономики магазина" in TelegramResponseFormatter().format(details)
+    assert [button["callback"] for button in details["keyboard"]["buttons"]][0] == (
+        "experimental_store_economics_summary:" + result["report_view_id"]
+    )
+    summary = bot.on_callback(
+        "seller-a", "experimental_store_economics_summary"
+    )
+    assert TelegramResponseFormatter().format(summary) == result["text"]
+    assert len(query.summary_service.calls) == 1
+    assert len(runtime.analytics_client.calls) == 1
+
+
+def test_duplicate_custom_period_text_does_not_start_two_economics_calculations():
+    query, runtime = _service()
+    original_calculate = query.summary_service.calculate
+    started = Event()
+    release = Event()
+
+    def blocking_calculate(date_from, date_to, products):
+        started.set()
+        if not release.wait(timeout=3):
+            raise TimeoutError("test calculation was not released")
+        return original_calculate(date_from, date_to, products)
+
+    query.summary_service.calculate = blocking_calculate
+    runtime.begin_custom_period("seller-a")
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(
+            runtime.handle_text,
+            "01.10.2026 - 02.10.2026",
+            user_id="seller-a",
+        )
+        assert started.wait(timeout=1)
+
+        duplicate = runtime.handle_text(
+            "01.10.2026 - 02.10.2026",
+            user_id="seller-a",
+        )
+        assert duplicate["status"] == "EXPERIMENTAL_STORE_ECONOMICS_ALREADY_RUNNING"
+        assert len(query.summary_service.calls) == 0
+
+        release.set()
+        result = first.result(timeout=2)
+
+    assert result["status"] == "EXPERIMENTAL_STORE_ECONOMICS_READY"
+    assert len(query.summary_service.calls) == 1
+    assert not runtime._calculation_inflight
+
+
+def test_parallel_period_results_keep_their_own_details_and_diagnostic_scope():
+    query, runtime = _service()
+    original_calculate = query.summary_service.calculate
+    older_started = Event()
+    newer_started = Event()
+    release_older = Event()
+    release_newer = Event()
+
+    def blocking_calculate(date_from, date_to, products):
+        if date_from == "2026-10-01":
+            older_started.set()
+            if not release_older.wait(timeout=3):
+                raise TimeoutError("older test calculation was not released")
+        elif date_from == "2026-10-03":
+            newer_started.set()
+            if not release_newer.wait(timeout=3):
+                raise TimeoutError("newer test calculation was not released")
+        return original_calculate(date_from, date_to, products)
+
+    query.summary_service.calculate = blocking_calculate
+    bot, _ = _bot(runtime)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        runtime.begin_custom_period("seller-a")
+        older = pool.submit(
+            runtime.handle_text,
+            "01.10.2026 - 02.10.2026",
+            user_id="seller-a",
+        )
+        assert older_started.wait(timeout=1)
+
+        runtime.begin_custom_period("seller-a")
+        newer = pool.submit(
+            runtime.handle_text,
+            "03.10.2026 - 04.10.2026",
+            user_id="seller-a",
+        )
+        assert newer_started.wait(timeout=1)
+
+        release_newer.set()
+        newer_result = newer.result(timeout=2)
+        release_older.set()
+        older_result = older.result(timeout=2)
+
+    assert newer_result["report_view_id"] != older_result["report_view_id"]
+    old_id = older_result["report_view_id"]
+    new_id = newer_result["report_view_id"]
+
+    old_details = bot.on_callback(
+        "seller-a", "experimental_store_economics_details:" + old_id
+    )
+    new_details = bot.on_callback(
+        "seller-a", "experimental_store_economics_details:" + new_id
+    )
+    assert "2026-10-01 — 2026-10-02" in old_details["message"]
+    assert "2026-10-03 — 2026-10-04" in new_details["message"]
+    assert new_details["keyboard"]["buttons"][0]["callback"] == (
+        "experimental_store_economics_summary:" + new_id
+    )
+
+    old_analytics = bot.on_callback(
+        "seller-a", "experimental_analytics_api_diagnostic:" + old_id
+    )
+    assert "2026-10-01 — 2026-10-02" in old_analytics["message"]
+    assert old_analytics["report_view_id"] == old_id
 
 
 def test_invalid_analytics_metric_does_not_discard_a_valid_other_metric():
@@ -1299,6 +1875,158 @@ def test_invalid_analytics_metric_does_not_discard_a_valid_other_metric():
     assert analytics_result["cancellations_diagnostic"] == (
         "CANCELLATIONS_VALUE_INVALID"
     )
-    assert "Заказанные единицы (Analytics): 10" in result["text"]
-    assert "Отменённые единицы (Analytics): данные по показателю «отменённых единиц» не прошли проверку" in result["text"]
+    assert "Заказанные единицы (Analytics): 10" in _report_text(result)
+    assert "Отменённые единицы (Analytics): данные по показателю «отменённых единиц» не прошли проверку" in _report_text(result)
+
+
+def test_expense_categories_partition_balance_without_readding_nested_amounts():
+    query = _Query()
+    query.summary_service.calculate = lambda date_from, date_to, _products: {
+        "error": False,
+        "status": "PERIOD_PROFIT_SUMMARY_READY",
+        "date_from": date_from,
+        "date_to": date_to,
+        "revenue": 10000.0,
+        "revenue_tax_base": 8000.0,
+        "discount_points": 2000.0,
+        "net_accrual": 5000.0,
+        "tax": 480.0,
+        "profit": 4520.0,
+        "acquiring": -100.0,
+        "commission": -200.0,
+        "logistics": -300.0,
+        "other_fees": -4400.0,
+        "products": [],
+        "fee_breakdown": {
+            "Эквайринг": -100.0,
+            "Вознаграждение за продажу": -200.0,
+            "Логистика доставки": -300.0,
+            "Доставка до места выдачи": -75.0,
+            "PayPerClick CPC": -100.0,
+            "Оплата за заказ CPO": -200.0,
+            "Оплата за показ CPM": -300.0,
+            "Услуги продвижения": -50.0,
+            "Обратная логистика": -250.0,
+            "Услуги кросс-докинга": -150.0,
+            "Платное хранение": -50.0,
+            "Услуги комплектации": -100.0,
+        },
+    }
+    runtime = ExperimentalStoreEconomicsRuntimeService(
+        query,
+        advertising_service=_Advertising(),
+        analytics_client=_Analytics(),
+    )
+
+    result = runtime.calculate("2026-08-01", "2026-08-31")
+    breakdown = result["metrics"]["expense_breakdown"]
+    categories = breakdown["categories"]
+    assert categories["advertising"]["CPC"]["amount"] == -100.0
+    assert categories["advertising"]["CPO"]["amount"] == -200.0
+    assert categories["advertising"]["CPM"]["amount"] == -300.0
+    assert categories["advertising"]["OTHER"]["amount"] == -50.0
+    assert categories["reverse_logistics"]["amount"] == -250.0
+    assert categories["cross_docking"]["amount"] == -150.0
+    assert categories["paid_storage"]["amount"] == -50.0
+    assert categories["other_services"]["amount"] == -100.0
+    assert breakdown["last_mile"]["amount"] == -75.0
+    assert breakdown["last_mile"]["included_in"] == "logistics"
+    assert breakdown["last_mile"]["additive"] is False
+    assert "Performance CPC для сверки, не входит в сумму" in result["text"]
+    assert round(
+        result["metrics"]["revenue"]
+        + result["metrics"]["acquiring"]
+        + result["metrics"]["commission"]
+        + result["metrics"]["logistics"]
+        + breakdown["classified_other_fees"]
+        + breakdown["unallocated_adjustment"]["amount"],
+        2,
+    ) == result["metrics"]["net_accrual"]
+    assert result["metrics"]["other_fees"] == -4400.0
+
+
+def test_authoritative_storage_subtotal_preserves_by_day_labels_as_nonadditive_references():
+    metrics = {
+        "fee_breakdown": [
+            {"label": "Плата за вынужденное размещение на складе", "amount": -350.0}
+        ],
+        "fee_subcategories": {"paid_storage": -1.74},
+        "accrual_posting_category_diagnostics": {
+            "available": True,
+            "paid_storage": -1.74,
+        },
+        "revenue": 1000.0,
+        "net_accrual": -1.74,
+        "acquiring": 0.0,
+        "commission": 0.0,
+        "logistics": 0.0,
+        "other_fees": -1.74,
+    }
+
+    breakdown = ExperimentalStoreEconomicsRuntimeService._build_expense_breakdown(
+        metrics, "2026-08-01", "2026-08-31"
+    )
+    metrics["expense_breakdown"] = breakdown
+    details_text = ExperimentalStoreEconomicsRuntimeService._render_details(
+        "2026-08-01",
+        "2026-08-31",
+        metrics,
+    )
+
+    reference = next(
+        item
+        for item in breakdown["details"]
+        if item["label"] == "Плата за вынужденное размещение на складе"
+    )
+    assert reference["category"] == "paid_storage_reference"
+    assert reference["amount"] == -350.0
+    assert reference["additive"] is False
+    assert breakdown["categories"]["paid_storage"]["amount"] == -1.74
+    assert breakdown["classified_other_fees"] == -1.74
+    assert "справочная сумма другого источника, не складывается повторно" in details_text
+
+
+def test_small_shares_and_nonpositive_revenue_are_not_misleading():
+    from services.experimental_store_economics_runtime_service import (
+        _money_with_revenue_share,
+    )
+
+    assert "<0,01% расход" in _money_with_revenue_share(-0.01, 1000000)
+    assert "<0,01% доход" in _money_with_revenue_share(0.01, 1000000)
+    assert "доля не определена: выручка ≤ 0" in _money_with_revenue_share(-1, 0)
+
+
+def test_event_share_is_hidden_until_period_cohort_is_confirmed():
+    from services.experimental_store_economics_runtime_service import (
+        _period_event_units,
+    )
+
+    incompatible = _period_event_units(1, 10, False, "дата статуса отличается")
+    compatible = _period_event_units(1, 10, True, "unused")
+
+    assert "1 шт. (доля не показана: дата статуса отличается)" == incompatible
+    assert compatible == "1 шт. (10,00% от заказанных единиц)"
+
+
+def test_report_view_cache_isolated_by_tenant_store_scope():
+    from services.tenant_context import (
+        reset_current_tenant_user_id,
+        set_current_tenant_user_id,
+    )
+
+    _query, runtime = _service()
+    token = set_current_tenant_user_id("seller-a:store-a")
+    try:
+        runtime._save_report_views("seller-a", "store A summary", "store A details")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id("seller-a:store-b")
+    try:
+        result = runtime.handle_details("seller-a")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["status"] == "EXPERIMENTAL_STORE_ECONOMICS_VIEW_EXPIRED"
+    assert "store A" not in result["message"]
 

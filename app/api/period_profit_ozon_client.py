@@ -3,6 +3,7 @@ import time
 from decimal import Decimal, InvalidOperation
 
 from api.ozon_client import OzonClient
+from services.period_profit_operation_diagnostics import current_period_profit_trace
 
 
 class PeriodProfitOzonClient(OzonClient):
@@ -44,7 +45,19 @@ class PeriodProfitOzonClient(OzonClient):
             if attempt >= int(max_attempts):
                 return result
 
-            time.sleep(2 ** attempt)
+            delay = float(2 ** attempt)
+            trace = current_period_profit_trace()
+            if trace is not None:
+                remaining = trace.remaining_seconds()
+                if remaining <= 0:
+                    return {
+                        "error": True,
+                        "code": "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                delay = min(delay, remaining)
+            time.sleep(delay)
 
         return result
 

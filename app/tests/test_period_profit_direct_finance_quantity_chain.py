@@ -259,7 +259,7 @@ class PeriodProfitDirectFinanceQuantityChainTests(unittest.TestCase):
         self.assertEqual(finance.quantity_calls, [[POSTING_NUMBER]])
         self.assertEqual(
             service.cost_service.calls,
-            [("2026-09-10", PRODUCT_ID, LEGACY_SKU, OFFER_ID)],
+            [("2026-09-10", PRODUCT_ID, CURRENT_SKU, OFFER_ID)],
         )
         self.assertIn("OZON_FINANCE_ACCRUAL_POSTINGS", result["sale_quantity_source"])
         self.assertEqual(result["legacy_current_cost_bucket_count"], 0)

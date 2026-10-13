@@ -365,6 +365,89 @@ def test_async_report_polling_still_times_out_at_the_bounded_limit():
     assert sleep.call_count == HistoricalPerformanceReports.MAX_POLLS - 1
 
 
+def test_historical_enrichment_stops_at_fake_clock_deadline():
+    class Clock:
+        now = 0.0
+
+        def read(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+    class Client:
+        BASE_URL = "https://performance.test"
+
+        def __init__(self):
+            self.calls = []
+            self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
+
+        def _access_token(self, force=False):
+            return {"access_token": "fixture-token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            self.calls.append((method, endpoint, kwargs))
+            if endpoint == "/api/client/campaign":
+                return {"list": [{
+                    "id": "123", "paymentType": "CPC", "advObjectType": "SKU",
+                }]}
+            if endpoint == "/api/client/statistics":
+                return {"UUID": "00000000-0000-0000-0000-000000000000"}
+            if endpoint.endswith("00000000-0000-0000-0000-000000000000"):
+                return {"state": "IN_PROGRESS"}
+            raise AssertionError("unexpected request")
+
+    clock = Clock()
+    client = Client()
+    service = HistoricalPerformanceReports(
+        client, clock=clock.read, sleeper=clock.sleep
+    )
+    service.MAX_ENRICHMENT_SECONDS = 6
+    service.POLL_SECONDS = 5
+
+    result = service.load("2026-08-01", "2026-08-01")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED"
+    assert result["external_call_count"] == 4
+    assert clock.now == 6
+    assert result["dependency_stage"] == "CPC_REPORT_STATUS"
+
+
+def test_historical_enrichment_stops_at_external_call_budget():
+    class Client:
+        BASE_URL = "https://performance.test"
+
+        def __init__(self):
+            self.calls = []
+            self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
+
+        def _access_token(self, force=False):
+            return {"access_token": "fixture-token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            self.calls.append((method, endpoint))
+            if endpoint == "/api/client/campaign":
+                return {"list": [{
+                    "id": "123", "paymentType": "CPC", "advObjectType": "SKU",
+                }]}
+            if endpoint == "/api/client/statistics":
+                return {"UUID": "00000000-0000-0000-0000-000000000000"}
+            raise AssertionError("call budget should stop before polling")
+
+    client = Client()
+    service = HistoricalPerformanceReports(client)
+    service.MAX_EXTERNAL_CALLS = 2
+
+    result = service.load("2026-08-01", "2026-08-01")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED"
+    assert result["external_call_count"] == 2
+    assert result["dependency_stage"] == "CPC_REPORT_STATUS"
+    assert len(client.calls) == 2
+
+
 def test_all_sku_cpo_orders_report_falls_back_to_order_sku_when_promoted_sku_blank():
     content = (
         "Дата;ID заказа;SKU;SKU продвигаемого товара;Артикул;Расход, ₽\n"

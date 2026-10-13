@@ -10,6 +10,10 @@ from app.services.product_decision_input_provider import (
 from app.services.product_decision_action_proposal_service import (
     ProductDecisionActionProposalService,
 )
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class StubProductService:
@@ -503,6 +507,48 @@ def test_successful_decision_is_recorded_before_it_enters_cache():
     assert len(history.calls) == 1
     assert first["decision_changed"] is True
     assert second["previous_decision_type"] == "HOLD_STOCK"
+
+
+def test_decision_cache_is_isolated_by_active_store_for_the_same_sku():
+    service = _service()
+    store_a = set_current_tenant_user_id("store-A")
+    try:
+        first = service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(store_a)
+
+    service.stock_metrics_source.result = _stock(
+        current_stock=100,
+        days_of_stock=25.0,
+        priority="LOW",
+    )
+    service.unit_economics_query_service.result = _economics(
+        net_profit_per_unit=80.0,
+        margin_percent=20.0,
+    )
+    store_b = set_current_tenant_user_id("store-B")
+    try:
+        second = service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(store_b)
+
+    assert first["priority"] == "CRITICAL"
+    assert second["priority"] == "LOW"
+    assert second["current_stock"] == 100
+    assert len(service.stock_metrics_source.calls) == 2
+
+
+def test_decision_cache_has_a_configured_entry_bound():
+    service = _service()
+    service.decision_cache_max = 1
+    service._store_decision(
+        "sku-1", {"error": False, "decision_type": "HOLD_STOCK"}
+    )
+    service._store_decision(
+        "sku-2", {"error": False, "decision_type": "HOLD_STOCK"}
+    )
+
+    assert len(service._decision_cache) == 1
 
 
 def test_insufficient_decision_does_not_reach_history_service():

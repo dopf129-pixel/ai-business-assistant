@@ -34,7 +34,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
         if filename and not str(filename).lower().endswith(".csv"):
             return {"error": True, "message": "Отправьте CSV-файл, который выдал бот.", "code": "SELLER_COST_TABLE_FILE_TYPE_INVALID", "read_only_ozon": True}
         try:
-            return self.seller_cost_service.import_table(content)
+            return self.seller_cost_service.import_table_for_user(user_id, content)
         except Exception:
             return {"error": True, "message": "Не удалось импортировать таблицу. Изменений не применено.", "code": "SELLER_COST_TABLE_IMPORT_FAILED", "read_only_ozon": True}
 
@@ -55,6 +55,16 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             if callback_text.startswith("seller_cost:"):
                 sku = callback_text.split(":", 1)[1]
                 return self.seller_cost_service.select_sku(user_id, sku)
+            if callback_text in {
+                self.seller_cost_service.CONFIRM_DATE_CALLBACK,
+                self.seller_cost_service.SELECT_ALL_HISTORY_CALLBACK,
+                self.seller_cost_service.CONFIRM_ALL_HISTORY_CALLBACK,
+                self.seller_cost_service.CANCEL_CALLBACK,
+                self.seller_cost_service.TABLE_CONFIRM_CALLBACK,
+                self.seller_cost_service.TABLE_SELECT_ALL_HISTORY_CALLBACK,
+                self.seller_cost_service.TABLE_CONFIRM_ALL_HISTORY_CALLBACK,
+            }:
+                return self.seller_cost_service.handle_button(user_id, callback_text)
             self.seller_cost_service.clear_pending(user_id)
         except Exception:
             return {"error": True, "message": "SELLER_COST_BUTTON_FLOW_FAILED", "read_only_ozon": True}

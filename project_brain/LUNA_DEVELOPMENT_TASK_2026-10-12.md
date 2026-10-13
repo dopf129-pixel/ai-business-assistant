@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna: завершение функционала и развитие Ozon AI Assistant
 
 Дата: 12.10.2026. Планировщик: GPT Sol. Исполнитель: GPT Luna.
-Статус: **ТЗ подготовлено; реализация не начата**. Входной пакет P00 готов к работе.
+Статус на 13.10.2026: P00–P08 реализованы в рабочей копии; актуальный isolated pytest **3 077 passed in 12.06s**, `compileall app tests` прошёл. P07/P08 regression **173 passed**. P03 полный набор закрыт финальным isolated suite. Для P01 проверена грамматика Python 3.11 на 874 файлах (0 ошибок), но этот статический анализ не заменяет Architecture Review и Linux runtime Verify.
 
 ## Назначение и порядок работы
 
@@ -42,13 +42,13 @@
 |---|---|---|---|
 | P00 | P0 | — | Сохранена исходная работа; восстановлена читаемая документация; есть честная база тестов |
 | P01 | P0 | P00 | Поддерживаемый Windows runtime и Linux CI проходят правильные платформенные проверки |
-| P02 | P0 | P00/P01 | Разобраны 35 финансовых падений; закрыты себестоимость, CSV и переключение магазинов |
+| P02 | P0 | P00/P01 | Разобраны 35 финансовых падений; закрыты себестоимость, CSV, физические количества, SKU identity и tenant-переключение |
 | P03 | P1 | P02 | Экономика магазина понятна, сверяется и не предлагает двойное сложение расходов |
 | P04 | P1 | P03 | Отмены/возвраты имеют подтверждённые источники, периодный смысл и полноту |
 | P05 | P1 | P01–P04 | Долгие запросы ограничены бюджетами; дубли/устаревшие ответы контролируются |
-| P06 | P2 | P02/P05 | Внешние расходы и подтверждение их полноты доступны в Telegram |
-| P07 | P2 | P03–P06 | Единый экран полноты финансовых данных и состояния Return COGS |
-| P08 | P2 | P05/P07 | On-demand сводка приоритетов продавца по подтверждённым данным |
+| P06 | P1 | P05 | Через Telegram фиксируются внешние расходы и полнота периода с явным подтверждением продавца |
+| P07 | P1 | P01–P06 | Read-only экран полноты повторно показывает evidence того же расчёта и canonical first blocker |
+| P08 | P2 | P05/P07 | On-demand сводка до пяти текущих приоритетов продавца по подтверждённым данным |
 
 ### P00. Сохранение работы, документация и достоверная проверка
 
@@ -112,6 +112,8 @@
 
 ### P04. Источники заказов, отмен и возвратов
 
+Уточнение от 12.10.2026: следующий проход P04 выполнять по [ТЗ сверки заказов, отмен и возвратов](LUNA_P04_RECONCILIATION_TASK_2026-10-12.md). Приоритет: подтвердить типы/даты возвратов, затем смысл отмен, затем проверить гипотезу об архивном SKU. Менять группировку Analytics или добавлять полный проход отправлений только по доказанной причине; прежние расхождения выгрузок не являются заранее заданными API expected values.
+
 **Результат.** Количество соответствует названию показателя и определённому периоду; missing metric не выглядит как ноль или бессмысленная общая ошибка.
 
 - Сначала зафиксировать официальный контракт: endpoint/версию, metric name, событие даты, единицу, пагинацию, permissions и ограничения периода. Сохранить ссылку и обезличенную shape-фикстуру. Не угадывать `cancellations` или поля отмены по памяти.
@@ -129,6 +131,8 @@
 
 **Результат.** Повторное нажатие не запускает одинаковый дорогой расчёт; пользователь получает один актуальный итог или понятное сообщение о недоступности.
 
+**Статус 13.10.2026 — завершён.** Одинаковые calculation callbacks и ручной ввод одинакового периода защищены по tenant/store scope; разные периоды и магазины независимы. Общий Ozon budget кооперативно ограничивает расчёт 600 секундами/300 HTTP-попытками; historical CPC enrichment — 180 секундами/120 вызовами. Ошибка optional CPC сохраняет подтверждённый финансовый отчёт по SKU. Report callbacks несут report id, чтобы старый/поздний расчёт не подменял детали нового отчёта. Итоговый P05 regression set: **79 passed**; полный изолированный pytest: **3 027 passed in 18.29s**, exit code 0.
+
 - Дедупликация in-flight запросов по tenant + scope/SKU + period + mode. Разные пользователи/магазины/режимы не объединяются. После failure запись снимается.
 - Сохранять heartbeat, но вводить измеряемые бюджеты страниц, API calls, retries и времени optional enrichment. Бюджет исчерпан — enrichment неполный; доказанные основные деньги не теряются. Не выдавать частичный finance за полный.
 - Общий срок регулировать кооперативно на границах запросов/циклов. `cancel asyncio.to_thread` не означает остановку worker; не освобождать защиту и не допускать позднюю запись, пока worker может работать.
@@ -143,6 +147,8 @@
 
 **Результат.** Продавец добавляет внешний расход и подтверждает полноту периода кнопками в активном магазине.
 
+**Статус 13.10.2026 — stage A/B реализованы.** `TelegramExternalExpenseRuntimeService` подключён к основной Telegram factory и использует repository/evidence service из Period Profit. Период выбирается quick/custom; форма записывает дату, категорию, сумму и optional description только после предпросмотра и подтверждения. Отдельно показываются частичные gaps/подтверждённый ноль; повторные/параллельные подтверждения не пишут дубль; смена tenant/store инвалидирует старые черновики. Targeted integration suite: **70 passed**. Осталось пройти полный suite и зафиксировать итог.
+
 - Кнопка «Внешние расходы»: список периода, «Добавить расход», «Подтвердить учёт за период», «Главное меню». Форма собирает дату, категорию, сумму и необязательное описание; перед сохранением показывает итог и явное подтверждение.
 - Использовать `ExpenseRepository` и `PeriodProfitExternalExpenseEvidenceService`; сохранить существующие локальные скрипты. До первой версии включить one-off rows и coverage intervals. Recurring engine не входит в этот пакет.
 - В пояснении отделить внешние затраты от уже учтённых Ozon удержаний. Не импортировать CPC/хранение/логистику повторно как внешние расходы.
@@ -154,6 +160,8 @@
 **Точки входа.** Expense repository/evidence/query, Telegram factories/adapters/keyboard/help; добавить meaningful flow tests и использовать существующий `tests/test_external_operating_expense_coverage_v1261_v1270.py` вместе с tenant storage suites.
 
 ### P07. Полнота расчёта и состояние возвратов
+
+**Статус 13.10.2026 — завершён.** Текущий результат запроса содержит необходимые summary/coverage/tax/external-expense/return evidence. Первый блокер Return COGS разрешает существующий `PeriodProfitReturnCogsBlockerStageService`; новый gate не добавлен. Read-only экран полноты и ограниченный snapshot cache привязаны к user/store; повторное открытие не делает сеть-запрос. Для recognition/authorization/commit по-прежнему нет seller-facing consumer, поэтому экран объясняет отсутствие действия.
 
 **Результат.** Кнопка «Полнота данных» объясняет, какие части прибыли доказаны и какие сведения нужны далее.
 
@@ -168,6 +176,14 @@
 **Точки входа.** `period_profit_query_service.py`, `period_profit_compact_response.py`, `PeriodProfitReturnCogsBlockerStageService`, existing coverage contracts и completion-status scenario list. Малый отдельный presentation/service extension допускается; classification: Architecture Review Required.
 
 ### P08. Сводка «На что обратить внимание»
+
+**Статус 13.10.2026 — завершён в рабочей копии.** `SellerAttentionSummaryService` использует только существующий `ProductBusinessDecisionQueryService`, не вводя второго recommendation engine. Кнопка подключена к главному меню и production Telegram factory. Текущие сигналы требуют свежих source/observed timestamps (не старше 1 часа); устаревшие и неизвестные уходят в отдельную секцию «Нужно уточнить данные». Сводка содержит максимум пять приоритетов, устойчивую сортировку priority/SKU, факты/as-of и переходы к существующим SKU detail, товарным решениям и полноте периода. Приоритеты отображаются по-русски; если сообщение превышает размер, используется компактная версия до 3 500 UTF-16 единиц, покрытая длинными Unicode SKU стресс-тестом. Реклама не имеет подтверждённой атрибуционной выручки, поэтому DRR/ROAS не показываются. External expenses и Return COGS направляются в P07 screen, без повторного расчёта прибыли.
+
+Кэш сводки ограничен 64 результатами/5 минут и scope tenant/store + Telegram user; срок укорачивается по freshness deadline источников. Существующие SKU decision cache и prepared product metrics cache теперь также разделены по активному tenant/store; decision cache — bounded LRU на 512 элементов. Ни одна операция Ozon не меняет данные магазина.
+
+P07/P08 combined regression — **173 passed**; UI/cache subset — **80 passed**; `compileall app tests` прошёл. Полный изолированный `pytest tests app/tests` — **3 077 passed in 12.06s**, exit code 0.
+
+P01 additional static compatibility check: текущий Python 3.12 AST parser с `feature_version=(3,11)` обработал 874 `.py` файла приложения и тестов, 0 syntax errors. Python 3.11 runtime, WSL distribution и Docker отсутствуют; эту проверку нельзя считать Linux Verify.
 
 **Результат.** On-demand кнопка показывает до пяти актуальных приоритетов магазина с основаниями и переходами к существующим отчётам.
 
@@ -243,15 +259,19 @@ $env:PYTHONPATH = Join-Path $PWD 'app'
 | Пакет | Статус | Commit/PR | Проверки и незакрытые критерии |
 |---|---|---|---|
 | P00 | Выполнен по критериям пакета | `9f65322` + `c53f6d2` | Исторический baseline после P00: 2 849 passed / 137 failed; набор падений совпал с первоначальной baseline |
-| P01 | Реализация и Windows-проверка завершены; ожидает Architecture Review | `0057f92` | Windows 3.12: compileall прошёл, полный `pytest` 2 954 passed / 35 failed из 2 989; все 35 ошибок в `app/tests` и входят в P02. Корневой `tests` suite прошёл. Linux 3.11 job добавлен, но не запускался локально |
-| P02 | Не начат | — | Контракт даты и отдельного подтверждения всей истории утверждён владельцем |
-| P03 | Не начат | — | — |
-| P04 | Не начат | — | Нужен подтверждённый API-контракт количеств |
-| P05 | Не начат | — | — |
-| P06 | Не начат | — | — |
-| P07 | Не начат | — | — |
-| P08 | Не начат | — | — |
+| P01 | Реализация и Windows-проверка завершены; ожидает Architecture Review | `0057f92` + `a06150a` | Windows 3.12: повторная P01 regression **171 passed** (task persistence, межпроцессный lock, user-storage atomicity, shutdown); полный ранний suite: 2 954 passed / 35 failed из 2 989, все 35 ошибок в `app/tests` и относятся к P02. Грамматика 3.11 проверена на 874 файлах без ошибок; runtime Verify на Linux 3.11 не запускался. |
+| P02 | Завершён в рабочей копии | Нового commit нет: `.git` read-only; ветка `codex/p00-project-baseline`, HEAD `a06150a` | Windows Python 3.12: `compileall app` прошёл; P02a targeted 27 passed; Return COGS diagnostics 34 passed; quantity/identity/cost groups 45 passed; cross-suite seller-cost/catalog lookup 49 passed; полный `tests app/tests`: **2 998 passed** в изолированной копии. Live Ozon/Telegram не проверялись |
+| P03 | Завершён в рабочей копии | Нового commit нет; `.git` read-only; HEAD `a06150a` | Исторический targeted — 37 passed; критерий полного набора теперь закрыт итоговым isolated pytest: **3 077 passed in 12.06s**. Ранний `WinError 5` был ограничением временных каталогов sandbox |
+| P04 | Принят | Рабочая копия на `a06150a`; commit недоступен | Live ответы Returns и Analytics предоставлены владельцем; полный isolated pytest: **3 016 passed in 12.09s**. Причины отсутствия Analytics метрик и расхождение с XLSX остаются неизвестными и задокументированы в evidence. |
+| P05 | Завершён | Рабочая копия на `a06150a`; commit недоступен | Итоговый regression set: **79 passed**; полный isolated pytest: **3 027 passed in 18.29s**. Общий budget: 600s/300 HTTP attempts, CPC budget: 180s/120 вызовов; callback dedupe и защита report views проверены. |
+| P06 | Завершён | Рабочая копия на `a06150a`; commit недоступен | Telegram flow подключён production factory; targeted **70 passed**, полный isolated pytest **3 047 passed in 18.70s**. |
+| P07 | Завершён | Рабочая копия на `a06150a`; commit недоступен | Read-only completeness view использует canonical first-blocker resolver и scoped report snapshot; повторное открытие без Ozon re-query подтверждено. Входит в combined P07/P08 regression: **173 passed**; full isolated pytest **3 077 passed**. |
+| P08 | Завершён в рабочей копии | Рабочая копия на `a06150a`; commit недоступен | Production Telegram menu/factory, до пяти сигналов, evidence/freshness, missing/stale раздел, bounded caches, tenant isolation и Telegram message cap покрыты; combined regression **173 passed**, full isolated pytest **3 077 passed**. Архитектурная классификация: Architecture Review Required; Linux runtime Verify по P01 также остаётся незапущенной. |
 
 ## Ближайший шаг и передача
 
-P00 и реализация P01 завершены; статус/проверки обновлены в `CURRENT_STATE.md`, `TEST_MAP.md` и `CHANGELOG.md`. P01 сохраняет исходный task storage contract, добавляет OS-level Windows lock и отличает неподдерживаемую directory fsync гарантию. Архитектурное решение 041 записано ниже в `DECISIONS.md`; требуется архитектурная проверка пакета. Следующее действие — P02: разбор оставшихся финансовых ошибок по бизнес-контрактам и доказанным фикстурам. Общий suite остаётся красным до P02; финальный аудит P00–P08 не выполнен.
+P00–P08 реализованы в этой рабочей копии; полный Windows Python 3.12 isolated suite — **3 077 passed**, `compileall app tests` успешен. P07/P08 combined regression — **173 passed**. P01 внешняя приемка ещё не завершена: нужен Architecture Review и Linux Python 3.11 runtime Verify, они не заменяются локальным Windows прогоном или grammar check. WSL distribution, Docker и Python 3.11 отсутствуют на этом host. Git checkout остаётся на ветке `codex/p00-project-baseline`, HEAD `a06150a`; `.git` read-only, новых commits нет. Не менялись и не копировались пользовательские runtime-файлы в тестовый workspace.
+
+P03 реализован: расходы разнесены по непересекающимся категориям и сверены с net accrual; вложенная последняя миля и справочные суммы явно помечены. Короткий результат имеет отдельную кнопку подробностей, экран повторно использует безопасно сохранённый текст только в том же user/store scope. Целевые Windows Python 3.12 проверки — 37 passed; общий `compileall app tests` прошёл. Полный isolated pytest теперь подтверждён: **3 076 passed in 12.13s**, exit code 0. Ранний `WinError 5` относился к sandbox temp ACL и сохранён только как история диагностического запуска. `.git` доступен только для чтения, поэтому новых commits нет; изменения сохраняются поверх HEAD `a06150a`, данные пользователя не stage-ились.
+
+P04: существующая рабочая копия читает Analytics и ограниченные страницы Seller API; это локальное описание кода, не подтверждённый live-контракт Ozon. Свежая офлайн-сверка и пределы evidence записаны в [P04_SOURCE_RECONCILIATION_2026-10-12.md](P04_SOURCE_RECONCILIATION_2026-10-12.md). Совпадение 6 117 в Analytics и количества текущего SKU в CSV не доказывает пропуск архивного SKU. Ветка Seller Returns считает только `ClientReturn`; её Telegram-подпись уточнена, количество и фильтры не менялись. Целевой файл тестов — 35 passed. Новая XLSX от 12.10 подтверждает 271 FBO запись/единицу и 270 августовских дат статуса, но не раскрывает `ClientReturn` и не доказывает источник числа 2. Прямой официальный docs fetch завершился redirect loop; найденный официальный кейс по Analytics не подтверждает фактический response shape/permissions/семантику дат магазина. Этап A частичный; этап B не запускался. P04 не закрывать и не переходить к P05 до подтверждения API shape/permissions и полного безопасного прогона без ACL-ограничения.

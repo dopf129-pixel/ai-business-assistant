@@ -30,6 +30,15 @@
 
 Последние 15 строк для `app/tests` дают **35 падений**. 90 + 2 + 10 падений из `tests` дают **102**; итог 102 + 35 = 137. «Платформенная причина» здесь описывает первый наблюдаемый отказ на текущей Windows, а не доказывает, что все зависящие тесты исправятся одним изменением. После P01/P02 пересчитать остаток.
 
+## P02 closure — 12.10.2026
+
+- Все 35 ранее падавших `app/tests` теперь проходят в полном Windows Python 3.12 suite. Обновлялись только проверки, где фикстуры не отражали canonical status/evidence chain, bounded cost metadata или multi-blocker contract; fail-closed финансовые требования не ослаблялись.
+- Исправлен реальный quantity риск: прямой posting источник возвращает только точный finance SKU или доказанный one-line bridge. Неоднозначные строки многострочного отправления не доступны downstream как catalog SKU alias. Дубли positive sale evidence для одного posting/SKU в пределах дня дают отдельный duplicate blocker; междневные reaccruals остаются дедуплицированными по физической продаже.
+- Cost lookup использует подтверждённую catalog identity, когда она доступна; версия стоимости и граница даты должны быть подтверждены. Existing-cost/CSV запись остаётся preview-first, с явным effective date и отдельным подтверждением всей истории.
+- Related-SKU tests теперь обеспечивают полную дневную фикстуру на весь период; когда диагностика собирает несколько блокеров, конкретная причина остаётся в `finance_identity_blockers`, а итоговый код сохраняет `MULTIPLE_BLOCKERS`.
+- Повторный Windows прогон в изолированной копии без `.git`, `.venv`, секретного `.env` и runtime data: `compileall app` прошёл; `python -m pytest -p no:cacheprovider -q tests app/tests` — **2 998 passed**. До тестов отключён поиск родительского `.env`; в копию добавлены только `.env.example` и versioned `data/tax_configuration.json`, необходимые соответствующим проверкам.
+- Изменения ещё не зафиксированы commit: `.git` read-only в среде выполнения. Текущие пользовательские данные не добавлялись в stage/commit. Live Ozon/Telegram и Linux CI не проверялись этим запуском.
+
 ## Чего этот разбор не доказывает
 
 - Не подтверждает production-готовность или работу с live Ozon/Telegram.

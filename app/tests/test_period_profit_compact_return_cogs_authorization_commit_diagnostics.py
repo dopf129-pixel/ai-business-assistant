@@ -73,7 +73,9 @@ class PeriodProfitCompactReturnCogsAuthorizationCommitDiagnosticsTests(unittest.
             "error": False,
             "unresolved_units": 0,
             "period_cogs_recovery_confirmed": True,
+            "accounting_attribution_evidence_status": "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY",
             "accounting_attribution_evidence_confirmed": True,
+            "return_cogs_accounting_recognition_status": "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
             "return_cogs_accounting_recognition_evidence_confirmed": True,
             "candidate_records": [self._candidate()],
             "return_cogs_accounting_recognition_evidence_records": [self._recognition()],
@@ -121,6 +123,7 @@ class PeriodProfitCompactReturnCogsAuthorizationCommitDiagnosticsTests(unittest.
         evidence = self._base_evidence()
         evidence.update({
             "return_cogs_profit_application_eligibility_confirmed": True,
+            "return_cogs_profit_application_eligibility_status": "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY",
             "return_cogs_profit_application_authorization_records": [self._authorization()],
             "return_cogs_profit_application_commit_ready": True,
             "return_cogs_profit_application_commit_confirmed": False,
@@ -150,6 +153,7 @@ class PeriodProfitCompactReturnCogsAuthorizationCommitDiagnosticsTests(unittest.
         evidence = self._base_evidence()
         evidence.update({
             "return_cogs_profit_application_eligibility_confirmed": True,
+            "return_cogs_profit_application_eligibility_status": "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY",
             "return_cogs_profit_application_authorization_records": [self._authorization()],
             "return_cogs_profit_application_commit_ready": False,
             "return_cogs_profit_application_commit_confirmed": False,
@@ -170,7 +174,9 @@ class PeriodProfitCompactReturnCogsAuthorizationCommitDiagnosticsTests(unittest.
             "error": False,
             "unresolved_units": 0,
             "period_cogs_recovery_confirmed": True,
+            "accounting_attribution_evidence_status": "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY",
             "accounting_attribution_evidence_confirmed": True,
+            "return_cogs_accounting_recognition_status": "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
             "return_cogs_accounting_recognition_evidence_confirmed": True,
             "return_cogs_profit_application_eligibility_confirmed": False,
             "candidate_records": candidates,

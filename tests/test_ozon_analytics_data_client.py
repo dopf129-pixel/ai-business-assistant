@@ -34,6 +34,36 @@ def test_analytics_data_client_sends_only_the_validated_read_request():
     )]
 
 
+def test_analytics_data_client_forwards_bounded_request_observer():
+    client = OzonClient()
+    calls = []
+    observer = lambda endpoint: None
+
+    def post(endpoint, payload, **kwargs):
+        calls.append((endpoint, payload, kwargs))
+        return {"error": False, "result": {"data": []}}
+
+    client._post = post
+    result = client.get_analytics_data(
+        "2026-10-01",
+        "2026-10-07",
+        metrics=["ordered_units"],
+        dimension=["day"],
+        timeout=5,
+        max_attempts=2,
+        total_timeout=10,
+        request_attempt_observer=observer,
+    )
+
+    assert result["error"] is False
+    assert calls[0][2] == {
+        "timeout": 5,
+        "max_attempts": 2,
+        "total_timeout": 10,
+        "request_attempt_observer": observer,
+    }
+
+
 def test_analytics_data_client_rejects_invalid_ranges_and_page_limits_without_request():
     client = OzonClient()
     client._post = lambda *args, **kwargs: (_ for _ in ()).throw(

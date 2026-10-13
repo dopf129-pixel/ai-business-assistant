@@ -300,6 +300,20 @@ def test_production_factory_exposes_sku_runtime(monkeypatch, tmp_path):
     from telegram_assistant_factory import create_telegram_assistant
     runner = create_telegram_assistant()
     assert isinstance(runner.period_profit_sku_runtime_service, PeriodProfitSkuRuntimeService)
+    from services.telegram_external_expense_runtime_service import (
+        TelegramExternalExpenseRuntimeService,
+    )
+    assert isinstance(
+        runner.external_expense_runtime_service,
+        TelegramExternalExpenseRuntimeService,
+    )
+    evidence_service = (
+        runner.period_profit_runtime_service
+        .query_service
+        .external_expense_evidence_service
+    )
+    assert runner.external_expense_runtime_service.evidence_service is evidence_service
+    assert runner.external_expense_runtime_service.repository is evidence_service.repository
 
 
 def test_production_telegram_callback_keeps_tenant_context_for_sku_query():
@@ -384,14 +398,15 @@ def test_telegram_callback_displays_safe_cpo_endpoint_diagnostic():
         "seller-a", "period_profit_sku:3921245627:7D"
     )
 
-    assert result["error"] is True
-    assert "Endpoint: /api/client/statistic/orders/generate" in result["message"]
-    assert "Обычный SKU в строке: заполнен" in result["message"]
-    assert "Артикул в строке: заполнен" in result["message"]
-    assert "Локальная копия CSV сохранена: " in result["message"]
-    assert result["report_format_saved_path"] in result["message"]
-    assert "Товар" not in result["message"]
-    assert "Номер заказа" not in result["message"]
+    assert result["error"] is False
+    assert result["summary"]["net_accrual"] == 80.0
+    assert result["advertising_included"] is False
+    assert "Основной расчёт по финансовым начислениям Ozon сохранён" in result["text"]
+    assert "Диагностика: OZON_HISTORICAL_REPORT_FORMAT" in result["text"]
+    assert "этап CSV_UNKNOWN_ROW_LABEL" in result["text"]
+    assert "/api/client/statistic/orders/generate" in result["text"]
+    assert "Товар" not in result["text"]
+    assert "Номер заказа" not in result["text"]
 
 
 def test_telegram_selected_sku_profit_keeps_cpc_and_skips_cpo_reports(monkeypatch):
@@ -506,7 +521,7 @@ def test_telegram_selected_sku_profit_keeps_cpc_and_skips_cpo_reports(monkeypatc
     assert "fixture-secret" not in result["text"]
 
 
-def test_telegram_selected_sku_cpc_mapping_error_is_a_safe_user_message():
+def test_telegram_selected_sku_keeps_finance_when_cpc_overlap_is_unconfirmed():
     class Advertising:
         def load(self, *_args):
             return {
@@ -576,14 +591,76 @@ def test_telegram_selected_sku_cpc_mapping_error_is_a_safe_user_message():
     result = bot.on_message("seller-a", "01.08.2026 - 31.08.2026")
     message = TelegramResponseFormatter().format(result)
 
-    assert result["error"] is True
-    assert result["code"] == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
-    assert message == result["message"]
-    assert "расход на рекламу CPC" in message
-    assert "CPO в этот расчёт не включается" in message
+    assert result["error"] is False
+    assert result["summary"]["profit"] == 54.0
+    assert result["advertising_included"] is False
+    assert "Сумма CPC получена, но её пересечение с начислениями Ozon не подтверждено" in message
+    assert "основной расчёт по финансовым начислениям сохранён" in message
+    assert "CPO, остальные неатрибутированные расходы" in message
     assert "context" not in message
     assert "private-action-fixture" not in message
     assert "private-name-fixture" not in message
+
+
+def test_telegram_selected_sku_keeps_finance_when_performance_is_unavailable():
+    class Advertising:
+        def load(self, *_args):
+            return {
+                "error": True,
+                "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+            }
+
+    query = Query({
+        "error": False,
+        "summary": _summary([_row("3921245627")]),
+        "previous_summary": None,
+    })
+    runtime = PeriodProfitSkuRuntimeService(
+        query, advertising_service=Advertising()
+    )
+
+    result = runtime.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["error"] is False
+    assert result["summary"]["net_accrual"] == 80.0
+    assert result["summary"]["profit"] == 54.0
+    assert result["advertising_included"] is False
+    assert "Не удалось сверить CPC в Ozon Performance" in result["text"]
+    assert "Основной расчёт по финансовым начислениям Ozon сохранён" in result["text"]
+    assert "Реклама CPC по SKU:" not in result["text"]
+
+
+def test_selected_sku_omits_previous_delta_when_only_current_cpc_is_confirmed():
+    class Advertising:
+        def __init__(self):
+            self.calls = 0
+
+        def load(self, *_args):
+            self.calls += 1
+            if self.calls == 1:
+                return {"error": False, "configured": True, "expense": 5.0}
+            return {"error": True, "code": "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE"}
+
+    current = _summary([_row("3921245627")], "2026-09-01", "2026-09-07")
+    previous = _summary([_row("3921245627")], "2026-08-25", "2026-08-31")
+    query = Query({
+        "error": False,
+        "summary": current,
+        "previous_summary": previous,
+        "advertising_financial_evidence": {
+            "policy_configured": True,
+            "matched_amount": 0,
+        },
+    })
+    runtime = PeriodProfitSkuRuntimeService(
+        query, advertising_service=Advertising()
+    )
+
+    result = runtime.handle_callback("period_profit_sku:3921245627:7D")
+
+    assert result["error"] is False
+    assert result["advertising_included"] is True
+    assert "К прошлому периоду:" not in result["text"]
 
 
 def test_telegram_cpc_unknown_positive_sku_row_is_captured_and_reported_safely(
@@ -698,12 +775,12 @@ def test_telegram_cpc_unknown_positive_sku_row_is_captured_and_reported_safely(
     )
 
     saved_files = list(tmp_path.rglob("*.csv"))
-    assert result["error"] is True
-    assert "Тип отчёта: CPC" in result["message"]
-    assert "Endpoint: /api/client/statistics" in result["message"]
-    assert "Нераспознанная метка в столбце SKU: нечисловая" in result["message"]
-    assert "Расход в нераспознанной строке: положительный" in result["message"]
-    assert "Локальная копия отчёта сохранена: " in result["message"]
+    assert result["error"] is False
+    assert result["summary"]["net_accrual"] == 80.0
+    assert result["advertising_included"] is False
+    assert "Диагностика: OZON_HISTORICAL_REPORT_FORMAT" in result["text"]
+    assert "этап CSV_UNKNOWN_ROW_LABEL" in result["text"]
+    assert "/api/client/statistics" in result["text"]
     assert len(saved_files) == 1
     assert saved_files[0].read_bytes() == report_content
     assert not any("orders/generate" in endpoint for _, endpoint in session.endpoints)
@@ -711,7 +788,7 @@ def test_telegram_cpc_unknown_positive_sku_row_is_captured_and_reported_safely(
     assert "private-product-name" not in repr(result)
     assert "fixture-token" not in repr(result)
     assert "fixture-secret" not in repr(result)
-    assert report_uuid not in result["message"]
+    assert report_uuid not in result["text"]
 
 
 def test_identity_candidates_are_presented_as_explicit_confirmation_buttons():

@@ -299,6 +299,62 @@ Implemented
 
 ---
 
+## Decision 044
+
+Date:
+
+2026-10-12
+
+Topic:
+
+Effective-Dated Seller Cost Confirmation and Atomic Table Import
+
+Decision:
+
+The first seller-entered cost is effective from a proposed, seller-visible date.
+Prior periods remain without confirmed cost unless the seller separately confirms
+that the initial value applies to the entire available history. A Telegram cost
+change is not persisted before the seller confirms the displayed store, product,
+amount and effective date.
+
+Rules:
+
+- individual first entry proposes the current date; an existing-cost change
+  proposes the next calendar day so today's completed calculations are not silently
+  rewritten;
+- whole-history application is available only for products without an existing
+  configured cost and requires choosing the option followed by a second explicit
+  confirmation;
+- the confirmation is bound to the active tenant/store scope and is rejected after
+  a store switch;
+- CSV exports an effective-date column; first-time blank dates are proposed as
+  today, while a change to an existing cost requires an explicit date in the CSV;
+- CSV is previewed with row identity, amount and dates and is never treated as
+  consent by the upload itself;
+- whole-history CSV application is restricted to first-time costs and requires a
+  separate two-step confirmation;
+- the batch and current cost projections are written in one tenant-local SQLite
+  transaction; validation/conflict failure leaves every row unchanged;
+- exact replay of an already-recorded batch is idempotent, while a different value
+  for the same product and effective date is rejected;
+- the mutable current-cost projection reflects the latest effective switch, even
+  when an older dated batch is imported later;
+- Decision 039's prohibition on assumed historical backfill remains in force.
+
+Reason:
+
+A current price is not proof of an earlier unit cost. Showing the proposed date and
+requiring a separate seller action prevents accidental retroactive cost changes;
+atomic table writes prevent mixed catalog cost timelines after a partial failure.
+
+Status:
+
+Implemented for Telegram single-SKU input and CSV table import. P02 regression
+coverage passed; Windows Python 3.12 full suite passed (2,998 tests) in an
+isolated copy. Live Ozon/Telegram behavior is not implied by the test result.
+
+---
+
 ## Decision 042
 
 Date:

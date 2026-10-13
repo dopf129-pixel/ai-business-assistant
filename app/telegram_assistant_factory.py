@@ -85,6 +85,13 @@ from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvert
 from services.experimental_store_economics_runtime_service import (
     ExperimentalStoreEconomicsRuntimeService,
 )
+from services.expense_repository import ExpenseRepository
+from services.telegram_external_expense_runtime_service import (
+    TelegramExternalExpenseRuntimeService,
+)
+from services.seller_attention_summary_service import (
+    SellerAttentionSummaryService,
+)
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
@@ -224,6 +231,30 @@ def create_telegram_assistant():
         AssistantKeyboardService()
     )
 
+    if period_profit_runtime_service is not None:
+        period_profit_runtime_service.keyboard_service = keyboard
+
+    period_profit_query_service = getattr(
+        period_profit_runtime_service,
+        "query_service",
+        None,
+    )
+    external_expense_evidence_service = getattr(
+        period_profit_query_service,
+        "external_expense_evidence_service",
+        None,
+    )
+    external_expense_repository = getattr(
+        external_expense_evidence_service,
+        "repository",
+        None,
+    ) or ExpenseRepository()
+    external_expense_runtime_service = TelegramExternalExpenseRuntimeService(
+        repository=external_expense_repository,
+        keyboard_service=keyboard,
+        evidence_service=external_expense_evidence_service,
+    )
+
 
 
     period_profit_cost_service = PeriodProfitEffectiveCostService()
@@ -243,6 +274,11 @@ def create_telegram_assistant():
         period_profit_runtime_service.sku_runtime_service = (
             period_profit_sku_runtime_service
         )
+
+    seller_attention_summary_service = SellerAttentionSummaryService(
+        product_decision_query=product_business_decision_query,
+        keyboard_service=keyboard,
+    )
 
     finance_transaction_client = _finance_transaction_client_for(
         period_profit_runtime_service
@@ -299,6 +335,12 @@ def create_telegram_assistant():
             ),
             experimental_store_economics_runtime_service=(
                 experimental_store_economics_runtime_service
+            ),
+            external_expense_runtime_service=(
+                external_expense_runtime_service
+            ),
+            seller_attention_summary_service=(
+                seller_attention_summary_service
             ),
         )
     )
@@ -411,6 +453,10 @@ def create_telegram_assistant():
         period_profit_runtime_service
     )
     runner.period_profit_sku_runtime_service = period_profit_sku_runtime_service
+    runner.external_expense_runtime_service = external_expense_runtime_service
+    runner.seller_attention_summary_service = (
+        seller_attention_summary_service
+    )
 
 
     runner.product_business_decision_query = (

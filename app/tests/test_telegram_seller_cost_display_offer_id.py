@@ -29,12 +29,11 @@ class SellerCostDisplayOfferIdTests(unittest.TestCase):
 
         self.assertFalse(result["error"])
         self.assertEqual(
-            result["message"],
-            "Выберите артикул товара, для которого приехала новая партия:",
-        )
-        self.assertEqual(
             result["keyboard"]["buttons"],
-            [{"text": "hook-2", "callback": "seller_cost:3921245627"}],
+            [
+                {"text": "📥 Заполнить таблицей", "callback": "seller_cost_table"},
+                {"text": "hook-2", "callback": "seller_cost:3921245627"},
+            ],
         )
 
     def test_selection_confirms_offer_id_and_preserves_sku_identity(self):
@@ -43,15 +42,13 @@ class SellerCostDisplayOfferIdTests(unittest.TestCase):
         result = flow.select_sku(123, "3921245627")
 
         self.assertFalse(result["error"])
-        self.assertIn("Артикул hook-2 выбран (SKU 3921245627).", result["message"])
+        self.assertIn("Введите себестоимость одной штуки", result["message"])
         self.assertEqual(
-            flow._pending["123"],
-            {
-                "product_id": "p1",
-                "sku": "3921245627",
-                "offer_id": "hook-2",
-            },
+            flow._pending["123"]["product_id"],
+            "p1",
         )
+        self.assertEqual(flow._pending["123"]["sku"], "3921245627")
+        self.assertEqual(flow._pending["123"]["offer_id"], "hook-2")
 
 
 if __name__ == "__main__":

@@ -153,6 +153,171 @@ class PeriodProfitEffectiveCostService(ProductCostService):
             "read_only_ozon": True,
         }
 
+    def record_cost_switches(self, switches):
+        """Atomically persist dated cost switches, allowing exact replays.
+
+        All inputs and same-date conflicts are checked before the first insert.
+        The mutable product-cost projection is recalculated from the latest
+        effective switch, so importing an older dated row cannot roll it back.
+        """
+        if not isinstance(switches, (list, tuple)) or not switches:
+            return self._switch_record_unavailable(
+                "PRODUCT_COST_SWITCH_INPUT_INVALID"
+            )
+
+        normalized = []
+        seen = set()
+        for item in switches:
+            if not isinstance(item, dict):
+                return self._switch_record_unavailable(
+                    "PRODUCT_COST_SWITCH_INPUT_INVALID"
+                )
+            product_key = self._text(item.get("product_id"))
+            sku_key = self._text(item.get("sku"))
+            offer_key = self._text(item.get("offer_id"))
+            cost = self._cost_number(item.get("cost_price"))
+            effective_date = self._date(item.get("effective_from"))
+            currency_key = self._text(item.get("currency") or "RUB")
+            source_key = self._text(item.get("source"))
+            if (
+                not product_key
+                or (not sku_key and not offer_key)
+                or cost is None
+                or effective_date is None
+                or not currency_key
+                or not source_key
+            ):
+                return self._switch_record_unavailable(
+                    "PRODUCT_COST_SWITCH_INPUT_INVALID"
+                )
+            effective_text = effective_date.isoformat()
+            identity = (product_key, effective_text)
+            if identity in seen:
+                return self._switch_record_unavailable(
+                    "PRODUCT_COST_SWITCH_INPUT_DUPLICATE"
+                )
+            seen.add(identity)
+            normalized.append(
+                {
+                    "product_id": product_key,
+                    "sku": sku_key or None,
+                    "offer_id": offer_key or None,
+                    "cost_price": cost,
+                    "currency": currency_key,
+                    "effective_from": effective_text,
+                    "source": source_key,
+                }
+            )
+
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+
+            existing_by_identity = {}
+            for item in normalized:
+                cursor.execute(
+                    """
+                    SELECT sku, offer_id, cost_price, currency, source
+                    FROM product_cost_switch_history
+                    WHERE product_id = ? AND effective_from = ?
+                    """,
+                    (item["product_id"], item["effective_from"]),
+                )
+                existing = cursor.fetchone()
+                if existing is None:
+                    continue
+                same = (
+                    (existing[0] or None) == item["sku"]
+                    and (existing[1] or None) == item["offer_id"]
+                    and abs(float(existing[2]) - item["cost_price"]) < 0.000001
+                    and str(existing[3]) == item["currency"]
+                    and str(existing[4]) == item["source"]
+                )
+                if not same:
+                    conn.rollback()
+                    return self._switch_record_unavailable(
+                        "PRODUCT_COST_SWITCH_VERSION_CONFLICT"
+                    )
+                existing_by_identity[
+                    (item["product_id"], item["effective_from"])
+                ] = True
+
+            inserted = 0
+            for item in normalized:
+                identity = (item["product_id"], item["effective_from"])
+                if identity in existing_by_identity:
+                    continue
+                cursor.execute(
+                    """
+                    INSERT INTO product_cost_switch_history (
+                        product_id, sku, offer_id, cost_price, currency,
+                        effective_from, source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["product_id"],
+                        item["sku"],
+                        item["offer_id"],
+                        item["cost_price"],
+                        item["currency"],
+                        item["effective_from"],
+                        item["source"],
+                    ),
+                )
+                inserted += 1
+
+            touched_products = sorted({item["product_id"] for item in normalized})
+            for product_key in touched_products:
+                cursor.execute(
+                    """
+                    SELECT sku, offer_id, cost_price, currency
+                    FROM product_cost_switch_history
+                    WHERE product_id = ?
+                    ORDER BY effective_from DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (product_key,),
+                )
+                latest = cursor.fetchone()
+                if latest is None:
+                    continue
+                cursor.execute(
+                    """
+                    INSERT INTO product_costs (
+                        product_id, sku, offer_id, cost_price, currency
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(product_id) DO UPDATE SET
+                        sku = excluded.sku,
+                        offer_id = excluded.offer_id,
+                        cost_price = excluded.cost_price,
+                        currency = excluded.currency,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (product_key, latest[0], latest[1], latest[2], latest[3]),
+                )
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            code = (
+                "PRODUCT_COST_SWITCH_VERSION_CONFLICT"
+                if exc.__class__.__name__ == "IntegrityError"
+                else "PRODUCT_COST_SWITCH_STORAGE_UNAVAILABLE"
+            )
+            return self._switch_record_unavailable(code)
+        finally:
+            conn.close()
+
+        return {
+            "error": False,
+            "status": "PRODUCT_COST_SWITCHES_RECORDED",
+            "inserted": inserted,
+            "unchanged": len(existing_by_identity),
+            "count": len(normalized),
+            "seller_confirmed": True,
+            "read_only_ozon": True,
+        }
+
     def get_seller_cost_identities(self):
         """Return seller-confirmed identity only, without cost values."""
 

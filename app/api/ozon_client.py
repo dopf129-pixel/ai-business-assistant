@@ -36,6 +36,10 @@ class OzonClient(BaseOzonClient):
         dimension=("day",),
         limit=1000,
         offset=0,
+        timeout=30,
+        max_attempts=3,
+        total_timeout=75,
+        request_attempt_observer=None,
     ):
         """Read Ozon analytics data for a bounded, explicit date window."""
         try:
@@ -77,6 +81,16 @@ class OzonClient(BaseOzonClient):
                 "read_only": True,
                 "executed": False,
             }
+        request_options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+        }
+        if total_timeout != 75:
+            request_options["total_timeout"] = total_timeout
+        if callable(request_attempt_observer):
+            request_options["request_attempt_observer"] = (
+                request_attempt_observer
+            )
         return self._post(
             "/v1/analytics/data",
             {
@@ -87,8 +101,7 @@ class OzonClient(BaseOzonClient):
                 "limit": page_limit,
                 "offset": page_offset,
             },
-            timeout=30,
-            max_attempts=3,
+            **request_options,
         )
 
     @property

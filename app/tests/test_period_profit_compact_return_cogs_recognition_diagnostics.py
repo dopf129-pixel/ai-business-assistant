@@ -15,6 +15,27 @@ class PeriodProfitCompactReturnCogsRecognitionDiagnosticsTests(unittest.TestCase
         }
 
     def _result(self, evidence):
+        evidence = dict(evidence)
+        if evidence.get("accounting_attribution_evidence_confirmed") is True:
+            evidence.setdefault(
+                "accounting_attribution_evidence_status",
+                "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY",
+            )
+        if evidence.get("return_cogs_accounting_recognition_evidence_confirmed") is True:
+            evidence.setdefault(
+                "return_cogs_accounting_recognition_status",
+                "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
+            )
+        if evidence.get("return_cogs_profit_application_eligibility_confirmed") is True:
+            evidence.setdefault(
+                "return_cogs_profit_application_eligibility_status",
+                "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY",
+            )
+        if evidence.get("return_cogs_profit_application_commit_confirmed") is True:
+            evidence.setdefault(
+                "return_cogs_profit_application_commit_status",
+                "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED",
+            )
         return {
             "error": False,
             "status": "PERIOD_PROFIT_QUERY_READY",

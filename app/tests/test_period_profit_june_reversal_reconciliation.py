@@ -34,7 +34,7 @@ def posting(sale_amount, total_amount=None, sku="3921245627", unit_number="49885
 
 class PeriodProfitJuneReversalReconciliationTests(unittest.TestCase):
     def _service(self, accruals):
-        service = PeriodProfitFinanceService.__new__(PeriodProfitFinanceService)
+        service = PeriodProfitFinanceService()
         service.accrual_types = {1: {"name": "fixture", "description": "fixture"}}
         service._daily_accrual_cache = {}
         service._get_accruals_by_day = lambda _date: {

@@ -1,5 +1,11 @@
+import threading
+
 from telegram_app_layer.telegram_call_compat import call_with_legacy_arity
 from services.tenant_context import set_current_tenant_user_id, reset_current_tenant_user_id
+
+
+_INFLIGHT_CALCULATION_LOCK = threading.Lock()
+_INFLIGHT_CALCULATION_KEYS = set()
 
 
 class TelegramBotService:
@@ -35,6 +41,28 @@ class TelegramBotService:
         if callback is None:
             callback = user_id
             user_id = None
+        if user_id and self._is_calculation_callback(callback):
+            tenant_scope = self._resolve_tenant_scope(user_id)
+            key = (str(tenant_scope or ""), str(callback or ""))
+            with _INFLIGHT_CALCULATION_LOCK:
+                if key in _INFLIGHT_CALCULATION_KEYS:
+                    return {
+                        "error": False,
+                        "message": "Этот расчёт уже выполняется. Дождитесь ответа на первое нажатие.",
+                        "code": "TELEGRAM_CALCULATION_ALREADY_RUNNING",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                _INFLIGHT_CALCULATION_KEYS.add(key)
+            try:
+                return self._with_tenant(
+                    user_id,
+                    lambda: self._on_callback_in_tenant(user_id, callback),
+                    tenant_scope=tenant_scope,
+                )
+            finally:
+                with _INFLIGHT_CALCULATION_LOCK:
+                    _INFLIGHT_CALCULATION_KEYS.discard(key)
         return self._with_tenant(user_id, lambda: self._on_callback_in_tenant(user_id, callback))
 
     def _on_callback_in_tenant(self, user_id, callback):
@@ -48,7 +76,22 @@ class TelegramBotService:
         return call_with_legacy_arity(self.adapter.handle_button, (callback, user_id), (callback,))
 
     @staticmethod
-    def _with_tenant(user_id, function):
+    def _is_calculation_callback(callback):
+        parts = str(callback or "").strip().split(":")
+        if len(parts) < 2:
+            return False
+        if parts[0] in {
+            "period_profit",
+            "period_profit_pre_cogs",
+            "experimental_store_economics",
+        }:
+            return parts[1].strip().lower() != "custom"
+        if parts[0] == "period_profit_sku" and len(parts) >= 3:
+            return parts[2].strip().lower() != "custom"
+        return False
+
+    @staticmethod
+    def _resolve_tenant_scope(user_id):
         scope = user_id
         try:
             from services.ozon_account_repository import OzonAccountRepository, make_store_tenant_scope
@@ -57,6 +100,15 @@ class TelegramBotService:
                 scope = make_store_tenant_scope(user_id, client_id)
         except Exception:
             scope = user_id
+        return scope
+
+    @staticmethod
+    def _with_tenant(user_id, function, tenant_scope=None):
+        scope = (
+            tenant_scope
+            if tenant_scope is not None
+            else TelegramBotService._resolve_tenant_scope(user_id)
+        )
         token = set_current_tenant_user_id(scope)
         try:
             return function()

@@ -14,9 +14,22 @@ _CURRENT_TRACE = ContextVar("period_profit_operation_trace", default=None)
 class PeriodProfitOperationTrace:
     """Request-local, secret-free observability for long Period Profit work."""
 
-    def __init__(self, operation="period_profit"):
+    DEFAULT_TIME_BUDGET_SECONDS = 600
+    DEFAULT_OZON_REQUEST_BUDGET = 300
+
+    def __init__(
+        self,
+        operation="period_profit",
+        time_budget_seconds=DEFAULT_TIME_BUDGET_SECONDS,
+        ozon_request_budget=DEFAULT_OZON_REQUEST_BUDGET,
+        clock=None,
+    ):
+        self.clock = clock or time.monotonic
         self.operation = str(operation)
-        self.started_at = time.monotonic()
+        self.started_at = self.clock()
+        self.time_budget_seconds = max(0.0, float(time_budget_seconds))
+        self.ozon_request_budget = max(0, int(ozon_request_budget))
+        self.ozon_requests_reserved = 0
         self.worker_thread_id = None
         self.stage = "created"
         self.ozon_api_calls = 0
@@ -49,7 +62,7 @@ class PeriodProfitOperationTrace:
                 self.catalog_sku = str(safe["catalog_sku"] or "")
             event = {
                 "stage": self.stage,
-                "elapsed_seconds": round(time.monotonic() - self.started_at, 3),
+                "elapsed_seconds": round(self.clock() - self.started_at, 3),
                 **safe,
             }
             self.events.append(event)
@@ -68,6 +81,38 @@ class PeriodProfitOperationTrace:
             status=str(status),
             ozon_api_calls=count,
         )
+
+    def reserve_ozon_request(self, endpoint):
+        """Reserve one bounded outbound request or return a fail-closed budget error."""
+        del endpoint  # Endpoint values belong in request diagnostics, never in the budget key.
+        with self._lock:
+            elapsed = max(0.0, self.clock() - self.started_at)
+            remaining = self.time_budget_seconds - elapsed
+            if remaining <= 0:
+                return {
+                    "error": True,
+                    "code": "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
+                    "remaining_seconds": 0.0,
+                }
+            if self.ozon_requests_reserved >= self.ozon_request_budget:
+                return {
+                    "error": True,
+                    "code": "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED",
+                    "remaining_seconds": remaining,
+                }
+            self.ozon_requests_reserved += 1
+            return {
+                "error": False,
+                "remaining_seconds": remaining,
+                "ozon_requests_reserved": self.ozon_requests_reserved,
+            }
+
+    def remaining_seconds(self):
+        with self._lock:
+            return max(
+                0.0,
+                self.time_budget_seconds - max(0.0, self.clock() - self.started_at),
+            )
 
     def record_posting(self, posting_number):
         with self._lock:
@@ -101,9 +146,10 @@ class PeriodProfitOperationTrace:
                 "event": "period_profit_long_running_worker",
                 "reason": str(reason),
                 "operation": self.operation,
-                "elapsed_seconds": round(time.monotonic() - self.started_at, 3),
+                "elapsed_seconds": round(self.clock() - self.started_at, 3),
                 "stage": self.stage,
                 "ozon_api_calls": self.ozon_api_calls,
+                "ozon_requests_reserved": self.ozon_requests_reserved,
                 "posting_numbers_processed": self.posting_numbers_processed,
                 "finance_sku": self.finance_sku,
                 "catalog_sku": self.catalog_sku,

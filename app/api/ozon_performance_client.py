@@ -143,7 +143,7 @@ class OzonPerformanceClient:
             return 86401
         return int(ceil(seconds))
 
-    def _request(self, method, endpoint, token, **kwargs):
+    def _request(self, method, endpoint, token, timeout=30, **kwargs):
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
@@ -151,7 +151,7 @@ class OzonPerformanceClient:
             response = getattr(self.session, method)(
                 self.BASE_URL + endpoint,
                 headers=headers,
-                timeout=30,
+                timeout=max(0.001, float(timeout)),
                 **kwargs,
             )
         except requests.exceptions.RequestException as exc:

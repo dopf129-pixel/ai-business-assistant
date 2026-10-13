@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
 from services.assistant_entry_service import AssistantEntryService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -99,6 +102,55 @@ def test_v1174_localized_custom_period_accepts_single_digit_day_month():
 
     assert query.calls[0]["date_from"] == "2026-05-01"
     assert query.calls[0]["date_to"] == "2026-09-03"
+
+
+def test_duplicate_custom_period_text_does_not_start_two_queries():
+    class BlockingQuery(Query):
+        def __init__(self):
+            super().__init__()
+            self.started = Event()
+            self.release = Event()
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            self.started.set()
+            if not self.release.wait(timeout=3):
+                raise TimeoutError("test query was not released")
+            return {
+                "error": False,
+                "summary": {
+                    "products": [],
+                    "date_from": kwargs["date_from"],
+                    "date_to": kwargs["date_to"],
+                },
+                "previous_summary": None,
+            }
+
+    query = BlockingQuery()
+    service = AssistantPeriodProfitRuntimeService(query)
+    service.begin_custom_period("seller-1")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            service.handle_text,
+            "01.05.2026 - 03.09.2026",
+            None,
+            "seller-1",
+        )
+        assert query.started.wait(timeout=1)
+
+        duplicate = service.handle_text(
+            "01.05.2026 - 03.09.2026", user_id="seller-1"
+        )
+
+        assert duplicate["status"] == (
+            "PERIOD_PROFIT_CUSTOM_PERIOD_ALREADY_RUNNING"
+        )
+        assert len(query.calls) == 1
+        query.release.set()
+        assert first.result(timeout=1)["error"] is False
+
+    assert len(query.calls) == 1
 
 
 def test_v1175_existing_iso_custom_period_remains_supported():

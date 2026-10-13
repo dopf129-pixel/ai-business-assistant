@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
 from math import isfinite
 
 
@@ -8,11 +8,12 @@ class SellerCostTableService:
     """Export/import a seller-cost table using a spreadsheet-friendly CSV format."""
 
     INITIAL_HISTORY_DATE = date.min
-    HEADER = ("Артикул", "Ozon SKU", "Себестоимость, ₽")
+    HEADER = ("Артикул", "Ozon SKU", "Себестоимость, ₽", "Действует с (ГГГГ-ММ-ДД)")
 
-    def __init__(self, product_service, cost_service):
+    def __init__(self, product_service, cost_service, date_provider=None):
         self.product_service = product_service
         self.cost_service = cost_service
+        self.date_provider = date_provider or date.today
 
     def export_csv(self):
         products = self._products()
@@ -23,10 +24,10 @@ class SellerCostTableService:
         writer = csv.writer(stream, delimiter=";")
         writer.writerow(self.HEADER)
         for offer_id, sku, _product_id in products:
-            writer.writerow((offer_id or sku, sku, self._format_cost(current.get(sku))))
+            writer.writerow((offer_id or sku, sku, self._format_cost(current.get(sku)), ""))
         return {
             "error": False,
-            "message": "Заполните колонку «Себестоимость, ₽» и отправьте таблицу обратно боту.",
+            "message": "Заполните колонки «Себестоимость, ₽» и «Действует с». Для новых значений бот предложит сегодняшнюю дату; сохранение будет только после подтверждения.",
             "filename": "sebestoymost.csv",
             "mime_type": "text/csv",
             "file_content": "\ufeff" + stream.getvalue(),
@@ -35,6 +36,7 @@ class SellerCostTableService:
         }
 
     def import_csv(self, content):
+        """Validate and preview a CSV without writing cost data."""
         text = self._decode(content)
         if text is None:
             return self._error("SELLER_COST_TABLE_ENCODING_INVALID", "Не удалось прочитать таблицу. Сохраните её как CSV UTF-8.")
@@ -55,10 +57,13 @@ class SellerCostTableService:
         for line_number, row in enumerate(rows[1:], start=2):
             if not row or not any(str(cell).strip() for cell in row):
                 continue
-            if len(row) < 3:
+            if len(row) < 4:
                 errors.append(f"строка {line_number}: не хватает колонок")
                 continue
-            offer_id, sku, raw_cost = (str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip())
+            offer_id, sku, raw_cost, raw_effective = (
+                str(row[index]).strip() if len(row) > index else ""
+                for index in range(4)
+            )
             if not raw_cost:
                 continue
             if sku in seen:
@@ -73,46 +78,121 @@ class SellerCostTableService:
             if cost is None:
                 errors.append(f"строка {line_number}: неверная себестоимость")
                 continue
-            parsed.append((sku, identity[0], identity[1], cost, sku in existing))
+            effective_from = self._date(raw_effective) if raw_effective else None
+            is_initial = sku not in existing
+            if raw_effective and effective_from is None:
+                errors.append(f"строка {line_number}: дата должна быть в формате ГГГГ-ММ-ДД")
+                continue
+            if not is_initial and effective_from is None:
+                errors.append(f"строка {line_number}: для изменения существующей себестоимости укажите дату действия")
+                continue
+            if is_initial and effective_from is None:
+                effective_from = self._today()
+                if effective_from is None:
+                    errors.append(f"строка {line_number}: не удалось определить предлагаемую дату")
+                    continue
+            parsed.append(
+                {
+                    "sku": sku,
+                    "offer_id": identity[0],
+                    "product_id": identity[1],
+                    "cost_price": cost,
+                    "initial": is_initial,
+                    "effective_from": effective_from.isoformat(),
+                    "date_was_provided": bool(raw_effective),
+                }
+            )
         if errors:
             return self._error("SELLER_COST_TABLE_VALIDATION_FAILED", "Таблица не импортирована:\n" + "\n".join(errors[:10]))
         if not parsed:
             return self._error("SELLER_COST_TABLE_EMPTY", "В таблице нет заполненной себестоимости.")
 
-        # Fail closed before writes: all rows above are validated first. Existing
-        # costs are intentionally rejected here because changing them requires an
-        # effective date; the guided flow handles that separately.
-        changing = [sku for sku, _offer, _pid, _cost, exists in parsed if exists]
-        if changing:
-            return self._error(
-                "SELLER_COST_TABLE_EXISTING_COST_REQUIRES_DATE",
-                "В таблице есть товары с уже заданной себестоимостью. Массовая загрузка сейчас предназначена для первичного заполнения истории; изменения существующей цены задайте через карточку товара.",
-            )
-
-        recorder = getattr(self.cost_service, "record_cost_switch", None)
-        if not callable(recorder):
-            return self._error("SELLER_COST_SWITCH_RECORDER_UNAVAILABLE", "Хранилище себестоимости недоступно.")
-        saved = []
-        for sku, offer_id, product_id, cost, _exists in parsed:
-            result = recorder(
-                product_id=product_id,
-                sku=sku,
-                offer_id=offer_id,
-                cost_price=cost,
-                effective_from=self.INITIAL_HISTORY_DATE.isoformat(),
-                source="SELLER_CONFIRMED_INITIAL_HISTORY_TABLE",
-            )
-            if not isinstance(result, dict) or result.get("error") is not False:
-                return self._error("SELLER_COST_TABLE_IMPORT_FAILED", f"Не удалось сохранить SKU {sku}. Проверьте таблицу и попробуйте снова.")
-            saved.append(sku)
         return {
             "error": False,
-            "message": f"✅ Себестоимость загружена для {len(saved)} товаров. Первые значения применены ко всей доступной истории продаж.",
-            "imported": len(saved),
-            "historical_default": True,
+            "status": "SELLER_COST_TABLE_CONFIRMATION_REQUIRED",
+            "message": "Проверьте даты и подтвердите пакетное сохранение. До подтверждения таблица ничего не меняет.",
+            "rows": parsed,
+            "imported": len(parsed),
+            "initial_count": sum(1 for row in parsed if row["initial"]),
+            "existing_count": sum(1 for row in parsed if not row["initial"]),
+            "all_history_allowed": bool(parsed) and all(row["initial"] for row in parsed),
+            "read_only_ozon": True,
+        }
+
+    def commit_import(self, parsed, whole_history=False):
+        if not isinstance(parsed, list) or not parsed:
+            return self._error("SELLER_COST_TABLE_EMPTY", "В таблице нет заполненной себестоимости.")
+        if whole_history and not all(row.get("initial") is True for row in parsed):
+            return self._error(
+                "SELLER_COST_TABLE_WHOLE_HISTORY_NOT_ALLOWED",
+                "Применить всю историю можно только для товаров без ранее заданной себестоимости.",
+            )
+        recorder = getattr(self.cost_service, "record_cost_switches", None)
+        if not callable(recorder):
+            return self._error(
+                "SELLER_COST_ATOMIC_IMPORT_UNAVAILABLE",
+                "Пакетное сохранение недоступно: хранилище не поддерживает атомарную запись.",
+            )
+        source = (
+            "SELLER_CONFIRMED_INITIAL_HISTORY_TABLE"
+            if whole_history
+            else "SELLER_CONFIRMED_COST_TABLE"
+        )
+        switches = [
+            {
+                "product_id": row["product_id"],
+                "sku": row["sku"],
+                "offer_id": row["offer_id"],
+                "cost_price": row["cost_price"],
+                "effective_from": (
+                    self.INITIAL_HISTORY_DATE.isoformat()
+                    if whole_history
+                    else row["effective_from"]
+                ),
+                "source": source,
+            }
+            for row in parsed
+        ]
+        result = recorder(switches)
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._error(
+                "SELLER_COST_TABLE_IMPORT_FAILED",
+                "Таблица не сохранена целиком. Проверьте даты и конфликтующие версии; частичного импорта нет.",
+            )
+        saved = len(parsed)
+        effective_note = (
+            "Первоначальные значения применены ко всей доступной истории по отдельному подтверждению."
+            if whole_history
+            else "Даты действия сохранены по строкам таблицы."
+        )
+        return {
+            "error": False,
+            "message": f"✅ Себестоимость сохранена для {saved} товаров. {effective_note}",
+            "imported": saved,
+            "inserted": int(result.get("inserted") or 0),
+            "unchanged": int(result.get("unchanged") or 0),
+            "historical_default": whole_history,
             "seller_confirmed": True,
             "read_only_ozon": True,
         }
+
+    def _today(self):
+        try:
+            value = self.date_provider()
+        except Exception:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return self._date(value)
+
+    @staticmethod
+    def _date(value):
+        try:
+            return date.fromisoformat(str(value).strip())
+        except (TypeError, ValueError):
+            return None
 
     def _products(self):
         try:
