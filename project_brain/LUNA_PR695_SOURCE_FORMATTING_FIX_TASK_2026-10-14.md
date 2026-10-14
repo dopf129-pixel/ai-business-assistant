@@ -49,7 +49,7 @@ Production source принимает эту стоимость в `_load_cost` /
 
 Новые regressions, пять calculator modules, смежные handler/factory/tax проверки. Existing explicit zero, localized input, invalid manual retry, extreme precision/magnitude, non-finite tax output, 28-digit automatic rates и freshness/refresh tests должны оставаться зелёными.
 
-**Фактический результат:** calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection — **59 passed in 1.51s**. Отдельные два multi-tenant tax tests не стартовали при одном расширенном запуске из-за Windows ACL стандартной pytest temp папки; их следует перепроверить в изолированной среде. Полный pytest в изолированной копии, compileall, diff check и Windows/Linux/Docker CI нового code SHA остаются обязательными. Прежний зелёный CI не является acceptance исправления R10. Исключить source/API/credentials из тестов.
+**Фактический результат:** calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection — **59 passed in 1.51s**. Полный изолированный Windows pytest без seller data/.env — **3 144 passed in 16.17s**; два production-policy tests получили синтетический default tax JSON только в копии. `compileall -q app tests` прошёл с одной существующей SyntaxWarning в returns-impact test, `git diff --check` прошёл. Windows/Linux/Docker CI нового code SHA и repeat review остаются обязательными; прежний зелёный CI не является acceptance исправления R10. Live Ozon/source/API/credentials не использовались.
 
 ## X03 — документация и повторный review
 
@@ -59,7 +59,7 @@ Production source принимает эту стоимость в `_load_cost` /
 |---|---|
 | X00 | Выполнен: 2 meaningful интеграционных regressions; red на старом коде подтверждён |
 | X01 | Выполнен локально: source normalization + safe Decimal formatting |
-| X02 | В работе: targeted 59 passed; isolated full suite/compile/diff/new CI ожидают выполнения |
+| X02 | Почти завершён: targeted 59 passed, full isolated 3 144 passed, compileall/diff check прошли; новый CI ожидается |
 | X03 | Не завершён: документация обновлена по этапам; повторный review после полного CI |
 
 Бизнес-решение для этого исправления не требуется.

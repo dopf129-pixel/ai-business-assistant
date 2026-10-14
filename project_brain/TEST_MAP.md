@@ -3,7 +3,7 @@
 ## PR #695 — повторный review R10: source/presentation граница
 
 - `tests/test_unit_price_scenario_repeat_review_regressions.py` добавляет source → math → runtime → public `AssistantButtonHandlerService` regressions для сохранённой себестоимости `1e100` и seller price `1e100`. Они проверяют unknown provenance/incomplete source, отсутствие прибыли и `cost_as_of` для unsupported cost, рабочую keyboard, ручное исправление, прибыль 280 ₽, неизменность fake persisted cost, а также безопасные result/edit formatters.
-- Red evidence до исправления: оба интеграционных сценария завершались `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard. После исправления calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection: **59 passed in 1.51s**; прогон использовал `-p no:tmpdir`, поскольку выбранным модулям `tmp_path` не требуется и Windows ACL блокирует стандартный temp root. Полный suite и CI нового code SHA ещё не подтверждены.
+- Red evidence до исправления: оба интеграционных сценария завершались `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard. После исправления calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection: **59 passed in 1.51s**; прогон использовал `-p no:tmpdir`, поскольку этим модулям `tmp_path` не требуется. Изолированный Windows pytest без seller data/.env: **3 144 passed in 16.17s**; двум production-policy tests задана синтетическая конфигурация USN_INCOME 6%/minimum 1%. `compileall -q app tests` завершился с одной прежней SyntaxWarning в returns-impact test. Новый CI для code SHA ещё ожидается.
 
 ## PR #695 — regressions повторного review R8/R9
 
