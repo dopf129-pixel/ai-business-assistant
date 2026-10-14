@@ -42,8 +42,8 @@ class AssistantPeriodProfitRuntimeService:
         self.sku_runtime_service = sku_runtime_service
         self.keyboard_service = keyboard_service
         self.completeness_view_service = PeriodProfitCompletenessViewService()
-        self._custom_period_users = set()
-        self._custom_pre_cogs_users = set()
+        self._custom_period_users = {}
+        self._custom_pre_cogs_users = {}
         self._custom_sku_period_users = {}
         self._custom_period_lock = RLock()
         self._custom_period_inflight = set()
@@ -56,7 +56,10 @@ class AssistantPeriodProfitRuntimeService:
             return self._custom_period_input_invalid()
         with self._custom_period_lock:
             self._clear_pending_custom_period_input_locked(user_key)
-            self._custom_sku_period_users[user_key] = sku_key
+            self._custom_sku_period_users[user_key] = {
+                "sku": sku_key,
+                "tenant_scope": self._tenant_scope(),
+            }
         return {
             "error": False,
             "status": "PERIOD_PROFIT_SKU_CUSTOM_PERIOD_INPUT_REQUIRED",
@@ -77,7 +80,7 @@ class AssistantPeriodProfitRuntimeService:
             }
         with self._custom_period_lock:
             self._clear_pending_custom_period_input_locked(user_key)
-            self._custom_period_users.add(user_key)
+            self._custom_period_users[user_key] = self._tenant_scope()
         return {
             "error": False,
             "status": "PERIOD_PROFIT_CUSTOM_PERIOD_INPUT_REQUIRED",
@@ -92,7 +95,7 @@ class AssistantPeriodProfitRuntimeService:
             return self._custom_period_input_invalid()
         with self._custom_period_lock:
             self._clear_pending_custom_period_input_locked(user_key)
-            self._custom_pre_cogs_users.add(user_key)
+            self._custom_pre_cogs_users[user_key] = self._tenant_scope()
         return {
             "error": False,
             "status": "PERIOD_PROFIT_PRE_COGS_CUSTOM_PERIOD_INPUT_REQUIRED",
@@ -106,9 +109,27 @@ class AssistantPeriodProfitRuntimeService:
 
         user_key = self._user_key(user_id)
         with self._custom_period_lock:
-            custom_sku = self._custom_sku_period_users.get(user_key)
-            custom_pre_cogs = user_key in self._custom_pre_cogs_users
-            custom_period_pending = user_key in self._custom_period_users
+            tenant_scope = self._tenant_scope()
+            sku_pending = self._custom_sku_period_users.get(user_key)
+            pre_cogs_scope = self._custom_pre_cogs_users.get(user_key)
+            custom_period_scope = self._custom_period_users.get(user_key)
+            pending_scope = (
+                sku_pending.get("tenant_scope")
+                if isinstance(sku_pending, dict)
+                else pre_cogs_scope
+                if pre_cogs_scope is not None
+                else custom_period_scope
+            )
+            if pending_scope is not None and pending_scope != tenant_scope:
+                self._clear_pending_custom_period_input_locked(user_key)
+                return self._custom_period_store_stale()
+            custom_sku = (
+                sku_pending.get("sku")
+                if isinstance(sku_pending, dict)
+                else None
+            )
+            custom_pre_cogs = pre_cogs_scope is not None
+            custom_period_pending = custom_period_scope is not None
         if (
             not custom_sku
             and not custom_pre_cogs
@@ -150,13 +171,13 @@ class AssistantPeriodProfitRuntimeService:
                     custom_sku, dates[0], dates[1]
                 ),
                 consume_pending=lambda: self._consume_custom_sku_period(
-                    user_key, custom_sku
+                    user_key, custom_sku, tenant_scope
                 ),
             )
         if custom_pre_cogs:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:
-                    self._custom_pre_cogs_users.discard(user_key)
+                    self._custom_pre_cogs_users.pop(user_key, None)
                 return {
                     "error": False,
                     "status": "PERIOD_PROFIT_PRE_COGS_CUSTOM_PERIOD_CANCELLED",
@@ -180,13 +201,13 @@ class AssistantPeriodProfitRuntimeService:
                     date_from=dates[0], date_to=dates[1]
                 ),
                 consume_pending=lambda: self._consume_pending_user(
-                    self._custom_pre_cogs_users, user_key
+                    self._custom_pre_cogs_users, user_key, tenant_scope
                 ),
             )
         if custom_period_pending:
             if value in {"отмена", "cancel", "/cancel"}:
                 with self._custom_period_lock:
-                    self._custom_period_users.discard(user_key)
+                    self._custom_period_users.pop(user_key, None)
                 return {
                     "error": False,
                     "status": "PERIOD_PROFIT_CUSTOM_PERIOD_CANCELLED",
@@ -214,7 +235,7 @@ class AssistantPeriodProfitRuntimeService:
                     user_id=user_id,
                 ),
                 consume_pending=lambda: self._consume_pending_user(
-                    self._custom_period_users, user_key
+                    self._custom_period_users, user_key, tenant_scope
                 ),
             )
 
@@ -471,6 +492,10 @@ class AssistantPeriodProfitRuntimeService:
         value = str(user_id or "").strip()
         return value or None
 
+    @staticmethod
+    def _tenant_scope():
+        return str(get_current_tenant_user_id() or "")
+
     def _run_custom_period_once(
         self, user_key, mode, period_key, callback, consume_pending=None
     ):
@@ -501,16 +526,21 @@ class AssistantPeriodProfitRuntimeService:
                 for key in self._custom_period_inflight
             )
 
-    def _consume_custom_sku_period(self, user_key, sku):
-        if self._custom_sku_period_users.get(user_key) != sku:
+    def _consume_custom_sku_period(self, user_key, sku, tenant_scope):
+        pending = self._custom_sku_period_users.get(user_key)
+        if (
+            not isinstance(pending, dict)
+            or pending.get("sku") != sku
+            or pending.get("tenant_scope") != tenant_scope
+        ):
             return False
         self._custom_sku_period_users.pop(user_key, None)
         return True
 
-    def _consume_pending_user(self, pending_users, user_key):
-        if user_key not in pending_users:
+    def _consume_pending_user(self, pending_users, user_key, tenant_scope):
+        if pending_users.get(user_key) != tenant_scope:
             return False
-        pending_users.discard(user_key)
+        pending_users.pop(user_key, None)
         return True
 
     @staticmethod
@@ -533,6 +563,16 @@ class AssistantPeriodProfitRuntimeService:
             "executed": False,
         }
 
+    @staticmethod
+    def _custom_period_store_stale():
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_CUSTOM_PERIOD_STORE_CHANGED",
+            "message": "Вы переключили магазин. Старый ввод периода отменён; выберите период заново в текущем магазине.",
+            "read_only": True,
+            "executed": False,
+        }
+
     def clear_pending_custom_period_input(self, user_id):
         """Clear a seller's pending custom-period prompt when they navigate away."""
         user_key = self._user_key(user_id)
@@ -542,8 +582,8 @@ class AssistantPeriodProfitRuntimeService:
             self._clear_pending_custom_period_input_locked(user_key)
 
     def _clear_pending_custom_period_input_locked(self, user_key):
-        self._custom_period_users.discard(user_key)
-        self._custom_pre_cogs_users.discard(user_key)
+        self._custom_period_users.pop(user_key, None)
+        self._custom_pre_cogs_users.pop(user_key, None)
         self._custom_sku_period_users.pop(user_key, None)
 
     @staticmethod

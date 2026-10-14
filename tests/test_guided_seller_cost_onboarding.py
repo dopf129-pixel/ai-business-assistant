@@ -84,13 +84,15 @@ def test_first_cost_proposes_date_and_requires_confirmation_before_writing():
     assert "Магазин: активный магазин" in preview["message"]
     assert "SKU SKU-A" in preview["message"]
     assert costs.recorded == []
-    assert [button["callback"] for button in preview["keyboard"]["buttons"]] == [
+    callbacks = [button["callback"] for button in preview["keyboard"]["buttons"]]
+    assert all(len(callback.encode("utf-8")) <= 64 for callback in callbacks)
+    assert [callback.split(":", 1)[0] for callback in callbacks] == [
         service.CONFIRM_DATE_CALLBACK,
         service.SELECT_ALL_HISTORY_CALLBACK,
         service.CANCEL_CALLBACK,
     ]
 
-    saved = service.handle_button("user", service.CONFIRM_DATE_CALLBACK)
+    saved = service.handle_button("user", callbacks[0])
     assert saved["effective_from"] == "2026-09-15"
     assert saved["historical_default"] is False
     assert saved["cost_coverage"]["missing"] == 1
@@ -107,14 +109,17 @@ def test_whole_history_requires_a_second_explicit_confirmation():
     costs = _Costs()
     service = TelegramSellerCostUpdateService(_Products(), costs, date_provider=lambda: date(2026, 9, 15))
     service.select_sku("user", "SKU-A")
-    service.handle_text("user", "430")
-
-    selected = service.handle_button("user", service.SELECT_ALL_HISTORY_CALLBACK)
+    preview = service.handle_text("user", "430")
+    selected = service.handle_button(
+        "user", preview["keyboard"]["buttons"][1]["callback"]
+    )
     assert selected["error"] is False
     assert "ко всей доступной истории" in selected["message"]
     assert costs.recorded == []
 
-    saved = service.handle_button("user", service.CONFIRM_ALL_HISTORY_CALLBACK)
+    saved = service.handle_button(
+        "user", selected["keyboard"]["buttons"][0]["callback"]
+    )
     assert saved["error"] is False
     assert saved["effective_from"] == "0001-01-01"
     assert saved["historical_default"] is True
@@ -128,7 +133,9 @@ def test_existing_cost_change_still_starts_tomorrow():
     service.select_sku("user", "SKU-A")
     preview = service.handle_text("user", "120")
     assert costs.recorded == []
-    saved = service.handle_button("user", service.CONFIRM_DATE_CALLBACK)
+    saved = service.handle_button(
+        "user", preview["keyboard"]["buttons"][0]["callback"]
+    )
     assert saved["effective_from"] == "2026-09-16"
     assert saved["historical_default"] is False
     assert costs.recorded[0]["source"] == "SELLER_CONFIRMED_BOT"

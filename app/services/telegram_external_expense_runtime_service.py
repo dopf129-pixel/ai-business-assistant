@@ -83,7 +83,15 @@ class TelegramExternalExpenseRuntimeService:
                 )
             return self._show_period(key, period)
 
-        if not isinstance(draft, dict) or draft.get("status") != "READY":
+        draft_status = draft.get("status") if isinstance(draft, dict) else None
+        description_input_allowed = (
+            stage == "description"
+            and draft_status == "AWAITING_DESCRIPTION"
+        )
+        if (
+            not isinstance(draft, dict)
+            or (draft_status != "READY" and not description_input_allowed)
+        ):
             self.clear_pending(user_id)
             return self._result(
                 "Черновик устарел. Откройте раздел «Внешние расходы» и начните заново.",

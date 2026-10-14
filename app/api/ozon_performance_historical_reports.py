@@ -18,6 +18,8 @@ from zipfile import ZipFile, BadZipFile
 
 import requests
 
+from services.period_profit_operation_diagnostics import current_period_profit_trace
+
 
 CPO_REPORT_ENDPOINTS = frozenset({
     "/api/client/statistic/orders/generate",
@@ -764,22 +766,46 @@ class HistoricalPerformanceReports:
         self._check_budget("REPORT_DOWNLOAD")
         token = self._access_token()
         if token.get("error"):
-            raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+            raise HistoricalReportError(
+                token.get("code")
+                if str(token.get("code") or "").startswith("OZON_OPERATION_")
+                else "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+            )
         for attempt in range(2):
             remaining = self._check_budget("REPORT_DOWNLOAD")
+            timeout = 30.0 if remaining is None else min(30.0, remaining)
+            trace = current_period_profit_trace()
+            if trace is not None:
+                reservation = trace.reserve_ozon_request(
+                    "/api/client/statistics/report"
+                )
+                if reservation.get("error") is True:
+                    raise HistoricalReportError(
+                        str(
+                            reservation.get("code")
+                            or "OZON_OPERATION_BUDGET_EXHAUSTED"
+                        )
+                    )
+                global_remaining = float(
+                    reservation.get("remaining_seconds") or 0
+                )
+                timeout = min(timeout, global_remaining)
             try:
-                request_timeout = min(30.0, remaining) if remaining is not None else 30
                 response = self.client.session.get(
                     self.client.BASE_URL + "/api/client/statistics/report",
                     headers={"Authorization": "Bearer " + token["access_token"]},
-                    params={"UUID": uuid}, timeout=request_timeout)
+                    params={"UUID": uuid}, timeout=timeout)
                 self.calls += 1
             except requests.exceptions.RequestException as exc:
                 raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED") from exc
             if response.status_code == 401 and attempt == 0:
                 token = self._access_token(force=True)
                 if token.get("error"):
-                    raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+                    raise HistoricalReportError(
+                        token.get("code")
+                        if str(token.get("code") or "").startswith("OZON_OPERATION_")
+                        else "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+                    )
                 continue
             if response.status_code != 200 or len(response.content) > self.MAX_DOWNLOAD_BYTES:
                 raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED")

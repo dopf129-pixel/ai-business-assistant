@@ -126,6 +126,67 @@ def test_expense_is_saved_only_after_preview_confirmation_and_callback_is_idempo
     assert len(repository.get_expenses_by_period("2026-08-01", "2026-08-31")) == 1
 
 
+def test_typed_expense_description_reaches_preview_and_is_saved():
+    class InMemoryRepository:
+        def __init__(self):
+            self.expenses = []
+
+        def add_expense(self, expense_date, category, amount, description):
+            row = {
+                "id": len(self.expenses) + 1,
+                "expense_date": expense_date,
+                "category": category,
+                "amount": amount,
+                "description": description,
+                "created_at": "2026-08-15T00:00:00",
+            }
+            self.expenses.append(row)
+            return {"error": False, "id": row["id"]}
+
+        def get_expenses_by_period(self, date_from, date_to):
+            return [
+                row for row in self.expenses
+                if date_from <= row["expense_date"] <= date_to
+            ]
+
+        @staticmethod
+        def get_coverage_by_period(_date_from, _date_to):
+            return []
+
+    repository = InMemoryRepository()
+    runtime = TelegramExternalExpenseRuntimeService(
+        repository=repository,
+        keyboard_service=AssistantKeyboardService(),
+        today_provider=lambda: date(2026, 8, 31),
+    )
+    _, view = _open_custom_period(
+        runtime, 112, "01.08.2026 — 31.08.2026"
+    )
+
+    with _tenant("store-a"):
+        prompt = runtime.handle_callback(
+            _callback(view, "external_expenses:add:"), user_id=112
+        )
+        prompt = runtime.handle_text("15.08.2026", user_id=112)
+        prompt = runtime.handle_text("Хранение", user_id=112)
+        prompt = runtime.handle_text("1250,50", user_id=112)
+        too_long = runtime.handle_text("x" * 241, user_id=112)
+        preview = runtime.handle_text("Аренда склада", user_id=112)
+        saved = runtime.handle_callback(
+            _callback(preview, "external_expenses:expense-confirm:"),
+            user_id=112,
+        )
+
+    assert prompt["status"] == "TELEGRAM_EXTERNAL_EXPENSE_INPUT_DESCRIPTION"
+    assert too_long["status"] == "TELEGRAM_EXTERNAL_EXPENSE_INPUT_DESCRIPTION"
+    assert preview["status"] == "TELEGRAM_EXTERNAL_EXPENSE_PREVIEW"
+    assert "Аренда склада" in preview["message"]
+    assert saved["status"] == "TELEGRAM_EXTERNAL_EXPENSE_SAVED"
+    rows = repository.get_expenses_by_period("2026-08-01", "2026-08-31")
+    assert len(rows) == 1
+    assert rows[0]["description"] == "Аренда склада"
+
+
 def test_adding_expense_does_not_implicitly_confirm_period_coverage(tmp_path):
     runtime, repository = _runtime(tmp_path / "expenses.db")
     _, view = _open_custom_period(runtime, 102, "01.08.2026 — 31.08.2026")

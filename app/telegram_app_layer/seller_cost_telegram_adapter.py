@@ -55,15 +55,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             if callback_text.startswith("seller_cost:"):
                 sku = callback_text.split(":", 1)[1]
                 return self.seller_cost_service.select_sku(user_id, sku)
-            if callback_text in {
-                self.seller_cost_service.CONFIRM_DATE_CALLBACK,
-                self.seller_cost_service.SELECT_ALL_HISTORY_CALLBACK,
-                self.seller_cost_service.CONFIRM_ALL_HISTORY_CALLBACK,
-                self.seller_cost_service.CANCEL_CALLBACK,
-                self.seller_cost_service.TABLE_CONFIRM_CALLBACK,
-                self.seller_cost_service.TABLE_SELECT_ALL_HISTORY_CALLBACK,
-                self.seller_cost_service.TABLE_CONFIRM_ALL_HISTORY_CALLBACK,
-            }:
+            if self.seller_cost_service.is_confirmation_callback(callback_text):
                 return self.seller_cost_service.handle_button(user_id, callback_text)
             self.seller_cost_service.clear_pending(user_id)
         except Exception:

@@ -1,9 +1,8 @@
 # Карта тестов — актуальный статус 2026-10-14
 
-- Exact code `ac0f101` прошёл CI Windows/Linux (**3 077 passed** на каждой платформе), production Docker build/smoke также прошли.
-- На этом code изолированные behavioral probes Architecture Review PR #694 подтвердили R1–R5; они не добавлены в стандартный pytest и не считаются passing tests.
-- Нужны регрессии stale preview A → новый preview B для cost/CSV/history/cancel; pending period A → store B для всех custom modes; typed external-expense description; общий trace budget для Performance auth/JSON/download; конкурентный decision-LRU read/eviction.
-- Точные сценарии, результаты probes и условия приёмки: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. Существующий зелёный suite не закрывает эти замечания.
+- Исправления R1–R5 для PR #694 проверены целевым набором регрессий: **74 passed**. `compileall` затронутых модулей прошёл; полный CI на новом SHA и повторный Architecture Review ожидаются.
+- В регрессии вошли stale cost preview (товар/сумма/CSV/history/cancel), store A → store B для обычного/SKU/pre-COGS/experimental custom period, текстовое описание внешнего расхода с retry после слишком длинного ввода, Performance auth/JSON/401/429/download с общим request/time budget, и контролируемый interleaving read/eviction decision LRU.
+- Приёмочные выводы по исходному review и новый follow-up: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. PR #694 не сливался.
 
 ## Исторический снимок 2026-10-13 до remote CI и Architecture Review
 

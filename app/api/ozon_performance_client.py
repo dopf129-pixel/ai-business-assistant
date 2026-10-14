@@ -6,6 +6,8 @@ from threading import Lock
 
 import requests
 
+from services.period_profit_operation_diagnostics import current_period_profit_trace
+
 
 class OzonPerformanceClient:
     BASE_URL = "https://api-performance.ozon.ru"
@@ -106,6 +108,11 @@ class OzonPerformanceClient:
         )
         token = str(result.get("access_token") or "").strip() if isinstance(result, dict) else ""
         if result.get("error") is True or not token:
+            if (
+                isinstance(result, dict)
+                and str(result.get("code") or "").startswith("OZON_OPERATION_")
+            ):
+                return result
             return {"error": True, "code": "OZON_PERFORMANCE_AUTH_UNAVAILABLE"}
         try:
             lifetime = max(60.0, float(result.get("expires_in") or 1800.0) - 30.0)
@@ -147,6 +154,21 @@ class OzonPerformanceClient:
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
+        trace = current_period_profit_trace()
+        if trace is not None:
+            reservation = trace.reserve_ozon_request(endpoint)
+            if reservation.get("error") is True:
+                return {
+                    "error": True,
+                    "code": str(
+                        reservation.get("code")
+                        or "OZON_OPERATION_BUDGET_EXHAUSTED"
+                    ),
+                }
+            remaining_budget = float(
+                reservation.get("remaining_seconds") or 0
+            )
+            timeout = min(float(timeout), remaining_budget)
         try:
             response = getattr(self.session, method)(
                 self.BASE_URL + endpoint,

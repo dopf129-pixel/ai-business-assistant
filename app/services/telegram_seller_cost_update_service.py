@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta
 from math import isfinite
+from threading import RLock
+from uuid import uuid4
 
 from services.seller_cost_table_service import SellerCostTableService
 
@@ -25,6 +27,7 @@ class TelegramSellerCostUpdateService:
         )
         self.store_name_provider = store_name_provider
         self._pending = {}
+        self._pending_lock = RLock()
 
     def open_menu(self):
         products = self._products()
@@ -70,6 +73,7 @@ class TelegramSellerCostUpdateService:
         if not isinstance(prepared, dict) or prepared.get("error") is not False:
             return prepared if isinstance(prepared, dict) else self._error("SELLER_COST_TABLE_INVALID")
         pending = {
+            "draft_id": uuid4().hex[:16],
             "step": "confirm_table",
             "table_rows": prepared["rows"],
             "tenant_scope": self._tenant_scope(),
@@ -78,7 +82,8 @@ class TelegramSellerCostUpdateService:
             "existing_count": prepared["existing_count"],
             "all_history_allowed": prepared["all_history_allowed"],
         }
-        self._pending[user_key] = pending
+        with self._pending_lock:
+            self._pending[user_key] = pending
         return {
             "error": False,
             "message": self._table_confirmation_message(pending),
@@ -101,7 +106,8 @@ class TelegramSellerCostUpdateService:
             return self._error("SELLER_COST_SKU_NOT_FOUND" if not matches else "SELLER_COST_SKU_AMBIGUOUS")
         display_name, _, product_id, offer_id = matches[0]
         is_initial = sku_key not in self._current_costs()
-        self._pending[user_key] = {
+        pending = {
+            "draft_id": uuid4().hex[:16],
             "product_id": product_id,
             "sku": sku_key,
             "offer_id": offer_id,
@@ -111,6 +117,8 @@ class TelegramSellerCostUpdateService:
             "tenant_scope": self._tenant_scope(),
             "store_label": self._active_store_label(),
         }
+        with self._pending_lock:
+            self._pending[user_key] = pending
         timing = (
             "Это первая себестоимость товара. После ввода суммы я предложу дату начала действия. "
             "Старые периоды останутся без подтверждённой себестоимости, пока вы отдельно не выберете всю историю."
@@ -129,6 +137,10 @@ class TelegramSellerCostUpdateService:
         }
 
     def handle_text(self, user_id, text):
+        with self._pending_lock:
+            return self._handle_text_locked(user_id, text)
+
+    def _handle_text_locked(self, user_id, text):
         user_key = self._user_key(user_id)
         if user_key is None or user_key not in self._pending:
             return {"error": False, "handled": False, "read_only_ozon": True}
@@ -197,8 +209,16 @@ class TelegramSellerCostUpdateService:
         }
 
     def handle_button(self, user_id, callback):
+        with self._pending_lock:
+            return self._handle_button_locked(user_id, callback)
+
+    def _handle_button_locked(self, user_id, callback):
         user_key = self._user_key(user_id)
-        action = self._text(callback)
+        callback_text = self._text(callback)
+        action, separator, draft_id = callback_text.rpartition(":")
+        if not separator:
+            action = callback_text
+            draft_id = ""
         callbacks = {
             self.CONFIRM_DATE_CALLBACK,
             self.SELECT_ALL_HISTORY_CALLBACK,
@@ -213,6 +233,8 @@ class TelegramSellerCostUpdateService:
         if user_key is None or user_key not in self._pending:
             return self._pending_action_unavailable()
         pending = self._pending[user_key]
+        if not draft_id or draft_id != pending.get("draft_id"):
+            return self._pending_action_unavailable()
         if not self._pending_store_is_current(pending):
             self._pending.pop(user_key, None)
             return self._stale_store_result()
@@ -240,8 +262,8 @@ class TelegramSellerCostUpdateService:
                     "error": False,
                     "type": "inline_keyboard",
                     "buttons": [
-                        {"text": "Подтвердить для всей истории", "callback": self.TABLE_CONFIRM_ALL_HISTORY_CALLBACK},
-                        {"text": "Отмена", "callback": self.CANCEL_CALLBACK},
+                        {"text": "Подтвердить для всей истории", "callback": self._draft_callback(self.TABLE_CONFIRM_ALL_HISTORY_CALLBACK, pending)},
+                        {"text": "Отмена", "callback": self._draft_callback(self.CANCEL_CALLBACK, pending)},
                     ],
                 },
                 "read_only_ozon": True,
@@ -267,8 +289,8 @@ class TelegramSellerCostUpdateService:
                     "error": False,
                     "type": "inline_keyboard",
                     "buttons": [
-                        {"text": "Подтвердить для всей истории", "callback": self.CONFIRM_ALL_HISTORY_CALLBACK},
-                        {"text": "Отмена", "callback": self.CANCEL_CALLBACK},
+                        {"text": "Подтвердить для всей истории", "callback": self._draft_callback(self.CONFIRM_ALL_HISTORY_CALLBACK, pending)},
+                        {"text": "Отмена", "callback": self._draft_callback(self.CANCEL_CALLBACK, pending)},
                     ],
                 },
                 "read_only_ozon": True,
@@ -345,14 +367,33 @@ class TelegramSellerCostUpdateService:
     @staticmethod
     def _table_confirmation_keyboard(pending):
         buttons = [
-            {"text": "Сохранить с датами из таблицы", "callback": TelegramSellerCostUpdateService.TABLE_CONFIRM_CALLBACK}
+            {"text": "Сохранить с датами из таблицы", "callback": TelegramSellerCostUpdateService._draft_callback(TelegramSellerCostUpdateService.TABLE_CONFIRM_CALLBACK, pending)}
         ]
         if pending.get("all_history_allowed") is True:
             buttons.append(
-                {"text": "Применить первоначальные цены ко всей истории", "callback": TelegramSellerCostUpdateService.TABLE_SELECT_ALL_HISTORY_CALLBACK}
+                {"text": "Применить первоначальные цены ко всей истории", "callback": TelegramSellerCostUpdateService._draft_callback(TelegramSellerCostUpdateService.TABLE_SELECT_ALL_HISTORY_CALLBACK, pending)}
             )
-        buttons.append({"text": "Отмена", "callback": TelegramSellerCostUpdateService.CANCEL_CALLBACK})
+        buttons.append({"text": "Отмена", "callback": TelegramSellerCostUpdateService._draft_callback(TelegramSellerCostUpdateService.CANCEL_CALLBACK, pending)})
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    @staticmethod
+    def _draft_callback(action, pending):
+        return str(action) + ":" + str(pending.get("draft_id") or "")
+
+    @classmethod
+    def is_confirmation_callback(cls, callback):
+        value = cls._text(callback)
+        actions = {
+            cls.CONFIRM_DATE_CALLBACK,
+            cls.SELECT_ALL_HISTORY_CALLBACK,
+            cls.CONFIRM_ALL_HISTORY_CALLBACK,
+            cls.CANCEL_CALLBACK,
+            cls.TABLE_CONFIRM_CALLBACK,
+            cls.TABLE_SELECT_ALL_HISTORY_CALLBACK,
+            cls.TABLE_CONFIRM_ALL_HISTORY_CALLBACK,
+        }
+        action = value.rpartition(":")[0] if ":" in value else value
+        return action in actions
 
     def _save_pending_cost(self, user_key, identity, whole_history):
         effective_from = (
@@ -410,13 +451,13 @@ class TelegramSellerCostUpdateService:
 
     def _date_confirmation(self, pending):
         buttons = [
-            {"text": f"Сохранить с {pending['effective_from']}", "callback": self.CONFIRM_DATE_CALLBACK},
+            {"text": f"Сохранить с {pending['effective_from']}", "callback": self._draft_callback(self.CONFIRM_DATE_CALLBACK, pending)},
         ]
         if pending.get("initial") is True:
             buttons.append(
-                {"text": "Применить ко всей истории", "callback": self.SELECT_ALL_HISTORY_CALLBACK}
+                {"text": "Применить ко всей истории", "callback": self._draft_callback(self.SELECT_ALL_HISTORY_CALLBACK, pending)}
             )
-        buttons.append({"text": "Отмена", "callback": self.CANCEL_CALLBACK})
+        buttons.append({"text": "Отмена", "callback": self._draft_callback(self.CANCEL_CALLBACK, pending)})
         return {
             "keyboard": {
                 "error": False,
@@ -505,7 +546,8 @@ class TelegramSellerCostUpdateService:
     def clear_pending(self, user_id):
         user_key = self._user_key(user_id)
         if user_key is not None:
-            self._pending.pop(user_key, None)
+            with self._pending_lock:
+                self._pending.pop(user_key, None)
 
     def _products(self):
         try:

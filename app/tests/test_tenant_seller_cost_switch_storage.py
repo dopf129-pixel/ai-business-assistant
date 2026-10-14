@@ -61,7 +61,8 @@ class TenantSellerCostSwitchStorageTests(unittest.TestCase):
                     self.assertTrue(result["read_only_ozon"])
 
                     result = flow.handle_button(
-                        "telegram-live-user", flow.CONFIRM_DATE_CALLBACK
+                        "telegram-live-user",
+                        result["keyboard"]["buttons"][0]["callback"],
                     )
                     self.assertFalse(result["error"])
                     self.assertEqual(result["effective_from"], "2026-09-11")

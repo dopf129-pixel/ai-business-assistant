@@ -1,9 +1,14 @@
-# 2026-10-14 — архитектурный review P00–P08
+# 2026-10-14 — R1–R5 исправлены, CI и повторный review ожидаются
 
-- PR #694, reviewed code `ac0f101`: Architecture Review выполнен; требуется исправить **R1–R5** до слияния. Два P1: неподвязанные к preview cost callbacks и перенос pending custom period в другой store. Три P2: ввод описания внешнего расхода, Performance вне общего operation budget, гонка shared decision LRU.
-- Все пять дефектов воспроизведены изолированными probes с production-классами и fake sources; реальных HTTP/данных продавца probes не использовали. Production source не изменён. Подробности и acceptance checks — `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`.
-- CI на reviewed code остаётся зелёным: Windows/Linux по **3 077 passed**, production Docker build/smoke прошли. Новые воспроизведения не входили в этот suite и не считаются passing regression tests.
-- P01 OS locking/durability extension проверен без архитектурного блокера; приёмка всей ветки P00–P08 остаётся открытой до исправления замечаний и повторного review нового code revision.
+- Для PR #694 внесены исправления пяти подтверждённых находок review: привязка себестоимости к draft id, store scope для форм произвольного периода, разрешённый текстовый ввод описания внешнего расхода, общий operation budget для Ozon Performance и блокировка shared decision LRU.
+- Регрессионный целевой набор: **74 passed**; `compileall` затронутых модулей прошёл. Полный CI ещё должен пройти на новом commit SHA: Windows/Linux и production Docker checks.
+- Изменения охватывают более пяти модулей и меняют обработку callback/pending/cache и внешний HTTP budget; классификация — **Architecture Review Required**. Повторный review обязателен перед слиянием. Слияние не выполнялось.
+- Исходные R1–R5 и конкретные сценарии сохранены в `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`; к нему добавляется follow-up для этого revision.
+
+## 2026-10-14 — архитектурный review P00–P08
+
+- PR #694, reviewed code `ac0f101`: Architecture Review выявил R1–R5, воспроизведённые probes с production-классами и fake sources; реальных HTTP/данных продавца probes не использовали. Полный CI исходного revision прошёл: Windows/Linux по **3 077 passed**, production Docker build/smoke прошли. Этот CI не покрывал найденные сценарии.
+- P01 OS locking/durability extension проверен без архитектурного блокера; приёмка всей ветки P00–P08 остаётся открытой до CI и повторного review исправленного revision.
 
 ## 2026-10-13 — снимок состояния до архитектурного review
 

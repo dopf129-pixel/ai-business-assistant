@@ -1,3 +1,6 @@
+from collections import OrderedDict
+from threading import Event, Thread, current_thread
+
 from app.services.product_business_decision_query_service import (
     ProductBusinessDecisionQueryService,
 )
@@ -548,6 +551,57 @@ def test_decision_cache_has_a_configured_entry_bound():
         "sku-2", {"error": False, "decision_type": "HOLD_STOCK"}
     )
 
+    assert len(service._decision_cache) == 1
+
+
+def test_decision_cache_read_and_eviction_are_atomic_under_concurrency():
+    service = _service()
+    service.decision_cache_max = 1
+    first_decision = {"error": False, "decision_type": "HOLD_STOCK"}
+    service._store_decision("sku-1", first_decision)
+    read_entry = Event()
+    continue_read = Event()
+
+    class PausingCache(OrderedDict):
+        def get(self, key, default=None):
+            result = super().get(key, default)
+            if current_thread().name == "decision-cache-reader":
+                read_entry.set()
+                if not continue_read.wait(3):
+                    raise TimeoutError("test did not resume cache reader")
+            return result
+
+    service._decision_cache = PausingCache(service._decision_cache)
+    reader_result = []
+    reader_errors = []
+    writer_started = Event()
+
+    def read():
+        try:
+            reader_result.append(service._cached_decision("sku-1"))
+        except Exception as exc:  # Capture thread errors for a useful assertion.
+            reader_errors.append(exc)
+
+    def write():
+        writer_started.set()
+        service._store_decision(
+            "sku-2", {"error": False, "decision_type": "HOLD_STOCK"}
+        )
+
+    reader = Thread(target=read, name="decision-cache-reader")
+    reader.start()
+    assert read_entry.wait(2)
+    writer = Thread(target=write)
+    writer.start()
+    assert writer_started.wait(2)
+    continue_read.set()
+    reader.join(3)
+    writer.join(3)
+
+    assert not reader.is_alive()
+    assert not writer.is_alive()
+    assert reader_errors == []
+    assert reader_result == [first_decision]
     assert len(service._decision_cache) == 1
 
 

@@ -155,7 +155,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         self.advertising_service = advertising_service
         self.analytics_client = analytics_client
         self.finance_transaction_client = finance_transaction_client
-        self._pending_custom_period_users = set()
+        self._pending_custom_period_users = {}
         self._pending_lock = RLock()
         self._calculation_inflight = set()
         self._report_views = OrderedDict()
@@ -188,7 +188,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         if not user_key:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_USER_REQUIRED")
         with self._pending_lock:
-            self._pending_custom_period_users.add(user_key)
+            self._pending_custom_period_users[user_key] = self._tenant_scope(user_key)
         return {
             "error": False,
             "status": "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_INPUT_REQUIRED",
@@ -201,8 +201,13 @@ class ExperimentalStoreEconomicsRuntimeService:
         user_key = self._user_key(user_id)
         if not user_key:
             return None
+        tenant_scope = self._tenant_scope(user_key)
         with self._pending_lock:
+            pending_scope = self._pending_custom_period_users.get(user_key)
             pending = user_key in self._pending_custom_period_users
+            if pending and pending_scope != tenant_scope:
+                self._pending_custom_period_users.pop(user_key, None)
+                return self._custom_period_store_stale()
         if not pending:
             match = re.fullmatch(
                 r"(\d{1,2}\.\d{1,2}\.\d{4})\s*-\s*"
@@ -252,6 +257,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             user_id=user_id,
             mode="custom",
             consume_pending_user_key=user_key,
+            expected_pending_tenant_scope=tenant_scope,
         )
 
     def _calculate_once(
@@ -261,6 +267,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         user_id=None,
         mode="custom",
         consume_pending_user_key=None,
+        expected_pending_tenant_scope=None,
     ):
         user_key = self._user_key(user_id)
         if not user_key:
@@ -273,11 +280,15 @@ class ExperimentalStoreEconomicsRuntimeService:
                 return self._calculation_in_progress()
             if (
                 consume_pending_user_key is not None
-                and consume_pending_user_key not in self._pending_custom_period_users
+                and self._pending_custom_period_users.get(
+                    consume_pending_user_key
+                ) != expected_pending_tenant_scope
             ):
                 return self._custom_period_already_used()
             if consume_pending_user_key is not None:
-                self._pending_custom_period_users.discard(consume_pending_user_key)
+                self._pending_custom_period_users.pop(
+                    consume_pending_user_key, None
+                )
             self._calculation_inflight.add(key)
         try:
             return self.calculate(date_from, date_to, user_id=user_id)
@@ -322,11 +333,25 @@ class ExperimentalStoreEconomicsRuntimeService:
             "executed": False,
         }
 
+    @staticmethod
+    def _custom_period_store_stale():
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_STORE_CHANGED",
+            "message": "Вы переключили магазин. Старый ввод периода отменён; выберите период заново в текущем магазине.",
+            "read_only": True,
+            "executed": False,
+        }
+
     def clear_pending_custom_period_input(self, user_id):
         user_key = self._user_key(user_id)
         if user_key:
             with self._pending_lock:
-                self._pending_custom_period_users.discard(user_key)
+                self._pending_custom_period_users.pop(user_key, None)
+
+    @classmethod
+    def _tenant_scope(cls, user_key):
+        return cls._user_key(get_current_tenant_user_id()) or user_key
 
     def calculate(self, date_from, date_to, user_id=None):
         provider, summary_service = self._summary_dependencies()

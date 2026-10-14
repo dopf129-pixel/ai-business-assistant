@@ -13,6 +13,10 @@ from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapt
 from telegram_app_layer.telegram_bot_service import TelegramBotService
 from telegram_app_layer.telegram_command_service import TelegramCommandService
 from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class _Summary:
@@ -1747,6 +1751,31 @@ def test_custom_period_is_user_scoped_and_traverses_telegram_to_result():
     assert TelegramResponseFormatter().format(summary) == result["text"]
     assert len(query.summary_service.calls) == 1
     assert len(runtime.analytics_client.calls) == 1
+
+
+def test_experimental_custom_period_prompt_is_rejected_after_store_switch():
+    query, runtime = _service()
+    token = set_current_tenant_user_id("seller-a::ozon::store-a")
+    try:
+        prompt = runtime.begin_custom_period("seller-a")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id("seller-a::ozon::store-b")
+    try:
+        result = runtime.handle_text(
+            "01.10.2026 - 02.10.2026", user_id="seller-a"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert prompt["status"] == (
+        "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_INPUT_REQUIRED"
+    )
+    assert result["status"] == (
+        "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_STORE_CHANGED"
+    )
+    assert query.summary_service.calls == []
 
 
 def test_duplicate_custom_period_text_does_not_start_two_economics_calculations():

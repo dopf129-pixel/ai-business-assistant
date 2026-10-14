@@ -11,6 +11,10 @@ from services.assistant_core_service import AssistantCoreService
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
 from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class Query:
@@ -490,3 +494,41 @@ def test_custom_period_pending_state_can_be_cancelled_per_user():
     assert cancelled["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_CANCELLED"
     assert after_cancel is None
     assert query.calls == []
+
+
+def test_general_and_selected_sku_custom_prompts_cannot_cross_stores():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {"error": False, "text": "sku"}
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+    begin_by_mode = (
+        lambda: runtime.begin_custom_period("seller-1"),
+        lambda: runtime.begin_custom_sku_period("seller-1", "store-a-sku"),
+    )
+
+    for begin in begin_by_mode:
+        token = set_current_tenant_user_id("seller-1::ozon::store-a")
+        try:
+            begin()
+        finally:
+            reset_current_tenant_user_id(token)
+
+        token = set_current_tenant_user_id("seller-1::ozon::store-b")
+        try:
+            result = runtime.handle_text(
+                "01.08.2026 - 31.08.2026", user_id="seller-1"
+            )
+        finally:
+            reset_current_tenant_user_id(token)
+
+        assert result["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_STORE_CHANGED"
+
+    assert query.calls == []
+    assert sku_runtime.calls == []

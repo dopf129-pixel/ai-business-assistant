@@ -268,7 +268,9 @@ class SellerCostSwitchTests(unittest.TestCase):
             self.assertTrue(result["seller_cost_confirmation_pending"])
             self.assertEqual(result["effective_from"], "2026-09-08")
             self.assertEqual(costs.get_all_costs(), [])
-            result = flow.handle_button(123, flow.CONFIRM_DATE_CALLBACK)
+            result = flow.handle_button(
+                123, result["keyboard"]["buttons"][0]["callback"]
+            )
             self.assertEqual(result["cost_price"], 24.7)
             self.assertEqual(result["effective_from"], "2026-09-08")
             evidence = costs.get_effective_cost_evidence(
@@ -302,7 +304,9 @@ class SellerCostSwitchTests(unittest.TestCase):
             valid = flow.handle_text(123, "25")
             self.assertFalse(valid["error"])
             self.assertTrue(valid["seller_cost_confirmation_pending"])
-            valid = flow.handle_button(123, flow.CONFIRM_DATE_CALLBACK)
+            valid = flow.handle_button(
+                123, valid["keyboard"]["buttons"][0]["callback"]
+            )
             self.assertEqual(valid["cost_price"], 25.0)
 
     def test_reaccrual_crossing_switch_fails_closed(self):

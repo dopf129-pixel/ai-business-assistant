@@ -49,12 +49,14 @@ def test_seller_cost_save_offers_profit_for_just_saved_sku():
     assert preview["error"] is False
     assert preview["seller_cost_confirmation_pending"] is True
     assert costs.recorded == []
-    assert preview["keyboard"]["buttons"][0] == {
-        "text": "Сохранить с 2026-09-15",
-        "callback": service.CONFIRM_DATE_CALLBACK,
-    }
+    assert preview["keyboard"]["buttons"][0]["text"] == "Сохранить с 2026-09-15"
+    assert preview["keyboard"]["buttons"][0]["callback"].startswith(
+        service.CONFIRM_DATE_CALLBACK + ":"
+    )
 
-    result = service.handle_button("user", service.CONFIRM_DATE_CALLBACK)
+    result = service.handle_button(
+        "user", preview["keyboard"]["buttons"][0]["callback"]
+    )
     assert result["error"] is False
     assert result["keyboard"]["buttons"][0] == {
         "text": "📊 Прибыль по этому товару",

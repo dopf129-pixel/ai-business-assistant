@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 from datetime import date
+from threading import Event, Thread
 
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -23,6 +24,14 @@ from telegram_app_layer.seller_cost_telegram_adapter import (  # noqa: E402
 class Products:
     def load_products(self):
         return [("p1", "Offer 1", "sku-1")]
+
+
+class TwoProducts:
+    def load_products(self):
+        return [
+            ("p1", "Offer 1", "sku-1"),
+            ("p2", "Offer 2", "sku-2"),
+        ]
 
 
 class Costs:
@@ -66,6 +75,89 @@ def _store_name():
 
 
 class SellerCostConfirmationFlowTests(unittest.TestCase):
+    def test_old_product_preview_actions_cannot_change_a_new_draft(self):
+        costs = Costs()
+        flow = TelegramSellerCostUpdateService(
+            TwoProducts(), costs, date_provider=lambda: date(2026, 9, 15)
+        )
+        flow.select_sku("user", "sku-1")
+        first_preview = flow.handle_text("user", "10")
+        old_callbacks = [
+            button["callback"] for button in first_preview["keyboard"]["buttons"]
+        ]
+
+        flow.select_sku("user", "sku-1")
+        second_preview = flow.handle_text("user", "20")
+        new_callback = second_preview["keyboard"]["buttons"][0]["callback"]
+
+        for old_callback in old_callbacks:
+            stale = flow.handle_button("user", old_callback)
+            self.assertTrue(stale["error"])
+            self.assertEqual(
+                stale["code"], "SELLER_COST_CONFIRMATION_UNAVAILABLE"
+            )
+        self.assertEqual(costs.recorded, [])
+
+        saved = flow.handle_button("user", new_callback)
+        self.assertFalse(saved["error"])
+        self.assertEqual(costs.recorded[0]["sku"], "sku-1")
+        self.assertEqual(costs.recorded[0]["cost_price"], 20.0)
+
+        flow.select_sku("user", "sku-2")
+        other_sku_preview = flow.handle_text("user", "30")
+        stale = flow.handle_button("user", new_callback)
+        self.assertTrue(stale["error"])
+        self.assertEqual(len(costs.recorded), 1)
+        saved = flow.handle_button(
+            "user", other_sku_preview["keyboard"]["buttons"][0]["callback"]
+        )
+        self.assertFalse(saved["error"])
+        self.assertEqual(costs.recorded[1]["sku"], "sku-2")
+        self.assertEqual(costs.recorded[1]["cost_price"], 30.0)
+
+    def test_parallel_replay_of_one_confirmation_writes_once(self):
+        entered_save = Event()
+        release_save = Event()
+
+        class BlockingCosts(Costs):
+            def record_cost_switch(self, **kwargs):
+                entered_save.set()
+                if not release_save.wait(3):
+                    raise AssertionError("test did not release save")
+                return super().record_cost_switch(**kwargs)
+
+        costs = BlockingCosts()
+        flow = TelegramSellerCostUpdateService(
+            Products(), costs, date_provider=lambda: date(2026, 9, 15)
+        )
+        flow.select_sku("user", "sku-1")
+        preview = flow.handle_text("user", "10")
+        callback = preview["keyboard"]["buttons"][0]["callback"]
+        results = []
+        second_started = Event()
+
+        first = Thread(
+            target=lambda: results.append(flow.handle_button("user", callback))
+        )
+        first.start()
+        self.assertTrue(entered_save.wait(2))
+
+        def replay():
+            second_started.set()
+            results.append(flow.handle_button("user", callback))
+
+        second = Thread(target=replay)
+        second.start()
+        self.assertTrue(second_started.wait(2))
+        release_save.set()
+        first.join(3)
+        second.join(3)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(len(costs.recorded), 1)
+        self.assertEqual(sum(result.get("error") is False for result in results), 1)
+
     def test_stale_store_confirmation_is_rejected_without_write(self):
         costs = Costs()
         flow = TelegramSellerCostUpdateService(
@@ -85,7 +177,9 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
 
         token = set_current_tenant_user_id("user::ozon::store-b")
         try:
-            result = flow.handle_button("user", flow.CONFIRM_DATE_CALLBACK)
+            result = flow.handle_button(
+                "user", preview["keyboard"]["buttons"][0]["callback"]
+            )
         finally:
             reset_current_tenant_user_id(token)
 
@@ -99,11 +193,14 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
             Products(), costs, date_provider=lambda: date(2026, 9, 15)
         )
         flow.select_sku("user", "sku-1")
-        flow.handle_text("user", "430")
-        cancelled = flow.handle_button("user", flow.CANCEL_CALLBACK)
+        preview = flow.handle_text("user", "430")
+        callbacks = [
+            button["callback"] for button in preview["keyboard"]["buttons"]
+        ]
+        cancelled = flow.handle_button("user", callbacks[-1])
         self.assertFalse(cancelled["error"])
         self.assertEqual(costs.recorded, [])
-        stale = flow.handle_button("user", flow.CONFIRM_DATE_CALLBACK)
+        stale = flow.handle_button("user", callbacks[0])
         self.assertTrue(stale["error"])
         self.assertEqual(costs.recorded, [])
 
@@ -132,15 +229,19 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
         self.assertIn("Магазин: Store A", preview["message"])
         self.assertEqual(costs.bulk_recorded, [])
 
-        selected = adapter.handle_button(
-            flow.TABLE_SELECT_ALL_HISTORY_CALLBACK, user_id="user"
+        select_history = next(
+            button["callback"] for button in preview["keyboard"]["buttons"]
+            if button["callback"].startswith(
+                flow.TABLE_SELECT_ALL_HISTORY_CALLBACK + ":"
+            )
         )
+        selected = adapter.handle_button(select_history, user_id="user")
         self.assertFalse(selected["error"])
         self.assertIn("ко всей истории продаж", selected["message"])
         self.assertEqual(costs.bulk_recorded, [])
 
         saved = adapter.handle_button(
-            flow.TABLE_CONFIRM_ALL_HISTORY_CALLBACK, user_id="user"
+            selected["keyboard"]["buttons"][0]["callback"], user_id="user"
         )
         self.assertFalse(saved["error"])
         self.assertEqual(costs.bulk_recorded[0][0]["effective_from"], "0001-01-01")
@@ -169,9 +270,34 @@ class SellerCostConfirmationFlowTests(unittest.TestCase):
         )
         preview = adapter.handle_document(content, user_id="user", filename="cost.csv")
         self.assertIn("с 2026-09-20", preview["message"])
-        saved = adapter.handle_button(flow.TABLE_CONFIRM_CALLBACK, user_id="user")
+        old_save = preview["keyboard"]["buttons"][0]["callback"]
+        old_select_history = next(
+            button["callback"] for button in preview["keyboard"]["buttons"]
+            if button["callback"].startswith(
+                flow.TABLE_SELECT_ALL_HISTORY_CALLBACK + ":"
+            )
+        )
+        old_all_history_prompt = adapter.handle_button(
+            old_select_history, user_id="user"
+        )
+        old_all_history_confirm = old_all_history_prompt["keyboard"]["buttons"][0]["callback"]
+        old_cancel = old_all_history_prompt["keyboard"]["buttons"][1]["callback"]
+
+        replacement = content.replace("430;2026-09-20", "500;2026-09-22")
+        new_preview = adapter.handle_document(
+            replacement, user_id="user", filename="replacement.csv"
+        )
+        for old_callback in (old_save, old_all_history_confirm, old_cancel):
+            stale = adapter.handle_button(old_callback, user_id="user")
+            self.assertTrue(stale["error"])
+        self.assertEqual(costs.bulk_recorded, [])
+
+        saved = adapter.handle_button(
+            new_preview["keyboard"]["buttons"][0]["callback"], user_id="user"
+        )
         self.assertFalse(saved["error"])
-        self.assertEqual(costs.bulk_recorded[0][0]["effective_from"], "2026-09-20")
+        self.assertEqual(costs.bulk_recorded[0][0]["cost_price"], 500.0)
+        self.assertEqual(costs.bulk_recorded[0][0]["effective_from"], "2026-09-22")
 
 
 if __name__ == "__main__":

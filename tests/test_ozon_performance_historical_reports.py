@@ -10,6 +10,12 @@ import pytest
 from api.ozon_performance_historical_reports import (
     HistoricalPerformanceReports, HistoricalReportError, parse_report_csv,
 )
+from api.ozon_performance_client import OzonPerformanceClient
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
 
 
@@ -22,6 +28,170 @@ def test_cpc_and_cpo_columns_do_not_double_count():
     cpo_row = parse_report_csv(cpo, "CPO")[0]
     assert cpo_row["sku"] == "3921245627"
     assert cpo_row["expense"] == Decimal("7.25")
+
+
+class _PerformanceResponse:
+    def __init__(self, status_code=200, payload=None, headers=None):
+        self.status_code = status_code
+        self.headers = headers or {}
+        self._payload = payload or {}
+        self.content = b"report-bytes"
+
+    def json(self):
+        return self._payload
+
+
+class _PerformanceSession:
+    def __init__(self, get_responses=None):
+        self.calls = []
+        self.get_responses = list(get_responses or [])
+
+    def post(self, url, *, headers, timeout, **kwargs):
+        self.calls.append(("post", url, timeout))
+        if url.endswith("/api/client/token"):
+            return _PerformanceResponse(
+                payload={"access_token": "performance-token", "expires_in": 3600}
+            )
+        return _PerformanceResponse(payload={"ok": True})
+
+    def get(self, url, *, headers, timeout, **kwargs):
+        self.calls.append(("get", url, timeout))
+        if self.get_responses:
+            return self.get_responses.pop(0)
+        return _PerformanceResponse(payload={"ok": True})
+
+
+def test_performance_http_uses_shared_budget_and_clamps_timeout():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=2, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = client._request("get", "/api/client/campaign", "token")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["ok"] is True
+    assert session.calls == [
+        ("get", "https://api-performance.ozon.ru/api/client/campaign", 2.0)
+    ]
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_auth_and_cached_token_calls_obey_shared_call_limit():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json(
+                "get", "/api/client/campaign", dependency_stage="CAMPAIGN_LIST"
+            )
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert len(session.calls) == 1  # Only the token HTTP request reached transport.
+    assert session.calls[0][1].endswith("/api/client/token")
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_retry_attempts_reserve_shared_budget_individually():
+    session = _PerformanceSession(get_responses=[
+        _PerformanceResponse(
+            status_code=429, headers={"Retry-After": "0"}
+        ),
+    ])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=2,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json(
+                "get", "/api/client/campaign", dependency_stage="CAMPAIGN_LIST"
+            )
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert trace.ozon_requests_reserved == 2
+    assert len(session.calls) == 2  # Auth plus first GET; retry was blocked.
+
+
+def test_performance_auth_refresh_and_401_retry_share_global_budget():
+    session = _PerformanceSession(get_responses=[
+        _PerformanceResponse(status_code=401),
+        _PerformanceResponse(payload={"ok": True}),
+    ])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=4,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result == {"ok": True}
+    assert trace.ozon_requests_reserved == 4
+    assert len(session.calls) == 4
+    assert [call[0] for call in session.calls] == ["post", "get", "post", "get"]
+
+
+def test_performance_report_download_uses_shared_budget_and_timeout():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    client._token = "cached-token"
+    client._token_expires_at = 10**12
+    reports = HistoricalPerformanceReports(client)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=2, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        content = reports._download("safe-report-id")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert content == b"report-bytes"
+    assert session.calls == [(
+        "get", "https://api-performance.ozon.ru/api/client/statistics/report", 2.0
+    )]
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_request_is_blocked_when_shared_time_budget_is_exhausted():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=0, ozon_request_budget=10,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = client._request("get", "/api/client/campaign", "token")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["code"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+    assert session.calls == []
+    assert trace.ozon_requests_reserved == 0
 
 
 def test_cpo_product_settings_without_expense_are_not_a_spend_report():

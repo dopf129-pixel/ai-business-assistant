@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna: завершение функционала и развитие Ozon AI Assistant
 
 Дата: 12.10.2026. Планировщик: GPT Sol. Исполнитель: GPT Luna.
-Статус на 14.10.2026: P00–P08 реализованы в PR #694; exact code `ac0f101` прошёл Windows/Linux CI (**3 077 passed** на каждой платформе) и production Docker build/smoke. Architecture Review выявил два P1 и три P2; слияние ожидает исправления R1–R5 и повторного review нового code revision. Сценарии и фактические probes: [ARCHITECTURE_REVIEW_PR694_2026-10-14.md](ARCHITECTURE_REVIEW_PR694_2026-10-14.md). Ранее passed suites не закрывают найденные новые сценарии.
+Статус на 14.10.2026: P00–P08 реализованы в PR #694; исходный review нашёл R1–R5. Исправления добавлены в рабочий revision, целевые регрессии: **74 passed**, `compileall` затронутых модулей прошёл. Полный Windows/Linux CI на новом SHA и повторный Architecture Review ожидаются; слияние не выполнялось. Исходные сценарии и follow-up: [ARCHITECTURE_REVIEW_PR694_2026-10-14.md](ARCHITECTURE_REVIEW_PR694_2026-10-14.md). Старые CI runs не закрывают новые сценарии.
 
 ## Назначение и порядок работы
 
