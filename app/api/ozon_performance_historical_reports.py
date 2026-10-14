@@ -581,7 +581,9 @@ class HistoricalPerformanceReports:
             if result.get("status_code") == 401 and attempt == 0:
                 token = self._access_token(force=True)
                 if token.get("error"):
-                    raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+                    raise HistoricalReportError(
+                        token.get("code") or "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+                    )
                 continue
             if (
                 result.get("status_code") == 429
@@ -641,8 +643,9 @@ class HistoricalPerformanceReports:
         raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
 
     def _access_token(self, force=False):
-        self._check_budget("AUTH")
-        token = self.client._access_token(force=force)
+        remaining = self._check_budget("AUTH")
+        timeout = min(30.0, remaining) if remaining is not None else 30.0
+        token = self.client._access_token(force=force, timeout=timeout)
         # The production client distinguishes an actual token request from a
         # cached token. Lightweight test doubles may omit this field.
         if isinstance(token, dict) and token.get("cache_hit") is False:

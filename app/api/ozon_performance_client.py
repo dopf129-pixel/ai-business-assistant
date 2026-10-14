@@ -85,13 +85,13 @@ class OzonPerformanceClient:
             current = window_end + timedelta(days=1)
         return {"rows": rows, "external_call_count": call_count}
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         if not force and self._token and time.monotonic() < self._token_expires_at:
             return {"error": False, "access_token": self._token, "cache_hit": True}
         with self._token_lock:
-            return self._access_token_locked(force=force)
+            return self._access_token_locked(force=force, timeout=timeout)
 
-    def _access_token_locked(self, force=False):
+    def _access_token_locked(self, force=False, timeout=30):
         if not force and self._token and time.monotonic() < self._token_expires_at:
             return {"error": False, "access_token": self._token, "cache_hit": True}
         if not self.client_id or not self.client_secret:
@@ -100,6 +100,7 @@ class OzonPerformanceClient:
             "post",
             "/api/client/token",
             None,
+            timeout=timeout,
             json={
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,

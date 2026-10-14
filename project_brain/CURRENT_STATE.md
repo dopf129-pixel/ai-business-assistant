@@ -1,4 +1,10 @@
-# 2026-10-14 — R1–R5 исправлены и перепроверены
+# 2026-10-14 — финальная проверка перед слиянием PR #694
+
+- Пользователь поручил принять решение о слиянии. При независимой проверке `fb1b0db` подтверждены два пропущенных пути R1/R4: повторный текст на whole-history confirmation терял действующие кнопки (single/CSV), а auth timeout Performance не учитывал локальный enrichment остаток и после 401 терял причину global budget exhaustion.
+- Оба пути исправлены с meaningful red → green регрессиями. Cost-flow suite: **16 passed**; Performance/SKU-advertising suite: **99 passed / 3 deselected**. Пропущенные локально файловые diagnostics будут включены в полный CI без Windows ACL.
+- Новый code revision ожидает полного Windows/Linux CI и финального review. До этого PR не сливается. Исходные данные продавца остаются отдельно от коммита.
+
+## Исторический снимок 2026-10-14 — R1–R5 исправлены и перепроверены
 
 - Для PR #694 внесены исправления пяти подтверждённых находок review: привязка себестоимости к draft id, store scope для форм произвольного периода, разрешённый текстовый ввод описания внешнего расхода, общий operation budget для Ozon Performance и блокировка shared decision LRU.
 - Целевой regression suite: **74 passed**; прямой повтор ключевых сценариев: **13 passed**; `compileall` затронутых модулей прошёл. На исправляющем code SHA `d3cfddeda006cdb164393ba7a8ae182a24a3c1ea` полный CI прошёл: Linux **3 090 passed**, Windows **3 090 passed**, production Docker build и smoke прошли.

@@ -139,3 +139,12 @@ Historical Performance проверяет только собственные 18
 - GitHub Actions run **#2984** на точном SHA выше: Linux Python 3.11 — **3 090 passed**, Windows Python 3.12 — **3 090 passed**; production Docker build и smoke прошли. Остались только предупреждения GitHub Actions о будущем переходе с Node.js 20 и Ubuntu runner migration; падений и review annotations по коду нет.
 - Повторный review подтвердил для всех R1–R5: callback action и draft id сверяются до записи; tenant scope сверяется до расчёта; description stage проходит свой допустимый status guard; каждый Performance HTTP path резервирует общий budget; операции чтения/вытеснения LRU сериализованы без сетевого вызова под lock. На проверенном revision открытых блокеров этого review нет.
 - Следующий шаг — решение о слиянии PR #694 другой модели/ревьюера. В этом потоке PR не сливался.
+
+## Независимая финальная проверка перед merge
+
+Проверен `fb1b0db8e13eee9c73b938fa1e1a7fccf94acb5c`; пользователь поручил принять решение о слиянии. Исходный CI этого head зелёный, но повторная проверка нашла два пропущенных пути acceptance R1/R4:
+
+- **R1 follow-up:** текст после выбора всей истории повторно выводил single date-stage keyboard либо CSV static callbacks без draft id. Возвращённое подтверждение/отмена не работали. Регрессия на production service проверяет оба режима и confirm/cancel после повторного текста; до patch она падала, после patch проходит. Общий whole-history keyboard builder сохраняет action, draft id и stage.
+- **R4 follow-up:** при локальном enrichment остатке 1 секунда и global остатке 20 секунд auth transport получал timeout **20.0**, а следующий JSON **1.0**. После исчерпания shared calls на auth refresh после 401 выдавалась ложная `OZON_PERFORMANCE_AUTH_UNAVAILABLE`. Обе регрессии падали до patch и проходят после передачи auth timeout и сохранения budget error code.
+- Targeted evidence: cost-flow suite **16 passed**; Performance/client/historical/SKU-advertising suite **99 passed / 3 deselected**. Три файловых diagnostics исключены только в локальном запуске без tmpdir из-за Windows ACL; полный CI нового revision должен включить их.
+- Решение до нового CI: не сливать предыдущий head; исправления остаются в PR #694. После зелёного Windows/Linux/Docker CI новый head требуется финально сверить и выполнить разрешённое пользователем слияние.

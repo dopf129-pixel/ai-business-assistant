@@ -1,5 +1,10 @@
 # Карта тестов — актуальный статус 2026-10-14
 
+- Финальная проверка перед merge выявила и закрыла пропущенные whole-history text refresh (single/CSV confirm/cancel) и локальный auth timeout Performance / budget reason после 401. Новые регрессии: `app/tests/test_seller_cost_confirmation_flow.py::test_text_during_whole_history_confirmation_keeps_valid_draft_buttons`, `tests/test_ozon_performance_historical_reports.py::test_performance_auth_timeout_uses_remaining_local_and_shared_budgets` и `::test_performance_auth_refresh_preserves_exhausted_shared_budget_reason`.
+- После дополнительного patch: cost-flow suite — **16 passed**; Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI нового revision ожидается; ранее прошедшие **3 090** относятся к `fb1b0db` и не подтверждают новый patch.
+
+## Историческая проверка R1–R5 на fb1b0db
+
 - Исправления R1–R5 для PR #694 проверены целевым набором регрессий: **74 passed**; прямой повтор ключевых сценариев: **13 passed**. На code SHA `d3cfddeda006cdb164393ba7a8ae182a24a3c1ea` GitHub CI прошёл: Linux **3 090 passed**, Windows **3 090 passed**, production Docker build/smoke прошли; `compileall` изменённых production модулей прошёл.
 - В регрессии вошли stale cost preview (товар/сумма/CSV/history/cancel), store A → store B для обычного/SKU/pre-COGS/experimental custom period, текстовое описание внешнего расхода с retry после слишком длинного ввода, Performance auth/JSON/401/429/download с общим request/time budget, и контролируемый interleaving read/eviction decision LRU.
 - Повторный Architecture Review этого SHA закрыл R1–R5 без оставшихся замечаний. Исходный review и проверенный follow-up: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. PR #694 не сливался.

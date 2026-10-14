@@ -75,6 +75,54 @@ def _store_name():
 
 
 class SellerCostConfirmationFlowTests(unittest.TestCase):
+    def test_text_during_whole_history_confirmation_keeps_valid_draft_buttons(self):
+        for table in (False, True):
+            for cancel in (False, True):
+                with self.subTest(table=table, cancel=cancel):
+                    costs = Costs()
+                    flow = TelegramSellerCostUpdateService(
+                        Products(), costs, date_provider=lambda: date(2026, 9, 15)
+                    )
+                    if table:
+                        preview = flow.import_table_for_user(
+                            "user",
+                            "Артикул;Ozon SKU;Себестоимость, ₽;Действует с (ГГГГ-ММ-ДД)\n"
+                            "Offer 1;sku-1;430;\n",
+                        )
+                        select_action = flow.TABLE_SELECT_ALL_HISTORY_CALLBACK
+                        confirm_action = flow.TABLE_CONFIRM_ALL_HISTORY_CALLBACK
+                    else:
+                        flow.select_sku("user", "sku-1")
+                        preview = flow.handle_text("user", "430")
+                        select_action = flow.SELECT_ALL_HISTORY_CALLBACK
+                        confirm_action = flow.CONFIRM_ALL_HISTORY_CALLBACK
+                    select_callback = next(
+                        button["callback"] for button in preview["keyboard"]["buttons"]
+                        if button["callback"].startswith(select_action + ":")
+                    )
+                    original = flow.handle_button("user", select_callback)
+                    refreshed = flow.handle_text("user", "Покажи подтверждение ещё раз")
+
+                    self.assertEqual(refreshed["message"], original["message"])
+                    self.assertEqual(refreshed["keyboard"], original["keyboard"])
+                    self.assertEqual(costs.recorded, [])
+                    self.assertEqual(costs.bulk_recorded, [])
+                    self.assertTrue(
+                        refreshed["keyboard"]["buttons"][0]["callback"].startswith(
+                            confirm_action + ":"
+                        )
+                    )
+                    callback = refreshed["keyboard"]["buttons"][-1 if cancel else 0]["callback"]
+                    result = flow.handle_button("user", callback)
+                    self.assertFalse(result["error"])
+                    if cancel:
+                        self.assertEqual(costs.recorded, [])
+                        self.assertEqual(costs.bulk_recorded, [])
+                    elif table:
+                        self.assertEqual(costs.bulk_recorded[0][0]["effective_from"], "0001-01-01")
+                    else:
+                        self.assertEqual(costs.recorded[0]["effective_from"], "0001-01-01")
+
     def test_old_product_preview_actions_cannot_change_a_new_draft(self):
         costs = Costs()
         flow = TelegramSellerCostUpdateService(

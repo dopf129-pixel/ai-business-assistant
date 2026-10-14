@@ -194,6 +194,45 @@ def test_performance_request_is_blocked_when_shared_time_budget_is_exhausted():
     assert trace.ozon_requests_reserved == 0
 
 
+def test_performance_auth_timeout_uses_remaining_local_and_shared_budgets():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, clock=lambda: 100.0)
+    reports._deadline = 101.0
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=3,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result == {"ok": True}
+    assert [call[2] for call in session.calls] == [1.0, 1.0]
+    assert trace.ozon_requests_reserved == 2
+
+
+def test_performance_auth_refresh_preserves_exhausted_shared_budget_reason():
+    session = _PerformanceSession(get_responses=[_PerformanceResponse(status_code=401)])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=2,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert len(session.calls) == trace.ozon_requests_reserved == 2
+
+
 def test_cpo_product_settings_without_expense_are_not_a_spend_report():
     report = (
         "SKU;Артикул;Название товара;Категория товара;Продвижение;"
@@ -444,7 +483,7 @@ class _Client:
         self.lookup_campaigns = lookup_campaigns
         self.lookup_requests = []
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return self._token
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -480,7 +519,7 @@ class _AsyncReportClient:
         self.poll_calls = 0
         self.session = SimpleNamespace(get=self._download)
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -552,7 +591,7 @@ def test_historical_enrichment_stops_at_fake_clock_deadline():
             self.calls = []
             self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "fixture-token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -592,7 +631,7 @@ def test_historical_enrichment_stops_at_external_call_budget():
             self.calls = []
             self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "fixture-token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -915,7 +954,7 @@ def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
     class _FailingLookupClient:
         lookup_calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -951,7 +990,7 @@ def test_campaign_lookup_retries_http_429_after_provider_cooldown():
     class _RateLimitedLookupClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -994,7 +1033,7 @@ def test_campaign_lookup_does_not_retry_beyond_bounded_provider_cooldown():
     class _LongCooldownClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -1024,7 +1063,7 @@ def test_http_429_does_not_retry_report_creation_get():
     class _RateLimitedReportClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):
@@ -1123,7 +1162,7 @@ class _DependencyUnavailableClient:
         self.failed_stage = failed_stage
         self.calls = 0
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -1221,7 +1260,7 @@ def test_get_dependency_failure_retries_once_and_recovers():
         def __init__(self):
             self.calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):
@@ -1250,7 +1289,7 @@ def test_post_dependency_failure_is_not_retried():
         def __init__(self):
             self.calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):

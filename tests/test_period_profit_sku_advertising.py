@@ -34,7 +34,7 @@ class _HistoricalClient:
         assert client_id == "performance-id"
         assert client_secret == "secret"
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -58,7 +58,7 @@ class _ReportChainClient:
         self.report_endpoints = []
         self.session = SimpleNamespace(get=self._download)
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -667,7 +667,7 @@ def test_selected_sku_advertising_requests_never_generate_cpo_reports():
         def __init__(self, *_args):
             self.requested_endpoints = []
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "fixture-token"}
 
         def _request(self, method, endpoint, token, **kwargs):

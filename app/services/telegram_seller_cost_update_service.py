@@ -152,14 +152,7 @@ class TelegramSellerCostUpdateService:
             if pending.get("step", "").startswith("confirm_table"):
                 if pending.get("step") == "confirm_table_all_history":
                     message = self._table_all_history_confirmation_message(pending)
-                    keyboard = {
-                        "error": False,
-                        "type": "inline_keyboard",
-                        "buttons": [
-                            {"text": "Подтвердить для всей истории", "callback": self.TABLE_CONFIRM_ALL_HISTORY_CALLBACK},
-                            {"text": "Отмена", "callback": self.CANCEL_CALLBACK},
-                        ],
-                    }
+                    keyboard = self._whole_history_confirmation_keyboard(pending, table=True)
                 else:
                     message = "Таблица пока не сохранена. Проверьте строки и подтвердите действие кнопкой либо отмените импорт."
                     keyboard = self._table_confirmation_keyboard(pending)
@@ -170,12 +163,17 @@ class TelegramSellerCostUpdateService:
                     "keyboard": keyboard,
                     "read_only_ozon": True,
                 }
-            confirmation = self._date_confirmation(pending)
+            if pending.get("step") == "confirm_all_history":
+                message = self._all_history_confirmation_message(pending)
+                keyboard = self._whole_history_confirmation_keyboard(pending)
+            else:
+                message = "Проверьте выбранный период и подтвердите действие кнопкой."
+                keyboard = self._date_confirmation(pending)["keyboard"]
             return {
                 "error": False,
                 "handled": True,
-                "message": "Проверьте выбранный период и подтвердите действие кнопкой.",
-                "keyboard": confirmation["keyboard"],
+                "message": message,
+                "keyboard": keyboard,
                 "read_only_ozon": True,
             }
         cost = self._cost(text)
@@ -258,14 +256,7 @@ class TelegramSellerCostUpdateService:
                 "error": False,
                 "handled": True,
                 "message": self._table_all_history_confirmation_message(pending),
-                "keyboard": {
-                    "error": False,
-                    "type": "inline_keyboard",
-                    "buttons": [
-                        {"text": "Подтвердить для всей истории", "callback": self._draft_callback(self.TABLE_CONFIRM_ALL_HISTORY_CALLBACK, pending)},
-                        {"text": "Отмена", "callback": self._draft_callback(self.CANCEL_CALLBACK, pending)},
-                    ],
-                },
+                "keyboard": self._whole_history_confirmation_keyboard(pending, table=True),
                 "read_only_ozon": True,
             }
         if action == self.TABLE_CONFIRM_CALLBACK:
@@ -285,14 +276,7 @@ class TelegramSellerCostUpdateService:
                 "error": False,
                 "handled": True,
                 "message": self._all_history_confirmation_message(pending),
-                "keyboard": {
-                    "error": False,
-                    "type": "inline_keyboard",
-                    "buttons": [
-                        {"text": "Подтвердить для всей истории", "callback": self._draft_callback(self.CONFIRM_ALL_HISTORY_CALLBACK, pending)},
-                        {"text": "Отмена", "callback": self._draft_callback(self.CANCEL_CALLBACK, pending)},
-                    ],
-                },
+                "keyboard": self._whole_history_confirmation_keyboard(pending),
                 "read_only_ozon": True,
             }
         if action == self.CONFIRM_DATE_CALLBACK:
@@ -379,6 +363,21 @@ class TelegramSellerCostUpdateService:
     @staticmethod
     def _draft_callback(action, pending):
         return str(action) + ":" + str(pending.get("draft_id") or "")
+
+    @classmethod
+    def _whole_history_confirmation_keyboard(cls, pending, table=False):
+        action = (
+            cls.TABLE_CONFIRM_ALL_HISTORY_CALLBACK
+            if table else cls.CONFIRM_ALL_HISTORY_CALLBACK
+        )
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "Подтвердить для всей истории", "callback": cls._draft_callback(action, pending)},
+                {"text": "Отмена", "callback": cls._draft_callback(cls.CANCEL_CALLBACK, pending)},
+            ],
+        }
 
     @classmethod
     def is_confirmation_callback(cls, callback):
