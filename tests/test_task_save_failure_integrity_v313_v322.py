@@ -56,8 +56,12 @@ def test_v314_successful_save_records_success_without_execution_claim(tmp_path):
 
     assert result["saved"] is True
     diagnostics = service.get_persistence_diagnostics()
-    assert diagnostics["last_save_state"] == "SUCCEEDED"
-    assert diagnostics["last_save_issue"] is None
+    if os.name == "nt":
+        assert diagnostics["last_save_state"] == "SUCCEEDED_WITH_DURABILITY_WARNING"
+        assert diagnostics["last_save_issue"] == "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+    else:
+        assert diagnostics["last_save_state"] == "SUCCEEDED"
+        assert diagnostics["last_save_issue"] is None
     assert diagnostics["last_save_rolled_back"] is False
     assert diagnostics["executed"] is False
 
@@ -158,8 +162,12 @@ def test_v321_success_after_failure_replaces_failure_diagnostics(tmp_path, monke
 
     assert result["saved"] is True
     diagnostics = service.get_persistence_diagnostics()
-    assert diagnostics["last_save_state"] == "SUCCEEDED"
-    assert diagnostics["last_save_issue"] is None
+    if os.name == "nt":
+        assert diagnostics["last_save_state"] == "SUCCEEDED_WITH_DURABILITY_WARNING"
+        assert diagnostics["last_save_issue"] == "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+    else:
+        assert diagnostics["last_save_state"] == "SUCCEEDED"
+        assert diagnostics["last_save_issue"] is None
     assert diagnostics["last_save_rolled_back"] is False
 
 

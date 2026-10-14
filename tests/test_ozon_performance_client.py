@@ -120,6 +120,23 @@ def test_request_timeout_has_safe_dependency_category():
     assert "private request details" not in str(result)
 
 
+def test_request_uses_cooperative_enrichment_timeout():
+    class _CapturingSession:
+        calls = []
+
+        def get(self, _url, **kwargs):
+            self.calls.append(kwargs)
+            return _Response({"ok": True})
+
+    session = _CapturingSession()
+    result = OzonPerformanceClient(
+        "client", "secret", session=session
+    )._request("get", "/api/client/statistics/test", "token", timeout=2.5)
+
+    assert result == {"ok": True}
+    assert session.calls[0]["timeout"] == 2.5
+
+
 def test_connection_failure_has_safe_dependency_category():
     class _ConnectionFailureSession:
         def get(self, *_args, **_kwargs):

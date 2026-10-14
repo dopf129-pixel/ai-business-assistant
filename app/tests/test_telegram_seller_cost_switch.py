@@ -115,6 +115,92 @@ def summary_fixture():
 
 
 class SellerCostSwitchTests(unittest.TestCase):
+    def test_bulk_switch_write_is_atomic_when_a_later_row_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            costs = TempCostService(os.path.join(tmp, "costs.db"))
+            conn = costs.get_connection()
+            conn.execute(
+                """
+                CREATE TRIGGER fail_second_cost BEFORE INSERT
+                ON product_cost_switch_history
+                WHEN NEW.sku = 'sku-2'
+                BEGIN SELECT RAISE(ABORT, 'synthetic second row failure'); END
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            result = costs.record_cost_switches(
+                [
+                    {
+                        "product_id": "p1",
+                        "sku": "sku-1",
+                        "offer_id": "offer-1",
+                        "cost_price": 21,
+                        "effective_from": "2026-09-01",
+                        "source": "SELLER_CONFIRMED_COST_TABLE",
+                    },
+                    {
+                        "product_id": "p2",
+                        "sku": "sku-2",
+                        "offer_id": "offer-2",
+                        "cost_price": 22,
+                        "effective_from": "2026-09-01",
+                        "source": "SELLER_CONFIRMED_COST_TABLE",
+                    },
+                ]
+            )
+            self.assertTrue(result["error"])
+            conn = costs.get_connection()
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM product_cost_switch_history"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM product_costs").fetchone()[0],
+                    0,
+                )
+            finally:
+                conn.close()
+
+    def test_bulk_switch_replay_is_idempotent_and_projection_uses_latest_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            costs = TempCostService(os.path.join(tmp, "costs.db"))
+            rows = [
+                {
+                    "product_id": "p1",
+                    "sku": "sku-1",
+                    "offer_id": "offer-1",
+                    "cost_price": 27.5,
+                    "effective_from": "2026-10-01",
+                    "source": "SELLER_CONFIRMED_COST_TABLE",
+                },
+                {
+                    "product_id": "p1",
+                    "sku": "sku-1",
+                    "offer_id": "offer-1",
+                    "cost_price": 25.0,
+                    "effective_from": "2026-09-01",
+                    "source": "SELLER_CONFIRMED_COST_TABLE",
+                },
+            ]
+            first = costs.record_cost_switches(rows)
+            replay = costs.record_cost_switches(rows)
+            self.assertFalse(first["error"])
+            self.assertEqual(first["inserted"], 2)
+            self.assertFalse(replay["error"])
+            self.assertEqual(replay["inserted"], 0)
+            self.assertEqual(replay["unchanged"], 2)
+            current = costs.get_all_costs()
+            self.assertEqual(current[0][3], 27.5)
+            evidence = costs.get_effective_cost_evidence(
+                "2026-09-15", product_id="p1"
+            )
+            self.assertEqual(evidence["cost_price"], 25.0)
+
     def test_switch_overrides_bounded_history_only_from_switch_date(self):
         with tempfile.TemporaryDirectory() as tmp:
             service = TempCostService(os.path.join(tmp, "costs.db"))
@@ -179,10 +265,16 @@ class SellerCostSwitchTests(unittest.TestCase):
 
             self.assertFalse(result["error"])
             self.assertTrue(result["handled"])
+            self.assertTrue(result["seller_cost_confirmation_pending"])
+            self.assertEqual(result["effective_from"], "2026-09-08")
+            self.assertEqual(costs.get_all_costs(), [])
+            result = flow.handle_button(
+                123, result["keyboard"]["buttons"][0]["callback"]
+            )
             self.assertEqual(result["cost_price"], 24.7)
-            self.assertEqual(result["effective_from"], "2026-09-09")
+            self.assertEqual(result["effective_from"], "2026-09-08")
             evidence = costs.get_effective_cost_evidence(
-                "2026-09-09", product_id="p1"
+                "2026-09-08", product_id="p1"
             )
             self.assertEqual(evidence["cost_price"], 24.7)
             self.assertEqual(
@@ -211,6 +303,10 @@ class SellerCostSwitchTests(unittest.TestCase):
 
             valid = flow.handle_text(123, "25")
             self.assertFalse(valid["error"])
+            self.assertTrue(valid["seller_cost_confirmation_pending"])
+            valid = flow.handle_button(
+                123, valid["keyboard"]["buttons"][0]["callback"]
+            )
             self.assertEqual(valid["cost_price"], 25.0)
 
     def test_reaccrual_crossing_switch_fails_closed(self):

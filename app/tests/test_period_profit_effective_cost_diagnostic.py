@@ -178,7 +178,7 @@ class PeriodProfitEffectiveCostDiagnosticTests(unittest.TestCase):
         )
         self.assertIsNone(service._effective_cost_diagnostic_code)
 
-    def test_non_missing_cost_failure_does_not_retry_catalog_sku(self):
+    def test_non_missing_cost_failure_does_not_use_catalog_cost_fallback(self):
         cost_service = _NonMissingFinanceSkuCost()
         service = self._service(cost_service)
 
@@ -197,9 +197,16 @@ class PeriodProfitEffectiveCostDiagnosticTests(unittest.TestCase):
 
         self.assertIsNone(evidence)
         self.assertEqual(
-            cost_service.calls,
-            [("2026-09-05", "p1", "legacy-sku", "offer-1")],
+            cost_service.calls[0],
+            ("2026-09-05", "p1", "legacy-sku", "offer-1"),
         )
+        # The remaining identity probes explain the blocker; they are not used
+        # as cost fallback. Only an explicit HISTORY_MISSING response permits
+        # the calculation path to retry with the catalog SKU.
+        self.assertFalse(
+            service._effective_cost_trace["catalog_lookup_attempted"]
+        )
+        self.assertEqual(len(cost_service.calls), 5)
         self.assertEqual(
             result["code"],
             "PERIOD_PROFIT_COST_HISTORY_NOT_EFFECTIVE",

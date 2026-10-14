@@ -277,7 +277,7 @@ def test_v413_cross_snapshot_manifest_forgery_is_rejected_before_ci_binding(tmp_
     service = _provenance(owner, revision_id=REVISION)
     good_snapshot = _release(owner).build_snapshot()
 
-    monkeypatch.setattr(terminal_module, "fcntl", None)
+    monkeypatch.setattr(terminal_module, "_kernel_lock_backend", lambda: None)
     degraded_snapshot = _release(owner).build_snapshot()
     forged_manifest = service.build_manifest(
         degraded_snapshot,

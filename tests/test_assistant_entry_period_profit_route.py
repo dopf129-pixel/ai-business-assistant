@@ -8,6 +8,13 @@ class Runtime:
         return self.result
 
 
+class ScopedRuntime:
+    def __init__(self, result): self.result = result; self.calls = []
+    def handle_text(self, text, today=None, user_id=None):
+        self.calls.append((text, user_id))
+        return self.result
+
+
 class MainFlow:
     def __init__(self): self.calls = []
     def process(self, *args):
@@ -38,6 +45,17 @@ def test_profit_direct_route_bypasses_general_business_flow():
     entry = _entry(runtime)
     result = entry.handle("прибыль за 7 дней")
     assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
+    assert entry.main_flow_service.calls == []
+
+
+def test_profit_direct_route_passes_telegram_user_id_to_scoped_report_runtime():
+    runtime = ScopedRuntime({"error": False, "status": "PERIOD_PROFIT_QUERY_READY", "read_only": True, "executed": False})
+    entry = _entry(runtime)
+
+    result = entry.handle("прибыль за 7 дней", user_id="telegram-123")
+
+    assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
+    assert runtime.calls == [("прибыль за 7 дней", "telegram-123")]
     assert entry.main_flow_service.calls == []
 
 

@@ -107,10 +107,12 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
         "history",
         "memory",
         "period_profit",
+        "external_expenses",
         "experimental_calculations",
         "seller_cost",
         "unit_economics",
         "product_decisions",
+        "seller_attention",
         "returns_finance_impact",
         "help"
     ]

@@ -83,6 +83,7 @@ class FakeVersionedCost:
                 "effective_from": "2026-05-03",
                 "effective_through": "2026-09-09",
                 "source": "SELLER_CONFIRMED",
+                "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
             }
         return {
             "error": False,
@@ -93,6 +94,7 @@ class FakeVersionedCost:
             "effective_from": "2026-09-10",
             "effective_through": "2026-12-31",
             "source": "SELLER_CONFIRMED",
+            "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
         }
 
 
@@ -113,6 +115,7 @@ class FakeSameVersionCost:
             "effective_from": "2026-09-01",
             "effective_through": "2026-09-30",
             "source": "SELLER_CONFIRMED",
+            "cost_basis": "SELLER_CONFIRMED_BOUNDED_PERIOD",
         }
 
 

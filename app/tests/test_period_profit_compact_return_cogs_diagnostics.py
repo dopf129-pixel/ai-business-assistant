@@ -5,6 +5,16 @@ from period_profit_compact_response import compact_period_profit_result
 
 class PeriodProfitCompactReturnCogsDiagnosticsTests(unittest.TestCase):
     def _result(self, evidence):
+        evidence = dict(evidence)
+        ready_statuses = (
+            ("accounting_attribution_evidence_confirmed", "accounting_attribution_evidence_status", "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_EVIDENCE_READY"),
+            ("return_cogs_accounting_recognition_evidence_confirmed", "return_cogs_accounting_recognition_status", "PERIOD_PROFIT_RETURN_COGS_ACCOUNTING_RECOGNITION_READY"),
+            ("return_cogs_profit_application_eligibility_confirmed", "return_cogs_profit_application_eligibility_status", "PERIOD_PROFIT_RETURN_COGS_APPLICATION_ELIGIBILITY_READY"),
+            ("return_cogs_profit_application_commit_confirmed", "return_cogs_profit_application_commit_status", "PERIOD_PROFIT_RETURN_COGS_APPLICATION_COMMIT_CONFIRMED"),
+        )
+        for confirmed_key, status_key, status_value in ready_statuses:
+            if evidence.get(confirmed_key) is True:
+                evidence.setdefault(status_key, status_value)
         return {
             "error": False,
             "status": "PERIOD_PROFIT_QUERY_READY",
@@ -328,7 +338,8 @@ class PeriodProfitCompactReturnCogsDiagnosticsTests(unittest.TestCase):
             })
         )
 
-        self.assertIn("требуется отдельное бухгалтерское признание", result["text"])
+        self.assertIn("Точные блокеры бухгалтерского признания", result["text"])
+        self.assertIn("нет отдельного бухгалтерского признания", result["text"])
         self.assertNotIn("отдельная авторизация применения", result["text"])
         self.assertNotIn("exact-once commit", result["text"])
 
@@ -354,10 +365,42 @@ class PeriodProfitCompactReturnCogsDiagnosticsTests(unittest.TestCase):
                 "return_cogs_profit_application_commit_ready": True,
                 "return_cogs_profit_application_commit_confirmed": False,
                 "return_cogs_profit_applied": False,
+                "return_cogs_accounting_recognition_evidence_records": [{
+                    "error": False,
+                    "return_id": "r-1",
+                    "posting_number": "p-1",
+                    "sku": "s-1",
+                    "history_id": 10,
+                    "status": "RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
+                    "accounting_recognition_confirmed": True,
+                    "recognition_state": "COGS_RECOVERY_RECOGNIZED",
+                    "recognized_amount": 21.0,
+                    "currency": "RUB",
+                    "recovery_accounting_date": "2026-08-20",
+                }],
+                "return_cogs_profit_application_authorization_records": [{
+                    "error": False,
+                    "return_id": "r-1",
+                    "posting_number": "p-1",
+                    "sku": "s-1",
+                    "history_id": 20,
+                    "recognition_history_id": 10,
+                    "status": "RETURN_COGS_PROFIT_APPLICATION_AUTHORIZATION_READY",
+                    "application_authorization_confirmed": True,
+                    "application_state": "PROFIT_APPLICATION_AUTHORIZED",
+                    "application_already_applied": False,
+                    "authorized_amount": 21.0,
+                    "currency": "RUB",
+                    "recovery_accounting_date": "2026-08-20",
+                    "monetary_authority_treatment": "EXCLUDED_FROM_ACCOUNT_NET_ACCRUAL",
+                    "monetary_authority_non_overlap_confirmed": True,
+                    "compensation_non_overlap_confirmed": True,
+                }],
             })
         )
 
-        self.assertIn("доказан до стадии commit", result["text"])
+        self.assertIn("Точные блокеры exact-once commit", result["text"])
+        self.assertIn("готов к exact-once commit, но запись commit ещё отсутствует", result["text"])
         self.assertIn("Текущий ответ остаётся read-only", result["text"])
         self.assertTrue(result["read_only"])
         self.assertFalse(result["executed"])

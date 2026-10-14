@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
 from services.assistant_entry_service import AssistantEntryService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -8,6 +11,10 @@ from services.assistant_core_service import AssistantCoreService
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
 from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class Query:
@@ -99,6 +106,55 @@ def test_v1174_localized_custom_period_accepts_single_digit_day_month():
 
     assert query.calls[0]["date_from"] == "2026-05-01"
     assert query.calls[0]["date_to"] == "2026-09-03"
+
+
+def test_duplicate_custom_period_text_does_not_start_two_queries():
+    class BlockingQuery(Query):
+        def __init__(self):
+            super().__init__()
+            self.started = Event()
+            self.release = Event()
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            self.started.set()
+            if not self.release.wait(timeout=3):
+                raise TimeoutError("test query was not released")
+            return {
+                "error": False,
+                "summary": {
+                    "products": [],
+                    "date_from": kwargs["date_from"],
+                    "date_to": kwargs["date_to"],
+                },
+                "previous_summary": None,
+            }
+
+    query = BlockingQuery()
+    service = AssistantPeriodProfitRuntimeService(query)
+    service.begin_custom_period("seller-1")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            service.handle_text,
+            "01.05.2026 - 03.09.2026",
+            None,
+            "seller-1",
+        )
+        assert query.started.wait(timeout=1)
+
+        duplicate = service.handle_text(
+            "01.05.2026 - 03.09.2026", user_id="seller-1"
+        )
+
+        assert duplicate["status"] == (
+            "PERIOD_PROFIT_CUSTOM_PERIOD_ALREADY_RUNNING"
+        )
+        assert len(query.calls) == 1
+        query.release.set()
+        assert first.result(timeout=1)["error"] is False
+
+    assert len(query.calls) == 1
 
 
 def test_v1175_existing_iso_custom_period_remains_supported():
@@ -438,3 +494,41 @@ def test_custom_period_pending_state_can_be_cancelled_per_user():
     assert cancelled["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_CANCELLED"
     assert after_cancel is None
     assert query.calls == []
+
+
+def test_general_and_selected_sku_custom_prompts_cannot_cross_stores():
+    class SkuRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def handle_custom_period(self, *args):
+            self.calls.append(args)
+            return {"error": False, "text": "sku"}
+
+    runtime, query = _service()
+    sku_runtime = SkuRuntime()
+    runtime.sku_runtime_service = sku_runtime
+    begin_by_mode = (
+        lambda: runtime.begin_custom_period("seller-1"),
+        lambda: runtime.begin_custom_sku_period("seller-1", "store-a-sku"),
+    )
+
+    for begin in begin_by_mode:
+        token = set_current_tenant_user_id("seller-1::ozon::store-a")
+        try:
+            begin()
+        finally:
+            reset_current_tenant_user_id(token)
+
+        token = set_current_tenant_user_id("seller-1::ozon::store-b")
+        try:
+            result = runtime.handle_text(
+                "01.08.2026 - 31.08.2026", user_id="seller-1"
+            )
+        finally:
+            reset_current_tenant_user_id(token)
+
+        assert result["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_STORE_CHANGED"
+
+    assert query.calls == []
+    assert sku_runtime.calls == []

@@ -1,6 +1,9 @@
 from copy import deepcopy
+from collections import OrderedDict
 from math import isfinite
+from threading import RLock
 from time import monotonic
+from services.tenant_context import get_current_tenant_user_id
 
 
 class ProductBusinessDecisionQueryService:
@@ -143,7 +146,8 @@ class ProductBusinessDecisionQueryService:
         action_proposal_service=None,
         action_proposal_confirmation_service=None,
         cache_ttl_seconds=600,
-        clock=None
+        clock=None,
+        decision_cache_max=512,
     ):
         self.product_service = product_service
         self.sales_metrics_source = sales_metrics_source
@@ -164,8 +168,10 @@ class ProductBusinessDecisionQueryService:
         self.task_draft_review_queue_service = None
         self.task_draft_readiness_service = None
         self.cache_ttl_seconds = max(0, float(cache_ttl_seconds))
+        self.decision_cache_max = max(1, int(decision_cache_max))
         self.clock = clock or monotonic
-        self._decision_cache = {}
+        self._decision_cache = OrderedDict()
+        self._decision_cache_lock = RLock()
 
     def query(self, request):
         sku = self._extract_sku(request)
@@ -469,21 +475,34 @@ class ProductBusinessDecisionQueryService:
         return counts
 
     def _cached_decision(self, sku):
-        entry = self._decision_cache.get(str(sku))
-        if entry is None:
-            return None
-        if self.clock() >= entry["expires_at"]:
-            self._decision_cache.pop(str(sku), None)
-            return None
-        return deepcopy(entry["decision"])
+        cache_key = self._decision_cache_key(sku)
+        with self._decision_cache_lock:
+            entry = self._decision_cache.get(cache_key)
+            if entry is None:
+                return None
+            if self.clock() >= entry["expires_at"]:
+                self._decision_cache.pop(cache_key, None)
+                return None
+            self._decision_cache.move_to_end(cache_key)
+            return deepcopy(entry["decision"])
 
     def _store_decision(self, sku, decision):
         if not self._is_cacheable_decision(decision):
             return
-        self._decision_cache[str(sku)] = {
-            "expires_at": self.clock() + self.cache_ttl_seconds,
-            "decision": deepcopy(decision),
-        }
+        cache_key = self._decision_cache_key(sku)
+        with self._decision_cache_lock:
+            self._decision_cache[cache_key] = {
+                "expires_at": self.clock() + self.cache_ttl_seconds,
+                "decision": deepcopy(decision),
+            }
+            self._decision_cache.move_to_end(cache_key)
+            while len(self._decision_cache) > self.decision_cache_max:
+                self._decision_cache.popitem(last=False)
+
+    @staticmethod
+    def _decision_cache_key(sku):
+        tenant_scope = str(get_current_tenant_user_id() or "").strip() or None
+        return tenant_scope, str(sku)
 
     def _is_cacheable_decision(self, decision):
         return (

@@ -253,7 +253,17 @@ class PeriodProfitRealizationOfferQuantitySummaryService(
             observed_quantity = next(iter(observed.values()))
             parsed[(posting_number, expected_sku)] = observed_quantity
 
-        return {"map": parsed, "expected": expected, "fatal": None}
+        # Return only exact finance-SKU observations and uniquely bridged
+        # one-line postings. Leaving unrelated SKU lines in this map would let
+        # the downstream catalog-SKU alias lookup accidentally turn a
+        # multi-item posting into a guessed quantity match.
+        resolved = {
+            key: parsed[key]
+            for key in expected
+            if key in parsed
+        }
+
+        return {"map": resolved, "expected": expected, "fatal": None}
 
     def _load_realization_quantity_map(self, start, end):
         direct = dict(getattr(self, "_direct_finance_quantity_map", {}) or {})

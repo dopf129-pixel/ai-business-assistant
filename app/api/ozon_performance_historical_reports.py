@@ -18,6 +18,8 @@ from zipfile import ZipFile, BadZipFile
 
 import requests
 
+from services.period_profit_operation_diagnostics import current_period_profit_trace
+
 
 CPO_REPORT_ENDPOINTS = frozenset({
     "/api/client/statistic/orders/generate",
@@ -279,6 +281,8 @@ class HistoricalPerformanceReports:
     WINDOW_DAYS = 62
     MAX_POLLS = 30
     POLL_SECONDS = 5
+    MAX_ENRICHMENT_SECONDS = 180
+    MAX_EXTERNAL_CALLS = 120
     MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
     CAMPAIGN_LOOKUP_BATCH_SIZE = 50
     MAX_CAMPAIGN_LOOKUP_IDS = 100
@@ -299,9 +303,12 @@ class HistoricalPerformanceReports:
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
 
-    def __init__(self, client, diagnostic_scope=None):
+    def __init__(self, client, diagnostic_scope=None, *, clock=None, sleeper=None):
         self.client = client
         self.calls = 0
+        self._clock = clock or (lambda: time.monotonic())
+        self._sleeper = sleeper or (lambda seconds: time.sleep(seconds))
+        self._deadline = None
         scope = "anonymous" if diagnostic_scope is None else str(diagnostic_scope)
         self._diagnostic_scope = hashlib.sha256(
             scope.encode("utf-8", errors="replace")
@@ -558,16 +565,25 @@ class HistoricalPerformanceReports:
         return refreshed, lookup_status
 
     def _json(self, method, endpoint, *, dependency_stage=None, **kwargs):
-        token = self.client._access_token()
+        self._check_budget(dependency_stage)
+        token = self._access_token()
         if token.get("error"):
             raise HistoricalReportError(token.get("code", "OZON_PERFORMANCE_AUTH_UNAVAILABLE"))
         for attempt in range(2):
-            result = self.client._request(method, endpoint, token["access_token"], **kwargs)
+            remaining = self._check_budget(dependency_stage)
+            request_options = dict(kwargs)
+            if remaining is not None:
+                request_options["timeout"] = min(30.0, remaining)
+            result = self.client._request(
+                method, endpoint, token["access_token"], **request_options
+            )
             self.calls += 1
             if result.get("status_code") == 401 and attempt == 0:
-                token = self.client._access_token(force=True)
+                token = self._access_token(force=True)
                 if token.get("error"):
-                    raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+                    raise HistoricalReportError(
+                        token.get("code") or "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+                    )
                 continue
             if (
                 result.get("status_code") == 429
@@ -589,7 +605,7 @@ class HistoricalPerformanceReports:
                     # longer than this worker may wait.
                     retry_seconds = None
                 if retry_seconds is not None:
-                    time.sleep(retry_seconds)
+                    self._wait_within_budget(retry_seconds, dependency_stage)
                     continue
             if result.get("error"):
                 code = result.get("code", "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE")
@@ -615,7 +631,7 @@ class HistoricalPerformanceReports:
                         and str(method or "").lower() == "get"
                         and attempt == 0
                     ):
-                        time.sleep(1)
+                        self._wait_within_budget(1, dependency_stage)
                         continue
                     raise HistoricalReportError(
                         code,
@@ -625,6 +641,40 @@ class HistoricalPerformanceReports:
                 raise HistoricalReportError(code)
             return result
         raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+
+    def _access_token(self, force=False):
+        remaining = self._check_budget("AUTH")
+        timeout = min(30.0, remaining) if remaining is not None else 30.0
+        token = self.client._access_token(force=force, timeout=timeout)
+        # The production client distinguishes an actual token request from a
+        # cached token. Lightweight test doubles may omit this field.
+        if isinstance(token, dict) and token.get("cache_hit") is False:
+            self.calls += 1
+        return token
+
+    def _check_budget(self, dependency_stage=None):
+        if self.calls >= self.MAX_EXTERNAL_CALLS:
+            raise HistoricalReportError(
+                "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED",
+                dependency_stage=dependency_stage,
+            )
+        if self._deadline is None:
+            return None
+        remaining = self._deadline - self._clock()
+        if remaining <= 0:
+            raise HistoricalReportError(
+                "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED",
+                dependency_stage=dependency_stage,
+            )
+        return remaining
+
+    def _wait_within_budget(self, seconds, dependency_stage=None):
+        remaining = self._check_budget(dependency_stage)
+        wait_seconds = float(seconds)
+        if remaining is not None:
+            wait_seconds = min(wait_seconds, remaining)
+        self._sleeper(wait_seconds)
+        self._check_budget(dependency_stage)
 
     def _campaign_ids(self, date_from=None, date_to=None):
         ids = []
@@ -716,22 +766,49 @@ class HistoricalPerformanceReports:
         return list(dict.fromkeys(ids))
 
     def _download(self, uuid):
-        token = self.client._access_token()
+        self._check_budget("REPORT_DOWNLOAD")
+        token = self._access_token()
         if token.get("error"):
-            raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+            raise HistoricalReportError(
+                token.get("code")
+                if str(token.get("code") or "").startswith("OZON_OPERATION_")
+                else "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+            )
         for attempt in range(2):
+            remaining = self._check_budget("REPORT_DOWNLOAD")
+            timeout = 30.0 if remaining is None else min(30.0, remaining)
+            trace = current_period_profit_trace()
+            if trace is not None:
+                reservation = trace.reserve_ozon_request(
+                    "/api/client/statistics/report"
+                )
+                if reservation.get("error") is True:
+                    raise HistoricalReportError(
+                        str(
+                            reservation.get("code")
+                            or "OZON_OPERATION_BUDGET_EXHAUSTED"
+                        )
+                    )
+                global_remaining = float(
+                    reservation.get("remaining_seconds") or 0
+                )
+                timeout = min(timeout, global_remaining)
             try:
                 response = self.client.session.get(
                     self.client.BASE_URL + "/api/client/statistics/report",
                     headers={"Authorization": "Bearer " + token["access_token"]},
-                    params={"UUID": uuid}, timeout=30)
+                    params={"UUID": uuid}, timeout=timeout)
                 self.calls += 1
             except requests.exceptions.RequestException as exc:
                 raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED") from exc
             if response.status_code == 401 and attempt == 0:
-                token = self.client._access_token(force=True)
+                token = self._access_token(force=True)
                 if token.get("error"):
-                    raise HistoricalReportError("OZON_PERFORMANCE_AUTH_UNAVAILABLE")
+                    raise HistoricalReportError(
+                        token.get("code")
+                        if str(token.get("code") or "").startswith("OZON_OPERATION_")
+                        else "OZON_PERFORMANCE_AUTH_UNAVAILABLE"
+                    )
                 continue
             if response.status_code != 200 or len(response.content) > self.MAX_DOWNLOAD_BYTES:
                 raise HistoricalReportError("OZON_HISTORICAL_DOWNLOAD_FAILED")
@@ -781,6 +858,7 @@ class HistoricalPerformanceReports:
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid):
             raise HistoricalReportError("OZON_HISTORICAL_REPORT_ID_INVALID")
         for attempt in range(self.MAX_POLLS):
+            self._check_budget(dependency_prefix + "_STATUS")
             status = self._json(
                 "get", "/api/client/statistics/" + uuid,
                 dependency_stage=dependency_prefix + "_STATUS",
@@ -792,7 +870,9 @@ class HistoricalPerformanceReports:
             if status.get("state") not in ("NOT_STARTED", "IN_PROGRESS"):
                 raise HistoricalReportError("OZON_HISTORICAL_REPORT_FAILED")
             if attempt < self.MAX_POLLS - 1:
-                time.sleep(self.POLL_SECONDS)
+                self._wait_within_budget(
+                    self.POLL_SECONDS, dependency_prefix + "_STATUS"
+                )
         else:
             raise HistoricalReportError("OZON_HISTORICAL_REPORT_TIMEOUT")
         data = self._download(uuid)
@@ -856,6 +936,10 @@ class HistoricalPerformanceReports:
                 raise ValueError()
         except ValueError:
             return {"error": True, "code": "OZON_PERFORMANCE_PERIOD_INVALID"}
+        self.calls = 0
+        self._deadline = self._clock() + max(
+            0.0, float(self.MAX_ENRICHMENT_SECONDS)
+        )
         try:
             campaigns = self._campaign_ids(start, end)
             rows = []
@@ -934,3 +1018,5 @@ class HistoricalPerformanceReports:
             ):
                 result["dependency_error_type"] = exc.dependency_error_type
             return result
+        finally:
+            self._deadline = None

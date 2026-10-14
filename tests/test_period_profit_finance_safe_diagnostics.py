@@ -59,6 +59,21 @@ def test_telegram_period_profit_exposes_only_safe_finance_diagnostic_code():
     assert result["read_only"] is True
     assert result["executed"] is False
 
+
+def test_telegram_period_profit_explains_cooperative_operation_budget():
+    runtime = AssistantPeriodProfitRuntimeService(_Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE",
+        "code": "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
+    }))
+
+    result = runtime.handle_callback("period_profit:90D")
+
+    assert "Уменьшите период и повторите запрос" in result["message"]
+    assert result["code"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+    assert result["read_only"] is True
+    assert result["executed"] is False
+
 def test_money_validation_stage_survives_production_error_wiring():
     source = {
         "error": True,

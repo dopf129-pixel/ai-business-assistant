@@ -53,11 +53,19 @@ class TenantSellerCostSwitchStorageTests(unittest.TestCase):
                     result = flow.handle_text("telegram-live-user", "21")
                     self.assertFalse(result["error"])
                     self.assertTrue(result["handled"])
+                    self.assertTrue(result["seller_cost_confirmation_pending"])
                     self.assertEqual(result["sku"], "3921245627")
                     self.assertEqual(result["offer_id"], "hook-2")
                     self.assertEqual(result["cost_price"], 21.0)
-                    self.assertEqual(result["effective_from"], "2026-09-12")
+                    self.assertEqual(result["effective_from"], "2026-09-11")
                     self.assertTrue(result["read_only_ozon"])
+
+                    result = flow.handle_button(
+                        "telegram-live-user",
+                        result["keyboard"]["buttons"][0]["callback"],
+                    )
+                    self.assertFalse(result["error"])
+                    self.assertEqual(result["effective_from"], "2026-09-11")
 
                     tenant_db = tenant_storage_path("ozon_assistant.db")
                     conn = sqlite3.connect(tenant_db)
@@ -80,7 +88,7 @@ class TenantSellerCostSwitchStorageTests(unittest.TestCase):
                             "3921245627",
                             "hook-2",
                             21.0,
-                            "2026-09-12",
+                            "2026-09-11",
                         ),
                     )
                 finally:

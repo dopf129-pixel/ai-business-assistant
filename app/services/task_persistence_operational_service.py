@@ -104,7 +104,13 @@ class TaskPersistenceOperationalService:
             return "REPAIR_TASK_STORE_MANUALLY"
         if blockers:
             return "RELOAD_AND_REVIEW_PERSISTENCE_MANUALLY"
-        if "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
+        if any(
+            issue in warnings
+            for issue in {
+                "TASK_DIRECTORY_FSYNC_ERROR",
+                "TASK_DIRECTORY_FSYNC_UNSUPPORTED",
+            }
+        ):
             return "CHECK_FILESYSTEM_DURABILITY"
         if warnings:
             return "REVIEW_PERSISTENCE_WARNINGS"
@@ -180,7 +186,10 @@ class TaskPersistenceOperationalService:
         if state in {"NEVER_ATTEMPTED", "SUCCEEDED"}:
             return issue is None and rolled_back is False
         if state == "SUCCEEDED_WITH_DURABILITY_WARNING":
-            return issue == "TASK_DIRECTORY_FSYNC_ERROR" and rolled_back is False
+            return issue in {
+                "TASK_DIRECTORY_FSYNC_ERROR",
+                "TASK_DIRECTORY_FSYNC_UNSUPPORTED",
+            } and rolled_back is False
 
         allowed_failures = {
             "TASK_FILE_WRITE_LOCKED",

@@ -299,6 +299,62 @@ Implemented
 
 ---
 
+## Decision 044
+
+Date:
+
+2026-10-12
+
+Topic:
+
+Effective-Dated Seller Cost Confirmation and Atomic Table Import
+
+Decision:
+
+The first seller-entered cost is effective from a proposed, seller-visible date.
+Prior periods remain without confirmed cost unless the seller separately confirms
+that the initial value applies to the entire available history. A Telegram cost
+change is not persisted before the seller confirms the displayed store, product,
+amount and effective date.
+
+Rules:
+
+- individual first entry proposes the current date; an existing-cost change
+  proposes the next calendar day so today's completed calculations are not silently
+  rewritten;
+- whole-history application is available only for products without an existing
+  configured cost and requires choosing the option followed by a second explicit
+  confirmation;
+- the confirmation is bound to the active tenant/store scope and is rejected after
+  a store switch;
+- CSV exports an effective-date column; first-time blank dates are proposed as
+  today, while a change to an existing cost requires an explicit date in the CSV;
+- CSV is previewed with row identity, amount and dates and is never treated as
+  consent by the upload itself;
+- whole-history CSV application is restricted to first-time costs and requires a
+  separate two-step confirmation;
+- the batch and current cost projections are written in one tenant-local SQLite
+  transaction; validation/conflict failure leaves every row unchanged;
+- exact replay of an already-recorded batch is idempotent, while a different value
+  for the same product and effective date is rejected;
+- the mutable current-cost projection reflects the latest effective switch, even
+  when an older dated batch is imported later;
+- Decision 039's prohibition on assumed historical backfill remains in force.
+
+Reason:
+
+A current price is not proof of an earlier unit cost. Showing the proposed date and
+requiring a separate seller action prevents accidental retroactive cost changes;
+atomic table writes prevent mixed catalog cost timelines after a partial failure.
+
+Status:
+
+Implemented for Telegram single-SKU input and CSV table import. P02 regression
+coverage passed; Windows Python 3.12 full suite passed (2,998 tests) in an
+isolated copy. Live Ozon/Telegram behavior is not implied by the test result.
+
+---
+
 ## Decision 042
 
 Date:
@@ -332,6 +388,56 @@ projection without silently erasing what was previously asserted.
 Status:
 
 Implemented
+
+---
+
+## Decision 041
+
+Date:
+
+2026-10-12
+
+Topic:
+
+Cross-Platform Task Store Locking and Durability Reporting
+
+Decision:
+
+Keep the existing JSON task store and its optimistic fingerprint, atomic
+replace, and file-fsync contract. Use the operating system's non-blocking file
+lock for writer exclusion: `fcntl.flock` on POSIX and `msvcrt.locking` on
+Windows.
+
+Rules:
+
+- Both backends lock the same stable, empty `<tasks-file>.lock` coordination
+  file; it is not deleted and its presence is not evidence of an active owner.
+- If the platform has no supported OS lock backend, writes fail closed.
+- Windows lock contention is reported as `TASK_FILE_WRITE_LOCKED`; closing the
+  descriptor or exiting the process releases the OS lock.
+- Atomic replace and syncing the data file remain required. The current
+  directory-fsync mechanism is POSIX-only; Windows reports
+  `TASK_DIRECTORY_FSYNC_UNSUPPORTED` as a post-commit durability warning and
+  never claims that the directory entry was synced.
+- Task storage schema, file location, and public task contract remain
+  unchanged. No lock framework or recovery/deletion behavior is introduced.
+- Windows shutdown uses the existing `stop_signals=None` runtime contract;
+  POSIX continues to register SIGINT/SIGTERM.
+
+Reason:
+
+The supported local runtime is Windows 3.12, where `fcntl` is unavailable.
+Failing all writes there prevents local task persistence. A minimal native OS
+backend restores writer exclusion without replacing the task engine. Windows
+does not provide the POSIX directory-fsync operation used by the current
+implementation, so the committed write must surface that durability limit
+instead of reporting an unsupported operation as successful.
+
+Status:
+
+Implemented; Windows Python 3.12 full verification completed with the 35
+remaining financial test failures assigned to P02. Linux Python 3.11 CI is
+configured and awaits a remote run on the implementation revision.
 
 ---
 

@@ -169,6 +169,42 @@ def test_v1265_adjacent_coverage_intervals_cover_whole_period(tmp_path):
     assert result["coverage_gaps"] == []
 
 
+def test_overlapping_coverage_intervals_are_merged_without_duplicate_expenses(
+    tmp_path,
+):
+    repository = ExpenseRepository(
+        tmp_path / "expenses.db"
+    )
+    repository.confirm_coverage(
+        "2026-09-01",
+        "2026-09-03",
+    )
+    repository.confirm_coverage(
+        "2026-09-03",
+        "2026-09-05",
+    )
+    repository.add_expense(
+        "2026-09-03",
+        "Аренда",
+        125,
+    )
+
+    result = (
+        PeriodProfitExternalExpenseEvidenceService(
+            repository
+        )
+        .load(
+            "2026-09-01",
+            "2026-09-05",
+        )
+    )
+
+    assert result["coverage_complete"] is True
+    assert result["coverage_gaps"] == []
+    assert result["expense_count"] == 1
+    assert result["observed_expense_total"] == 125.0
+
+
 def test_v1266_partial_expenses_are_observed_but_not_complete(tmp_path):
     repository = ExpenseRepository(
         tmp_path / "expenses.db"
@@ -530,3 +566,19 @@ def test_v1270_complete_coverage_allows_full_external_expense_adjustment():
         coverage["accounting_net_profit_claim_allowed"]
         is False
     )
+
+
+def test_external_expense_adjustment_subtracts_observed_total_once():
+    evidence = _external_evidence(
+        total=100.0,
+        complete=False,
+    )
+
+    adjustment = PeriodProfitQueryService._external_expense_adjustment(
+        _summary(),
+        evidence,
+    )
+
+    assert adjustment["observed_external_expenses"] == 100.0
+    assert adjustment["observed_profit_after_external_expenses"] == 240.0
+    assert adjustment["complete_profit_after_external_expenses"] is None

@@ -1,3 +1,5 @@
+import inspect
+
 from period_profit_telegram_contract import (
     build_period_profit_telegram_menu,
 )
@@ -204,6 +206,8 @@ class AssistantButtonHandlerService:
         period_profit_runtime_service=None,
         period_profit_sku_runtime_service=None,
         experimental_store_economics_runtime_service=None,
+        external_expense_runtime_service=None,
+        seller_attention_summary_service=None,
     ):
 
         self.assistant = (
@@ -265,6 +269,12 @@ class AssistantButtonHandlerService:
         self.period_profit_sku_runtime_service = period_profit_sku_runtime_service
         self.experimental_store_economics_runtime_service = (
             experimental_store_economics_runtime_service
+        )
+        self.external_expense_runtime_service = (
+            external_expense_runtime_service
+        )
+        self.seller_attention_summary_service = (
+            seller_attention_summary_service
         )
 
 
@@ -458,12 +468,16 @@ class AssistantButtonHandlerService:
                 "period_profit_sku",
                 "experimental_calculations",
                 "experimental_store_economics",
+                "external_expenses",
             }
             or button_id.startswith((
                 "period_profit:",
+                "period_profit_completeness:",
+                "period_profit_report:",
                 "period_profit_pre_cogs:",
                 "period_profit_sku:",
                 "experimental_store_economics:",
+                "external_expenses:",
             ))
         ):
             return
@@ -490,7 +504,44 @@ class AssistantButtonHandlerService:
         if callable(clearer):
             clearer(user_id)
 
+    def _clear_external_expense_input_for_new_flow(
+        self,
+        button_id,
+        user_id,
+    ):
+        if (
+            isinstance(button_id, str)
+            and (
+                button_id == "external_expenses"
+                or button_id.startswith("external_expenses:")
+            )
+        ):
+            return
+        clearer = getattr(
+            self.external_expense_runtime_service,
+            "clear_pending",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
+
     def handle_text(self, text, user_id=None):
+        runtime = self.external_expense_runtime_service
+        handler = getattr(runtime, "handle_text", None)
+        if callable(handler):
+            try:
+                result = handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "TELEGRAM_EXTERNAL_EXPENSE_TEXT_FAILED",
+                    "message": "Не удалось обработать внешний расход.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if result is not None:
+                return result
+
         runtime = self.experimental_store_economics_runtime_service
         handler = getattr(runtime, "handle_text", None)
         if not callable(handler):
@@ -515,12 +566,46 @@ class AssistantButtonHandlerService:
         output = dict(result)
         builder = getattr(
             self.keyboard_service,
-            "build_experimental_store_economics_result_keyboard",
+            (
+                "build_experimental_store_economics_details_keyboard"
+                if output.get("status")
+                == "EXPERIMENTAL_STORE_ECONOMICS_DETAILS_READY"
+                else "build_experimental_store_economics_result_keyboard"
+            ),
             None,
         )
         if callable(builder) and "keyboard" not in output:
-            output["keyboard"] = builder()
+            keyboard = builder()
+            report_view_id = str(output.get("report_view_id") or "").strip()
+            if report_view_id and isinstance(keyboard, dict):
+                bound_callbacks = {
+                    "experimental_analytics_api_diagnostic",
+                    "experimental_returns_api_diagnostic",
+                    "experimental_store_economics_details",
+                    "experimental_store_economics_summary",
+                }
+                bound_keyboard = dict(keyboard)
+                bound_buttons = []
+                for button in keyboard.get("buttons") or []:
+                    if not isinstance(button, dict):
+                        continue
+                    bound_button = dict(button)
+                    callback = str(bound_button.get("callback") or "")
+                    if callback in bound_callbacks:
+                        bound_button["callback"] = callback + ":" + report_view_id
+                    bound_buttons.append(bound_button)
+                bound_keyboard["buttons"] = bound_buttons
+                keyboard = bound_keyboard
+            output["keyboard"] = keyboard
         return output
+
+    @staticmethod
+    def _report_view_id_from_callback(button_id, prefix):
+        value = str(button_id or "").strip()
+        marker = str(prefix) + ":"
+        if not value.startswith(marker):
+            return None
+        return value[len(marker):]
 
 
     def handle(
@@ -537,6 +622,35 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        self._clear_external_expense_input_for_new_flow(
+            button_id,
+            user_id,
+        )
+
+        if button_id == "external_expenses" or (
+            isinstance(button_id, str)
+            and button_id.startswith("external_expenses:")
+        ):
+            runtime = self.external_expense_runtime_service
+            handler = getattr(runtime, "handle_callback", None)
+            if not callable(handler):
+                return {
+                    "error": True,
+                    "code": "TELEGRAM_EXTERNAL_EXPENSE_UNAVAILABLE",
+                    "message": "Раздел внешних расходов недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "TELEGRAM_EXTERNAL_EXPENSE_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие с внешними расходами.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if button_id == "help":
             return build_telegram_help_response()
@@ -588,6 +702,135 @@ class AssistantButtonHandlerService:
                 "read_only": True,
                 "executed": False,
             }
+
+        analytics_diagnostic_prefix = "experimental_analytics_api_diagnostic"
+        if button_id == analytics_diagnostic_prefix or button_id.startswith(
+            analytics_diagnostic_prefix + ":"
+        ):
+            report_view_id = self._report_view_id_from_callback(
+                button_id, analytics_diagnostic_prefix
+            )
+            runtime = self.experimental_store_economics_runtime_service
+            callback = getattr(
+                runtime,
+                "handle_analytics_api_diagnostic",
+                None,
+            )
+            if not callable(callback):
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_UNAVAILABLE",
+                    "message": "Диагностика Ozon Analytics недоступна.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                if report_view_id is None:
+                    result = callback(user_id=user_id)
+                else:
+                    result = callback(
+                        user_id=user_id, report_view_id=report_view_id
+                    )
+            except Exception:
+                result = {
+                    "error": False,
+                    "status": "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_FAILED",
+                    "message": "Не удалось выполнить ограниченную проверку Ozon Analytics.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if report_view_id and isinstance(result, dict):
+                result = dict(result)
+                result["report_view_id"] = report_view_id
+            return self._with_experimental_result_keyboard(result)
+
+        returns_diagnostic_prefix = "experimental_returns_api_diagnostic"
+        if button_id == returns_diagnostic_prefix or button_id.startswith(
+            returns_diagnostic_prefix + ":"
+        ):
+            report_view_id = self._report_view_id_from_callback(
+                button_id, returns_diagnostic_prefix
+            )
+            runtime = self.experimental_store_economics_runtime_service
+            callback = getattr(
+                runtime,
+                "handle_returns_api_diagnostic",
+                None,
+            )
+            if not callable(callback):
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_UNAVAILABLE",
+                    "message": "Диагностика возвратов API недоступна.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                if report_view_id is None:
+                    result = callback(user_id=user_id)
+                else:
+                    result = callback(
+                        user_id=user_id, report_view_id=report_view_id
+                    )
+            except Exception:
+                result = {
+                    "error": False,
+                    "status": "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_FAILED",
+                    "message": "Не удалось выполнить ограниченную проверку возвратов API.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if report_view_id and isinstance(result, dict):
+                result = dict(result)
+                result["report_view_id"] = report_view_id
+            return self._with_experimental_result_keyboard(result)
+
+        report_view_prefix = next(
+            (
+                prefix
+                for prefix in (
+                    "experimental_store_economics_details",
+                    "experimental_store_economics_summary",
+                )
+                if button_id == prefix or button_id.startswith(prefix + ":")
+            ),
+            None,
+        )
+        if report_view_prefix is not None:
+            report_view_id = self._report_view_id_from_callback(
+                button_id, report_view_prefix
+            )
+            runtime = self.experimental_store_economics_runtime_service
+            method_name = (
+                "handle_details"
+                if report_view_prefix == "experimental_store_economics_details"
+                else "handle_summary"
+            )
+            callback = getattr(runtime, method_name, None)
+            if not callable(callback):
+                return {
+                    "error": True,
+                    "code": "EXPERIMENTAL_STORE_ECONOMICS_VIEW_UNAVAILABLE",
+                    "message": "Подробности экспериментального расчёта недоступны.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                if report_view_id is None:
+                    result = callback(user_id=user_id)
+                else:
+                    result = callback(
+                        user_id=user_id, report_view_id=report_view_id
+                    )
+            except Exception:
+                result = {
+                    "error": True,
+                    "code": "EXPERIMENTAL_STORE_ECONOMICS_VIEW_FAILED",
+                    "message": "Не удалось открыть сохранённый экран расчёта.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            return self._with_experimental_result_keyboard(result)
 
         if button_id.startswith("experimental_store_economics:"):
             runtime = self.experimental_store_economics_runtime_service
@@ -682,6 +925,22 @@ class AssistantButtonHandlerService:
                 return {"error": True, "message": "Ввод периода недоступен", "executed": False}
             return starter(user_id)
 
+        if button_id.startswith((
+            "period_profit_completeness:",
+            "period_profit_report:",
+        )):
+            runtime = self.period_profit_runtime_service
+            handler = getattr(runtime, "handle_cached_view", None)
+            if not callable(handler):
+                return {
+                    "error": False,
+                    "status": "PERIOD_PROFIT_CACHED_VIEW_EXPIRED",
+                    "message": "Снимок расчёта уже недоступен. Сформируйте отчёт заново.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            return handler(button_id, user_id=user_id)
+
         if button_id.startswith("period_profit_pre_cogs:"):
             return self.period_profit_runtime_service.handle_callback(button_id)
 
@@ -691,7 +950,8 @@ class AssistantButtonHandlerService:
 
             return (
                 self._show_period_profit(
-                    button_id
+                    button_id,
+                    user_id=user_id,
                 )
             )
 
@@ -721,6 +981,28 @@ class AssistantButtonHandlerService:
             return (
                 self._open_product_decisions_menu()
             )
+
+        if button_id == "seller_attention":
+            service = self.seller_attention_summary_service
+            builder = getattr(service, "build", None)
+            if not callable(builder):
+                return {
+                    "error": True,
+                    "code": "SELLER_ATTENTION_SOURCE_UNAVAILABLE",
+                    "message": "Обзор магазина недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                return builder(user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "SELLER_ATTENTION_QUERY_FAILED",
+                    "message": "Не удалось открыть обзор магазина.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if button_id.startswith("product_decisions_page:"):
             page_value = button_id.split(":", 1)[1]
@@ -958,7 +1240,8 @@ class AssistantButtonHandlerService:
 
     def _show_period_profit(
         self,
-        callback
+        callback,
+        user_id=None,
     ):
 
         if not self.period_profit_runtime_service:
@@ -970,13 +1253,16 @@ class AssistantButtonHandlerService:
             }
 
         try:
-
-            result = (
-                self.period_profit_runtime_service
-                .handle_callback(
-                    callback
-                )
+            handler = self.period_profit_runtime_service.handle_callback
+            parameters = inspect.signature(handler).parameters
+            accepts_user = "user_id" in parameters or any(
+                item.kind == inspect.Parameter.VAR_KEYWORD
+                for item in parameters.values()
             )
+            if accepts_user:
+                result = handler(callback, user_id=user_id)
+            else:
+                result = handler(callback)
 
         except Exception:
 

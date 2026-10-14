@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from api.period_profit_related_sku_ozon_client import PeriodProfitRelatedSkuOzonClient
 from services.period_profit_finance_posting_identity_scope_service import (
     PeriodProfitFinancePostingIdentityScopeService,
@@ -44,15 +46,22 @@ class _Finance:
         self._daily_accrual_cache = {}
         self.posting_calls = []
 
-    def prefetch_daily_accruals(self, date_from, _date_to):
-        self._daily_accrual_cache[str(date_from)] = {
-            "error": False,
-            "accruals": [{
-                "accrued_category": "POSTING",
-                "unit_number": "posting-legacy",
-                "posting": {"products": [{"sku": "legacy-sku"}]},
-            }],
-        }
+    def prefetch_daily_accruals(self, date_from, date_to):
+        current = date.fromisoformat(str(date_from))
+        end = date.fromisoformat(str(date_to))
+        while current <= end:
+            self._daily_accrual_cache.setdefault(
+                current.isoformat(),
+                {
+                    "error": False,
+                    "accruals": [{
+                        "accrued_category": "POSTING",
+                        "unit_number": "posting-legacy",
+                        "posting": {"products": [{"sku": "legacy-sku"}]},
+                    }],
+                },
+            )
+            current += timedelta(days=1)
         return {"error": False, "complete": True}
 
     def _get_accruals_by_day(self, day):
@@ -65,6 +74,16 @@ class _Finance:
             "complete": True,
             "records": [],
         }
+
+
+def _assert_identity_blocker(result, expected):
+    blockers = result.get("finance_identity_blockers")
+    assert isinstance(blockers, list)
+    assert expected in blockers
+    assert result.get("finance_diagnostic_code") in {
+        expected,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_MULTIPLE_BLOCKERS",
+    }
 
 
 def test_related_sku_resolves_retired_finance_sku_without_fbo_or_posting_bridge():
@@ -138,8 +157,9 @@ def test_related_sku_ambiguity_falls_through_and_still_fails_closed():
 
     assert result["error"] is True
     assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
-    assert result["finance_diagnostic_code"] == (
-        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    _assert_identity_blocker(
+        result,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS",
     )
     assert finance.posting_calls == [("posting-legacy",)]
 
@@ -274,8 +294,9 @@ def test_related_sku_api_error_is_distinguished_without_exposing_payload():
     assert result["code"] == (
         "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
     )
-    assert result["finance_diagnostic_code"] == (
-        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR"
+    _assert_identity_blocker(
+        result,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_API_ERROR",
     )
     assert "payload" not in result
     assert "legacy-sku" not in result["finance_diagnostic_code"]
@@ -359,8 +380,9 @@ def test_related_seller_cost_identity_ambiguity_remains_fail_closed():
     assert result["code"] == (
         "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
     )
-    assert result["finance_diagnostic_code"] == (
-        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    _assert_identity_blocker(
+        result,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS",
     )
 
 
@@ -458,8 +480,9 @@ def test_related_historical_identity_conflicting_offers_fail_closed():
     )
 
     assert result["error"] is True
-    assert result["finance_diagnostic_code"] == (
-        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    _assert_identity_blocker(
+        result,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS",
     )
 
 
@@ -553,6 +576,7 @@ def test_related_product_id_conflict_remains_fail_closed():
     )
 
     assert result["error"] is True
-    assert result["finance_diagnostic_code"] == (
-        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS"
+    _assert_identity_blocker(
+        result,
+        "PERIOD_PROFIT_FINANCE_SKU_IDENTITY_RELATED_AMBIGUOUS",
     )

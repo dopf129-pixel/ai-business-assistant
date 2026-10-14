@@ -194,12 +194,9 @@ class AssistantUserStorageService:
         if self.load_state == "ABSENT":
             self.load_state = "LOADED"
 
-        durability_warning = (
-            self._fsync_directory(
-                folder
-                or "."
-            )
-            is False
+        durability_issue = self._fsync_directory(
+            folder
+            or "."
         )
 
         result = {
@@ -210,12 +207,12 @@ class AssistantUserStorageService:
             )
         }
 
-        if durability_warning:
+        if durability_issue is not None:
 
             result[
                 "durability_warning"
             ] = (
-                "USER_STORAGE_DIRECTORY_FSYNC_FAILED"
+                durability_issue
             )
 
         return result
@@ -564,6 +561,9 @@ class AssistantUserStorageService:
         directory
     ):
 
+        if os.name == "nt":
+            return "USER_STORAGE_DIRECTORY_FSYNC_UNSUPPORTED"
+
         flags = os.O_RDONLY
 
         if hasattr(
@@ -584,7 +584,7 @@ class AssistantUserStorageService:
 
         except Exception:
 
-            return False
+            return "USER_STORAGE_DIRECTORY_FSYNC_FAILED"
 
         try:
 
@@ -594,7 +594,7 @@ class AssistantUserStorageService:
 
         except Exception:
 
-            return False
+            return "USER_STORAGE_DIRECTORY_FSYNC_FAILED"
 
         finally:
 
@@ -605,4 +605,4 @@ class AssistantUserStorageService:
             except Exception:
                 pass
 
-        return True
+        return None

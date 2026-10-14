@@ -10,6 +10,12 @@ import pytest
 from api.ozon_performance_historical_reports import (
     HistoricalPerformanceReports, HistoricalReportError, parse_report_csv,
 )
+from api.ozon_performance_client import OzonPerformanceClient
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 from services.period_profit_sku_advertising_service import PeriodProfitSkuAdvertisingService
 
 
@@ -22,6 +28,209 @@ def test_cpc_and_cpo_columns_do_not_double_count():
     cpo_row = parse_report_csv(cpo, "CPO")[0]
     assert cpo_row["sku"] == "3921245627"
     assert cpo_row["expense"] == Decimal("7.25")
+
+
+class _PerformanceResponse:
+    def __init__(self, status_code=200, payload=None, headers=None):
+        self.status_code = status_code
+        self.headers = headers or {}
+        self._payload = payload or {}
+        self.content = b"report-bytes"
+
+    def json(self):
+        return self._payload
+
+
+class _PerformanceSession:
+    def __init__(self, get_responses=None):
+        self.calls = []
+        self.get_responses = list(get_responses or [])
+
+    def post(self, url, *, headers, timeout, **kwargs):
+        self.calls.append(("post", url, timeout))
+        if url.endswith("/api/client/token"):
+            return _PerformanceResponse(
+                payload={"access_token": "performance-token", "expires_in": 3600}
+            )
+        return _PerformanceResponse(payload={"ok": True})
+
+    def get(self, url, *, headers, timeout, **kwargs):
+        self.calls.append(("get", url, timeout))
+        if self.get_responses:
+            return self.get_responses.pop(0)
+        return _PerformanceResponse(payload={"ok": True})
+
+
+def test_performance_http_uses_shared_budget_and_clamps_timeout():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=2, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = client._request("get", "/api/client/campaign", "token")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["ok"] is True
+    assert session.calls == [
+        ("get", "https://api-performance.ozon.ru/api/client/campaign", 2.0)
+    ]
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_auth_and_cached_token_calls_obey_shared_call_limit():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json(
+                "get", "/api/client/campaign", dependency_stage="CAMPAIGN_LIST"
+            )
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert len(session.calls) == 1  # Only the token HTTP request reached transport.
+    assert session.calls[0][1].endswith("/api/client/token")
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_retry_attempts_reserve_shared_budget_individually():
+    session = _PerformanceSession(get_responses=[
+        _PerformanceResponse(
+            status_code=429, headers={"Retry-After": "0"}
+        ),
+    ])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=2,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json(
+                "get", "/api/client/campaign", dependency_stage="CAMPAIGN_LIST"
+            )
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert trace.ozon_requests_reserved == 2
+    assert len(session.calls) == 2  # Auth plus first GET; retry was blocked.
+
+
+def test_performance_auth_refresh_and_401_retry_share_global_budget():
+    session = _PerformanceSession(get_responses=[
+        _PerformanceResponse(status_code=401),
+        _PerformanceResponse(payload={"ok": True}),
+    ])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, sleeper=lambda _: None)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=4,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result == {"ok": True}
+    assert trace.ozon_requests_reserved == 4
+    assert len(session.calls) == 4
+    assert [call[0] for call in session.calls] == ["post", "get", "post", "get"]
+
+
+def test_performance_report_download_uses_shared_budget_and_timeout():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    client._token = "cached-token"
+    client._token_expires_at = 10**12
+    reports = HistoricalPerformanceReports(client)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=2, ozon_request_budget=1,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        content = reports._download("safe-report-id")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert content == b"report-bytes"
+    assert session.calls == [(
+        "get", "https://api-performance.ozon.ru/api/client/statistics/report", 2.0
+    )]
+    assert trace.ozon_requests_reserved == 1
+
+
+def test_performance_request_is_blocked_when_shared_time_budget_is_exhausted():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=0, ozon_request_budget=10,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = client._request("get", "/api/client/campaign", "token")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["code"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+    assert session.calls == []
+    assert trace.ozon_requests_reserved == 0
+
+
+def test_performance_auth_timeout_uses_remaining_local_and_shared_budgets():
+    session = _PerformanceSession()
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client, clock=lambda: 100.0)
+    reports._deadline = 101.0
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=3,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result == {"ok": True}
+    assert [call[2] for call in session.calls] == [1.0, 1.0]
+    assert trace.ozon_requests_reserved == 2
+
+
+def test_performance_auth_refresh_preserves_exhausted_shared_budget_reason():
+    session = _PerformanceSession(get_responses=[_PerformanceResponse(status_code=401)])
+    client = OzonPerformanceClient("client", "secret", session=session)
+    reports = HistoricalPerformanceReports(client)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=20, ozon_request_budget=2,
+        clock=lambda: 100.0,
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        with pytest.raises(HistoricalReportError) as exc:
+            reports._json("get", "/api/client/campaign")
+    finally:
+        reset_period_profit_trace(token)
+
+    assert exc.value.code == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    assert len(session.calls) == trace.ozon_requests_reserved == 2
 
 
 def test_cpo_product_settings_without_expense_are_not_a_spend_report():
@@ -274,7 +483,7 @@ class _Client:
         self.lookup_campaigns = lookup_campaigns
         self.lookup_requests = []
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return self._token
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -310,7 +519,7 @@ class _AsyncReportClient:
         self.poll_calls = 0
         self.session = SimpleNamespace(get=self._download)
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -363,6 +572,89 @@ def test_async_report_polling_still_times_out_at_the_bounded_limit():
     assert exc.value.code == "OZON_HISTORICAL_REPORT_TIMEOUT"
     assert client.poll_calls == HistoricalPerformanceReports.MAX_POLLS
     assert sleep.call_count == HistoricalPerformanceReports.MAX_POLLS - 1
+
+
+def test_historical_enrichment_stops_at_fake_clock_deadline():
+    class Clock:
+        now = 0.0
+
+        def read(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+    class Client:
+        BASE_URL = "https://performance.test"
+
+        def __init__(self):
+            self.calls = []
+            self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
+
+        def _access_token(self, force=False, timeout=30):
+            return {"access_token": "fixture-token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            self.calls.append((method, endpoint, kwargs))
+            if endpoint == "/api/client/campaign":
+                return {"list": [{
+                    "id": "123", "paymentType": "CPC", "advObjectType": "SKU",
+                }]}
+            if endpoint == "/api/client/statistics":
+                return {"UUID": "00000000-0000-0000-0000-000000000000"}
+            if endpoint.endswith("00000000-0000-0000-0000-000000000000"):
+                return {"state": "IN_PROGRESS"}
+            raise AssertionError("unexpected request")
+
+    clock = Clock()
+    client = Client()
+    service = HistoricalPerformanceReports(
+        client, clock=clock.read, sleeper=clock.sleep
+    )
+    service.MAX_ENRICHMENT_SECONDS = 6
+    service.POLL_SECONDS = 5
+
+    result = service.load("2026-08-01", "2026-08-01")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED"
+    assert result["external_call_count"] == 4
+    assert clock.now == 6
+    assert result["dependency_stage"] == "CPC_REPORT_STATUS"
+
+
+def test_historical_enrichment_stops_at_external_call_budget():
+    class Client:
+        BASE_URL = "https://performance.test"
+
+        def __init__(self):
+            self.calls = []
+            self.session = SimpleNamespace(get=lambda *_args, **_kwargs: None)
+
+        def _access_token(self, force=False, timeout=30):
+            return {"access_token": "fixture-token"}
+
+        def _request(self, method, endpoint, token, **kwargs):
+            self.calls.append((method, endpoint))
+            if endpoint == "/api/client/campaign":
+                return {"list": [{
+                    "id": "123", "paymentType": "CPC", "advObjectType": "SKU",
+                }]}
+            if endpoint == "/api/client/statistics":
+                return {"UUID": "00000000-0000-0000-0000-000000000000"}
+            raise AssertionError("call budget should stop before polling")
+
+    client = Client()
+    service = HistoricalPerformanceReports(client)
+    service.MAX_EXTERNAL_CALLS = 2
+
+    result = service.load("2026-08-01", "2026-08-01")
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED"
+    assert result["external_call_count"] == 2
+    assert result["dependency_stage"] == "CPC_REPORT_STATUS"
+    assert len(client.calls) == 2
 
 
 def test_all_sku_cpo_orders_report_falls_back_to_order_sku_when_promoted_sku_blank():
@@ -662,7 +954,7 @@ def test_campaign_lookup_failure_returns_safe_reason(failure, expected_status):
     class _FailingLookupClient:
         lookup_calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -698,7 +990,7 @@ def test_campaign_lookup_retries_http_429_after_provider_cooldown():
     class _RateLimitedLookupClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -741,7 +1033,7 @@ def test_campaign_lookup_does_not_retry_beyond_bounded_provider_cooldown():
     class _LongCooldownClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, method, endpoint, token, **kwargs):
@@ -771,7 +1063,7 @@ def test_http_429_does_not_retry_report_creation_get():
     class _RateLimitedReportClient:
         calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):
@@ -870,7 +1162,7 @@ class _DependencyUnavailableClient:
         self.failed_stage = failed_stage
         self.calls = 0
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         return {"access_token": "token"}
 
     def _request(self, method, endpoint, token, **kwargs):
@@ -968,7 +1260,7 @@ def test_get_dependency_failure_retries_once_and_recovers():
         def __init__(self):
             self.calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):
@@ -997,7 +1289,7 @@ def test_post_dependency_failure_is_not_retried():
         def __init__(self):
             self.calls = 0
 
-        def _access_token(self, force=False):
+        def _access_token(self, force=False, timeout=30):
             return {"access_token": "token"}
 
         def _request(self, *_args, **_kwargs):

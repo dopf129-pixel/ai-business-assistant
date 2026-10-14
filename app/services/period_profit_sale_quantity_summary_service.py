@@ -129,6 +129,23 @@ class PeriodProfitSaleQuantitySummaryService(
                 return self._quantity_error(
                     "PERIOD_PROFIT_SALE_QUANTITY_FINANCE_EVIDENCE_INCOMPLETE"
                 )
+            daily_keys = set()
+            for record in evidence["records"]:
+                if not isinstance(record, dict):
+                    continue
+                posting_number = str(record.get("posting_number") or "").strip()
+                sku = str(record.get("sku") or "").strip()
+                if not posting_number or not sku:
+                    continue
+                key = (posting_number, sku)
+                if key in daily_keys:
+                    # A repeated physical-sale key on the same accrual date is
+                    # indistinguishable from duplicated positive evidence. A
+                    # repeat on another date is handled below as a reaccrual.
+                    return self._quantity_error(
+                        "PERIOD_PROFIT_SALE_QUANTITY_DUPLICATE_SALE_EVIDENCE"
+                    )
+                daily_keys.add(key)
             sale_records.extend(evidence["records"])
             current += timedelta(days=1)
 

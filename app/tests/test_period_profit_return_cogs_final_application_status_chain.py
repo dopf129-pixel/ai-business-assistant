@@ -83,6 +83,42 @@ class PeriodProfitReturnCogsFinalApplicationStatusChainTests(unittest.TestCase):
                     "recovery_accounting_date": "2026-08-20",
                 }
             ],
+            "candidate_records": [{
+                "return_id": "r-1",
+                "posting_number": "p-1",
+                "sku": "s-1",
+                "quantity": 1,
+                "inventory_recovery_state": "SALEABLE_RESTORED",
+                "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
+            }],
+            "return_cogs_accounting_recognition_evidence_records": [{
+                "error": False,
+                "return_id": "r-1",
+                "posting_number": "p-1",
+                "sku": "s-1",
+                "history_id": 10,
+                "status": "RETURN_COGS_ACCOUNTING_RECOGNITION_READY",
+                "accounting_recognition_confirmed": True,
+                "recognition_state": "COGS_RECOVERY_RECOGNIZED",
+                "recognized_amount": 21.0,
+                "currency": "RUB",
+                "recovery_accounting_date": "2026-08-20",
+            }],
+            "return_cogs_profit_application_authorization_records": [{
+                "error": False,
+                "return_id": "r-1",
+                "posting_number": "p-1",
+                "sku": "s-1",
+                "history_id": 20,
+                "recognition_history_id": 10,
+                "status": "RETURN_COGS_PROFIT_APPLICATION_AUTHORIZATION_READY",
+                "application_authorization_confirmed": True,
+                "application_state": "PROFIT_APPLICATION_AUTHORIZED",
+                "application_already_applied": False,
+                "authorized_amount": 21.0,
+                "currency": "RUB",
+                "recovery_accounting_date": "2026-08-20",
+            }],
         }
 
     def test_full_canonical_chain_applies_only_durable_committed_amount(self):

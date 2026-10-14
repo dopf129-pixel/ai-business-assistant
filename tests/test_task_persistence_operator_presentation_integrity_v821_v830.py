@@ -205,3 +205,20 @@ def test_v830_valid_reports_remain_read_only_and_human_readable():
         assert result["business_execution_ready"] is False
         assert result["mutation_ready"] is False
         assert result["executed"] is False
+
+
+def test_v831_unsupported_windows_directory_fsync_is_reported_as_platform_limit():
+    result = TaskPersistenceOperatorPresentationService().present(
+        _operational(
+            operational_state="WARNING",
+            operator_attention_required=True,
+            next_action="CHECK_FILESYSTEM_DURABILITY",
+            warning_count=1,
+            warnings=["TASK_DIRECTORY_FSYNC_UNSUPPORTED"],
+        )
+    )
+
+    assert result["error"] is False
+    assert "Windows не поддерживает" in result["message"]
+    assert "каталога после сбоя питания" in result["message"]
+    assert result["executed"] is False

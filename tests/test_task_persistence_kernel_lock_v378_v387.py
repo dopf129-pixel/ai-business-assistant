@@ -1,6 +1,10 @@
 import json
 import os
 import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -38,11 +42,8 @@ def _write_store(path):
     )
 
 
-def test_v378_kernel_flock_is_available_in_supported_runtime():
-    assert terminal_module.fcntl is not None
-    assert hasattr(terminal_module.fcntl, "flock")
-    assert hasattr(terminal_module.fcntl, "LOCK_EX")
-    assert hasattr(terminal_module.fcntl, "LOCK_NB")
+def test_v378_platform_kernel_lock_is_available_in_supported_runtime():
+    assert terminal_module._kernel_lock_backend() in {"fcntl", "msvcrt"}
 
 
 def test_v379_coordination_file_is_stable_private_and_not_ownership_evidence(tmp_path):
@@ -54,7 +55,8 @@ def test_v379_coordination_file_is_stable_private_and_not_ownership_evidence(tmp
     lock_path = tmp_path / "tasks.json.lock"
     assert lock_path.exists()
     assert lock_path.read_bytes() == b""
-    assert stat.S_IMODE(lock_path.stat().st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(lock_path.stat().st_mode) == 0o600
 
     diagnostics = service.get_write_lock_diagnostics()
     assert diagnostics["inspection_state"] == "NO_ACTIVE_LOCK_EVIDENCE"
@@ -173,7 +175,7 @@ def test_v385_missing_kernel_lock_support_fails_closed_without_task_write(tmp_pa
     path = tmp_path / "tasks.json"
     _write_store(path)
     service = TerminalSafeAssistantTaskService(file_path=str(path))
-    monkeypatch.setattr(terminal_module, "fcntl", None)
+    monkeypatch.setattr(terminal_module, "_kernel_lock_backend", lambda: None)
 
     with pytest.raises(RuntimeError, match="TASK_FILE_WRITE_LOCK_ERROR"):
         service.set_pending_action(USER_ID, {"title": "blocked"})
@@ -195,28 +197,35 @@ def test_v386_unlock_error_still_closes_fd_and_releases_kernel_ownership(tmp_pat
     _write_store(path)
     first = TerminalSafeAssistantTaskService(file_path=str(path))
     second = TerminalSafeAssistantTaskService(file_path=str(path))
-    real_flock = terminal_module.fcntl.flock
+    real_unlock = terminal_module._release_kernel_file_lock
 
-    def failing_unlock(fd, operation):
-        if operation == terminal_module.fcntl.LOCK_UN:
-            raise OSError("sensitive unlock detail")
-        return real_flock(fd, operation)
+    def failing_unlock(fd):
+        raise OSError("sensitive unlock detail")
 
-    monkeypatch.setattr(terminal_module.fcntl, "flock", failing_unlock)
+    monkeypatch.setattr(terminal_module, "_release_kernel_file_lock", failing_unlock)
 
     first.set_pending_action(USER_ID, {"title": "first"})
     assert first.get_persistence_diagnostics()[
         "last_lock_release_issue"
     ] == "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
 
-    monkeypatch.setattr(terminal_module.fcntl, "flock", real_flock)
+    monkeypatch.setattr(terminal_module, "_release_kernel_file_lock", real_unlock)
     second.load()
     second.set_pending_action(USER_ID, {"title": "second"})
 
     durable = json.loads(path.read_text(encoding="utf-8"))
     assert durable[str(USER_ID)]["pending_action"] == {"title": "second"}
     assert second.get_pending_action(USER_ID)["action"] == {"title": "second"}
-    assert second.get_persistence_diagnostics()["last_save_state"] == "SUCCEEDED"
+    second_persistence = second.get_persistence_diagnostics()
+    if os.name == "nt":
+        assert second_persistence["last_save_state"] == (
+            "SUCCEEDED_WITH_DURABILITY_WARNING"
+        )
+        assert second_persistence["last_save_issue"] == (
+            "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+        )
+    else:
+        assert second_persistence["last_save_state"] == "SUCCEEDED"
 
 
 def test_v387_kernel_lock_hardening_never_enables_business_execution_or_lock_deletion(tmp_path):
@@ -231,3 +240,55 @@ def test_v387_kernel_lock_hardening_never_enables_business_execution_or_lock_del
     assert report["automatic_lock_recovery_allowed"] is False
     assert report["manual_lock_removal_allowed"] is False
     assert report["executed"] is False
+
+
+def test_v388_independent_process_lock_blocks_writer_and_releases_on_exit(tmp_path):
+    path = tmp_path / "tasks.json"
+    _write_store(path)
+    ready_path = tmp_path / "writer-ready"
+    release_path = tmp_path / "writer-release"
+    app_path = Path(__file__).resolve().parents[1] / "app"
+    environment = os.environ.copy()
+    existing_pythonpath = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        item for item in (str(app_path), existing_pythonpath) if item
+    )
+    child_code = "\n".join(
+        [
+            "import pathlib, sys, time",
+            "from services.terminal_safe_assistant_task_service import TerminalSafeAssistantTaskService",
+            "service = TerminalSafeAssistantTaskService(file_path=sys.argv[1])",
+            "service._acquire_write_lock()",
+            "pathlib.Path(sys.argv[2]).write_text('ready')",
+            "while not pathlib.Path(sys.argv[3]).exists(): time.sleep(0.01)",
+            "service._release_write_lock()",
+        ]
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_code, str(path), str(ready_path), str(release_path)],
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    contender = TerminalSafeAssistantTaskService(file_path=str(path))
+
+    try:
+        deadline = time.monotonic() + 10
+        while not ready_path.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert ready_path.exists(), child.stderr.read() if child.poll() is not None else "writer did not acquire lock"
+        with pytest.raises(FileExistsError, match="TASK_FILE_WRITE_LOCKED"):
+            contender._acquire_write_lock()
+
+        release_path.write_text("release")
+        assert child.wait(timeout=10) == 0, child.stderr.read()
+
+        contender._acquire_write_lock()
+        contender._release_write_lock()
+    finally:
+        if child.poll() is None:
+            release_path.write_text("release")
+            child.wait(timeout=10)
+        child.stderr.close()

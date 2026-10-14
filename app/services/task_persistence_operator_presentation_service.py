@@ -41,6 +41,13 @@ class TaskPersistenceOperatorPresentationService:
                 "Последняя операция persistence требует ручной проверки. "
                 "Автоматический retry не выполняется."
             )
+        elif "TASK_DIRECTORY_FSYNC_UNSUPPORTED" in warnings:
+            message = (
+                "Хранилище задач: предупреждение. Запись завершилась и файл "
+                "заменён атомарно, но Windows не поддерживает используемый "
+                "механизм fsync родительской папки. Подтверждена синхронизация "
+                "самого файла, но не записи каталога после сбоя питания."
+            )
         elif "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
             message = (
                 "Хранилище задач: предупреждение. "

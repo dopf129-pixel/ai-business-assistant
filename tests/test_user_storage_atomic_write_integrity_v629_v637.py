@@ -198,10 +198,12 @@ def test_v632_successful_save_uses_atomic_replace_and_leaves_no_temp(
         result["atomic_replace"]
         is True
     )
-    assert (
-        "durability_warning"
-        not in result
-    )
+    if os.name == "nt":
+        assert result["durability_warning"] == (
+            "USER_STORAGE_DIRECTORY_FSYNC_UNSUPPORTED"
+        )
+    else:
+        assert "durability_warning" not in result
     assert (
         json.loads(
             path.read_text(
@@ -258,12 +260,16 @@ def test_v633_directory_fsync_failure_is_post_commit_warning_not_rollback(
 
     result = service.save()
 
+    expected_warning = (
+        "USER_STORAGE_DIRECTORY_FSYNC_UNSUPPORTED"
+        if os.name == "nt"
+        else "USER_STORAGE_DIRECTORY_FSYNC_FAILED"
+    )
     assert result == {
         "error": False,
         "saved": True,
         "atomic_replace": True,
-        "durability_warning":
-            "USER_STORAGE_DIRECTORY_FSYNC_FAILED",
+        "durability_warning": expected_warning,
     }
     assert (
         json.loads(

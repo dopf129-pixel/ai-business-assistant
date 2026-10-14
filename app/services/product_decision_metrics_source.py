@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from services.tenant_context import get_current_tenant_user_id
 
 
 class ProductDecisionMetricsSource:
@@ -28,14 +29,15 @@ class ProductDecisionMetricsSource:
     def stock(self, sku):
         target_sku = str(sku or "").strip()
         prepared = self._load(target_sku)
-        self._cache.pop(target_sku, None)
+        self._cache.pop(self._cache_key(target_sku), None)
         return dict(prepared.get("stock") or {})
 
     def _load(self, sku, refresh=False):
         target_sku = str(sku or "").strip()
+        cache_key = self._cache_key(target_sku)
 
-        if not refresh and target_sku in self._cache:
-            return self._cache[target_sku]
+        if not refresh and cache_key in self._cache:
+            return self._cache[cache_key]
 
         product = self._find_product(target_sku)
 
@@ -44,7 +46,7 @@ class ProductDecisionMetricsSource:
                 "sales": {"error": True},
                 "stock": {"error": True},
             }
-            self._cache[target_sku] = result
+            self._cache[cache_key] = result
             return result
 
         product_id = product.get("product_id")
@@ -68,7 +70,7 @@ class ProductDecisionMetricsSource:
                     "stock_priority",
                 )
             )
-            self._cache[target_sku] = result
+            self._cache[cache_key] = result
             return result
 
         current_finance = self.analytics_service.analyze_finance(
@@ -174,8 +176,13 @@ class ProductDecisionMetricsSource:
             "stock": stock_payload,
         }
 
-        self._cache[target_sku] = result
+        self._cache[cache_key] = result
         return result
+
+    @staticmethod
+    def _cache_key(sku):
+        tenant_scope = str(get_current_tenant_user_id() or "").strip() or None
+        return tenant_scope, str(sku)
 
     def _find_product(self, sku):
         for product in self.product_service.load_products() or []:

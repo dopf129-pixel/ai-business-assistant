@@ -378,7 +378,9 @@ class TaskPersistenceReleaseObservabilityService:
             for value in blockers
         ):
             categories.append("RELEASE_CAPABILITY")
-        if "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
+        if warnings.intersection(
+            {"TASK_DIRECTORY_FSYNC_ERROR", "TASK_DIRECTORY_FSYNC_UNSUPPORTED"}
+        ):
             categories.append("DURABILITY")
         if "TASK_FILE_WRITE_LOCK_RELEASE_ERROR" in warnings:
             categories.append("LOCK_RELEASE")

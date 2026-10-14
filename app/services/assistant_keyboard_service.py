@@ -33,6 +33,10 @@ class AssistantKeyboardService:
                     "callback": "period_profit"
                 },
                 {
+                    "text": "💸 Внешние расходы",
+                    "callback": "external_expenses",
+                },
+                {
                     "text": "🧪 Экспериментальные расчёты",
                     "callback": "experimental_calculations"
                 },
@@ -47,6 +51,10 @@ class AssistantKeyboardService:
                 {
                     "text": "🎯 Решения по товарам",
                     "callback": "product_decisions"
+                },
+                {
+                    "text": "🔎 На что обратить внимание",
+                    "callback": "seller_attention",
                 },
                 {
                     "text": "↩️ Расходы на возвраты",
@@ -72,6 +80,129 @@ class AssistantKeyboardService:
                 {
                     "text": "↩️ Главное меню",
                     "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_external_expenses_period_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": label, "callback": "external_expenses:period:" + code}
+                for label, code in (
+                    ("Сегодня", "TODAY"),
+                    ("7 дней", "7D"),
+                    ("28 дней", "28D"),
+                    ("56 дней", "56D"),
+                    ("90 дней", "90D"),
+                )
+            ]
+            + [
+                {
+                    "text": "📅 Указать период",
+                    "callback": "external_expenses:period:custom",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_external_expenses_period_input_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "↩️ К выбору периода",
+                    "callback": "external_expenses",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_external_expenses_period_view_keyboard(self, view_id):
+        token = str(view_id or "")
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "➕ Добавить расход",
+                    "callback": "external_expenses:add:" + token,
+                },
+                {
+                    "text": "✅ Подтвердить полноту периода",
+                    "callback": "external_expenses:coverage:" + token,
+                },
+                {
+                    "text": "📅 Выбрать другой период",
+                    "callback": "external_expenses",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_external_expense_input_keyboard(
+        self,
+        draft_id,
+        skip_description=False,
+    ):
+        token = str(draft_id or "")
+        buttons = []
+        if skip_description:
+            buttons.append({
+                "text": "Пропустить описание",
+                "callback": "external_expenses:skip-description:" + token,
+            })
+        buttons.extend([
+            {
+                "text": "Отмена",
+                "callback": "external_expenses:cancel:" + token,
+            },
+            {
+                "text": "↩️ Главное меню",
+                "callback": "main_menu",
+            },
+        ])
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
+    def build_external_expense_preview_keyboard(
+        self,
+        draft_id,
+        coverage=False,
+    ):
+        token = str(draft_id or "")
+        action = (
+            "external_expenses:coverage-confirm:"
+            if coverage
+            else "external_expenses:expense-confirm:"
+        )
+        label = (
+            "✅ Подтвердить полноту"
+            if coverage
+            else "✅ Сохранить расход"
+        )
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": label, "callback": action + token},
+                {
+                    "text": "Отмена",
+                    "callback": "external_expenses:cancel:" + token,
                 },
             ],
         }
@@ -107,6 +238,38 @@ class AssistantKeyboardService:
             "error": False,
             "type": "inline_keyboard",
             "buttons": [
+                {
+                    "text": "🔎 Проверить Analytics через API",
+                    "callback": "experimental_analytics_api_diagnostic",
+                },
+                {
+                    "text": "🔎 Проверить возвраты через API",
+                    "callback": "experimental_returns_api_diagnostic",
+                },
+                {
+                    "text": "📋 Подробности",
+                    "callback": "experimental_store_economics_details",
+                },
+                {
+                    "text": "↩️ Эксперименты",
+                    "callback": "experimental_calculations",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_experimental_store_economics_details_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "↩️ К отчёту",
+                    "callback": "experimental_store_economics_summary",
+                },
                 {
                     "text": "↩️ Эксперименты",
                     "callback": "experimental_calculations",
@@ -146,6 +309,41 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": normalized
         }
+
+    def build_period_profit_result_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [{
+                "text": "🔎 Полнота данных",
+                "callback": "period_profit_completeness:" + token,
+            }],
+        }
+
+    def build_period_profit_completeness_keyboard(self, report_view_id, actions):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        labels = {
+            "cost": ("💰 Себестоимость", "seller_cost"),
+            "sku": ("🔎 Проверить SKU", "period_profit_sku"),
+            "return_inventory": ("↩️ Состояние возврата", "return_inventory"),
+            "external_expenses": ("💸 Внешние расходы", "external_expenses"),
+        }
+        buttons = []
+        for action in actions or []:
+            item = labels.get(str(action))
+            if item is not None:
+                buttons.append({"text": item[0], "callback": item[1]})
+        buttons.append({
+            "text": "↩️ К расчёту",
+            "callback": "period_profit_report:" + token,
+        })
+        buttons.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
 
     def build_unit_economics_keyboard(
@@ -238,6 +436,34 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": buttons
         }
+
+    def build_seller_attention_keyboard(self, priority_skus, missing_skus):
+        buttons = []
+        seen = set()
+        for label, skus in (
+            ("Приоритет", priority_skus),
+            ("Проверить данные", missing_skus),
+        ):
+            for sku in skus or []:
+                value = str(sku or "").strip()
+                callback = "product_decision:" + value
+                if (
+                    not value
+                    or callback in seen
+                    or len(callback.encode("utf-8")) > 64
+                ):
+                    continue
+                seen.add(callback)
+                buttons.append({
+                    "text": ("🔎 " if label == "Приоритет" else "🧩 ")
+                    + value,
+                    "callback": callback,
+                })
+        buttons.extend([
+            {"text": "🎯 Все решения по товарам", "callback": "product_decisions"},
+            {"text": "💵 Прибыль за период", "callback": "period_profit"},
+        ])
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
     def build_product_decision_learning_coverage_keyboard(
         self,

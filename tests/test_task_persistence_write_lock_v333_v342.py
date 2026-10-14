@@ -80,9 +80,12 @@ def test_v335_lock_file_is_private_empty_and_persistent_coordination_artifact(tm
     service._acquire_write_lock()
     lock_path = tmp_path / "tasks.json.lock"
     try:
-        assert lock_path.read_bytes() == b""
-        mode = stat.S_IMODE(lock_path.stat().st_mode)
-        assert mode == 0o600
+        if os.name == "posix":
+            assert lock_path.read_bytes() == b""
+            mode = stat.S_IMODE(lock_path.stat().st_mode)
+            assert mode == 0o600
+        else:
+            assert os.fstat(service._write_lock_fd).st_size == 0
     finally:
         service._release_write_lock()
 
@@ -151,14 +154,10 @@ def test_v338_lock_acquisition_error_is_stable_and_non_sensitive(tmp_path, monke
 def test_v339_kernel_unlock_error_does_not_turn_durable_success_into_failure(tmp_path, monkeypatch):
     path = tmp_path / "tasks.json"
     service = TerminalSafeAssistantTaskService(file_path=str(path))
-    real_flock = terminal_module.fcntl.flock
+    def failing_unlock(fd):
+        raise OSError("sensitive release detail")
 
-    def failing_unlock(fd, operation):
-        if operation == terminal_module.fcntl.LOCK_UN:
-            raise OSError("sensitive release detail")
-        return real_flock(fd, operation)
-
-    monkeypatch.setattr(terminal_module.fcntl, "flock", failing_unlock)
+    monkeypatch.setattr(terminal_module, "_release_kernel_file_lock", failing_unlock)
 
     result = service.create_task(USER_ID, "Сохранено", [_action()])
 
@@ -166,7 +165,11 @@ def test_v339_kernel_unlock_error_does_not_turn_durable_success_into_failure(tmp
     durable = json.loads(path.read_text(encoding="utf-8"))
     assert durable[str(USER_ID)]["task"] == "Сохранено"
     diagnostics = service.get_persistence_diagnostics()
-    assert diagnostics["last_save_state"] == "SUCCEEDED"
+    if os.name == "nt":
+        assert diagnostics["last_save_state"] == "SUCCEEDED_WITH_DURABILITY_WARNING"
+        assert diagnostics["last_save_issue"] == "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+    else:
+        assert diagnostics["last_save_state"] == "SUCCEEDED"
     assert diagnostics["last_lock_release_issue"] == "TASK_FILE_WRITE_LOCK_RELEASE_ERROR"
     assert "sensitive release detail" not in repr(diagnostics)
 

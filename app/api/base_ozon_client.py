@@ -35,17 +35,39 @@ class OzonClient:
         timeout=20,
         max_attempts=3,
         total_timeout=75,
+        request_attempt_observer=None,
     ):
         trace = current_period_profit_trace()
+        if trace is not None:
+            remaining_budget = trace.remaining_seconds()
+            if remaining_budget <= 0:
+                return {
+                    "error": True,
+                    "code": "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
+                    "read_only": True,
+                    "executed": False,
+                }
+            total_timeout = (
+                remaining_budget
+                if total_timeout is None
+                else min(float(total_timeout), remaining_budget)
+            )
         started_at = time.monotonic()
         status = "exception"
         try:
+            implementation_options = {
+                "timeout": timeout,
+                "max_attempts": max_attempts,
+                "total_timeout": total_timeout,
+            }
+            if callable(request_attempt_observer):
+                implementation_options["request_attempt_observer"] = (
+                    request_attempt_observer
+                )
             result = self._post_impl(
                 endpoint,
                 data,
-                timeout=timeout,
-                max_attempts=max_attempts,
-                total_timeout=total_timeout,
+                **implementation_options,
             )
             status = (
                 str(result.get("code") or result.get("status_code") or "error")
@@ -67,7 +89,8 @@ class OzonClient:
         data,
         timeout=20,
         max_attempts=3,
-        total_timeout=75
+        total_timeout=75,
+        request_attempt_observer=None,
     ):
 
         url = self.base_url + endpoint
@@ -97,6 +120,28 @@ class OzonClient:
             max_attempts + 1
         ):
 
+            trace = current_period_profit_trace()
+            if trace is not None:
+                reservation = trace.reserve_ozon_request(endpoint)
+                if reservation.get("error") is True:
+                    return {
+                        "error": True,
+                        "code": str(
+                            reservation.get("code")
+                            or "OZON_OPERATION_BUDGET_EXHAUSTED"
+                        ),
+                        "read_only": True,
+                        "executed": False,
+                    }
+                remaining_budget = float(
+                    reservation.get("remaining_seconds") or 0
+                )
+                total_timeout = (
+                    remaining_budget
+                    if total_timeout is None
+                    else min(float(total_timeout), remaining_budget)
+                )
+
             if (
                 total_timeout is not None
                 and time.monotonic() - started_at >= float(total_timeout)
@@ -119,6 +164,12 @@ class OzonClient:
                             "message": "Ozon API: запрос превысил общий лимит ожидания"
                         }
                     request_timeout = min(request_timeout, remaining)
+
+                if callable(request_attempt_observer):
+                    try:
+                        request_attempt_observer(endpoint)
+                    except Exception:
+                        pass
 
                 response = requests.post(
                     url,
@@ -437,6 +488,18 @@ class OzonClient:
             max_attempts=3
         )
 
+    def get_monthly_realization_report(self, year, month):
+
+        return self._post(
+            "/v2/finance/realization",
+            {
+                "month": int(month),
+                "year": int(year)
+            },
+            timeout=30,
+            max_attempts=3
+        )
+
     def get_returns(
         self,
         offer_id=None,
@@ -444,7 +507,11 @@ class OzonClient:
         since=None,
         to=None,
         limit=500,
-        last_id=0
+        last_id=0,
+        timeout=30,
+        max_attempts=3,
+        total_timeout=75,
+        request_attempt_observer=None,
     ):
 
         filter_data = {
@@ -466,6 +533,17 @@ class OzonClient:
                 )
             }
 
+        request_options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+        }
+        if total_timeout != 75:
+            request_options["total_timeout"] = total_timeout
+        if callable(request_attempt_observer):
+            request_options["request_attempt_observer"] = (
+                request_attempt_observer
+            )
+
         return self._post(
             "/v1/returns/list",
             {
@@ -473,8 +551,7 @@ class OzonClient:
                 "limit": int(limit),
                 "last_id": int(last_id)
             },
-            timeout=30,
-            max_attempts=3
+            **request_options,
         )
 
     @staticmethod

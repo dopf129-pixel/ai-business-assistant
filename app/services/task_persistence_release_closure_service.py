@@ -296,12 +296,26 @@ class TaskPersistenceReleaseClosureService:
                 "automatic": False,
             })
 
-        if "TASK_DIRECTORY_FSYNC_ERROR" in warnings:
+        if any(
+            issue in warnings
+            for issue in {
+                "TASK_DIRECTORY_FSYNC_ERROR",
+                "TASK_DIRECTORY_FSYNC_UNSUPPORTED",
+            }
+        ):
             steps.append({
                 "step": len(steps) + 1,
-                "action": "INSPECT_DURABILITY_BOUNDARY",
+                "action": (
+                    "DOCUMENT_PLATFORM_DURABILITY_LIMIT"
+                    if "TASK_DIRECTORY_FSYNC_UNSUPPORTED" in warnings
+                    else "INSPECT_DURABILITY_BOUNDARY"
+                ),
                 "instruction": (
-                    "Проверьте filesystem/directory durability вручную; "
+                    "Платформа не поддерживает directory fsync в этом "
+                    "backend; зафиксируйте ограничение и не трактуйте rename "
+                    "как доказанную crash durability."
+                    if "TASK_DIRECTORY_FSYNC_UNSUPPORTED" in warnings
+                    else "Проверьте filesystem/directory durability вручную; "
                     "не трактуйте rename как доказанную crash durability."
                 ),
                 "automatic": False,

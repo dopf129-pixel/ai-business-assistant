@@ -59,6 +59,7 @@ class PeriodProfitCompactReturnInventoryWarningTests(unittest.TestCase):
                     "return_id": "1001702837",
                     "quantity": 1,
                     "inventory_recovery_state": "NON_SALEABLE",
+                    "inventory_recovery_evidence_status": "RETURN_INVENTORY_RECOVERY_READY",
                 }],
             })
         )

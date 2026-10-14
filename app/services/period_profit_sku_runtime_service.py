@@ -81,6 +81,19 @@ class PeriodProfitSkuRuntimeService:
     HISTORICAL_REPORT_DEPENDENCY_ERROR_TYPES = frozenset({
         "TIMEOUT", "CONNECTION_ERROR", "TLS_ERROR", "REQUEST_ERROR",
     })
+    OPTIONAL_ADVERTISING_FAILURE_CODES = frozenset({
+        "PERIOD_PROFIT_SKU_ADVERTISING_UNAVAILABLE",
+        "PERIOD_PROFIT_SKU_ADVERTISING_INVALID",
+        "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED",
+        "PERIOD_PROFIT_SKU_ADVERTISING_RECONCILIATION_INVALID",
+        "OZON_PERFORMANCE_AUTH_UNAVAILABLE",
+        "OZON_PERFORMANCE_DEPENDENCY_UNAVAILABLE",
+        "OZON_HISTORICAL_REPORT_TIMEOUT",
+        "OZON_HISTORICAL_REPORT_BUDGET_EXHAUSTED",
+        "OZON_HISTORICAL_CAMPAIGNS_INVALID",
+        "OZON_HISTORICAL_CAMPAIGN_TYPE_UNKNOWN",
+        "OZON_HISTORICAL_REPORT_FORMAT",
+    })
     PERIODS = (
         ("Сегодня", "TODAY"),
         ("7 дней", "7D"),
@@ -227,7 +240,7 @@ class PeriodProfitSkuRuntimeService:
             previous = candidate
         advertising = self._load_advertising(result, summary, selected, identity)
         if advertising.get("error") is True:
-            return advertising
+            advertising = self._incomplete_advertising_evidence(advertising)
         if advertising.get("applied") is True:
             selected = self._apply_advertising(selected, advertising)
             if previous is not None and isinstance(result.get("previous_summary"), dict):
@@ -236,14 +249,54 @@ class PeriodProfitSkuRuntimeService:
                     evidence=result.get("advertising_financial_evidence"),
                 )
                 if previous_advertising.get("error") is True:
-                    return previous_advertising
-                if previous_advertising.get("applied") is True:
+                    previous = None
+                elif previous_advertising.get("applied") is True:
                     previous = self._apply_advertising(previous, previous_advertising)
+                else:
+                    # Do not compare a CPC-adjusted current period with a base-only
+                    # previous period. Their scopes are different.
+                    previous = None
         selected["advertising_evidence"] = advertising
         presented = self._present(selected, identity, previous)
         return self._with_identity_revocation_buttons(
             presented, summary, identity, period
         )
+
+    @staticmethod
+    def _incomplete_advertising_evidence(failure):
+        """Keep verified finance visible when optional CPC enrichment fails."""
+        code = str(failure.get("code") or "") if isinstance(failure, dict) else ""
+        reason = (
+            "FINANCE_OVERLAP_UNCONFIRMED"
+            if code == "PERIOD_PROFIT_SKU_ADVERTISING_MAPPING_REQUIRED"
+            else "PERFORMANCE_UNAVAILABLE"
+        )
+        incomplete = {
+            "error": False,
+            "status": "PERIOD_PROFIT_SKU_ADVERTISING_INCOMPLETE",
+            "configured": True,
+            "complete": False,
+            "applied": False,
+            "reason": reason,
+        }
+        if code in PeriodProfitSkuRuntimeService.OPTIONAL_ADVERTISING_FAILURE_CODES:
+            incomplete["diagnostic_code"] = code
+        stage = PeriodProfitSkuRuntimeService._safe_historical_report_format_stage(
+            failure.get("report_format_stage")
+        ) if isinstance(failure, dict) else None
+        if stage:
+            incomplete["diagnostic_stage"] = stage
+        endpoint = PeriodProfitSkuRuntimeService._safe_historical_report_format_endpoint(
+            failure.get("report_format_endpoint")
+        ) if isinstance(failure, dict) else None
+        if endpoint:
+            incomplete["diagnostic_endpoint"] = endpoint
+        dependency_stage = PeriodProfitSkuRuntimeService._safe_historical_report_dependency_stage(
+            failure.get("dependency_stage")
+        ) if isinstance(failure, dict) else None
+        if dependency_stage:
+            incomplete["diagnostic_stage"] = dependency_stage
+        return incomplete
 
     def _load_advertising(
         self, query_result, summary, selected, identity, evidence="CURRENT"
@@ -1151,6 +1204,32 @@ class PeriodProfitSkuRuntimeService:
         advertising = row.get("advertising_evidence") or {}
         if advertising.get("applied") is True:
             warning = "⚠️ Включена подтверждённая реклама CPC по SKU. CPO и остальные неатрибутированные расходы кабинета, реклама других типов, внешние расходы и Return COGS не включены и не считаются нулём."
+        elif advertising.get("status") == "PERIOD_PROFIT_SKU_ADVERTISING_INCOMPLETE":
+            if advertising.get("reason") == "FINANCE_OVERLAP_UNCONFIRMED":
+                warning = (
+                    "⚠️ Сумма CPC получена, но её пересечение с начислениями Ozon "
+                    "не подтверждено. Чтобы не учесть рекламу дважды, отдельную "
+                    "сумму CPC не добавляю; основной расчёт по финансовым "
+                    "начислениям сохранён."
+                )
+            else:
+                warning = (
+                    "⚠️ Не удалось сверить CPC в Ozon Performance. Основной "
+                    "расчёт по финансовым начислениям Ozon сохранён; CPC "
+                    "отдельно не добавлена."
+                )
+            warning += (
+                " CPO, остальные неатрибутированные расходы, внешние расходы "
+                "и Return COGS не включены и не считаются нулём."
+            )
+            diagnostic = advertising.get("diagnostic_code")
+            if diagnostic:
+                warning += " Диагностика: " + diagnostic
+                if advertising.get("diagnostic_stage"):
+                    warning += "; этап " + advertising["diagnostic_stage"]
+                if advertising.get("diagnostic_endpoint"):
+                    warning += "; " + advertising["diagnostic_endpoint"]
+                warning += "."
         else:
             warning = "⚠️ Реклама CPC по SKU не подключена. CPO и остальные неатрибутированные расходы кабинета, внешние расходы и Return COGS не включены и не считаются нулём. Подключение: /ozon_ads_connect."
         lines.extend(["", warning])

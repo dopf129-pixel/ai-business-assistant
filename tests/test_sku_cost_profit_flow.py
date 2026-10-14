@@ -1,3 +1,5 @@
+from datetime import date
+
 from services.period_profit_sku_runtime_service import PeriodProfitSkuRuntimeService
 from services.telegram_seller_cost_update_service import TelegramSellerCostUpdateService
 
@@ -37,14 +39,30 @@ def test_sku_profit_menu_only_shows_products_with_configured_cost():
 
 def test_seller_cost_save_offers_profit_for_just_saved_sku():
     costs = _Costs()
-    service = TelegramSellerCostUpdateService(_Products(), costs)
+    service = TelegramSellerCostUpdateService(
+        _Products(),
+        costs,
+        date_provider=lambda: date(2026, 9, 15),
+    )
     service.select_sku("user", "SKU-A")
-    result = service.handle_text("user", "430")
+    preview = service.handle_text("user", "430")
+    assert preview["error"] is False
+    assert preview["seller_cost_confirmation_pending"] is True
+    assert costs.recorded == []
+    assert preview["keyboard"]["buttons"][0]["text"] == "Сохранить с 2026-09-15"
+    assert preview["keyboard"]["buttons"][0]["callback"].startswith(
+        service.CONFIRM_DATE_CALLBACK + ":"
+    )
+
+    result = service.handle_button(
+        "user", preview["keyboard"]["buttons"][0]["callback"]
+    )
     assert result["error"] is False
     assert result["keyboard"]["buttons"][0] == {
         "text": "📊 Прибыль по этому товару",
         "callback": "period_profit_sku:SKU-A",
     }
+    assert costs.recorded[0]["effective_from"] == "2026-09-15"
     assert "Осталось заполнить" not in result["message"]
 
 

@@ -172,7 +172,12 @@ def test_v330_successful_write_refreshes_guard_for_next_same_instance_write(tmp_
 
     durable = json.loads(path.read_text(encoding="utf-8"))
     assert durable[str(USER_ID)]["pending_action"] == {"title": "второе"}
-    assert service.get_persistence_diagnostics()["last_save_state"] == "SUCCEEDED"
+    diagnostics = service.get_persistence_diagnostics()
+    if os.name == "nt":
+        assert diagnostics["last_save_state"] == "SUCCEEDED_WITH_DURABILITY_WARNING"
+        assert diagnostics["last_save_issue"] == "TASK_DIRECTORY_FSYNC_UNSUPPORTED"
+    else:
+        assert diagnostics["last_save_state"] == "SUCCEEDED"
 
 
 def test_v331_fingerprint_value_never_appears_in_public_diagnostics(tmp_path):

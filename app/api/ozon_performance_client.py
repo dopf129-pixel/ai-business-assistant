@@ -6,6 +6,8 @@ from threading import Lock
 
 import requests
 
+from services.period_profit_operation_diagnostics import current_period_profit_trace
+
 
 class OzonPerformanceClient:
     BASE_URL = "https://api-performance.ozon.ru"
@@ -83,13 +85,13 @@ class OzonPerformanceClient:
             current = window_end + timedelta(days=1)
         return {"rows": rows, "external_call_count": call_count}
 
-    def _access_token(self, force=False):
+    def _access_token(self, force=False, timeout=30):
         if not force and self._token and time.monotonic() < self._token_expires_at:
             return {"error": False, "access_token": self._token, "cache_hit": True}
         with self._token_lock:
-            return self._access_token_locked(force=force)
+            return self._access_token_locked(force=force, timeout=timeout)
 
-    def _access_token_locked(self, force=False):
+    def _access_token_locked(self, force=False, timeout=30):
         if not force and self._token and time.monotonic() < self._token_expires_at:
             return {"error": False, "access_token": self._token, "cache_hit": True}
         if not self.client_id or not self.client_secret:
@@ -98,6 +100,7 @@ class OzonPerformanceClient:
             "post",
             "/api/client/token",
             None,
+            timeout=timeout,
             json={
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
@@ -106,6 +109,11 @@ class OzonPerformanceClient:
         )
         token = str(result.get("access_token") or "").strip() if isinstance(result, dict) else ""
         if result.get("error") is True or not token:
+            if (
+                isinstance(result, dict)
+                and str(result.get("code") or "").startswith("OZON_OPERATION_")
+            ):
+                return result
             return {"error": True, "code": "OZON_PERFORMANCE_AUTH_UNAVAILABLE"}
         try:
             lifetime = max(60.0, float(result.get("expires_in") or 1800.0) - 30.0)
@@ -143,15 +151,30 @@ class OzonPerformanceClient:
             return 86401
         return int(ceil(seconds))
 
-    def _request(self, method, endpoint, token, **kwargs):
+    def _request(self, method, endpoint, token, timeout=30, **kwargs):
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
+        trace = current_period_profit_trace()
+        if trace is not None:
+            reservation = trace.reserve_ozon_request(endpoint)
+            if reservation.get("error") is True:
+                return {
+                    "error": True,
+                    "code": str(
+                        reservation.get("code")
+                        or "OZON_OPERATION_BUDGET_EXHAUSTED"
+                    ),
+                }
+            remaining_budget = float(
+                reservation.get("remaining_seconds") or 0
+            )
+            timeout = min(float(timeout), remaining_budget)
         try:
             response = getattr(self.session, method)(
                 self.BASE_URL + endpoint,
                 headers=headers,
-                timeout=30,
+                timeout=max(0.001, float(timeout)),
                 **kwargs,
             )
         except requests.exceptions.RequestException as exc:

@@ -1,4 +1,5 @@
 import re
+from collections import OrderedDict
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
@@ -6,12 +7,15 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from threading import RLock
+from time import monotonic
+from uuid import uuid4
 
 from period_profit_request import build_period_profit_request
 from services.period_profit_cost_exclusion_context import (
     activate_cost_exclusion,
     reset_cost_exclusion,
 )
+from services.tenant_context import get_current_tenant_user_id
 
 
 class ExperimentalStoreEconomicsRuntimeService:
@@ -21,10 +25,17 @@ class ExperimentalStoreEconomicsRuntimeService:
     ANALYTICS_METRICS = ("ordered_units", "cancellations", "returns")
     ANALYTICS_DIMENSIONS = ("day",)
     ANALYTICS_PAGE_SIZE = 1000
+    ANALYTICS_MAX_PAGES = 20
     ACCRUAL_POSTING_BATCH_SIZE = 100
     ACCRUAL_POSTING_WORKERS = 4
     OPERATIONAL_POSTING_MAX_PAGES = 20
     OPERATIONAL_RETURN_MAX_PAGES = 20
+    RETURNS_DIAGNOSTIC_MAX_PAGES_PER_SCHEMA = 2
+    RETURNS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS = 10
+    RETURNS_DIAGNOSTIC_TIME_BUDGET_SECONDS = 120
+    ANALYTICS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS = 2
+    ANALYTICS_DIAGNOSTIC_TIME_BUDGET_SECONDS = 30
+    REPORT_CACHE_MAX_SCOPES = 64
     FEE_LABEL_MATCHERS = {
         "last_mile": (
             "последняя миля",
@@ -119,6 +130,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             "OZON_FINANCE_REALIZATION_ROW_INVALID",
             "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
             "OZON_FINANCE_REALIZATION_COMMISSION_INVALID",
+            "OZON_FINANCE_REALIZATION_COMMISSION_ZERO",
         }
     )
     OZON_REQUEST_FAILURE_CODES = frozenset(
@@ -143,8 +155,12 @@ class ExperimentalStoreEconomicsRuntimeService:
         self.advertising_service = advertising_service
         self.analytics_client = analytics_client
         self.finance_transaction_client = finance_transaction_client
-        self._pending_custom_period_users = set()
+        self._pending_custom_period_users = {}
         self._pending_lock = RLock()
+        self._calculation_inflight = set()
+        self._report_views = OrderedDict()
+        self._latest_report_views = {}
+        self._report_views_lock = RLock()
 
     def handle_callback(self, callback_data, user_id=None, today=None):
         parts = str(callback_data or "").strip().split(":")
@@ -160,14 +176,19 @@ class ExperimentalStoreEconomicsRuntimeService:
         request = build_period_profit_request(period_code=period, today=today)
         if request.get("error") is True:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_PERIOD_INVALID")
-        return self.calculate(request["date_from"], request["date_to"])
+        return self._calculate_once(
+            request["date_from"],
+            request["date_to"],
+            user_id=user_id,
+            mode="preset:" + period,
+        )
 
     def begin_custom_period(self, user_id):
         user_key = self._user_key(user_id)
         if not user_key:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_USER_REQUIRED")
         with self._pending_lock:
-            self._pending_custom_period_users.add(user_key)
+            self._pending_custom_period_users[user_key] = self._tenant_scope(user_key)
         return {
             "error": False,
             "status": "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_INPUT_REQUIRED",
@@ -180,9 +201,25 @@ class ExperimentalStoreEconomicsRuntimeService:
         user_key = self._user_key(user_id)
         if not user_key:
             return None
+        tenant_scope = self._tenant_scope(user_key)
         with self._pending_lock:
+            pending_scope = self._pending_custom_period_users.get(user_key)
             pending = user_key in self._pending_custom_period_users
+            if pending and pending_scope != tenant_scope:
+                self._pending_custom_period_users.pop(user_key, None)
+                return self._custom_period_store_stale()
         if not pending:
+            match = re.fullmatch(
+                r"(\d{1,2}\.\d{1,2}\.\d{4})\s*-\s*"
+                r"(\d{1,2}\.\d{1,2}\.\d{4})",
+                " ".join(str(text or "").strip().split()),
+            )
+            if match:
+                parsed = self._parse_custom_period_dates(match.groups())
+                if parsed and self._has_calculation_inflight(
+                    user_id, "custom", parsed
+                ):
+                    return self._calculation_in_progress()
             return None
 
         value = " ".join(str(text or "").strip().split())
@@ -203,12 +240,9 @@ class ExperimentalStoreEconomicsRuntimeService:
         )
         if not match:
             return self._custom_period_retry()
-        parsed = []
-        for token in match.groups():
-            try:
-                parsed.append(datetime.strptime(token, "%d.%m.%Y").date())
-            except ValueError:
-                return self._custom_period_retry()
+        parsed = self._parse_custom_period_dates(match.groups())
+        if parsed is None:
+            return self._custom_period_retry()
         request = build_period_profit_request(
             date_from=parsed[0],
             date_to=parsed[1],
@@ -217,16 +251,109 @@ class ExperimentalStoreEconomicsRuntimeService:
         if request.get("error") is True:
             return self._custom_period_retry()
 
-        self.clear_pending_custom_period_input(user_id)
-        return self.calculate(request["date_from"], request["date_to"])
+        return self._calculate_once(
+            request["date_from"],
+            request["date_to"],
+            user_id=user_id,
+            mode="custom",
+            consume_pending_user_key=user_key,
+            expected_pending_tenant_scope=tenant_scope,
+        )
+
+    def _calculate_once(
+        self,
+        date_from,
+        date_to,
+        user_id=None,
+        mode="custom",
+        consume_pending_user_key=None,
+        expected_pending_tenant_scope=None,
+    ):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return self.calculate(date_from, date_to, user_id=user_id)
+        tenant_scope = self._user_key(get_current_tenant_user_id()) or user_key
+        period_key = (str(date_from), str(date_to))
+        key = (tenant_scope, user_key, str(mode), period_key)
+        with self._pending_lock:
+            if key in self._calculation_inflight:
+                return self._calculation_in_progress()
+            if (
+                consume_pending_user_key is not None
+                and self._pending_custom_period_users.get(
+                    consume_pending_user_key
+                ) != expected_pending_tenant_scope
+            ):
+                return self._custom_period_already_used()
+            if consume_pending_user_key is not None:
+                self._pending_custom_period_users.pop(
+                    consume_pending_user_key, None
+                )
+            self._calculation_inflight.add(key)
+        try:
+            return self.calculate(date_from, date_to, user_id=user_id)
+        finally:
+            with self._pending_lock:
+                self._calculation_inflight.discard(key)
+
+    def _has_calculation_inflight(self, user_id, mode, period_key):
+        user_key = self._user_key(user_id)
+        tenant_scope = self._user_key(get_current_tenant_user_id()) or user_key
+        key = (tenant_scope, user_key, str(mode), tuple(map(str, period_key)))
+        with self._pending_lock:
+            return key in self._calculation_inflight
+
+    @staticmethod
+    def _parse_custom_period_dates(tokens):
+        parsed = []
+        for token in tokens:
+            try:
+                parsed.append(datetime.strptime(token, "%d.%m.%Y").date())
+            except (TypeError, ValueError):
+                return None
+        return parsed
+
+    @staticmethod
+    def _calculation_in_progress():
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_STORE_ECONOMICS_ALREADY_RUNNING",
+            "message": "Этот расчёт уже выполняется. Дождитесь ответа на первый запрос.",
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _custom_period_already_used():
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_ALREADY_USED",
+            "message": "Этот ввод периода уже обработан. Выберите период заново, если нужен повторный расчёт.",
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _custom_period_store_stale():
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_STORE_ECONOMICS_CUSTOM_PERIOD_STORE_CHANGED",
+            "message": "Вы переключили магазин. Старый ввод периода отменён; выберите период заново в текущем магазине.",
+            "read_only": True,
+            "executed": False,
+        }
 
     def clear_pending_custom_period_input(self, user_id):
         user_key = self._user_key(user_id)
         if user_key:
             with self._pending_lock:
-                self._pending_custom_period_users.discard(user_key)
+                self._pending_custom_period_users.pop(user_key, None)
 
-    def calculate(self, date_from, date_to):
+    @classmethod
+    def _tenant_scope(cls, user_key):
+        return cls._user_key(get_current_tenant_user_id()) or user_key
+
+    def calculate(self, date_from, date_to, user_id=None):
         provider, summary_service = self._summary_dependencies()
         if not callable(provider) or summary_service is None:
             return self._error("EXPERIMENTAL_STORE_ECONOMICS_DEPENDENCY_UNAVAILABLE")
@@ -293,7 +420,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         if (
             realization_commission.get("available") is True
             and metrics["analytics"].get("returns") != 0
-            and realization_commission.get("return_commission_row_count", 0) == 0
+            and realization_commission.get("return_fee_row_count", 0) == 0
         ):
             realization_commission = self._failed_realization_commission(
                 "OZON_FINANCE_REALIZATION_COMMISSION_MISSING",
@@ -301,7 +428,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             )
         metrics["realization_commission_diagnostics"] = realization_commission
         explicit_commission = realization_commission.get("commission")
-        commission_source = "FINANCE_REALIZATION_POSTING"
+        commission_source = "FINANCE_REALIZATION_REPORT"
         if explicit_commission is None:
             explicit_commission = accrual_posting_categories.get("commission")
             commission_source = "FINANCE_ACCRUAL_POSTINGS"
@@ -310,7 +437,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             commission_source = "ACCRUAL_FEE_TYPES"
         if explicit_commission is None:
             commission_source = "POSTING_SALE_COMMISSION"
-        elif commission_source != "FINANCE_REALIZATION_POSTING":
+        elif commission_source != "FINANCE_REALIZATION_REPORT":
             refund_count = accrual_posting_categories.get(
                 "commission_refund_operation_count", 0
             )
@@ -360,16 +487,727 @@ class ExperimentalStoreEconomicsRuntimeService:
         metrics["accrual_diagnostics"] = self._accrual_category_diagnostics(
             summary
         )
+        metrics["expense_breakdown"] = self._build_expense_breakdown(
+            metrics,
+            date_from,
+            date_to,
+        )
+
+        report_text = self._render(date_from, date_to, metrics)
+        details_text = self._render_details(date_from, date_to, metrics)
+        report_view_id = uuid4().hex[:12]
+        if user_id:
+            self._save_report_views(
+                user_id,
+                report_text,
+                details_text,
+                date_from=date_from,
+                date_to=date_to,
+                report_view_id=report_view_id,
+            )
 
         return {
             "error": False,
             "status": "EXPERIMENTAL_STORE_ECONOMICS_READY",
             "date_from": date_from,
             "date_to": date_to,
+            "report_view_id": report_view_id,
             "metrics": metrics,
-            "text": self._render(date_from, date_to, metrics),
+            "text": report_text,
+            "details_text": details_text,
             "cost_excluded": True,
             "profit_complete": False,
+            "read_only": True,
+            "executed": False,
+        }
+
+    def handle_details(self, user_id=None, report_view_id=None):
+        return self._get_cached_report_view(
+            user_id, "details", report_view_id=report_view_id
+        )
+
+    def handle_summary(self, user_id=None, report_view_id=None):
+        return self._get_cached_report_view(
+            user_id, "summary", report_view_id=report_view_id
+        )
+
+    def handle_returns_api_diagnostic(self, user_id=None, report_view_id=None):
+        cached = self._get_report_view(user_id, report_view_id)
+        if cached is None:
+            return self._returns_diagnostic_error(
+                "Сначала откройте отчёт экспериментальной экономики."
+            )
+        date_from = cached.get("date_from")
+        date_to = cached.get("date_to")
+        if not date_from or not date_to:
+            return self._returns_diagnostic_error(
+                "Период прошлого отчёта недоступен. Сформируйте его заново."
+            )
+        getter = getattr(self.analytics_client, "get_returns", None)
+        if not callable(getter):
+            return self._returns_diagnostic_error(
+                "Клиент Seller API возвратов недоступен."
+            )
+
+        deadline = monotonic() + self.RETURNS_DIAGNOSTIC_TIME_BUDGET_SECONDS
+        http_attempts = [0]
+        schemas = []
+        failure_code = None
+        sample_shape = None
+
+        def observe_request_attempt(_endpoint=None):
+            http_attempts[0] += 1
+
+        for schema in ("FBO", "FBS"):
+            state = {
+                "schema": schema,
+                "page_count": 0,
+                "api_row_count": 0,
+                "unique_count": 0,
+                "complete": False,
+                "types": {},
+                "statuses": {},
+                "change_moments": [],
+            }
+            seen_records = {}
+            last_id = 0
+            for _page_number in range(
+                self.RETURNS_DIAGNOSTIC_MAX_PAGES_PER_SCHEMA
+            ):
+                remaining = deadline - monotonic()
+                if remaining <= 0 or http_attempts[0] >= (
+                    self.RETURNS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS
+                ):
+                    failure_code = "DIAGNOSTIC_BUDGET_REACHED"
+                    break
+                try:
+                    response = getter(
+                        return_schema=schema,
+                        since=date_from,
+                        to=date_to,
+                        limit=500,
+                        last_id=last_id,
+                        timeout=min(15, remaining),
+                        max_attempts=2,
+                        total_timeout=min(25, remaining),
+                        request_attempt_observer=observe_request_attempt,
+                    )
+                except Exception:
+                    failure_code = "OZON_RETURNS_REQUEST_FAILED"
+                    break
+                if not isinstance(response, dict) or response.get("error") is True:
+                    failure_code = self._safe_returns_diagnostic_error_code(
+                        response
+                    )
+                    break
+                rows = response.get("returns")
+                has_next = response.get("has_next")
+                if not isinstance(rows, list) or type(has_next) is not bool:
+                    failure_code = "OZON_RETURNS_RESPONSE_INVALID"
+                    break
+
+                state["page_count"] += 1
+                state["api_row_count"] += len(rows)
+                invalid_record = False
+                for row in rows:
+                    if not isinstance(row, dict):
+                        failure_code = "OZON_RETURNS_RECORD_INVALID"
+                        invalid_record = True
+                        break
+                    raw_id = row.get("id")
+                    if raw_id is None:
+                        raw_id = row.get("return_id")
+                    record_id = self._integer(raw_id)
+                    if record_id is None or record_id <= 0:
+                        failure_code = "OZON_RETURNS_RECORD_ID_MISSING"
+                        invalid_record = True
+                        break
+                    signature = self._freeze_api_value(row)
+                    if record_id in seen_records:
+                        if seen_records[record_id] != signature:
+                            failure_code = "OZON_RETURNS_DUPLICATE_CONFLICT"
+                            invalid_record = True
+                            break
+                        continue
+                    seen_records[record_id] = signature
+                    state["unique_count"] += 1
+                    if sample_shape is None:
+                        sample_shape = self._returns_diagnostic_shape(row)
+
+                    return_type = self._safe_diagnostic_label(
+                        row.get("type"), fallback="(тип отсутствует)"
+                    )
+                    type_group = state["types"].setdefault(
+                        return_type,
+                        {"rows": 0, "quantity": 0, "quantity_missing": 0},
+                    )
+                    type_group["rows"] += 1
+                    product = row.get("product")
+                    quantity = (
+                        self._integer(product.get("quantity"))
+                        if isinstance(product, dict)
+                        else None
+                    )
+                    if quantity is None:
+                        type_group["quantity_missing"] += 1
+                    else:
+                        type_group["quantity"] += quantity
+
+                    visual = row.get("visual")
+                    visual_status = (
+                        visual.get("status")
+                        if isinstance(visual, dict)
+                        else None
+                    )
+                    change_moment = (
+                        visual.get("change_moment")
+                        if isinstance(visual, dict)
+                        else None
+                    )
+                    safe_moment = self._safe_diagnostic_timestamp(change_moment)
+                    if safe_moment:
+                        state["change_moments"].append(safe_moment)
+                    status_name = (
+                        visual_status.get("sys_name")
+                        if isinstance(visual_status, dict)
+                        else None
+                    )
+                    if status_name:
+                        status_label = self._safe_diagnostic_label(
+                            status_name,
+                            fallback="(статус не распознан)",
+                        )
+                        state["statuses"][status_label] = (
+                            state["statuses"].get(status_label, 0) + 1
+                        )
+                if invalid_record:
+                    break
+
+                if has_next is False:
+                    state["complete"] = True
+                    break
+                if not rows:
+                    failure_code = "OZON_RETURNS_CURSOR_INVALID"
+                    break
+                next_id = self._integer(rows[-1].get("id"))
+                if next_id is None:
+                    next_id = self._integer(rows[-1].get("return_id"))
+                if next_id is None or next_id <= last_id:
+                    failure_code = "OZON_RETURNS_CURSOR_INVALID"
+                    break
+                last_id = next_id
+            schemas.append(state)
+            if failure_code:
+                break
+
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_READY",
+            "message": self._render_returns_api_diagnostic(
+                date_from,
+                date_to,
+                schemas,
+                sample_shape,
+                http_attempts[0],
+                failure_code,
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def handle_analytics_api_diagnostic(self, user_id=None, report_view_id=None):
+        cached = self._get_report_view(user_id, report_view_id)
+        if cached is None:
+            return self._analytics_diagnostic_error(
+                "Сначала откройте отчёт экспериментальной экономики."
+            )
+        date_from = cached.get("date_from")
+        date_to = cached.get("date_to")
+        if not date_from or not date_to:
+            return self._analytics_diagnostic_error(
+                "Период прошлого отчёта недоступен. Сформируйте его заново."
+            )
+        getter = getattr(self.analytics_client, "get_analytics_data", None)
+        if not callable(getter):
+            return self._analytics_diagnostic_error(
+                "Клиент Ozon Analytics недоступен."
+            )
+
+        deadline = monotonic() + self.ANALYTICS_DIAGNOSTIC_TIME_BUDGET_SECONDS
+        http_attempts = [0]
+
+        def observe_request_attempt(_endpoint=None):
+            http_attempts[0] += 1
+
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return self._render_analytics_api_diagnostic(
+                date_from,
+                date_to,
+                None,
+                http_attempts[0],
+                "DIAGNOSTIC_BUDGET_REACHED",
+            )
+        try:
+            response = getter(
+                date_from,
+                date_to,
+                metrics=list(self.ANALYTICS_METRICS),
+                dimension=list(self.ANALYTICS_DIMENSIONS),
+                limit=self.ANALYTICS_PAGE_SIZE,
+                offset=0,
+                timeout=min(15, remaining),
+                max_attempts=self.ANALYTICS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS,
+                total_timeout=min(25, remaining),
+                request_attempt_observer=observe_request_attempt,
+            )
+        except Exception:
+            response = None
+        failure_code = None
+        if not isinstance(response, dict) or response.get("error") is True:
+            failure_code = (
+                self._safe_returns_diagnostic_error_code(response)
+                if isinstance(response, dict)
+                else "OZON_ANALYTICS_REQUEST_FAILED"
+            )
+        result = response.get("result") if isinstance(response, dict) else None
+        rows = result.get("data") if isinstance(result, dict) else None
+        if failure_code is None and (
+            not isinstance(rows, list)
+            or len(rows) > self.ANALYTICS_PAGE_SIZE
+            or any(not isinstance(row, dict) for row in rows)
+        ):
+            failure_code = "ANALYTICS_RESPONSE_INVALID"
+        if failure_code is not None:
+            return {
+                "error": False,
+                "status": "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_READY",
+                "message": self._render_analytics_api_diagnostic(
+                    date_from,
+                    date_to,
+                    None,
+                    http_attempts[0],
+                    failure_code,
+                ),
+                "read_only": True,
+                "executed": False,
+            }
+
+        totals = result.get("totals")
+        if not isinstance(totals, list):
+            totals = None
+        complete = (
+            len(rows) < self.ANALYTICS_PAGE_SIZE
+            and result.get("has_next") is not True
+        )
+        sample_shape = self._analytics_diagnostic_shape(rows[0]) if rows else []
+        metric_summaries = []
+        for index, metric_name in enumerate(self.ANALYTICS_METRICS):
+            total_value = None
+            if totals is not None and index < len(totals):
+                total_value, _ = _analytics_metric_value(
+                    totals[index], metric_name
+                )
+            row_sum = Decimal("0")
+            missing = 0
+            for row in rows:
+                values = row.get("metrics") if isinstance(row, dict) else None
+                value, issue = _analytics_metric_value(
+                    values[index]
+                    if isinstance(values, list) and index < len(values)
+                    else None,
+                    metric_name,
+                )
+                if issue:
+                    missing += 1
+                else:
+                    row_sum += value
+            metric_summaries.append(
+                {
+                    "name": metric_name,
+                    "total": _public_analytics_number(total_value),
+                    "row_sum": _public_analytics_number(row_sum)
+                    if missing == 0
+                    else None,
+                    "missing_rows": missing,
+                }
+            )
+
+        day_values = []
+        for row in rows:
+            dimensions = row.get("dimensions") if isinstance(row, dict) else None
+            if not isinstance(dimensions, list) or not dimensions:
+                continue
+            dimension = dimensions[0]
+            raw_day = dimension.get("id") if isinstance(dimension, dict) else None
+            if not isinstance(raw_day, str) or not re.match(
+                r"^\d{4}-\d{2}-\d{2}", raw_day
+            ):
+                continue
+            try:
+                day_values.append(date.fromisoformat(raw_day[:10]).isoformat())
+            except ValueError:
+                continue
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_READY",
+            "message": self._render_analytics_api_diagnostic(
+                date_from,
+                date_to,
+                {
+                    "rows": len(rows),
+                    "complete": complete,
+                    "totals_count": len(totals) if totals is not None else None,
+                    "metrics": metric_summaries,
+                    "days": day_values,
+                    "shape": sample_shape,
+                },
+                http_attempts[0],
+                None,
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _analytics_diagnostic_shape(row):
+        def value_type(value):
+            if value is None:
+                return "null"
+            if isinstance(value, bool):
+                return "bool"
+            if isinstance(value, int):
+                return "int"
+            if isinstance(value, float):
+                return "number"
+            if isinstance(value, str):
+                return "string"
+            if isinstance(value, dict):
+                return "object"
+            if isinstance(value, list):
+                return "array"
+            return "other"
+
+        if not isinstance(row, dict):
+            return []
+        fields = [
+            f"{key}={value_type(row.get(key))}"
+            for key in ("dimensions", "metrics")
+            if key in row
+        ]
+        dimensions = row.get("dimensions")
+        if isinstance(dimensions, list) and dimensions and isinstance(
+            dimensions[0], dict
+        ):
+            fields.extend(
+                f"dimensions[0].{key}={value_type(dimensions[0].get(key))}"
+                for key in ("id", "name")
+                if key in dimensions[0]
+            )
+        metrics = row.get("metrics")
+        if isinstance(metrics, list):
+            fields.extend(
+                f"metrics[{index}]={value_type(value)}"
+                for index, value in enumerate(metrics[:3])
+            )
+        return fields
+
+    @staticmethod
+    def _render_analytics_api_diagnostic(
+        date_from, date_to, data, http_attempts, failure_code
+    ):
+        lines = [
+            f"🔎 Ozon Analytics за {date_from} — {date_to}",
+            "Запрос: метрики ordered_units, cancellations, returns; разрез day; limit 1000.",
+        ]
+        if failure_code:
+            lines.append(f"Ответ не удалось проверить ({failure_code}).")
+        elif not isinstance(data, dict):
+            lines.append("Ответ не удалось проверить.")
+        else:
+            lines.append(
+                f"Строк дневных данных: {data['rows']}; выборка до 1000 строк: "
+                + ("полная." if data["complete"] else "неполная.")
+            )
+            days = data.get("days") or []
+            if days:
+                lines.append(f"Даты в строках: {min(days)} — {max(days)}.")
+            for metric in data.get("metrics", []):
+                total = (
+                    str(metric["total"])
+                    if metric["total"] is not None
+                    else "нет в totals"
+                )
+                row_sum = (
+                    str(metric["row_sum"])
+                    if metric["row_sum"] is not None
+                    else f"неполная ({metric['missing_rows']} строк без значения)"
+                )
+                lines.append(
+                    f"{metric['name']}: totals={total}; сумма строк={row_sum}."
+                )
+            lines.append(
+                "Полей первой строки: "
+                + (", ".join(data.get("shape") or []) or "нет строк")
+                + f"; totals: {data.get('totals_count') if data.get('totals_count') is not None else 'нет'} значений."
+            )
+        lines.append(
+            f"HTTP-попыток: {http_attempts}; максимум {ExperimentalStoreEconomicsRuntimeService.ANALYTICS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS}; одна страница."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _analytics_diagnostic_error(message):
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_ANALYTICS_API_DIAGNOSTIC_UNAVAILABLE",
+            "message": message,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _returns_diagnostic_error(message):
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_RETURNS_API_DIAGNOSTIC_UNAVAILABLE",
+            "message": message,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _safe_returns_diagnostic_error_code(response):
+        if isinstance(response, dict):
+            raw_code = response.get("code") or response.get("error_code")
+            if raw_code is not None:
+                code = str(raw_code).upper()
+                if re.fullmatch(r"[A-Z0-9_]{1,64}", code):
+                    return code
+        return "OZON_RETURNS_REQUEST_FAILED"
+
+    @staticmethod
+    def _safe_diagnostic_label(value, fallback):
+        text = str(value or "").strip()
+        if not text:
+            return fallback
+        text = re.sub(r"[^\w .-]", "", text, flags=re.UNICODE)[:64].strip()
+        return text or fallback
+
+    @staticmethod
+    def _safe_diagnostic_timestamp(value):
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        if not value or len(value) > 40:
+            return None
+        if not re.fullmatch(r"[0-9TtZz:+.\-]+", value):
+            return None
+        return value
+
+    @staticmethod
+    def _returns_diagnostic_shape(row):
+        def value_type(value):
+            if value is None:
+                return "null"
+            if isinstance(value, bool):
+                return "bool"
+            if isinstance(value, int):
+                return "int"
+            if isinstance(value, float):
+                return "number"
+            if isinstance(value, str):
+                return "string"
+            if isinstance(value, dict):
+                return "object"
+            if isinstance(value, list):
+                return "array"
+            return "other"
+
+        visual = row.get("visual") if isinstance(row.get("visual"), dict) else {}
+        status = visual.get("status") if isinstance(visual.get("status"), dict) else {}
+        product = row.get("product") if isinstance(row.get("product"), dict) else {}
+        fields = (
+            ("id", row.get("id", row.get("return_id"))),
+            ("type", row.get("type")),
+            ("schema", row.get("schema")),
+            ("product.quantity", product.get("quantity")),
+            ("visual.change_moment", visual.get("change_moment")),
+            ("visual.status.sys_name", status.get("sys_name")),
+        )
+        return [
+            f"{name}={value_type(value)}"
+            for name, value in fields
+            if value is not None
+        ]
+
+    @staticmethod
+    def _format_returns_diagnostic_groups(groups, kind):
+        if not groups:
+            return "нет"
+        labels = sorted(groups)
+        # Keep the button response comfortably below Telegram's 4096-char limit
+        # even when the API returns many distinct type/status labels.
+        shown = labels[:6]
+        parts = []
+        for label in shown:
+            value = groups[label]
+            if kind == "type":
+                quantity_text = str(value["quantity"])
+                if value["quantity_missing"]:
+                    quantity_text += (
+                        f", неизвестно в {value['quantity_missing']} строках"
+                    )
+                parts.append(
+                    f"{label}: строк {value['rows']}, quantity {quantity_text}"
+                )
+            else:
+                parts.append(f"{label}: {value}")
+        if len(labels) > len(shown):
+            parts.append(f"прочих категорий: {len(labels) - len(shown)}")
+        return "; ".join(parts)
+
+    def _render_returns_api_diagnostic(
+        self,
+        date_from,
+        date_to,
+        schemas,
+        sample_shape,
+        http_attempts,
+        failure_code,
+    ):
+        lines = [
+            f"🔎 API возвратов за {date_from} — {date_to}",
+            "Показываю только типы, статусы и количества; идентификаторы и товары скрыты.",
+        ]
+        for state in schemas:
+            completeness = "полностью прочитан" if state["complete"] else "неполная страница"
+            lines.append(
+                f"{state['schema']}: страниц {state['page_count']}, "
+                f"строк API {state['api_row_count']}, уникальных ID "
+                f"{state['unique_count']} ({completeness})."
+            )
+            lines.append(
+                "  Типы: "
+                + self._format_returns_diagnostic_groups(state["types"], "type")
+            )
+            if state["statuses"]:
+                lines.append(
+                    "  Статусы: "
+                    + self._format_returns_diagnostic_groups(
+                        state["statuses"], "status"
+                    )
+                )
+            moments = sorted(set(state["change_moments"]))
+            if moments:
+                if len(moments) == 1:
+                    lines.append("  visual.change_moment: " + moments[0])
+                else:
+                    lines.append(
+                        "  visual.change_moment в ответах: "
+                        + moments[0]
+                        + " — "
+                        + moments[-1]
+                    )
+        if sample_shape:
+            lines.append("Поля и типы в первой записи: " + ", ".join(sample_shape))
+        if failure_code:
+            lines.append(f"Диагностика остановлена: {failure_code}.")
+        complete = bool(schemas) and not failure_code and all(
+            state["complete"] for state in schemas
+        )
+        lines.append(
+            "Полная выборка FBO/FBS: "
+            + ("да" if complete else "нет; не считайте итог полным.")
+        )
+        lines.append(
+            f"Фактических HTTP-попыток: {http_attempts}; "
+            "лимит диагностики — не более 10, 2 страниц на схему, 120 секунд."
+        )
+        return "\n".join(lines)
+
+    def _report_scope_key(self, user_id):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return None
+        tenant_scope = self._user_key(get_current_tenant_user_id()) or user_key
+        return user_key, tenant_scope
+
+    def _save_report_views(
+        self,
+        user_id,
+        summary_text,
+        details_text,
+        date_from=None,
+        date_to=None,
+        report_view_id=None,
+    ):
+        scope = self._report_scope_key(user_id)
+        if scope is None:
+            return None
+        view_id = str(report_view_id or uuid4().hex[:12]).strip()
+        if not re.fullmatch(r"[0-9a-f]{12}", view_id):
+            view_id = uuid4().hex[:12]
+        key = (*scope, view_id)
+        with self._report_views_lock:
+            self._report_views[key] = {
+                "summary": summary_text,
+                "details": details_text,
+                "date_from": str(date_from) if date_from is not None else None,
+                "date_to": str(date_to) if date_to is not None else None,
+                "report_view_id": view_id,
+            }
+            self._report_views.move_to_end(key)
+            self._latest_report_views[scope] = key
+            while len(self._report_views) > self.REPORT_CACHE_MAX_SCOPES:
+                evicted_key, _ = self._report_views.popitem(last=False)
+                evicted_scope = (evicted_key[0], evicted_key[1])
+                if self._latest_report_views.get(evicted_scope) == evicted_key:
+                    self._latest_report_views.pop(evicted_scope, None)
+        return view_id
+
+    def _get_report_view(self, user_id, report_view_id=None):
+        scope = self._report_scope_key(user_id)
+        if scope is None:
+            return None
+        with self._report_views_lock:
+            if report_view_id is None:
+                key = self._latest_report_views.get(scope)
+            else:
+                view_id = str(report_view_id or "").strip()
+                if not re.fullmatch(r"[0-9a-f]{12}", view_id):
+                    return None
+                key = (*scope, view_id)
+            cached = self._report_views.get(key)
+            if isinstance(cached, dict):
+                self._report_views.move_to_end(key)
+                return dict(cached)
+        return None
+
+    def _get_cached_report_view(self, user_id, view, report_view_id=None):
+        cached = self._get_report_view(user_id, report_view_id)
+        if not isinstance(cached, dict) or not isinstance(cached.get(view), str):
+            return {
+                "error": False,
+                "status": "EXPERIMENTAL_STORE_ECONOMICS_VIEW_EXPIRED",
+                "message": (
+                    "Подробности этого расчёта уже недоступны. "
+                    "Сформируйте отчёт ещё раз."
+                ),
+                "read_only": True,
+                "executed": False,
+            }
+        return {
+            "error": False,
+            "status": (
+                "EXPERIMENTAL_STORE_ECONOMICS_DETAILS_READY"
+                if view == "details"
+                else "EXPERIMENTAL_STORE_ECONOMICS_READY"
+            ),
+            "message": cached[view],
+            "report_view_id": cached.get("report_view_id"),
+            "date_from": cached.get("date_from"),
+            "date_to": cached.get("date_to"),
             "read_only": True,
             "executed": False,
         }
@@ -435,35 +1273,53 @@ class ExperimentalStoreEconomicsRuntimeService:
             return self._empty_analytics_result(
                 "UNAVAILABLE", "ANALYTICS_CLIENT_UNAVAILABLE"
             )
-        try:
-            response = getter(
-                date_from,
-                date_to,
-                metrics=list(self.ANALYTICS_METRICS),
-                dimension=list(self.ANALYTICS_DIMENSIONS),
-                limit=self.ANALYTICS_PAGE_SIZE,
-                offset=0,
-            )
-        except Exception:
-            return self._empty_analytics_result(
-                "UNAVAILABLE", "ANALYTICS_REQUEST_FAILED"
-            )
-        if not isinstance(response, dict) or response.get("error") is True:
-            return self._empty_analytics_result(
-                "UNAVAILABLE", "ANALYTICS_RESPONSE_UNAVAILABLE"
-            )
-        result = response.get("result")
-        rows = result.get("data") if isinstance(result, dict) else None
-        if not isinstance(rows, list):
-            return self._empty_analytics_result(
-                "INVALID", "ANALYTICS_DATA_MISSING"
-            )
-        if len(rows) >= self.ANALYTICS_PAGE_SIZE:
+        rows = []
+        totals = None
+        complete = False
+        for page_number in range(self.ANALYTICS_MAX_PAGES):
+            offset = page_number * self.ANALYTICS_PAGE_SIZE
+            try:
+                response = getter(
+                    date_from,
+                    date_to,
+                    metrics=list(self.ANALYTICS_METRICS),
+                    dimension=list(self.ANALYTICS_DIMENSIONS),
+                    limit=self.ANALYTICS_PAGE_SIZE,
+                    offset=offset,
+                )
+            except Exception:
+                return self._empty_analytics_result(
+                    "UNAVAILABLE" if page_number == 0 else "INCOMPLETE",
+                    "ANALYTICS_REQUEST_FAILED"
+                    if page_number == 0
+                    else "ANALYTICS_PAGE_UNAVAILABLE",
+                )
+            if not isinstance(response, dict) or response.get("error") is True:
+                diagnostic = self._analytics_response_failure_code(response)
+                return self._empty_analytics_result(
+                    "UNAVAILABLE" if page_number == 0 else "INCOMPLETE",
+                    diagnostic
+                    if page_number == 0
+                    else "ANALYTICS_PAGE_UNAVAILABLE",
+                )
+            result = response.get("result")
+            page_rows = result.get("data") if isinstance(result, dict) else None
+            if not isinstance(page_rows, list) or len(page_rows) > self.ANALYTICS_PAGE_SIZE:
+                return self._empty_analytics_result(
+                    "INVALID", "ANALYTICS_DATA_MISSING"
+                )
+            if page_number == 0:
+                page_totals = result.get("totals") if isinstance(result, dict) else None
+                totals = page_totals if isinstance(page_totals, list) else None
+            rows.extend(page_rows)
+            if len(page_rows) < self.ANALYTICS_PAGE_SIZE:
+                complete = True
+                break
+        if not complete:
             return self._empty_analytics_result(
                 "INCOMPLETE", "ANALYTICS_PAGE_LIMIT_REACHED"
             )
 
-        totals = result.get("totals") if isinstance(result, dict) else None
         values = []
         issues = []
         for index, metric_name in enumerate(self.ANALYTICS_METRICS):
@@ -510,6 +1366,22 @@ class ExperimentalStoreEconomicsRuntimeService:
             status,
         )
 
+    @staticmethod
+    def _analytics_response_failure_code(response):
+        if not isinstance(response, dict):
+            return "ANALYTICS_RESPONSE_UNAVAILABLE"
+        code = response.get("code")
+        status_code = response.get("status_code")
+        try:
+            status_code = int(status_code)
+        except (TypeError, ValueError, OverflowError):
+            status_code = None
+        if code == "OZON_RATE_LIMITED" or status_code == 429:
+            return "ANALYTICS_RATE_LIMITED"
+        if status_code == 403 or code == "OZON_HTTP_403":
+            return "ANALYTICS_ACCESS_DENIED"
+        return "ANALYTICS_RESPONSE_UNAVAILABLE"
+
     def _fill_analytics_from_seller_api(self, analytics, date_from, date_to):
         """Use complete Seller API operational records when Analytics omits a metric.
 
@@ -520,6 +1392,11 @@ class ExperimentalStoreEconomicsRuntimeService:
         semantics differ from the Analytics metrics.
         """
         result = dict(analytics or {})
+        # A shared API period does not prove that the event date is the same
+        # cohort as ordered_units. Keep percentages hidden until the source
+        # contract confirms that relationship.
+        result["cancellations_cohort_compatible"] = False
+        result["returns_cohort_compatible"] = False
         if result.get("cancellations") is None:
             value = self._load_cancelled_posting_units(date_from, date_to)
             if value is not None:
@@ -553,7 +1430,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         if not callable(fbo_getter) or not callable(fbs_getter):
             return None
 
-        postings = []
+        scoped_postings = []
         try:
             fbo = fbo_getter(
                 since=date_from,
@@ -578,25 +1455,40 @@ class ExperimentalStoreEconomicsRuntimeService:
         fbs_postings, fbs_complete = _extract_postings_page(fbs)
         if not fbo_complete or not fbs_complete:
             return None
-        postings.extend(fbo_postings)
-        postings.extend(fbs_postings)
+        scoped_postings.extend(("FBO", row) for row in fbo_postings)
+        scoped_postings.extend(("FBS", row) for row in fbs_postings)
 
         total = 0
-        for posting in postings:
+        seen_postings = {}
+        for schema, posting in scoped_postings:
             if not isinstance(posting, dict):
                 return None
-            if str(posting.get("status") or "").casefold() != "cancelled":
+            status = str(posting.get("status") or "").casefold()
+            if status not in {"cancelled", "canceled"}:
                 continue
+            posting_number = self._text(posting.get("posting_number"))
+            if not posting_number:
+                return None
             products = posting.get("products")
             if not isinstance(products, list):
                 return None
+            quantities = []
             for product in products:
                 if not isinstance(product, dict):
                     return None
                 quantity = self._integer(product.get("quantity"))
                 if quantity is None:
                     return None
-                total += quantity
+                sku = self._text(product.get("sku"))
+                quantities.append((sku, quantity))
+            identity = (schema, posting_number)
+            signature = (status, tuple(quantities))
+            if identity in seen_postings:
+                if seen_postings[identity] != signature:
+                    return None
+                continue
+            seen_postings[identity] = signature
+            total += sum(quantity for _sku, quantity in quantities)
         return total
 
     def _load_return_units(self, date_from, date_to):
@@ -607,7 +1499,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         total = 0
         for schema in ("FBO", "FBS"):
             last_id = 0
-            seen_ids = set()
+            seen_records = {}
             for page_number in range(self.OPERATIONAL_RETURN_MAX_PAGES):
                 try:
                     response = getter(
@@ -627,26 +1519,44 @@ class ExperimentalStoreEconomicsRuntimeService:
                 for row in rows:
                     if not isinstance(row, dict):
                         return None
-                    if str(row.get("type") or "").casefold() != "clientreturn":
-                        continue
+                    raw_id = row.get("id")
+                    if raw_id is None:
+                        raw_id = row.get("return_id")
+                    record_id = self._integer(raw_id)
+                    if record_id is None or record_id <= 0:
+                        return None
+                    record_type = str(row.get("type") or "").casefold()
                     product = row.get("product")
-                    if not isinstance(product, dict):
-                        return None
-                    quantity = self._integer(product.get("quantity"))
-                    if quantity is None:
-                        return None
-                    total += quantity
+                    quantity = None
+                    if record_type == "clientreturn":
+                        if not isinstance(product, dict):
+                            return None
+                        quantity = self._integer(product.get("quantity"))
+                        if quantity is None:
+                            return None
+                    # Compare the full API record, including product identity.
+                    # A repeated return ID with the same quantity but a different
+                    # product must not silently count as a harmless duplicate.
+                    signature = self._freeze_api_value(row)
+                    if record_id in seen_records:
+                        if seen_records[record_id] != signature:
+                            return None
+                        continue
+                    seen_records[record_id] = signature
+                    if record_type == "clientreturn":
+                        total += quantity
                 if response.get("has_next") is not True:
                     break
                 if not rows:
                     return None
-                try:
-                    next_id = int(rows[-1].get("id"))
-                except (AttributeError, TypeError, ValueError, OverflowError):
+                cursor_value = rows[-1].get("id")
+                if cursor_value is None:
+                    cursor_value = rows[-1].get("return_id")
+                next_id = self._integer(cursor_value)
+                if next_id is None:
                     return None
-                if next_id <= last_id or next_id in seen_ids:
+                if next_id <= last_id:
                     return None
-                seen_ids.add(next_id)
                 last_id = next_id
             else:
                 return None
@@ -773,7 +1683,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             )
 
         ozon_client = getattr(finance_service, "ozon", None)
-        getter = getattr(ozon_client, "get_realization_posting", None)
+        getter = getattr(ozon_client, "get_monthly_realization_report", None)
         if not callable(getter):
             return self._empty_realization_commission(
                 "OZON_FINANCE_REALIZATION_CLIENT_UNAVAILABLE"
@@ -841,30 +1751,33 @@ class ExperimentalStoreEconomicsRuntimeService:
                         "OZON_FINANCE_REALIZATION_ROW_INVALID",
                         result,
                     )
-                # A report row may describe only a delivery or only a return.
-                # Sum the commission object that Ozon supplied; fail closed if
-                # neither component is present or a present amount is invalid.
+                # The monthly sales report stores the base Ozon commission in
+                # ``standard_fee``. Its ``commission`` field can be zero even
+                # when a nonzero fee is present. Convert the report's positive
+                # fee values to the signed accrual convention used here.
                 sale_amount = (
                     0.0
                     if delivery_missing
-                    else self._number(delivery.get("commission"))
+                    else self._number(delivery.get("standard_fee"))
                 )
                 return_amount = (
                     0.0
                     if return_missing
-                    else self._number(returned.get("commission"))
+                    else self._number(returned.get("standard_fee"))
                 )
                 if sale_amount is None or return_amount is None:
                     return self._failed_realization_commission(
                         "OZON_FINANCE_REALIZATION_COMMISSION_INVALID",
                         result,
                     )
+                sale_amount = -abs(sale_amount)
+                return_amount = abs(return_amount)
                 sale_total += sale_amount
                 return_total += return_amount
                 if sale_amount:
-                    result["sale_operation_count"] += 1
+                    result["sale_fee_row_count"] += 1
                 if return_amount:
-                    result["return_operation_count"] += 1
+                    result["return_fee_row_count"] += 1
 
             result["month_count"] += 1
             current = (
@@ -875,6 +1788,11 @@ class ExperimentalStoreEconomicsRuntimeService:
 
         result["sale_commission_amount"] = round(sale_total, 2)
         result["return_commission_amount"] = round(return_total, 2)
+        if sale_total == 0 and return_total == 0:
+            return self._failed_realization_commission(
+                "OZON_FINANCE_REALIZATION_COMMISSION_ZERO",
+                result,
+            )
         result["commission"] = round(sale_total + return_total, 2)
         return result
 
@@ -889,9 +1807,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             "return_commission_row_count": 0,
             "delivery_commission_missing_row_count": 0,
             "return_commission_missing_row_count": 0,
-            "sale_operation_count": 0,
+            "sale_fee_row_count": 0,
             "sale_commission_amount": None,
-            "return_operation_count": 0,
+            "return_fee_row_count": 0,
             "return_commission_amount": None,
             "commission": None,
         }
@@ -1345,7 +2263,7 @@ class ExperimentalStoreEconomicsRuntimeService:
             amount = cls._number(raw_amount)
             if not label or amount is None or amount == 0:
                 continue
-            result.append({"label": label[:72], "amount": round(amount, 2)})
+            result.append({"label": label, "amount": round(amount, 2)})
         return sorted(
             result,
             key=lambda item: (-abs(item["amount"]), item["label"].casefold()),
@@ -1382,6 +2300,258 @@ class ExperimentalStoreEconomicsRuntimeService:
         return {
             "groups": groups,
             "has_explicit_types": any(group["count"] for group in groups.values()),
+        }
+
+    @classmethod
+    def _build_expense_breakdown(cls, metrics, date_from, date_to):
+        """Split the existing residual by explicit fee labels without re-adding it.
+
+        Account-level net accrual and primary expenses remain authoritative.
+        Fee labels only partition ``other_fees``; delivery details such as last
+        mile are nested in logistics and therefore excluded from this split.
+        """
+        source_name = "FINANCE_ACCRUAL_BY_DAY"
+        period = {"date_from": str(date_from), "date_to": str(date_to)}
+        raw_entries = metrics.get("fee_breakdown") or []
+        buckets = {
+            "advertising": {
+                name: {"amount": 0.0, "count": 0, "labels": []}
+                for name in ("CPC", "CPO", "CPM", "OTHER")
+            },
+            "reverse_logistics": {"amount": 0.0, "count": 0, "labels": []},
+            "cross_docking": {"amount": 0.0, "count": 0, "labels": []},
+            "paid_storage": {"amount": 0.0, "count": 0, "labels": []},
+            "other_services": {"amount": 0.0, "count": 0, "labels": []},
+        }
+        last_mile_labels = []
+        classified_details = []
+        posting_diagnostics = metrics.get("accrual_posting_category_diagnostics") or {}
+        posting_storage_authoritative = (
+            posting_diagnostics.get("available") is True
+            and posting_diagnostics.get("paid_storage") is not None
+        )
+        storage_source = (
+            "FINANCE_ACCRUAL_POSTINGS"
+            if posting_storage_authoritative
+            else source_name
+        )
+        last_mile = metrics.get("fee_subcategories", {}).get("last_mile")
+        for item in raw_entries:
+            if not isinstance(item, dict):
+                continue
+            label = cls._text(item.get("label"))
+            amount = cls._number(item.get("amount"))
+            if not label or amount is None:
+                continue
+            normalized = " ".join(label.casefold().split())
+            if cls._matches_fee_category(
+                [label], "last_mile", cls.FEE_LABEL_MATCHERS["last_mile"]
+            ):
+                last_mile_labels.append(label)
+                classified_details.append(
+                    {"label": label, "amount": round(amount, 2), "category": "last_mile_in_logistics"}
+                )
+                continue
+            if cls._is_explicit_commission_label([label]) or any(
+                matcher in normalized
+                for matcher in ("комисс", "commission", "эквайр", "acquir")
+            ):
+                classified_details.append(
+                    {"label": label, "amount": round(amount, 2), "category": "primary_expense"}
+                )
+                continue
+            if cls._matches_fee_category(
+                [label],
+                "cross_docking",
+                cls.FEE_LABEL_MATCHERS["cross_docking"],
+            ):
+                bucket = buckets["cross_docking"]
+                category_name = "cross_docking"
+            elif cls._matches_fee_category(
+                [label],
+                "reverse_logistics",
+                cls.FEE_LABEL_MATCHERS["reverse_logistics"],
+            ):
+                bucket = buckets["reverse_logistics"]
+                category_name = "reverse_logistics"
+            elif cls._matches_fee_category(
+                [label],
+                "paid_storage",
+                cls.FEE_LABEL_MATCHERS["paid_storage"],
+            ):
+                # The posting source can confirm a storage charge omitted from
+                # the by-day label list. Use the already-resolved metric once.
+                if metrics.get("fee_subcategories", {}).get("paid_storage") is not None:
+                    classified_details.append(
+                        {
+                            "label": label,
+                            "amount": round(amount, 2),
+                            "category": (
+                                "paid_storage_reference"
+                                if posting_storage_authoritative
+                                else "paid_storage"
+                            ),
+                            "source": source_name,
+                            "additive": not posting_storage_authoritative,
+                        }
+                    )
+                    continue
+                bucket = buckets["paid_storage"]
+                category_name = "paid_storage"
+            elif any(
+                matcher in normalized
+                for matcher in ("логист", "достав", "logistic", "delivery")
+            ):
+                # General delivery types are already included in logistics.
+                classified_details.append(
+                    {"label": label, "amount": round(amount, 2), "category": "included_in_logistics"}
+                )
+                continue
+            elif any(
+                matcher in normalized
+                for matcher in cls.ADVERTISING_FEE_MATCHERS
+            ):
+                if any(token in normalized for token in ("cpc", "click", "клик")):
+                    group = "CPC"
+                elif any(token in normalized for token in ("cpo", "заказ", "order")):
+                    group = "CPO"
+                elif any(token in normalized for token in ("cpm", "показ", "impression")):
+                    group = "CPM"
+                else:
+                    group = "OTHER"
+                bucket = buckets["advertising"][group]
+                category_name = "advertising_" + group.casefold()
+            else:
+                bucket = buckets["other_services"]
+                category_name = "other_services"
+            bucket["amount"] = round(bucket["amount"] + amount, 2)
+            bucket["count"] += 1
+            bucket["labels"].append(label)
+            classified_details.append(
+                {"label": label, "amount": round(amount, 2), "category": category_name}
+            )
+
+        if metrics.get("fee_subcategories", {}).get("paid_storage") is not None:
+            storage_bucket = buckets["paid_storage"]
+            storage_bucket["amount"] = metrics["fee_subcategories"]["paid_storage"]
+            storage_bucket["count"] = 1
+            storage_bucket["labels"] = ["Подтверждённые начисления за размещение"]
+
+        category_amounts = []
+        normalized_buckets = {}
+        for name, bucket in buckets.items():
+            if name == "advertising":
+                normalized_groups = {}
+                for group_name, group in bucket.items():
+                    value = round(group["amount"], 2) if group["count"] else None
+                    normalized_groups[group_name] = {
+                        "amount": value,
+                        "count": group["count"],
+                        "labels": list(group["labels"]),
+                        "source": source_name if group["count"] else None,
+                        "period": period,
+                        "complete": bool(group["count"]),
+                    }
+                    if value is not None:
+                        category_amounts.append(value)
+                normalized_buckets[name] = normalized_groups
+                continue
+            value = round(bucket["amount"], 2) if bucket["count"] else None
+            normalized_buckets[name] = {
+                "amount": value,
+                "count": bucket["count"],
+                "labels": list(bucket["labels"]),
+                "source": (
+                    storage_source
+                    if name == "paid_storage" and bucket["count"]
+                    else source_name if bucket["count"] else None
+                ),
+                "period": period,
+                "complete": bool(bucket["count"]),
+            }
+            if value is not None:
+                category_amounts.append(value)
+
+        reported_other_fees = cls._number(metrics.get("other_fees"))
+        net_accrual = cls._number(metrics.get("net_accrual"))
+        revenue = cls._number(metrics.get("revenue"))
+        acquiring = cls._number(metrics.get("acquiring"))
+        commission = cls._number(metrics.get("commission"))
+        logistics = cls._number(metrics.get("logistics"))
+        if all(
+            value is not None
+            for value in (net_accrual, revenue, acquiring, commission, logistics)
+        ):
+            other_fees = round(
+                net_accrual - revenue - acquiring - commission - logistics,
+                2,
+            )
+        else:
+            other_fees = reported_other_fees or 0.0
+        classified_total = round(sum(category_amounts), 2)
+        unallocated = round(other_fees - classified_total, 2)
+        residual_available = reported_other_fees is not None or net_accrual is not None
+        reported_other_fees_delta = (
+            round(other_fees - reported_other_fees, 2)
+            if reported_other_fees is not None
+            else None
+        )
+        breakdown_available = bool(raw_entries) or abs(other_fees) <= 0.01
+        classification_complete = (
+            residual_available
+            and breakdown_available
+            and abs(unallocated) <= 0.01
+            and (reported_other_fees_delta is None or abs(reported_other_fees_delta) <= 0.01)
+        )
+        unallocated_result = {
+            "amount": unallocated if residual_available else None,
+            "source": "NET_ACCRUAL_RECONCILIATION" if residual_available else None,
+            "period": period,
+            "complete": residual_available,
+        }
+        last_mile_result = {
+            "amount": last_mile,
+            "labels": last_mile_labels,
+            "source": source_name if last_mile is not None else None,
+            "period": period,
+            "complete": last_mile is not None,
+            "included_in": "logistics",
+            "additive": False,
+        }
+        if (
+            metrics.get("fee_subcategories", {}).get("paid_storage") is not None
+            and not any(
+                detail["category"] == "paid_storage"
+                for detail in classified_details
+            )
+        ):
+            classified_details.append(
+                {
+                    "label": (
+                        "Размещение на складе (начисления по отправлениям)"
+                        if storage_source == "FINANCE_ACCRUAL_POSTINGS"
+                        else "Размещение на складе (дневные начисления Ozon)"
+                    ),
+                    "amount": round(metrics["fee_subcategories"]["paid_storage"], 2),
+                    "category": "paid_storage",
+                }
+            )
+        return {
+            "source": source_name if breakdown_available else None,
+            "period": period,
+            "complete": classification_complete,
+            "classification_status": (
+                "COMPLETE" if classification_complete else "PARTIAL"
+            ),
+            "categories": normalized_buckets,
+            "last_mile": last_mile_result,
+            "unallocated_adjustment": unallocated_result,
+            "classified_other_fees": classified_total,
+            "original_other_fees": round(other_fees, 2),
+            "summary_other_fees": reported_other_fees,
+            "summary_other_fees_delta": reported_other_fees_delta,
+            "details": classified_details,
+            "performance_cpc_additive": False,
         }
 
     @classmethod
@@ -1423,63 +2593,69 @@ class ExperimentalStoreEconomicsRuntimeService:
         advertising = metrics["advertising"]
         analytics = metrics["analytics"]
         fees = metrics["fee_subcategories"]
-        finance_advertising = metrics["finance_advertising"]
+        breakdown = metrics["expense_breakdown"]
+        categories = breakdown["categories"]
         revenue = metrics["revenue"]
+        ad_groups = categories["advertising"]
+        ad_lines = []
+        for group_name in ("CPC", "CPO", "CPM", "OTHER"):
+            group = ad_groups[group_name]
+            if group["amount"] is not None:
+                title = "прочие явные услуги" if group_name == "OTHER" else group_name
+                ad_lines.append(
+                    f"   • {title}: "
+                    f"{_money_with_revenue_share(group['amount'], revenue)}"
+                )
+        if not ad_lines:
+            ad_lines.append("   • Явные рекламные начисления не найдены")
+
         cpc_text = _money_or_status(
-            advertising.get("cpc"),
-            advertising.get("status"),
+            advertising.get("cpc"), advertising.get("status")
         )
         if advertising.get("cpc") is not None:
             cpc_text = _money_with_revenue_share(
                 advertising["cpc"], revenue
             )
         campaign_count = advertising.get("campaign_count")
-        ad_groups = finance_advertising["groups"]
-        ad_lines = []
-        if finance_advertising["has_explicit_types"]:
-            for group_name in ("CPC", "CPO", "CPM", "OTHER"):
-                group = ad_groups[group_name]
-                if not group["count"]:
-                    continue
-                title = "другие явные рекламные услуги" if group_name == "OTHER" else group_name
-                ad_lines.append(
-                    f"   • По начислениям Ozon, {title}: "
-                    f"{_money_with_revenue_share(group['amount'], revenue)}"
-                )
-        else:
-            ad_lines.append(
-                "   • Рекламные типы не распознаны в начислениях Ozon"
-            )
-        ad_lines.append(
-            "   • Performance CPC по сопоставленным SKU (для сверки): "
-            + cpc_text
-        )
         if isinstance(campaign_count, int) and not isinstance(campaign_count, bool):
-            ad_lines[-1] += f" ({campaign_count} камп.)"
-        other_fee_details = ExperimentalStoreEconomicsRuntimeService._other_fee_details(
-            metrics["fee_breakdown"]
+            cpc_text += f" ({campaign_count} камп.)"
+        ad_lines.append(
+            "   • Performance CPC для сверки, не входит в сумму: " + cpc_text
         )
+
         ordered_units = analytics.get("ordered_units")
         ordered_text = _units_with_order_share(
-            ordered_units,
-            ordered_units,
-            ordered=True,
-        )
-        cancellation_text = _units_with_order_share(
-            analytics.get("cancellations"), ordered_units
-        )
-        returns_text = _units_with_order_share(
-            analytics.get("returns"), ordered_units
+            ordered_units, ordered_units, ordered=True
         )
         cancellations_source = analytics.get("cancellations_source")
         returns_source = analytics.get("returns_source")
+        cancellation_text = _period_event_units(
+            analytics.get("cancellations"),
+            ordered_units,
+            analytics.get("cancellations_cohort_compatible") is True,
+            (
+                "период создания отправлений и текущий статус не образуют подтверждённую когорту"
+                if cancellations_source == "SELLER_POSTINGS"
+                else "сопоставимость периода метрики с заказанными единицами не подтверждена"
+            ),
+        )
+        returns_text = _period_event_units(
+            analytics.get("returns"),
+            ordered_units,
+            analytics.get("returns_cohort_compatible") is True,
+            (
+                "возвраты выбраны по дате смены статуса, а не по дате заказа"
+                if returns_source == "SELLER_RETURNS"
+                else "сопоставимость периода метрики с заказанными единицами не подтверждена"
+            ),
+        )
         cancellation_label = (
             "Отменённые единицы (FBO/FBS, заказы периода)"
             if cancellations_source == "SELLER_POSTINGS"
             else "Отменённые единицы (Analytics)"
         )
         returns_label = (
-            "Возвраты (FBO/FBS, статус изменён в периоде)"
+            "Клиентские возвраты FBO/FBS (тип ClientReturn; статус изменён в периоде)"
             if returns_source == "SELLER_RETURNS"
             else "Возвраты (Analytics)"
         )
@@ -1508,190 +2684,230 @@ class ExperimentalStoreEconomicsRuntimeService:
                 analytics.get("ordered_units_diagnostic"),
                 "заказанных единиц",
             )
+
+        def category_amount(name):
+            value = categories[name].get("amount")
+            return (
+                _money_with_revenue_share(value, revenue)
+                if value is not None
+                else "нет подтверждённых начислений"
+            )
+
+        commission_source = metrics.get("commission_source")
+        commission_label = {
+            "POSTING_SALE_COMMISSION": "Комиссия Ozon (предварительно; возвратная не подтверждена)",
+            "FINANCE_REALIZATION_REPORT": "Комиссия Ozon (отчёт реализации)",
+            "FINANCE_ACCRUAL_POSTINGS": "Комиссия Ozon (начисления по отправлениям)",
+            "ACCRUAL_FEE_TYPES": "Комиссия Ozon (типы финансовых начислений)",
+        }.get(commission_source, "Комиссия Ozon")
+        unallocated = breakdown["unallocated_adjustment"].get("amount")
+        unallocated_text = (
+            _money_with_revenue_share(unallocated, revenue)
+            if unallocated is not None
+            else "не удалось сверить"
+        )
+        completeness_note = (
+            "Разбивка расходов полная по доступным типам."
+            if breakdown.get("complete") is True
+            else "Разбивка расходов частичная; итог начислений сохранён."
+        )
+
         lines = [
             f"🧪 Экономика магазина за период {date_from} — {date_to}",
             "",
             "1. Выручка общая (100%): " + _money(metrics["revenue"]),
-            "2. Выручка ФНС (выручка − баллы): " + _money_with_revenue_share(metrics["revenue_tax_base"], revenue),
-            "3. Баллы за скидки: " + _money_with_revenue_share(metrics["discount_points"], revenue),
-            "4. Начисления Ozon нетто: " + _money_with_revenue_share(metrics["net_accrual"], revenue),
+            "2. Выручка ФНС (выручка − баллы): "
+            + _money_with_revenue_share(metrics["revenue_tax_base"], revenue),
+            "3. Баллы за скидки: "
+            + _money_with_revenue_share(metrics["discount_points"], revenue),
+            "4. Начисления Ozon нетто: "
+            + _money_with_revenue_share(metrics["net_accrual"], revenue),
             "5. Налог: " + _money_with_revenue_share(metrics["tax"], revenue),
-            "6. Прибыль без себестоимости: " + _money_with_revenue_share(metrics["profit"], revenue),
-            "7. Расходы на рекламу:",
+            "6. Прибыль без себестоимости: "
+            + _money_with_revenue_share(metrics["profit"], revenue),
+            "7. Реклама по начислениям Ozon:",
             *ad_lines,
-            "8. Эквайринг: " + _money_with_revenue_share(metrics["acquiring"], revenue),
-            (
-                "9. Комиссия Ozon (предварительно; возвратная комиссия не подтверждена): "
-                if metrics.get("commission_source") == "POSTING_SALE_COMMISSION"
-                else (
-                    "9. Комиссия Ozon (отчёт о реализации): "
-                    if metrics.get("commission_source")
-                    == "FINANCE_REALIZATION_POSTING"
-                    else "9. Комиссия Ozon (вознаграждение за продажу): "
-                )
-            ) + _money_with_revenue_share(metrics["commission"], revenue),
-            "10. Логистика доставки (без обратной логистики): " + _money_with_revenue_share(metrics["logistics"], revenue),
-            "11. Доставка до места выдачи и выдача товара (части «последней мили»): " + _fee_with_revenue_share(fees.get("last_mile"), revenue),
-            "12. Кросс-докинг: " + _fee_with_revenue_share(fees.get("cross_docking"), revenue),
-            "13. Стоимость размещения на складе Ozon: " + _fee_with_revenue_share(fees.get("paid_storage"), revenue),
-            "14. Остаток начислений Ozon после основных категорий: "
-            + _money_with_revenue_share(metrics["other_fees"], revenue),
-            "15. Заказанные единицы (Analytics): " + ordered_text,
-            f"16. {cancellation_label}: {cancellation_text}",
-            f"17. {returns_label}: {returns_text}",
+            "8. Эквайринг: "
+            + _money_with_revenue_share(metrics["acquiring"], revenue),
+            f"9. {commission_label}: "
+            + _money_with_revenue_share(metrics["commission"], revenue),
+            "10. Логистика доставки: "
+            + _money_with_revenue_share(metrics["logistics"], revenue),
+            "   • До места выдачи и выдача товара, уже в логистике: "
+            + (
+                _money_with_revenue_share(fees["last_mile"], revenue)
+                if fees.get("last_mile") is not None
+                else "нет подтверждённой детализации"
+            ),
+            "11. Обратная логистика: " + category_amount("reverse_logistics"),
+            "12. Кросс-докинг: " + category_amount("cross_docking"),
+            "13. Размещение и хранение: " + category_amount("paid_storage"),
+            "14. Остальные услуги по явным типам: " + category_amount("other_services"),
+            "15. Неразнесённая сверочная разница (баланс, не отдельное начисление): "
+            + unallocated_text,
+            "16. Заказанные единицы (Analytics): " + ordered_text,
+            f"17. {cancellation_label}: {cancellation_text}",
+            f"18. {returns_label}: {returns_text}",
             "",
-            "⚠️ Экспериментальный результат, не заменяет основные расчёты.",
-            "Денежные доли указаны от общей выручки. Для количества показана доля от заказанных единиц, поскольку штуки нельзя делить на рубли.",
-            "Источники: суммы и удержания — финансовые начисления Ozon; комиссия за полные месяцы — отчёт реализации; размещение — типы начислений Seller API; заказанные единицы — Analytics; отмены и возвраты — Analytics либо подтверждённые записи Seller API; CPC по SKU — Ozon Performance.",
-            "Прибыль рассчитана по нетто-начислениям Ozon за вычетом налога. Расходы, уже попавшие в начисления, учтены в прибыли. Performance CPC показан для сверки и может пересекаться с финансовыми начислениями; повторно его не вычитайте.",
-            "Комиссия за полные календарные месяцы берётся из отчёта реализации (/v1/finance/realization/posting): отдельно суммируются комиссии за продажу и возврат. Для неполного месяца, если возвратная комиссия не подтверждена, сумма помечается как предварительная. Переразнесение между комиссией и строкой 14 не меняет начисления нетто.",
-            "Строка 14 — расчётный остаток начислений нетто после выручки, эквайринга, комиссии и логистики доставки. В нём уже могут быть учтены реклама, кросс-докинг, обратная логистика, размещение и другие операции, показанные отдельно. Это не дополнительная сумма к вычитанию: не складывайте эти начисления повторно.",
-            "Если плата за размещение не найдена в финансовых начислениях, проверьте Ozon Seller → Экономика магазина → Стоимость размещения на складе Ozon → Всего за период. В Seller API для этого есть отдельный отчёт по товарам; его данные пока не включаются в итог начислений.",
-            "Отмены из Seller API — отправления, попавшие в фильтр дат API и имеющие статус «Отменено» на момент запроса. Возвраты из Seller API учитываются по смене статуса возврата в периоде.",
-            "Разделение рекламы по типам возможно только по явным названиям начислений; отчёт по начислениям не содержит разбивки по кампаниям.",
-            "Прибыль рассчитана существующим способом без себестоимости; это не итоговая прибыль магазина.",
+            "⚠️ Экспериментальный отчёт; прибыль без себестоимости не является чистой прибылью.",
+            completeness_note,
+            "Начисления уже включены в прибыль. Не складывайте подкатегории и сверочную разницу повторно; Performance CPC показан отдельно для сверки.",
         ]
-        accrual_diagnostics = metrics.get("accrual_diagnostics") or {}
-        posting_diagnostics = (
-            metrics.get("accrual_posting_category_diagnostics") or {}
-        )
-        realization_diagnostics = (
-            metrics.get("realization_commission_diagnostics") or {}
-        )
-        if (
-            realization_diagnostics.get("available") is not True
-            and realization_diagnostics.get("failure_code")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_details(date_from, date_to, metrics):
+        breakdown = metrics["expense_breakdown"]
+        categories = breakdown["categories"]
+        revenue = metrics["revenue"]
+        lines = [
+            f"📋 Подробности экономики магазина за период {date_from} — {date_to}",
+            "",
+            "Итоговые суммы выручки, начислений, налога и прибыли взяты из существующего расчёта. Переразнесение меняет только аналитические категории, не net accrual и не прибыль.",
+            "",
+            "Сверка суммы: выручка + эквайринг + комиссия + логистика + расчётная строка прочих начислений = начисления Ozon нетто.",
+            "Внутри строки прочих начислений подтверждённые CPC/CPO/CPM, обратная логистика, кросс-докинг, размещение и остальные услуги выделены один раз. Неразнесённая сверочная разница — баланс до общей суммы, а не самостоятельное удержание.",
+            "Последняя миля показана как подкатегория логистики и не прибавляется повторно. Performance CPC — внешняя сверка и не входит в начисления.",
+            "",
+            "Источники категорий:",
+        ]
+        source_labels = {
+            "FINANCE_ACCRUAL_BY_DAY": "финансовые начисления Ozon за период",
+            "FINANCE_ACCRUAL_POSTINGS": "начисления Seller API по отправлениям",
+            "NET_ACCRUAL_RECONCILIATION": "сверка с общими net accrual",
+        }
+
+        def add_source_line(title, item):
+            amount = item.get("amount")
+            value = (
+                _money_with_revenue_share(amount, revenue)
+                if amount is not None
+                else "нет подтверждённых данных"
+            )
+            source = source_labels.get(item.get("source"), "источник не подтверждён")
+            complete = "подтверждено" if item.get("complete") else "частичные данные"
+            lines.append(f"• {title}: {value}; источник — {source}; статус — {complete}.")
+
+        for group_name, group_title in (
+            ("CPC", "Реклама CPC"),
+            ("CPO", "Реклама CPO"),
+            ("CPM", "Реклама CPM"),
+            ("OTHER", "Другие явные рекламные услуги"),
         ):
-            failure_code = (
-                ExperimentalStoreEconomicsRuntimeService
-                ._safe_realization_commission_failure_code(
-                    realization_diagnostics.get("failure_code")
-                )
+            add_source_line(
+                group_title,
+                categories["advertising"][group_name],
             )
-            if failure_code == "OZON_FINANCE_REALIZATION_PERIOD_NOT_FULL_MONTHS":
-                diagnostic = "период неполный; месячный отчёт не запрашивался"
-            else:
-                fallback = (
-                    "использован предварительный источник по отправлениям"
-                    if metrics.get("commission_source") == "POSTING_SALE_COMMISSION"
-                    else "использован доступный источник начислений"
-                )
-                diagnostic = f"источник недоступен ({failure_code}); {fallback}"
-            lines.extend(
-                [
-                    "",
-                    "Диагностика комиссии (/v1/finance/realization/posting): "
-                    f"{diagnostic}.",
-                ]
+        for key, title in (
+            ("reverse_logistics", "Обратная логистика"),
+            ("cross_docking", "Кросс-докинг"),
+            ("paid_storage", "Размещение и хранение"),
+            ("other_services", "Остальные услуги по типам"),
+        ):
+            add_source_line(title, categories[key])
+        add_source_line("Неразнесённая сверочная разница", breakdown["unallocated_adjustment"])
+        last_mile = breakdown["last_mile"]
+        add_source_line("Доставка до места выдачи и выдача товара (в составе логистики)", last_mile)
+        if categories["paid_storage"].get("amount") is None:
+            lines.append(
+                "Плату за размещение можно сверить в Ozon Seller → Экономика магазина → "
+                "Стоимость размещения на складе Ozon → Всего за период."
             )
-        if realization_diagnostics.get("available") is True:
-            lines.extend(
-                [
-                    "",
-                    "Диагностика комиссии (/v1/finance/realization/posting): "
-                    f"полных месяцев {realization_diagnostics.get('month_count', 0)}, "
-                    f"строк {realization_diagnostics.get('row_count', 0)} "
-                    "(без комиссии продажи: "
-                    f"{realization_diagnostics.get('delivery_commission_missing_row_count', 0)}, "
-                    "без комиссии возврата: "
-                    f"{realization_diagnostics.get('return_commission_missing_row_count', 0)}); "
-                    "продажа — операций "
-                    f"{realization_diagnostics.get('sale_operation_count', 0)}, "
-                    f"{_money(realization_diagnostics.get('sale_commission_amount'))}; "
-                    "возврат — операций "
-                    f"{realization_diagnostics.get('return_operation_count', 0)}, "
-                    f"{_money(realization_diagnostics.get('return_commission_amount'))}."
-                ]
+        lines.extend(
+            [
+                "",
+                "Строки финансового отчёта Ozon по категориям (сохранены подписи источника):",
+            ]
+        )
+        for item in breakdown.get("details") or []:
+            reference_note = (
+                "; справочная сумма другого источника, не складывается повторно"
+                if item.get("additive") is False
+                else ""
             )
-        elif posting_diagnostics.get("available") is True:
-            def diagnostic_subtotal(count, value):
+            lines.append(
+                f"• «{item['label']}»: "
+                f"{_money_with_revenue_share(item['amount'], revenue)} "
+                f"[{item['category']}{reference_note}]."
+            )
+        if not breakdown.get("details"):
+            lines.append("• Детальные типы начислений недоступны; остаток сохранён в сверке.")
+
+        commission_source = metrics.get("commission_source")
+        lines.extend(["", "Комиссия и детализация источника:"])
+        realization = metrics.get("realization_commission_diagnostics") or {}
+        if realization.get("available") is True:
+            lines.append(
+                "Источник — месячный отчёт реализации Ozon (/v2/finance/realization); "
+                f"полных месяцев {realization.get('month_count', 0)}, строк отчёта "
+                f"{realization.get('row_count', 0)}. Число строк отчёта не является числом продаж или заказанных единиц."
+            )
+            lines.append(
+                f"Комиссия продажи: {realization.get('sale_fee_row_count', 0)} строк с суммой "
+                f"{_money(realization.get('sale_commission_amount'))}; возврат: "
+                f"{realization.get('return_fee_row_count', 0)} строк с суммой "
+                f"{_money(realization.get('return_commission_amount'))}."
+            )
+        else:
+            failure_code = ExperimentalStoreEconomicsRuntimeService._safe_realization_commission_failure_code(
+                realization.get("failure_code")
+            )
+            lines.append(
+                f"Месячный отчёт реализации не подтвердил комиссию ({failure_code}); "
+                f"использован источник {commission_source or 'неизвестен'}, "
+                "предварительная сумма может не включать возвратную комиссию."
+            )
+        posting = metrics.get("accrual_posting_category_diagnostics") or {}
+        if posting.get("available") is True:
+            def diagnostic_amount(count_key, amount_key):
+                count = posting.get(count_key, 0)
                 if count == 0:
                     return _money(0)
-                return (
-                    _money(value)
-                    if value is not None
-                    else "сумма не подтверждена"
-                )
+                amount = posting.get(amount_key)
+                return _money(amount) if amount is not None else "сумма не подтверждена"
 
-            commission_sale_count = posting_diagnostics.get(
-                "commission_sale_operation_count", 0
+            unmapped_count = posting.get("unmapped_type_count", 0)
+            unmapped_amount = posting.get("unmapped_type_amount")
+            unmapped_text = (
+                f"{unmapped_count} строк / {_money(unmapped_amount)}"
+                if unmapped_count and unmapped_amount is not None
+                else f"{unmapped_count} строк без суммы"
+                if unmapped_count
+                else "0 строк"
             )
-            commission_refund_count = posting_diagnostics.get(
-                "commission_refund_operation_count", 0
+            lines.append(
+                "Список начислений по отправлениям: "
+                f"записей {posting.get('posting_count', 0)}, "
+                f"строк начислений {posting.get('operation_count', 0)}; "
+                "комиссия продажи — строк "
+                f"{posting.get('commission_sale_operation_count', 0)} / "
+                f"{diagnostic_amount('commission_sale_operation_count', 'commission_sale_amount')}; возврат "
+                f"— строк {posting.get('commission_refund_operation_count', 0)} / "
+                f"{diagnostic_amount('commission_refund_operation_count', 'commission_refund_amount')}; размещение "
+                f"— строк {posting.get('storage_service_count', 0)} / "
+                f"{diagnostic_amount('storage_service_count', 'paid_storage')}; без типа в справочнике "
+                f"{unmapped_text}."
             )
-            commission_other_count = posting_diagnostics.get(
-                "commission_other_operation_count", 0
+        else:
+            code = ExperimentalStoreEconomicsRuntimeService._safe_accrual_posting_failure_code(
+                posting.get("failure_code")
             )
-            unmapped_type_count = posting_diagnostics.get(
-                "unmapped_type_count", 0
-            )
-            storage_service_count = posting_diagnostics.get(
-                "storage_service_count", 0
-            )
-            lines.extend(
-                [
-                    "",
-                    "Диагностика начислений (/v1/finance/accrual/postings): "
-                    f"отправлений {posting_diagnostics.get('posting_count', 0)}, "
-                    f"строк начислений {posting_diagnostics.get('operation_count', 0)}, "
-                    "комиссия: продажа — операций "
-                    f"{commission_sale_count}, "
-                    f"{diagnostic_subtotal(commission_sale_count, posting_diagnostics.get('commission_sale_amount'))}; "
-                    "возврат — операций "
-                    f"{commission_refund_count}, "
-                    f"{diagnostic_subtotal(commission_refund_count, posting_diagnostics.get('commission_refund_amount'))}; "
-                    "прочие явные типы — операций "
-                    f"{commission_other_count}, "
-                    f"{diagnostic_subtotal(commission_other_count, posting_diagnostics.get('commission_other_amount'))}; "
-                    "без типа в справочнике — операций "
-                    f"{unmapped_type_count}, "
-                    f"{diagnostic_subtotal(unmapped_type_count, posting_diagnostics.get('unmapped_type_amount'))}; "
-                    "размещение — операций "
-                    f"{storage_service_count}, "
-                    f"{diagnostic_subtotal(storage_service_count, posting_diagnostics.get('paid_storage'))}."
-                ]
-            )
-        elif (
-            metrics.get("commission_source") != "FINANCE_ACCRUAL_POSTINGS"
-            or fees.get("paid_storage") is None
-        ):
-            failure_code = (
-                ExperimentalStoreEconomicsRuntimeService._safe_accrual_posting_failure_code(
-                    posting_diagnostics.get("failure_code")
-                )
-            )
-            posting_source = f"недоступен ({failure_code})"
-            lines.extend(
-                [
-                    "",
-                    "Диагностика разбивки (/v1/finance/accrual/by-day и "
-                    "/v1/finance/accrual/postings): типов начислений "
-                    f"{accrual_diagnostics.get('fee_type_count', 0)}, "
-                    f"совпадений комиссии {accrual_diagnostics.get('commission_matches', 0)}, "
-                    f"размещения {accrual_diagnostics.get('storage_matches', 0)}; "
-                    f"источник начислений по отправлениям {posting_source}, "
-                    f"отправлений {posting_diagnostics.get('posting_count', 0)}, "
-                    f"строк начислений {posting_diagnostics.get('operation_count', 0)}, "
-                    f"строк комиссии {posting_diagnostics.get('commission_operation_count', 0)}, "
-                    f"строк размещения {posting_diagnostics.get('storage_service_count', 0)}."
-                ]
-            )
-        if other_fee_details:
-            lines.extend(
-                [
-                    "",
-                    "Детализация типов начислений, вошедших в строку 14 (группы типов Ozon могут объединять несколько операций из XLSX):",
-                ]
-            )
-            for item in other_fee_details[:5]:
-                lines.append(
-                    f"   • Тип Ozon «{item['label']}»: "
-                    f"{_money_with_revenue_share(item['amount'], revenue)}"
-                )
-            if len(other_fee_details) > 5:
-                lines.append(
-                    f"   • Ещё типов начислений: {len(other_fee_details) - 5}"
-                )
+            lines.append(f"Начисления по отправлениям недоступны ({code}).")
+        accrual = metrics.get("accrual_diagnostics") or {}
+        lines.append(
+            "Справочник типов начислений: "
+            f"{accrual.get('fee_type_count', 0)} типов, "
+            f"явные совпадения комиссии {accrual.get('commission_matches', 0)}, "
+            f"размещения {accrual.get('storage_matches', 0)}."
+        )
+        lines.extend(
+            [
+                "",
+                "Analytics заказы, отмены и возвраты показываются отдельно. Отмены Seller API — отправления из фильтра дат, имеющие статус «Отменено» на момент запроса; возвраты Seller API — записи со сменой статуса в периоде.",
+                "Разделение рекламы по кампаниям доступно только если источник предоставляет подтверждённые типы и суммы. CPC из Performance не складывается с CPC в начислениях.",
+                "Себестоимость и Return COGS этим экспериментальным отчётом не вычитаются.",
+            ]
+        )
         return "\n".join(lines)
 
     def _summary_dependencies(self):
@@ -1746,6 +2962,28 @@ class ExperimentalStoreEconomicsRuntimeService:
         return "" if value is None else str(value).strip()
 
     @staticmethod
+    def _freeze_api_value(value):
+        """Build a deterministic comparison key for an API JSON value."""
+        if isinstance(value, dict):
+            return tuple(
+                (
+                    str(key),
+                    ExperimentalStoreEconomicsRuntimeService._freeze_api_value(
+                        value[key]
+                    ),
+                )
+                for key in sorted(value, key=lambda item: str(item))
+            )
+        if isinstance(value, list):
+            return tuple(
+                ExperimentalStoreEconomicsRuntimeService._freeze_api_value(item)
+                for item in value
+            )
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        return str(value)
+
+    @staticmethod
     def _number(value):
         number = ExperimentalStoreEconomicsRuntimeService._decimal(value)
         if number is None:
@@ -1781,8 +3019,11 @@ def _money_with_revenue_share(value, revenue):
     if amount is None:
         return "—"
     if denominator is None or denominator <= 0:
-        return _money(amount)
+        return _money(amount) + " (доля не определена: выручка ≤ 0)"
     share = amount / denominator * 100
+    if share != 0 and abs(share) < 0.005:
+        direction = "расход" if amount < 0 else "доход"
+        return f"{_money(amount)} (<0,01% {direction} от общей выручки)"
     percent = f"{share:.2f}".replace(".", ",")
     return f"{_money(amount)} ({percent}% от общей выручки)"
 
@@ -1810,6 +3051,17 @@ def _units_with_order_share(value, ordered_units, ordered=False):
     share = number / denominator * 100
     percent = f"{share:.2f}".replace(".", ",")
     return f"{formatted} шт. ({percent}% от заказанных единиц)"
+
+
+def _period_event_units(value, ordered_units, cohort_compatible, explanation):
+    if value is None:
+        return None
+    if cohort_compatible:
+        return _units_with_order_share(value, ordered_units)
+    return (
+        f"{_format_units(value)} шт. "
+        f"(доля не показана: {explanation})"
+    )
 
 
 def _format_units(value):
@@ -1840,6 +3092,10 @@ def _unit_or_unconfirmed(value, status, diagnostic=None, label="показате
     if value is not None:
         return _format_units(value) + " шт."
     if status == "UNAVAILABLE":
+        if diagnostic == "ANALYTICS_ACCESS_DENIED":
+            return f"нет доступа к показателю «{label}» в Ozon Analytics"
+        if diagnostic == "ANALYTICS_RATE_LIMITED":
+            return "Ozon Analytics ограничил запрос; повторите позже"
         if (
             isinstance(diagnostic, str)
             and re.fullmatch(r"[A-Z0-9_]{1,64}", diagnostic)
@@ -1851,6 +3107,10 @@ def _unit_or_unconfirmed(value, status, diagnostic=None, label="показате
         return (
             "данные неполные"
             if status == "INCOMPLETE"
+            or diagnostic in {
+                "ANALYTICS_PAGE_UNAVAILABLE",
+                "ANALYTICS_PAGE_LIMIT_REACHED",
+            }
             else f"данные по показателю «{label}» не прошли проверку"
         )
     return f"Ozon Analytics не предоставил показатель «{label}»"

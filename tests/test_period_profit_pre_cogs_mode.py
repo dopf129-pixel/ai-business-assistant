@@ -4,6 +4,10 @@ from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
 from services.period_profit_cost_exclusion_context import cost_excluded
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class _Summary:
@@ -126,3 +130,25 @@ def test_pre_cogs_custom_period_pending_state_is_per_user():
     assert query.summary_service.calls[0][:2] == (
         "2026-01-01", "2026-02-02"
     )
+
+
+def test_pre_cogs_custom_prompt_is_rejected_after_store_switch():
+    query = _Query()
+    runtime = AssistantPeriodProfitRuntimeService(query)
+
+    token = set_current_tenant_user_id("seller-1::ozon::store-a")
+    try:
+        runtime.begin_custom_pre_cogs_period("seller-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = set_current_tenant_user_id("seller-1::ozon::store-b")
+    try:
+        result = runtime.handle_text(
+            "01.08.2026 - 31.08.2026", user_id="seller-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["status"] == "PERIOD_PROFIT_CUSTOM_PERIOD_STORE_CHANGED"
+    assert query.summary_service.calls == []
