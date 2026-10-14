@@ -1,5 +1,12 @@
 # Карта тестов — актуальный статус 2026-10-14
 
+## PR #695 — дополнительный review: непокрытые source boundaries R8/R9
+
+- Текущий head `73c4c74`, неизменённый code SHA `3f4942b6`: четыре existing calculator modules — **45 passed in 1.80s**. Windows/Linux full CI Verify `38617595326` success; Docker build/runtime smoke success.
+- Изолированные probes с настоящими source/math/runtime и fake facts — **2 failed in 0.34s**: полное дробное среднее 50/300×100 должно давать available scenario; cache hit age=590 при открытии и t=610 должен быть STALE с отключённым current-price comparison. Ни API, ни пользовательские storage не использовались.
+- Probes сохранены в ignored scratch `.codex-test-pr695-repeat-review/probes.py`; неправильное поведение не добавлялось в default suite. Meaningful red→green интеграционные regressions требуются по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`.
+- Full pytest локально не повторялся: производственный код в review не менялся; текущий exact-head full CI проверен. Новый полный прогон и новый CI обязательны после исправлений.
+
 ## PR #695 — regressions архитектурного review R1–R7
 
 - Добавлен `tests/test_unit_price_scenario_architecture_review_regressions.py`: store/generation-scoped picker, atomic picker-consume/source-ticket interleave, controlled late source loads и refresh, eviction/pending isolation, READY text ownership, реальные Seller Cost/Return Inventory adapters, store switch/disconnect clearing и independent source freshness на result и assumptions screens. Interleavings используют `Event`, не timing sleeps.

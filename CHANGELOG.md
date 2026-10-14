@@ -1,4 +1,10 @@
-# 2026-10-14 — PR #695: исправления архитектурного review R1–R7
+# 2026-10-14 — PR #695: дополнительный повторный review
+
+- На текущем head `73c4c74` подтверждены два P2: полное дробное среднее баллов не проходит numeric precision validation; новый сценарий обнуляет возраст source cache hit. Предыдущая приёмка без блокеров пересмотрена.
+- Существующие calculator modules: 45 passed; два новых изолированных probes правильного поведения: 2 failed. Current-head Windows/Linux/Docker CI зелёный, но не покрывает эти два сценария.
+- Review evidence и статусы обновлены; создано `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Production code и данные не менялись. До исправления R8/R9 требуется отложить слияние.
+
+# История 2026-10-14 — PR #695: исправления архитектурного review R1–R7
 
 - В каталоге планового калькулятора заменены unbound offer callbacks на короткие picker tokens, связанные с user/store/generation; устаревшая кнопка не выполняет source read. Factual unit-economics route сохранён.
 - Runtime атомарно связывает consume picker callback с operation ticket и привязывает публикацию initial/refresh source результата к актуальному ticket, активному SKU и версии. Eviction удаляет только свой pending input; повторный текст на активном результате возвращает собственные кнопки.

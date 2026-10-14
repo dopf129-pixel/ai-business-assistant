@@ -1,4 +1,11 @@
-# 2026-10-14 — PR #695 R1–R7: исправления, CI и повторный review завершены
+# 2026-10-14 — PR #695: дополнительный повторный review требует R8/R9
+
+- Проверен текущий PR head `73c4c74cf786f0a8a38168a27a3a61240d07ce06`; код совпадает с `3f4942b6`. Windows/Linux full CI Verify `38617595326` success, включая Docker build/smoke. Четыре calculator modules повторно: **45 passed in 1.80s**.
+- Подтверждены два P2: source возвращает периодическую weighted ставку с 28 значащими цифрами, math ограничивает её 15 и блокирует обычный полный сценарий; runtime обнуляет source age при cache hit (t=590 → t=610 показывает FRESH age=20 вместо STALE).
+- Два изолированных probes правильного поведения дают **2 failed in 0.34s** без API/DB/данных продавца. Evidence добавлен в `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`; исправляющее ТЗ — `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`.
+- Предыдущее заключение «блокеров нет» пересмотрено. R1–R6 подтверждены; R7 требует завершить cache boundary, R8 — регрессия precision hardening. Production code не менялся; merge не рекомендуется до исправлений и нового CI/review. Слияние выполнит другая модель.
+
+# История 2026-10-14 — PR #695 R1–R7: первая приёмка исправлений
 
 - Исправлены семь findings initial architecture review: catalog picker tokens bound to user/store/generation; потребление picker callback атомарно создаёт source operation ticket; late initial/refresh results отсекаются; scenario eviction isolates pending record; READY text returns calculator screen; Decimal/tax invalid outputs fail closed; adapters and store commands clear calculator state before other navigation; source snapshot TTL no longer slides with edits, включая freshness на assumptions screen.
 - Добавлены controlled `Event` concurrency, adapter/navigation, text routing, math-boundary и freshness regressions в `tests/test_unit_price_scenario_architecture_review_regressions.py`; math service tests покрывают extreme magnitude/precision и invalid tax output.

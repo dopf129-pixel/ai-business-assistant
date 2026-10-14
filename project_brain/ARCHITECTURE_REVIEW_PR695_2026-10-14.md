@@ -2,7 +2,9 @@
 
 ## Вердикт и проверенная ревизия
 
-**Первичное решение (на SHA `6d472145`): не сливать до исправления R1–R7. Исправления теперь внесены локально; final acceptance зависит от повторного review и CI нового PR head.**
+**Текущий вердикт повторной проверки на SHA `73c4c74`: не сливать до исправления двух P2 — R8 (дробное среднее баллов отклоняется) и R9 (cache hit обнуляет возраст источника; неполное закрытие R7). Предыдущее заключение «блокеров нет» пересмотрено.**
+
+ТЗ следующего исправления: `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Первичный review и результаты первой приёмки ниже сохранены как история. Production code в этой дополнительной проверке не менялся.
 
 - PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695
 - Проверенный head: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
@@ -10,7 +12,7 @@
 - Ветка: `codex/unit-price-calculator`.
 - GitHub Verify run `38604649833`: completed / success на этом head.
 - Изучены все новые math/source/runtime/factory компоненты, изменения finance/handler/keyboard/composition и существующие внешние Telegram adapters, через которые проходит production-навигация.
-- Исправляющее ТЗ завершено в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`; code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` прошёл 62 целевых теста, полный pytest 3 138 и GitHub Verify run `38616115735`. Повторный review R1–R7 не выявил оставшихся блокеров; детали и resolutions добавлены ниже.
+- Первая приёмка исправлений в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md` проверила code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7`: 62 целевых теста, полный pytest 3 138 и GitHub Verify run `38616115735`. Дополнительная проверка текущего head выявила две межсервисные ошибки; её фактические результаты приведены в конце документа.
 
 Разделение чистой математики, источников и временного Telegram-сценария соответствует архитектуре проекта. Замена архитектуры не требуется. Подтверждённые блокеры находятся в привязке callback, жизненном цикле сценария, маршрутизации текста и проверке числового ввода.
 
@@ -173,7 +175,7 @@ Probe через настоящий handler:
 - Documentation: CHANGELOG, CURRENT_STATE, TEST_MAP и исходное calculator task обновлены. DECISIONS не изменён: новые архитектурные решения не приняты.
 - Next recommended step: выполнить V00–V08 из исправляющего ТЗ, получить зелёный CI нового head и пройти повторный review перед слиянием.
 
-## Повторный review исправлений — 14.10.2026
+## История: первая повторная приёмка исправлений — 14.10.2026
 
 Проверен code-bearing PR head `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` в ветке `codex/unit-price-calculator`. GitHub Verify run `38616115735` завершился успешно: `windows-verification` и `full-verification` success; последний включает Linux full suite, production Docker build и runtime smoke. Локально целевой набор — **62 passed**, полный pytest в изолированной копии — **3 138 passed**.
 
@@ -188,3 +190,53 @@ Probe через настоящий handler:
 | R7 — возраст source snapshot | Закрыт независимым `source_loaded_at`; stale comparison скрыт, экран допущений показывает as-of/stale; только успешный refresh обновляет freshness. |
 
 Во время повторного просмотра до финального CI выявлены и закрыты два недопокрытых края R2/R7: stale-маркировка экрана допущений и race между consume picker callback и source ticket creation. Оба изменения находятся в проверенном SHA и покрыты regressions. **Нерешённых блокеров по R1–R7 не осталось.** Merge/deploy не выполнялись; PR остаётся открыт для слияния другой моделью.
+
+## Дополнительный повторный review текущего PR head — 14.10.2026
+
+Проверенный PR head: `73c4c74cf786f0a8a38168a27a3a61240d07ce06`, base `655b3a0c46acb258a5e884cccc8da6728a5216a7`. Код совпадает с code SHA `3f4942b6`; более новый commit меняет только документацию. PR открыт. GitHub checks на текущем head: Windows и Linux full verification success, Verify run `38617595326`; Docker build/runtime smoke прошли. Этот зелёный CI не покрывает два случая ниже.
+
+Повторно прочитаны math/source/runtime, scoped picker и lifecycle fixes, реальные Telegram adapter/command boundaries, source factory, Decision 045 и regressions. Существующие четыре calculator test modules повторно выполнены: **45 passed in 1.80s**. R1–R6 по проверенным сценариям закрыты. Для R7 исходная ошибка sliding activity исправлена, но граница source cache → runtime сохраняет ложную свежесть. Дополнительно R5 precision hardening нарушил нормальный автоматический источник баллов.
+
+### R8 — P2: подтверждённое дробное среднее баллов блокирует расчёт
+
+Точки: `unit_price_scenario_source.py:364–366` и `unit_price_scenario_service.py:349–358` на проверенном code SHA.
+
+Источник рассчитывает weighted rate в Decimal и передаёт строку без ограничения точности. Обычная полная выборка sale=300 ₽, bonus=50 ₽ даёт `16.66666666666666666666666667`. Новая общая проверка `MAX_INPUT_DIGITS=15` отклоняет такую корректную ставку. После заполнения ручных L/M/E и рекламы калькулятор остаётся INPUT_REQUIRED; кнопка восстановления среднего возвращает то же недопустимое значение.
+
+Probe использует настоящие `UnitPriceScenarioSource`, `UnitPriceScenarioService`, `TaxService`, runtime и keyboard, с искусственным полным 28-дневным finance evidence. Ввод остальных полей проходит через публичные callback/text методы. Получено:
+
+```json
+{"source_complete": true, "auto_rate": "16.66666666666666666666666667", "available": false, "invalid_inputs": ["discount_points_rate"]}
+```
+
+Требуется согласовать безопасную точность автоматической ставки с математическим контрактом, сохранив weighted formula, защиту extreme inputs и fail-closed для неполных данных. Регрессия должна пересечь source → math → runtime; отдельные source tests с целочисленной средней долей этого не проверяют.
+
+### R9 — P2: новый сценарий омолаживает уже закэшированный источник
+
+Точки: runtime `:348`, `:634–659`; source `:77–86` на проверенном code SHA.
+
+`UnitPriceScenarioSource.load_snapshot` честно возвращает cache hit и `age_seconds`, но runtime записывает `source_loaded_at=self.clock()` при каждом открытии сценария. Возраст существующего снимка теряется. Воспроизведение: загрузить source в t=0; открыть новый сценарий с cache hit в t=590; показать результат в t=610. Источнику уже 610 секунд при TTL=600, но runtime сообщает возраст 20 и продолжает current-price comparison:
+
+```json
+{"cache_age_at_open": 590, "actual_snapshot_age": 610, "runtime_freshness": {"status": "FRESH", "age_seconds": 20, "ttl_seconds": 600}, "comparison_available": true, "underlying_source_reads": 1, "source_as_of_unchanged": true}
+```
+
+Нужно сохранить исходный возраст источника при передаче cache hit в новый runtime scenario; открытие, локальный ввод и восстановление среднего не должны сбрасывать его. Source age должен быть одинаковым на результате и экране допущений. Настоящий успешный refresh может обновить возраст; ошибка refresh — нет.
+
+### Проверки, ограничения и итог
+
+- Два дополнительных изолированных pytest probes с assertions правильного поведения — **2 failed in 0.34s**, ожидаемое red evidence R8/R9. Они лежат в ignored scratch `.codex-test-pr695-repeat-review/probes.py`, не добавлены в production/default suite и не используют live API, credentials, пользовательские товары или storage.
+- Четыре текущих calculator modules — **45 passed**. Полный pytest повторно не запускался: production code не менялся, full CI проверенного head уже success. После R8/R9 требуется новый full suite и CI нового кода.
+- Сохранены пользовательские локальные изменения и данные. Review меняет только документы; merge/deploy не выполнялись.
+- **Слияние пока не рекомендуется.** Исправить R8/R9 по отдельному ТЗ, добавить meaningful regressions, получить зелёный CI нового code SHA и повторить review. Бизнес-решение для этих технических исправлений не требуется.
+
+## Отчёт дополнительной проверки
+
+1. **Change Summary:** ветка `codex/unit-price-calculator`; проверенный commit `73c4c74` — `Document PR 695 final CI and review`. На его неизменённом коде проведён дополнительный review; итог — два подтверждённых P2. Новый документационный commit публикует этот вывод и ТЗ, его SHA приведён в итоговом сообщении.
+2. **Files Changed:** добавлен `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md` — порядок исправлений W00–W03 и acceptance regressions. Изменены этот review, CHANGELOG, CURRENT_STATE, TEST_MAP, исходное feature ТЗ и предыдущий corrective task — текущий статус исправлен, история сохранена. Удалённых файлов нет; production files не менялись.
+3. **Architecture Impact:** No architectural impact для этой проверки; новые service/layer/dependency и API/DB contracts не вводились. Будущие R8/R9 должны уточнить существующие numeric/freshness contracts без нового слоя.
+4. **Preserved Components:** math formula, TaxService, source budgets/cache isolation, picker/tickets и существующие Telegram flows. Пользовательские data/users.json и data/tasks.json и локальные временные файлы не редактировались и не включаются в commit.
+5. **Testing:** production test suite не расширялся в review. Четыре calculator modules выполнены повторно — 45 passed; два scratch probes правильного поведения — 2 failed, red evidence новых ошибок. Полный pytest локально не повторён из-за отсутствия изменений кода; exact-head Windows/Linux full CI `38617595326` success проверен. После исправлений требуется новый полный прогон.
+6. **Documentation Updates:** CHANGELOG описывает findings; CURRENT_STATE отмечает открытые blockers; TEST_MAP показывает coverage gaps и фактические результаты; DECISIONS не менялся, Decision 045 сохранён. Review и обе прежние задачи ссылаются на новое ТЗ.
+7. **Review Classification:** Architecture Review Required для PR #695; дополнительная проверка требует R8/R9 перед слиянием. Новых blockers R1–R6 не подтверждено, R7 имеет остаточный cache-hit дефект.
+8. **Next Recommended Step:** выполнить W00–W03 нового ТЗ, получить зелёный CI исправленного code SHA и повторный review. Слияние выполнит другая модель после приёмки; reviewer не начинает implementation или merge автоматически.
