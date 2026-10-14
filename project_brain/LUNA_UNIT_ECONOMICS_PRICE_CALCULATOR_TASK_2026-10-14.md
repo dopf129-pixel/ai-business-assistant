@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna — калькулятор плановой юнит-экономики по SKU
 
 Дата: 14.10.2026. Подготовил: GPT Sol. Исполнитель: GPT Luna.
-Статус: **калькулятор реализован; R8 (precision weighted rate) и R9 (cache freshness age) исправлены и имеют red→green integration coverage. Calculator набор — 48 passed, полный isolated Windows pytest — 3 141 passed; compileall выполнен. CI code SHA и повторный review ещё выполняются по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`; слияние проведёт другая модель**.
+Статус: **калькулятор реализован; R8 (precision weighted rate) и R9 (cache freshness age) исправлены и имеют red→green integration coverage. Calculator набор — 48 passed, полный isolated Windows pytest — 3 141 passed; compileall выполнен. Verify run `38621277605` успешно прошёл Windows/Linux и Docker на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f`; повторный review не выявил blockers. Слияние проведёт другая модель**.
 
 ## 1. Цель и подтверждённые решения пользователя
 

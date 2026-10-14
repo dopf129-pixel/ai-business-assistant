@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — R8/R9 дополнительного review PR #695
 
-Дата: 14.10.2026. Статус: **не начато; исправления обязательны до merge**.
+Дата: 14.10.2026. Статус: **W00–W03 завершены; R8/R9 исправлены, полный Windows/Linux CI и повторный review прошли. PR открыт для слияния другой моделью**.
 
 ## Цель и проверенная ревизия
 
@@ -72,4 +72,4 @@
 | W00 | Завершён | Добавлены штатные integration regressions; до исправления обе проверки красные на исходной логике, после — зелёные. Базовая ревизия: `34b38e9`. |
 | W01 — R8 | Завершён локально | Ограничение 28 значащих цифр только для bounded ставок; money guard остался 15 цифр. Проверка source→math→runtime и precision boundary зелёные. |
 | W02 — R9 | Завершён локально | Runtime сохраняет cache age + elapsed и source TTL в сценарии; result/assumptions используют общий freshness state. Повторное открытие и локальная активность не омолаживают cache; на age==TTL состояние stale; успешный refresh обновляет возраст и сохраняет manual ad override. |
-| W03 | Выполняется | Calculator набор **48 passed**, полный isolated Windows pytest **3 141 passed in 25.15s**, compileall прошёл с прежней SyntaxWarning. Остались публикация нового code SHA, GitHub CI и повторный review до слияния. |
+| W03 | Завершён | Calculator набор **48 passed**, полный isolated Windows pytest **3 141 passed in 24.54s**, compileall прошёл с прежней SyntaxWarning. Verify run **38621277605** success на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f` (Windows/Linux full suite, Docker build/smoke); повторная проверка R8/R9 не выявила blockers. PR открыт; слияние выполнит другая модель. |

@@ -2,7 +2,7 @@
 
 ## Вердикт и проверенная ревизия
 
-**Вердикт review на SHA `73c4c74`: R8/R9 подтверждены, поэтому тогда было рекомендовано не сливать. В текущей рабочей копии обе находки исправлены и получили red→green интеграционные regressions; новый code SHA ещё ожидает полного pytest, GitHub CI и независимой повторной проверки. До этих результатов PR не готов к слиянию.**
+**Вердикт review на SHA `73c4c74`: R8/R9 подтверждены, поэтому тогда было рекомендовано не сливать. Исправления прошли red→green integration regressions, полный pytest и GitHub Verify на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f`; повторный review финального diff не выявил новых блокеров. PR готов к передаче модели, которая выполнит слияние.**
 
 Исправления ведутся по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Первичный review и результаты первой приёмки ниже сохранены как история.
 
@@ -246,5 +246,5 @@ Probe использует настоящие `UnitPriceScenarioSource`, `UnitPr
 - R8: rates используют отдельный precision limit в 28 significant digits (Decimal context); денежные inputs сохраняют прежний 15-digit limit, диапазон процентной ставки остаётся 0–100. Production source → math → runtime regression подтверждает полный расчёт для 50/300: налог 25 ₽, прибыль 280 ₽, маржа 56%. Manual override переживает refresh; восстановление принимает новое среднее 1/7.
 - R9: snapshot cache `age_seconds` и `ttl_seconds` переносятся в transient runtime session. Текущая свежесть — cached age + монотонное elapsed; result/assumptions используют одно состояние. Источник истекает на `age >= TTL`, как и reuse в source. Regression доказывает t=0 → t=590 cache hit → t=600/610 stale, один source read, недоступное сравнение и предупреждение; успешный refresh обновляет данные, не теряя ручные значения.
 - Red evidence до исправления: обе новые штатные regressions падали; после исправления calculator/source/math/runtime набор — **48 passed**.
-- Полный isolated Windows pytest — **3 141 passed in 25.15s**. Compileall завершился с одной существующей SyntaxWarning в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
-- До публикации code-bearing SHA, зелёного CI на нём и независимого review PR остаётся открытым; merge не выполнялся.
+- Полный isolated Windows pytest — **3 141 passed in 24.54s**. Compileall завершился с одной существующей SyntaxWarning в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
+- GitHub Verify run **38621277605** на exact code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f` completed/success: Windows and Linux full suite, compile, production Docker build/runtime smoke. Финальный review diff подтвердил исправление R8/R9 без новых блокеров. Merge не выполнялся.

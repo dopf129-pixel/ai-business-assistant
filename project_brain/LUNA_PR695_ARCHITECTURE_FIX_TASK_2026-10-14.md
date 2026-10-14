@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — исправления архитектурного review PR #695
 
-Дата: 14.10.2026. Статус: **Первая приёмка V00–V08 завершена. Дополнительные findings R8/R9 исправлены; integration regressions проходят, полный isolated Windows pytest — 3 141 passed, compileall выполнен. CI нового code SHA и независимый review ещё требуются по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Слияние оставлено другой модели. Предыдущее заключение без блокеров сохранено ниже как история**.
+Дата: 14.10.2026. Статус: **Первая приёмка V00–V08 завершена. Дополнительные findings R8/R9 исправлены и перепроверены; integration regressions проходят, полный isolated Windows pytest — 3 141 passed, compileall выполнен. Verify run `38621277605` успешно прошёл Windows/Linux и Docker на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f`; повторный review не выявил blockers. Слияние оставлено другой модели. Предыдущее заключение без блокеров сохранено ниже как история**.
 
 ## 1. Цель и исходный код
 
