@@ -415,12 +415,19 @@ def test_source_snapshot_expires_independently_from_session_activity():
             f"upc:v:{active['price_scenario']['scenario_id']}:3",
             user_id="user-1",
         )
+        assumptions = runtime.handle_callback(
+            f"upc:a:{active['price_scenario']['scenario_id']}:3",
+            user_id="user-1",
+        )
     finally:
         reset_current_tenant_user_id(token)
 
     assert stale_source["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert stale_source["price_scenario"]["comparison"]["available"] is False
     assert "устарел" in stale_source["message"].lower()
+    assert "источники устарели" in assumptions["message"].lower()
+    assert "2026-10-14T09:00:00+03:00" in assumptions["message"]
+    assert "текущая карточка" not in assumptions["message"].lower()
     assert source.calls == [("sku-1", "user-1", False)]
 
 

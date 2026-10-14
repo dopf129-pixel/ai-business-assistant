@@ -165,8 +165,8 @@ V05 зависит от навигационной очистки V04: обра�
 | V04 — R6 | Завершён | Очистка calculator state подключена до early-return Seller Cost/Return Inventory adapters, `/start` и store switch/disconnect command boundary. Старые callbacks и text stage после перехода не работают. |
 | V05 — R4 | Завершён | Текст на READY-сценарии возвращает его актуальную клавиатуру без изменения inputs/version и без source reads; после навигации калькулятор текст не перехватывает. |
 | V06 — R5 | Завершён | Decimal inputs ограничены документируемым техническим диапазоном до арифметики/float; некорректный налоговый результат закрывает итог и сохраняет клавиатуру повторного ввода. |
-| V07 — R7 | Завершён | `source_loaded_at` отделён от sliding inactivity timestamp; старый snapshot скрывает comparison. Успешный refresh обновляет freshness, ошибка оставляет STALE; ручные допущения сохранены. |
-| V08 | В работе | Targeted tests **61 passed**; полный suite в изолированной копии **3 137 passed**; compileall прошёл (одна существующая `SyntaxWarning`). GitHub CI на новом head и exact-head повторный review ещё не выполнены. |
+| V07 — R7 | Завершён | `source_loaded_at` отделён от sliding inactivity timestamp; старый snapshot скрывает comparison, а assumptions screen явно показывает source as-of и STALE. Успешный refresh обновляет freshness, ошибка оставляет STALE; ручные допущения сохранены. |
+| V08 | В работе | Targeted tests **61 passed** на текущем коде. Полный suite **3 137 passed** и GitHub CI run `38615340159` относятся к предшествующему code commit `0e41263`; повторяются после последней правки stale assumptions label. Текущий exact-head CI и повторный review ещё не выполнены. |
 
 ### Фактические проверки перед публикацией нового PR head
 

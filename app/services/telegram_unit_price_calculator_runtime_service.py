@@ -567,6 +567,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
         period = snapshot.get("source_periods", {}).get("discount_points", {})
         completeness = snapshot.get("source_completeness", {}).get("discount_points", {})
         points = session["inputs"].get("discount_points_rate")
+        source_loaded_at = session.get("source_loaded_at", session.get("created_at", 0))
+        source_age = max(0, self.clock() - source_loaded_at)
+        source_fresh = source_age <= self.session_ttl_seconds
+        seller_price_as_of = (
+            snapshot.get("source_periods", {}).get("seller_price_as_of")
+            or "дата в источнике не указана"
+        )
+        source_line = (
+            "Снимок цены/FBO-тарифа из карточки Ozon на "
+            + str(seller_price_as_of)[:40]
+            + "; источники актуальны."
+            if source_fresh
+            else "Снимок цены/FBO-тарифа из карточки Ozon на "
+            + str(seller_price_as_of)[:40]
+            + "; источники устарели, сравнение скрыто. Обновите источники."
+        )
         if completeness.get("complete") is True:
             point_line = (
                 "Баллы: взвешенная доля по точному SKU за "
@@ -580,7 +596,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         provenance = session.get("provenance") or {}
         lines = [
             "Допущения планового сценария",
-            "Источник цены и FBO-комиссии — текущая карточка Ozon; новый тариф не запрашивается.",
+            source_line,
+            "Новый тариф не запрашивается при изменении цены сценария.",
             "Калькулятор считает только FBO. Ставка — оценка: Ozon может изменить её при новой цене; FBS не поддержан.",
             point_line,
             "Себестоимость: " + self._source_label(provenance.get("cost")) + ".",
