@@ -1,3 +1,10 @@
+# 2026-10-14 — U00 аудита калькулятора плановой цены завершён
+
+- Ветка `codex/unit-price-calculator`, базовый squash SHA `655b3a0` (PR #694 уже в main). U00 source map: `project_brain/UNIT_PRICE_CALCULATOR_SOURCE_AUDIT_2026-10-14.md`.
+- Подтверждено: `commission.sale_amount` уже входит в `gross_sales`, `commission.bonus` — отдельные баллы; bonus completeness текущим daily aggregate не доказана. `sales_count` — количество положительных строк товара, не штуки. Текущие finance average L/M/E поэтому не считаются расходом на единицу.
+- V1 запросит ручные L/M/E. Текущая FBO ставка и seller price используются только как помеченные оценки; FBO не переносится на FBS. Налоговую модель получает из активного tenant policy и пересчитывает через `TaxService`.
+- U00 целевой regression baseline: **44 passed** на Python 3.12 (`PYTHONPATH=app`). Live Ozon и новые изменения кода ещё не проверялись/не выполнялись. `data/users.json` и `data/tasks.json` сохранены вне изменений.
+
 # 2026-10-14 — P00–P08 приняты; слияние PR #694 одобрено
 
 - Пользователь поручил принять решение о слиянии. При независимой проверке `fb1b0db` подтверждены два пропущенных пути R1/R4: повторный текст на whole-history confirmation терял действующие кнопки (single/CSV), а auth timeout Performance не учитывал локальный enrichment остаток и после 401 терял причину global budget exhaustion.

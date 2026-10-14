@@ -178,6 +178,15 @@ Only a categorical empty/non-numeric marker is retained; raw row values are not
 passed to Telegram.
 
 
+# Unit Price Scenario Calculator — U00 source audit (2026-10-14)
+
+Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
+
+- Existing current economics, source, production wiring and discount-points/tax regression modules: **44 passed**.
+- Source audit: `project_brain/UNIT_PRICE_CALCULATOR_SOURCE_AUDIT_2026-10-14.md`.
+- Confirmed `sale_amount` is already included in gross sales; `bonus` is separately accumulated. Existing aggregate does not prove explicit bonus completeness, and `sales_count` counts positive product rows, not units.
+- No implementation/live Ozon query in U00. New calculation/source/UI tests will be mapped here by their corresponding stages.
+
 # Test Map
 
 ## Period Profit bounded Ozon quantity reads
