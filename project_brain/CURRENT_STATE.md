@@ -1,9 +1,10 @@
-# 2026-10-14 — PR #695 R1–R7 исправлены локально; V08 в работе
+# 2026-10-14 — PR #695 R1–R7: исправления, CI и повторный review завершены
 
 - Исправлены семь findings initial architecture review: catalog picker tokens bound to user/store/generation; потребление picker callback атомарно создаёт source operation ticket; late initial/refresh results отсекаются; scenario eviction isolates pending record; READY text returns calculator screen; Decimal/tax invalid outputs fail closed; adapters and store commands clear calculator state before other navigation; source snapshot TTL no longer slides with edits, включая freshness на assumptions screen.
 - Добавлены controlled `Event` concurrency, adapter/navigation, text routing, math-boundary и freshness regressions в `tests/test_unit_price_scenario_architecture_review_regressions.py`; math service tests покрывают extreme magnitude/precision и invalid tax output.
 - Targeted calculator/UI/routing tests: **62 passed in 2.32s**. Полный Windows pytest: **3 138 passed in 18.68s** в изолированной копии без пользовательских данных, `.env` и live storage. `compileall -q app tests` завершился; видна одна существующая SyntaxWarning в `test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
-- До публикации пользовательские `data/tasks.json`/`data/users.json` и локальные temp/lock файлы сохранены и исключены из будущего коммита. Git diff whitespace check прошёл. Новый PR head, его GitHub CI и exact-head повторный review ещё ожидают V08.
+- Code-bearing SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` опубликован в PR #695 (`codex/unit-price-calculator`). Повторный review по R1–R7 не оставил блокеров. Verify run **38616115735** — success: Windows full suite, Linux full suite, Docker production build и runtime smoke.
+- Пользовательские `data/tasks.json`/`data/users.json` и локальные temp/lock файлы сохранены и исключены из commits. `git diff --check` прошёл. PR открыт; merge и production запуск не выполнялись.
 
 # 2026-10-14 — PR #695: архитектурный review требует R1–R7
 

@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — исправления архитектурного review PR #695
 
-Дата: 14.10.2026. Статус: **R1–R7 исправлены в рабочей ветке; локальный full pytest и targeted regression зелёные. Новый PR head, CI и повторный review — этап V08 в работе**.
+Дата: 14.10.2026. Статус: **V00–V08 завершены: R1–R7 исправлены, local/full CI зелёные, повторный architecture review не оставил блокеров. PR #695 открыт для merge другой моделью**.
 
 ## 1. Цель и исходный код
 
@@ -166,12 +166,28 @@ V05 зависит от навигационной очистки V04: обра�
 | V05 — R4 | Завершён | Текст на READY-сценарии возвращает его актуальную клавиатуру без изменения inputs/version и без source reads; после навигации калькулятор текст не перехватывает. |
 | V06 — R5 | Завершён | Decimal inputs ограничены документируемым техническим диапазоном до арифметики/float; некорректный налоговый результат закрывает итог и сохраняет клавиатуру повторного ввода. |
 | V07 — R7 | Завершён | `source_loaded_at` отделён от sliding inactivity timestamp; старый snapshot скрывает comparison, а assumptions screen явно показывает source as-of и STALE. Успешный refresh обновляет freshness, ошибка оставляет STALE; ручные допущения сохранены. |
-| V08 | В работе | Targeted tests **62 passed in 2.32s**; полный suite **3 138 passed in 18.68s** на финальном локальном коде; compileall прошёл с одной существующей SyntaxWarning. CI runs `38615340159`/`38615657244` относятся к более ранним heads; текущий exact-head CI и повторный review ещё не выполнены после atomic ticket race fix. |
+| V08 | Завершён | Targeted tests **62 passed in 2.32s**; полный suite **3 138 passed in 18.68s** на финальном локальном коде; compileall прошёл. Verify run **38616115735** success на code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7`: Windows/Linux full verification, Docker build и runtime smoke. Повторный review exact code SHA закрывает R1–R7 без блокеров. |
 
-### Фактические проверки перед публикацией нового PR head
+### Фактические локальные проверки и публикация
 
 - Целевой набор calculator/runtime/UI/routing: **62 passed in 2.32s** на рабочем дереве.
 - Полный `pytest -q`: **3 138 passed in 18.68s** на копии текущего кода без `data/`, `.env` и пользовательского хранилища; sandbox ACL для Python-created temp/SQLite путей обойдён разрешённым запуском в изолированной копии. Assertions и тесты не менялись.
 - `python -m compileall -q app tests`: завершился успешно; показал одну существующую `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177` (`is not 0.0`).
 - `git diff --check`: успешно. Локальные `data/tasks.json`, `data/users.json`, lock и старые temp-каталоги не добавлялись в изменения.
-- Последний R2 race fix ещё не опубликован; после push нужно зафиксировать exact head, GitHub CI runs и повторный review. До этого R1–R7 локально исправлены, но PR acceptance не завершена.
+- Коммиты исправлений: `0e41263` (R1–R7), `fd2b036` (stale source label на assumptions screen), `3f4942b` (atomic picker/source ticket race). Последний code SHA опубликован в открытый PR #695. Пользовательские `data/` и temp/lock файлы не включены.
+
+### V08 — финальный повторный архитектурный review (2026-10-14)
+
+Проверенный code SHA: `3f4942b6c2e01238cabfd9fda7c274ab479bcba7`; PR #695 head совпадал с ним на момент проверки. GitHub Verify run `38616115735` completed/success; оба job (`windows-verification`, `full-verification`) завершились успешно, включая Windows/Linux full test suite, compile, Docker build и production runtime smoke.
+
+| Finding | Результат повторной проверки |
+|---|---|
+| R1 — callback каталога между магазинами/поколениями | Закрыт opaque token с user/store/generation binding; stale picker не читает источник, действующий выбор проходит. |
+| R2 — поздняя initial/refresh загрузка | Закрыт atomic picker-consume/source-ticket creation и проверки ticket/active/version после reads; late initial, older selection и refresh success/failure проходят controlled regressions. |
+| R3 — eviction чужого pending | Закрыт связью pending с `scenario_id`; вытеснение inactive A сохраняет input active B. |
+| R4 — текст на экране результата | Закрыт возвратом актуального калькулятора и keyboard без изменения inputs/version и без source read. |
+| R5 — крайние числовые значения | Закрыт технической Decimal-границей и fail-closed validation при некорректном tax output; retry keyboard сохраняется. |
+| R6 — early-return navigation adapters | Закрыт очисткой до Seller Cost/Return Inventory handlers и перед store switch/disconnect. |
+| R7 — скользящий возраст источников | Закрыт отдельным `source_loaded_at`; stale comparison скрыт, assumptions screen показывает as-of/stale, только успешный refresh освежает snapshot. |
+
+Повторный review не выявил открытых блокеров в R1–R7. Во время review дополнительно закрыты два пропуска покрытия: stale-маркировка assumptions screen и race между consume picker callback и стартом source operation; оба внесены в code SHA и regression suite до зелёного CI. Merge в рамках этого этапа не выполнялся; PR оставлен открытым для слияния другой моделью.

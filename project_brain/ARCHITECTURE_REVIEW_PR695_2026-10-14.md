@@ -10,7 +10,7 @@
 - Ветка: `codex/unit-price-calculator`.
 - GitHub Verify run `38604649833`: completed / success на этом head.
 - Изучены все новые math/source/runtime/factory компоненты, изменения finance/handler/keyboard/composition и существующие внешние Telegram adapters, через которые проходит production-навигация.
-- Исправляющее ТЗ выполняется в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`; текущий локальный код прошёл 62 целевых теста и полный pytest 3 138. Финальный exact-head GitHub CI и повторный review будут внесены после публикации последнего code commit.
+- Исправляющее ТЗ завершено в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`; code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` прошёл 62 целевых теста, полный pytest 3 138 и GitHub Verify run `38616115735`. Повторный review R1–R7 не выявил оставшихся блокеров; детали и resolutions добавлены ниже.
 
 Разделение чистой математики, источников и временного Telegram-сценария соответствует архитектуре проекта. Замена архитектуры не требуется. Подтверждённые блокеры находятся в привязке callback, жизненном цикле сценария, маршрутизации текста и проверке числового ввода.
 
@@ -172,3 +172,19 @@ Probe через настоящий handler:
 - Testing: 26 existing targeted tests passed; 8 isolated defect probes подтверждены; exact-SHA CI success прочитан с GitHub.
 - Documentation: CHANGELOG, CURRENT_STATE, TEST_MAP и исходное calculator task обновлены. DECISIONS не изменён: новые архитектурные решения не приняты.
 - Next recommended step: выполнить V00–V08 из исправляющего ТЗ, получить зелёный CI нового head и пройти повторный review перед слиянием.
+
+## Повторный review исправлений — 14.10.2026
+
+Проверен code-bearing PR head `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` в ветке `codex/unit-price-calculator`. GitHub Verify run `38616115735` завершился успешно: `windows-verification` и `full-verification` success; последний включает Linux full suite, production Docker build и runtime smoke. Локально целевой набор — **62 passed**, полный pytest в изолированной копии — **3 138 passed**.
+
+| Finding | Повторная проверка |
+|---|---|
+| R1 — callback старого каталога/магазина | Закрыт opaque token с user/store/generation binding; stale callback не выполняет source read. |
+| R2 — late initial/refresh и конкурентный выбор | Закрыт атомарным созданием operation ticket при consume picker callback и проверками ticket/active/version после read; interleavings покрыты `Event` tests. |
+| R3 — eviction очищает чужой pending | Закрыт связью pending с `scenario_id`; активный сценарий сохраняет ввод при eviction другого. |
+| R4 — текст на экране результата | Закрыт возвратом собственного calculator result/keyboard без изменения inputs/version и без source read. |
+| R5 — экстремальная Decimal величина/ошибка налога | Закрыт technical input bounds и fail-closed итогом с рабочей клавиатурой повторного ввода. |
+| R6 — навигация через early-return adapters | Закрыт очисткой calculator state до Seller Cost/Return Inventory handlers и store switch/disconnect. |
+| R7 — возраст source snapshot | Закрыт независимым `source_loaded_at`; stale comparison скрыт, экран допущений показывает as-of/stale; только успешный refresh обновляет freshness. |
+
+Во время повторного просмотра до финального CI выявлены и закрыты два недопокрытых края R2/R7: stale-маркировка экрана допущений и race между consume picker callback и source ticket creation. Оба изменения находятся в проверенном SHA и покрыты regressions. **Нерешённых блокеров по R1–R7 не осталось.** Merge/deploy не выполнялись; PR остаётся открыт для слияния другой моделью.

@@ -4,7 +4,7 @@
 - Runtime атомарно связывает consume picker callback с operation ticket и привязывает публикацию initial/refresh source результата к актуальному ticket, активному SKU и версии. Eviction удаляет только свой pending input; повторный текст на активном результате возвращает собственные кнопки.
 - Навигационная очистка подключена до early-return seller-cost/return-inventory adapters и store commands. Source freshness хранится отдельно от времени активности; просроченное сравнение скрывается, а экран допущений показывает as-of и устаревание. Невычислимые величины/налоговые результаты завершаются обычной валидацией с рабочим retry UI.
 - Добавлен `tests/test_unit_price_scenario_architecture_review_regressions.py` для семи находок; точечный набор — **62 passed**, полный изолированный Windows pytest — **3 138 passed**. Compileall завершился; остаётся одна существующая SyntaxWarning.
-- GitHub CI нового PR head и повторный архитектурный review ожидают публикации проверенного кода.
+- Повторный architecture review по R1–R7 пройден на code SHA `3f4942b6`; блокеров не осталось. Verify run `38616115735` успешен: Windows verification, Linux full verification, Docker build/runtime smoke. PR #695 оставлен открытым для merge другой моделью.
 
 # 2026-10-14 — Архитектурный review PR #695
 

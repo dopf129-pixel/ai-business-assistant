@@ -5,7 +5,7 @@
 - Добавлен `tests/test_unit_price_scenario_architecture_review_regressions.py`: store/generation-scoped picker, atomic picker-consume/source-ticket interleave, controlled late source loads и refresh, eviction/pending isolation, READY text ownership, реальные Seller Cost/Return Inventory adapters, store switch/disconnect clearing и independent source freshness на result и assumptions screens. Interleavings используют `Event`, не timing sleeps.
 - `tests/test_unit_price_scenario_service.py`: крайние Decimal magnitude/precision отклоняются, невалидный tax output делает итог недоступным, локализованная цена остаётся допустимой.
 - Обновлены `tests/test_unit_price_scenario_telegram_runtime.py` на opaque calculator picker callback.
-- Целевой calculator/runtime/UI/routing набор: **62 passed**. Полный `pytest -q`: **3 138 passed** на изолированной копии текущего кода; пользовательские данные исключены. Compileall прошёл с одной ранее существовавшей SyntaxWarning. Проверки соответствуют локальному рабочему коду; GitHub CI exact final head ожидает push.
+- Целевой calculator/runtime/UI/routing набор: **62 passed**. Полный `pytest -q`: **3 138 passed** на изолированной копии текущего кода; пользовательские данные исключены. Compileall прошёл. GitHub Verify run **38616115735** success на code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7`: Windows full suite, Linux full suite, Docker build и smoke.
 
 ## Архитектурный review PR #695 — непокрытые регрессии
 
