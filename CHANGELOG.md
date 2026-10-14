@@ -1,3 +1,9 @@
+# 2026-10-14 — Архитектурный review PR #695
+
+- На head `6d472145` подтверждены семь дефектов: R1 — unbound catalog callback между магазинами; R2 — concurrent late source load заменяет/восстанавливает сценарий; R3 — eviction старого record удаляет pending нового; R4 — текст результата уходит в общий route; R5 — конечное большое число вызывает Decimal error без клавиатуры; R6 — early-return adapters пропускают очистку калькулятора; R7 — sliding TTL скрывает возраст source snapshot.
+- Существующие scenario modules: **26 passed**; восемь изолированных probes подтвердили семь ошибок. Exact-head CI Verify `38604649833` success сохраняется как baseline, но не покрывает найденные случаи. R2 — P2 по concurrent runtime contract; текущий polling имеет `max_concurrent_updates=1`.
+- Созданы `ARCHITECTURE_REVIEW_PR695_2026-10-14.md` и исправляющее `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`. Production code не изменён; review требует R1–R7 и повторной приёмки перед merge.
+
 # 2026-10-14 — U04 локальная приёмка калькулятора цены
 
 - Production composition безопасно выключает необязательный калькулятор, если тестовый/внешний unit-economics provider не предоставляет требуемые product/current/cost sources; штатная production factory с полным provider подключает его как прежде.

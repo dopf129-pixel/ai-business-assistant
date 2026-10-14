@@ -1,3 +1,11 @@
+# 2026-10-14 — PR #695: архитектурный review требует R1–R7
+
+- Проверен PR head `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`, ветка `codex/unit-price-calculator`. Решение review: не сливать до исправления R1–R7 и проверки нового SHA.
+- Один P1 касается callback origin store. Шесть P2 касаются concurrent late activation, pending eviction, text-stage результата, числовой валидации, ранней навигации внешних adapters и source freshness. Для R2 отдельно подтверждено: текущий polling сериализует updates (`max_concurrent_updates=1`), но обязательный параллельный runtime contract нарушен.
+- Review: `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`. ТЗ GPT Luna: `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`, этапы V00–V08 ещё не начаты.
+- Targeted existing scenario tests: **26 passed in 1.38s**; 8 изолированных воспроизведений подтверждают 7 находок. Verify run `38604649833` success на review SHA — baseline, не acceptance исправлений.
+- В рамках review изменены только документы. Production code, существующие локальные пользовательские данные и API/DB contracts сохранены; merge/deploy не выполнялись.
+
 # 2026-10-14 — U04 локальная приёмка калькулятора цены
 
 - Защищена опциональная composition калькулятора: при неполном test/external unit-economics provider source runtime не создаётся; при штатных sources production wiring остаётся включённым. Добавлен regression.

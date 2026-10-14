@@ -1,5 +1,15 @@
 # Карта тестов — актуальный статус 2026-10-14
 
+## Архитектурный review PR #695 — непокрытые регрессии
+
+- Review SHA `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`: три existing modules `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_source.py`, `tests/test_unit_price_scenario_telegram_runtime.py` — **26 passed in 1.38s**.
+- GitHub Verify run `38604649833` success на этом SHA подтверждает existing full-suite/Windows/Linux/Docker baseline (3 119 тестов), а не закрытие новых находок.
+- Восемь дополнительных изолированных probes подтверждают R1–R7: stale store catalog callback; late initial load после clear и после более нового выбора; eviction inactive record при pending active record; unhandled text READY; finite input `1e100`; early-return seller-cost navigation; snapshot age >TTL при продлении session activity. Ни Ozon calls, ни business writes не выполнялись. R2 — concurrent runtime contract; текущая polling application имеет max concurrent updates=1.
+- Probes не включались в pytest как тесты неправильного поведения. Требуемые red→green regressions, integration boundaries и порядок приёмки описаны в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`; evidence — `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`.
+- Full pytest повторно не запускался: production code не менялся, exact-SHA CI уже прочитан. Новые регрессии и current-head full CI обязательны при исправлениях.
+
+## Историческая приёмка PR #694
+
 - Финальная проверка перед merge выявила и закрыла пропущенные whole-history text refresh (single/CSV confirm/cancel) и локальный auth timeout Performance / budget reason после 401. Новые регрессии: `app/tests/test_seller_cost_confirmation_flow.py::test_text_during_whole_history_confirmation_keeps_valid_draft_buttons`, `tests/test_ozon_performance_historical_reports.py::test_performance_auth_timeout_uses_remaining_local_and_shared_budgets` и `::test_performance_auth_refresh_preserves_exhausted_shared_budget_reason`.
 - После дополнительного patch: cost-flow suite — **16 passed**; Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI code SHA `f7a0f945bc26cadd5d190982a68c2dae6191d632` включает эти три локально исключённых файловых теста: Linux Python 3.11 и Windows Python 3.12 по **3 093 passed**, compileall и production Docker build/smoke прошли. Финальный review одобрил слияние.
 
