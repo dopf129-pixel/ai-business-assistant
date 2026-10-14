@@ -18,6 +18,11 @@ from services.tenant_context import get_current_tenant_user_id
 class UnitPriceScenarioSource:
     """Build bounded read-only source snapshots for the price calculator."""
 
+    # Keep source normalization aligned with UnitPriceScenarioService's money
+    # input contract so unsupported source values are reported as unknown.
+    MAX_SCENARIO_MONEY_DIGITS = 15
+    MAX_SCENARIO_MONEY_ADJUSTED_EXPONENT = 12
+    MIN_SCENARIO_MONEY_ADJUSTED_EXPONENT = -12
     TIME_BUDGET_SECONDS = 60
     HTTP_ATTEMPT_BUDGET = 64
     DISCOUNT_POINTS_DAYS = 28
@@ -273,6 +278,8 @@ class UnitPriceScenarioSource:
         if str(product_id) != str(product["product_id"]) or str(currency).upper() != "RUB":
             return None, None
         value = self._nonnegative_number(amount)
+        if value is None:
+            return None, None
         return value, str(updated_at) if updated_at is not None else None
 
     def _load_tax_policy(self):
@@ -403,6 +410,12 @@ class UnitPriceScenarioSource:
     def _nonnegative_number(self, value, positive=False):
         number = self._decimal(value)
         if number is None or number < 0 or (positive and number == 0):
+            return None
+        if not number.is_zero() and (
+            len(number.as_tuple().digits) > self.MAX_SCENARIO_MONEY_DIGITS
+            or number.adjusted() > self.MAX_SCENARIO_MONEY_ADJUSTED_EXPONENT
+            or number.adjusted() < self.MIN_SCENARIO_MONEY_ADJUSTED_EXPONENT
+        ):
             return None
         return float(number)
 

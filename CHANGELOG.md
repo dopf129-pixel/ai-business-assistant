@@ -1,3 +1,9 @@
+# 2026-10-14 — PR #695: исправлен source/presentation R10
+
+- Source теперь приводит seller price и сохранённую себестоимость к существующим техническим границам калькулятора. Неподдерживаемые числа становятся unknown: полнота/provenance не подтверждают значение, а для отклонённой себестоимости не сохраняется misleading `as_of`.
+- Форматтеры денег и процентов безопасно обрабатывают неподдерживаемые Decimal и сохраняют округление обычных значений, включая 28-digit средние ставки. Добавлены публичные Telegram regressions для ручной замены недопустимой цены/себестоимости и защиты result/edit screens.
+- До исправления обе новые интеграционные проверки падали с `UNIT_PRICE_SCENARIO_CALLBACK_FAILED`. После исправления targeted calculator/UI/tax-policy set: **59 passed in 1.51s**. Полный isolated suite, compileall, новый CI и повторный review ещё не завершены; PR не готов к слиянию до этих проверок.
+
 # 2026-10-14 — PR #695: source/presentation R10 при повторном review
 
 - R8/R9 подтверждены; 48 targeted tests и exact-head Windows/Linux/Docker CI зелёные на `060b0e6`.

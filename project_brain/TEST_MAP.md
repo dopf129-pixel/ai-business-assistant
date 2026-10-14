@@ -1,10 +1,9 @@
 # Карта тестов — актуальный статус 2026-10-14
 
-## PR #695 — повторный review R10: отсутствует source-value presentation regression
+## PR #695 — повторный review R10: source/presentation граница
 
-- Existing five calculator modules на reviewed head `060b0e6`: **48 passed in 1.16s**; Verify `38621806447` success на exact SHA. Локальный full suite не повторялся, production code не менялся.
-- Изолированный probe с реальными source/math/runtime/handler и fake stored cost `1e100` подтверждает unhandled Decimal.quantize на показе cost. Оба действующих cost parsers принимают это конечное значение. Handler возвращает callback/text errors без keyboard; storage/API calls не выполнялись.
-- Штатный suite должен проверить unsupported cost/price из source, normal input-required screen с keyboard и успешный manual override без записи в persisted данные. ТЗ: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. Expected-behavior probe упал; ошибка не принята как правильный результат теста.
+- `tests/test_unit_price_scenario_repeat_review_regressions.py` добавляет source → math → runtime → public `AssistantButtonHandlerService` regressions для сохранённой себестоимости `1e100` и seller price `1e100`. Они проверяют unknown provenance/incomplete source, отсутствие прибыли и `cost_as_of` для unsupported cost, рабочую keyboard, ручное исправление, прибыль 280 ₽, неизменность fake persisted cost, а также безопасные result/edit formatters.
+- Red evidence до исправления: оба интеграционных сценария завершались `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard. После исправления calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection: **59 passed in 1.51s**; прогон использовал `-p no:tmpdir`, поскольку выбранным модулям `tmp_path` не требуется и Windows ACL блокирует стандартный temp root. Полный suite и CI нового code SHA ещё не подтверждены.
 
 ## PR #695 — regressions повторного review R8/R9
 

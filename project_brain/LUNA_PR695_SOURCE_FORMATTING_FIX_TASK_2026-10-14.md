@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — R10: безопасное отображение значений источника в PR #695
 
-Дата: 14.10.2026. Статус: **не начато; один подтверждённый P2 перед слиянием**.
+Дата: 14.10.2026. Статус: **X00–X01 выполнены локально; X02–X03 в работе. R10 production fix есть, приёмка ждёт full suite/CI/review**.
 
 ## Цель и исходная ревизия
 
@@ -34,6 +34,8 @@ Production source принимает эту стоимость в `_load_cost` /
 2. В полученном сценарии публично изменить cost на 120, ввести L/M/E=0 и advertising=0; при полном weighted source итог available=True. Stored cost source не меняется; отображение edit prompt тоже безопасно.
 3. Аналогично проверить unsupported source seller price и успешный ручной ввод 500. Нельзя скрывать дефект только предварительным изменением persisted inputs.
 
+**Фактический результат:** добавлены оба публичных интеграционных сценария в `tests/test_unit_price_scenario_repeat_review_regressions.py`. До исправления они оба падали, потому что handler возвращал `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard. Данные и HTTP не затрагивались.
+
 ## X01 — узкое исправление
 
 - Обеспечить безопасное отображение в `_format_result`, `_edit_prompt`, `_money` и `_percent` независимо от того, что math service уже отклонил raw source input. Неподдерживаемый Decimal не должен дойти до unhandled quantize/overflow.
@@ -41,11 +43,13 @@ Production source принимает эту стоимость в `_load_cost` /
 - Не терять working keyboard и возможность manual scenario override. Unknown/invalid source не считается нулём и не разрешает итоговую прибыль до заполнения необходимых полей.
 - Не создавать новый слой и не переписывать источники либо seller-cost persistence. Изменять только подтверждённый путь отображения/валидации калькулятора.
 
+**Фактический результат:** `_nonnegative_number` в source применяет тот же технический precision/magnitude contract, что math service; недопустимые seller price/cost выходят как unknown. `cost_as_of` не выставляется при неизвестной стоимости. `_money` и `_percent` проверяют отображаемый диапазон и ловят Decimal formatting errors; unknown показывается как «не задано». Локальное исправление не меняет формулу и seller-cost persistence.
+
 ## X02 — проверки
 
 Новые regressions, пять calculator modules, смежные handler/factory/tax проверки. Existing explicit zero, localized input, invalid manual retry, extreme precision/magnitude, non-finite tax output, 28-digit automatic rates и freshness/refresh tests должны оставаться зелёными.
 
-Затем полный pytest в изолированной копии без data/.env, compileall, git diff --check и Windows/Linux/Docker CI нового code SHA. Записать фактические результаты; прежний зелёный CI не является acceptance исправления R10. Исключить source/API/credentials из тестов.
+**Фактический результат:** calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection — **59 passed in 1.51s**. Отдельные два multi-tenant tax tests не стартовали при одном расширенном запуске из-за Windows ACL стандартной pytest temp папки; их следует перепроверить в изолированной среде. Полный pytest в изолированной копии, compileall, diff check и Windows/Linux/Docker CI нового code SHA остаются обязательными. Прежний зелёный CI не является acceptance исправления R10. Исключить source/API/credentials из тестов.
 
 ## X03 — документация и повторный review
 
@@ -53,9 +57,9 @@ Production source принимает эту стоимость в `_load_cost` /
 
 | Этап | Статус |
 |---|---|
-| X00 | Не начат |
-| X01 | Не начат |
-| X02 | Не начат |
-| X03 | Не начат |
+| X00 | Выполнен: 2 meaningful интеграционных regressions; red на старом коде подтверждён |
+| X01 | Выполнен локально: source normalization + safe Decimal formatting |
+| X02 | В работе: targeted 59 passed; isolated full suite/compile/diff/new CI ожидают выполнения |
+| X03 | Не завершён: документация обновлена по этапам; повторный review после полного CI |
 
 Бизнес-решение для этого исправления не требуется.

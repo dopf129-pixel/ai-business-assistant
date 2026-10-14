@@ -1,8 +1,9 @@
-# 2026-10-14 — PR #695: повторный review требует R10
+# 2026-10-14 — PR #695: R10 исправлен локально; ожидает полной проверки
 
-- Проверен head `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d`; exact-head Verify `38621806447` success (Windows/Linux, Docker). Calculator modules повторены: **48 passed in 1.16s**. R8/R9 закрыты.
-- Один подтверждённый P2: cost source принимает конечное `1e100`, math признаёт invalid, но raw cost форматируется через Decimal.quantize и вызывает InvalidOperation. Публичный handler возвращает generic callback/text error без keyboard, поэтому ручной override сценария недоступен.
-- Evidence и новое узкое ТЗ: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md` (X00–X03 не начаты). Это остаточный source/presentation путь R5; бизнес-формула не меняется. До исправления R10 слияние отложено.
+- Для R10 source принимает цену/себестоимость только в существующем техническом диапазоне калькулятора; неподдерживаемое значение становится unknown с incomplete completeness/provenance. Отклонённая сохранённая стоимость не получает `cost_as_of`.
+- `_money`/`_percent` fail closed для неподдерживаемых Decimal; интеграционные тесты проходят через реальный source → math → runtime → handler. Для invalid cost проверены и result screen, и edit prompt; ручная цена/себестоимость восстанавливает расчёт без изменения исходного хранилища.
+- X00 red evidence: оба ожидаемых поведения до исправления возвращали `UNIT_PRICE_SCENARIO_CALLBACK_FAILED`; X01 локальная правка выполнена. Calculator/UI/tax-policy набор: **59 passed in 1.51s**. Один ранний запуск соседних tenant-tax tests не смог стартовать из-за ACL временного каталога Windows; эти два теста не входят в 59.
+- X02/X03 остаются открытыми: полный pytest в изолированной копии, compileall, diff check, новый Windows/Linux/Docker CI и повторный review. Merge не выполнялся; `data/tasks.json`, `data/users.json`, lock/temp файлы сохранены.
 - Review меняет только документы; пользовательские data-файлы/locks/temp и production code сохранены. Слияние выполнит другая модель после приёмки.
 
 # 2026-10-14 — PR #695: локально исправлены findings R8/R9

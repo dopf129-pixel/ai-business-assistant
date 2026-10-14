@@ -1027,19 +1027,43 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _money(self, value):
         number = self._decimal(value)
-        if number is None:
+        if not self._is_displayable_decimal(number, max_digits=15):
             return "не задано"
         if number == 0:
             number = Decimal("0")
-        return format(number.quantize(Decimal("0.01")), ",.2f").replace(",", " ").replace(".", ",") + " ₽"
+        try:
+            formatted = format(
+                number.quantize(Decimal("0.01")), ",.2f"
+            ).replace(",", " ").replace(".", ",")
+        except (InvalidOperation, ArithmeticError, OverflowError, ValueError):
+            return "не задано"
+        return formatted + " ₽"
 
     def _percent(self, value):
         number = self._decimal(value)
-        if number is None:
+        if not self._is_displayable_decimal(number, max_digits=28):
             return "не задано"
         if number == 0:
             number = Decimal("0")
-        return format(number.quantize(Decimal("0.01")), ",.2f").replace(",", " ").replace(".", ",") + "%"
+        try:
+            formatted = format(
+                number.quantize(Decimal("0.01")), ",.2f"
+            ).replace(",", " ").replace(".", ",")
+        except (InvalidOperation, ArithmeticError, OverflowError, ValueError):
+            return "не задано"
+        return formatted + "%"
+
+    @staticmethod
+    def _is_displayable_decimal(number, max_digits):
+        if number is None:
+            return False
+        if number.is_zero():
+            return True
+        return (
+            len(number.as_tuple().digits) <= max_digits
+            and number.adjusted() <= 12
+            and number.adjusted() >= -12
+        )
 
     def _display_value(self, value, unit):
         return self._money(value) if "₽" in unit else self._percent(value)

@@ -1,5 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
+from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -29,14 +31,18 @@ class _Products:
 
 
 class _CurrentFacts:
-    def __init__(self):
+    def __init__(self, seller_price=500, refreshed_price=550):
         self.calls = 0
+        self.seller_price = seller_price
+        self.refreshed_price = refreshed_price
 
     def get(self, **_kwargs):
         self.calls += 1
         return {
             "error": False,
-            "seller_price": 500 if self.calls == 1 else 550,
+            "seller_price": (
+                self.seller_price if self.calls == 1 else self.refreshed_price
+            ),
             "commission_rate": 15,
         }
 
@@ -69,8 +75,11 @@ class _Finance:
 
 
 class _Costs:
+    def __init__(self, cost=120):
+        self.cost = cost
+
     def get_cost(self, product_id):
-        return (product_id, "offer-1", "sku-1", 120, "RUB", "2026-10-01")
+        return (product_id, "offer-1", "sku-1", self.cost, "RUB", "2026-10-01")
 
 
 class _TaxPolicy:
@@ -86,14 +95,14 @@ class _TaxPolicy:
         }
 
 
-def _stack(clock):
-    current = _CurrentFacts()
+def _stack(clock, cost=120, seller_price=500):
+    current = _CurrentFacts(seller_price=seller_price)
     finance = _Finance()
     source = UnitPriceScenarioSource(
         product_service=_Products(),
         current_economics_source=current,
         finance_service=finance,
-        cost_service=_Costs(),
+        cost_service=_Costs(cost=cost),
         tax_configuration_service=_TaxPolicy(),
         clock=lambda: datetime(2026, 10, 14, 12),
         cache_clock=clock,
@@ -107,6 +116,47 @@ def _stack(clock):
         session_ttl_seconds=600,
     )
     return source, runtime, current
+
+
+def _handler(runtime, source):
+    query = type("Query", (), {"product_service": source.product_service})()
+    return AssistantButtonHandlerService(
+        assistant=object(),
+        keyboard_service=AssistantKeyboardService(),
+        unit_economics_query=query,
+        unit_price_calculator_runtime_service=runtime,
+    )
+
+
+def _select_through_handler(handler):
+    picker = handler.handle("upc:m", user_id="user-1")
+    assert picker["keyboard"]["buttons"]
+    return handler.handle(
+        picker["keyboard"]["buttons"][0]["callback"],
+        user_id="user-1",
+    )
+
+
+def _edit_through_handler(handler, runtime, result, field, value):
+    scenario = result["price_scenario"]
+    session = runtime._scenarios[scenario["scenario_id"]]
+    prompt = handler.handle(
+        f"upc:e:{scenario['scenario_id']}:{session['version']}:{field}",
+        user_id="user-1",
+    )
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    return handler.handle_text(str(value), user_id="user-1")
+
+
+def _complete_manual_costs(handler, runtime, result):
+    for field in (
+        "logistics_per_unit",
+        "last_mile_per_unit",
+        "acquiring_per_unit",
+        "advertising_rate",
+    ):
+        result = _edit_through_handler(handler, runtime, result, field, 0)
+    return result
 
 
 def _open(runtime):
@@ -244,3 +294,77 @@ def test_cache_hit_does_not_reset_source_age_and_successful_refresh_does():
     assert refreshed["price_scenario"]["comparison"]["price"] == 550
     assert refreshed["price_scenario"]["inputs"]["advertising_rate"]["value"] == 0
     assert current.calls == 2
+
+
+def test_unsupported_saved_cost_stays_editable_through_public_handler():
+    clock = _Clock()
+    source, runtime, _ = _stack(clock, cost=1e100)
+    handler = _handler(runtime, source)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = _select_through_handler(handler)
+        assert result.get("error") is False, result
+        assert result["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert result["keyboard"]["buttons"]
+        assert result["price_scenario"]["inputs"]["cost"]["value"] is None
+        assert result["price_scenario"]["inputs"]["cost"]["provenance"] == "unknown"
+        assert result["price_scenario"]["source_completeness"]["cost"]["complete"] is False
+        assert result["price_scenario"]["source_periods"]["cost_as_of"] is None
+        assert result["price_scenario"]["calculated"]["profit"] is None
+        assert "cost" in result["price_scenario"]["missing_inputs"]
+
+        # Defensive presentation remains safe even if an old/injected session
+        # still carries the unsupported raw amount before the user edits it.
+        scenario_id = result["price_scenario"]["scenario_id"]
+        session = runtime._scenarios[scenario_id]
+        session["inputs"]["cost"] = 1e100
+        shown = handler.handle_text("покажи расчёт", user_id="user-1")
+        assert shown["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert shown["keyboard"]["buttons"]
+        assert "Себестоимость: не задано" in shown["message"]
+
+        result = _edit_through_handler(handler, runtime, result, "cost", 120)
+        result = _complete_manual_costs(handler, runtime, result)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert result["price_scenario"]["available"] is True
+    assert result["price_scenario"]["calculated"]["profit"] == 280
+    assert source.cost_service.cost == 1e100
+
+
+def test_unsupported_source_seller_price_can_be_replaced_manually():
+    clock = _Clock()
+    source, runtime, _ = _stack(clock, seller_price=1e100)
+    handler = _handler(runtime, source)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = _select_through_handler(handler)
+        assert result.get("error") is False, result
+        assert result["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert result["keyboard"]["buttons"]
+        assert result["price_scenario"]["inputs"]["price"]["value"] is None
+        assert result["price_scenario"]["inputs"]["price"]["provenance"] == "unknown"
+        assert result["price_scenario"]["source_completeness"]["seller_price"]["complete"] is False
+        assert result["price_scenario"]["calculated"]["profit"] is None
+        assert "price" in result["price_scenario"]["missing_inputs"]
+
+        result = _edit_through_handler(handler, runtime, result, "price", 500)
+        result = _complete_manual_costs(handler, runtime, result)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert result["price_scenario"]["available"] is True
+    assert result["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert result["price_scenario"]["calculated"]["profit"] == 280
+
+
+def test_formatters_fail_closed_for_unrepresentable_money_and_percent():
+    _, runtime, _ = _stack(_Clock())
+
+    assert runtime._money(Decimal("1e100")) == "не задано"
+    assert runtime._money(Decimal("-1e100")) == "не задано"
+    assert runtime._percent(Decimal("1e100")) == "не задано"
+    assert runtime._percent("16.66666666666666666666666667") == "16,67%"
