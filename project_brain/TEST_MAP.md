@@ -1,4 +1,11 @@
-# Карта тестов — снимок 2026-10-13
+# Карта тестов — актуальный статус 2026-10-14
+
+- Exact code `ac0f101` прошёл CI Windows/Linux (**3 077 passed** на каждой платформе), production Docker build/smoke также прошли.
+- На этом code изолированные behavioral probes Architecture Review PR #694 подтвердили R1–R5; они не добавлены в стандартный pytest и не считаются passing tests.
+- Нужны регрессии stale preview A → новый preview B для cost/CSV/history/cancel; pending period A → store B для всех custom modes; typed external-expense description; общий trace budget для Performance auth/JSON/download; конкурентный decision-LRU read/eviction.
+- Точные сценарии, результаты probes и условия приёмки: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. Существующий зелёный suite не закрывает эти замечания.
+
+## Исторический снимок 2026-10-13 до remote CI и Architecture Review
 
 - Текущий полный isolated pytest после P07/P08: **3,077 passed in 12.06s**, exit code 0; `compileall app tests` также прошёл. Копия исключала `.git`, `.venv`, секретный `.env`, базы и пользовательские runtime data.
 - P07/P08 combined regression: **173 passed**. P07 coverage screen tests проверяют report snapshot scope/cache, user/store isolation, повторное открытие без Ozon re-query и переходы к существующим Return COGS/cost flows. P08 tests проверяют порядок/лимит пяти, факты и timestamps, stale/unknown exclusion, separate missing-data list, stock-without-sales, отсутствие ложного DRR/ROAS, callbacks, production-factory wiring, tenant cache isolation, LRU bound, freshness expiry и Telegram message size cap.

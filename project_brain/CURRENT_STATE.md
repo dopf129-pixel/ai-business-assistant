@@ -1,4 +1,11 @@
-# 2026-10-13 — актуальный статус P00–P08
+# 2026-10-14 — архитектурный review P00–P08
+
+- PR #694, reviewed code `ac0f101`: Architecture Review выполнен; требуется исправить **R1–R5** до слияния. Два P1: неподвязанные к preview cost callbacks и перенос pending custom period в другой store. Три P2: ввод описания внешнего расхода, Performance вне общего operation budget, гонка shared decision LRU.
+- Все пять дефектов воспроизведены изолированными probes с production-классами и fake sources; реальных HTTP/данных продавца probes не использовали. Production source не изменён. Подробности и acceptance checks — `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`.
+- CI на reviewed code остаётся зелёным: Windows/Linux по **3 077 passed**, production Docker build/smoke прошли. Новые воспроизведения не входили в этот suite и не считаются passing regression tests.
+- P01 OS locking/durability extension проверен без архитектурного блокера; приёмка всей ветки P00–P08 остаётся открытой до исправления замечаний и повторного review нового code revision.
+
+## 2026-10-13 — снимок состояния до архитектурного review
 
 - P00–P08 реализованы в рабочей копии. Последняя полная изолированная проверка Windows Python 3.12: `pytest tests app/tests` — **3 077 passed in 12.06s**; `compileall app tests` прошёл. P07/P08 combined regression — **173 passed**.
 - Коммит `b2d86b0` (`Prepare P00-P08 verification snapshot`) отправлен в `origin/codex/p00-project-baseline`. Первый GitHub Actions запуск: Windows Python 3.12 — **3 077 passed in 37.57s**; Ubuntu Python 3.11 — **3 076 passed, 1 failed** из-за точного сравнения timeout `5.0` с корректным фактическим `4.999994`; Docker build/smoke были пропущены после падения теста.
