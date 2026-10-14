@@ -196,6 +196,7 @@ class AssistantButtonHandlerService:
         task_context_service=None,
         keyboard_service=None,
         unit_economics_query=None,
+        unit_price_calculator_runtime_service=None,
         product_business_decision_query=None,
         returns_finance_impact_query=None,
         product_decision_learning_health_builder=None,
@@ -232,6 +233,10 @@ class AssistantButtonHandlerService:
 
         self.unit_economics_query = (
             unit_economics_query
+        )
+
+        self.unit_price_calculator_runtime_service = (
+            unit_price_calculator_runtime_service
         )
 
         self.product_business_decision_query = (
@@ -469,6 +474,7 @@ class AssistantButtonHandlerService:
                 "experimental_calculations",
                 "experimental_store_economics",
                 "external_expenses",
+                "unit_price_calculator",
             }
             or button_id.startswith((
                 "period_profit:",
@@ -478,6 +484,7 @@ class AssistantButtonHandlerService:
                 "period_profit_sku:",
                 "experimental_store_economics:",
                 "external_expenses:",
+                "upc:",
             ))
         ):
             return
@@ -525,7 +532,34 @@ class AssistantButtonHandlerService:
         if callable(clearer):
             clearer(user_id)
 
+    def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
+        if isinstance(button_id, str) and button_id.startswith("upc:"):
+            return
+        clearer = getattr(
+            self.unit_price_calculator_runtime_service,
+            "clear_pending",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
+
     def handle_text(self, text, user_id=None):
+        runtime = self.unit_price_calculator_runtime_service
+        handler = getattr(runtime, "handle_text", None)
+        if callable(handler):
+            try:
+                result = handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SCENARIO_TEXT_FAILED",
+                    "message": "Не удалось обработать ввод калькулятора цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if result is not None:
+                return result
+
         runtime = self.external_expense_runtime_service
         handler = getattr(runtime, "handle_text", None)
         if callable(handler):
@@ -626,6 +660,45 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        self._clear_unit_price_input_for_new_flow(button_id, user_id)
+
+        if button_id == "unit_price_calculator" or button_id == "upc:m":
+            runtime = self.unit_price_calculator_runtime_service
+            handler = getattr(runtime, "open_menu", None)
+            if not callable(handler):
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SCENARIO_UNAVAILABLE",
+                    "message": "Калькулятор плановой цены сейчас недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            return handler(user_id)
+
+        if isinstance(button_id, str) and button_id.startswith("upc:"):
+            handler = getattr(
+                self.unit_price_calculator_runtime_service,
+                "handle_callback",
+                None,
+            )
+            if not callable(handler):
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SCENARIO_UNAVAILABLE",
+                    "message": "Калькулятор плановой цены сейчас недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SCENARIO_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие калькулятора цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if button_id == "external_expenses" or (
             isinstance(button_id, str)
@@ -1093,7 +1166,8 @@ class AssistantButtonHandlerService:
 
             return (
                 self._show_unit_economics(
-                    sku
+                    sku,
+                    user_id=user_id,
                 )
             )
 
@@ -4569,22 +4643,20 @@ class AssistantButtonHandlerService:
                 "message": "Товары не найдены"
             }
 
+        keyboard_builder = self.keyboard_service.build_unit_economics_keyboard
+        keyboard = (
+            keyboard_builder(skus, calculator_callback="upc:m")
+            if self.unit_price_calculator_runtime_service
+            else keyboard_builder(skus)
+        )
         return {
             "error": False,
             "message": "Выберите товар:",
-            "keyboard": (
-                self.keyboard_service
-                .build_unit_economics_keyboard(
-                    skus
-                )
-            )
+            "keyboard": keyboard,
         }
 
 
-    def _show_unit_economics(
-        self,
-        sku
-    ):
+    def _show_unit_economics(self, sku, user_id=None):
 
         if not self.unit_economics_query:
 
@@ -4633,13 +4705,26 @@ class AssistantButtonHandlerService:
                 "message": "Юнит-экономика недоступна",
             }
 
-        return {
+        output = {
             "error": result[
                 "error"
             ],
             "message": message,
             "unit_economics": result
         }
+        if (
+            result.get("error") is not True
+            and self.unit_price_calculator_runtime_service is not None
+        ):
+            button_builder = getattr(
+                self.unit_price_calculator_runtime_service,
+                "build_product_entry_button",
+                None,
+            )
+            if callable(button_builder):
+                button = button_builder(user_id, sku)
+                output["keyboard"] = self.keyboard_service.build_unit_economics_detail_keyboard(button)
+        return output
 
 
     def _extract_sku(

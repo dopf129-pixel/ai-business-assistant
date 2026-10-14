@@ -199,6 +199,13 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - `app/services/finance_service.py::FinanceService.get_daily_discount_points_evidence` checks page completion and returns selected-SKU positive-sale evidence with explicit `bonus`; it does not alter the existing daily financial aggregate contract.
 - Combined U01/U02 + current product source/wiring/integration + discount tax + finance pagination/reconciliation regressions: **62 passed** (Python 3.12). No live Ozon source check.
 
+## Unit Price Scenario Calculator — U03 Telegram runtime
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` covers product selection, exact catalog SKU resolution, explicit ad zero vs unknown, localized numeric input, invalid/replayed callback handling, refresh preserving manual values, restore historical points, store scoping, clearing pending stages and current-unit-economics card CTA. It also checks the FBO-only estimate disclaimer.
+- `tests/test_current_unit_economics_production_wiring.py` and adjacent current-economics/UI/finance routing regressions run with U01/U02/U03: **61 passed** (Python 3.12).
+- `tests/test_period_profit_sku_telegram_flow.py::test_production_factory_exposes_sku_runtime`: **1 passed**. On this Windows sandbox the test was run as an isolated pytest invocation with a pre-created ACL-friendly temp root; its assertions were unchanged.
+- `compileall -q` over changed production modules: passed. Full `pytest`, Linux/Windows CI and final review are U04.
+
 # Test Map
 
 ## Period Profit bounded Ozon quantity reads

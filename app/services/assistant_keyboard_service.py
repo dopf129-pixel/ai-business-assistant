@@ -348,22 +348,105 @@ class AssistantKeyboardService:
 
     def build_unit_economics_keyboard(
         self,
-        skus
+        skus,
+        calculator_callback=None,
     ):
+        buttons = []
+        if calculator_callback:
+            buttons.append({
+                "text": "🧮 Калькулятор цены",
+                "callback": str(calculator_callback),
+            })
+        buttons.extend([
+            {
+                "text": str(sku),
+                "callback": (
+                    "unit_economics:"
+                    + str(sku)
+                )
+            }
+            for sku in (skus or [])
+        ])
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
 
+    def build_unit_economics_detail_keyboard(self, calculator_button=None):
+        buttons = []
+        if isinstance(calculator_button, dict):
+            buttons.append(dict(calculator_button))
+        buttons.append({"text": "Юнит-экономика", "callback": "unit_economics"})
+        buttons.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_unit_price_product_keyboard(self, products):
+        buttons = []
+        for item in products or []:
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("token") or "").strip()
+            sku = str(item.get("sku") or "").strip()
+            if not token or not sku:
+                continue
+            name = str(item.get("name") or item.get("offer_id") or "Товар").strip()
+            label = f"{name[:36]} · SKU {sku}"
+            buttons.append({"text": label[:60], "callback": "upc:s:" + token})
+        buttons.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_unit_price_scenario_keyboard(self, scenario_id, version, include_return_mean=False):
+        sid = str(scenario_id)
+        ver = str(version)
+        fields = (
+            ("Цена", "price"),
+            ("Себестоимость", "cost"),
+            ("Комиссия %", "commission_rate"),
+            ("Реклама %", "advertising_rate"),
+            ("Баллы %", "discount_points_rate"),
+        )
+        buttons = [
+            {"text": label, "callback": f"upc:e:{sid}:{ver}:{field}"}
+            for label, field in fields
+        ]
+        buttons.append({"text": "Параметры расходов", "callback": f"upc:f:{sid}:{ver}"})
+        buttons.append({"text": "Реклама 0%", "callback": f"upc:z:{sid}:{ver}"})
+        if include_return_mean:
+            buttons.append({"text": "Вернуть среднее баллов", "callback": f"upc:b:{sid}:{ver}"})
+        buttons.extend([
+            {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
+            {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
+            {"text": "Другой товар", "callback": "upc:m"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_unit_price_fee_keyboard(self, scenario_id, version):
+        sid = str(scenario_id)
+        ver = str(version)
         return {
             "error": False,
             "type": "inline_keyboard",
             "buttons": [
-                {
-                    "text": str(sku),
-                    "callback": (
-                        "unit_economics:"
-                        + str(sku)
-                    )
-                }
-                for sku in (skus or [])
-            ]
+                {"text": "Логистика, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:logistics_per_unit"},
+                {"text": "Последняя миля, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:last_mile_per_unit"},
+                {"text": "Эквайринг, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:acquiring_per_unit"},
+                {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_unit_price_cancel_keyboard(self, scenario_id, version):
+        sid = str(scenario_id)
+        ver = str(version)
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "Отмена", "callback": f"upc:c:{sid}:{ver}"},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
         }
 
 
