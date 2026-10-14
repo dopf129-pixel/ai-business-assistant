@@ -2,12 +2,12 @@
 
 ## Вердикт и проверенная ревизия
 
-**Вердикт review на SHA `73c4c74`: R8/R9 подтверждены, поэтому тогда было рекомендовано не сливать. Исправления прошли red→green integration regressions, полный pytest и GitHub Verify на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f`; повторный review финального diff не выявил новых блокеров. PR готов к передаче модели, которая выполнит слияние.**
+**Повторный review head `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d` подтверждает закрытие R8/R9, но выявил один остаточный P2 — R10: неподдерживаемая сохранённая стоимость из источника ломает форматирование калькулятора и оставляет UI без кнопок исправления. Слияние отложить до узкого исправления, regression и CI нового кода.**
 
-Исправления ведутся по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Первичный review и результаты первой приёмки ниже сохранены как история.
+ТЗ R10: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. R8/R9 по прежнему corrective task приняты; история предыдущих проверок ниже сохранена.
 
 - PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695
-- Проверенный head: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
+- Head первичного review: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
 - Base: `655b3a0c46acb258a5e884cccc8da6728a5216a7`.
 - Ветка: `codex/unit-price-calculator`.
 - GitHub Verify run `38604649833`: completed / success на этом head.
@@ -248,3 +248,25 @@ Probe использует настоящие `UnitPriceScenarioSource`, `UnitPr
 - Red evidence до исправления: обе новые штатные regressions падали; после исправления calculator/source/math/runtime набор — **48 passed**.
 - Полный isolated Windows pytest — **3 141 passed in 24.54s**. Compileall завершился с одной существующей SyntaxWarning в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
 - GitHub Verify run **38621277605** на exact code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f` completed/success: Windows and Linux full suite, compile, production Docker build/runtime smoke. Финальный review diff подтвердил исправление R8/R9 без новых блокеров. Merge не выполнялся.
+
+## R10 — P2: недопустимая стоимость из источника ломает показ результата
+
+Повторная проверка: head `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d`, production code `9ed3e2d`; Verify `38621806447` success. Новый вывод уточняет предыдущее заключение без blockers, не переоткрывая R8/R9.
+
+- `TelegramSellerCostUpdateService._cost` и `SellerCostTableService._cost` принимают `1e100` как конечную положительную сумму. Fake getter сохранённой стоимости возвращает её через реальный `UnitPriceScenarioSource`; никаких storage/API writes в probe нет.
+- Math service признаёт сумму invalid, но `_format_result` (строка 759) всё равно передаёт raw `session.inputs.cost` в `_money`. На строке 1034 `number.quantize(Decimal("0.01"))` выбрасывает `decimal.InvalidOperation`.
+- Публичный picker → callback через `AssistantButtonHandlerService` возвращает `UNIT_PRICE_SCENARIO_CALLBACK_FAILED`, без keyboard и price_scenario. Следующий текст — `UNIT_PRICE_SCENARIO_TEXT_FAILED`, также без keyboard. Вместо предусмотренного ручного исправления сценария пользователь теряет экран калькулятора.
+- Это остаточный путь R5 на входе source → presentation. Требуется безопасный formatter/source normalization по существующим техническим ограничениям, не изменение бизнес-формулы, TaxService или сохранённой стоимости.
+
+Existing calculator modules повторены: **48 passed in 1.16s**. Изолированное воспроизведение expected input-required screen падает с указанным traceback. Full pytest локально повторно не запускался: production code в этом review не менялся, exact-head Windows/Linux/Docker CI зелёный; новый случай штатным suite не покрыт.
+
+### Отчёт повторного review
+
+1. **Change Summary:** review ветки `codex/unit-price-calculator` на `060b0e6` (`Record PR 695 R8-R9 verification results`). Закрытие R8/R9 подтверждено; один новый P2 R10 требует исправления. Review меняет только документы.
+2. **Files Changed:** добавлен `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`; обновлены этот review, CHANGELOG, CURRENT_STATE, TEST_MAP и статусы трёх предыдущих задач. Удалённых файлов нет.
+3. **Architecture Impact:** No architectural impact этого review. Для исправления ожидается узкое уточнение existing validation/presentation contract, без нового слоя или API/DB contracts.
+4. **Preserved Components:** production code, math/TaxService, source cache/budget, transient state, picker/tickets, пользовательские data/DB и локальные runtime artifacts не изменены.
+5. **Testing:** targeted existing suite — 48 passed; isolated source→runtime/handler probe подтверждает R10. Exact reviewed SHA CI success; full local suite не повторялся без изменений кода.
+6. **Documentation Updates:** статусы и evidence исправлены; DECISIONS не менялся, Decision 045 сохранён.
+7. **Review Classification:** Architecture Review Required для PR; merge отложить до R10 regression/fix/new CI и повторной проверки.
+8. **Next Recommended Step:** выполнить X00–X03 нового ТЗ. Реализация не начата в рамках запроса review; слияние остаётся другой модели.

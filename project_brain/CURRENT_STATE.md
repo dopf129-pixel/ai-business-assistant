@@ -1,3 +1,10 @@
+# 2026-10-14 — PR #695: повторный review требует R10
+
+- Проверен head `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d`; exact-head Verify `38621806447` success (Windows/Linux, Docker). Calculator modules повторены: **48 passed in 1.16s**. R8/R9 закрыты.
+- Один подтверждённый P2: cost source принимает конечное `1e100`, math признаёт invalid, но raw cost форматируется через Decimal.quantize и вызывает InvalidOperation. Публичный handler возвращает generic callback/text error без keyboard, поэтому ручной override сценария недоступен.
+- Evidence и новое узкое ТЗ: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md` (X00–X03 не начаты). Это остаточный source/presentation путь R5; бизнес-формула не меняется. До исправления R10 слияние отложено.
+- Review меняет только документы; пользовательские data-файлы/locks/temp и production code сохранены. Слияние выполнит другая модель после приёмки.
+
 # 2026-10-14 — PR #695: локально исправлены findings R8/R9
 
 - R8 исправлен field-aware Decimal validation: денежные суммы по-прежнему ограничены 15 значащими цифрами; bounded процентные ставки принимают до 28 цифр контекста Decimal и сохраняют диапазон 0–100 и проверки порядка величины. Полное source → math → runtime значение 50/300×100 рассчитывает сценарий: налог 25 ₽, прибыль 280 ₽, маржа 56%.

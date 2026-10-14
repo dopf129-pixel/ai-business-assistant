@@ -1,5 +1,11 @@
 # Карта тестов — актуальный статус 2026-10-14
 
+## PR #695 — повторный review R10: отсутствует source-value presentation regression
+
+- Existing five calculator modules на reviewed head `060b0e6`: **48 passed in 1.16s**; Verify `38621806447` success на exact SHA. Локальный full suite не повторялся, production code не менялся.
+- Изолированный probe с реальными source/math/runtime/handler и fake stored cost `1e100` подтверждает unhandled Decimal.quantize на показе cost. Оба действующих cost parsers принимают это конечное значение. Handler возвращает callback/text errors без keyboard; storage/API calls не выполнялись.
+- Штатный suite должен проверить unsupported cost/price из source, normal input-required screen с keyboard и успешный manual override без записи в persisted данные. ТЗ: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. Expected-behavior probe упал; ошибка не принята как правильный результат теста.
+
 ## PR #695 — regressions повторного review R8/R9
 
 - `tests/test_unit_price_scenario_repeat_review_regressions.py` использует реальные source, math и Telegram runtime с fake facts и injected monotonic clock. Проверяет weighted rate 50/300 с расчётом налога 25 ₽/прибыли 280 ₽/маржи 56%; источник кэшируется один раз; сценарий, открытый при age=590, ровно на TTL=600 и при t=610 становится STALE, отключает price comparison и показывает предупреждение в assumptions. Успешное обновление получает цену 550, начинает свежий TTL и сохраняет ручное advertising=0.

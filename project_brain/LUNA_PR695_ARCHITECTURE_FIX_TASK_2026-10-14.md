@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — исправления архитектурного review PR #695
 
-Дата: 14.10.2026. Статус: **Первая приёмка V00–V08 завершена. Дополнительные findings R8/R9 исправлены и перепроверены; integration regressions проходят, полный isolated Windows pytest — 3 141 passed, compileall выполнен. Verify run `38621277605` успешно прошёл Windows/Linux и Docker на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f`; повторный review не выявил blockers. Слияние оставлено другой модели. Предыдущее заключение без блокеров сохранено ниже как история**.
+Дата: 14.10.2026. Статус: **Первая приёмка V00–V08 и R8/R9 завершены; их CI зелёный. Дополнительный review head `060b0e6` нашёл остаточный source→presentation путь R5 (R10): unsupported stored cost вызывает formatter exception и теряет retry keyboard. Выполнить `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md` до merge. Предыдущие результаты без blockers сохранены ниже как история; слияние оставлено другой модели**.
 
 ## 1. Цель и исходный код
 

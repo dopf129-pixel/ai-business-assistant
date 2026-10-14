@@ -1,0 +1,61 @@
+# ТЗ для GPT Luna — R10: безопасное отображение значений источника в PR #695
+
+Дата: 14.10.2026. Статус: **не начато; один подтверждённый P2 перед слиянием**.
+
+## Цель и исходная ревизия
+
+Закрыть остаточный путь R5: неподдерживаемая денежная величина из существующего источника должна оставлять калькулятор доступным для ручного исправления, а не вызывать generic callback/text error без кнопок.
+
+- PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695.
+- Ветка: `codex/unit-price-calculator`.
+- Проверенный head: `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d`; production code совпадает с `9ed3e2d9bee334b54b874f63493f69dc4197d15f`.
+- Exact-head Verify `38621806447`: Windows/Linux full suite, compile, Docker build/smoke — success. Повторный targeted calculator set: **48 passed in 1.16s**. Новый случай в штатном наборе отсутствует.
+- Review evidence: `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`, раздел R10.
+
+## Подтверждённый дефект
+
+Действующие `TelegramSellerCostUpdateService._cost` и `SellerCostTableService._cost` принимают конечную положительную себестоимость `1e100`. Воспроизведение не сохраняло её в реальную БД: fake cost getter возвращал такую уже сохранённую запись.
+
+Production source принимает эту стоимость в `_load_cost` / `_nonnegative_number`. Math service корректно признаёт её недопустимой, но runtime форматирует исходный `session.inputs.cost` через `_money`. `number.quantize(Decimal("0.01"))` в строке 1034 текущего runtime вызывает `decimal.InvalidOperation`.
+
+При публичном выборе товара handler возвращает `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard и без scenario result. Следующий текст возвращает `UNIT_PRICE_SCENARIO_TEXT_FAILED` без keyboard. Пользователь не может исправить стоимость кнопками калькулятора. Аналогичная граница существует для неподдерживаемой seller price из источника.
+
+## Ограничения
+
+Прочитать AGENTS.md, CURRENT_STATE, DECISIONS, TEST_MAP, feature task и оба предыдущих corrective tasks. Сначала проверить актуальный head/diff. Сохранить все существующие пользовательские data-файлы, БД, credentials, locks и временные каталоги; не выполнять широкий restore/reset/clean/stash и не включать их в fixtures или commits.
+
+Не менять бизнес-формулу, TaxService, пределы и интерфейсы сохранения себестоимости, реальные цены/стоимость/налоговые настройки. Не вводить коммерческий максимум цены или стоимости. Использовать уже существующую техническую границу калькулятора; unsupported source value не становится нулём. R8 precision для bounded rates, R9 cache age/TTL, callbacks/tickets/store isolation, source budgets и Decision 045 сохранить. Live Ozon, merge и production restart не требуются.
+
+## X00 — baseline и красные регрессии
+
+Добавить meaningful source → math → runtime → handler regressions в штатные calculator modules. Использовать fake catalog/current facts/cost/tax/finance и injected clocks, без пользовательского storage и API. До исправления подтвердить неправильное поведение.
+
+1. Реальный `UnitPriceScenarioSource`, cost getter возвращает `1e100`, seller price 500 и commission 15%. Выбрать SKU публичным picker/callback. Ожидание: normal input-required result и working keyboard; unsupported cost обозначена как invalid/unknown; прибыль unavailable. Generic callback/text exception неприемлем.
+2. В полученном сценарии публично изменить cost на 120, ввести L/M/E=0 и advertising=0; при полном weighted source итог available=True. Stored cost source не меняется; отображение edit prompt тоже безопасно.
+3. Аналогично проверить unsupported source seller price и успешный ручной ввод 500. Нельзя скрывать дефект только предварительным изменением persisted inputs.
+
+## X01 — узкое исправление
+
+- Обеспечить безопасное отображение в `_format_result`, `_edit_prompt`, `_money` и `_percent` независимо от того, что math service уже отклонил raw source input. Неподдерживаемый Decimal не должен дойти до unhandled quantize/overflow.
+- Можно согласовать source normalization с существующим техническим validation contract. Если источник превращён в unknown, completeness и provenance должны соответствовать фактической недоступности, а не обещать подтверждённую стоимость.
+- Не терять working keyboard и возможность manual scenario override. Unknown/invalid source не считается нулём и не разрешает итоговую прибыль до заполнения необходимых полей.
+- Не создавать новый слой и не переписывать источники либо seller-cost persistence. Изменять только подтверждённый путь отображения/валидации калькулятора.
+
+## X02 — проверки
+
+Новые regressions, пять calculator modules, смежные handler/factory/tax проверки. Existing explicit zero, localized input, invalid manual retry, extreme precision/magnitude, non-finite tax output, 28-digit automatic rates и freshness/refresh tests должны оставаться зелёными.
+
+Затем полный pytest в изолированной копии без data/.env, compileall, git diff --check и Windows/Linux/Docker CI нового code SHA. Записать фактические результаты; прежний зелёный CI не является acceptance исправления R10. Исключить source/API/credentials из тестов.
+
+## X03 — документация и повторный review
+
+Обновить CHANGELOG, CURRENT_STATE, TEST_MAP, feature task и review; DECISIONS менять только при настоящем новом архитектурном решении. Пройти повторную проверку новой ревизии по R10 и сохранности R1–R9. Слияние выполнит другая модель после приёмки.
+
+| Этап | Статус |
+|---|---|
+| X00 | Не начат |
+| X01 | Не начат |
+| X02 | Не начат |
+| X03 | Не начат |
+
+Бизнес-решение для этого исправления не требуется.
