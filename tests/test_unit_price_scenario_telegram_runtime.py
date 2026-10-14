@@ -77,13 +77,14 @@ class _Source:
         }
 
 
-def _runtime(clock=None):
+def _runtime(clock=None, **kwargs):
     source = _Source()
     runtime = TelegramUnitPriceCalculatorRuntimeService(
         source=source,
         scenario_service=UnitPriceScenarioService(TaxService()),
         keyboard_service=AssistantKeyboardService(),
         clock=clock,
+        **kwargs,
     )
     return runtime, source
 
@@ -99,18 +100,20 @@ def _find_button(result, text):
     )
 
 
+def _select_catalog_product(runtime, reference="hook-2"):
+    pending = runtime.begin_catalog_selection("user-1")
+    assert pending["status"] == "UNIT_PRICE_SCENARIO_CATALOG_SELECTION_PENDING"
+    return runtime.handle_catalog_selection(reference, user_id="user-1")
+
+
 def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertising():
     runtime, source = _runtime()
     token = _activate()
     try:
-        menu = runtime.open_menu("user-1")
-        select = menu["keyboard"]["buttons"][0]["callback"]
-        result = runtime.handle_callback(select, user_id="user-1")
+        result = _select_catalog_product(runtime)
     finally:
         reset_current_tenant_user_id(token)
 
-    assert select.startswith("upc:s:")
-    assert len(select.encode("utf-8")) <= 64
     assert source.calls == [("3921245627", "user-1", False)]
     assert result["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
     assert result["price_scenario"]["missing_inputs"] == ["advertising_rate"]
@@ -122,8 +125,7 @@ def test_price_edit_accepts_comma_decimal_and_stale_buttons_fail_closed():
     runtime, _ = _runtime()
     token = _activate()
     try:
-        menu = runtime.open_menu("user-1")
-        scenario = runtime.handle_callback(menu["keyboard"]["buttons"][0]["callback"], user_id="user-1")
+        scenario = _select_catalog_product(runtime)
         sid = scenario["price_scenario"]["scenario_id"]
         old_edit = f"upc:e:{sid}:1:price"
         prompt = runtime.handle_callback(old_edit, user_id="user-1")
@@ -145,8 +147,7 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     runtime, _ = _runtime()
     token = _activate()
     try:
-        menu = runtime.open_menu("user-1")
-        scenario = runtime.handle_callback(menu["keyboard"]["buttons"][0]["callback"], user_id="user-1")
+        scenario = _select_catalog_product(runtime)
         sid = scenario["price_scenario"]["scenario_id"]
         result = runtime.handle_callback(f"upc:z:{sid}:1", user_id="user-1")
     finally:
@@ -165,8 +166,7 @@ def test_manual_inputs_survive_source_refresh_and_auto_points_can_be_restored():
     runtime, source = _runtime()
     token = _activate()
     try:
-        menu = runtime.open_menu("user-1")
-        result = runtime.handle_callback(menu["keyboard"]["buttons"][0]["callback"], user_id="user-1")
+        result = _select_catalog_product(runtime)
         sid = result["price_scenario"]["scenario_id"]
         result = runtime.handle_callback(f"upc:e:{sid}:1:advertising_rate", user_id="user-1")
         result = runtime.handle_text("8", user_id="user-1")
@@ -204,12 +204,35 @@ def test_old_product_entry_button_cannot_cross_store_scope():
     assert source.calls == []
 
 
+def test_catalog_selection_mode_is_bounded_and_store_scoped():
+    runtime, source = _runtime(max_catalog_selections=1)
+    token = _activate("store-1")
+    try:
+        runtime.begin_catalog_selection("user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    other_user_token = set_current_tenant_user_id("user-2::ozon::store-2")
+    try:
+        runtime.begin_catalog_selection("user-2")
+    finally:
+        reset_current_tenant_user_id(other_user_token)
+
+    first_user_token = _activate("store-1")
+    try:
+        assert runtime.has_catalog_selection("user-1") is False
+        assert runtime.handle_catalog_selection("hook-2", user_id="user-1") is None
+    finally:
+        reset_current_tenant_user_id(first_user_token)
+
+    assert source.calls == []
+
+
 def test_leaving_calculator_clears_pending_text_stage():
     runtime, _ = _runtime()
     token = _activate()
     try:
-        menu = runtime.open_menu("user-1")
-        scenario = runtime.handle_callback(menu["keyboard"]["buttons"][0]["callback"], user_id="user-1")
+        scenario = _select_catalog_product(runtime)
         sid = scenario["price_scenario"]["scenario_id"]
         runtime.handle_callback(f"upc:e:{sid}:1:price", user_id="user-1")
         runtime.clear_pending("user-1")
@@ -274,10 +297,13 @@ def test_opening_calculator_clears_pending_period_and_expense_text_stages():
             self.cleared.append(("expense", user_id))
 
     runtime, _ = _runtime()
+    query = type("Query", (), {})()
+    query.product_service = _Source().product_service
     pending = _PendingFlow()
     handler = AssistantButtonHandlerService(
         assistant=object(),
         keyboard_service=AssistantKeyboardService(),
+        unit_economics_query=query,
         unit_price_calculator_runtime_service=runtime,
         period_profit_runtime_service=pending,
         external_expense_runtime_service=pending,
@@ -288,7 +314,11 @@ def test_opening_calculator_clears_pending_period_and_expense_text_stages():
     finally:
         reset_current_tenant_user_id(token)
 
-    assert result["status"] == "UNIT_PRICE_SCENARIO_PRODUCT_SELECTION_REQUIRED"
+    assert result["message"] == "Выберите товар для планирования цены:"
+    assert result["keyboard"]["buttons"] == [{
+        "text": "hook-2",
+        "callback": "unit_economics:hook-2",
+    }]
     assert pending.cleared == [("period", "user-1"), ("expense", "user-1")]
 
 
@@ -307,6 +337,11 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
     token = _activate()
     try:
         menu = handler.handle("unit_economics", user_id="user-1")
+        calculator_picker = handler.handle(
+            menu["keyboard"]["buttons"][0]["callback"],
+            user_id="user-1",
+        )
+        scenario = handler.handle("unit_economics:hook-2", user_id="user-1")
     finally:
         reset_current_tenant_user_id(token)
 
@@ -314,6 +349,12 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
         "text": "🧮 Калькулятор цены",
         "callback": "upc:m",
     }
+    assert calculator_picker["message"] == "Выберите товар для планирования цены:"
+    assert calculator_picker["keyboard"]["buttons"] == [{
+        "text": "hook-2",
+        "callback": "unit_economics:hook-2",
+    }]
+    assert scenario["price_scenario"]["identity"]["sku"] == "3921245627"
 
 
 def test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable():

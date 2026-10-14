@@ -13,6 +13,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     SESSION_TTL_SECONDS = 600
     MAX_SCENARIOS = 128
+    MAX_CATALOG_SELECTIONS = 512
     MAX_SELECTIONS = 512
     EDITABLE_FIELDS = {
         "price": ("Цена продавца", "₽/шт.", True),
@@ -33,6 +34,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         clock=None,
         session_ttl_seconds=SESSION_TTL_SECONDS,
         max_scenarios=MAX_SCENARIOS,
+        max_catalog_selections=MAX_CATALOG_SELECTIONS,
     ):
         self.source = source
         self.scenario_service = scenario_service
@@ -40,54 +42,58 @@ class TelegramUnitPriceCalculatorRuntimeService:
         self.clock = clock or monotonic
         self.session_ttl_seconds = max(1, int(session_ttl_seconds))
         self.max_scenarios = max(1, int(max_scenarios))
+        self.max_catalog_selections = max(1, int(max_catalog_selections))
         self._scenarios = {}
         self._active = {}
         self._pending = {}
+        self._catalog_selection = {}
         self._selections = {}
         self._selection_order = []
         self._lock = RLock()
 
-    def open_menu(self, user_id):
+    def begin_catalog_selection(self, user_id):
         user, scope, context_error = self._context(user_id)
         if context_error:
             return self._friendly_error(context_error)
+        self._clear_pending_for_other_scopes(user, scope)
         self._deactivate(user, scope)
-        try:
-            products = self.source.product_service.load_products()
-        except Exception:
-            return self._friendly_error("UNIT_PRICE_SCENARIO_CATALOG_UNAVAILABLE")
-        options = []
-        for item in products or []:
-            product = self._normalize_product(item)
-            if not product or not product.get("sku"):
-                continue
-            token = self._register_selection(
-                user,
-                scope,
-                str(product["sku"]),
-            )
-            options.append({
-                "token": token,
-                "sku": str(product["sku"]),
-                "offer_id": product.get("offer_id"),
-                "name": product.get("name") or product.get("title") or product.get("offer_id"),
-            })
-        if not options:
-            return {
-                "error": False,
-                "status": "UNIT_PRICE_SCENARIO_PRODUCTS_EMPTY",
-                "message": "В каталоге нет доступных товаров для расчёта.",
-                "read_only": True,
-                "executed": False,
-            }
+        with self._lock:
+            key = (user, scope)
+            self._catalog_selection.pop(key, None)
+            self._catalog_selection[key] = self.clock()
+            while len(self._catalog_selection) > self.max_catalog_selections:
+                self._catalog_selection.pop(next(iter(self._catalog_selection)))
         return {
             "error": False,
-            "status": "UNIT_PRICE_SCENARIO_PRODUCT_SELECTION_REQUIRED",
-            "message": "Выберите товар для планирования цены:",
-            "keyboard": self.keyboard_service.build_unit_price_product_keyboard(options),
+            "status": "UNIT_PRICE_SCENARIO_CATALOG_SELECTION_PENDING",
+            "message": "Выберите товар в существующем списке юнит-экономики для планирования цены.",
             "read_only": True,
             "executed": False,
         }
+
+    def open_menu(self, user_id):
+        """Compatibility alias; the handler supplies the existing catalog picker."""
+        return self.begin_catalog_selection(user_id)
+
+    def has_catalog_selection(self, user_id):
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return False
+        with self._lock:
+            return (user, scope) in self._catalog_selection
+
+    def handle_catalog_selection(self, product_reference, user_id=None):
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        key = (user, scope)
+        with self._lock:
+            selected_at = self._catalog_selection.pop(key, None)
+        if selected_at is None:
+            return None
+        if self.clock() - selected_at > self.session_ttl_seconds:
+            return self._stale_result()
+        return self._start_product_selection(product_reference, user, scope)
 
     def build_product_entry_button(self, user_id, product_reference):
         user, scope, context_error = self._context(user_id)
@@ -107,8 +113,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._friendly_error(context_error)
         parts = str(button_id or "").split(":")
         if parts == ["upc", "m"]:
-            return self.open_menu(user)
-        if len(parts) == 3 and parts[0:2] in (["upc", "s"], ["upc", "p"]):
+            return self.begin_catalog_selection(user)
+        if len(parts) == 3 and parts[0:2] == ["upc", "p"]:
             return self._select_product(parts[2], user, scope)
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
@@ -211,6 +217,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 self._pending.pop(key, None)
             for key in [key for key in self._active if key[0] == user]:
                 self._active.pop(key, None)
+            for key in [key for key in self._catalog_selection if key[0] == user]:
+                self._catalog_selection.pop(key, None)
             for scenario_id, session in list(self._scenarios.items()):
                 if session.get("user_id") == user:
                     self._scenarios.pop(scenario_id, None)
@@ -234,8 +242,15 @@ class TelegramUnitPriceCalculatorRuntimeService:
             or self.clock() - selection.get("created_at", 0) > self.session_ttl_seconds
         ):
             return self._stale_result()
+        return self._start_product_selection(
+            selection.get("product_reference"),
+            user,
+            scope,
+        )
+
+    def _start_product_selection(self, product_reference, user, scope):
         self._deactivate(user, scope)
-        product = self._resolve_product(selection.get("product_reference"))
+        product = self._resolve_product(product_reference)
         if product is None:
             return self._friendly_error("UNIT_PRICE_SCENARIO_SKU_NOT_FOUND")
         snapshot = self.source.load_snapshot(str(product["sku"]), user_id=user)
@@ -615,6 +630,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         with self._lock:
             self._active.pop((user, scope), None)
             self._pending.pop((user, scope), None)
+            self._catalog_selection.pop((user, scope), None)
             for token, selection in list(self._selections.items()):
                 if (
                     selection.get("user_id") == user
@@ -652,11 +668,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
     def _clear_pending_for_other_scopes(self, user, scope):
         with self._lock:
             keys = [key for key in self._pending if key[0] == user and key[1] != scope]
+            changed = bool(keys)
             for key in keys:
                 self._pending.pop(key, None)
+            keys = [key for key in self._catalog_selection if key[0] == user and key[1] != scope]
+            changed = changed or bool(keys)
+            for key in keys:
+                self._catalog_selection.pop(key, None)
             for key in [key for key in self._active if key[0] == user and key[1] != scope]:
                 self._active.pop(key, None)
-            return bool(keys)
+            return changed
 
     def _evict_scenarios(self):
         while len(self._scenarios) > self.max_scenarios:

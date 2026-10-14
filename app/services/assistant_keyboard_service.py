@@ -381,21 +381,6 @@ class AssistantKeyboardService:
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
-    def build_unit_price_product_keyboard(self, products):
-        buttons = []
-        for item in products or []:
-            if not isinstance(item, dict):
-                continue
-            token = str(item.get("token") or "").strip()
-            sku = str(item.get("sku") or "").strip()
-            if not token or not sku:
-                continue
-            name = str(item.get("name") or item.get("offer_id") or "Товар").strip()
-            label = f"{name[:36]} · SKU {sku}"
-            buttons.append({"text": label[:60], "callback": "upc:s:" + token})
-        buttons.append({"text": "Главное меню", "callback": "main_menu"})
-        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
-
     def build_unit_price_scenario_keyboard(self, scenario_id, version, include_return_mean=False):
         sid = str(scenario_id)
         ver = str(version)

@@ -247,7 +247,9 @@ U03 подтверждает локальный сценарий и wiring, но
 
 При полном Windows pytest выявлено, что production factory тестовые/внешние composition могут предоставлять неполный unit-economics объект. `create_unit_price_scenario_runtime` теперь fail-closed возвращает `None`, когда нет уже существующих product/current-economics/cost sources; production composition при полных штатных sources продолжает подключать калькулятор. Добавлена регрессия на отсутствие необязательных source dependencies; существующие factory wiring regressions также проходят.
 
-Финальный полный Windows-набор: **3 118 passed**. `compileall -q app tests`: passed. Для локального Windows sandbox использован pytest harness, который создаёт readable temp directories; сам набор тестов и assertions не менялись. На стандартных pytest/tempfile правах ACL окружение блокировало `tmp_path`/`TemporaryDirectory`, поэтому этот запуск учитывает указанный обход среды. GitHub Windows/Linux/Docker CI и отдельный архитектурный review ожидаются на PR SHA. До их зелёного результата U04 и пакет в целом остаются незавершёнными.
+Архитектурная проверка выявила, что отдельный список товаров калькулятора дублировал существующий каталог юнит-экономики. Отдельная клавиатура удалена: вход в калькулятор включает ограниченный режим выбора, после чего тот же `unit_economics:<offer_id>` picker открывает сценарий. Добавлена регрессия на переход и bounded/store-scoped selection state.
+
+Финальный полный Windows-набор: **3 119 passed**. `compileall -q app tests`: passed. Для локального Windows sandbox использован pytest harness с ACL-friendly temp root; тесты и assertions не менялись. `AI_ASSISTANT_STORAGE_ROOT` установлен в пустую строку для ожидаемого legacy-storage режима. GitHub Windows/Linux/Docker CI и отдельный архитектурный review ожидаются на PR SHA. До их зелёного результата U04 и пакет в целом остаются незавершёнными.
 
 ## 11. Обязательные meaningful проверки
 

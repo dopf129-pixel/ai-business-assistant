@@ -1,7 +1,8 @@
 # 2026-10-14 — U04 локальная приёмка калькулятора цены
 
 - Production composition безопасно выключает необязательный калькулятор, если тестовый/внешний unit-economics provider не предоставляет требуемые product/current/cost sources; штатная production factory с полным provider подключает его как прежде.
-- Регрессия для отсутствующего source provider добавлена. Полный Windows pytest — **3 118 passed**, `compileall -q app tests` — успешно. GitHub CI и архитектурный review ожидаются.
+- Архитектурная проверка подтвердила требование повторно использовать действующий список юнит-экономики: отдельный каталог калькулятора удалён, выбор SKU проходит через существующий picker. Добавлены проверки режима выбора и его изоляции по магазину.
+- Полный Windows pytest — **3 119 passed**; `compileall -q app tests` — успешно. Локальный запуск использовал пустой `AI_ASSISTANT_STORAGE_ROOT`, как предполагают legacy-storage тесты, и ACL-friendly pytest temp root. GitHub CI и отдельный архитектурный review ожидаются.
 
 # 2026-10-14 — U03 Telegram-калькулятор плановой цены
 

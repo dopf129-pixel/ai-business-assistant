@@ -208,7 +208,8 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 
 ## Unit Price Scenario Calculator — U04 local acceptance
 
-- Full Windows test suite on the final local tree: **3 118 passed**. The local harness pre-creates readable temp paths because the Windows sandbox denies pytest's and `TemporaryDirectory`'s default ACL mode; test cases/assertions are unchanged.
+- Architecture review confirmed that product selection should reuse the current unit-economics picker. Calculator selection mode now routes into that picker and consumes the existing `unit_economics:<offer_id>` selection; no parallel catalog keyboard is maintained. Regression tests cover the transition and per-store bounded selection state.
+- Full Windows test suite on the final local tree: **3 119 passed**. The local harness uses an ACL-friendly pytest temp root because the Windows sandbox denies pytest's default temp ACL; test cases/assertions are unchanged. `AI_ASSISTANT_STORAGE_ROOT` is explicitly empty for legacy-storage compatibility tests.
 - `python -m compileall -q app tests`: passed.
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable` protects factory compatibility with partial external/test providers. Production composition wiring is also verified by `test_production_factory_exposes_sku_runtime`.
 - GitHub Windows/Linux/Docker checks and architecture review remain pending on the pushed PR SHA.
