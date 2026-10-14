@@ -193,6 +193,12 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - Verifies the signed 500 ₽/600 ₽ numeric fixtures; seller-price tax base; percent vs fixed-fee behavior; variable/fixed changes after repricing; loss and margin semantics; explicit zero vs missing; input validation including NaN/Infinity/bool; tax policy absence; and USN income-minus-expenses minimum-tax delegation.
 - U01 production module has no Ozon, Telegram, storage or persistence dependency.
 
+## Unit Price Scenario Calculator — U02 source adapter
+
+- `tests/test_unit_price_scenario_source.py` covers finance evidence completeness, explicit zero vs missing bonus, complete pagination, exact SKU, identical/conflicting duplicates, 28-day weighted ratio, incomplete-day fallback, tenant preflight, cache isolation and deep copies.
+- `app/services/finance_service.py::FinanceService.get_daily_discount_points_evidence` checks page completion and returns selected-SKU positive-sale evidence with explicit `bonus`; it does not alter the existing daily financial aggregate contract.
+- Combined U01/U02 + current product source/wiring/integration + discount tax + finance pagination/reconciliation regressions: **62 passed** (Python 3.12). No live Ozon source check.
+
 # Test Map
 
 ## Period Profit bounded Ozon quantity reads

@@ -2,7 +2,7 @@
 
 Дата: 2026-10-14  
 Базовый код: `655b3a0` (`Complete P00-P08 milestones and resolve review findings (#694)`)  
-Статус: **завершён**; live данные Ozon не запрашивались.
+Статус: **аудит завершён, источник U02 реализован и изолированно проверен**; live данные Ozon не запрашивались.
 
 ## Вывод для реализации
 
@@ -38,3 +38,15 @@
 
 - На `655b3a0`, Python 3.12, `PYTHONPATH=app`: семь тестовых модулей current product economics, production wiring и finance/tax regressions — **44 passed**.
 - Это regression baseline, а не подтверждение полноты live Ozon данных.
+
+## Реализованный U02 source contract
+
+- `FinanceService.get_daily_discount_points_evidence(date, exact_sku)` добавляет evidence-ответ, не меняя прежний агрегат. Он различает missing bonus и явный 0, требует пагинацию до пустого `last_id`, валидирует конечные суммы и не включает отрицательные/нулевые продажи в когорту успешной продажи.
+- Идентификатор дедупликации — точные `posting_number + finance_sku`. Полностью идентичные суммы повторной строки учитываются один раз; различающиеся суммы для ключа делают день incomplete.
+- `UnitPriceScenarioSource` читает 28 полностью закрытых дат, валидирует активный tenant до любых reads, проверяет однозначную карточку и не принимает finance SKU aliases. Он выводит weighted `sum(bonus)/sum(sale_amount)` без unit denominator.
+- Если день/пагинация/bonus/identity/сумма неполны либо нет положительной когорты, `suggested_inputs.discount_points_rate` остаётся `None`; ручной сценарий остаётся возможен. Никакое неизвестное значение не нормализуется к нулю.
+- Snapshot cache: tenant scope + user + exact SKU, deep copies, 600-second TTL, 128-entry LRU, same-key in-flight deduplication. Refresh creates a new 60-second / 64-attempt operation trace; sources are read-only.
+- Product current facts use current seller price and FBO rate only as labeled estimate. Cost is read from exact product-id RUB record. Missing current facts stay missing; plan fees L/M/E and advertising remain manual.
+- Дата «вчера» определяется системным локальным календарём приложения (существующая проектная практика); внешняя IANA timezone database на Windows недоступна и новой зависимости не добавляли.
+
+Проверки U02 на текущей ветке: scenario + finance/source + current-economics/tax regressions — **62 passed** (Python 3.12). Это fake-source verification; live Ozon data not requested.

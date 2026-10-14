@@ -1,3 +1,10 @@
+# 2026-10-14 — U02 read-only источник калькулятора завершён
+
+- Добавлены `FinanceService.get_daily_discount_points_evidence` и `UnitPriceScenarioSource`. Автоматический weighted b доступен только по завершённому 28-дневному точному SKU evidence с явным bonus; отсутствие/конфликт оставляет параметр пустым для ручного ввода.
+- Snapshot берёт текущую seller price/FBO rate как оценки, exact product-id RUB cost и активную store tax policy. Расходы на доставку, последнюю милю, acquiring и рекламу не выводятся из сомнительных per-row средних; их нужно ввести для расчёта.
+- Источник cache изолирован по tenant/user/SKU, TTL 600 секунд, максимум 128; deep copy, общий same-key refresh, HTTP trace 60 секунд/64 попытки. Автоматическое окно определяется локальной датой приложения. Live Ozon не запрашивался.
+- Scenario/source/current finance/tax regressions: **62 passed**. U03 Telegram flow и U04 приёмка остаются.
+
 # 2026-10-14 — U01 чистая модель калькулятора завершена
 
 - `app/services/unit_price_scenario_service.py` — чистый decimal-сервис планового расчёта; `tests/test_unit_price_scenario_service.py` — **8 passed**.

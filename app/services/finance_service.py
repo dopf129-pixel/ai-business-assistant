@@ -472,6 +472,139 @@ class FinanceService:
         }
 
 
+    def get_daily_discount_points_evidence(self, accrual_date, sku):
+        """Return exact-SKU positive sale rows with explicit bonus evidence.
+
+        This deliberately does not reuse the financial summary: that aggregate
+        initializes discount points at zero and cannot distinguish an explicit
+        zero bonus from a missing bonus field.
+        """
+        target_sku = str(sku or "").strip()
+        response = self._get_accruals_by_day(accrual_date)
+        empty = {
+            "error": True,
+            "status": "FINANCE_DISCOUNT_POINTS_EVIDENCE_UNAVAILABLE",
+            "date": str(accrual_date),
+            "complete": False,
+            "record_count": 0,
+            "records": [],
+        }
+        if not target_sku:
+            return {**empty, "status": "FINANCE_DISCOUNT_POINTS_SKU_REQUIRED"}
+        if not isinstance(response, dict) or response.get("error") is True:
+            return empty
+        accruals = response.get("accruals")
+        pages_loaded = response.get("pages_loaded")
+        if (
+            not isinstance(accruals, list)
+            or not isinstance(pages_loaded, int)
+            or isinstance(pages_loaded, bool)
+            or pages_loaded < 1
+            or response.get("last_id") not in (None, "")
+        ):
+            return {
+                **empty,
+                "status": "FINANCE_DISCOUNT_POINTS_EVIDENCE_PARTIAL",
+            }
+
+        records_by_identity = {}
+        malformed = 0
+        conflicts = 0
+        for accrual in accruals:
+            if not isinstance(accrual, dict):
+                malformed += 1
+                continue
+            if accrual.get("accrued_category") != "POSTING":
+                continue
+            posting = accrual.get("posting")
+            if not isinstance(posting, dict):
+                malformed += 1
+                continue
+            products = posting.get("products")
+            if not isinstance(products, list):
+                malformed += 1
+                continue
+            posting_number = str(accrual.get("unit_number") or "").strip()
+            for product in products:
+                if not isinstance(product, dict):
+                    malformed += 1
+                    continue
+                product_sku = str(product.get("sku") or "").strip()
+                if product_sku != target_sku:
+                    continue
+                if not posting_number:
+                    malformed += 1
+                    continue
+                commission = product.get("commission")
+                sale_amount = (
+                    commission.get("sale_amount")
+                    if isinstance(commission, dict)
+                    else None
+                )
+                raw_sale = (
+                    sale_amount.get("amount")
+                    if isinstance(sale_amount, dict)
+                    else None
+                )
+                try:
+                    sale = Decimal(str(raw_sale))
+                except (InvalidOperation, TypeError, ValueError):
+                    malformed += 1
+                    continue
+                if not sale.is_finite():
+                    malformed += 1
+                    continue
+                if sale <= Decimal("0"):
+                    # Cancellation/reversal rows are not part of the successful-sale cohort.
+                    continue
+                bonus = commission.get("bonus") if isinstance(commission, dict) else None
+                raw_bonus = bonus.get("amount") if isinstance(bonus, dict) else None
+                try:
+                    points = Decimal(str(raw_bonus))
+                except (InvalidOperation, TypeError, ValueError):
+                    malformed += 1
+                    continue
+                if (
+                    not points.is_finite()
+                    or points < Decimal("0")
+                    or points > sale
+                ):
+                    malformed += 1
+                    continue
+                key = (posting_number, target_sku)
+                value = (sale, points)
+                previous = records_by_identity.get(key)
+                if previous is None:
+                    records_by_identity[key] = value
+                elif previous != value:
+                    conflicts += 1
+
+        complete = malformed == 0 and conflicts == 0
+        return {
+            "error": False,
+            "status": (
+                "FINANCE_DISCOUNT_POINTS_EVIDENCE_READY"
+                if complete
+                else "FINANCE_DISCOUNT_POINTS_EVIDENCE_PARTIAL"
+            ),
+            "date": str(accrual_date),
+            "complete": complete,
+            "record_count": len(records_by_identity),
+            "malformed_record_count": malformed,
+            "conflicting_duplicate_count": conflicts,
+            "records": [
+                {
+                    "posting_number": posting_number,
+                    "sku": target_sku,
+                    "sale_amount": str(sale),
+                    "discount_points": str(points),
+                }
+                for (posting_number, _), (sale, points)
+                in sorted(records_by_identity.items())
+            ],
+        }
+
+
     def _get_accruals_by_day(
         self,
         accrual_date
