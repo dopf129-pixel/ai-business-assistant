@@ -1,3 +1,9 @@
+# 2026-10-14 — U01 чистая модель калькулятора завершена
+
+- `app/services/unit_price_scenario_service.py` — чистый decimal-сервис планового расчёта; `tests/test_unit_price_scenario_service.py` — **8 passed**.
+- Контроль: P=500 ₽ → прибыль 186 ₽, маржа 37,20%; P=600 ₽ при тех же ставках/фиксированных расходах → 258,20 ₽ и 43,03%. Налог вызывает существующий `TaxService`; отсутствующая обязательная ставка/политика остаётся unavailable.
+- Результат включает scenario identity/version, input units/provenance, source metadata, состав включённого/исключённого и read-only флаги. U02 (source + среднее баллов), U03 (Telegram), U04 (приёмка) не завершены.
+
 # 2026-10-14 — U00 аудита калькулятора плановой цены завершён
 
 - Ветка `codex/unit-price-calculator`, базовый squash SHA `655b3a0` (PR #694 уже в main). U00 source map: `project_brain/UNIT_PRICE_CALCULATOR_SOURCE_AUDIT_2026-10-14.md`.

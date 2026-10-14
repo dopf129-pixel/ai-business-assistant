@@ -187,6 +187,12 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - Confirmed `sale_amount` is already included in gross sales; `bonus` is separately accumulated. Existing aggregate does not prove explicit bonus completeness, and `sales_count` counts positive product rows, not units.
 - No implementation/live Ozon query in U00. New calculation/source/UI tests will be mapped here by their corresponding stages.
 
+## Unit Price Scenario Calculator — U01 pure math
+
+- `tests/test_unit_price_scenario_service.py`: **8 passed**.
+- Verifies the signed 500 ₽/600 ₽ numeric fixtures; seller-price tax base; percent vs fixed-fee behavior; variable/fixed changes after repricing; loss and margin semantics; explicit zero vs missing; input validation including NaN/Infinity/bool; tax policy absence; and USN income-minus-expenses minimum-tax delegation.
+- U01 production module has no Ozon, Telegram, storage or persistence dependency.
+
 # Test Map
 
 ## Period Profit bounded Ozon quantity reads
