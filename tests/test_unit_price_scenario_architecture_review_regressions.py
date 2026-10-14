@@ -211,6 +211,69 @@ def test_reopening_same_store_picker_invalidates_old_button_without_consuming_ne
     assert source.calls == [("sku-1", "user-1", False)]
 
 
+def test_new_picker_invalidates_consumed_callback_before_source_operation_starts():
+    catalog = ProductCatalog([
+        _product("offer-old", "sku-old"),
+        _product("offer-new", "sku-new"),
+    ])
+    source = ScenarioSource(catalog.products)
+    source.product_service = catalog
+    runtime, _ = _runtime(source)
+    initial_token = _tenant()
+    try:
+        runtime.begin_catalog_selection("user-1")
+        old_callback = runtime.build_catalog_product_callback("user-1", "offer-old")
+    finally:
+        reset_current_tenant_user_id(initial_token)
+
+    original_start = runtime._start_product_selection
+    callback_consumed = Event()
+    release_start = Event()
+    result = {}
+
+    def pause_before_source_read(reference, user, scope, operation_token=None):
+        callback_consumed.set()
+        assert release_start.wait(THREAD_WAIT_SECONDS), "test did not release picker selection"
+        return original_start(
+            reference, user, scope, operation_token=operation_token
+        )
+
+    runtime._start_product_selection = pause_before_source_read
+
+    def select_old_callback():
+        token = _tenant()
+        try:
+            result["old"] = runtime.handle_callback(old_callback, user_id="user-1")
+        finally:
+            reset_current_tenant_user_id(token)
+
+    thread = Thread(target=select_old_callback)
+    thread.start()
+    assert callback_consumed.wait(THREAD_WAIT_SECONDS)
+    new_picker_token = _tenant()
+    try:
+        runtime.begin_catalog_selection("user-1")
+        new_callback = runtime.build_catalog_product_callback("user-1", "offer-new")
+    finally:
+        reset_current_tenant_user_id(new_picker_token)
+    release_start.set()
+    thread.join(THREAD_WAIT_SECONDS)
+    assert not thread.is_alive()
+
+    runtime._start_product_selection = original_start
+    assert result["old"]["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert source.calls == []
+
+    current_picker_token = _tenant()
+    try:
+        selected = runtime.handle_callback(new_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(current_picker_token)
+
+    assert selected["price_scenario"]["identity"]["sku"] == "sku-new"
+    assert source.calls == [("sku-new", "user-1", False)]
+
+
 def test_late_initial_load_cannot_resurrect_scenario_after_navigation():
     source = ScenarioSource([_product("offer-A", "sku-A")], block_skus={"sku-A"})
     runtime, _ = _runtime(source)

@@ -160,18 +160,18 @@ V05 зависит от навигационной очистки V04: обра�
 |---|---|---|
 | V00 | Завершён | Ветка `codex/unit-price-calculator`, baseline head `496f620`; данные пользователя уже изменены и исключены из тестовой копии/будущего коммита. Добавлены regressions с red evidence для R1–R7; старые 8 probes задокументированы в review. |
 | V01 — R1 | Завершён | Picker callbacks — opaque token по user/store/generation/SKU; stale callback не читает каталог-источник и не расходует актуальный токен. Проверены магазин/повторное открытие, callback ≤64 bytes, factual маршрут сохранён. |
-| V02 — R2 | Завершён | Operation ticket проверяется после чтения; late initial/older load и refresh success/failure не публикуют закрытый или старый сценарий. Управляемые `Event` interleavings включены в regression suite. |
+| V02 — R2 | Завершён | Ticket создаётся атомарно при потреблении picker callback и проверяется после чтения; late initial/older load и refresh success/failure не публикуют закрытый или старый сценарий. `Event` regressions покрывают race между callback и новым picker и поздние завершения. |
 | V03 — R3 | Завершён | Eviction чистит pending только для вытесненного `scenario_id`; тест подтверждает, что ввод активного сценария B сохраняется при вытеснении A. |
 | V04 — R6 | Завершён | Очистка calculator state подключена до early-return Seller Cost/Return Inventory adapters, `/start` и store switch/disconnect command boundary. Старые callbacks и text stage после перехода не работают. |
 | V05 — R4 | Завершён | Текст на READY-сценарии возвращает его актуальную клавиатуру без изменения inputs/version и без source reads; после навигации калькулятор текст не перехватывает. |
 | V06 — R5 | Завершён | Decimal inputs ограничены документируемым техническим диапазоном до арифметики/float; некорректный налоговый результат закрывает итог и сохраняет клавиатуру повторного ввода. |
 | V07 — R7 | Завершён | `source_loaded_at` отделён от sliding inactivity timestamp; старый snapshot скрывает comparison, а assumptions screen явно показывает source as-of и STALE. Успешный refresh обновляет freshness, ошибка оставляет STALE; ручные допущения сохранены. |
-| V08 | В работе | Targeted tests **61 passed** на текущем коде. Полный suite **3 137 passed** и GitHub CI run `38615340159` относятся к предшествующему code commit `0e41263`; повторяются после последней правки stale assumptions label. Текущий exact-head CI и повторный review ещё не выполнены. |
+| V08 | В работе | Targeted tests **62 passed in 2.32s**; полный suite **3 138 passed in 18.68s** на финальном локальном коде; compileall прошёл с одной существующей SyntaxWarning. CI runs `38615340159`/`38615657244` относятся к более ранним heads; текущий exact-head CI и повторный review ещё не выполнены после atomic ticket race fix. |
 
 ### Фактические проверки перед публикацией нового PR head
 
-- Целевой набор calculator/runtime/UI/routing: **61 passed in 2.70s** на рабочем дереве.
-- Полный `pytest -q`: **3 137 passed in 18.57s** на копии текущего кода без `data/`, `.env` и пользовательского хранилища; sandbox ACL для Python-created temp/SQLite путей обойдён разрешённым запуском в изолированной копии. Assertions и тесты не менялись.
+- Целевой набор calculator/runtime/UI/routing: **62 passed in 2.32s** на рабочем дереве.
+- Полный `pytest -q`: **3 138 passed in 18.68s** на копии текущего кода без `data/`, `.env` и пользовательского хранилища; sandbox ACL для Python-created temp/SQLite путей обойдён разрешённым запуском в изолированной копии. Assertions и тесты не менялись.
 - `python -m compileall -q app tests`: завершился успешно; показал одну существующую `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177` (`is not 0.0`).
 - `git diff --check`: успешно. Локальные `data/tasks.json`, `data/users.json`, lock и старые temp-каталоги не добавлялись в изменения.
-- Изменения пока не опубликованы; после push нужно зафиксировать exact head, GitHub CI runs и повторный review. До этого R1–R7 локально исправлены, но PR acceptance не завершена.
+- Последний R2 race fix ещё не опубликован; после push нужно зафиксировать exact head, GitHub CI runs и повторный review. До этого R1–R7 локально исправлены, но PR acceptance не завершена.

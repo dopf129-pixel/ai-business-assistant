@@ -291,14 +291,19 @@ class TelegramUnitPriceCalculatorRuntimeService:
             self._remove_selection_locked(token)
             if expected_kind == "catalog":
                 self._catalog_selection.pop((user, scope), None)
+            operation_token = self._begin_source_operation_locked(user, scope)
         return self._start_product_selection(
             selection.get("product_reference"),
             user,
             scope,
+            operation_token=operation_token,
         )
 
-    def _start_product_selection(self, product_reference, user, scope):
-        operation_token = self._begin_source_operation(user, scope)
+    def _start_product_selection(
+        self, product_reference, user, scope, operation_token=None
+    ):
+        if operation_token is None:
+            operation_token = self._begin_source_operation(user, scope)
         product = self._resolve_product(product_reference)
         if product is None:
             return self._finish_source_operation_error(
@@ -354,16 +359,20 @@ class TelegramUnitPriceCalculatorRuntimeService:
         return self._scenario_screen(session)
 
     def _begin_source_operation(self, user, scope):
+        with self._lock:
+            return self._begin_source_operation_locked(user, scope)
+
+    def _begin_source_operation_locked(self, user, scope):
         key = (user, scope)
         token = uuid4().hex
-        with self._lock:
-            self._active.pop(key, None)
-            self._pending.pop(key, None)
-            self._catalog_selection.pop(key, None)
-            for selection_token, selection in list(self._selections.items()):
-                if selection.get("user_id") == user and selection.get("tenant_scope") == scope:
-                    self._remove_selection_locked(selection_token)
-            self._operation_tokens[key] = {"token": token, "created_at": self.clock()}
+        self._active.pop(key, None)
+        self._pending.pop(key, None)
+        self._catalog_selection.pop(key, None)
+        for selection_token, selection in list(self._selections.items()):
+            if selection.get("user_id") == user and selection.get("tenant_scope") == scope:
+                self._remove_selection_locked(selection_token)
+        self._operation_tokens.pop(key, None)
+        self._operation_tokens[key] = {"token": token, "created_at": self.clock()}
         return token
 
     def _source_operation_is_current(self, user, scope, token):
