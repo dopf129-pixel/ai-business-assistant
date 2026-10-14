@@ -1,7 +1,7 @@
 # Карта тестов — актуальный статус 2026-10-14
 
 - Финальная проверка перед merge выявила и закрыла пропущенные whole-history text refresh (single/CSV confirm/cancel) и локальный auth timeout Performance / budget reason после 401. Новые регрессии: `app/tests/test_seller_cost_confirmation_flow.py::test_text_during_whole_history_confirmation_keeps_valid_draft_buttons`, `tests/test_ozon_performance_historical_reports.py::test_performance_auth_timeout_uses_remaining_local_and_shared_budgets` и `::test_performance_auth_refresh_preserves_exhausted_shared_budget_reason`.
-- После дополнительного patch: cost-flow suite — **16 passed**; Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI нового revision ожидается; ранее прошедшие **3 090** относятся к `fb1b0db` и не подтверждают новый patch.
+- После дополнительного patch: cost-flow suite — **16 passed**; Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI code SHA `f7a0f945bc26cadd5d190982a68c2dae6191d632` включает эти три локально исключённых файловых теста: Linux Python 3.11 и Windows Python 3.12 по **3 093 passed**, compileall и production Docker build/smoke прошли. Финальный review одобрил слияние.
 
 ## Историческая проверка R1–R5 на fb1b0db
 

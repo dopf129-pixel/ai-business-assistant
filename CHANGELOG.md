@@ -2,7 +2,7 @@
 
 - При повторном текстовом вводе на стадии подтверждения себестоимости для всей истории бот сохраняет тот же экран и действующие draft callbacks. Одиночный товар и CSV используют общий builder кнопок; подтверждение и отмена не теряют привязку к черновику.
 - Авторизация Ozon Performance принимает остаток локального enrichment timeout; production transport дополнительно ограничивает его общим operation budget. После 401 причина исчерпания общего budget сохраняется, не подменяется ошибкой авторизации.
-- Новые регрессии воспроизвели оба пропущенных пути до изменения кода. После исправления cost-flow suite — **16 passed**, Performance/SKU-advertising suite — **99 passed / 3 deselected** (локальные файловые diagnostics требуют pytest temp без Windows ACL). Новый полный CI и финальное решение о слиянии ожидаются.
+- Новые регрессии воспроизвели оба пропущенных пути до изменения кода. После исправления cost-flow suite — **16 passed**, Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI code SHA `f7a0f945bc26cadd5d190982a68c2dae6191d632` включил файловые diagnostics: Linux и Windows по **3 093 passed**, compileall и production Docker build/smoke прошли. Финальный review завершён; принято решение о слиянии PR #694.
 
 # 2026-10-14 — исправления R1–R5 после архитектурного review PR #694
 

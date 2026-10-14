@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna: завершение функционала и развитие Ozon AI Assistant
 
 Дата: 12.10.2026. Планировщик: GPT Sol. Исполнитель: GPT Luna.
-Статус на 14.10.2026: P00–P08 реализованы в PR #694; `fb1b0db` прошёл Windows/Linux CI по **3 090 passed** и Docker build/smoke. Пользователь поручил принять решение о слиянии; независимая финальная проверка выявила два пропущенных пути R1/R4 (повторный whole-history экран и локальный auth timeout/budget reason). Дополнительные исправления внесены с red → green регрессиями; связанные наборы — **16 passed** и **99 passed / 3 deselected**. До полного CI нового revision и финального review слияние не выполняется. Сценарии и evidence: [ARCHITECTURE_REVIEW_PR694_2026-10-14.md](ARCHITECTURE_REVIEW_PR694_2026-10-14.md).
+Статус на 14.10.2026: P00–P08 приняты в PR #694. Независимая финальная проверка выявила и закрыла два пропущенных пути R1/R4 (повторный whole-history экран и локальный auth timeout/budget reason). Code SHA `f7a0f945bc26cadd5d190982a68c2dae6191d632` прошёл Windows/Linux CI по **3 093 passed**, compileall и Docker build/smoke; финальный review не оставил открытых блокеров и одобрил слияние по прямому поручению пользователя. Сценарии и evidence: [ARCHITECTURE_REVIEW_PR694_2026-10-14.md](ARCHITECTURE_REVIEW_PR694_2026-10-14.md).
 
 ## Назначение и порядок работы
 
