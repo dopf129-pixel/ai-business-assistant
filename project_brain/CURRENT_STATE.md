@@ -1,9 +1,9 @@
-# 2026-10-14 — PR #695: дополнительный повторный review требует R8/R9
+# 2026-10-14 — PR #695: локально исправлены findings R8/R9
 
-- Проверен текущий PR head `73c4c74cf786f0a8a38168a27a3a61240d07ce06`; код совпадает с `3f4942b6`. Windows/Linux full CI Verify `38617595326` success, включая Docker build/smoke. Четыре calculator modules повторно: **45 passed in 1.80s**.
-- Подтверждены два P2: source возвращает периодическую weighted ставку с 28 значащими цифрами, math ограничивает её 15 и блокирует обычный полный сценарий; runtime обнуляет source age при cache hit (t=590 → t=610 показывает FRESH age=20 вместо STALE).
-- Два изолированных probes правильного поведения дают **2 failed in 0.34s** без API/DB/данных продавца. Evidence добавлен в `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`; исправляющее ТЗ — `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`.
-- Предыдущее заключение «блокеров нет» пересмотрено. R1–R6 подтверждены; R7 требует завершить cache boundary, R8 — регрессия precision hardening. Production code не менялся; merge не рекомендуется до исправлений и нового CI/review. Слияние выполнит другая модель.
+- R8 исправлен field-aware Decimal validation: денежные суммы по-прежнему ограничены 15 значащими цифрами; bounded процентные ставки принимают до 28 цифр контекста Decimal и сохраняют диапазон 0–100 и проверки порядка величины. Полное source → math → runtime значение 50/300×100 рассчитывает сценарий: налог 25 ₽, прибыль 280 ₽, маржа 56%.
+- R9 исправлен передачей возраста/TTL source cache в runtime. Cache hit сохраняет исходный возраст плюс elapsed; результат и assumptions используют единый freshness calculation. Повторное открытие, локальные правки и повторный текст не омолаживают источник; successful refresh обновляет снимок и сохраняет ручное рекламное допущение.
+- Добавлены штатные интеграционные regressions в `tests/test_unit_price_scenario_repeat_review_regressions.py`; targeting calculator/runtime/source/service set: **48 passed**. Red evidence двух кейсов до исправления сохранён в истории review.
+- W00–W02 выполнены локально. Calculator review набор: **48 passed**; полный изолированный Windows pytest: **3 141 passed in 25.15s**; `compileall -q app tests` завершился, выдал одну прежнюю `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`. W03 ещё требует публикацию нового code SHA, зелёный GitHub CI и независимый повторный review. PR #695 открыт, слияние оставлено другой модели.
 
 # История 2026-10-14 — PR #695 R1–R7: первая приёмка исправлений
 

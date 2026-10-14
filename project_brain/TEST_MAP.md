@@ -1,11 +1,10 @@
 # Карта тестов — актуальный статус 2026-10-14
 
-## PR #695 — дополнительный review: непокрытые source boundaries R8/R9
+## PR #695 — regressions повторного review R8/R9
 
-- Текущий head `73c4c74`, неизменённый code SHA `3f4942b6`: четыре existing calculator modules — **45 passed in 1.80s**. Windows/Linux full CI Verify `38617595326` success; Docker build/runtime smoke success.
-- Изолированные probes с настоящими source/math/runtime и fake facts — **2 failed in 0.34s**: полное дробное среднее 50/300×100 должно давать available scenario; cache hit age=590 при открытии и t=610 должен быть STALE с отключённым current-price comparison. Ни API, ни пользовательские storage не использовались.
-- Probes сохранены в ignored scratch `.codex-test-pr695-repeat-review/probes.py`; неправильное поведение не добавлялось в default suite. Meaningful red→green интеграционные regressions требуются по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`.
-- Full pytest локально не повторялся: производственный код в review не менялся; текущий exact-head full CI проверен. Новый полный прогон и новый CI обязательны после исправлений.
+- `tests/test_unit_price_scenario_repeat_review_regressions.py` использует реальные source, math и Telegram runtime с fake facts и injected monotonic clock. Проверяет weighted rate 50/300 с расчётом налога 25 ₽/прибыли 280 ₽/маржи 56%; источник кэшируется один раз; сценарий, открытый при age=590, после локальной активности на t=610 становится STALE, отключает price comparison и показывает предупреждение в assumptions. Успешное обновление получает цену 550, начинает свежий TTL и сохраняет ручное advertising=0.
+- `tests/test_unit_price_scenario_service.py` проверяет, что 28-digit bounded recurring rate допустим, а превышение precision guard недопустимо; existing tests сохраняют checks extreme money, не finite, bounds, explicit zero и tax errors.
+- Новый calculator/source/math/runtime/regression set: **48 passed**. Полный изолированный Windows pytest — **3 141 passed in 25.15s**; `compileall -q app tests` прошёл с одной прежней `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`. GitHub CI нового SHA и повторный review ещё ожидаются; предыдущие CI результаты относятся к старому SHA.
 
 ## PR #695 — regressions архитектурного review R1–R7
 

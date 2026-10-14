@@ -2,9 +2,9 @@
 
 ## Вердикт и проверенная ревизия
 
-**Текущий вердикт повторной проверки на SHA `73c4c74`: не сливать до исправления двух P2 — R8 (дробное среднее баллов отклоняется) и R9 (cache hit обнуляет возраст источника; неполное закрытие R7). Предыдущее заключение «блокеров нет» пересмотрено.**
+**Вердикт review на SHA `73c4c74`: R8/R9 подтверждены, поэтому тогда было рекомендовано не сливать. В текущей рабочей копии обе находки исправлены и получили red→green интеграционные regressions; новый code SHA ещё ожидает полного pytest, GitHub CI и независимой повторной проверки. До этих результатов PR не готов к слиянию.**
 
-ТЗ следующего исправления: `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Первичный review и результаты первой приёмки ниже сохранены как история. Production code в этой дополнительной проверке не менялся.
+Исправления ведутся по `LUNA_PR695_REPEAT_REVIEW_FIX_TASK_2026-10-14.md`. Первичный review и результаты первой приёмки ниже сохранены как история.
 
 - PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695
 - Проверенный head: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
@@ -240,3 +240,11 @@ Probe использует настоящие `UnitPriceScenarioSource`, `UnitPr
 6. **Documentation Updates:** CHANGELOG описывает findings; CURRENT_STATE отмечает открытые blockers; TEST_MAP показывает coverage gaps и фактические результаты; DECISIONS не менялся, Decision 045 сохранён. Review и обе прежние задачи ссылаются на новое ТЗ.
 7. **Review Classification:** Architecture Review Required для PR #695; дополнительная проверка требует R8/R9 перед слиянием. Новых blockers R1–R6 не подтверждено, R7 имеет остаточный cache-hit дефект.
 8. **Next Recommended Step:** выполнить W00–W03 нового ТЗ, получить зелёный CI исправленного code SHA и повторный review. Слияние выполнит другая модель после приёмки; reviewer не начинает implementation или merge автоматически.
+
+## Статус исправлений R8/R9 — 2026-10-14
+
+- R8: rates используют отдельный precision limit в 28 significant digits (Decimal context); денежные inputs сохраняют прежний 15-digit limit, диапазон процентной ставки остаётся 0–100. Production source → math → runtime regression подтверждает полный расчёт для 50/300: налог 25 ₽, прибыль 280 ₽, маржа 56%. Manual override переживает refresh; восстановление принимает новое среднее 1/7.
+- R9: snapshot cache `age_seconds` и `ttl_seconds` переносятся в transient runtime session. Текущая свежесть — cached age + монотонное elapsed; result/assumptions используют одно состояние. Regression доказывает t=0 → t=590 cache hit → t=610 stale, один source read, недоступное сравнение и предупреждение; успешный refresh обновляет данные, не теряя ручные значения.
+- Red evidence до исправления: обе новые штатные regressions падали; после исправления calculator/source/math/runtime набор — **48 passed**.
+- Полный isolated Windows pytest — **3 141 passed in 25.15s**. Compileall завершился с одной существующей SyntaxWarning в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
+- До публикации code-bearing SHA, зелёного CI на нём и независимого review PR остаётся открытым; merge не выполнялся.

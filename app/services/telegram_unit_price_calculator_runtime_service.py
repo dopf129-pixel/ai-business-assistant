@@ -1,5 +1,6 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 from threading import RLock
 from time import monotonic
 from uuid import uuid4
@@ -333,6 +334,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 code or "UNIT_PRICE_SCENARIO_SOURCE_UNAVAILABLE",
             )
         scenario_id = uuid4().hex[:10]
+        source_age, source_ttl = self._snapshot_freshness_metadata(snapshot)
+        loaded_at = self.clock()
         session = {
             "scenario_id": scenario_id,
             "version": 1,
@@ -343,9 +346,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "inputs": deepcopy(snapshot.get("suggested_inputs") or {}),
             "provenance": deepcopy(snapshot.get("input_provenance") or {}),
             "overrides": set(),
-            "created_at": self.clock(),
-            "updated_at": self.clock(),
-            "source_loaded_at": self.clock(),
+            "created_at": loaded_at,
+            "updated_at": loaded_at,
+            "source_loaded_at": loaded_at,
+            "source_age_seconds_at_load": source_age,
+            "source_ttl_seconds": source_ttl,
         }
         with self._lock:
             key = (user, scope)
@@ -524,6 +529,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._finish_refresh_as_stale(key, operation_token)
         inputs = deepcopy(fresh.get("suggested_inputs") or {})
         provenance = deepcopy(fresh.get("input_provenance") or {})
+        source_age, source_ttl = self._snapshot_freshness_metadata(fresh)
         for field in snapshot_session["overrides"]:
             inputs[field] = snapshot_session["inputs"].get(field)
             provenance[field] = "manual_seller_assumption"
@@ -541,7 +547,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["provenance"] = provenance
             current["version"] += 1
             current["updated_at"] = self.clock()
-            current["source_loaded_at"] = self.clock()
+            current["source_loaded_at"] = current["updated_at"]
+            current["source_age_seconds_at_load"] = source_age
+            current["source_ttl_seconds"] = source_ttl
             session = deepcopy(current)
             self._operation_tokens.pop(key, None)
         return self._scenario_screen(session, notice="Источники обновлены; ручные допущения сохранены.")
@@ -551,6 +559,48 @@ class TelegramUnitPriceCalculatorRuntimeService:
             if self._operation_is_current_locked(key, operation_token):
                 self._operation_tokens.pop(key, None)
         return self._stale_result()
+
+    def _snapshot_freshness_metadata(self, snapshot):
+        cache = snapshot.get("cache") if isinstance(snapshot, dict) else None
+        cache = cache if isinstance(cache, dict) else {}
+        age = self._nonnegative_seconds(cache.get("age_seconds"), default=0.0)
+        ttl = self._nonnegative_seconds(
+            cache.get("ttl_seconds"), default=float(self.session_ttl_seconds)
+        )
+        return age, min(ttl, float(self.session_ttl_seconds))
+
+    @staticmethod
+    def _nonnegative_seconds(value, default):
+        if isinstance(value, bool):
+            return default
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return default
+        if not isfinite(seconds):
+            return default
+        return max(0.0, seconds)
+
+    def _source_freshness(self, session):
+        loaded_at = self._nonnegative_seconds(
+            session.get("source_loaded_at", session.get("created_at", 0)),
+            default=0.0,
+        )
+        elapsed = max(0.0, float(self.clock()) - loaded_at)
+        age_at_load = self._nonnegative_seconds(
+            session.get("source_age_seconds_at_load"), default=0.0
+        )
+        age = age_at_load + elapsed
+        ttl = self._nonnegative_seconds(
+            session.get("source_ttl_seconds"),
+            default=float(self.session_ttl_seconds),
+        )
+        ttl = min(ttl, float(self.session_ttl_seconds))
+        return {
+            "status": "FRESH" if age <= ttl else "STALE",
+            "age_seconds": age,
+            "ttl_seconds": ttl,
+        }
 
     def _show_fee_menu(self, session, expected_version):
         with self._lock:
@@ -576,9 +626,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         period = snapshot.get("source_periods", {}).get("discount_points", {})
         completeness = snapshot.get("source_completeness", {}).get("discount_points", {})
         points = session["inputs"].get("discount_points_rate")
-        source_loaded_at = session.get("source_loaded_at", session.get("created_at", 0))
-        source_age = max(0, self.clock() - source_loaded_at)
-        source_fresh = source_age <= self.session_ttl_seconds
+        source_freshness = self._source_freshness(session)
+        source_fresh = source_freshness["status"] == "FRESH"
         seller_price_as_of = (
             snapshot.get("source_periods", {}).get("seller_price_as_of")
             or "дата в источнике не указана"
@@ -631,8 +680,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         snapshot = session["snapshot"]
         identity = self._scenario_identity(session)
         sources = self._scenario_sources(session)
-        source_loaded_at = session.get("source_loaded_at", session.get("created_at", 0))
-        source_fresh = self.clock() - source_loaded_at <= self.session_ttl_seconds
+        source_freshness = self._source_freshness(session)
+        source_fresh = source_freshness["status"] == "FRESH"
         result = self.scenario_service.calculate(
             session["inputs"],
             identity=identity,
@@ -654,11 +703,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "available": False,
                 "reason": "SOURCE_SNAPSHOT_EXPIRED",
             }
-        result["source_freshness"] = {
-            "status": "FRESH" if source_fresh else "STALE",
-            "age_seconds": max(0, self.clock() - source_loaded_at),
-            "ttl_seconds": self.session_ttl_seconds,
-        }
+        result["source_freshness"] = source_freshness
         text = self._format_result(session, result, notice)
         include_return_mean = (
             snapshot.get("source_completeness", {})

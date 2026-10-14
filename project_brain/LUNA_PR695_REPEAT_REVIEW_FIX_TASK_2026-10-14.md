@@ -69,7 +69,7 @@
 
 | Этап | Статус |
 |---|---|
-| W00 | Не начат |
-| W01 — R8 | Не начат |
-| W02 — R9 | Не начат |
-| W03 | Не начат |
+| W00 | Завершён | Добавлены штатные integration regressions; до исправления обе проверки красные на исходной логике, после — зелёные. Базовая ревизия: `34b38e9`. |
+| W01 — R8 | Завершён локально | Ограничение 28 значащих цифр только для bounded ставок; money guard остался 15 цифр. Проверка source→math→runtime и precision boundary зелёные. |
+| W02 — R9 | Завершён локально | Runtime сохраняет cache age + elapsed и source TTL в сценарии; result/assumptions используют общий freshness state. Повторное открытие и локальная активность не омолаживают cache; успешный refresh сбрасывает возраст и сохраняет manual ad override. |
+| W03 | Выполняется | Calculator набор **48 passed**, полный isolated Windows pytest **3 141 passed in 25.15s**, compileall прошёл с прежней SyntaxWarning. Остались публикация нового code SHA, GitHub CI и повторный review до слияния. |

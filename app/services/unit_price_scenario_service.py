@@ -47,6 +47,10 @@ class UnitPriceScenarioService:
     # Decimal is eventually passed through the existing float-based tax
     # service. Keep values inside a cents-safe technical representation range.
     MAX_INPUT_DIGITS = 15
+    # Source-derived weighted rates can be recurring decimals (for example,
+    # 50 / 300 * 100). Rates are bounded to [0, 100], so allowing the Decimal
+    # context precision here does not weaken the amount/magnitude guard.
+    MAX_RATE_INPUT_DIGITS = 28
     MAX_INPUT_ADJUSTED_EXPONENT = 12
     MIN_INPUT_ADJUSTED_EXPONENT = -12
 
@@ -195,7 +199,14 @@ class UnitPriceScenarioService:
                 if field in self.REQUIRED_FIELDS:
                     missing.append(field)
                 continue
-            value = self._decimal(inputs.get(field))
+            value = self._decimal(
+                inputs.get(field),
+                max_input_digits=(
+                    self.MAX_RATE_INPUT_DIGITS
+                    if field in self.RATE_FIELDS + self.TAX_RATE_FIELDS
+                    else self.MAX_INPUT_DIGITS
+                ),
+            )
             if value is None:
                 normalized[field] = None
                 invalid.append(field)
@@ -327,7 +338,7 @@ class UnitPriceScenarioService:
             "margin_percent": margin_percent,
         }
 
-    def _decimal(self, value):
+    def _decimal(self, value, max_input_digits=None):
         if isinstance(value, bool):
             return None
         if isinstance(value, Decimal):
@@ -351,7 +362,7 @@ class UnitPriceScenarioService:
         digits = len(number.as_tuple().digits)
         adjusted = number.adjusted()
         if (
-            digits > self.MAX_INPUT_DIGITS
+            digits > (max_input_digits or self.MAX_INPUT_DIGITS)
             or adjusted > self.MAX_INPUT_ADJUSTED_EXPONENT
             or adjusted < self.MIN_INPUT_ADJUSTED_EXPONENT
         ):

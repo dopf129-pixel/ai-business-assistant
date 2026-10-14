@@ -167,6 +167,27 @@ def test_unsupported_decimal_magnitude_and_precision_fail_closed_before_quantize
         assert result["calculated"]["margin_percent"] is None
 
 
+def test_bounded_weighted_percentage_accepts_decimal_context_precision_only():
+    service = UnitPriceScenarioService(TaxService())
+    recurring = service.calculate(_inputs(
+        logistics_per_unit="0",
+        last_mile_per_unit="0",
+        acquiring_per_unit="0",
+        advertising_rate="0",
+        discount_points_rate="16.66666666666666666666666667",
+    ))
+    excessive = service.calculate(_inputs(
+        discount_points_rate="16.666666666666666666666666671",
+    ))
+
+    assert recurring["available"] is True
+    assert recurring["calculated"]["tax"] == 25
+    assert recurring["calculated"]["profit"] == 280
+    assert recurring["calculated"]["margin_percent"] == 56
+    assert excessive["available"] is False
+    assert "discount_points_rate" in excessive["invalid_inputs"]
+
+
 def test_large_finite_tax_service_output_never_marks_empty_profit_as_available():
     class InvalidTaxService:
         SUPPORTED_MODES = TaxService.SUPPORTED_MODES
