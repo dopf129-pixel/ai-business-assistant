@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna — калькулятор плановой юнит-экономики по SKU
 
 Дата: 14.10.2026. Подготовил: GPT Sol. Исполнитель: GPT Luna.
-Статус: **U00–U03 завершены; локальная U04 пройдена; GitHub CI и architecture review ожидаются**.
+Статус: **U00–U03 завершены; локальная U04 и CI пройдены на SHA `acb1e196`; PR #695 ожидает независимого architecture review**.
 
 ## 1. Цель и подтверждённые решения пользователя
 
@@ -249,7 +249,7 @@ U03 подтверждает локальный сценарий и wiring, но
 
 Архитектурная проверка выявила, что отдельный список товаров калькулятора дублировал существующий каталог юнит-экономики. Отдельная клавиатура удалена: вход в калькулятор включает ограниченный режим выбора, после чего тот же `unit_economics:<offer_id>` picker открывает сценарий. Добавлена регрессия на переход и bounded/store-scoped selection state.
 
-Финальный полный Windows-набор: **3 119 passed**. `compileall -q app tests`: passed. Для локального Windows sandbox использован pytest harness с ACL-friendly temp root; тесты и assertions не менялись. `AI_ASSISTANT_STORAGE_ROOT` установлен в пустую строку для ожидаемого legacy-storage режима. GitHub Windows/Linux/Docker CI и отдельный архитектурный review ожидаются на PR SHA. До их зелёного результата U04 и пакет в целом остаются незавершёнными.
+Финальный полный Windows-набор: **3 119 passed**. `compileall -q app tests`: passed. Для локального Windows sandbox использован pytest harness с ACL-friendly temp root; тесты и assertions не менялись. `AI_ASSISTANT_STORAGE_ROOT` установлен в пустую строку для ожидаемого legacy-storage режима. GitHub CI run **38604317400** прошёл на SHA `acb1e196`: Windows verification, полный Linux verification, production Docker build и runtime smoke. PR #695 остаётся открытым для независимого архитектурного review; слияние и запуск в production не выполнялись.
 
 ## 11. Обязательные meaningful проверки
 

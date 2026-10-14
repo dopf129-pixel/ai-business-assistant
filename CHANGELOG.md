@@ -2,7 +2,7 @@
 
 - Production composition безопасно выключает необязательный калькулятор, если тестовый/внешний unit-economics provider не предоставляет требуемые product/current/cost sources; штатная production factory с полным provider подключает его как прежде.
 - Архитектурная проверка подтвердила требование повторно использовать действующий список юнит-экономики: отдельный каталог калькулятора удалён, выбор SKU проходит через существующий picker. Добавлены проверки режима выбора и его изоляции по магазину.
-- Полный Windows pytest — **3 119 passed**; `compileall -q app tests` — успешно. Локальный запуск использовал пустой `AI_ASSISTANT_STORAGE_ROOT`, как предполагают legacy-storage тесты, и ACL-friendly pytest temp root. GitHub CI и отдельный архитектурный review ожидаются.
+- Полный Windows pytest — **3 119 passed**; `compileall -q app tests` — успешно. Локальный запуск использовал пустой `AI_ASSISTANT_STORAGE_ROOT` и ACL-friendly pytest temp root. CI run **38604317400** прошёл на `acb1e196`: Windows verification, полный Linux verification, Docker build и runtime smoke. PR #695 оставлен открытым для независимого архитектурного review.
 
 # 2026-10-14 — U03 Telegram-калькулятор плановой цены
 

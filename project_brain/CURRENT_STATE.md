@@ -3,7 +3,7 @@
 - Защищена опциональная composition калькулятора: при неполном test/external unit-economics provider source runtime не создаётся; при штатных sources production wiring остаётся включённым. Добавлен regression.
 - Архитектурная проверка убрала отдельный каталог товара калькулятора: выбор SKU теперь идёт через существующий юнит-экономический picker. Регрессии подтверждают переход и изоляцию выбора по магазину.
 - Полный Windows pytest: **3 119 passed**; `compileall -q app tests`: passed. Локальный sandbox требует ACL-friendly pytest temp root; тесты и assertions не подменялись. `AI_ASSISTANT_STORAGE_ROOT` задан пустым, как ожидают legacy-storage тесты.
-- GitHub Windows/Linux/Docker CI и architecture review ещё ожидаются. U04 не закрыт, пока проверка нового PR SHA не завершена.
+- CI run **38604317400** прошёл на кодовом SHA `acb1e196`: Windows verification, полный Linux verification, Docker build и runtime smoke. PR #695 оставлен открытым для независимого архитектурного review; слияние и production запуск не выполнялись.
 
 # 2026-10-14 — U03 Telegram-калькулятор плановой цены завершён
 

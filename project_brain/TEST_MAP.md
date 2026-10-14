@@ -212,7 +212,7 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - Full Windows test suite on the final local tree: **3 119 passed**. The local harness uses an ACL-friendly pytest temp root because the Windows sandbox denies pytest's default temp ACL; test cases/assertions are unchanged. `AI_ASSISTANT_STORAGE_ROOT` is explicitly empty for legacy-storage compatibility tests.
 - `python -m compileall -q app tests`: passed.
 - `tests/test_unit_price_scenario_telegram_runtime.py::test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable` protects factory compatibility with partial external/test providers. Production composition wiring is also verified by `test_production_factory_exposes_sku_runtime`.
-- GitHub Windows/Linux/Docker checks and architecture review remain pending on the pushed PR SHA.
+- GitHub CI run **38604317400** passed on implementation SHA `acb1e196`: Windows verification, full Linux verification, production Docker image build and runtime smoke. PR #695 remains open for independent architecture review; no merge/deploy was performed.
 
 # Test Map
 
