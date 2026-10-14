@@ -1,9 +1,9 @@
-# 2026-10-14 — R1–R5 исправлены, CI и повторный review ожидаются
+# 2026-10-14 — R1–R5 исправлены и перепроверены
 
 - Для PR #694 внесены исправления пяти подтверждённых находок review: привязка себестоимости к draft id, store scope для форм произвольного периода, разрешённый текстовый ввод описания внешнего расхода, общий operation budget для Ozon Performance и блокировка shared decision LRU.
-- Регрессионный целевой набор: **74 passed**; `compileall` затронутых модулей прошёл. Полный CI ещё должен пройти на новом commit SHA: Windows/Linux и production Docker checks.
-- Изменения охватывают более пяти модулей и меняют обработку callback/pending/cache и внешний HTTP budget; классификация — **Architecture Review Required**. Повторный review обязателен перед слиянием. Слияние не выполнялось.
-- Исходные R1–R5 и конкретные сценарии сохранены в `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`; к нему добавляется follow-up для этого revision.
+- Целевой regression suite: **74 passed**; прямой повтор ключевых сценариев: **13 passed**; `compileall` затронутых модулей прошёл. На исправляющем code SHA `d3cfddeda006cdb164393ba7a8ae182a24a3c1ea` полный CI прошёл: Linux **3 090 passed**, Windows **3 090 passed**, production Docker build и smoke прошли.
+- Повторный Architecture Review exact code SHA не нашёл открытых R1–R5. Изменения классифицированы как **Architecture Review Required** и review завершён; PR остаётся открытым и не слитым по просьбе передать решение другой модели.
+- Исходные R1–R5, acceptance evidence и follow-up сохранены в `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`.
 
 ## 2026-10-14 — архитектурный review P00–P08
 

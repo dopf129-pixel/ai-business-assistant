@@ -1,8 +1,8 @@
 # Карта тестов — актуальный статус 2026-10-14
 
-- Исправления R1–R5 для PR #694 проверены целевым набором регрессий: **74 passed**. `compileall` затронутых модулей прошёл; полный CI на новом SHA и повторный Architecture Review ожидаются.
+- Исправления R1–R5 для PR #694 проверены целевым набором регрессий: **74 passed**; прямой повтор ключевых сценариев: **13 passed**. На code SHA `d3cfddeda006cdb164393ba7a8ae182a24a3c1ea` GitHub CI прошёл: Linux **3 090 passed**, Windows **3 090 passed**, production Docker build/smoke прошли; `compileall` изменённых production модулей прошёл.
 - В регрессии вошли stale cost preview (товар/сумма/CSV/history/cancel), store A → store B для обычного/SKU/pre-COGS/experimental custom period, текстовое описание внешнего расхода с retry после слишком длинного ввода, Performance auth/JSON/401/429/download с общим request/time budget, и контролируемый interleaving read/eviction decision LRU.
-- Приёмочные выводы по исходному review и новый follow-up: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. PR #694 не сливался.
+- Повторный Architecture Review этого SHA закрыл R1–R5 без оставшихся замечаний. Исходный review и проверенный follow-up: `ARCHITECTURE_REVIEW_PR694_2026-10-14.md`. PR #694 не сливался.
 
 ## Исторический снимок 2026-10-13 до remote CI и Architecture Review
 
