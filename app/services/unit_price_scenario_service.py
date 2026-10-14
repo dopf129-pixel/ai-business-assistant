@@ -44,6 +44,11 @@ class UnitPriceScenarioService:
     }
     _CENT = Decimal("0.01")
     _HUNDRED = Decimal("100")
+    # Decimal is eventually passed through the existing float-based tax
+    # service. Keep values inside a cents-safe technical representation range.
+    MAX_INPUT_DIGITS = 15
+    MAX_INPUT_ADJUSTED_EXPONENT = 12
+    MIN_INPUT_ADJUSTED_EXPONENT = -12
 
     def __init__(self, tax_service):
         self.tax_service = tax_service
@@ -54,7 +59,11 @@ class UnitPriceScenarioService:
         provenance = dict(provenance or {})
         sources = dict(sources or {})
         normalized, missing, invalid = self._normalize(inputs)
-        calculated = self._calculate_components(normalized)
+        try:
+            calculated = self._calculate_components(normalized)
+        except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
+            calculated = self._empty_calculation()
+            invalid.append("calculation")
 
         tax_mode = inputs.get("tax_mode")
         if tax_mode in (None, ""):
@@ -72,17 +81,24 @@ class UnitPriceScenarioService:
                 if "minimum_tax_rate" not in invalid:
                     missing.append("minimum_tax_rate")
 
-        all_missing = list(dict.fromkeys(missing))
-        all_invalid = list(dict.fromkeys(invalid))
-        available = not all_missing and not all_invalid
+        available = not missing and not invalid
         if available:
-            calculated.update(
-                self._calculate_tax_and_profit(
-                    normalized,
-                    str(tax_mode).upper(),
-                    calculated,
+            try:
+                calculated.update(
+                    self._calculate_tax_and_profit(
+                        normalized,
+                        str(tax_mode).upper(),
+                        calculated,
+                    )
                 )
-            )
+            except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
+                calculated.update(self._empty_tax_calculation())
+            if any(
+                calculated.get(field) is None
+                for field in ("tax", "effective_tax_rate", "profit", "margin_percent")
+            ):
+                invalid.append("tax_calculation")
+                available = False
         else:
             calculated.update({
                 "tax": None,
@@ -90,6 +106,8 @@ class UnitPriceScenarioService:
                 "profit": None,
                 "margin_percent": None,
             })
+        all_missing = list(dict.fromkeys(missing))
+        all_invalid = list(dict.fromkeys(invalid))
         calculated = {
             key: float(value) if isinstance(value, Decimal) else value
             for key, value in calculated.items()
@@ -264,22 +282,25 @@ class UnitPriceScenarioService:
                 "profit": None,
                 "margin_percent": None,
             }
-        tax_result = self.tax_service.calculate(
-            mode=mode,
-            revenue=float(values["price"]),
-            gross_profit=float(profit_before_tax),
-            tax_rate=(
-                float(values["tax_rate"])
-                if values.get("tax_rate") is not None
-                else None
-            ),
-            minimum_tax_rate=(
-                float(values["minimum_tax_rate"])
-                if values.get("minimum_tax_rate") is not None
-                else None
-            ),
-            discount_points=float(components["discount_points"]),
-        )
+        try:
+            tax_result = self.tax_service.calculate(
+                mode=mode,
+                revenue=float(values["price"]),
+                gross_profit=float(profit_before_tax),
+                tax_rate=(
+                    float(values["tax_rate"])
+                    if values.get("tax_rate") is not None
+                    else None
+                ),
+                minimum_tax_rate=(
+                    float(values["minimum_tax_rate"])
+                    if values.get("minimum_tax_rate") is not None
+                    else None
+                ),
+                discount_points=float(components["discount_points"]),
+            )
+        except (ArithmeticError, OverflowError, TypeError, ValueError):
+            return self._empty_tax_calculation()
         if tax_result.get("error") or not tax_result.get("configured"):
             return {
                 "tax": None,
@@ -323,7 +344,41 @@ class UnitPriceScenarioService:
                 return None
         else:
             return None
-        return number if number.is_finite() else None
+        if not number.is_finite():
+            return None
+        if number.is_zero():
+            return number
+        digits = len(number.as_tuple().digits)
+        adjusted = number.adjusted()
+        if (
+            digits > self.MAX_INPUT_DIGITS
+            or adjusted > self.MAX_INPUT_ADJUSTED_EXPONENT
+            or adjusted < self.MIN_INPUT_ADJUSTED_EXPONENT
+        ):
+            return None
+        return number
+
+    @staticmethod
+    def _empty_calculation():
+        return {
+            "revenue": None,
+            "discount_points": None,
+            "taxable_revenue": None,
+            "commission": None,
+            "advertising": None,
+            "fees": None,
+            "profit_before_tax": None,
+            **UnitPriceScenarioService._empty_tax_calculation(),
+        }
+
+    @staticmethod
+    def _empty_tax_calculation():
+        return {
+            "tax": None,
+            "effective_tax_rate": None,
+            "profit": None,
+            "margin_percent": None,
+        }
 
     def _money(self, value):
         return float(self._money_decimal(value))

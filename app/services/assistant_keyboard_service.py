@@ -350,6 +350,7 @@ class AssistantKeyboardService:
         self,
         skus,
         calculator_callback=None,
+        product_callbacks=None,
     ):
         buttons = []
         if calculator_callback:
@@ -357,15 +358,17 @@ class AssistantKeyboardService:
                 "text": "🧮 Калькулятор цены",
                 "callback": str(calculator_callback),
             })
+        callbacks = list(product_callbacks or [])
         buttons.extend([
             {
                 "text": str(sku),
                 "callback": (
-                    "unit_economics:"
-                    + str(sku)
+                    str(callbacks[index])
+                    if index < len(callbacks) and callbacks[index]
+                    else "unit_economics:" + str(sku)
                 )
             }
-            for sku in (skus or [])
+            for index, sku in enumerate(skus or [])
         ])
         return {
             "error": False,

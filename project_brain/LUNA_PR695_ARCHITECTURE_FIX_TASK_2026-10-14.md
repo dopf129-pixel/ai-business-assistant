@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — исправления архитектурного review PR #695
 
-Дата: 14.10.2026. Статус: **подготовлено; исправления не реализованы**.
+Дата: 14.10.2026. Статус: **R1–R7 исправлены в рабочей ветке; локальный full pytest и targeted regression зелёные. Новый PR head, CI и повторный review — этап V08 в работе**.
 
 ## 1. Цель и исходный код
 
@@ -158,12 +158,20 @@ V05 зависит от навигационной очистки V04: обра�
 
 | Этап | Статус | Результаты |
 |---|---|---|
-| V00 | Не начат | Review baseline: 26 targeted passed; exact-head CI success; 8 probes подтверждают 7 ошибок |
-| V01 — R1 | Не начат | — |
-| V02 — R2 | Не начат | — |
-| V03 — R3 | Не начат | — |
-| V04 — R6 | Не начат | — |
-| V05 — R4 | Не начат | — |
-| V06 — R5 | Не начат | — |
-| V07 — R7 | Не начат | — |
-| V08 | Не начат | — |
+| V00 | Завершён | Ветка `codex/unit-price-calculator`, baseline head `496f620`; данные пользователя уже изменены и исключены из тестовой копии/будущего коммита. Добавлены regressions с red evidence для R1–R7; старые 8 probes задокументированы в review. |
+| V01 — R1 | Завершён | Picker callbacks — opaque token по user/store/generation/SKU; stale callback не читает каталог-источник и не расходует актуальный токен. Проверены магазин/повторное открытие, callback ≤64 bytes, factual маршрут сохранён. |
+| V02 — R2 | Завершён | Operation ticket проверяется после чтения; late initial/older load и refresh success/failure не публикуют закрытый или старый сценарий. Управляемые `Event` interleavings включены в regression suite. |
+| V03 — R3 | Завершён | Eviction чистит pending только для вытесненного `scenario_id`; тест подтверждает, что ввод активного сценария B сохраняется при вытеснении A. |
+| V04 — R6 | Завершён | Очистка calculator state подключена до early-return Seller Cost/Return Inventory adapters, `/start` и store switch/disconnect command boundary. Старые callbacks и text stage после перехода не работают. |
+| V05 — R4 | Завершён | Текст на READY-сценарии возвращает его актуальную клавиатуру без изменения inputs/version и без source reads; после навигации калькулятор текст не перехватывает. |
+| V06 — R5 | Завершён | Decimal inputs ограничены документируемым техническим диапазоном до арифметики/float; некорректный налоговый результат закрывает итог и сохраняет клавиатуру повторного ввода. |
+| V07 — R7 | Завершён | `source_loaded_at` отделён от sliding inactivity timestamp; старый snapshot скрывает comparison. Успешный refresh обновляет freshness, ошибка оставляет STALE; ручные допущения сохранены. |
+| V08 | В работе | Targeted tests **61 passed**; полный suite в изолированной копии **3 137 passed**; compileall прошёл (одна существующая `SyntaxWarning`). GitHub CI на новом head и exact-head повторный review ещё не выполнены. |
+
+### Фактические проверки перед публикацией нового PR head
+
+- Целевой набор calculator/runtime/UI/routing: **61 passed in 2.70s** на рабочем дереве.
+- Полный `pytest -q`: **3 137 passed in 18.57s** на копии текущего кода без `data/`, `.env` и пользовательского хранилища; sandbox ACL для Python-created temp/SQLite путей обойдён разрешённым запуском в изолированной копии. Assertions и тесты не менялись.
+- `python -m compileall -q app tests`: завершился успешно; показал одну существующую `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177` (`is not 0.0`).
+- `git diff --check`: успешно. Локальные `data/tasks.json`, `data/users.json`, lock и старые temp-каталоги не добавлялись в изменения.
+- Изменения пока не опубликованы; после push нужно зафиксировать exact head, GitHub CI runs и повторный review. До этого R1–R7 локально исправлены, но PR acceptance не завершена.

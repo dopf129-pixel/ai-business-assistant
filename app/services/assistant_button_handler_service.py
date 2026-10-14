@@ -554,6 +554,12 @@ class AssistantButtonHandlerService:
         if callable(clearer):
             clearer(user_id)
 
+    def clear_unit_price_calculator_state(self, user_id):
+        runtime = self.unit_price_calculator_runtime_service
+        clearer = getattr(runtime, "clear_pending", None)
+        if callable(clearer):
+            clearer(user_id)
+
     def handle_text(self, text, user_id=None):
         runtime = self.unit_price_calculator_runtime_service
         handler = getattr(runtime, "handle_text", None)
@@ -689,7 +695,10 @@ class AssistantButtonHandlerService:
             result = handler(user_id)
             if result.get("error") is True:
                 return result
-            return self._open_unit_economics_menu(calculator_selection=True)
+            return self._open_unit_economics_menu(
+                calculator_selection=True,
+                user_id=user_id,
+            )
 
         if isinstance(button_id, str) and button_id.startswith("upc:"):
             handler = getattr(
@@ -1179,25 +1188,6 @@ class AssistantButtonHandlerService:
                 ":",
                 1
             )[1]
-
-            selection_handler = getattr(
-                self.unit_price_calculator_runtime_service,
-                "handle_catalog_selection",
-                None,
-            )
-            if callable(selection_handler):
-                try:
-                    scenario = selection_handler(sku, user_id=user_id)
-                except Exception:
-                    return {
-                        "error": True,
-                        "code": "UNIT_PRICE_SCENARIO_SELECTION_FAILED",
-                        "message": "Не удалось выбрать товар для калькулятора цены.",
-                        "read_only": True,
-                        "executed": False,
-                    }
-                if scenario is not None:
-                    return scenario
 
             return (
                 self._show_unit_economics(
@@ -4631,6 +4621,7 @@ class AssistantButtonHandlerService:
     def _open_unit_economics_menu(
         self,
         calculator_selection=False,
+        user_id=None,
     ):
 
         if (
@@ -4680,16 +4671,25 @@ class AssistantButtonHandlerService:
             }
 
         keyboard_builder = self.keyboard_service.build_unit_economics_keyboard
-        keyboard = (
-            keyboard_builder(
+        if self.unit_price_calculator_runtime_service:
+            product_callbacks = None
+            if calculator_selection:
+                callback_builder = getattr(
+                    self.unit_price_calculator_runtime_service,
+                    "build_catalog_product_callback",
+                    None,
+                )
+                product_callbacks = [
+                    callback_builder(user_id, sku) if callable(callback_builder) else None
+                    for sku in skus
+                ]
+            keyboard = keyboard_builder(
                 skus,
-                calculator_callback=(
-                    None if calculator_selection else "upc:m"
-                ),
+                calculator_callback=None if calculator_selection else "upc:m",
+                product_callbacks=product_callbacks,
             )
-            if self.unit_price_calculator_runtime_service
-            else keyboard_builder(skus)
-        )
+        else:
+            keyboard = keyboard_builder(skus)
         return {
             "error": False,
             "message": (

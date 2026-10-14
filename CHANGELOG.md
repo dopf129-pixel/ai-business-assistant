@@ -1,3 +1,11 @@
+# 2026-10-14 — PR #695: исправления архитектурного review R1–R7
+
+- В каталоге планового калькулятора заменены unbound offer callbacks на короткие picker tokens, связанные с user/store/generation; устаревшая кнопка не выполняет source read. Factual unit-economics route сохранён.
+- Runtime привязывает публикацию initial/refresh source результата к актуальному operation ticket, активному SKU и версии. Eviction удаляет только свой pending input; повторный текст на активном результате возвращает собственные кнопки.
+- Навигационная очистка подключена до early-return seller-cost/return-inventory adapters и store commands. Source freshness хранится отдельно от времени активности; просроченное сравнение скрывается. Невычислимые величины/налоговые результаты завершаются обычной валидацией с рабочим retry UI.
+- Добавлен `tests/test_unit_price_scenario_architecture_review_regressions.py` для семи находок; точечный набор — **61 passed**, полный изолированный Windows pytest — **3 137 passed**. Compileall завершился; остаётся одна существующая SyntaxWarning.
+- GitHub CI нового PR head и повторный архитектурный review ожидают публикации проверенного кода.
+
 # 2026-10-14 — Архитектурный review PR #695
 
 - На head `6d472145` подтверждены семь дефектов: R1 — unbound catalog callback между магазинами; R2 — concurrent late source load заменяет/восстанавливает сценарий; R3 — eviction старого record удаляет pending нового; R4 — текст результата уходит в общий route; R5 — конечное большое число вызывает Decimal error без клавиатуры; R6 — early-return adapters пропускают очистку калькулятора; R7 — sliding TTL скрывает возраст source snapshot.

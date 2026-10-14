@@ -103,7 +103,8 @@ def _find_button(result, text):
 def _select_catalog_product(runtime, reference="hook-2"):
     pending = runtime.begin_catalog_selection("user-1")
     assert pending["status"] == "UNIT_PRICE_SCENARIO_CATALOG_SELECTION_PENDING"
-    return runtime.handle_catalog_selection(reference, user_id="user-1")
+    callback = runtime.build_catalog_product_callback("user-1", reference)
+    return runtime.handle_callback(callback, user_id="user-1")
 
 
 def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertising():
@@ -317,8 +318,9 @@ def test_opening_calculator_clears_pending_period_and_expense_text_stages():
     assert result["message"] == "Выберите товар для планирования цены:"
     assert result["keyboard"]["buttons"] == [{
         "text": "hook-2",
-        "callback": "unit_economics:hook-2",
+        "callback": result["keyboard"]["buttons"][0]["callback"],
     }]
+    assert result["keyboard"]["buttons"][0]["callback"].startswith("upc:s:")
     assert pending.cleared == [("period", "user-1"), ("expense", "user-1")]
 
 
@@ -341,7 +343,10 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
             menu["keyboard"]["buttons"][0]["callback"],
             user_id="user-1",
         )
-        scenario = handler.handle("unit_economics:hook-2", user_id="user-1")
+        scenario = handler.handle(
+            calculator_picker["keyboard"]["buttons"][0]["callback"],
+            user_id="user-1",
+        )
     finally:
         reset_current_tenant_user_id(token)
 
@@ -352,8 +357,9 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
     assert calculator_picker["message"] == "Выберите товар для планирования цены:"
     assert calculator_picker["keyboard"]["buttons"] == [{
         "text": "hook-2",
-        "callback": "unit_economics:hook-2",
+        "callback": calculator_picker["keyboard"]["buttons"][0]["callback"],
     }]
+    assert calculator_picker["keyboard"]["buttons"][0]["callback"].startswith("upc:s:")
     assert scenario["price_scenario"]["identity"]["sku"] == "3921245627"
 
 

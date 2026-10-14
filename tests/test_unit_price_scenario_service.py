@@ -153,3 +153,40 @@ def test_income_minus_expenses_uses_existing_tax_service_minimum_tax_rule():
 
     assert result["available"] is True
     assert result["calculated"]["tax"] == 4.0
+
+
+def test_unsupported_decimal_magnitude_and_precision_fail_closed_before_quantize():
+    service = UnitPriceScenarioService(TaxService())
+
+    for value in ("1e100", "1e-100", "12345678901234567890"):
+        result = service.calculate(_inputs(price=value))
+        assert result["available"] is False
+        assert "price" in result["invalid_inputs"]
+        assert result["calculated"]["tax"] is None
+        assert result["calculated"]["profit"] is None
+        assert result["calculated"]["margin_percent"] is None
+
+
+def test_large_finite_tax_service_output_never_marks_empty_profit_as_available():
+    class InvalidTaxService:
+        SUPPORTED_MODES = TaxService.SUPPORTED_MODES
+
+        def calculate(self, **_kwargs):
+            return {"error": False, "configured": True, "tax_amount": "Infinity"}
+
+    service = UnitPriceScenarioService(InvalidTaxService())
+    result = service.calculate(_inputs())
+
+    assert result["available"] is False
+    assert "tax_calculation" in result["invalid_inputs"]
+    assert result["calculated"]["tax"] is None
+    assert result["calculated"]["profit"] is None
+    assert result["calculated"]["margin_percent"] is None
+
+
+def test_localized_money_input_is_still_accepted_with_spaces_and_decimal_comma():
+    service = UnitPriceScenarioService(TaxService())
+    result = service.calculate(_inputs(price="1 200,50"))
+
+    assert result["available"] is True
+    assert result["inputs"]["price"]["value"] == 1200.5

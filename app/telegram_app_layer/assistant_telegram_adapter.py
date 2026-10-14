@@ -104,6 +104,8 @@ class AssistantTelegramAdapter:
         user_id=None
     ):
 
+        self._clear_unit_price_calculator_for_navigation("/start", user_id)
+
         profile_failure = (
             self._admit_user_profile(
                 user_id
@@ -287,6 +289,8 @@ class AssistantTelegramAdapter:
         callback,
         user_id=None
     ):
+        self._clear_unit_price_calculator_for_navigation(callback, user_id)
+
         if self.onboarding_service is not None:
             try:
                 onboarding = self.onboarding_service.handle_callback(
@@ -346,6 +350,20 @@ class AssistantTelegramAdapter:
             callback,
             validated,
         )
+
+    def _clear_unit_price_calculator_for_navigation(self, callback, user_id):
+        if str(callback or "").startswith("upc:"):
+            return
+        self.clear_unit_price_calculator_state(user_id)
+
+    def clear_unit_price_calculator_state(self, user_id):
+        clearer = getattr(
+            self.button_handler,
+            "clear_unit_price_calculator_state",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
 
     @staticmethod
     def _validated_runtime_result(

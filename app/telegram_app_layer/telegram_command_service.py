@@ -17,20 +17,24 @@ class TelegramCommandService:
         raw = str(text or "").strip()
         command = raw.lower()
         if command == "/start":
+            self._clear_price_calculator(user_id)
             return self.assistant_adapter.get_start_response(user_id)
         if command == "/help":
             return build_telegram_help_response()
         if command == "/memory":
             return self.assistant_adapter.handle_button("memory", user_id)
         if command.startswith("/ozon_connect"):
+            self._clear_price_calculator(user_id)
             return self._handle_ozon_connect(user_id, raw)
         if command.startswith("/ozon_ads_connect"):
             return self._handle_ozon_ads_connect(user_id, raw)
         if command in {"/stores", "/ozon_stores"}:
+            self._clear_price_calculator(user_id)
             return self._ozon_service().stores(user_id)
         if command == "/ozon_status":
             return self._ozon_service().status(user_id)
         if command == "/ozon_disconnect":
+            self._clear_price_calculator(user_id)
             return self._ozon_service().disconnect(user_id)
         if command.startswith("/costsku"):
             return self._handle_costsku(raw)
@@ -39,12 +43,23 @@ class TelegramCommandService:
     def handle_callback(self, user_id, callback):
         value = str(callback or "").strip()
         if value == "ozon_stores":
+            self._clear_price_calculator(user_id)
             return self._ozon_service().stores(user_id)
         prefix = "ozon_store:"
         if not value.startswith(prefix):
             return None
+        self._clear_price_calculator(user_id)
         client_id = value[len(prefix):].strip()
         return self._ozon_service().select(user_id, client_id)
+
+    def _clear_price_calculator(self, user_id):
+        clearer = getattr(
+            self.assistant_adapter,
+            "clear_unit_price_calculator_state",
+            None,
+        )
+        if callable(clearer):
+            clearer(user_id)
 
     def _ozon_service(self):
         if self.ozon_account_service is not None:
