@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — R10: безопасное отображение значений источника в PR #695
 
-Дата: 14.10.2026. Статус: **X00–X01 выполнены локально; X02–X03 в работе. R10 production fix есть, приёмка ждёт full suite/CI/review**.
+Дата: 14.10.2026. Статус: **X00–X03 завершены. R10 исправлен, локальные проверки и exact-head CI зелёные, repeat review без новых blockers. Слияние проведёт другая модель**.
 
 ## Цель и исходная ревизия
 
@@ -49,7 +49,7 @@ Production source принимает эту стоимость в `_load_cost` /
 
 Новые regressions, пять calculator modules, смежные handler/factory/tax проверки. Existing explicit zero, localized input, invalid manual retry, extreme precision/magnitude, non-finite tax output, 28-digit automatic rates и freshness/refresh tests должны оставаться зелёными.
 
-**Фактический результат:** calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection — **59 passed in 1.51s**. Полный изолированный Windows pytest без seller data/.env — **3 144 passed in 16.17s**; два production-policy tests получили синтетический default tax JSON только в копии. `compileall -q app tests` прошёл с одной существующей SyntaxWarning в returns-impact test, `git diff --check` прошёл. Windows/Linux/Docker CI нового code SHA и repeat review остаются обязательными; прежний зелёный CI не является acceptance исправления R10. Live Ozon/source/API/credentials не использовались.
+**Фактический результат:** calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection — **59 passed in 1.51s**. Полный изолированный Windows pytest без seller data/.env — **3 144 passed in 16.17s**; два production-policy tests получили синтетический default tax JSON только в копии. `compileall -q app tests` прошёл с одной существующей SyntaxWarning в returns-impact test, `git diff --check` прошёл. Exact PR head `2207ec86ec96012f7911706429fdc1b4dfacde23` прошёл Verify runs **38634572358** и **38634565693**: Windows/Linux full suite, compile, Docker build/runtime smoke. Повторный review R10 завершён без открытых blockers; live Ozon/source/API/credentials не использовались.
 
 ## X03 — документация и повторный review
 
@@ -59,7 +59,7 @@ Production source принимает эту стоимость в `_load_cost` /
 |---|---|
 | X00 | Выполнен: 2 meaningful интеграционных regressions; red на старом коде подтверждён |
 | X01 | Выполнен локально: source normalization + safe Decimal formatting |
-| X02 | Почти завершён: targeted 59 passed, full isolated 3 144 passed, compileall/diff check прошли; новый CI ожидается |
-| X03 | Не завершён: документация обновлена по этапам; повторный review после полного CI |
+| X02 | Выполнен: targeted 59 passed, full isolated 3 144 passed, compileall/diff check прошли, exact-head Windows/Linux/Docker CI зелёный |
+| X03 | Выполнен: документация обновлена, repeat review R10 без открытых blockers; слияние другой моделью |
 
 Бизнес-решение для этого исправления не требуется.

@@ -2,9 +2,9 @@
 
 ## Вердикт и проверенная ревизия
 
-**Повторный review head `060b0e6e57e3fc5e3ba28c42d90a4adcd4f03f6d` подтверждает закрытие R8/R9, но выявил один остаточный P2 — R10: неподдерживаемая сохранённая стоимость из источника ломает форматирование калькулятора и оставляет UI без кнопок исправления. Слияние отложить до узкого исправления, regression и CI нового кода.**
+**Финальный repeat review PR head `2207ec86ec96012f7911706429fdc1b4dfacde23` закрывает R10. R1–R9 остаются покрыты существующими regressions; полный CI Windows/Linux/Docker зелёный, новых блокеров не найдено. PR готов к отдельному решению о слиянии другой моделью.**
 
-ТЗ R10: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. R8/R9 по прежнему corrective task приняты; история предыдущих проверок ниже сохранена.
+ТЗ и результаты R10: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. Первоначальное finding R10 и review head `060b0e6` сохранены ниже как история; финальная проверка описана в конце документа.
 
 - PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695
 - Head первичного review: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
@@ -269,4 +269,35 @@ Existing calculator modules повторены: **48 passed in 1.16s**. Изол
 5. **Testing:** targeted existing suite — 48 passed; isolated source→runtime/handler probe подтверждает R10. Exact reviewed SHA CI success; full local suite не повторялся без изменений кода.
 6. **Documentation Updates:** статусы и evidence исправлены; DECISIONS не менялся, Decision 045 сохранён.
 7. **Review Classification:** Architecture Review Required для PR; merge отложить до R10 regression/fix/new CI и повторной проверки.
-8. **Next Recommended Step:** выполнить X00–X03 нового ТЗ. Реализация не начата в рамках запроса review; слияние остаётся другой модели.
+8. **Next Recommended Step:** выполнить X00–X03 нового ТЗ. Реализация не начата в рамках запроса исходного review; этот вывод исторический и дополнен итоговой приёмкой ниже.
+
+## Финальный repeat review после исправления R10 — 14.10.2026
+
+Проверенный PR head: `2207ec86ec96012f7911706429fdc1b4dfacde23`; code-bearing commit `872f26a2ae500d179ad4e06a812e1d24ea4512b0`; base `655b3a0c46acb258a5e884cccc8da6728a5216a7`. PR #695 открыт, не слит.
+
+### Review результата
+
+- Source normalizes seller price и сохранённую себестоимость в том же техническом диапазоне, что и calculator money inputs. Значения вне диапазона не становятся нулём: они становятся unknown, provenance неизвестен, source completeness false; `cost_as_of` не выставляется для отклонённой стоимости.
+- `_money` и `_percent` fail closed до `Decimal.quantize` и ловят formatting arithmetic errors. `_format_result` и `_edit_prompt` поэтому сохраняют обычный экран и клавиатуру ручного исправления даже для raw unsupported value.
+- Реальные source → math → runtime → public handler regressions покрывают stored cost `1e100`, seller price `1e100`, input-required screen, безопасный result/edit rendering, manual correction и расчёт прибыли 280 ₽. Фейковое сохранённое значение после ручного исправления остаётся `1e100`; production storage не вызывается.
+- Изменены только нормализация source money и presentation. Бизнес-формула, TaxService, хранение себестоимости, source cache/age, callbacks/tickets, tenant/SKU isolation и операции Ozon не изменены. Повторное выполнение существующих R1–R9 tests входит в полный зелёный suite.
+- Открытых blockers R10 не найдено. Для R10 — **No architectural impact**: новый layer, dependency, API/DB contract не вводились. Классификация всего PR остаётся **Architecture Review Required** из-за состава реализуемого калькулятора; этот repeat review не заменяет решение о слиянии.
+
+### Проверки
+
+- Два интеграционных R10 tests дали expected red до фикса: публичный picker возвращал `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard.
+- После фикса calculator/source/math/runtime/architecture/UI/request-bound-tax-policy набора: **59 passed in 1.51s**.
+- Полный изолированный Windows pytest без seller data/.env: **3 144 passed in 16.17s**. Два production-tax-policy tests использовали синтетическую test-only конфигурацию; пользовательские JSON/credentials не копировались.
+- `compileall -q app tests` и `git diff --check` успешны; остаётся одна прежняя SyntaxWarning в returns-impact test.
+- GitHub Verify runs **38634572358** и **38634565693** на точном head `2207ec86...` — Windows и Linux full suites, compile, Docker image build и runtime smoke успешны.
+
+### Отчёт повторной приёмки
+
+1. **Change Summary:** ветка `codex/unit-price-calculator`; code commit `872f26a` (`Fix unsupported unit price scenario sources`), docs commit `2207ec8` (`Record R10 isolated verification results`). R10 исправлен, результат не падает при отображении неподдерживаемых source money.
+2. **Files Changed:** R10 код и regressions находятся в commits `872f26a` и `2207ec8`; финальный review обновляет review/status artifacts. Пользовательские `data/tasks.json`, `data/users.json`, lock/temp данные исключены из кодовых коммитов.
+3. **Architecture Impact:** no new layer, service, dependency или contract. Расширен только validation/presentation boundary существующих source/runtime.
+4. **Preserved Components:** формула калькулятора, TaxService, cost persistence, callbacks/tickets, freshness/cache budgets, tenant isolation, Decision 045 и factual finance workflows.
+5. **Testing:** 59 targeted passed; isolated Windows suite 3 144 passed; exact-head Windows/Linux/Docker CI runs выше success; compileall и diff check passed.
+6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP, feature task, R10 task и этот review обновлены. DECISIONS не менялся; нового архитектурного решения нет.
+7. **Review Classification:** Architecture Review Required для PR #695; финальный repeat review не нашёл открытых технических blockers.
+8. **Next Recommended Step:** PR открыт для решения о слиянии другой моделью; этим чатом слияние не выполнялось.

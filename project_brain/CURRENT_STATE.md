@@ -1,10 +1,11 @@
-# 2026-10-14 — PR #695: R10 исправлен локально; ожидает полной проверки
+# 2026-10-14 — PR #695: R10 принят после полного CI и repeat review
 
 - Для R10 source принимает цену/себестоимость только в существующем техническом диапазоне калькулятора; неподдерживаемое значение становится unknown с incomplete completeness/provenance. Отклонённая сохранённая стоимость не получает `cost_as_of`.
 - `_money`/`_percent` fail closed для неподдерживаемых Decimal; интеграционные тесты проходят через реальный source → math → runtime → handler. Для invalid cost проверены и result screen, и edit prompt; ручная цена/себестоимость восстанавливает расчёт без изменения исходного хранилища.
 - X00 red evidence: оба ожидаемых поведения до исправления возвращали `UNIT_PRICE_SCENARIO_CALLBACK_FAILED`; X01 локальная правка выполнена. Calculator/UI/tax-policy набор: **59 passed in 1.51s**. Один ранний запуск соседних tenant-tax tests не смог стартовать из-за ACL временного каталога Windows; эти два теста не входят в 59.
 - Полный pytest в изолированной Windows копии без seller data/.env: **3 144 passed in 16.17s**; `compileall -q app tests` прошёл с одной существующей `SyntaxWarning` в returns-impact test; `git diff --check` прошёл. Два production-tax-policy теста проверены с синтетическим test-only default policy.
-- X02/X03: локальная часть проверок зелёная; остаются новый Windows/Linux/Docker CI и повторный review. Merge не выполнялся; `data/tasks.json`, `data/users.json`, lock/temp файлы сохранены.
+- GitHub Verify exact head `2207ec86ec96012f7911706429fdc1b4dfacde23`: runs **38634572358** и **38634565693** success — Windows/Linux full suite, compile, production Docker build/runtime smoke. Повторный архитектурный review не обнаружил открытых R10 blockers; R1–R9 сохранены.
+- X00–X03 завершены. PR #695 открыт для слияния другой моделью; merge и production restart не выполнялись. `data/tasks.json`, `data/users.json`, lock/temp файлы сохранены.
 - Review меняет только документы; пользовательские data-файлы/locks/temp и production code сохранены. Слияние выполнит другая модель после приёмки.
 
 # 2026-10-14 — PR #695: локально исправлены findings R8/R9
