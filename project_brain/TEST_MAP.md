@@ -206,6 +206,13 @@ Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
 - `tests/test_period_profit_sku_telegram_flow.py::test_production_factory_exposes_sku_runtime`: **1 passed**. On this Windows sandbox the test was run as an isolated pytest invocation with a pre-created ACL-friendly temp root; its assertions were unchanged.
 - `compileall -q` over changed production modules: passed. Full `pytest`, Linux/Windows CI and final review are U04.
 
+## Unit Price Scenario Calculator — U04 local acceptance
+
+- Full Windows test suite on the final local tree: **3 118 passed**. The local harness pre-creates readable temp paths because the Windows sandbox denies pytest's and `TemporaryDirectory`'s default ACL mode; test cases/assertions are unchanged.
+- `python -m compileall -q app tests`: passed.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable` protects factory compatibility with partial external/test providers. Production composition wiring is also verified by `test_production_factory_exposes_sku_runtime`.
+- GitHub Windows/Linux/Docker checks and architecture review remain pending on the pushed PR SHA.
+
 # Test Map
 
 ## Period Profit bounded Ozon quantity reads

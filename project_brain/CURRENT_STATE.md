@@ -1,3 +1,9 @@
+# 2026-10-14 — U04 локальная приёмка калькулятора цены
+
+- Защищена опциональная composition калькулятора: при неполном test/external unit-economics provider source runtime не создаётся; при штатных sources production wiring остаётся включённым. Добавлен regression.
+- Полный Windows pytest: **3 118 passed**; `compileall -q app tests`: passed. Локальный sandbox требует readable pytest/tempfile directories из-за ACL; assertions/тесты не подменялись.
+- GitHub Windows/Linux/Docker CI и architecture review ещё ожидаются. U04 не закрыт, пока проверка нового PR SHA не завершена.
+
 # 2026-10-14 — U03 Telegram-калькулятор плановой цены завершён
 
 - Калькулятор встроен в существующий раздел юнит-экономики и detail-карточку; оба пути используют один временный read-only runtime. Сценарии и pending input изолированы по user/store/SKU/id/version и не записывают цену, себестоимость, расходы, налоговую политику или фактические результаты.

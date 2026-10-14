@@ -1,7 +1,7 @@
 # ТЗ для GPT Luna — калькулятор плановой юнит-экономики по SKU
 
 Дата: 14.10.2026. Подготовил: GPT Sol. Исполнитель: GPT Luna.
-Статус: **U00–U03 завершены; U04 — приёмка и CI**.
+Статус: **U00–U03 завершены; локальная U04 пройдена; GitHub CI и architecture review ожидаются**.
 
 ## 1. Цель и подтверждённые решения пользователя
 
@@ -242,6 +242,12 @@ Source берёт seller price и текущую FBO ставку как пом�
 Production factory composition, Telegram routing, callback keyboards, detail CTA и изоляция незавершённых текстовых форм подключены. Исправлено обнаруженное при вызове production factory неправильное расположение composition относительно создания keyboard. Целевые U01/U02/U03 + finance/current-economics regressions: **61 passed**; production-factory wiring regression: **1 passed**; `compileall` затронутых модулей прошёл. Один production-factory тест запускался отдельным pytest-вызовом с ACL-friendly temporary root из-за Windows ACL на стандартный `tmp_path`; тест и assertions не менялись. Суммарно проверено **62 теста**. Live Ozon reads и запись бизнес-данных не выполнялись.
 
 U03 подтверждает локальный сценарий и wiring, но не является фактической live-проверкой seller price/FBO тарифа/28-дневной полноты для магазина. Переходить к production использованию без U04 CI и review нельзя.
+
+### U04 — локальная приёмка (2026-10-14)
+
+При полном Windows pytest выявлено, что production factory тестовые/внешние composition могут предоставлять неполный unit-economics объект. `create_unit_price_scenario_runtime` теперь fail-closed возвращает `None`, когда нет уже существующих product/current-economics/cost sources; production composition при полных штатных sources продолжает подключать калькулятор. Добавлена регрессия на отсутствие необязательных source dependencies; существующие factory wiring regressions также проходят.
+
+Финальный полный Windows-набор: **3 118 passed**. `compileall -q app tests`: passed. Для локального Windows sandbox использован pytest harness, который создаёт readable temp directories; сам набор тестов и assertions не менялись. На стандартных pytest/tempfile правах ACL окружение блокировало `tmp_path`/`TemporaryDirectory`, поэтому этот запуск учитывает указанный обход среды. GitHub Windows/Linux/Docker CI и отдельный архитектурный review ожидаются на PR SHA. До их зелёного результата U04 и пакет в целом остаются незавершёнными.
 
 ## 11. Обязательные meaningful проверки
 

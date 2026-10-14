@@ -314,3 +314,13 @@ def test_existing_unit_economics_menu_discoverably_opens_calculator():
         "text": "🧮 Калькулятор цены",
         "callback": "upc:m",
     }
+
+
+def test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable():
+    from unit_price_scenario_factory import create_unit_price_scenario_runtime
+
+    assert create_unit_price_scenario_runtime(
+        core_components={},
+        unit_economics_query=object(),
+        keyboard_service=AssistantKeyboardService(),
+    ) is None
