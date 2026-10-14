@@ -199,6 +199,17 @@ def test_cache_hit_does_not_reset_source_age_and_successful_refresh_does():
         }
         assert touched["price_scenario"]["source_freshness"]["age_seconds"] == 590
 
+        clock.now = 600
+        expires_at_ttl = runtime.handle_callback(
+            f"upc:v:{scenario_id}:{runtime._scenarios[scenario_id]['version']}",
+            user_id="user-1",
+        )
+        assert expires_at_ttl["price_scenario"]["source_freshness"] == {
+            "status": "STALE",
+            "age_seconds": 600,
+            "ttl_seconds": 600,
+        }
+
         clock.now = 610
         stale = runtime.handle_callback(
             f"upc:v:{scenario_id}:{runtime._scenarios[scenario_id]['version']}",

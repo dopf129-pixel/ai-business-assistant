@@ -244,7 +244,7 @@ Probe использует настоящие `UnitPriceScenarioSource`, `UnitPr
 ## Статус исправлений R8/R9 — 2026-10-14
 
 - R8: rates используют отдельный precision limit в 28 significant digits (Decimal context); денежные inputs сохраняют прежний 15-digit limit, диапазон процентной ставки остаётся 0–100. Production source → math → runtime regression подтверждает полный расчёт для 50/300: налог 25 ₽, прибыль 280 ₽, маржа 56%. Manual override переживает refresh; восстановление принимает новое среднее 1/7.
-- R9: snapshot cache `age_seconds` и `ttl_seconds` переносятся в transient runtime session. Текущая свежесть — cached age + монотонное elapsed; result/assumptions используют одно состояние. Regression доказывает t=0 → t=590 cache hit → t=610 stale, один source read, недоступное сравнение и предупреждение; успешный refresh обновляет данные, не теряя ручные значения.
+- R9: snapshot cache `age_seconds` и `ttl_seconds` переносятся в transient runtime session. Текущая свежесть — cached age + монотонное elapsed; result/assumptions используют одно состояние. Источник истекает на `age >= TTL`, как и reuse в source. Regression доказывает t=0 → t=590 cache hit → t=600/610 stale, один source read, недоступное сравнение и предупреждение; успешный refresh обновляет данные, не теряя ручные значения.
 - Red evidence до исправления: обе новые штатные regressions падали; после исправления calculator/source/math/runtime набор — **48 passed**.
 - Полный isolated Windows pytest — **3 141 passed in 25.15s**. Compileall завершился с одной существующей SyntaxWarning в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
 - До публикации code-bearing SHA, зелёного CI на нём и независимого review PR остаётся открытым; merge не выполнялся.

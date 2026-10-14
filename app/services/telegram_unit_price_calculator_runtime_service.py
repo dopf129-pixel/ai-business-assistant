@@ -597,7 +597,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         )
         ttl = min(ttl, float(self.session_ttl_seconds))
         return {
-            "status": "FRESH" if age <= ttl else "STALE",
+            # UnitPriceScenarioSource reuses cache entries only while age < TTL;
+            # the scenario must expire at the same boundary.
+            "status": "FRESH" if age < ttl else "STALE",
             "age_seconds": age,
             "ttl_seconds": ttl,
         }

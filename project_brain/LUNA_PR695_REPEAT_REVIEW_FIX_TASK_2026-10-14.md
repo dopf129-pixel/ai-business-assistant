@@ -48,7 +48,7 @@
 Требования:
 
 - Runtime/source должны передавать фактическую свежесть снимка: origin timestamp или исходный age плюс elapsed в сценарии. Cache hit не продлевает source TTL.
-- Один возраст и состояние используются на результате и экране допущений. После истечения freshness TTL current-price comparison недоступен и видна просьба обновить источники; локальные ручные допущения сохраняются.
+- Один возраст и состояние используются на результате и экране допущений. Источник свеж только при `age < TTL` (как и cache reuse в source); на точной границе TTL current-price comparison уже недоступен и видна просьба обновить источники. Локальные ручные допущения сохраняются.
 - Открытие другого сценария на тот же SKU, повтор текста, редактирование и восстановление среднего не обновляют source age. Не делать HTTP для каждого локального пересчёта.
 - Успешный реальный refresh переносит свежий origin/age; failed refresh не омолаживает прежний snapshot. Same-key wait/cache reuse учитывает настоящий возраст возвращённого снимка.
 - Различать source freshness и sliding session inactivity. Сохранить injected clocks и согласованный TTL; не сравнивать wall-clock timestamp с monotonic clock напрямую.
@@ -71,5 +71,5 @@
 |---|---|
 | W00 | Завершён | Добавлены штатные integration regressions; до исправления обе проверки красные на исходной логике, после — зелёные. Базовая ревизия: `34b38e9`. |
 | W01 — R8 | Завершён локально | Ограничение 28 значащих цифр только для bounded ставок; money guard остался 15 цифр. Проверка source→math→runtime и precision boundary зелёные. |
-| W02 — R9 | Завершён локально | Runtime сохраняет cache age + elapsed и source TTL в сценарии; result/assumptions используют общий freshness state. Повторное открытие и локальная активность не омолаживают cache; успешный refresh сбрасывает возраст и сохраняет manual ad override. |
+| W02 — R9 | Завершён локально | Runtime сохраняет cache age + elapsed и source TTL в сценарии; result/assumptions используют общий freshness state. Повторное открытие и локальная активность не омолаживают cache; на age==TTL состояние stale; успешный refresh обновляет возраст и сохраняет manual ad override. |
 | W03 | Выполняется | Calculator набор **48 passed**, полный isolated Windows pytest **3 141 passed in 25.15s**, compileall прошёл с прежней SyntaxWarning. Остались публикация нового code SHA, GitHub CI и повторный review до слияния. |

@@ -1,7 +1,7 @@
 # 2026-10-14 — Исправления повторного review PR #695 (R8/R9)
 
 - Precision автоматических ставок баллов отделена от денежного лимита: достоверные weighted Decimal rates до точности текущего контекста (28 значащих цифр) принимаются, при сохранении диапазона 0–100 и ограничений для денежных сумм.
-- Runtime переносит age и TTL из source cache hit в сценарий. Повторное открытие того же SKU, локальные изменения и активность не обновляют возраст; новый успешный source refresh начинает новый возраст.
+- Runtime переносит age и TTL из source cache hit в сценарий. Источник становится stale на границе `age >= TTL`, как и source cache reuse; повторное открытие того же SKU, локальные изменения и активность не обновляют возраст; новый успешный source refresh начинает новый возраст.
 - Добавлены red→green интеграционные regressions source → math → Telegram runtime на 50/300, кэш t=0/590/610, assumptions/result freshness, ручное допущение при refresh и восстановление нового среднего.
 - Calculator review набор: **48 passed**; полный isolated Windows pytest — **3 141 passed**; `compileall -q app tests` завершился (одна прежняя `SyntaxWarning` в `test_unit_economics_returns_impact_integrity_v971_v980.py:177`). GitHub CI нового SHA и независимый повторный review остаются этапом W03.
 
