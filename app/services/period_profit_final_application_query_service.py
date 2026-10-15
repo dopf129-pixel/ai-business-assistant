@@ -11,6 +11,9 @@ from period_profit_comparison_metrics import (
 from period_profit_comparison_bridge import (
     build_period_profit_comparison_bridge,
 )
+from period_profit_sku_contribution import (
+    build_period_profit_sku_contribution,
+)
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
@@ -200,6 +203,25 @@ class PeriodProfitFinalApplicationQueryService:
                         "error": False,
                         "status": "PERIOD_PROFIT_COMPARISON_BRIDGE_UNAVAILABLE",
                         "code": "PERIOD_PROFIT_COMPARISON_BRIDGE_UNAVAILABLE",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                try:
+                    result["sku_contribution"] = (
+                        build_period_profit_sku_contribution(
+                            comparison_contract,
+                            summary,
+                            previous_summary,
+                        )
+                    )
+                except Exception:
+                    result["sku_contribution"] = {
+                        "error": False,
+                        "status": "PERIOD_PROFIT_SKU_CONTRIBUTION_UNAVAILABLE",
+                        "code": "PERIOD_PROFIT_SKU_CONTRIBUTION_BUILD_FAILED",
+                        "coverage_status": "UNAVAILABLE",
+                        "top_growth": [],
+                        "top_decline": [],
                         "read_only": True,
                         "executed": False,
                     }

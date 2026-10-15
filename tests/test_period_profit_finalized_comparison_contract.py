@@ -51,6 +51,23 @@ class _Summaries:
         }
 
 
+class _SkuSummaries(_Summaries):
+    def calculate(self, date_from, date_to, products):
+        result = super().calculate(date_from, date_to, products)
+        result["products"] = [
+            {
+                "sku": "sku-current" if date_from == "2026-09-13" else "sku-previous",
+                "product_id": "product-1",
+                "offer_id": "offer-1",
+                "profit": 45.0 if date_from == "2026-09-13" else 35.0,
+            }
+        ]
+        result["product_count"] = 1
+        result["finance_sku_scope_applied"] = True
+        result["product_revenue_reconciled"] = True
+        return result
+
+
 class _ExternalEvidence:
     def __init__(self, fail_previous=False):
         self.calls = []
@@ -168,6 +185,19 @@ def test_production_wrapper_compares_finalized_b_and_e_using_both_period_evidenc
         ("2026-09-06", "2026-09-12"),
     ]
     assert base.external_adjustment_inputs == [107.0, 97.0]
+
+
+def test_production_wrapper_exposes_sku_contribution_from_finalized_rows():
+    result, _base = _run(_ExternalEvidence(), summary_service=_SkuSummaries())
+
+    assert result["error"] is False
+    contribution = result["sku_contribution"]
+    assert contribution["status"] == "PERIOD_PROFIT_SKU_CONTRIBUTION_READY"
+    assert contribution["top_growth"][0]["previous_sku"] == "sku-previous"
+    assert contribution["top_growth"][0]["current_sku"] == "sku-current"
+    assert contribution["top_growth"][0]["delta"] == 10.0
+    assert contribution["store_profit_delta"] == 10.0
+    assert contribution["store_minus_sku_delta"] == 0.0
 
 
 def test_previous_external_expense_failure_preserves_confirmed_b_comparison():
