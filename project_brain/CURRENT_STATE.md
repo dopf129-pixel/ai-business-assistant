@@ -1,7 +1,7 @@
 # 2026-10-15 — PR #696: исправлена последняя находка repeat review
 
 - Planner теперь проверяет ограниченные меньшие цены даже если максимальная цена проходит цель. Из прошедших проб выбирается самая низкая, затем результат уточняется и повторно подтверждается прямым калькулятором. Регрессии фиксируют пример: комиссия 50%, текущая цена 500 ₽, цель 50% → найдено 0,02 ₽ и цель проходит.
-- Проверки после изменения: helper + Telegram runtime + architecture/repeat-review modules — **80 passed in 1.13s**; более узкий набор planner/runtime — **58 passed in 0.74s**; `compileall -q app tests` прошёл. Локальный full pytest дал **2 808 passed, 21 failed, 368 errors** с `PermissionError (WinError 5)` при обходе общего Windows pytest temp root; этот запуск не принимается как проверка кода. Новый CI SHA ещё предстоит.
+- Code commit `007bd5a01a53d8451f8fe291810c76c55467b5c6` прошёл Verify runs `38726919355` и `38726911253`: Windows и Linux — **3 197 passed**, compileall и production Docker build/runtime smoke — success. Четыре связанных модуля — **80 passed in 1.15s**. Локальный full pytest дал **2 808 passed, 21 failed, 368 errors** с `PermissionError (WinError 5)` при обходе общего Windows pytest temp root; этот запуск не принимается как проверка кода.
 - Изменены только планировщик, его unit/runtime tests и четыре status/docs файла вместе с ТЗ. Ветка `codex/price-planning-target-margin-20261015`; PR #696 остаётся открытым. Незакоммиченные `data/tasks.json` и `data/users.json` сохранены и не входят в изменения.
 
 # 2026-10-15 — PR #696: повторные исправления R1/R2

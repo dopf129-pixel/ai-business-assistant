@@ -4,7 +4,7 @@
 
 - `tests/test_unit_price_target_planning_service.py`: если максимум проходит цель, solver всё равно проверяет меньшие точки и предпочитает минимальную среди ограниченных подтверждённых проб. Регрессия с ценой 500 ₽, комиссией 50% и целью 50% требует результат 0,02 ₽.
 - `tests/test_unit_price_scenario_telegram_runtime.py`: тот же сценарий проходит через выбор SKU и ввод цели; результат остаётся точным, доступен только после прямой проверки и использует один source read.
-- Четыре связанных planner/runtime/architecture/repeat-review модуля — **80 passed in 1.13s**; `compileall -q app tests` прошёл. Локальный full pytest дал **2 808 passed, 21 failed, 368 errors** и traceback с `PermissionError (WinError 5)` на общем Windows pytest temp root; локальный результат не используется как приёмка. Новый CI SHA ещё предстоит.
+- Четыре связанных planner/runtime/architecture/repeat-review модуля — **80 passed in 1.15s**; `compileall -q app tests` прошёл. Code SHA `007bd5a01a53d8451f8fe291810c76c55467b5c6` прошёл Verify runs `38726919355`/`38726911253`: полный suite **3 197 passed** на Windows и Linux, production Docker build/runtime smoke успешен. Локальный full pytest дал **2 808 passed, 21 failed, 368 errors** и traceback с `PermissionError (WinError 5)` на общем Windows pytest temp root; локальный результат не используется как приёмка.
 
 ## PR #696 — повторная правка R1/R2 (проверки продолжаются)
 
