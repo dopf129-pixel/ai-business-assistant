@@ -480,6 +480,10 @@ class AssistantButtonHandlerService:
                 "period_profit:",
                 "period_profit_completeness:",
                 "period_profit_report:",
+                "period_profit_analytics:",
+                "period_profit_comparison:",
+                "period_profit_bridge:",
+                "period_profit_sku_contribution:",
                 "period_profit_pre_cogs:",
                 "period_profit_sku:",
                 "experimental_store_economics:",
@@ -1026,6 +1030,10 @@ class AssistantButtonHandlerService:
         if button_id.startswith((
             "period_profit_completeness:",
             "period_profit_report:",
+            "period_profit_analytics:",
+            "period_profit_comparison:",
+            "period_profit_bridge:",
+            "period_profit_sku_contribution:",
         )):
             runtime = self.period_profit_runtime_service
             handler = getattr(runtime, "handle_cached_view", None)

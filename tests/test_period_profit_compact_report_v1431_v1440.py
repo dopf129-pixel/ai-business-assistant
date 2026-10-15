@@ -68,7 +68,7 @@ def test_compact_report_matches_approved_management_format():
         "Прибыль: 26 550 ₽\n"
         "Маржа: 5,85%\n"
         "\n"
-        "📈 К прошлому периоду: +56 148 ₽\n"
+        "📈 К прошлому периоду до внешних расходов: +56 148 ₽\n"
         "\n"
         "⚠️ Внешние расходы учтены не полностью.\n"
         "Есть 2 возврата Returns API со сменой статуса в периоде; "
@@ -125,6 +125,35 @@ def test_complete_external_expenses_use_adjusted_profit_and_margin():
     assert "Прибыль: 25 000 ₽" in result["text"]
     assert "Маржа: 5,51%" in result["text"]
     assert "⚠️" not in result["text"]
+
+
+def test_adjusted_profit_is_not_labeled_with_base_profit_delta_as_same_basis():
+    source = _result(
+        comparison={
+            "error": False,
+            "status": "PERIOD_PROFIT_COMPARISON_READY",
+            "profit_direction": "UP",
+            "profit_change": 40,
+            "profit_change_percent": 10,
+        },
+        external_expense_evidence={
+            "error": False,
+            "status": "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_READY",
+            "coverage_complete": True,
+            "observed_expense_total": 100,
+        },
+        external_expense_adjustment={
+            "error": False,
+            "profit_adjustment_complete": True,
+            "complete_profit_after_external_expenses": 340,
+            "complete_margin_percent": 34,
+        },
+    )
+
+    result = compact_period_profit_result(source)
+
+    assert "Прибыль: 340 ₽" in result["text"]
+    assert "К прошлому периоду до внешних расходов: +40 ₽" in result["text"]
 
 
 def test_external_source_failure_remains_unknown_not_zero():

@@ -129,7 +129,7 @@ def test_v1229_existing_comparison_percentage_keeps_its_own_meaning():
     )["text"]
 
     assert (
-        "прибыль выросла на 40 000.00 ₽ (10.00%)"
+        "базовая прибыль до внешних расходов выросла на 40 000.00 ₽ (10.00%)"
         in text
     )
 

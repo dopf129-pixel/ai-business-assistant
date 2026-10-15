@@ -1,3 +1,67 @@
+# 2026-10-15 — N08 принят; периодная аналитика готова к архитектурному review PR
+
+- N06 code commits `e9372b1` (`Add period profit analytics Telegram views`) and `9a6523c` (`Limit analytics overview to confirmed top contributions`) добавили кнопку «Аналитика периода», экраны сравнения, денежного моста и вклада SKU, а также переходы к полноте/исходному отчёту/существующему выбору товара. Первый экран показывает не более трёх крупнейших подтверждённых вкладов; при недоступном мосте показывает ограничение. Детали не повторяют Ozon-запросы.
+- Снимок требует точный tenant и owner, ограничен 64 отчётами/600 секундами, deep-copy читается атомарно. В нём остаются только проекции метрик, моста и максимум пяти строк лидеров; управляющие символы в SKU-метках очищаются, длина ограничена.
+- N06 локальный профиль: 75 passed, 1 factory test исключён из прогона из-за WinError 5 на доступе Python к изолированному временному каталогу. Factory wiring regression прошла в полном N08 CI. `compileall -q app tests` и `git diff --check` прошли.
+- N08 exact code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d`: Windows **3 268 passed**, Linux **3 268 passed**, compileall, production Docker build/runtime smoke — success (Verify runs `38755542971` and `38755551644`). Architecture review: новый аналитический contract остаётся read-only поверх finalized summaries; новых источниковых запросов, финансовых пересчётов, постоянного хранилища или изменения core finance pipeline нет. Обнаруженная устаревшая presentation assertion исправлена, открытых review threads нет. PR #697 открыт и не слит; решение о слиянии остаётся следующему ревьюеру.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными незакоммиченными пользовательскими изменениями. Следующий шаг — независимый review/merge PR #697; развёртывание не выполнялось.
+- N07 test commit `db73c64` (`Verify period analytics cache interleavings`) добавил deterministic `Event` regression: пока callback читает и копирует snapshot внутри атомарного lock, новый расчёт заполняет LRU и вытесняет старый report. Текущий читатель завершает READY без KeyError; после записи старый callback controlled-expired, новый открывается; cache остаётся ровно в лимите 64. N06+N07 suite: **76 passed, 1 factory test deselected**. Отдельные budget/dedup/Performance наборы: **13 passed, 68 deselected**. `compileall -q app tests` и `git diff --check` успешны.
+- N08 локальный full suite на предыдущем code SHA `bbdebf4`: **2 876 passed, 22 failed, 369 errors in 71.91s**; обычный pytest также завершился `PermissionError (WinError 5)` при обходе basetemp. Диагностический запуск отключал только финальную cleanup-функцию pytest, чтобы получить сводку; причины всех локальных ошибок этим не установлены. Локальный прогон не принят как приёмка; итог подтверждён чистым exact-code-head CI ниже.
+- Exact-head CI на промежуточном `c36efb6df6251c470bb0aad887fe2ca3717aa38e` установил одну устаревшую строку ожидания в `test_v1229_existing_comparison_percentage_keeps_its_own_meaning`; исправлено без изменения production-поведения, денежные проверки 40 000 ₽ и 10% сохранены. Связанный локальный модуль: **10 passed**. На окончательном code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d` обе платформы прошли по **3 268 тестов**, compileall и Docker build/runtime smoke успешны.
+
+
+# 2026-10-15 — N05 вклад SKU завершён
+
+- N05 code commit `6beaebe8b23f90ca39d4ec6b105c7a191ef801e7` (`Add period profit SKU contributions`) добавил read-only разбор `summary.products` уже рассчитанных current/previous периодов. Однозначное соответствие принимает точную SKU/catalog-SKU, уникальный offer или пару product+offer; конфликтующие и неоднозначные строки не объединяются. Отсутствие counterpart не превращается в нулевую прибыль: отчёт выводит ограниченный список несопоставленных SKU и считает неполноту покрытия.
+- Production final query attaches `sku_contribution` к тем же finalized результатам, без новых Ozon/Performance запросов и без N+1 расчёта. Два списка показывают максимум пять подтверждённых ростов и снижений; магазинный delta сходится как сумма сопоставимых SKU и арифметический остаток без распределения остатка по товарам.
+- N05 проверочный набор: **67 passed in 1.32s**, включая production-wrapper, source identity recovery, historical cost and contract regressions; `compileall -q app tests` и `git diff --check` прошли. Финансовые значения, налоги, COGS и существующие source loaders не изменялись.
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает проверяемое `ΔN−ΔC+ΔK−ΔT` и E только при полном покрытии. Его **100 связанных тестов прошли**; compileall и diff check успешны.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап: N06 — scoped Telegram-снимки и навигация по отчёту.
+
+# История N03–N04
+
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает `profit_bridge` к finalized wrapper. Для разрешённых V3/V4 проверяются обе стороны равенства `P_B=N−C+K−T`; дельты раскладываются в `ΔN−ΔC+ΔK−ΔT`. `ΔN` раскрывается как `Δrevenue + Δ(other net accrual)` внутри одной строки.
+- Сумма B-вкладов проверяется против authoritative delta; signed rounding допускается до 0.01 ₽ и показан отдельно. Большее расхождение или неподдержанная profit scope делает bridge недоступным. E отдельно проверяет полное покрытие и `P_E=P_B−E` для обеих сторон. Отказ внешних расходов не скрывает подтверждённый B.
+- Проверки N04 + предыдущие contract/query integration: **100 passed in 2.54s**; `compileall -q app tests` и `git diff --check` прошли. Неизвестные расходы/категории не вычитаются повторно, новые классификаторы начислений не добавлены.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап после N04: N05 — SKU-вклад и reconciliation на уже полученных product rows.
+
+- Ветка `codex/luna-store-analytics-task-20261015`; N03 code commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c` (`Add period comparison metrics`), поверх N02 `07c6c99eaea471f5b002e18b5554034af8d5180e`.
+- Production wrapper добавляет `comparison_metrics` поверх N02 contract. Суммы/штуки показывают signed delta; процент изменения делит на абсолютную предыдущую базу, при нуле процент undefined. Изменение маржи — в процентных пунктах. Доли от выручки формируются только при известной положительной выручке.
+- Налог/прибыль подчиняются policy/scope gate; подтверждённые продажи и независимые метрики могут сравниваться при смене налоговой policy. Частичные внешние расходы видны как partial estimate без delta. Большие количества остаются целыми числами, арифметическое переполнение даёт недоступную дельту без Infinity.
+- Проверки N03 вместе с N02/N01 integration boundary: **89 passed in 2.30s**; `compileall -q app tests` и `git diff --check` прошли. Канонические summary и прибыль не изменяются.
+- `data/tasks.json` и `data/users.json` сохранены вне коммитов. Следующий этап: N04 — сверяемый денежный мост ΔN/ΔC/ΔK/ΔT/ΔE.
+
+# 2026-10-15 — N02 finalized comparison contract завершён
+
+- Ветка: `codex/luna-store-analytics-task-20261015`, основание `main` `c55434327f50134324a5ca58e2f084854b809832`; N02 code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`).
+- N02 вводит read-only проекцию уже finalized summary двух соседних равных периодов. Валидирует период against request, tenant, tax policy, profit scope и component flags; конфликт блокирует только сравнение B/E и сохраняет независимые метрики.
+- Применённый Return COGS учитывается только по явному результату final application; подтверждённый K=0 требует `return_cogs_profit_applied=false`, отсутствие суммы и `tax_recomputed=false`. Для прошлого периода используется тот же final application и существующий external-expense evidence/adjustment service; неполное/недоступное E не блокирует B.
+- Проверки: 80 профильных query/contract/finalization/request/presentation regressions passed in 2.11s; `compileall -q app tests` и `git diff --check` прошли. Существующий `tests/test_external_operating_expense_coverage_v1261_v1270.py` локально не дал итоговой сводки: семь tmp_path setup errors и pytest cleanup `PermissionError (WinError 5)` на basetemp. N08 CI остаётся обязательным.
+- Полный suite отложен до N08 exact-head проверки. `data/tasks.json` и `data/users.json` остаются незакоммиченными пользовательскими изменениями. Следующий этап: N03 — арифметика сравнений, денежных долей и маржи в процентных пунктах.
+
+# 2026-10-15 — N01 исправления сравнения завершены
+
+- N01 code commit: `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`), поверх N00 commit `96c3b843621979a1da356d9a0c4363a7b2ff4bb6`.
+- A1: production final wrapper и base-only query сохраняют current при сбоях необязательной previous ветки; ошибка mandatory current остаётся fail-closed. Runtime делает один вызов и больше не запускает current повторно при любой ошибке compare-path. `comparison_status`/безопасный код и Telegram-предупреждение указывают недоступность сравнения.
+- A2: comparison builder отклоняет пропущенную, boolean, строковую, не конечную или переполняющую арифметику прибыли; поддерживает finite int/float/Decimal, конечный отрицательный результат и известный 0. Scope flags требуют настоящих bool.
+- A3: compact и verbose тексты обозначают дельту как прибыль до внешних расходов. Не вычисляется ложная E↔B дельта.
+- Targeted query/runtime/final-application/Return COGS/presentation suite: **128 passed in 2.14s**; `compileall -q app` и `git diff --check` успешны. Полный suite отложен до N08 exact-head проверки. PR #697 теперь содержит подготовку ТЗ, N00 и N01; перед merge требуется Architecture Review.
+- Незакоммиченные `data/tasks.json` и `data/users.json` сохранены, не staged.
+
+# 2026-10-15 — N00 аналитики прибыли завершён
+
+- Реализация продолжается на docs-ветке `codex/luna-store-analytics-task-20261015`, основанной непосредственно на слитом `main` `c55434327f50134324a5ca58e2f084854b809832`. PR #697 с исходными ТЗ/аудитом открыт; ветка не устарела и кодовая реализация ещё не менялась.
+- N00 подтвердил production chain: `period_profit_factory` создаёт base `PeriodProfitQueryService`, оборачивает в `PeriodProfitFinalApplicationQueryService`; runtime вызывает final wrapper, затем compact formatter. Base query остаётся base-only compatibility path.
+- Production wrapper отключает comparison в base query, финализирует current Return COGS/внешние расходы и строит сравнение. Ошибка previous summary уже сохраняет current; ошибка прошлых возвратов/анализа/application выходит как общий error, после чего runtime повторяет current. Base-only query также возвращает optional previous summary error напрямую. Текущий compact текст может показывать adjusted profit рядом с неподписанной base comparison.
+- Исходные focused tests: `9 passed in 0.48s`. A1–A3 остаются открытыми для N01. Текущие локальные изменения `data/tasks.json` и `data/users.json` сохранены и не staged.
+
+# 2026-10-15 — PR #696 слит; подготовлено ТЗ следующего пакета
+
+- PR #696 слит в `main` squash-коммитом `c55434327f50134324a5ca58e2f084854b809832`. После fetch прямой diff деревьев reviewed head `fc15b9c` и `origin/main` пуст. Прежние записи «PR открыт» ниже являются историей.
+- Владелец выбрал приоритеты по аудиту. Аудит `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md` воспроизводит A1–A3 в сравнении периодов; production wrapper уже сохраняет current при ошибке прошлого summary, но отказ прошлых возвратов всё ещё приводит к повтору current через runtime fallback.
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. Сначала подтверждённые fixes и единая база сравнения, затем таблица метрик, денежный мост, вклад SKU и связанные scoped Telegram views. **Реализация не начата.**
+- Подготовка — только документация. Существующие comparison/query/runtime-fallback tests: **9 passed in 0.48s**; fake-only probes без Ozon/Telegram/business writes. Полный pytest не запускался. Пользовательские `data/tasks.json`/`data/users.json` сохранены.
+
 # 2026-10-15 — Исправлена обработка цены с завершающими нулями в PR #696
 
 - `UnitPriceTargetPlanningService` теперь без потери точности нормализует только завершающие десятичные нули исходной цены до сетки копеек. `11.110` и `11.11` ведут к одинаковому подбору; `11.111` остаётся некорректной исходной точкой для копеечной сетки. Парсер списка цен не ослаблен.

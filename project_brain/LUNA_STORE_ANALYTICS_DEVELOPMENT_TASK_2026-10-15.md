@@ -1,0 +1,446 @@
+# ТЗ GPT Luna — надёжная и объяснимая аналитика прибыли магазина
+
+**Дата:** 15.10.2026. **Статус:** N00–N08 завершены; финальная проверка exact code SHA зелёная, PR #697 ожидает независимого review/решения о слиянии.
+
+## 1. Задача владельца и результат
+
+Владелец поручил продолжить разработку и выбрать приоритеты по аудиту. Основание выбора и фактические воспроизведения: `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`.
+
+Продавец должен получить ответ на три вопроса:
+
+1. Как изменились показатели магазина относительно предыдущего равного периода?
+2. Какие учтённые денежные компоненты объясняют изменение прибыли?
+3. Какие сопоставленные SKU внесли наибольший вклад и какая часть результата относится ко всему магазину?
+
+Сначала исправить три подтверждённые проблемы: повтор текущего расчёта при части ошибок прошлого периода, приём невалидной прибыли в comparison builder, неподписанное смешение прибыли после внешних расходов со сравнением до них. Далее реализовать объясняющие экраны на тех же результатах.
+
+Задание охватывает N00–N08. Это последовательность небольших изменений и PR, а не требование собрать весь пакет одним большим коммитом. До завершения каждого этапа обновлять его фактический статус и проверки. Не останавливаться ради промежуточного отчёта; останавливаться при неразрешимом блокере или необходимом решении владельца.
+
+## 2. Исходная точка и сохранность
+
+- PR #694: P00–P08 завершены; PR #695: базовый калькулятор завершён; PR #696: целевая маржа и варианты цены **слиты**.
+- Зафиксированный `main`: **`c55434327f50134324a5ca58e2f084854b809832`**. Дерево соответствует reviewed head `fc15b9c`. Последний проверенный CI того head: 3 204 теста на Windows/Linux, compileall и Docker smoke — success.
+- Реализация идёт в `codex/luna-store-analytics-task-20261015`, основанной на `main` `c55434327f50134324a5ca58e2f084854b809832`. Кодовые этапы зафиксированы коммитами N00–N05 в истории ветки; PR #697 остаётся отдельным review-носителем.
+- В момент подготовки локально изменены `data/tasks.json`, `data/users.json`; есть старые временные каталоги с ACL-ошибками. Не включать их в коммиты, не чистить и не исправлять ACL ради прохождения тестов.
+- Не применять `git reset --hard`, `git clean`, restore/stash пользовательских данных или широкое `git add -A`. При несовместимом рабочем дереве использовать разрешённый изолированный checkout/worktree, предварительно проверив доступные attachment и инструкции проекта.
+- Ветки реализации: `codex/store-profit-comparison-...`; маленькие commits по результату этапа. Подготовка ТЗ не разрешает автоматически сливать будущие PR или развёртывать бота.
+
+## 3. Что прочитать перед кодом
+
+Обязательно: `AGENTS.md`, `CURRENT_STATE.md`, `DECISIONS.md`, `TEST_MAP.md`, `ROADMAP.md`, этот аудит/ТЗ, `docs/telegram-user-guide.md`.
+
+Архитектурные границы:
+
+- Decision 036 **Permanent Read-Only Ozon Analyst Product Boundary**: Ozon используется только для чтения.
+- Decision 037–040: authority денежных начислений, отсутствие двойного учёта, историческая себестоимость и evidence возвратов.
+- Decision 045 **Price Planning Scenario Isolation** из основного `DECISIONS.md`: временные планы не меняют факты магазина. Номер 045 есть и в историческом supplementary registry с другой темой; ориентироваться на тему и действующий код.
+- Действующие Return COGS final application/integrity contracts: применять только уже авторизованные и подтверждённые корректировки существующей цепочкой. Этот пакет не даёт новых разрешений на бухгалтерские записи.
+
+Не переносить код из старых ТЗ повторно только потому, что в них остались записи «PR открыт» или старые незакрытые статусы.
+
+## 4. Подтверждённые точки расширения
+
+| Область | Существующая точка | Роль в задании |
+|---|---|---|
+| Production DI | `app/period_profit_factory.py`, `app/telegram_assistant_factory.py` | Использовать настоящую composition chain |
+| Query | `app/services/period_profit_query_service.py` | Один результат периода с coverage/evidence |
+| Финализация и сравнение | `app/services/period_profit_final_application_query_service.py` | Уже владеет finalization и прошлым периодом |
+| Итоги | `period_profit_diagnostic_quantity_summary_service.py` и цепочка summary wrappers | Количества, исторический cost, финансы |
+| Tax policy | `period_profit_tax_policy_summary_service.py`, `tax_service.py` | Авторитет налога, не копировать формулы |
+| Pure comparison | `app/period_profit_comparison.py` | Валидация и совместимый контракт сравнения |
+| Даты | `app/period_profit_request.py` | Равный предыдущий период, включительные даты |
+| Runtime | `assistant_period_profit_runtime_service.py` | Запуск, report-id, user/store, cached views |
+| Presentation | `app/period_profit_compact_response.py`, `app/period_profit_response.py` | Одна база подписей и цифр |
+| Полнота | `app/period_profit_completeness_view.py` | Существующий разбор блокеров |
+| Расходы | `period_profit_external_expense_evidence_service.py` | Покрытие периода и подтверждённые расходы |
+| Виды начислений | `experimental_store_economics_runtime_service.py::_build_expense_breakdown` | Уже работающая классификация; не копировать второй детектор |
+| Приоритеты | `seller_attention_summary_service.py`, `product_business_decision_query_service.py` | Существующие объяснения решений, не новый engine |
+| Нагрузка | `period_profit_operation_diagnostics.py`, `telegram_app_layer/telegram_api_bot.py` | Общий budget, dedup, worker lifecycle |
+| Навигация | `assistant_keyboard_service.py`, `assistant_button_handler_service.py`, `telegram_app_layer/telegram_bot_service.py` | Public callbacks/text и сброс pending input |
+| Доставка текста | `telegram_app_layer/telegram_progress_feedback.py` | Готовый UTF-16 splitter, keyboard последнего сообщения |
+
+В N00 проверить реальные imports/aliases. Не подменять factory простым `PeriodProfitSummaryService`: в production включены identity, quantity, исторический cost, налоговая политика и final Return COGS.
+
+## 5. Границы пакета
+
+Разрешены: исправление сравнения, чистая аналитика уже полученных результатов, небольшой adapter/presentation helper, новые read-only экраны, bounded runtime snapshots и смысловые регрессии.
+
+Не входят:
+
+- изменение финансовой формулы, правил налога, округления `TaxService`, исторической себестоимости или политики признания возвратов;
+- новые Ozon endpoints, платная Analytics подписка, account-wide чтение для каждого SKU, повторный Performance enrichment при открытии деталей;
+- автоматические изменения цены/рекламы/товаров/поставок; новые scheduler/queue/framework;
+- постоянное хранение сценариев калькулятора, импорт пользовательских XLSX в реальные финансовые записи;
+- прогноз продаж от изменения цены, ROAS без атрибуционной выручки, управленческая аллокация общих расходов по SKU;
+- общая перепись 3 000-строчного experimental runtime, документации или исторических Decision registries.
+
+Если для расширенного фактора нет подтверждённых данных, показать ограничение и сохранить базовую аналитику. Недоказанные метрики не становятся нулями.
+
+## 6. N01: исправить подтверждённые ошибки
+
+### 6.1. Необязательный прошлый период
+
+Один слой владеет сравнением в production — final query wrapper. Запрос текущего периода вычисляется и финализируется один раз. В base-only совместимом пути действуют те же смысловые правила, без повторного production сравнения в обоих слоях.
+
+После успешного текущего результата отказ только прошлой ветви (summary, products provider, возвраты, анализ COGS, final application, comparison validation) должен вернуть текущий результат с явным `comparison_status=UNAVAILABLE` и безопасной причиной. Не вызывать ещё раз весь current query.
+
+Исключения/невалидные shapes классифицировать по стадии; не оборачивать ошибку всего текущего расчёта в «недоступно сравнение». Ошибки обязательных current inputs остаются fail-closed. Не ослаблять действующие current return/cost/tax validation rules.
+
+Успешное сравнение: по одному logical расчёту summary текущего и прошлого периода. Ошибка прошлого: текущий по-прежнему один. Это требование к orchestration, не обещание одного HTTP-запроса на период. Products/evidence повторно использовать только с доказанным request/tenant scope.
+
+### 6.2. Валидация pure comparison
+
+`None`, отсутствие required monetary field, bool, пустая строка, malformed numeric, `NaN`, infinities и overflow не проходят как прибыль. Не использовать `float(value or 0)` на границе.
+
+Объявленные READY/error/scope flags проверять по контракту, без truthy строк. Отрицательная конечная прибыль допустима. При ошибке возвращать стабильный код и отсутствие вычисленной дельты; stdout/traceback/объект exception не является пользовательским текстом.
+
+Перед изменением просмотреть все callers и тесты builder. Сохранить публичные поля валидного результата либо явно адаптировать всех consumers и документировать совместимость. Не менять unrelated legacy `PeriodComparisonService` только из-за похожего имени.
+
+### 6.3. Подпись и база сравнения
+
+Не показывать неподписанное «К прошлому периоду» под результатом с другим составом расходов.
+
+Минимальное исправление до расширения: сравнение `summary.profit` явно подписано как базовое сравнение до внешних расходов. Если displayed profit уже adjusted, либо показать отдельно оба уровня и их названия, либо убрать непригодную дельту с понятной причиной.
+
+Нельзя вычитать adjusted current из base previous. Нужна сквозная регрессия с 440/400/100: основной результат 340; дельта +40 допустима только с явной подписью, что сравниваются базовые 440 и 400.
+
+## 7. Контракт сопоставимых результатов
+
+Новая аналитика принимает фактические finalized results двух периодов, а не текст Telegram и не плановый сценарий.
+
+Минимально нормализованная запись содержит:
+
+| Поле | Смысл |
+|---|---|
+| `schema_version` | Версия нового аналитического контракта |
+| `scope` | Точный tenant/store, Telegram owner и вид результата |
+| `period` | `date_from`, `date_to`, число включительных дней |
+| `generated_at` | UTC время формирования снимка, не время хозяйственного события |
+| `profit_scope` | Действующий canonical scope результата |
+| `tax_policy` | Применённые mode/rate/minimum и известность policy |
+| `metrics` | Значение, unit, status, basis/source для каждой метрики |
+| `coverage` | Исходная полнота, ограничения, причины unavailable |
+| `comparison_basis` | Явно выбранный уровень прибыли, не название экрана |
+| `read_only`, `executed` | `True`, `False` соответственно |
+
+Актуальная нормализованная проекция N02 зафиксирована одной таблицей ниже. Не вводить второй evidence/readiness engine. Смысл статусов — CONFIRMED / PARTIAL / UNKNOWN / UNAVAILABLE; существующий coverage/evidence остаётся авторитетным.
+
+| Уровень | Поля N02 | Источник / правило |
+|---|---|---|
+| Contract | `schema_version=1`, `status`, `generated_at`, `read_only=true`, `executed=false` | `generated_at` — UTC время чтения. Контракт не пересчитывает финансовые суммы. |
+| `scope` | `tenant_scope`, `owner_scope`, `currency=RUB`, `result_type=STORE_PERIOD_PROFIT` | Точный tenant берётся из текущего контекста, owner — из Telegram user id; без любого из них snapshot не создаётся. Без tenant B/E не подтверждается. |
+| Period | `date_from`, `date_to`, `inclusive_days` в `current` и `previous` | Берётся из finalized summary и сверяется с исходным `request`; два периода должны быть равны по длине и смежны. |
+| Tax / component scope | `profit_scope`; `tax_policy.{status,mode,rate_percent,minimum_tax_rate_percent,minimum_rate_applicable,source}`; `component_scope` | Только точные поля summary. Неизвестная/разная policy, scope или component flags блокируют сравнение прибыли, но не независимые метрики. |
+| `metrics` | `{value,unit,status,source}` для `revenue`, `discount_points`, `revenue_tax_base`, `net_accrual`, `product_cost`, `tax`, `profit`, `margin_percent`, `units_sold`, `return_cogs_adjustment`, `external_expenses`, `profit_after_external_expenses`, `margin_after_external_expenses` | Canonical money/profit copied as supplied. K подтверждается только явным final-application marker (false + K unset + tax not recomputed means confirmed zero; true requires finite K and tax recomputed). |
+| `coverage` | `status`, `included_components`, `missing_components`, `external_expenses`, `return_cogs_application` | Короткая проекция текущего coverage/evidence, без сырых строк расходов и идентификаторов. |
+| `profit_compatibility` / `profit_bases` | Совместимость и пары current/previous для B и E | B — только сопоставимая canonical finalized прибыль. E требует B и complete external expense coverage/adjustment с обеих сторон; контракт не выводит monetary delta. |
+
+Структурно созданный contract может иметь `status=PERIOD_PROFIT_COMPARISON_CONTRACT_READY`, даже если `profit_compatibility.status=UNAVAILABLE`. Это сохраняет независимые подтверждённые показатели и причину несовместимости.
+
+Текущий и предыдущий периоды относятся к одному магазину, валюте RUB, одинаковой длительности, одному типу фактической прибыли и сопоставимому составу учтённых компонентов. По умолчанию предыдущий равный период непосредственно перед выбранным; произвольный второй диапазон и год-к-году не входят в первую версию.
+
+Включительные даты вычисляются `build_previous_period_profit_request`. Проверить переходы месяца/года, високосный февраль и TODAY. Недопустимый диапазон/underflow даты должен давать controlled error.
+
+При несовпадающей налоговой политике или profit scope не объявлять прибыль сопоставимой автоматически: показать подтверждённые независимые метрики и причину ограничения. Не пересчитывать прошлый результат по текущей вымышленной политике ради таблицы.
+
+## 8. Два уровня прибыли и полнота
+
+**Уровень B — результат canonical summary.** Это итог по существующим начислениям, исторической себестоимости, настроенному налогу и только уже применённым через действующую цепочку Return COGS. Не переименовывать его в полную чистую прибыль.
+
+**Уровень E — результат после внешних расходов.** Доступен для сопоставления, только если coverage и adjustment обоих периодов подтверждены существующим сервисом. Подтверждённый пустой период допустим как нулевые внешние расходы. Отсутствие конфигурации/строк не равно подтверждённому нулю.
+
+Если E известен лишь с одной стороны, показывать B↔B и отдельное известное E без собственной дельты. Частично внесённые внешние расходы не становятся complete; при показе observed estimate явно называть его предварительным и не использовать как подтверждённый тренд.
+
+Final application и внешняя корректировка прошлого периода проходят те же действующие правила, что и текущего. Не копировать формулу финализации в новый comparison helper. Сохранить отсутствие двойного учёта компенсаций и платы Ozon.
+
+Существующий `profit_scope` V3/V4 не выравнивать простой заменой строки: разница в применении Return COGS требует доказанной совместимости. Если её нет, недоступен соответствующий profit comparison, а не весь текущий отчёт.
+
+## 9. Таблица метрик двух периодов
+
+В первой версии показывать при подтверждённых входах:
+
+- общую выручку, баллы и выручку для настроенного расчёта налога;
+- начисления Ozon нетто;
+- историческую себестоимость реализованных единиц;
+- применённую Return COGS корректировку, если canonical result её подтверждает;
+- налог;
+- прибыль B, внешние расходы, прибыль E — по условиям раздела 8;
+- маржу соответствующего уровня; проданные единицы из явного quantity contract.
+
+Строка: прошлое значение → текущее, абсолютная дельта и допустимая относительная дельта. Маржа изменяется в **процентных пунктах**: 15,20% → 16,08% означает +0,88 п.п. Не называть это +0,88% роста.
+
+Для денежных сумм и units: `delta=current−previous`; при `previous != 0` процент `delta / abs(previous) × 100`. При отрицательном previous явно пояснять базу процента. При нуле — «процент не определён»; не придумывать 100%. Известный 0 отличается от unknown.
+
+N03 production projection хранится в `result.comparison_metrics` со статусом `PERIOD_PROFIT_COMPARISON_METRICS_READY`. В `metrics[name]` есть значения и статусы обеих сторон, `comparison_status`, `delta`, `delta_unit`, `relative_change_percent`, `relative_change_status`, `relative_change_basis`, shares of revenue и safe reason codes. `delta_unit=PERCENTAGE_POINT` для маржи; к количествам не добавляется доля от денег. При policy/scope mismatch B/E delta остаётся unavailable, даже если числовые поля присутствуют.
+
+Денежные доли от общей выручки допустимы при положительном известном знаменателе и правильном scope. Денежные проценты и доли в штуках не смешивать. Не брать 1 293 строки реализации или количество финансовых операций как число проданных единиц.
+
+Не использовать округлённый display percentage для вычисления дельт/сортировки. Конечность, точность и пределы арифметики проверяются; новый слой не меняет округление исходной финансовой математики.
+
+## 10. Разложение изменения прибыли
+
+Это **денежная сверка учтённых компонентов**, а не доказательство причинности поведения покупателей.
+
+Обозначения: `N` — net accrual; `C` — canonical COGS; `T` — уже рассчитанный canonical tax; `K` — только уже применённая подтверждённая Return COGS корректировка; `E` — подтверждённые внешние расходы.
+
+```text
+P_B = N - C + K - T
+ΔP_B = ΔN - ΔC + ΔK - ΔT
+ΔP_E = ΔP_B - ΔE
+```
+
+Эти равенства используются для проверки и представления, не для повторного расчёта авторитетной прибыли или налога. Если конкретный canonical scope имеет иной состав, использовать только доказанную для него схему; иначе разложение unavailable, суммы основного отчёта сохраняются.
+
+`K=0` допустимо только как подтверждённый факт **отсутствия применённой корректировки в данном результате**. Это не утверждение об отсутствии возвратов, их стоимости или потенциального восстановления. Unknown recovery не превращать в нулевой экономический ущерб.
+
+Сумма вкладов должна сойтись с дельтой двух authoritative profits до принятой денежной точности. Допустимая разница округления — не более 0,01 ₽ и отдельной подписанной строкой; большую разницу не прятать в rounding. Показывать безопасный код и неполное разложение, не «сверено».
+
+Внутри ΔN разрешено раскрыть выручку и совокупные начисления вне выручки: `N=R+(N−R)`. Реклама, комиссия и логистика — вложенная детализация только при подтверждённой классификации и отсутствии пересечения. Последняя миля остаётся частью логистики, Performance CPC — справочной сверкой. Нет второго вычитания.
+
+Использовать готовые категории экспериментальной экономики, если они действительно нужны. Если необходим перенос чистого classifier в общий модуль, сделать отдельно с parity tests и неизменными fixtures. Не переносить network loaders и не копировать классификатор в новое место. Отсутствие подробной комиссии не блокирует базовый мост ΔN/ΔC/ΔK/ΔT.
+
+Не писать «прибыль упала из-за цены/конверсии/рекламы», если известно только движение начислений. Формулировка: «изменение начислений уменьшило учтённый результат на …».
+
+## 11. Вклад SKU и account reconciliation
+
+Использовать уже полученные `summary.products` двух периодов. Не запускать отдельный Period Profit/CPC запрос для каждого товара.
+
+Сопоставлять только точную подтверждённую identity через действующие mappings. Один offer с неоднозначными вариантами не объединять; архивный SKU не терять и не переименовывать в текущий без подтверждённой связи.
+
+Отсутствующая строка одного периода означает 0 только если источник доказал полное покрытие этого SKU и отсутствие операций. Иначе строка «нет сопоставимых данных» вне списка денежных лидеров. Отдельно показывать появившиеся/исчезнувшие SKU с объяснением наличия либо отсутствия нулевой базы.
+
+Два списка, до пяти строк каждый: наиболее увеличившие и наиболее уменьшившие **SKU-attributed** результат. Устойчивая сортировка по денежному вкладу и canonical SKU; hidden precision не менять порядок непредсказуемо. Не называть такую строку полной прибылью товара, если account expenses в неё не вошли.
+
+```text
+ΔP_магазина = сумма сопоставимых ΔP_SKU + разница магазина и SKU
+```
+
+Разница отражает только арифметическое reconciliation и раскрывается по подтверждённым источникам: общие начисления, агрегированный налог, уже применённые корректировки либо неполная attribution. Не называть весь остаток отдельным расходом и не распределять его пропорционально выручке/units без решения владельца.
+
+При неполной identity/attribution показывать ограничение списка, количество исключённых строк и известный reconciliation; не писать «все причины найдены». Денежный итог магазина остаётся authority независимо от детализации SKU.
+
+## 12. Telegram-сценарий
+
+Вход — существующий `Прибыль за период`. Сохранить работающий выбор периода и основную выдачу. Добавить связанные действия по `report_id`:
+
+1. `Сравнение периодов` — компактная таблица и точная база.
+2. `Что изменило прибыль` — подписанные денежные вклады и сверка.
+3. `Вклад товаров` — лидеры изменения и account reconciliation.
+4. `Полнота данных` — существующий экран, без нового gate.
+5. `К расчёту` / главное меню — существующая навигация.
+
+Не перегружать главное меню новыми верхнеуровневыми кнопками для каждого аналитического экрана. На основном сообщении достаточно одной кнопки входа в аналитику плюс существующая полнота. Новые экранные тексты — по-русски, с пробелами разрядов и одной последовательной записью десятичных знаков.
+
+Первый экран краткий: магазин, оба диапазона, дата снимка, база сравнения, изменения результата и до трёх главных денежных вкладов. Подробные source codes — в деталях. У каждого unavailable — причина и доступное действие, а не длинный технический JSON.
+
+Из строки SKU разрешён переход к существующей карточке/периодному отчёту или калькулятору. Это новый явный пользовательский запрос; нельзя выдавать старый snapshot за свежий input калькулятора либо переносить аналитические факты в overrides автоматически. Recompute нового сценария использует действующий source/runtime.
+
+Если безопасный переход требует неподдерживаемого контракта, оставить ссылку на существующий выбор товара и задокументировать ограничение; не создавать второй picker/router.
+
+Сохранять pending input ownership: ввод периода, расходов, себестоимости и калькулятора не перехватывается новым экраном. Неверный ввод допускает исправление; выход/смена магазина/отключение очищают только соответствующий transient flow.
+
+Сообщение целиться в ≤3 500 UTF-16 units; для необходимых длинных деталей пользоваться существующим splitter. Callback ≤64 UTF-8 bytes. Цена, money, произвольный SKU или JSON не являются доверенными данными callback: selector разрешается на сервере из snapshot.
+
+## 13. Снимки, изоляция и ресурсы
+
+Сохранять один immutable нормализованный снимок текущего и прошлого результата для всех новых деталей. Не дублировать полный сырой ответ с тысячами операций ради каждой кнопки. Использовать существующий report cache либо узкое расширение с constructor injection clock.
+
+- Scope: точный owner + tenant/store + report id + версия схемы. User id без store scope недостаточен. Отсутствующий обязательный scope — controlled unavailable.
+- Не более 64 cached reports глобально в runtime; TTL нового аналитического снимка — 600 секунд по monotonic clock, без продления source freshness повторным открытием. Значения обосновать в N00; менять их можно по измеренному объёму и тестам, не делать безграничными.
+- Для ранжирования обработать все подтверждённые summary rows; кэшировать компактные top lists и агрегаты, а не обрезать вход до первых SKU и объявлять результат полным. Не реализовывать полный исторический каталог отчётов.
+- Показать `generated_at`; это время чтения/расчёта, не гарантия окончательного закрытия финансов Ozon. Не распространять hour-based stock freshness на исторические финансовые отчёты без основания.
+- Deep copy/immutable representation не позволяет formatter или caller менять shared snapshot. Read + LRU movement/eviction — атомарны; никакого KeyError при параллельном чтении.
+- Old callback другого пользователя/магазина, malformed selector, expired/evicted id отклоняется без сетевого запроса. Snapshot A не подменяется данными поздно завершившегося B.
+- Переключение магазина во время worker, новая версия запроса и позднее завершение проверяются перед публикацией/назначением active report. Не освобождать dedup, пока underlying worker действительно работает.
+- Новое открытие cached details: 0 Ozon/Performance calls. Общий расчёт пары использует существующий единый `PeriodProfitOperationTrace`: 600 секунд / 300 фактических HTTP-попыток, включая retry. Не выдавать отдельный полный budget каждому периоду.
+- Если время исчерпано после готового current, optional previous не начинает новый цикл; текущий отчёт сохраняется, comparison недоступен. Не скрывать существующее ограничение cooperative cancellation.
+
+Секреты, Client ID/API key, `.env`, raw customer/posting data и полный локальный путь не попадут в пользовательскую диагностику или CI artifacts. Записывать безопасные stage/status/call counts и scope без credentials.
+
+## 14. Контрольные примеры
+
+### 14.1. Сопоставимые периоды и разложение
+
+Синтетический USN_INCOME 6%; нет применённого K; остальные ограничения явно указаны:
+
+| Метрика | Предыдущий | Текущий | Дельта / вклад |
+|---|---:|---:|---:|
+| Общая выручка | 100 000 | 120 000 | +20 000 |
+| Баллы | 20 000 | 25 000 | +5 000 |
+| Налоговая база проекта | 80 000 | 95 000 | +15 000 |
+| N | 40 000 | 51 000 | +11 000 в прибыль |
+| C | 20 000 | 26 000 | −6 000 в прибыль |
+| T | 4 800 | 5 700 | −900 в прибыль |
+| B | 15 200 | 19 300 | +4 100 |
+| Маржа B | 15,20% | 16,08% | +0,88 п.п. |
+| E, coverage обоих подтверждён | 1 200 | 1 800 | −600 в прибыль |
+| После E | 14 000 | 17 500 | +3 500 |
+
+`11 000 − 6 000 − 900 = 4 100`; `4 100 − 600 = 3 500`. Баллы отдельно не вычитаются повторно из прибыли. Внутри ΔN: выручка +20 000 и прочие начисления −9 000.
+
+### 14.2. Сверка SKU с магазином
+
+Для B из предыдущего примера:
+
+| Компонент | Предыдущий | Текущий | Изменение |
+|---|---:|---:|---:|
+| SKU A | 10 000 | 8 000 | −2 000 |
+| SKU B | 3 000 | 7 000 | +4 000 |
+| SKU C | 1 000 | 2 000 | +1 000 |
+| Разница магазина и SKU | 1 200 | 2 300 | +1 100 |
+| Магазин | 15 200 | 19 300 | +4 100 |
+
+Никакой rowcount здесь не является quantity, а +1 100 не является новой отдельной операцией Ozon.
+
+### 14.3. Прочие обязательные примеры
+
+- B current=440, B previous=400; E current=100 complete; E previous unknown: current adjusted=340, base comparison +40 с подписью; adjusted comparison unavailable.
+- previous profit=0, current=50: дельта +50, относительный процент undefined; previous=−100, current=−50: улучшение +50 и +50% от абсолютной прошлой базы с пояснением.
+- profit `None`/bool/NaN: нет READY comparison. Известный 0 допустим.
+- previous return loader отказал: последовательность summaries `current, previous`, без повторного current; main current READY, comparison unavailable.
+- 31.08.2026 для 7D/28D и переход года: проверить точные включительные предыдущие даты через существующий builder, не hardcode календарь в runtime.
+- Применённый K меняет и tax: брать оба итоговых значения существующей final chain. Не добавлять K к уже увеличенной прибыли повторно.
+
+### 14.4. Историческая сверка августа
+
+Из пользовательской сверки 01–31.08.2026 известны: выручка 489 721,93; баллы 124 031,60; net 177 282,17; налог 21 941,42; результат без COGS 155 340,75; при доказанной COGS 112 476 результат 42 864,75. Комиссия нетто −69 167,90, размещение −1,74.
+
+Это reference regression по синтетически воспроизведённым данным, а не новые live measurements. Не зашивать суммы в production и не принимать старый XLSX за подтверждение текущего периода. Не заменять последнюю комиссию расчётом цена × ставка.
+
+## 15. Этапы и зависимости
+
+| Этап | Зависит | Небольшой результат | Приёмка этапа |
+|---|---|---|---|
+| N00 — baseline и дизайн | — | Карта реального вызова, источников и compat; утверждённые внутри заданных границ contracts | Воспроизведены A1–A3, отмечены уже исправленные ветви; current baseline и git/data состояние записаны |
+| N01 — три подтверждённых исправления | N00 | Optional previous failure без повторного current; валидные деньги; явная база текста | Red→green regression через production wrapper/runtime; обязательные current failures не скрыты |
+| N02 — сопоставимые finalized результаты | N01 | Один контракт периода, B/E coverage с обеих сторон, совместимость tax/scope | Полные/частичные/unknown external, различающиеся policies, K и failure-stage matrix |
+| N03 — метрики сравнения | N02 | Чистая таблица сумм, units и маржи | Decimal/finite проверки, ноль/отрицательная база, п.п., неизменность canonical outputs |
+| N04 — денежные вклады | N03 | Сверяемый bridge ΔN/ΔC/ΔK/ΔT/ΔE | Все примеры 14.1/14.3; сумма, rounding и no-double-count; unknown detail не блокирует base |
+| N05 — вклад SKU | N02, N04 | Top growth/decline + account reconciliation на готовых rows | Архивные identity, новый/пропавший SKU, unknown vs 0; отсутствие N+1 source reads |
+| N06 — Telegram и snapshot | N03–N05 | Связанные кнопки, cached views, date/as-of, полнота и existing SKU navigation | Public factory/handler integration, UTF-16/callback limits, stale/store/owner checks |
+| N07 — нагрузка и interleavings | N01, N06 | Измеренная bounded orchestration и безопасные параллельные переходы | Fake clock/Event, 0 вызовов деталей, budget retry/dedup, eviction и late completion |
+| N08 — приёмка и передача review | N00–N07 | Полный новый CI, документы, проверяемые PR | Exact-head Windows/Linux + Docker, неизменность фактов, Architecture Review до merge |
+
+Рекомендуемые границы PR: (1) N00/N01 fixes; (2) N02–N05 pure/query analysis; (3) N06/N07 presentation/runtime; N08 фиксирует проверку всей цепочки. Часть этапа можно разделить ещё мельче по измеренному diff. Не реализовывать следующий PR на непросмотренной несовместимой базе; зависимые ветки и base SHA указывать явно. Если нужного ответа владельца нет, выполнять независимые этапы и фиксировать ровно один блокер.
+
+## 16. Обязательная матрица проверок
+
+| Группа | Что доказывает регрессия |
+|---|---|
+| N01 optional failure | Каждый источник previous падает отдельно, current рассчитан ровно один раз; exception и invalid shape тоже controlled |
+| N01 current failure | Не выдаётся READY, не начинается бессмысленный повтор current |
+| Money boundary | None/bool/nonfinite/overflow/строковый мусор; отрицательная прибыль; известный ноль |
+| Comparison scope | Другие store/user/RUB/scope/policy; разные периоды и длина; никакого смешения B/E |
+| External expenses | Оба complete; complete zero; complete только с одной стороны; partial/gaps; error |
+| Final Return COGS | Уже применённый K и пересчитанный tax; unknown/revoked/conflicting evidence; authoritative scope сохранён |
+| Math | Примеры 14; относительные проценты от abs(previous), undefined zero, margin delta в п.п.; честная погрешность округления |
+| Fees | Last mile вложена; CPC finance vs Performance reference; commission actual amount; строки склада; неизвестная категория |
+| SKU | Duplicate/ambiguous/archived identity; количества не равны rowcount; incomplete attribution; account reconciliation |
+| Navigation | Настоящие query/presenter/runtime → public handler; кнопки/ручной период/отмена/выход/возврат/переход к SKU |
+| Isolation | Два пользователя, два магазина одного пользователя, switch/disconnect/reconnect, expired/evicted/forged ids |
+| Interleavings | Одновременные read/evict; повторные callbacks; late previous response; новый запрос во время старого; worker после timeout |
+| Source budget | По одному logical current/previous; retries входят в общий cap; при details и повторном открытии 0 новых source calls |
+| Presentation | Длинные Cyrillic/emoji SKU/названия, формат денег, UTF-16 chunks, callback bytes, keyboard на правильном сообщении |
+| Preservation | До/после одинаковы исходные суммы, tax/COGS/finalization, seller settings и данные хранилища |
+
+Использовать реальные изменяемые классы с fake нижними зависимостями, а не исключительно моки готового comparison dictionary. Interleavings строить на Event/barrier/fake clock, не на `sleep` с надеждой на гонку. Тесты должны фиксировать поведение пользователя и инварианты, а не приватную раскладку словаря.
+
+В baseline существующие `app/tests/test_period_profit_runtime_comparison_fallback.py` ожидают `[True, False]` у fake query. Не оставить это ожидание единственным контрактом «корректного fallback» и не просто удалить тест: заменить meaningful проверкой новой границы и добавить integration production wrapper. Совместимость стороннего/base-only consumer рассмотреть отдельно в N00.
+
+## 17. Как запускать проверки
+
+Тесты выполняются в отдельном storage root без `.env`/действующих API credentials. Не менять production `.env` или общие данные ради suite. Сначала профильные тесты этапа, затем весь suite согласно `pytest.ini` (`tests` и `app/tests`).
+
+PowerShell-инструкции владельцу давать короткими отдельными блоками, каждое имя файла — аргумент команды, не самостоятельная команда. Пример для подготовленной `.venv`:
+
+```powershell
+$env:PYTHONPATH = Join-Path $PWD 'app'
+```
+
+```powershell
+$env:PYTHON_DOTENV_DISABLED = '1'
+```
+
+```powershell
+$env:OZON_CLIENT_ID = ''
+```
+
+```powershell
+$env:OZON_API_KEY = ''
+```
+
+```powershell
+$env:AI_ASSISTANT_STORAGE_ROOT = Join-Path ([IO.Path]::GetTempPath()) ('store-analytics-tests-' + [guid]::NewGuid().ToString('N'))
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q app
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+```
+
+```powershell
+git diff --check
+```
+
+Для Windows ACL limitation разрешена чистая изолированная тестовая копия либо clean CI. Не удалять чужие временные каталоги и не относить всякое падение к ACL автоматически: сохранить фактические counts/traceback и triage. Не писать «полный pytest прошёл», если final summary отсутствует.
+
+Приёмочный CI: точный SHA нового PR head; Windows/Python 3.12 и Linux/Python 3.11, compileall, полный pytest, production Docker build, runtime health-check/import smoke. PR merge-ref и code head различать. После fixes дождаться нового CI; зелёный старый SHA не переносится на новый автоматически.
+
+Подготовка этого ТЗ: 9 baseline tests passed; полный suite повторно не запускался, production code не менялся. Будущий тест-count заранее не устанавливается равным 3 204.
+
+## 18. Документация и проверяемый журнал
+
+После каждого этапа обновлять:
+
+- этот документ: статус, code SHA, файлы, реально выполненные команды/результаты и оставшийся блокер;
+- `CURRENT_STATE.md`: актуальное состояние без объявлений о завершении ещё не проверенного кода;
+- `TEST_MAP.md`: meaningful regressions, зависимости и реальные результаты;
+- `CHANGELOG.md`: видимое пользователю изменение;
+- `ROADMAP.md`: текущий этап и следующий шаг;
+- `docs/telegram-user-guide.md`: новые реальные кнопки и ограничения, когда они подключены.
+
+`DECISIONS.md` менять только при новом архитектурном решении. Не вводить решение для каждого helper или менять постоянную read-only границу. Общая classification реализации — **Architecture Review Required**: меняются query contracts и несколько экранов. Critical replacement основного pipeline заданием не разрешён.
+
+Формат строки журнала:
+
+```text
+Nxx | status | branch/base/code SHA | реализованное поведение |
+targeted result | full/CI result (или not run + причина) |
+docs | remaining risk/blocker
+```
+
+| Этап | Статус на подготовку | Фактическая реализация/проверки |
+|---|---|---|
+| N00 | COMPLETE | Branch `codex/luna-store-analytics-task-20261015`, base/source SHA `c55434327f50134324a5ca58e2f084854b809832`; task branch SHA before N00 log `12619f947fd00d5fce056836000abb36ecb5300f`. Production chain: factory → base `PeriodProfitQueryService` → `PeriodProfitFinalApplicationQueryService` → runtime → compact formatter. Base query owns the compatibility base-only comparison path; final wrapper calls base with comparison disabled, finalizes current Return COGS/external expenses, and owns production comparison. Base-only previous summary errors currently bubble; final wrapper degrades previous summary errors but not all previous-return/application failures; runtime retries the whole current query after any comparison request error. Comparison builder reads only profit and coerces missing/bool/non-finite inputs; compact display may show adjusted E with unlabeled base B delta. No code or financial contracts changed. Baseline `9 passed in 0.48s`; verified working tree only has preserved `data/tasks.json` and `data/users.json` edits. |
+| N01 | COMPLETE | Code commit `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`). Base-only and production final-wrapper failures in optional previous summary/returns/application preserve current result; runtime performs no blind retry; mandatory current failure remains fail-closed. Comparison rejects invalid monetary values/flags; compact/verbose copy labels B as before external expenses. Red→green: 128 targeted tests passed in 2.14s; `compileall -q app` and `git diff --check` passed. Full suite and exact-head cross-platform CI deferred to N08. Files: comparison helper, base/final query services, runtime/presentation, focused regressions. Architecture Review Required for final PR. |
+| N02 | COMPLETE | Code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`). Добавлена read-only проекция finalized current/previous результатов; previous Return COGS проходит существующий final application, а внешние расходы прошлого периода загружаются существующим evidence service после финализации. Tax/scope/component/tenant/period mismatch отключает только profit comparison; partial/unknown E не объявляется нулём. Edge dates including leap day/year boundary and underflow are covered. 80 профильных тестов passed in 2.11s; `compileall -q app tests` и `git diff --check` прошли. Попытка включить существующую tmp_path expense coverage module не дала summary: pytest показал 7 setup errors и завершился с WinError 5 при обходе basetemp; поведение coverage проверено новыми pure/integration tests, повторить в N08 CI. Пользовательские data-файлы сохранены вне коммита. |
+| N03 | COMPLETE | Code commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c` (`Add period comparison metrics`). Production final wrapper now attaches `comparison_metrics`, a pure projection of the N02 contract. Money/units use `current−previous`; relative changes use `abs(previous)` and zero is explicitly undefined. Margin delta uses percentage points; revenue shares require a positive confirmed revenue denominator. Independent sales metrics remain comparable through tax-policy mismatch, while tax/profit levels honor the corresponding compatibility gate. Unit counts stay exact integers; overflowing output never emits infinity. 89 related tests passed in 2.30s; `compileall -q app tests` and `git diff --check` passed. Canonical summaries and existing response calculations remain unchanged. |
+| N04 | COMPLETE | Code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`). Production wrapper attaches `profit_bridge`. B is available only for proven account scopes V3/V4 and only when each finalized period separately reconciles `P_B=N−C+K−T`; the bridge uses already-finalized values and never recalculates tax/profit. K=0 requires explicit no-application evidence. Contributions reconcile to authoritative B delta; a signed rounding adjustment is explicit up to 0.01 ₽, larger differences disable the bridge. Revenue and net accrual split are nested detail, not another expense. E requires complete evidence on both periods and separately verifies `P_E=P_B−E`; E failure does not hide valid B. 100 related tests passed in 2.54s; `compileall -q app tests` and `git diff --check` passed. |
+| N05 | COMPLETE | Code commit `6beaebe8b23f90ca39d4ec6b105c7a191ef801e7` (`Add period profit SKU contributions`). Added `app/period_profit_sku_contribution.py`, a pure projection over the current/previous finalized `summary.products`, and attached it in the existing final query wrapper. Only one-to-one matches by exact SKU/catalog SKU, exact product+offer pair, or a unique exact offer survive; conflicting or ambiguous identity is excluded. Missing counterpart is never assigned zero: bounded previews and counts explain unknown coverage. Up to five confirmed SKU profit increases/decreases are sorted deterministically; the store delta reconciles arithmetically to matched-SKU delta plus store remainder. Scope requires a confirmed B basis and complete, account-reconciled SKU rows. No new source calls, request-per-SKU work, finance/tax recalculation, or allocation was introduced. 67 related tests passed in 1.32s; compileall and diff check passed. |
+| N06 | COMPLETE | Code commits `e9372b1` (`Add period profit analytics Telegram views`) and `9a6523c` (`Limit analytics overview to confirmed top contributions`): `app/services/assistant_period_profit_runtime_service.py`, `assistant_keyboard_service.py`, `assistant_button_handler_service.py`; `tests/test_period_profit_analytics_runtime.py`. Added three detail views, one scoped report snapshot, existing SKU picker, exact owner+tenant isolation, fixed 600s TTL, LRU cap 64 and safe compact projections. Overview shows at most three largest confirmed contributions; unavailable bridge is labeled without an empty explanation list. UTF-16 labels are sanitized and bounded. N06/N07 focused suite: 76 passed, 1 production-factory regression deselected locally because Windows Python could not access an isolated temp directory (`WinError 5`); the production-factory test is included in the final full CI. `compileall -q app tests` and `git diff --check` passed. No financial/API contracts changed. |
+| N07 | COMPLETE | Test commit `db73c64` (`Verify period analytics cache interleavings`). Added deterministic concurrent cache read/eviction regression in `tests/test_period_profit_analytics_runtime.py`. It pauses a reader during snapshot copy under lock, starts another calculation that fills LRU, then confirms reader completes READY, old callback expires, latest stays available and cache never exceeds 64. N06 + N07 analytical/query suite: 76 passed, 1 deselected locally (production-factory temp-path regression); final full CI passed that regression as part of 3,268 tests on each platform. Existing operation budget / Performance retry / Telegram calculation dedup suite: 13 passed, 68 deselected. `compileall -q app tests` and `git diff --check` passed. No orchestration/source budget implementation changes were needed. |
+| N08 | COMPLETE | The local full-suite attempt on older SHA `bbdebf4` was not accepted: diagnostic run reported 2,876 passed/22 failed/369 errors and normal pytest encountered a Windows basetemp `WinError 5`. Exact PR SHA `c36efb6...` then found one obsolete assertion, corrected in `tests/test_period_profit_revenue_share_presentation_v1221_v1230.py` while retaining checks for 40,000 ₽ and 10%. The related module passed locally (**10 passed**). Final exact code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d` passed the full suite on Windows (**3,268 passed**) and Linux (**3,268 passed**), compileall, production Docker build and runtime smoke (Verify runs `38755542971`, `38755551644`). Architecture review found no remaining blockers: comparisons remain read-only projections over finalized values; no source budgets, persistence, finance formula or core query authority changed. User data remain outside commits. PR #697 is open and unmerged for independent review. |
+
+## 19. Финальные критерии готовности
+
+- A1–A3 закрыты штатными red→green tests и проверены через настоящую production chain.
+- Продавец получает сопоставимые цифры двух периодов, выбранную базу, денежные вклады и честный вклад SKU, не требуя платной подписки.
+- Известный текущий результат сохраняется при отказе необязательного прошлого; обязательный current failure остаётся ошибкой.
+- Суммы/корректировки не вычисляются второй независимой формулой и не вычитаются дважды. Missing/partial остаются явно видимыми.
+- Связанные детали читают один scoped snapshot; ограничены время/запросы/память, проверены callbacks и гонки.
+- Новые кнопки доступны из public Telegram factory, навигация других форм сохранна; fake-only тесты не создают реальных расходов/настроек.
+- Полный CI фактического head зелёный; документы содержат реальные результаты и ограничения.
+- PR описывает итоговое поведение для внешнего reviewer, список изменений и evidence. Перед merge проведён отдельный Architecture Review. Слияние/деплой — только при соответствующем поручении владельца.
+
+## 20. Когда действительно нужен владелец
+
+Запрашивать решение, если возникла необходимость: распределить account-level расходы по SKU, поменять налог/исторический cost, разрешить новую бухгалтерскую запись, сохранять планы постоянно, обещать причинность/прогноз спроса, подключить платный источник или менять Ozon state. Эти функции можно исключить, продолжив независимые разрешённые этапы.
+
+Обычные решения об именах полей, маленьких helper, порядке tests, reuse текущего DI, bounded cache и формулировках в заданных пределах исполнитель принимает сам. Не запрашивать новые XLSX/API-ключи/подписки для воспроизведения fake-only A1–A3 или денежного моста, которому хватает текущих результатов.
+
+## 21. Команда передачи исполнителю
+
+Выполняй `project_brain/LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`. Начни с N00 и исправлений N01, затем двигайся по зависимостям N02–N08 небольшими проверяемыми изменениями. Сохраняй существующие изменения и данные. После каждого этапа обновляй документацию и фактические результаты проверок. Работай автономно без промежуточных остановок; обращайся к владельцу только при необходимом бизнес-решении или блокере, который не удалось разрешить самостоятельно. Заверши на готовых к архитектурному review PR с зелёным CI их актуального SHA.
