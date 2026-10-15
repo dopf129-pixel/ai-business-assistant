@@ -1,4 +1,11 @@
-# N00–N03 — аналитика прибыли, baseline, contract и comparison metrics (15.10.2026)
+# N00–N05 — аналитика прибыли, contract, bridge и SKU contribution (15.10.2026)
+
+- `tests/test_period_profit_sku_contribution.py` covers reference store-vs-SKU reconciliation (+4,100 ₽ = +3,000 ₽ matched SKU +1,100 ₽ residual), exact historical SKU change under the same confirmed product+offer, no-zero inference for a missing counterpart, conflicts, ambiguous offer variants, deterministic top five, incomplete coverage, malformed money, and mismatch with the canonical store contract.
+- `tests/test_period_profit_finalized_comparison_contract.py::test_production_wrapper_exposes_sku_contribution_from_finalized_rows` verifies the production final wrapper exposes the contribution from the same finalized summaries and does not run an extra SKU query.
+- N05 with contract/bridge/metrics and existing finance/legacy-SKU identity regressions: **67 passed in 1.32s**; `compileall -q app tests` and `git diff --check` passed. The store result remains authoritative; unmatched rows are not converted to zero.
+
+- N04 commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0`: `tests/test_period_profit_comparison_bridge.py` verifies reference ΔN/ΔC/ΔK/ΔT sums, nested revenue/net-accrual split, complete and partial E, one-cent rounding, >1-cent mismatch, per-period formula mismatch despite equal delta, applied K/tax, unsupported scope and unknown K. `tests/test_period_profit_finalized_comparison_contract.py` ensures production wrapper exposes the bridge and refuses its inconsistent fake canonical result.
+- N04 focused suite with N01–N03 integration: **100 passed in 2.54s**; compileall and diff check passed. Bridge failure is controlled and does not rewrite the financial report.
 
 - N03 commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c`: `tests/test_period_profit_comparison_metrics.py` covers numeric deltas/revenue shares, zero/negative bases, percentage-point margin changes, independent metrics under tax-policy mismatch, different period lengths, partial external estimates, exact >2^53 unit counts, overflow and malformed contracts. The production-wrapper integration verifies metrics derive from the same finalized comparison contract.
 - N03 related N01–N03 query/contract/presentation suite: **89 passed in 2.30s**; `compileall -q app tests` and `git diff --check` passed. `comparison_metrics` is analysis-only and does not rewrite canonical summaries.

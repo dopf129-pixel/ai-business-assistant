@@ -1,4 +1,17 @@
-# 2026-10-15 — N03 таблица сравнительных метрик завершена, N04 следующий
+# 2026-10-15 — N05 вклад SKU завершён, N06 Telegram-снимок следующий
+
+- N05 code commit `6beaebe8b23f90ca39d4ec6b105c7a191ef801e7` (`Add period profit SKU contributions`) добавил read-only разбор `summary.products` уже рассчитанных current/previous периодов. Однозначное соответствие принимает точную SKU/catalog-SKU, уникальный offer или пару product+offer; конфликтующие и неоднозначные строки не объединяются. Отсутствие counterpart не превращается в нулевую прибыль: отчёт выводит ограниченный список несопоставленных SKU и считает неполноту покрытия.
+- Production final query attaches `sku_contribution` к тем же finalized результатам, без новых Ozon/Performance запросов и без N+1 расчёта. Два списка показывают максимум пять подтверждённых ростов и снижений; магазинный delta сходится как сумма сопоставимых SKU и арифметический остаток без распределения остатка по товарам.
+- N05 проверочный набор: **67 passed in 1.32s**, включая production-wrapper, source identity recovery, historical cost and contract regressions; `compileall -q app tests` и `git diff --check` прошли. Финансовые значения, налоги, COGS и существующие source loaders не изменялись.
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает проверяемое `ΔN−ΔC+ΔK−ΔT` и E только при полном покрытии. Его **100 связанных тестов прошли**; compileall и diff check успешны.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап: N06 — scoped Telegram-снимки и навигация по отчёту.
+
+# История N03–N04
+
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает `profit_bridge` к finalized wrapper. Для разрешённых V3/V4 проверяются обе стороны равенства `P_B=N−C+K−T`; дельты раскладываются в `ΔN−ΔC+ΔK−ΔT`. `ΔN` раскрывается как `Δrevenue + Δ(other net accrual)` внутри одной строки.
+- Сумма B-вкладов проверяется против authoritative delta; signed rounding допускается до 0.01 ₽ и показан отдельно. Большее расхождение или неподдержанная profit scope делает bridge недоступным. E отдельно проверяет полное покрытие и `P_E=P_B−E` для обеих сторон. Отказ внешних расходов не скрывает подтверждённый B.
+- Проверки N04 + предыдущие contract/query integration: **100 passed in 2.54s**; `compileall -q app tests` и `git diff --check` прошли. Неизвестные расходы/категории не вычитаются повторно, новые классификаторы начислений не добавлены.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап после N04: N05 — SKU-вклад и reconciliation на уже полученных product rows.
 
 - Ветка `codex/luna-store-analytics-task-20261015`; N03 code commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c` (`Add period comparison metrics`), поверх N02 `07c6c99eaea471f5b002e18b5554034af8d5180e`.
 - Production wrapper добавляет `comparison_metrics` поверх N02 contract. Суммы/штуки показывают signed delta; процент изменения делит на абсолютную предыдущую базу, при нуле процент undefined. Изменение маржи — в процентных пунктах. Доли от выручки формируются только при известной положительной выручке.

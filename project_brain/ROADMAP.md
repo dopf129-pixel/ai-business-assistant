@@ -4,7 +4,7 @@
 
 - Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.
 - Владелец выбрал следующий пакет по результатам аудита. Основание — `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`: три воспроизведённые проблемы сравнения и конкретные пробелы объяснения фактической прибыли.
-- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. N00–N03 завершены на task branch. N03 `a02a42c`: pure metrics projection подключена к finalized wrapper; корректные deltas, shares, проценты при нуле/отрицательной базе и изменение маржи в п.п. **89 related tests passed**, `compileall` и diff check успешны. Следующий этап N04 — денежное разложение с точной сверкой, статусами неполных данных и защитой от двойного учёта.
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. N00–N05 завершены на task branch. N05 сравнивает уже загруженные finalized SKU rows по однозначной identity, показывает top growth/decline и остаток к store delta. Неоднозначный SKU исключается; отсутствие counterpart не равно нулю; запросов на SKU не добавляется. **67 related tests passed**, compileall и diff check успешны. Следующий этап N06 — связанные Telegram-экраны и безопасные scoped snapshots.
 - Сохранить действующие finance/TaxService/final Return COGS/coverage contracts. Новые Ozon API, платные источники, аллокация account costs по SKU, постоянные сценарии и Ozon mutations не входят в пакет. Перед merge нужны meaningful regressions и полный CI нового SHA.
 
 
