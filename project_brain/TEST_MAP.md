@@ -1,3 +1,10 @@
+# Следующий пакет аналитики — подготовка ТЗ 15.10.2026
+
+- Baseline: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s**. Новых тестов при подготовке документации не добавляли; полный pytest не запускали.
+- Fake-only audit probes подтвердили повтор current при отказе прошлых возвратов через production final wrapper; пропуск None/bool/NaN pure comparison builder; неоднозначную подпись базового comparison рядом с adjusted profit. Это evidence проблем, а не зелёные регрессии исправлений.
+- Матрица будущих meaningful regressions и exact-head CI: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, разделы 16–19. N00–N08 ещё не реализованы.
+- PR #696 уже слит в main `c554343`; результаты ниже относятся к его историческим проверкам и не принимают будущий код аналитики.
+
 # PR #696 — нормализация цены до сетки копеек
 
 - `tests/test_unit_price_target_planning_service.py`: числовые строки/Decimal `11.110` нормализуются к 1 111 копейкам; `1.0000` принимается как 100 копеек, а `11.111` отклоняется. Два эквивалентных исходных формата обязаны дать одну цену при подборе цели.
