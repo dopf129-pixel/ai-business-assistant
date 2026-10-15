@@ -1,4 +1,12 @@
-# 2026-10-15 — N02 finalized comparison contract завершён, N03 следующий
+# 2026-10-15 — N03 таблица сравнительных метрик завершена, N04 следующий
+
+- Ветка `codex/luna-store-analytics-task-20261015`; N03 code commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c` (`Add period comparison metrics`), поверх N02 `07c6c99eaea471f5b002e18b5554034af8d5180e`.
+- Production wrapper добавляет `comparison_metrics` поверх N02 contract. Суммы/штуки показывают signed delta; процент изменения делит на абсолютную предыдущую базу, при нуле процент undefined. Изменение маржи — в процентных пунктах. Доли от выручки формируются только при известной положительной выручке.
+- Налог/прибыль подчиняются policy/scope gate; подтверждённые продажи и независимые метрики могут сравниваться при смене налоговой policy. Частичные внешние расходы видны как partial estimate без delta. Большие количества остаются целыми числами, арифметическое переполнение даёт недоступную дельту без Infinity.
+- Проверки N03 вместе с N02/N01 integration boundary: **89 passed in 2.30s**; `compileall -q app tests` и `git diff --check` прошли. Канонические summary и прибыль не изменяются.
+- `data/tasks.json` и `data/users.json` сохранены вне коммитов. Следующий этап: N04 — сверяемый денежный мост ΔN/ΔC/ΔK/ΔT/ΔE.
+
+# 2026-10-15 — N02 finalized comparison contract завершён
 
 - Ветка: `codex/luna-store-analytics-task-20261015`, основание `main` `c55434327f50134324a5ca58e2f084854b809832`; N02 code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`).
 - N02 вводит read-only проекцию уже finalized summary двух соседних равных периодов. Валидирует период against request, tenant, tax policy, profit scope и component flags; конфликт блокирует только сравнение B/E и сохраняет независимые метрики.
