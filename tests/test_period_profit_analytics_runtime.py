@@ -1,4 +1,6 @@
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -331,5 +333,82 @@ def test_production_factory_routes_period_analytics_without_requery(
         assert query.calls == 1
     finally:
         reset_current_tenant_user_id(tenant_token)
+
+
+def test_cached_read_and_eviction_are_atomic_and_cache_stays_bounded(monkeypatch):
+    query = _Query(_result())
+    runtime = AssistantPeriodProfitRuntimeService(
+        query,
+        keyboard_service=AssistantKeyboardService(),
+        clock=_Clock(),
+    )
+    tenant_token = set_current_tenant_user_id("store-A")
+    try:
+        original = runtime.handle_text("прибыль за 28 дней", user_id="owner-1")
+        original_callback = "period_profit_analytics:" + original["report_view_id"]
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+    from services import assistant_period_profit_runtime_service as runtime_module
+
+    copy_entered = Event()
+    release_copy = Event()
+    writer_started = Event()
+    real_deepcopy = runtime_module.deepcopy
+
+    def pause_cached_copy(value):
+        if isinstance(value, dict) and "analytics_snapshot" in value:
+            copy_entered.set()
+            assert release_copy.wait(timeout=5)
+        return real_deepcopy(value)
+
+    monkeypatch.setattr(runtime_module, "deepcopy", pause_cached_copy)
+    latest_report = []
+    outcomes = []
+
+    def read_once():
+        token = set_current_tenant_user_id("store-A")
+        try:
+            outcomes.append(runtime.handle_cached_view(
+                original_callback, user_id="owner-1"
+            )["status"])
+        finally:
+            reset_current_tenant_user_id(token)
+
+    def evict_reports():
+        token = set_current_tenant_user_id("store-A")
+        try:
+            writer_started.set()
+            for _ in range(runtime.REPORT_VIEW_CACHE_MAX):
+                result = runtime.handle_text(
+                    "прибыль за 28 дней", user_id="owner-1"
+                )
+                latest_report[:] = [result]
+        finally:
+            reset_current_tenant_user_id(token)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        reader = executor.submit(read_once)
+        assert copy_entered.wait(timeout=5)
+        writer = executor.submit(evict_reports)
+        assert writer_started.wait(timeout=5)
+        release_copy.set()
+        reader.result()
+        writer.result()
+
+    assert outcomes == ["PERIOD_PROFIT_ANALYTICS_READY"]
+    assert len(runtime._report_views) == runtime.REPORT_VIEW_CACHE_MAX == 64
+    token = set_current_tenant_user_id("store-A")
+    try:
+        assert runtime.handle_cached_view(
+            original_callback, user_id="owner-1"
+        )["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        latest_callback = "period_profit_analytics:" + latest_report[0]["report_view_id"]
+        assert runtime.handle_cached_view(
+            latest_callback, user_id="owner-1"
+        )["status"] == "PERIOD_PROFIT_ANALYTICS_READY"
+    finally:
+        reset_current_tenant_user_id(token)
+    assert query.calls == runtime.REPORT_VIEW_CACHE_MAX + 1
 
 
