@@ -287,3 +287,14 @@
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP и это ТЗ обновлены. DECISIONS не изменён: существующие границы 036/045 сохранены.
 7. **Review Classification:** исправление в рамках существующей архитектуры; повторный Architecture Review PR #696 остаётся обязательным.
 8. **Next Recommended Step:** повторить архитектурный review PR #696 с учётом исправлений; merge/deploy не выполнять в рамках этого этапа.
+
+## 21. Исправление последней находки repeat review
+
+1. **Change Summary:** планировщик теперь при любой верхней границе, включая максимально допустимую цену, проверяет ограниченный набор меньших кандидатов. Из прошедших проб он выбирает самую низкую и уточняет границу прямым калькулятором. Это закрывает сценарий, в котором цена 500 ₽ при комиссии 50% и цели 50% ранее давала результат `5000492159766.50 ₽`, хотя цель выполнялась уже при 0,02 ₽.
+2. **Files Changed:** `app/services/unit_price_target_planning_service.py`, `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `CHANGELOG.md`, `project_brain/CURRENT_STATE.md`, `project_brain/TEST_MAP.md` и это ТЗ. Удалений нет.
+3. **Architecture Impact:** локальная правка алгоритма bounded search существующего helper; новые слои, API, хранение и контракты не добавлены.
+4. **Preserved Components:** тот же `UnitPriceScenarioService`/`TaxService`, hard cap 128 и direct final check, режим Ozon read-only, transient runtime и identity/version/freshness guards. Незакоммиченные `data/tasks.json` и `data/users.json` сохранены.
+5. **Testing:** четыре planner/runtime/architecture/repeat-review модуля — **80 passed in 1.13s**; два прямых модуля — **58 passed in 0.74s**; `compileall -q app tests` и `git diff --check` прошли. Локальный full pytest: **2 808 passed, 21 failed, 368 errors**; traceback показывает `PermissionError (WinError 5)` при обходе общего Windows pytest temp root, поэтому этот запуск не считается приёмкой. CI нового SHA ещё предстоит.
+6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP и этот документ обновлены; DECISIONS не менялся — новые архитектурные решения не вводились.
+7. **Review Classification:** повторный Architecture Review PR #696 обязателен.
+8. **Next Recommended Step:** завершить полный pytest, `compileall`, diff check и CI на новом SHA, затем повторить review PR #696. Слияние и deployment не выполнять.

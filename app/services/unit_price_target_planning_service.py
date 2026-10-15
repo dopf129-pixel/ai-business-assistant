@@ -250,13 +250,19 @@ class UnitPriceTargetPlanningService:
         if high_status != "CALCULATED":
             return self._unavailable_outcome(high_status, high_result)
         high_price = self._price_from_cents(high)
-        if not self._reached(high_result, high_price, target):
-            feasible_upper = self._find_feasible_upper_bound(
-                inputs, low, high, target, call_state, common
-            )
-            if feasible_upper is None:
-                return self._unavailable_outcome("NOT_FOUND_IN_TESTED_RANGE")
-            high, high_result = feasible_upper
+        high_reached = self._reached(high_result, high_price, target)
+        feasible_upper = self._find_feasible_upper_bound(
+            inputs,
+            low,
+            high,
+            target,
+            call_state,
+            common,
+            known_feasible=(high, high_result) if high_reached else None,
+        )
+        if feasible_upper is None:
+            return self._unavailable_outcome("NOT_FOUND_IN_TESTED_RANGE")
+        high, high_result = feasible_upper
 
         while high - low > 1:
             middle = (low + high) // 2
@@ -278,9 +284,9 @@ class UnitPriceTargetPlanningService:
         )
 
     def _find_feasible_upper_bound(
-        self, inputs, low, high, target, call_state, common
+        self, inputs, low, high, target, call_state, common, known_feasible=None
     ):
-        """Find a verified bracket when cent rounding breaks the top bound."""
+        """Find the smallest verified upper bracket among bounded probes."""
         candidates = [
             high - offset
             for offset in range(1, self.MAX_UPPER_BOUND_PROBES + 1)
@@ -300,17 +306,19 @@ class UnitPriceTargetPlanningService:
             if low < 10**power < high
         )
 
-        seen = set()
-        for cents in candidates:
-            if cents in seen:
+        best = known_feasible
+        upper_limit = best[0] if best is not None else high
+        for cents in sorted(set(candidates)):
+            if cents >= upper_limit:
                 continue
-            seen.add(cents)
             result, status = self._evaluate(inputs, cents, call_state, common)
             if status != "CALCULATED":
+                if best is not None:
+                    continue
                 return None
             if self._reached(result, self._price_from_cents(cents), target):
                 return cents, result
-        return None
+        return best
 
     def _evaluate(self, inputs, cents, call_state, common, bypass_cache=False):
         if not bypass_cache and cents in call_state["cache"]:

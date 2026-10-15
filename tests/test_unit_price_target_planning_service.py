@@ -154,7 +154,7 @@ def test_solver_reports_not_found_without_claiming_that_target_is_impossible():
 
 @pytest.mark.parametrize(
     "target,advertising_rate,expected_price",
-    [("50", "0", None), ("0", "50", None), ("49.99", "0.01", "0.02")],
+    [("50", "0", "0.02"), ("0", "50", None), ("49.99", "0.01", "0.02")],
 )
 def test_solver_finds_verified_price_when_maximum_cent_fails_from_rounding(
     target, advertising_rate, expected_price
@@ -183,6 +183,33 @@ def test_solver_finds_verified_price_when_maximum_cent_fails_from_rounding(
     assert outcome["goal_reached"] is True
     assert outcome["forward_result"]["available"] is True
     assert Decimal(outcome["price"]) < planner.max_price
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] <= 127
+
+
+def test_solver_prefers_a_small_verified_price_when_maximum_price_also_passes():
+    planner, service = _planner(counting=True)
+    values = _inputs(
+        price="500",
+        cost="0",
+        commission_rate="50",
+        logistics_per_unit="0",
+        last_mile_per_unit="0",
+        acquiring_per_unit="0",
+        advertising_rate="0",
+        discount_points_rate="0",
+        tax_mode="NONE",
+        tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.solve(values, "50")
+
+    outcome = result["target"]
+    assert outcome["status"] == "FOUND"
+    assert outcome["price"] == "0.02"
+    assert Decimal(outcome["price"]) <= Decimal(values["price"])
+    assert outcome["goal_reached"] is True
     assert result["evaluation_count"] == service.calls
     assert result["evaluation_count"] <= 127
 
