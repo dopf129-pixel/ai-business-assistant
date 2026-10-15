@@ -1,5 +1,19 @@
 # Карта тестов — актуальный статус 2026-10-15
 
+## M00 baseline целевой маржи
+
+- Основа: актуальный merged main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`, ветка `codex/price-planning-target-margin-20261015`.
+- Пять существующих модулей `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_scenario_repeat_review_regressions.py`, `test_unit_price_scenario_architecture_review_regressions.py`: **57 passed in 1.20s**. Только warning — локальный ACL блокирует `.pytest_cache`; assertions passed.
+- Восемь синтетических контрольных цен повторены через реальный `UnitPriceScenarioService` + `TaxService`. На 414,70 ₽ и 414,71 ₽ UI показывает 30,00%, но Decimal acceptance target 30% false; на 414,72 ₽ true. Это audit baseline, не тест solver.
+- M01 добавит standalone helper/parser tests; текущий кодовый baseline не заменяет обязательный новый CI Windows/Linux/Docker.
+
+## Планирование цены — baseline и новое ТЗ M00–M04
+
+- PR #695 уже слит в main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`; merged-main Verify `38707150836` success. PR integration Verify `38704768075` проверял 3 150 tests на Windows и 3 150 на Linux, compile и Docker build/runtime smoke.
+- Подготовлено `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`: будущие проверки target/rounding, сравнений, bounded search, отсутствия HTTP/writes и tenant/version/lifecycle guards перечислены в разделе 10. Новые тесты и функционал пока не добавлены.
+- Синтетические контрольные цены 242,38/242,39; 335,25; 414,70/414,71/414,72; 500/600 сверены прямыми вызовами текущих `UnitPriceScenarioService`/`TaxService`. 414,70 и 414,71 показывают 30,00%, но точная цель 30% не достигнута. Это audit арифметических примеров ТЗ, не приёмка будущего solver.
+- Для документационной подготовки pytest повторно не запускался: production code не менялся. Проверки новой реализации обязательны в M00–M04 на её собственном SHA.
+
 ## PR #695 — R11 исправление неизвестного SKU в auto-b
 
 - `tests/test_unit_price_scenario_source.py`: отсутствие поля SKU, `None`, пустая и пробельная строка помечаются malformed/incomplete; известный другой SKU исключается как раньше даже без bonus.
