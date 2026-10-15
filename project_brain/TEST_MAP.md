@@ -1,4 +1,59 @@
+# PR #696 — нормализация цены до сетки копеек
+
+- `tests/test_unit_price_target_planning_service.py`: числовые строки/Decimal `11.110` нормализуются к 1 111 копейкам; `1.0000` принимается как 100 копеек, а `11.111` отклоняется. Два эквивалентных исходных формата обязаны дать одну цену при подборе цели.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: реальный runtime принимает `11.110` в редакторе и выдаёт ту же подтверждённую цену `11.08 ₽`, что и `11.11`; source читается один раз.
+- Четыре связанных planner/runtime/architecture/repeat-review модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Verify runs `38728949431` и `38728942708` на code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` успешны: Windows/Linux — по **3 204 passed**, compileall и Docker build/runtime health-check прошли. Локальный full pytest не сформировал сводку из-за `PermissionError (WinError 5)` при cleanup basetemp и не считается приёмкой.
+
 # Карта тестов — актуальный статус 2026-10-15
+
+## PR #696 — повторное исправление поиска целевой цены (проверки продолжаются)
+
+- `tests/test_unit_price_target_planning_service.py`: если максимум проходит цель, solver всё равно проверяет меньшие точки и предпочитает минимальную среди ограниченных подтверждённых проб. Регрессия с ценой 500 ₽, комиссией 50% и целью 50% требует результат 0,02 ₽.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: тот же сценарий проходит через выбор SKU и ввод цели; результат остаётся точным, доступен только после прямой проверки и использует один source read.
+- Четыре связанных planner/runtime/architecture/repeat-review модуля — **80 passed in 1.15s**; `compileall -q app tests` прошёл. Code SHA `007bd5a01a53d8451f8fe291810c76c55467b5c6` прошёл Verify runs `38726919355`/`38726911253`: полный suite **3 197 passed** на Windows и Linux, production Docker build/runtime smoke успешен. Локальный full pytest дал **2 808 passed, 21 failed, 368 errors** и traceback с `PermissionError (WinError 5)` на общем Windows pytest temp root; локальный результат не используется как приёмка.
+
+## PR #696 — повторная правка R1/R2 (проверки продолжаются)
+
+- `tests/test_unit_price_target_planning_service.py` покрывает цель 49,99% при неизвестной исходной цене и достижимой цене внутри диапазона, а также запятую/пробелы в исходной цене.
+- `tests/test_unit_price_scenario_telegram_runtime.py` проходит публичный сценарий выбора SKU → ввод целевой маржи без исходной цены → проверенная цена.
+- Четыре связанных модуля: **78 passed in 1.19s**. `compileall -q app tests` и `git diff --check` прошли.
+- Полный pytest Windows в локальной среде: **2 806 passed, 21 failed, 368 errors**; pytest завершился `WinError 5` во время работы с временными каталогами. Локальный full suite не используется как приёмка.
+- Verify run **38722009779** на SHA `ac43cb70069ac1e4586b13c7b8e70c9db04e2944`: Windows/Python 3.12 — **3 195 passed in 43.58s**, Linux/Python 3.11 — **3 195 passed in 11.59s**, compileall и production Docker build/runtime smoke успешны.
+
+## PR #696 — первое исправление review R1/R2 (историческая запись)
+
+- `tests/test_unit_price_target_planning_service.py` добавляет: достижимая 50% маржа и безубыточность находятся при неуспешной максимальной копейке; provenance рассчитанной и введённой цены отделяется от источника исходной цены. Максимальный счётчик в проверке — ≤113 при hard cap 128.
+- Helper + Telegram runtime + architecture/repeat-review regressions: **75 passed in 1.12s**; `compileall` изменённых Python files и `git diff --check` прошли.
+- Полный локальный `pytest -q` не дал достоверного итога: были ошибки и сбои, затем pytest завершился `WinError 5` при перечислении временного каталога. PR Verify run **38716365784** на точном SHA `475f2dbccc069c58a8ac859c9334705472718e0c` прошёл: Windows **3 192 passed in 20.16s**, Linux **3 192 passed in 11.08s**, compileall и production Docker build/runtime smoke успешны.
+
+## M00 baseline целевой маржи
+
+- Основа: актуальный merged main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`, ветка `codex/price-planning-target-margin-20261015`.
+- Пять существующих модулей `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_scenario_repeat_review_regressions.py`, `test_unit_price_scenario_architecture_review_regressions.py`: **57 passed in 1.20s**. Только warning — локальный ACL блокирует `.pytest_cache`; assertions passed.
+- Восемь синтетических контрольных цен повторены через реальный `UnitPriceScenarioService` + `TaxService`. На 414,70 ₽ и 414,71 ₽ UI показывает 30,00%, но Decimal acceptance target 30% false; на 414,72 ₽ true. Это audit baseline, не тест solver.
+- M01 добавит standalone helper/parser tests; текущий кодовый baseline не заменяет обязательный новый CI Windows/Linux/Docker.
+
+## M01 target search и список цен
+
+- Новый `tests/test_unit_price_target_planning_service.py` покрывает target parser, price list 2–5 с comma/dot/пробелами тысяч/CRLF, atomic rejection duplicates/invalid tokens, точный предел цели, контрольные цены, отдельный результат безубыточности, три налоговых режима действующего `TaxService`, not-found/missing distinctions, сравнение одинаковых допущений, округлённые верхние границы и счётчик максимум 113 (конфигурационный cap 128).
+- Unit-price service/source/runtime + architecture/repeat-review regressions и новый helper module: **81 passed in 1.37s**. `compileall -q app/services/unit_price_target_planning_service.py` passed; кэш pytest отключён, тесты использовали пустой `AI_ASSISTANT_STORAGE_ROOT`.
+- M02 добавил к этому набору target/list/retry/cancel/missing-input/price-preservation/production-factory/UTF-16 проверки в `tests/test_unit_price_scenario_telegram_runtime.py`. С `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py` и helper module: **63 passed in 1.06s**.
+- В Telegram tests подтверждены отсутствие дополнительного source/API call при поиске и таблице, сохранение цены основного сценария, удержание ранее введённой цели для отметок сравнения, исправление невалидного списка целиком и пределы сообщения/callback. Сквозная регрессия вызывает публичный `AssistantButtonHandlerService` от выбора карточки до явного применения цены. Четыре целевых модуля — **72 passed in 1.13s**.
+- PR Verify run **38713193546** завершился success: `compileall` и полный `pytest` — **3 189 passed** на Windows/Python 3.12 и Linux/Python 3.11; Linux production Docker build/runtime smoke — success. PR head при проверке: `46e91cffe66beac1c5f8289ba5cac7984975fd6c`.
+- Локальный изолированный Windows full-suite не смог выдать итог: pytest не получил доступ перечислить свой временный каталог (`WinError 5`). Успешный CI прошёл на чистых GitHub runners; пользовательские `data/*.json` не переносились в тестовую копию.
+
+## M03 выбор цены и lifecycle
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` проверяет выбор target и конкретной строки, повторный прямой расчёт, неизменность Ozon/business state, отсутствие произвольной цены в callback, старые кнопки после редактирования/refresh/new SKU/store change/source TTL/session expiry и controlled late apply после возврата к редактору.
+- Helper, Telegram runtime, architecture/repeat-review regressions и новые application cases: **71 passed in 1.11s**. Используются injected fake clock/events, настоящий `UnitPriceScenarioService`/`TaxService`, реальная клавиатура, не live API. `compileall` изменённых Python files и `git diff --check` прошли.
+- M04 прошёл public-handler regression, `compileall`, Windows/Linux полный suite и Linux Docker smoke на PR. Открытый следующий контроль — независимый Architecture Review PR #696; merge/deploy не выполнялись.
+
+## Планирование цены — baseline и новое ТЗ M00–M04
+
+- PR #695 уже слит в main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`; merged-main Verify `38707150836` success. PR integration Verify `38704768075` проверял 3 150 tests на Windows и 3 150 на Linux, compile и Docker build/runtime smoke.
+- Подготовлено `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`: будущие проверки target/rounding, сравнений, bounded search, отсутствия HTTP/writes и tenant/version/lifecycle guards перечислены в разделе 10. Новые тесты и функционал пока не добавлены.
+- Синтетические контрольные цены 242,38/242,39; 335,25; 414,70/414,71/414,72; 500/600 сверены прямыми вызовами текущих `UnitPriceScenarioService`/`TaxService`. 414,70 и 414,71 показывают 30,00%, но точная цель 30% не достигнута. Это audit арифметических примеров ТЗ, не приёмка будущего solver.
+- Для документационной подготовки pytest повторно не запускался: production code не менялся. Проверки новой реализации обязательны в M00–M04 на её собственном SHA.
 
 ## PR #695 — R11 исправление неизвестного SKU в auto-b
 

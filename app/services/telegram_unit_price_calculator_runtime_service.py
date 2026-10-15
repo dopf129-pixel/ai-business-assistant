@@ -36,9 +36,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         session_ttl_seconds=SESSION_TTL_SECONDS,
         max_scenarios=MAX_SCENARIOS,
         max_catalog_selections=MAX_CATALOG_SELECTIONS,
+        target_planning_service=None,
     ):
         self.source = source
         self.scenario_service = scenario_service
+        self.target_planning_service = target_planning_service
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.session_ttl_seconds = max(1, int(session_ttl_seconds))
@@ -136,7 +138,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -159,7 +161,19 @@ class TelegramUnitPriceCalculatorRuntimeService:
             if action == "a":
                 return self._show_assumptions(session)
             if action == "v":
-                return self._scenario_screen(session)
+                return self._return_to_scenario(session, user, scope, expected_version)
+            if action in {"g", "q"}:
+                return self._begin_price_planning_input(
+                    session,
+                    "target_margin" if action == "g" else "price_options",
+                    user,
+                    scope,
+                    expected_version,
+                )
+            if action == "u" and len(parts) == 5:
+                return self._apply_price_planning_result(
+                    session, parts[4], user, scope, expected_version
+                )
             if action == "c":
                 if not self._clear_pending_for_session(session, user, scope, expected_version):
                     return self._stale_result()
@@ -207,7 +221,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
             user,
             scope,
         )
-        if session is None or pending.get("field") not in self.EDITABLE_FIELDS:
+        if session is None:
+            self._clear_pending_for_key(key)
+            return self._stale_result()
+        if pending.get("stage") in {"target_margin", "price_options"}:
+            return self._handle_price_planning_text(
+                text, pending, session, user, scope, key
+            )
+        if pending.get("field") not in self.EDITABLE_FIELDS:
             self._clear_pending_for_key(key)
             return self._stale_result()
         candidate_text = str(text or "").strip()
@@ -239,8 +260,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["inputs"][pending["field"]] = candidate_text
             current["provenance"][pending["field"]] = "manual_seller_assumption"
             current["overrides"].add(pending["field"])
+            current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
+            self._operation_tokens.pop(key, None)
             session = deepcopy(current)
             self._pending.pop(key, None)
         return self._scenario_screen(session)
@@ -428,8 +451,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or current["version"] != expected_version
             ):
                 return self._stale_result()
+            current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
+            self._operation_tokens.pop((user, scope), None)
             self._pending[(user, scope)] = {
                 "scenario_id": current["scenario_id"],
                 "version": current["version"],
@@ -437,6 +462,442 @@ class TelegramUnitPriceCalculatorRuntimeService:
             }
             session = deepcopy(current)
         return self._edit_prompt(session, field)
+
+    def _begin_price_planning_input(self, session, stage, user, scope, expected_version):
+        if self.target_planning_service is None or stage not in {"target_margin", "price_options"}:
+            return self._stale_result()
+        key = (user, scope)
+        refresh_in_progress = None
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != expected_version
+            ):
+                return self._stale_result()
+            if key in self._operation_tokens:
+                refresh_in_progress = deepcopy(current)
+            else:
+                current.pop("price_planning_result", None)
+                current["version"] += 1
+                current["updated_at"] = self.clock()
+                self._pending[key] = {
+                    "scenario_id": current["scenario_id"],
+                    "version": current["version"],
+                    "stage": stage,
+                    "request_id": uuid4().hex,
+                }
+                session = deepcopy(current)
+        if refresh_in_progress is not None:
+            return self._scenario_screen(
+                refresh_in_progress,
+                notice="Источники ещё обновляются. Повторите расчёт после завершения обновления.",
+            )
+        return self._price_planning_prompt(session, stage)
+
+    def _handle_price_planning_text(self, text, pending, session, user, scope, key):
+        stage = pending["stage"]
+        raw_text = str(text or "")
+        if stage == "target_margin":
+            parsed = self.target_planning_service.parse_target_margin(raw_text)
+            if parsed.get("valid") is not True:
+                return self._price_planning_prompt(
+                    session,
+                    stage,
+                    notice="Некорректный процент. Введите значение от 0 до 100 с точностью до 0,01%.",
+                )
+            mode = "target_margin"
+            target = parsed["value"]
+            try:
+                result = self.target_planning_service.solve(
+                    session["inputs"],
+                    target,
+                    identity=self._scenario_identity(session),
+                    provenance=session["provenance"],
+                    sources=self._scenario_sources(session),
+                )
+            except Exception:
+                return self._price_planning_prompt(
+                    session, stage,
+                    notice="Не удалось выполнить локальный расчёт. Сценарий не изменён; повторите ввод или вернитесь к расчёту.",
+                )
+            input_value = format(target, "f")
+        elif stage == "price_options":
+            parsed = self.target_planning_service.parse_price_list(raw_text)
+            if parsed.get("valid") is not True:
+                return self._price_planning_prompt(
+                    session,
+                    stage,
+                    notice="Список не принят целиком. Укажите от 2 до 5 разных цен до копейки через точку с запятой или с новой строки.",
+                )
+            mode = "price_options"
+            target = None
+            try:
+                result = self.target_planning_service.compare_prices(
+                    session["inputs"],
+                    parsed["prices"],
+                    target_margin_percent=session.get("price_planning_target_margin"),
+                    identity=self._scenario_identity(session),
+                    provenance=session["provenance"],
+                    sources=self._scenario_sources(session),
+                )
+            except Exception:
+                return self._price_planning_prompt(
+                    session, stage,
+                    notice="Не удалось выполнить локальное сравнение. Сценарий не изменён; исправьте ввод или вернитесь к расчёту.",
+                )
+            input_value = list(parsed["normalized"])
+        else:
+            self._clear_pending_for_key(key)
+            return self._stale_result()
+
+        if not isinstance(result, dict) or result.get("error") is True:
+            return self._price_planning_prompt(
+                session, stage,
+                notice="Расчёт не завершён. Текущие параметры сохранены; попробуйте ещё раз.",
+            )
+
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            active_pending = self._pending.get(key)
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != pending.get("version")
+                or active_pending != pending
+            ):
+                return self._stale_result()
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            if mode == "target_margin":
+                current["price_planning_target_margin"] = input_value
+            current["price_planning_result"] = {
+                "mode": mode,
+                "input": input_value,
+                "source_version": pending["version"],
+                "result_version": current["version"],
+                "user_id": current["user_id"],
+                "tenant_scope": current["tenant_scope"],
+                "sku": current["sku"],
+                "snapshot_id": (current.get("snapshot") or {}).get("snapshot_id"),
+                "result": deepcopy(result),
+            }
+            self._pending.pop(key, None)
+            self._operation_tokens.pop(key, None)
+            session = deepcopy(current)
+        return self._price_planning_result_screen(session)
+
+    def _price_planning_prompt(self, session, stage, notice=None):
+        if stage == "target_margin":
+            prompt = (
+                "Введите целевую маржу от 0 до 100% (например, 20 или 19,5). "
+                "Бот покажет ориентир безубыточности и цену для цели."
+            )
+        else:
+            prompt = (
+                "Введите 2–5 разных цен через точку с запятой или с новой строки. "
+                "Например: 499,90; 549,90; 599,90."
+            )
+        prompt += " Цена основного сценария не изменится."
+        if notice:
+            prompt = notice + "\n" + prompt
+        return {
+            "error": False,
+            "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+            "stage": stage,
+            "message": prompt,
+            "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                session["scenario_id"], session["version"]
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _price_planning_result_screen(self, session):
+        stored = session.get("price_planning_result") or {}
+        mode = stored.get("mode")
+        result = stored.get("result") or {}
+        identity = session.get("snapshot", {}).get("identity") or {}
+        product = session.get("snapshot", {}).get("product") or {}
+        title = (
+            "Расчёт целевой маржи"
+            if mode == "target_margin"
+            else "Сравнение вариантов цены"
+        )
+        lines = [
+            title,
+            str(product.get("name") or "Товар")[:70]
+            + " · SKU " + str(session["sku"])[:32],
+            "Магазин: "
+            + str(identity.get("store_name") or identity.get("store_id") or "активный")[:60],
+        ]
+        if mode == "target_margin":
+            target = result.get("target_margin_percent")
+            lines.append("Целевая маржа после налога: " + self._percent(target))
+            lines.append(self._format_price_planning_outcome(
+                "Ориентир безубыточности", result.get("break_even") or {}, "0"
+            ))
+            lines.append(self._format_price_planning_outcome(
+                "Цена для цели", result.get("target") or {}, target
+            ))
+        else:
+            goal = result.get("target_margin_percent")
+            lines.append(
+                "Цель маржи: " + self._percent(goal)
+                if goal is not None
+                else "Одинаковые допущения для всех вариантов; целевая маржа не задана."
+            )
+            for index, row in enumerate(result.get("rows") or [], start=1):
+                if row.get("available") is not True:
+                    missing = self._price_planning_missing_labels(
+                        row.get("forward_result") or row
+                    )
+                    detail = "расчёт недоступен"
+                    if missing:
+                        detail += "; заполните " + ", ".join(missing)
+                    lines.append(f"{index}. {self._money(row.get('price'))}: {detail}.")
+                    continue
+                line = (
+                    f"{index}. {self._money(row.get('price'))}: прибыль "
+                    f"{self._money(row.get('profit'))}/шт.; маржа "
+                    f"{self._percent(row.get('margin_percent'))}; налог "
+                    f"{self._money(row.get('tax'))}"
+                )
+                if goal is not None:
+                    line += "; цель " + self._percent(goal) + (
+                        " достигнута" if row.get("goal_reached") is True
+                        else " не достигнута" if row.get("goal_reached") is False
+                        else " не проверена"
+                    )
+                lines.append(line + ".")
+        freshness = self._source_freshness(session)
+        if freshness.get("status") == "STALE":
+            lines.append(
+                "Снимок источников устарел; оценка комиссии может отличаться. Обновите данные."
+            )
+        lines.extend([
+            "Цена основного сценария не изменена.",
+            "Оценка одной успешной продажи FBO. Комиссия Ozon может измениться при новой цене; FBS не поддержан.",
+            "Общие расходы, хранение, кросс-докинг и возвраты не включены.",
+        ])
+        keyboard_builder = getattr(
+            self.keyboard_service,
+            "build_unit_price_planning_result_keyboard",
+            None,
+        )
+        keyboard = (
+            keyboard_builder(
+                session["scenario_id"],
+                session["version"],
+                mode,
+                planning_result=result,
+                allow_apply=freshness.get("status") == "FRESH",
+            )
+            if callable(keyboard_builder)
+            else self.keyboard_service.build_unit_price_scenario_keyboard(
+                session["scenario_id"], session["version"]
+            )
+        )
+        return {
+            "error": False,
+            "status": (
+                "UNIT_PRICE_TARGET_MARGIN_RESULT"
+                if mode == "target_margin"
+                else "UNIT_PRICE_PRICE_COMPARISON_RESULT"
+            ),
+            "message": "\n".join(lines)[:3500],
+            "keyboard": keyboard,
+            "price_planning_result": deepcopy(result),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _apply_price_planning_result(self, session, selector, user, scope, expected_version):
+        key = (user, scope)
+        stored = session.get("price_planning_result")
+        snapshot = session.get("snapshot") or {}
+        result = (stored or {}).get("result") or {}
+        result_identity = result.get("identity") or {}
+        if (
+            not isinstance(stored, dict)
+            or stored.get("result_version") != expected_version
+            or stored.get("user_id") != user
+            or stored.get("tenant_scope") != scope
+            or stored.get("sku") != session.get("sku")
+            or stored.get("snapshot_id") != snapshot.get("snapshot_id")
+            or result_identity.get("user_id") != user
+            or result_identity.get("tenant_scope") != scope
+            or result_identity.get("sku") != session.get("sku")
+            or result_identity.get("scenario_id") != session.get("scenario_id")
+            or result_identity.get("scenario_version") != stored.get("source_version")
+        ):
+            return self._stale_result()
+
+        if self._source_freshness(session).get("status") != "FRESH":
+            return self._invalidate_price_planning_result(
+                session,
+                user,
+                scope,
+                expected_version,
+                "Снимок источников устарел. Обновите данные и выполните расчёт заново; эту цену не подставил.",
+            )
+
+        if key in self._operation_tokens:
+            return self._invalidate_price_planning_result(
+                session,
+                user,
+                scope,
+                expected_version,
+                "Идёт обновление источников. После его завершения повторите расчёт цены.",
+            )
+
+        mode = stored.get("mode")
+        outcome = None
+        if selector == "t" and mode == "target_margin":
+            outcome = result.get("target")
+            if not isinstance(outcome, dict) or outcome.get("goal_reached") is not True:
+                return self._stale_result()
+        elif mode == "price_options":
+            try:
+                index = int(selector)
+            except (TypeError, ValueError):
+                return self._stale_result()
+            rows = result.get("rows") or []
+            if str(index) != str(selector) or not 0 <= index < len(rows):
+                return self._stale_result()
+            outcome = rows[index]
+        if not isinstance(outcome, dict) or outcome.get("available") is not True:
+            return self._stale_result()
+
+        candidate_price = outcome.get("price")
+        if not isinstance(candidate_price, str):
+            return self._stale_result()
+        candidate_inputs = deepcopy(session.get("inputs") or {})
+        candidate_inputs["price"] = candidate_price
+        try:
+            validation = self.scenario_service.calculate(
+                candidate_inputs,
+                identity=self._scenario_identity(session),
+                provenance=session.get("provenance") or {},
+                sources=self._scenario_sources(session),
+            )
+        except Exception:
+            validation = None
+        if not isinstance(validation, dict) or validation.get("available") is not True:
+            return self._invalidate_price_planning_result(
+                session,
+                user,
+                scope,
+                expected_version,
+                "Не удалось перепроверить цену прямым расчётом. Параметры сценария не изменены.",
+            )
+
+        expired_source = False
+        expired_session = False
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            current_plan = current.get("price_planning_result") if isinstance(current, dict) else None
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != expected_version
+                or current_plan != stored
+                or current.get("tenant_scope") != scope
+                or current.get("user_id") != user
+                or current.get("sku") != stored.get("sku")
+                or (current.get("snapshot") or {}).get("snapshot_id") != stored.get("snapshot_id")
+            ):
+                return self._stale_result()
+            if self.clock() - current.get("updated_at", 0) > self.session_ttl_seconds:
+                self._scenarios.pop(session["scenario_id"], None)
+                self._active.pop(key, None)
+                self._pending.pop(key, None)
+                self._operation_tokens.pop(key, None)
+                expired_session = True
+            elif self._source_freshness(current).get("status") != "FRESH":
+                current.pop("price_planning_result", None)
+                current["version"] += 1
+                current["updated_at"] = self.clock()
+                session = deepcopy(current)
+                expired_source = True
+            elif key in self._operation_tokens:
+                return self._stale_result()
+            else:
+                current["inputs"]["price"] = candidate_price
+                current["provenance"]["price"] = "manual_seller_assumption"
+                current["overrides"].add("price")
+                current.pop("price_planning_result", None)
+                current["version"] += 1
+                current["updated_at"] = self.clock()
+                self._pending.pop(key, None)
+                session = deepcopy(current)
+
+        if expired_session:
+            return self._stale_result()
+        if expired_source:
+            return self._scenario_screen(
+                session,
+                notice="Снимок источников устарел. Обновите данные и выполните расчёт заново; эту цену не подставил.",
+            )
+        return self._scenario_screen(
+            session,
+            notice=(
+                "Цена " + self._money(candidate_price)
+                + " подставлена только в текущий сценарий. Цена и данные в Ozon не изменены."
+            ),
+        )
+
+    def _invalidate_price_planning_result(
+        self, session, user, scope, expected_version, notice
+    ):
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != expected_version
+            ):
+                return self._stale_result()
+            current.pop("price_planning_result", None)
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            self._operation_tokens.pop(key, None)
+            updated = deepcopy(current)
+        return self._scenario_screen(updated, notice=notice)
+
+    def _format_price_planning_outcome(self, label, outcome, target):
+        if outcome.get("status") == "FOUND" and outcome.get("goal_reached") is True:
+            return (
+                f"{label}: {self._money(outcome.get('price'))}; прибыль "
+                f"{self._money(outcome.get('profit'))}/шт.; маржа "
+                f"{self._percent(outcome.get('margin_percent'))}; налог "
+                f"{self._money(outcome.get('tax'))} — цель "
+                f"{self._percent(target)} достигнута."
+            )
+        missing = self._price_planning_missing_labels(outcome)
+        if outcome.get("status") == "MISSING_INPUTS":
+            return "" + label + ": заполните " + (", ".join(missing) or "обязательные параметры") + "."
+        if outcome.get("status") == "NOT_FOUND_IN_TESTED_RANGE":
+            return label + ": не удалось подобрать цену в допустимом диапазоне при этих условиях."
+        if outcome.get("status") == "SEARCH_BUDGET_EXHAUSTED":
+            return label + ": лимит расчётов исчерпан; повторите попытку или проверьте допущения."
+        if outcome.get("status") == "INVALID_INPUTS":
+            return label + ": проверьте некорректные параметры сценария."
+        return label + ": расчёт недоступен; проверьте параметры и попробуйте снова."
+
+    def _price_planning_missing_labels(self, outcome):
+        labels = [
+            self.EDITABLE_FIELDS[field][0]
+            for field in outcome.get("missing_inputs", [])
+            if field in self.EDITABLE_FIELDS
+        ]
+        if "tax_mode" in outcome.get("missing_inputs", []) or "tax_rate" in outcome.get("missing_inputs", []):
+            labels.append("налоговую политику магазина")
+        if "minimum_tax_rate" in outcome.get("missing_inputs", []):
+            labels.append("минимальную ставку налога")
+        return list(dict.fromkeys(labels))
 
     def _set_field(self, session, field, value, user, scope, expected_version):
         candidate = dict(session["inputs"])
@@ -460,8 +921,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["inputs"][field] = value
             current["provenance"][field] = "manual_seller_assumption"
             current["overrides"].add(field)
+            current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
+            self._operation_tokens.pop((user, scope), None)
             session = deepcopy(current)
             self._pending.pop((user, scope), None)
         return self._scenario_screen(session)
@@ -475,6 +938,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or current["version"] != expected_version
             ):
                 return self._stale_result()
+            current.pop("price_planning_result", None)
             value = current["snapshot"].get("suggested_inputs", {}).get("discount_points_rate")
             current["inputs"]["discount_points_rate"] = value
             current["provenance"]["discount_points_rate"] = (
@@ -483,6 +947,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["overrides"].discard("discount_points_rate")
             current["version"] += 1
             current["updated_at"] = self.clock()
+            self._operation_tokens.pop((user, scope), None)
             session = deepcopy(current)
         return self._scenario_screen(session, notice="Средняя доля баллов восстановлена из источника, если она доступна.")
 
@@ -497,6 +962,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or current.get("version") != expected_version
             ):
                 return self._stale_result()
+            current.pop("price_planning_result", None)
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            expected_version = current["version"]
             snapshot_session = deepcopy(current)
             self._operation_tokens[key] = {
                 "token": operation_token,
@@ -517,6 +986,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     or self._active.get(key) != snapshot_session["scenario_id"]
                     or current.get("version") != expected_version
                 ):
+                    self._remove_operation_token_if_matches_locked(key, operation_token)
                     return self._stale_result()
                 self._operation_tokens.pop(key, None)
                 current["updated_at"] = self.clock()
@@ -541,24 +1011,49 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 or self._active.get(key) != snapshot_session["scenario_id"]
                 or current.get("version") != expected_version
             ):
+                self._remove_operation_token_if_matches_locked(key, operation_token)
                 return self._stale_result()
             current["snapshot"] = deepcopy(fresh)
             current["inputs"] = inputs
             current["provenance"] = provenance
-            current["version"] += 1
             current["updated_at"] = self.clock()
             current["source_loaded_at"] = current["updated_at"]
             current["source_age_seconds_at_load"] = source_age
             current["source_ttl_seconds"] = source_ttl
+            current["version"] += 1
             session = deepcopy(current)
             self._operation_tokens.pop(key, None)
         return self._scenario_screen(session, notice="Источники обновлены; ручные допущения сохранены.")
 
     def _finish_refresh_as_stale(self, key, operation_token):
         with self._lock:
-            if self._operation_is_current_locked(key, operation_token):
-                self._operation_tokens.pop(key, None)
+            self._remove_operation_token_if_matches_locked(key, operation_token)
         return self._stale_result()
+
+    def _remove_operation_token_if_matches_locked(self, key, operation_token):
+        operation = self._operation_tokens.get(key)
+        if isinstance(operation, dict) and operation.get("token") == operation_token:
+            self._operation_tokens.pop(key, None)
+            return True
+        return False
+
+    def _return_to_scenario(self, session, user, scope, expected_version):
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != expected_version
+            ):
+                return self._stale_result()
+            if current.pop("price_planning_result", None) is not None:
+                current["version"] += 1
+                current["updated_at"] = self.clock()
+            self._pending.pop(key, None)
+            self._operation_tokens.pop(key, None)
+            updated = deepcopy(current)
+        return self._scenario_screen(updated)
 
     def _snapshot_freshness_metadata(self, snapshot):
         cache = snapshot.get("cache") if isinstance(snapshot, dict) else None
@@ -672,6 +1167,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "keyboard": self.keyboard_service.build_unit_price_scenario_keyboard(
                 session["scenario_id"], session["version"],
                 include_return_mean=completeness.get("complete") is True,
+                include_price_planning=self.target_planning_service is not None,
             ),
             "read_only": True,
             "executed": False,
@@ -723,6 +1219,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "keyboard": self.keyboard_service.build_unit_price_scenario_keyboard(
                 session["scenario_id"], session["version"],
                 include_return_mean=include_return_mean,
+                include_price_planning=self.target_planning_service is not None,
             ),
             "price_scenario": result,
             "read_only": True,
@@ -896,20 +1393,29 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _get_session(self, scenario_id, version, user, scope):
         with self._lock:
-            session = self._scenarios.get(str(scenario_id or ""))
+            scenario_id = str(scenario_id or "")
+            session = self._scenarios.get(scenario_id)
             if not isinstance(session, dict):
                 return None
             try:
                 requested_version = int(version)
             except (TypeError, ValueError):
                 return None
+            key = (user, scope)
             if (
                 session.get("user_id") != user
                 or session.get("tenant_scope") != scope
-                or self._active.get((user, scope)) != session.get("scenario_id")
+                or self._active.get(key) != session.get("scenario_id")
                 or session.get("version") != requested_version
-                or self.clock() - session.get("updated_at", 0) > self.session_ttl_seconds
             ):
+                return None
+            if self.clock() - session.get("updated_at", 0) > self.session_ttl_seconds:
+                self._scenarios.pop(scenario_id, None)
+                self._active.pop(key, None)
+                pending = self._pending.get(key)
+                if isinstance(pending, dict) and pending.get("scenario_id") == scenario_id:
+                    self._pending.pop(key, None)
+                self._operation_tokens.pop(key, None)
                 return None
             session["updated_at"] = self.clock()
             return deepcopy(session)
@@ -944,6 +1450,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             self._pending.pop((user, scope), None)
             current["version"] += 1
             current["updated_at"] = self.clock()
+            self._operation_tokens.pop((user, scope), None)
             return True
 
     def _clear_pending_for_key(self, key):

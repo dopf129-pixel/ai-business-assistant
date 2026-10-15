@@ -1,5 +1,12 @@
 # Project Roadmap
 
+## Ближайший продуктовый пакет — 15.10.2026
+
+- Завершено: P00–P08 в PR #694 и SKU-калькулятор плановой цены в PR #695. Текущий merged main после #695: `de21561a`; Verify `38707150836` successful. Исторические очереди ниже сохраняются и не означают незавершённость уже принятых пакетов.
+- Владелец выбрал развитие калькулятора: расчётная цена для целевой маржи, ориентир безубыточности, сравнение 2–5 вариантов и явная подстановка только во временный сценарий.
+- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, этапы M00–M04 завершены. PR #696 остаётся открытым после repeat review; исправлена обработка эквивалентных `11.110`/`11.11`. Code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` прошёл Verify runs `38728949431`/`38728942708`: Windows/Linux по 3 204 passed, compileall и Docker health-check успешны. Локальный Windows pytest ограничен ACL (`WinError 5`). Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
+- Использовать существующие math/TaxService/source/runtime. Новые API, Ozon mutations, постоянное хранение сценариев и изменение factual accounting не входят в пакет. После реализации обязательны meaningful regressions, полный CI нового SHA и Architecture Review.
+
 
 ## Current Stage
 

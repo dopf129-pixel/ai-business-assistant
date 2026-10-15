@@ -384,7 +384,13 @@ class AssistantKeyboardService:
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
-    def build_unit_price_scenario_keyboard(self, scenario_id, version, include_return_mean=False):
+    def build_unit_price_scenario_keyboard(
+        self,
+        scenario_id,
+        version,
+        include_return_mean=False,
+        include_price_planning=False,
+    ):
         sid = str(scenario_id)
         ver = str(version)
         fields = (
@@ -402,6 +408,11 @@ class AssistantKeyboardService:
         buttons.append({"text": "Реклама 0%", "callback": f"upc:z:{sid}:{ver}"})
         if include_return_mean:
             buttons.append({"text": "Вернуть среднее баллов", "callback": f"upc:b:{sid}:{ver}"})
+        if include_price_planning:
+            buttons.extend([
+                {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
+                {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
+            ])
         buttons.extend([
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
@@ -423,6 +434,45 @@ class AssistantKeyboardService:
                 {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
                 {"text": "Главное меню", "callback": "main_menu"},
             ],
+        }
+
+    def build_unit_price_planning_result_keyboard(
+        self,
+        scenario_id,
+        version,
+        mode,
+        planning_result=None,
+        allow_apply=True,
+    ):
+        sid = str(scenario_id)
+        ver = str(version)
+        next_action = "q" if mode == "target_margin" else "g"
+        next_label = "Сравнить другие цены" if next_action == "q" else "Цена для целевой маржи"
+        result = planning_result if isinstance(planning_result, dict) else {}
+        buttons = []
+        if allow_apply and mode == "target_margin":
+            target = result.get("target") or {}
+            if target.get("status") == "FOUND" and target.get("goal_reached") is True:
+                buttons.append({
+                    "text": "Подставить цену для цели",
+                    "callback": f"upc:u:{sid}:{ver}:t",
+                })
+        elif allow_apply and mode == "price_options":
+            for index, row in enumerate(result.get("rows") or []):
+                if row.get("available") is True:
+                    buttons.append({
+                        "text": f"Подставить вариант {index + 1}",
+                        "callback": f"upc:u:{sid}:{ver}:{index}",
+                    })
+        buttons.extend([
+            {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
+            {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
         }
 
     def build_unit_price_cancel_keyboard(self, scenario_id, version):
