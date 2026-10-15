@@ -1,11 +1,19 @@
-# 2026-10-15 — N01 исправления сравнения завершены, N02 следующий
+# 2026-10-15 — N02 finalized comparison contract завершён, N03 следующий
+
+- Ветка: `codex/luna-store-analytics-task-20261015`, основание `main` `c55434327f50134324a5ca58e2f084854b809832`; N02 code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`).
+- N02 вводит read-only проекцию уже finalized summary двух соседних равных периодов. Валидирует период against request, tenant, tax policy, profit scope и component flags; конфликт блокирует только сравнение B/E и сохраняет независимые метрики.
+- Применённый Return COGS учитывается только по явному результату final application; подтверждённый K=0 требует `return_cogs_profit_applied=false`, отсутствие суммы и `tax_recomputed=false`. Для прошлого периода используется тот же final application и существующий external-expense evidence/adjustment service; неполное/недоступное E не блокирует B.
+- Проверки: 80 профильных query/contract/finalization/request/presentation regressions passed in 2.11s; `compileall -q app tests` и `git diff --check` прошли. Существующий `tests/test_external_operating_expense_coverage_v1261_v1270.py` локально не дал итоговой сводки: семь tmp_path setup errors и pytest cleanup `PermissionError (WinError 5)` на basetemp. N08 CI остаётся обязательным.
+- Полный suite отложен до N08 exact-head проверки. `data/tasks.json` и `data/users.json` остаются незакоммиченными пользовательскими изменениями. Следующий этап: N03 — арифметика сравнений, денежных долей и маржи в процентных пунктах.
+
+# 2026-10-15 — N01 исправления сравнения завершены
 
 - N01 code commit: `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`), поверх N00 commit `96c3b843621979a1da356d9a0c4363a7b2ff4bb6`.
 - A1: production final wrapper и base-only query сохраняют current при сбоях необязательной previous ветки; ошибка mandatory current остаётся fail-closed. Runtime делает один вызов и больше не запускает current повторно при любой ошибке compare-path. `comparison_status`/безопасный код и Telegram-предупреждение указывают недоступность сравнения.
 - A2: comparison builder отклоняет пропущенную, boolean, строковую, не конечную или переполняющую арифметику прибыли; поддерживает finite int/float/Decimal, конечный отрицательный результат и известный 0. Scope flags требуют настоящих bool.
 - A3: compact и verbose тексты обозначают дельту как прибыль до внешних расходов. Не вычисляется ложная E↔B дельта.
 - Targeted query/runtime/final-application/Return COGS/presentation suite: **128 passed in 2.14s**; `compileall -q app` и `git diff --check` успешны. Полный suite отложен до N08 exact-head проверки. PR #697 теперь содержит подготовку ТЗ, N00 и N01; перед merge требуется Architecture Review.
-- Незакоммиченные `data/tasks.json` и `data/users.json` сохранены, не staged. Следующий этап: N02 contract finalized results / B-E scope.
+- Незакоммиченные `data/tasks.json` и `data/users.json` сохранены, не staged.
 
 # 2026-10-15 — N00 аналитики прибыли завершён
 

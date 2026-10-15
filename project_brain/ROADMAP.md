@@ -4,7 +4,7 @@
 
 - Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.
 - Владелец выбрал следующий пакет по результатам аудита. Основание — `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`: три воспроизведённые проблемы сравнения и конкретные пробелы объяснения фактической прибыли.
-- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. N00 и N01 завершены на task branch. N01 `66d79d6`: optional comparison failures сохраняют один current-результат, суммы/flags валидируются, база B подписана; профильный набор — **128 passed**, `compileall` успешен. Следующий этап N02 — контракт двух finalized периодов, политик налога и покрытия B/E.
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. N00–N02 завершены на task branch. N02 `07c6c99`: canonical contract двух finalized результатов, строгая совместимость tax/scope/tenant/period и B/E coverage; previous expense evidence использует существующий сервис. Профильный набор — **80 passed**; `compileall` и diff check успешны. Следующий этап N03 — сравнения сумм, единиц и маржи, включая корректную обработку нулевой/отрицательной базы.
 - Сохранить действующие finance/TaxService/final Return COGS/coverage contracts. Новые Ozon API, платные источники, аллокация account costs по SKU, постоянные сценарии и Ozon mutations не входят в пакет. Перед merge нужны meaningful regressions и полный CI нового SHA.
 
 

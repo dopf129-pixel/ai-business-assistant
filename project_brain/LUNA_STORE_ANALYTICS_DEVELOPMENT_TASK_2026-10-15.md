@@ -1,6 +1,6 @@
 # ТЗ GPT Luna — надёжная и объяснимая аналитика прибыли магазина
 
-**Дата:** 15.10.2026. **Статус:** подготовлено; реализация не начата.
+**Дата:** 15.10.2026. **Статус:** N00–N02 завершены на task branch; N03 следующий.
 
 ## 1. Задача владельца и результат
 
@@ -20,7 +20,7 @@
 
 - PR #694: P00–P08 завершены; PR #695: базовый калькулятор завершён; PR #696: целевая маржа и варианты цены **слиты**.
 - Зафиксированный `main`: **`c55434327f50134324a5ca58e2f084854b809832`**. Дерево соответствует reviewed head `fc15b9c`. Последний проверенный CI того head: 3 204 теста на Windows/Linux, compileall и Docker smoke — success.
-- Начинать реализацию от актуального `origin/main`, сохранив этот документ и все существующие локальные изменения. Если задание передано из docs-ветки, сначала определить, попала ли она в main; не начинать feature поверх старой слитой ветки калькулятора случайно.
+- Реализация идёт в `codex/luna-store-analytics-task-20261015`, основанной на `main` `c55434327f50134324a5ca58e2f084854b809832`. Текущая кодовая база задачи зафиксирована коммитами N00–N02 ниже; PR #697 остаётся отдельным review-носителем.
 - В момент подготовки локально изменены `data/tasks.json`, `data/users.json`; есть старые временные каталоги с ACL-ошибками. Не включать их в коммиты, не чистить и не исправлять ACL ради прохождения тестов.
 - Не применять `git reset --hard`, `git clean`, restore/stash пользовательских данных или широкое `git add -A`. При несовместимом рабочем дереве использовать разрешённый изолированный checkout/worktree, предварительно проверив доступные attachment и инструкции проекта.
 - Ветки реализации: `codex/store-profit-comparison-...`; маленькие commits по результату этапа. Подготовка ТЗ не разрешает автоматически сливать будущие PR или развёртывать бота.
@@ -123,7 +123,19 @@
 | `comparison_basis` | Явно выбранный уровень прибыли, не название экрана |
 | `read_only`, `executed` | `True`, `False` соответственно |
 
-Названия полей уточнить в N00 и зафиксировать одной таблицей. Не вводить второй evidence/readiness engine. Смысл статусов — CONFIRMED / PARTIAL / UNKNOWN / UNAVAILABLE; их конкретное кодирование должно быть единообразным и согласовано с existing contracts.
+Актуальная нормализованная проекция N02 зафиксирована одной таблицей ниже. Не вводить второй evidence/readiness engine. Смысл статусов — CONFIRMED / PARTIAL / UNKNOWN / UNAVAILABLE; существующий coverage/evidence остаётся авторитетным.
+
+| Уровень | Поля N02 | Источник / правило |
+|---|---|---|
+| Contract | `schema_version=1`, `status`, `generated_at`, `read_only=true`, `executed=false` | `generated_at` — UTC время чтения. Контракт не пересчитывает финансовые суммы. |
+| `scope` | `tenant_scope`, `owner_scope`, `currency=RUB`, `result_type=STORE_PERIOD_PROFIT` | Точный tenant берётся из текущего контекста; owner пока `null` и должен быть закреплён в N06 snapshot до Telegram-показа. Без tenant B/E не подтверждается. |
+| Period | `date_from`, `date_to`, `inclusive_days` в `current` и `previous` | Берётся из finalized summary и сверяется с исходным `request`; два периода должны быть равны по длине и смежны. |
+| Tax / component scope | `profit_scope`; `tax_policy.{status,mode,rate_percent,minimum_tax_rate_percent,minimum_rate_applicable,source}`; `component_scope` | Только точные поля summary. Неизвестная/разная policy, scope или component flags блокируют сравнение прибыли, но не независимые метрики. |
+| `metrics` | `{value,unit,status,source}` для `revenue`, `discount_points`, `revenue_tax_base`, `net_accrual`, `product_cost`, `tax`, `profit`, `margin_percent`, `units_sold`, `return_cogs_adjustment`, `external_expenses`, `profit_after_external_expenses`, `margin_after_external_expenses` | Canonical money/profit copied as supplied. K подтверждается только явным final-application marker (false + K unset + tax not recomputed means confirmed zero; true requires finite K and tax recomputed). |
+| `coverage` | `status`, `included_components`, `missing_components`, `external_expenses`, `return_cogs_application` | Короткая проекция текущего coverage/evidence, без сырых строк расходов и идентификаторов. |
+| `profit_compatibility` / `profit_bases` | Совместимость и пары current/previous для B и E | B — только сопоставимая canonical finalized прибыль. E требует B и complete external expense coverage/adjustment с обеих сторон; контракт не выводит monetary delta. |
+
+Структурно созданный contract может иметь `status=PERIOD_PROFIT_COMPARISON_CONTRACT_READY`, даже если `profit_compatibility.status=UNAVAILABLE`. Это сохраняет независимые подтверждённые показатели и причину несовместимости.
 
 Текущий и предыдущий периоды относятся к одному магазину, валюте RUB, одинаковой длительности, одному типу фактической прибыли и сопоставимому составу учтённых компонентов. По умолчанию предыдущий равный период непосредственно перед выбранным; произвольный второй диапазон и год-к-году не входят в первую версию.
 
@@ -402,7 +414,7 @@ docs | remaining risk/blocker
 |---|---|---|
 | N00 | COMPLETE | Branch `codex/luna-store-analytics-task-20261015`, base/source SHA `c55434327f50134324a5ca58e2f084854b809832`; task branch SHA before N00 log `12619f947fd00d5fce056836000abb36ecb5300f`. Production chain: factory → base `PeriodProfitQueryService` → `PeriodProfitFinalApplicationQueryService` → runtime → compact formatter. Base query owns the compatibility base-only comparison path; final wrapper calls base with comparison disabled, finalizes current Return COGS/external expenses, and owns production comparison. Base-only previous summary errors currently bubble; final wrapper degrades previous summary errors but not all previous-return/application failures; runtime retries the whole current query after any comparison request error. Comparison builder reads only profit and coerces missing/bool/non-finite inputs; compact display may show adjusted E with unlabeled base B delta. No code or financial contracts changed. Baseline `9 passed in 0.48s`; verified working tree only has preserved `data/tasks.json` and `data/users.json` edits. |
 | N01 | COMPLETE | Code commit `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`). Base-only and production final-wrapper failures in optional previous summary/returns/application preserve current result; runtime performs no blind retry; mandatory current failure remains fail-closed. Comparison rejects invalid monetary values/flags; compact/verbose copy labels B as before external expenses. Red→green: 128 targeted tests passed in 2.14s; `compileall -q app` and `git diff --check` passed. Full suite and exact-head cross-platform CI deferred to N08. Files: comparison helper, base/final query services, runtime/presentation, focused regressions. Architecture Review Required for final PR. |
-| N02 | NOT_STARTED | — |
+| N02 | COMPLETE | Code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`). Добавлена read-only проекция finalized current/previous результатов; previous Return COGS проходит существующий final application, а внешние расходы прошлого периода загружаются существующим evidence service после финализации. Tax/scope/component/tenant/period mismatch отключает только profit comparison; partial/unknown E не объявляется нулём. Edge dates including leap day/year boundary and underflow are covered. 80 профильных тестов passed in 2.11s; `compileall -q app tests` и `git diff --check` прошли. Попытка включить существующую tmp_path expense coverage module не дала summary: pytest показал 7 setup errors и завершился с WinError 5 при обходе basetemp; поведение coverage проверено новыми pure/integration tests, повторить в N08 CI. Пользовательские data-файлы сохранены вне коммита. |
 | N03 | NOT_STARTED | — |
 | N04 | NOT_STARTED | — |
 | N05 | NOT_STARTED | — |
