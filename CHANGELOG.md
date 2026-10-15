@@ -1,7 +1,7 @@
-# 2026-10-15 — N08 приёмка аналитики периода (в процессе)
+# 2026-10-15 — N08 приёмка аналитики периода завершена
 
 - Локальный полный pytest на code SHA `bbdebf4` сообщил **2 876 passed, 22 failed, 369 errors in 71.91s**; обычный запуск также встретил `PermissionError (WinError 5)` при обходе pytest basetemp. Причины этого результата не установлены, локальный запуск не принят.
-- Exact-head CI на `c36efb6` выявил одну устаревшую assertion строки сравнения (Windows и Linux: по **3 267 passed, 1 failed**); исправлена проверка подписи без изменения поведения и денежных значений. Связанный локальный тестовый модуль: **10 passed**. После follow-up нужны полный Windows/Linux CI, compileall, production Docker build/runtime smoke и архитектурный review. PR #697 остаётся открытым, слияния не было.
+- Exact-head CI на `c36efb6` выявил одну устаревшую assertion строки сравнения (Windows и Linux: по **3 267 passed, 1 failed**); проверка подписи исправлена без изменения поведения и денежных значений. На final code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d` Windows/Linux прошли по **3 268 тестов**, compileall и production Docker build/runtime smoke успешны. Архитектурный review выполнен без открытых findings. PR #697 открыт и не слит для независимого review.
 
 # 2026-10-15 — N06: добавлены экраны аналитики прибыли периода
 
