@@ -5,6 +5,9 @@ from period_profit_comparison import (
 from period_profit_comparison_contract import (
     build_period_profit_comparison_contract,
 )
+from period_profit_comparison_metrics import (
+    build_period_profit_comparison_metrics,
+)
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
@@ -169,6 +172,20 @@ class PeriodProfitFinalApplicationQueryService:
                 }
             result["comparison_contract"] = comparison_contract
             if comparison_contract.get("error") is False:
+                try:
+                    result["comparison_metrics"] = (
+                        build_period_profit_comparison_metrics(
+                            comparison_contract
+                        )
+                    )
+                except Exception:
+                    result["comparison_metrics"] = {
+                        "error": True,
+                        "code": "PERIOD_PROFIT_COMPARISON_METRICS_UNAVAILABLE",
+                        "status": "PERIOD_PROFIT_COMPARISON_METRICS_UNAVAILABLE",
+                        "read_only": True,
+                        "executed": False,
+                    }
                 if comparison_contract["profit_bases"]["B"]["status"] != "CONFIRMED":
                     reasons = comparison_contract["profit_compatibility"].get(
                         "reason_codes"

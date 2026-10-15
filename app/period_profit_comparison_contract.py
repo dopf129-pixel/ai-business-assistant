@@ -1,7 +1,7 @@
 """Normalized, read-only contract for two finalized store-profit periods."""
 
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from math import isfinite
 
 
@@ -126,13 +126,12 @@ def _normalize_result(result, tenant_scope, generated_at):
     metrics = {
         name: _metric(summary.get(name), unit, "canonical_summary")
         for name, unit in _SUMMARY_METRICS
+        if name != "units_sold"
     }
-    if metrics["units_sold"]["status"] == "CONFIRMED":
-        units = metrics["units_sold"]["value"]
-        if units < 0 or not units.is_integer():
-            metrics["units_sold"] = _unknown_metric("UNIT", "canonical_summary")
-        else:
-            metrics["units_sold"]["value"] = int(units)
+    metrics["units_sold"] = _unit_count(
+        summary.get("units_sold"),
+        "canonical_summary",
+    )
 
     applied = summary.get("return_cogs_profit_applied")
     application_amount = _finite_number(
@@ -414,6 +413,22 @@ def _metric(value, unit, source):
         if number is not None
         else _unknown_metric(unit, source)
     )
+
+
+def _unit_count(value, source):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return _unknown_metric("UNIT", source)
+    try:
+        number = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (DecimalException, TypeError, ValueError):
+        return _unknown_metric("UNIT", source)
+    if not number.is_finite() or number < 0 or number != number.to_integral_value():
+        return _unknown_metric("UNIT", source)
+    try:
+        count = int(number)
+    except (OverflowError, ValueError):
+        return _unknown_metric("UNIT", source)
+    return _known_metric(count, "UNIT", source)
 
 
 def _known_metric(value, unit, source, status="CONFIRMED"):

@@ -158,6 +158,9 @@ def test_production_wrapper_compares_finalized_b_and_e_using_both_period_evidenc
     assert contract["profit_bases"]["E"]["status"] == "CONFIRMED"
     assert contract["profit_bases"]["E"]["current_value"] == 102.0
     assert contract["profit_bases"]["E"]["previous_value"] == 94.0
+    assert result["comparison_metrics"]["metrics"]["profit"]["delta"] == 10
+    assert result["comparison_metrics"]["metrics"]["profit_after_external_expenses"]["delta"] == 8
+    assert result["comparison_metrics"]["metrics"]["profit_after_external_expenses"]["delta_unit"] == "RUB"
     assert base.summary_service.calls == [
         ("2026-09-13", "2026-09-19"),
         ("2026-09-06", "2026-09-12"),
@@ -185,4 +188,6 @@ def test_tax_policy_mismatch_keeps_current_result_and_suppresses_legacy_delta():
     assert result["comparison"] is None
     assert result["comparison_status"] == "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
     assert result["comparison_contract"]["profit_bases"]["B"]["status"] == "UNAVAILABLE"
+    assert result["comparison_metrics"]["metrics"]["revenue"]["delta"] == 0
+    assert result["comparison_metrics"]["metrics"]["profit"]["delta"] is None
     assert "PERIOD_PROFIT_COMPARISON_TAX_POLICY_MISMATCH" in result["comparison_contract"]["profit_compatibility"]["reason_codes"]
