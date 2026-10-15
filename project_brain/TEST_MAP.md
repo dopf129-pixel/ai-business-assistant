@@ -4,7 +4,7 @@
 
 - `tests/test_unit_price_target_planning_service.py` добавляет: достижимая 50% маржа и безубыточность находятся при неуспешной максимальной копейке; provenance рассчитанной и введённой цены отделяется от источника исходной цены. Максимальный счётчик в проверке — ≤113 при hard cap 128.
 - Helper + Telegram runtime + architecture/repeat-review regressions: **75 passed in 1.12s**; `compileall` изменённых Python files и `git diff --check` прошли.
-- Полный локальный `pytest -q` не дал достоверного итога: на Windows pytest завершился `WinError 5` при перечислении временного каталога; полный CI на новом SHA ещё не запущен.
+- Полный локальный `pytest -q` не дал достоверного итога: были ошибки и сбои, затем pytest завершился `WinError 5` при перечислении временного каталога. PR Verify run **38716365784** на точном SHA `475f2dbccc069c58a8ac859c9334705472718e0c` прошёл: Windows **3 192 passed in 20.16s**, Linux **3 192 passed in 11.08s**, compileall и production Docker build/runtime smoke успешны.
 
 ## M00 baseline целевой маржи
 

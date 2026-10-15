@@ -151,7 +151,7 @@
 | M01 | M00 | **Завершён 15.10.2026**. Добавлен чистый `UnitPriceTargetPlanningService` и parser; 81 соседний тест passed, compile helper passed; код ещё не подключён к runtime |
 | M02 | M01 | **Завершён 15.10.2026**. Telegram ввод цели/вариантов, компактные результаты, исправление ввода/возврат; цена основного сценария не меняется |
 | M03 | M02 | **Завершён 15.10.2026**. Явное применение цены и полная version/tenant/lifecycle/freshness защита новых результатов/pending stages |
-| M04 | M01–M03 | **Реализация завершена; review follow-up**. Первоначальный PR #696 head `e3a1435`; review подтвердил R1/R2, исправления описаны в §19. Новый CI и повторный review ещё ожидаются |
+| M04 | M01–M03 | **Реализация и review follow-up завершены**. Исправленный PR #696 head `475f2dbccc069c58a8ac859c9334705472718e0c`; R1/R2 перепроверены, CI run `38716365784` зелёный на Windows/Linux, Docker build/smoke прошли. PR открыт; слияние выполняет другая модель |
 
 В M00 допустим короткий source/algorithm note в этом документе. Проблему, не входящую в пакет, фиксировать отдельно; исправлять только если она блокирует его контракт и подтверждена воспроизведением. Не переписывать рабочий runtime целиком ради новых кнопок.
 
@@ -196,9 +196,9 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Завершён 15.10.2026 | PR #696, head при проверке `46e91cffe66beac1c5f8289ba5cac7984975fd6c` | Public-handler integration; target suite 72 passed in 1.13s; Verify run 38713193546: Windows 3 189 passed/41.30s, Linux 3 189 passed/12.14s, compileall и production Docker build/smoke success. PR открыт, не слит, ожидает независимый Architecture Review |
+| M04 | Завершён 15.10.2026 | PR #696, актуальный head `475f2dbccc069c58a8ac859c9334705472718e0c` | Public-handler integration; target suite 72 passed in 1.13s. После исправлений R1/R2 Verify run 38716365784: Windows 3 192 passed/20.16s, Linux 3 192 passed/11.08s, compileall и production Docker build/smoke success. PR открыт, не слит; слияние проведёт другая модель |
 
-Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Все этапы реализации завершены. Повторные исправления R1/R2 внесены; перед слиянием нужно завершить новый CI и Architecture Review исправленного SHA.
+Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Все этапы реализации и повторной проверки R1/R2 завершены. PR #696 остаётся открытым для слияния другой моделью.
 
 ## 13. Отчёт подготовки ТЗ
 
@@ -272,7 +272,7 @@
 2. **Files Changed:** `app/services/unit_price_target_planning_service.py`, `tests/test_unit_price_target_planning_service.py`, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md` и это ТЗ. Удалений нет.
 3. **Architecture Impact:** локальное расширение bounded search существующего helper; новые сервисы, API и persistence не добавляются. Интерфейс результата сохраняет исходную provenance отдельно и указывает provenance цены конкретного кандидата.
 4. **Preserved Components:** canonical `UnitPriceScenarioService`/`TaxService`, 128-call hard cap, read-only Ozon policy, transient runtime and user/store/SKU/version/snapshot guards; пользовательские data JSON/lock/temp не включаются.
-5. **Testing:** четыре связанных модуля — **75 passed in 1.12s**; `compileall` изменённых Python файлов и `git diff --check` прошли. Полный локальный pytest завершился ошибками доступа Windows к basetemp (`WinError 5`) и не дал валидного summary; чистый CI для нового SHA ещё не запущен.
+5. **Testing:** четыре связанных модуля — **75 passed in 1.12s**; `compileall` изменённых Python файлов и `git diff --check` прошли. Полный локальный pytest не дал summary: Windows показал ошибки/сбои и завершился `WinError 5` при перечислении basetemp. PR Verify run **38716365784** на SHA `475f2dbccc069c58a8ac859c9334705472718e0c`: Windows **3 192 passed in 20.16s**, Linux **3 192 passed in 11.08s**; compileall, production Docker build/runtime smoke успешны.
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP и это ТЗ обновлены; DECISIONS не менялся, нового архитектурного решения нет.
-7. **Review Classification:** Architecture Review Required сохраняется для всего PR #696; два подтверждённых P2 исправлены, нужен CI и повторный review.
-8. **Next Recommended Step:** зафиксировать только файлы этого исправления, отправить обновление PR #696, проверить CI нового SHA и повторно проверить, что R1/R2 закрыты. Слияние не выполняется этим этапом.
+7. **Review Classification:** Architecture Review Required для всего PR #696; оба подтверждённых P2 закрыты, повторная проверка diff не выявила новых замечаний.
+8. **Next Recommended Step:** другая модель принимает решение о слиянии PR #696. Текущий этап не сливал PR и не развёртывал бота.
