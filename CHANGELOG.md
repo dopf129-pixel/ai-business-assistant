@@ -1,10 +1,16 @@
+# 2026-10-15 — N08 приёмка аналитики периода (в процессе)
+
+- Локальный полный pytest на code SHA `bbdebf4` сообщил **2 876 passed, 22 failed, 369 errors in 71.91s**; обычный запуск также встретил `PermissionError (WinError 5)` при обходе pytest basetemp. Причины всех ошибок и падений не подтверждены; локальный результат не считается приёмкой.
+- Для завершения нужны полный Windows/Linux CI, compileall, production Docker build/runtime smoke и архитектурный review точного итогового SHA. PR #697 остаётся открытым, слияния не было.
+
 # 2026-10-15 — N06: добавлены экраны аналитики прибыли периода
 
 - После расчёта прибыли появилась кнопка «Аналитика периода» со сравнением периодов, денежным мостом, вкладом сопоставленных SKU и возвратом к отчёту.
 - Детали читают ограниченный снимок текущего отчёта; открытие кнопок не повторяет запросы Ozon. Снимок ограничен 64 отчётами, живёт 10 минут, привязан к владельцу и магазину.
 - SKU-метки очищаются от управляющих символов и ограничиваются по длине; в снимке нет полной таблицы товаров и сырых Return COGS records.
-- N06 локально: 74 профильных теста passed; тест production factory не удалось выполнить в среде с WinError 5 на `tmp_path`; ожидает clean CI. `compileall -q app tests` и `git diff --check` успешны.
-- Code commit: `e9372b1` (`Add period profit analytics Telegram views`). Architecture Review Required: runtime/presentation contract расширен на несколько экранов, суммарный diff больше 300 строк.
+- Краткий экран показывает максимум три самых значимых подтверждённых вклада; при неподтверждённом денежном мосте не выводит пустой список объяснений. Follow-up commit `9a6523c`.
+- N06 локально: 75 профильных тестов passed; production-factory regression ожидает clean CI из-за WinError 5 на временном каталоге. `compileall -q app tests` и `git diff --check` успешны.
+- Code commits: `e9372b1` (`Add period profit analytics Telegram views`), `9a6523c` (`Limit analytics overview to confirmed top contributions`). Architecture Review Required: runtime/presentation contract расширен на несколько экранов, суммарный diff больше 300 строк.
 
 # 2026-10-15 — N05: добавлен разбор вклада SKU
 
