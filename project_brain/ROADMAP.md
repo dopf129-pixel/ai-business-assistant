@@ -4,7 +4,7 @@
 
 - Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.
 - Владелец выбрал следующий пакет по результатам аудита. Основание — `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`: три воспроизведённые проблемы сравнения и конкретные пробелы объяснения фактической прибыли.
-- Следующее исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08: исправления optional comparison/валидации/базы → сопоставимые метрики → денежные вклады → вклад SKU → scoped Telegram snapshots → проверки/Architecture Review. **Подготовлено, реализация не начата.**
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. N00 завершён на ветке `codex/luna-store-analytics-task-20261015`: production chain и compatibility path сверены, baseline 9 focused tests прошли. N01 устраняет повтор current на optional previous failures, строгую проверку денег и явную подпись базы сравнения.
 - Сохранить действующие finance/TaxService/final Return COGS/coverage contracts. Новые Ozon API, платные источники, аллокация account costs по SKU, постоянные сценарии и Ozon mutations не входят в пакет. Перед merge нужны meaningful regressions и полный CI нового SHA.
 
 

@@ -1,3 +1,8 @@
+# 2026-10-15 — N00 аудит фактической аналитической цепочки
+
+- Проверена production composition: factory → base query → final Return COGS wrapper → runtime → compact report. Runtime при ошибке сравнения повторяет весь запрос current; production wrapper обрабатывает отказ прошлого summary, но не все сбои прошлой ветки возвратов/применения. Отдельно подтверждены base-only compatibility consumer и его текущая политика ошибок.
+- Зафиксирована исходная база: текущие предыдущепериодные, query и runtime fallback regressions — **9 passed in 0.48s** на SHA `12619f947fd00d5fce056836000abb36ecb5300f`. Код не менялся; данные пользователя сохранены. Переход к N01.
+
 # 2026-10-15 — Подготовлен следующий пакет разработки для Luna
 
 - После слияния PR #696 (`c554343`) подготовлены аудит и ТЗ `project_brain/LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`: надёжное сравнение периодов, объяснение изменения прибыли и вклад SKU.

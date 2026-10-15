@@ -1,3 +1,10 @@
+# 2026-10-15 — N00 аналитики прибыли завершён, N01 следующий
+
+- Реализация продолжается на docs-ветке `codex/luna-store-analytics-task-20261015`, основанной непосредственно на слитом `main` `c55434327f50134324a5ca58e2f084854b809832`. PR #697 с исходными ТЗ/аудитом открыт; ветка не устарела и кодовая реализация ещё не менялась.
+- N00 подтвердил production chain: `period_profit_factory` создаёт base `PeriodProfitQueryService`, оборачивает в `PeriodProfitFinalApplicationQueryService`; runtime вызывает final wrapper, затем compact formatter. Base query остаётся base-only compatibility path.
+- Production wrapper отключает comparison в base query, финализирует current Return COGS/внешние расходы и строит сравнение. Ошибка previous summary уже сохраняет current; ошибка прошлых возвратов/анализа/application выходит как общий error, после чего runtime повторяет current. Base-only query также возвращает optional previous summary error напрямую. Текущий compact текст может показывать adjusted profit рядом с неподписанной base comparison.
+- Исходные focused tests: `9 passed in 0.48s`. A1–A3 остаются открытыми для N01. Текущие локальные изменения `data/tasks.json` и `data/users.json` сохранены и не staged.
+
 # 2026-10-15 — PR #696 слит; подготовлено ТЗ следующего пакета
 
 - PR #696 слит в `main` squash-коммитом `c55434327f50134324a5ca58e2f084854b809832`. После fetch прямой diff деревьев reviewed head `fc15b9c` и `origin/main` пуст. Прежние записи «PR открыт» ниже являются историей.

@@ -400,7 +400,7 @@ docs | remaining risk/blocker
 
 | Этап | Статус на подготовку | Фактическая реализация/проверки |
 |---|---|---|
-| N00 | NOT_STARTED | Аудит подготовки — отдельный файл; исполнитель проверяет актуальную базу |
+| N00 | COMPLETE | Branch `codex/luna-store-analytics-task-20261015`, base/source SHA `c55434327f50134324a5ca58e2f084854b809832`; task branch SHA before N00 log `12619f947fd00d5fce056836000abb36ecb5300f`. Production chain: factory → base `PeriodProfitQueryService` → `PeriodProfitFinalApplicationQueryService` → runtime → compact formatter. Base query owns the compatibility base-only comparison path; final wrapper calls base with comparison disabled, finalizes current Return COGS/external expenses, and owns production comparison. Base-only previous summary errors currently bubble; final wrapper degrades previous summary errors but not all previous-return/application failures; runtime retries the whole current query after any comparison request error. Comparison builder reads only profit and coerces missing/bool/non-finite inputs; compact display may show adjusted E with unlabeled base B delta. No code or financial contracts changed. Baseline `9 passed in 0.48s`; verified working tree only has preserved `data/tasks.json` and `data/users.json` edits. |
 | N01 | NOT_STARTED | A1–A3 воспроизведены, исправлений пока нет |
 | N02 | NOT_STARTED | — |
 | N03 | NOT_STARTED | — |

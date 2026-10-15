@@ -1,8 +1,9 @@
 # Следующий пакет аналитики — подготовка ТЗ 15.10.2026
 
-- Baseline: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s**. Новых тестов при подготовке документации не добавляли; полный pytest не запускали.
-- Fake-only audit probes подтвердили повтор current при отказе прошлых возвратов через production final wrapper; пропуск None/bool/NaN pure comparison builder; неоднозначную подпись базового comparison рядом с adjusted profit. Это evidence проблем, а не зелёные регрессии исправлений.
-- Матрица будущих meaningful regressions и exact-head CI: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, разделы 16–19. N00–N08 ещё не реализованы.
+- Фактический baseline перед кодом N01: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s** на task branch SHA `12619f947fd00d5fce056836000abb36ecb5300f`.
+- N00 проверил composition `period_profit_factory → PeriodProfitQueryService → PeriodProfitFinalApplicationQueryService → AssistantPeriodProfitRuntimeService → compact_period_profit_result`. Production comparison принадлежит final wrapper; base service отдельно поддерживает base-only consumers. Текущий fake runtime test с `[True, False]` фиксирует повтор current и будет заменён интеграционными regressions N01, сохраняя fail-closed для current errors.
+- Fake-only probes подготовки подтверждали повтор current при отказе прошлых возвратов, принятие `None`/`bool`/`NaN` builder-ом и неподписанное сравнение B рядом с E. Это audit evidence, не успешные исправляющие тесты.
+- Матрица N00–N08 и exact-head CI: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, разделы 16–19.
 - PR #696 уже слит в main `c554343`; результаты ниже относятся к его историческим проверкам и не принимают будущий код аналитики.
 
 # PR #696 — нормализация цены до сетки копеек
