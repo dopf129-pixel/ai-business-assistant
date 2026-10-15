@@ -8,6 +8,9 @@ from period_profit_comparison_contract import (
 from period_profit_comparison_metrics import (
     build_period_profit_comparison_metrics,
 )
+from period_profit_comparison_bridge import (
+    build_period_profit_comparison_bridge,
+)
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
@@ -183,6 +186,20 @@ class PeriodProfitFinalApplicationQueryService:
                         "error": True,
                         "code": "PERIOD_PROFIT_COMPARISON_METRICS_UNAVAILABLE",
                         "status": "PERIOD_PROFIT_COMPARISON_METRICS_UNAVAILABLE",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                try:
+                    result["profit_bridge"] = (
+                        build_period_profit_comparison_bridge(
+                            comparison_contract
+                        )
+                    )
+                except Exception:
+                    result["profit_bridge"] = {
+                        "error": False,
+                        "status": "PERIOD_PROFIT_COMPARISON_BRIDGE_UNAVAILABLE",
+                        "code": "PERIOD_PROFIT_COMPARISON_BRIDGE_UNAVAILABLE",
                         "read_only": True,
                         "executed": False,
                     }
