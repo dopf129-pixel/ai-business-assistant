@@ -1,11 +1,12 @@
-# 2026-10-15 — M00–M02 планирования цены завершены, выполняется M03
+# 2026-10-15 — M00–M03 планирования цены завершены, выполняется M04
 
 - PR #695 слит в `main` squash-коммитом `de21561a8b440570ac34bcfd9b3dc48abee1ffac`. Его дерево совпадает с reviewed head `ef6be5e`; merged-main Verify run `38707150836` — success. В предшествующей PR integration проверке Windows/Linux дали по **3 150 passed**; Docker build/runtime smoke прошли.
 - PR #695 уже слит; новый этап выполняется в отдельной ветке `codex/price-planning-target-margin-20261015`, созданной от актуального `main` `de21561a8b440570ac34bcfd9b3dc48abee1ffac`.
 - M00 audit завершён: диапазон 0,01–9 999 999 999 999,99 ₽, шаг копейка; выбран поиск по двум предикатам с общей верхней границей 104 прямых расчёта. Никакая обратная формула налога не дублируется, глобальная минимальность не обещается.
 - M00 baseline пять существующих unit-price модулей: **57 passed in 1.20s**; точные synthetic случаи сверены напрямую с TaxService.
 - M01 добавил чистый `UnitPriceTargetPlanningService`: поиск цели 0–100% и сравнение 2–5 цен через существующий forward calculator, exact Decimal check и максимум 128 расчётов. Шесть калькуляторных модулей — **81 passed in 1.37s**; compile helper passed.
-- M02 подключил кнопки/ввод/компактный результат к тому же runtime и factory. Сценарий остаётся неизменным; цель используется при последующем сравнении вариантов. Ошибочный ввод исправляется, пропущенные расходы остаются неизвестными, refresh и изменение допущений инвалидируют старый результат. Telegram helper/runtime/architecture/regression набор: **63 passed**; M03 должен добавить version-bound явную подстановку и расширенный lifecycle.
+- M02 подключил кнопки/ввод/компактный результат к тому же runtime и factory. Сценарий остаётся неизменным до явного выбора; цель используется при последующем сравнении вариантов. Ошибочный ввод исправляется, пропущенные расходы остаются неизвестными. Тестовый набор M02 — **63 passed**.
+- M03 добавил выбор только по callback-селектору сохранённого target/row result, прямую повторную проверку перед применением, обновление только временной цены и provenance, freshness/version/tenant/SKU/snapshot/expiry guards и освобождение session result при TTL. Между изменением сценария и поздним завершением расчёта действует fail-closed guard. Целевой набор M03 — **71 passed**; compileall и diff check прошли. M04 запускает полный suite, интеграционные проверки и CI.
 - Пользовательские `data/tasks.json`, `data/users.json`, lock-файл и временные каталоги перенесены сменой ветки без изменений и остаются незакоммиченными; в коммиты не включать.
 
 # 2026-10-15 — M02 целевая маржа и сравнение цен подключены
@@ -15,6 +16,13 @@
 - Невалидный процент/список оставляет pending stage для исправления; отмена возвращает исходный сценарий. Изменения параметров, refresh и возврат из результата сбрасывают сохранённый результат. Новые расчёты не изменяют seller price или business state.
 - Helper, Telegram runtime, architecture/repeat-review и новые lifecycle regressions: **63 passed in 1.06s** (Windows Python 3.12, изолированный pytest temp, без pytest cache). Проверены 5 строк цены, UTF-16 Telegram limit, callbacks ≤64 bytes, одна исходная загрузка SKU и сохранность цены.
 - M02 выполнен отдельным reviewable commit на ветке `codex/price-planning-target-margin-20261015`; его SHA указан в истории выполнения ТЗ. Полный suite и CI нового code SHA остаются M04.
+
+# 2026-10-15 — M03 применение выбранной цены завершено
+
+- Кнопка целевого результата может подставить только проверенную цену, достигшую цели; таблица разрешает выбрать только сохранённую вычислимую строку. Callback содержит индекс строки/селектор цели и связан с user, store, SKU, scenario, version и snapshot; цену из callback runtime не читает.
+- Перед изменением цены кандидат повторно вычисляется текущим `UnitPriceScenarioService`. Коммит в память происходит только под lock после проверки версии, активного сценария, tenant/store, SKU и snapshot. Устаревший source или сессия отказывает и очищает transient результат; Ozon и business repositories не меняются.
+- При успешном refresh source snapshot получает новое поколение версии, старые callback больше не подходят. Late apply after new input returns stale без перезаписи. Expiry удаляет session, active/pending/operation references и сохранённый result.
+- Целевой набор helper/runtime/architecture/repeat-review: **71 passed in 1.11s**; `compileall` изменённых Python files passed; `git diff --check` clean. M04 выполняет полный pytest, production smoke и новый CI/PR.
 
 # История 2026-10-15 — PR #695: R11 исправлен и принят при повторной проверке
 

@@ -14,6 +14,12 @@
 - M02 добавил к этому набору target/list/retry/cancel/missing-input/price-preservation/production-factory/UTF-16 проверки в `tests/test_unit_price_scenario_telegram_runtime.py`. С `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py` и helper module: **63 passed in 1.06s**.
 - В Telegram tests подтверждены отсутствие дополнительного source/API call при поиске и таблице, сохранение цены основного сценария, удержание ранее введённой цели для отметок сравнения, исправление невалидного списка целиком и пределы сообщения/callback. Полный suite и Windows/Linux/Docker CI нового code SHA остаются M04.
 
+## M03 выбор цены и lifecycle
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` проверяет выбор target и конкретной строки, повторный прямой расчёт, неизменность Ozon/business state, отсутствие произвольной цены в callback, старые кнопки после редактирования/refresh/new SKU/store change/source TTL/session expiry и controlled late apply после возврата к редактору.
+- Helper, Telegram runtime, architecture/repeat-review regressions и новые application cases: **71 passed in 1.11s**. Используются injected fake clock/events, настоящий `UnitPriceScenarioService`/`TaxService`, реальная клавиатура, не live API. `compileall` изменённых Python files и `git diff --check` прошли.
+- M04 должен прогнать интеграцию через public button/Telegram adapters, полный `pytest`, `compileall -q app tests` и точный Windows/Linux/Docker CI нового code SHA.
+
 ## Планирование цены — baseline и новое ТЗ M00–M04
 
 - PR #695 уже слит в main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`; merged-main Verify `38707150836` success. PR integration Verify `38704768075` проверял 3 150 tests на Windows и 3 150 на Linux, compile и Docker build/runtime smoke.

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from threading import Event, Thread
 
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.tax_service import TaxService
@@ -263,6 +264,10 @@ def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
     assert result["price_planning_result"]["target"]["status"] == "MISSING_INPUTS"
     assert "заполните Реклама" in result["message"]
     assert "Цена основного сценария не изменена" in result["message"]
+    assert not any(
+        item["text"].startswith("Подставить")
+        for item in result["keyboard"]["buttons"]
+    )
 
 
 def test_cancel_price_planning_text_keeps_existing_assumptions():
@@ -315,6 +320,295 @@ def test_price_comparison_message_stays_within_telegram_utf16_limit():
     assert "Магазин" * 20 not in result["message"]
 
 
+def test_target_price_applies_only_from_current_verified_result_and_old_button_stales():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        apply_button = _find_button(result, "Подставить цену для цели")
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+        stale = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    candidate = result["price_planning_result"]["target"]["price"]
+    assert prompt["stage"] == "target_margin"
+    assert candidate not in apply_button["callback"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == float(candidate)
+    assert applied["price_scenario"]["inputs"]["price"]["provenance"] == "manual_seller_assumption"
+    assert "подставлена только в текущий сценарий" in applied["message"]
+    assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_comparison_applies_only_the_selected_saved_row():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Сравнить цены")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("499; 549; 599", user_id="user-1")
+        selected_button = _find_button(result, "Подставить вариант 2")
+        tampered_callback = selected_button["callback"].rsplit(":", 1)[0] + ":549"
+        tampered = runtime.handle_callback(tampered_callback, user_id="user-1")
+        applied = runtime.handle_callback(selected_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert prompt["stage"] == "price_options"
+    assert "549" not in selected_button["callback"]
+    assert tampered["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 549
+    assert applied["price_scenario"]["inputs"]["price"]["provenance"] == "manual_seller_assumption"
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_apply_callback_is_invalidated_after_manual_scenario_change():
+    runtime, _ = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        apply_callback = _find_button(result, "Подставить цену для цели")["callback"]
+        returned = runtime.handle_callback(
+            _find_button(result, "Назад к расчёту")["callback"], user_id="user-1"
+        )
+        edit = runtime.handle_callback(
+            _find_button(returned, "Цена")["callback"], user_id="user-1"
+        )
+        changed = runtime.handle_text("700", user_id="user-1")
+        stale = runtime.handle_callback(apply_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert prompt["stage"] == "target_margin"
+    assert edit["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert changed["price_scenario"]["inputs"]["price"]["value"] == 700
+    assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
+
+
+def test_apply_callback_fails_closed_for_another_store():
+    runtime, source = _runtime()
+    token = _activate("store-1")
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        apply_callback = _find_button(result, "Подставить цену для цели")["callback"]
+    finally:
+        reset_current_tenant_user_id(token)
+
+    other_store = _activate("store-2")
+    try:
+        stale = runtime.handle_callback(apply_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(other_store)
+
+    assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_apply_callback_expires_when_source_snapshot_becomes_stale():
+    class Clock:
+        now = 0
+
+        def __call__(self):
+            return self.now
+
+    clock = Clock()
+    runtime, source = _runtime(clock=clock, session_ttl_seconds=600)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        apply_callback = _find_button(result, "Подставить цену для цели")["callback"]
+        clock.now = 600
+        rejected = runtime.handle_callback(apply_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert rejected["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert "снимок источников устарел" in rejected["message"].lower()
+    assert "не подставил" in rejected["message"].lower()
+    assert rejected["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_apply_callback_cannot_survive_source_refresh_or_new_sku():
+    runtime, source = _runtime()
+    source.product_service.products.append({
+        "product_id": "p2",
+        "offer_id": "hook-3",
+        "sku": "3921245628",
+        "name": "Другой товар",
+    })
+    original_load = source.load_snapshot
+
+    def load_both_products(sku, user_id, force_refresh=False):
+        snapshot = original_load(sku, user_id, force_refresh)
+        if sku == "3921245628":
+            snapshot["identity"].update({"product_id": "p2", "offer_id": "hook-3"})
+            snapshot["product"]["name"] = "Другой товар"
+        return snapshot
+
+    source.load_snapshot = load_both_products
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        apply_callback = _find_button(result, "Подставить цену для цели")["callback"]
+        sid = result["price_planning_result"]["identity"]["scenario_id"]
+        version = result["keyboard"]["buttons"][0]["callback"].split(":")[3]
+        refreshed = runtime.handle_callback(f"upc:r:{sid}:{version}", user_id="user-1")
+        stale_after_refresh = runtime.handle_callback(apply_callback, user_id="user-1")
+        other_product = runtime.build_product_entry_button("user-1", "hook-3")
+        selected_other = runtime.handle_callback(other_product["callback"], user_id="user-1")
+        stale_after_sku_change = runtime.handle_callback(apply_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert refreshed["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert stale_after_refresh["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert selected_other["price_scenario"]["identity"]["sku"] == "3921245628"
+    assert stale_after_sku_change["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert source.calls == [
+        ("3921245627", "user-1", False),
+        ("3921245627", "user-1", True),
+        ("3921245628", "user-1", False),
+    ]
+
+
+def test_expiring_calculator_session_releases_saved_price_planning_result():
+    class Clock:
+        now = 0
+
+        def __call__(self):
+            return self.now
+
+    clock = Clock()
+    runtime, source = _runtime(clock=clock, session_ttl_seconds=600)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        callback = _find_button(result, "Подставить цену для цели")["callback"]
+        sid = result["price_planning_result"]["identity"]["scenario_id"]
+        clock.now = 601
+        stale = runtime.handle_callback(callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert stale["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert sid not in runtime._scenarios
+    assert ("user-1", "user-1::ozon::store-1") not in runtime._active
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_late_apply_cannot_overwrite_scenario_after_return_to_editor():
+    runtime, _ = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        callback = _find_button(result, "Подставить цену для цели")["callback"]
+        proposed_price = result["price_planning_result"]["target"]["price"]
+    finally:
+        reset_current_tenant_user_id(token)
+
+    calculating = Event()
+    release = Event()
+    original_calculate = runtime.scenario_service.calculate
+
+    def blocked_calculate(inputs, **kwargs):
+        if str(inputs.get("price")) == proposed_price:
+            calculating.set()
+            assert release.wait(5)
+        return original_calculate(inputs, **kwargs)
+
+    runtime.scenario_service.calculate = blocked_calculate
+    late_result = {}
+
+    def apply_late():
+        thread_token = _activate()
+        try:
+            late_result["value"] = runtime.handle_callback(callback, user_id="user-1")
+        finally:
+            reset_current_tenant_user_id(thread_token)
+
+    thread = Thread(target=apply_late)
+    thread.start()
+    assert calculating.wait(5)
+    editor_token = _activate()
+    try:
+        returned = runtime.handle_callback(
+            _find_button(result, "Назад к расчёту")["callback"], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(editor_token)
+        release.set()
+    thread.join(5)
+    assert not thread.is_alive()
+
+    assert returned["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert late_result["value"]["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    final_token = _activate()
+    try:
+        active = runtime.handle_text("ignored", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(final_token)
+    assert active["price_scenario"]["inputs"]["price"]["value"] == 500
+
+
 def test_manual_inputs_survive_source_refresh_and_auto_points_can_be_restored():
     runtime, source = _runtime()
     token = _activate()
@@ -329,7 +623,10 @@ def test_manual_inputs_survive_source_refresh_and_auto_points_can_be_restored():
         sid = result["price_scenario"]["scenario_id"]
         refreshed = runtime.handle_callback(f"upc:r:{sid}:5", user_id="user-1")
         sid = refreshed["price_scenario"]["scenario_id"]
-        restored = runtime.handle_callback(f"upc:b:{sid}:6", user_id="user-1")
+        restored = runtime.handle_callback(
+            _find_button(refreshed, "Вернуть среднее баллов")["callback"],
+            user_id="user-1",
+        )
     finally:
         reset_current_tenant_user_id(token)
 
