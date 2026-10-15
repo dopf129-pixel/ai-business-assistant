@@ -1,3 +1,9 @@
+# 2026-10-15 — N01: исправлена деградация сравнения периодов
+
+- Необязательный предыдущий период теперь деградирует в `PERIOD_PROFIT_COMPARISON_UNAVAILABLE` с сохранением готового current отчёта. Исправление покрывает production final wrapper и совместимый base query; runtime не повторяет весь запрос и не скрывает обязательные current errors.
+- Сравнение принимает только конечные числовые прибыли и строгие boolean scope flags. Компактный и полный отчёт подписывают дельту как прибыль до внешних расходов, не смешивая её с результатом после них.
+- Red→green regressions прошли: **128 тестов** в связанных query/runtime/Return COGS/compact модулях; `compileall -q app` и `git diff --check` прошли. Полный suite и cross-platform CI остаются в N08.
+
 # 2026-10-15 — N00 аудит фактической аналитической цепочки
 
 - Проверена production composition: factory → base query → final Return COGS wrapper → runtime → compact report. Runtime при ошибке сравнения повторяет весь запрос current; production wrapper обрабатывает отказ прошлого summary, но не все сбои прошлой ветки возвратов/применения. Отдельно подтверждены base-only compatibility consumer и его текущая политика ошибок.

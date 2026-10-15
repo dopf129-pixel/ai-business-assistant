@@ -1,4 +1,13 @@
-# 2026-10-15 — N00 аналитики прибыли завершён, N01 следующий
+# 2026-10-15 — N01 исправления сравнения завершены, N02 следующий
+
+- N01 code commit: `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`), поверх N00 commit `96c3b843621979a1da356d9a0c4363a7b2ff4bb6`.
+- A1: production final wrapper и base-only query сохраняют current при сбоях необязательной previous ветки; ошибка mandatory current остаётся fail-closed. Runtime делает один вызов и больше не запускает current повторно при любой ошибке compare-path. `comparison_status`/безопасный код и Telegram-предупреждение указывают недоступность сравнения.
+- A2: comparison builder отклоняет пропущенную, boolean, строковую, не конечную или переполняющую арифметику прибыли; поддерживает finite int/float/Decimal, конечный отрицательный результат и известный 0. Scope flags требуют настоящих bool.
+- A3: compact и verbose тексты обозначают дельту как прибыль до внешних расходов. Не вычисляется ложная E↔B дельта.
+- Targeted query/runtime/final-application/Return COGS/presentation suite: **128 passed in 2.14s**; `compileall -q app` и `git diff --check` успешны. Полный suite отложен до N08 exact-head проверки. PR #697 теперь содержит подготовку ТЗ, N00 и N01; перед merge требуется Architecture Review.
+- Незакоммиченные `data/tasks.json` и `data/users.json` сохранены, не staged. Следующий этап: N02 contract finalized results / B-E scope.
+
+# 2026-10-15 — N00 аналитики прибыли завершён
 
 - Реализация продолжается на docs-ветке `codex/luna-store-analytics-task-20261015`, основанной непосредственно на слитом `main` `c55434327f50134324a5ca58e2f084854b809832`. PR #697 с исходными ТЗ/аудитом открыт; ветка не устарела и кодовая реализация ещё не менялась.
 - N00 подтвердил production chain: `period_profit_factory` создаёт base `PeriodProfitQueryService`, оборачивает в `PeriodProfitFinalApplicationQueryService`; runtime вызывает final wrapper, затем compact formatter. Base query остаётся base-only compatibility path.

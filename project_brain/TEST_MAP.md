@@ -1,7 +1,9 @@
-# Следующий пакет аналитики — подготовка ТЗ 15.10.2026
+# N00–N01 — аналитика прибыли, baseline и первые исправления (15.10.2026)
 
-- Фактический baseline перед кодом N01: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s** на task branch SHA `12619f947fd00d5fce056836000abb36ecb5300f`.
-- N00 проверил composition `period_profit_factory → PeriodProfitQueryService → PeriodProfitFinalApplicationQueryService → AssistantPeriodProfitRuntimeService → compact_period_profit_result`. Production comparison принадлежит final wrapper; base service отдельно поддерживает base-only consumers. Текущий fake runtime test с `[True, False]` фиксирует повтор current и будет заменён интеграционными regressions N01, сохраняя fail-closed для current errors.
+- N00 baseline перед кодом N01: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s** на task SHA `12619f947fd00d5fce056836000abb36ecb5300f`.
+- N01 code `66d79d6a87c6f3509e187f2a2e5b2441e270086f`: production final-wrapper/runtime tests verify previous return-loader and final-application failures preserve one finalized current result, while current errors remain fail-closed with one query. Base-only query regression covers optional previous-summary failure.
+- Pure comparison tests reject absent/bool/string/NaN/infinite/overflow monetary values and non-boolean scope flags; finite Decimal, zero and negative profit remain valid. Compact-report test distinguishes displayed E from B↔B comparison text.
+- **128 passed in 2.14s** across comparison, query, final wrapper, runtime, Return COGS, compact response and related mappings. `compileall -q app` passed. Full suite deferred to N08. No Ozon calls or persistent data writes.
 - Fake-only probes подготовки подтверждали повтор current при отказе прошлых возвратов, принятие `None`/`bool`/`NaN` builder-ом и неподписанное сравнение B рядом с E. Это audit evidence, не успешные исправляющие тесты.
 - Матрица N00–N08 и exact-head CI: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, разделы 16–19.
 - PR #696 уже слит в main `c554343`; результаты ниже относятся к его историческим проверкам и не принимают будущий код аналитики.
