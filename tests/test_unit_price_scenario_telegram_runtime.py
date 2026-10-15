@@ -837,3 +837,56 @@ def test_factory_wires_price_planner_to_same_forward_scenario_service():
 
     assert isinstance(runtime.target_planning_service, UnitPriceTargetPlanningService)
     assert runtime.target_planning_service.scenario_service is runtime.scenario_service
+
+
+def test_target_price_apply_works_through_public_assistant_handler():
+    from services.assistant_button_handler_service import AssistantButtonHandlerService
+
+    runtime, source = _runtime()
+
+    class _Query:
+        product_service = source.product_service
+
+        def query(self, sku):
+            return {
+                "error": False,
+                "available": True,
+                "source": "current",
+                "sku": sku,
+                "missing_fields": [],
+            }
+
+        def format_response(self, _result):
+            return "unit economics detail"
+
+    handler = AssistantButtonHandlerService(
+        assistant=object(),
+        keyboard_service=AssistantKeyboardService(),
+        unit_economics_query=_Query(),
+        unit_price_calculator_runtime_service=runtime,
+    )
+    token = _activate()
+    try:
+        detail = handler.handle("unit_economics:hook-2", user_id="user-1")
+        scenario = handler.handle(
+            detail["keyboard"]["buttons"][0]["callback"], user_id="user-1"
+        )
+        scenario = handler.handle(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        handler.handle(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = handler.handle_text("20", user_id="user-1")
+        applied = handler.handle(
+            _find_button(result, "Подставить цену для цели")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["provenance"] == "manual_seller_assumption"
+    assert source.calls == [("3921245627", "user-1", False)]

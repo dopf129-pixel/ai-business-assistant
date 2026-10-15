@@ -196,7 +196,7 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Выполняется | — | Public Telegram adapter integration, полный pytest/compile и CI exact new SHA, PR к architecture review ещё выполняются |
+| M04 | Выполняется | — | Публичный `AssistantButtonHandlerService` покрыт сквозной регрессией; четыре целевых модуля — 72 passed in 1.13s. Полный изолированный pytest/compile и CI exact new SHA, PR к architecture review ещё выполняются |
 
 Последовательность исполнения: M00 → M01 → M02 → M03 → M04. M00–M03 завершены; продолжается M04.
 
