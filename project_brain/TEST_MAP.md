@@ -2,7 +2,8 @@
 
 - `tests/test_period_profit_analytics_runtime.py` проверяет public handler route, прежний и текущий период, прибыль до внешних расходов, п.п. маржи, bridge, SKU residual, существующий выбор товара, owner/store isolation, fixed TTL, отсутствие tenant fallback, компактный snapshot и очистку длинной SKU-метки. В тесте присутствует production-factory wiring regression.
 - N06 code commit `e9372b1`. Профильный набор: **74 passed, 1 deselected**; deselected только production-factory regression, потому что локальный Windows runner не позволяет Python зайти в изолированный временный каталог (WinError 5). Отдельно `compileall -q app tests` и `git diff --check` прошли. Production-factory тест обязательно выполнить в N08 clean CI.
-- N07 interleaving cache read/eviction и строгий cap 64 ещё не добавлены; открыть карточку/аналитику должно и дальше давать 0 дополнительных источниковых вызовов.
+- N07 `test_cached_read_and_eviction_are_atomic_and_cache_stays_bounded` делает interleaving через `Event`: cached entry копируется под lock, параллельный расчёт заполняет LRU, читатель получает READY, а после 65 отчётов старый callback expired и новый остаётся доступным; cache не превышает 64.
+- N07 аналитический/query suite: **75 passed, 1 deselected** (production-factory test ждёт clean CI). Отдельно budget/dedup/Performance suite: **13 passed, 68 deselected**, включая Ozon/Performance retries в общем лимите и конкурентные callbacks с owner/store isolation. `compileall -q app tests` и `git diff --check` прошли. Full pytest и exact-head Windows/Linux/Docker CI остаются N08.
 
 # N00–N05 — аналитика прибыли, contract, bridge и SKU contribution (15.10.2026)
 
