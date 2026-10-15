@@ -299,6 +299,57 @@ def test_target_margin_prefers_a_smaller_verified_price_than_current_price():
     assert source.calls == [("3921245627", "user-1", False)]
 
 
+def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
+    runtime, source = _runtime()
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(sku, user_id, force_refresh=False):
+        snapshot = original_load_snapshot(sku, user_id, force_refresh)
+        snapshot["suggested_inputs"].update({
+            "price": "11.11",
+            "cost": "0",
+            "commission_rate": "68.18",
+            "logistics_per_unit": "0",
+            "last_mile_per_unit": "0",
+            "acquiring_per_unit": "0",
+            "advertising_rate": "31.81",
+            "discount_points_rate": "0",
+            "tax_mode": "NONE",
+            "tax_rate": None,
+            "minimum_tax_rate": None,
+        })
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        sid = scenario["price_scenario"]["scenario_id"]
+        prompt = runtime.handle_callback(
+            f"upc:e:{sid}:1:price", user_id="user-1"
+        )
+        edited = runtime.handle_text("11.110", user_id="user-1")
+        target_prompt = runtime.handle_callback(
+            _find_button(edited, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("0.01", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    target = result["price_planning_result"]["target"]
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert edited["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert edited["price_scenario"]["inputs"]["price"]["value"] == 11.11
+    assert edited["price_scenario"]["calculated"]["profit"] == 0.01
+    assert target_prompt["stage"] == "target_margin"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert target["status"] == "FOUND"
+    assert target["price"] == "11.08"
+    assert target["goal_reached"] is True
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
 def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario():
     runtime, source = _runtime()
     token = _activate()

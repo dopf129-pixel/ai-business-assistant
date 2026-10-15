@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — целевая маржа и сравнение вариантов цены
 
-Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M04 реализованы; повторная проверка PR #696 выявила неполное исправление поиска без исходной цены и несовместимый разбор запятой. Повторная правка выполнена; полная проверка нового SHA ожидается.**
+Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M04 реализованы. Последний review PR #696 выявил несовпадение нормализации `11.110` в базовом калькуляторе и планировщике; исправление покрыто регрессиями, новая проверка CI ожидается.**
 
 ## 1. Цель и решение владельца
 
@@ -196,7 +196,7 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Реализация и исправления review завершены | PR #696, code SHA `007bd5a01a53d8451f8fe291810c76c55467b5c6` | Четыре связанных модуля — 80 passed; Verify runs `38726919355`/`38726911253`: Windows/Linux по 3 197 passed, compileall и Docker build/runtime smoke успешны. Локальный pytest ограничен WinError 5. PR открыт, merge не выполнялся |
+| M04 | Функционал и review-правки реализованы; новая проверка ожидается | PR #696, базовый code SHA `007bd5a01a53d8451f8fe291810c76c55467b5c6` | Для последней находки эквивалентных `11.110`/`11.11` добавлены helper/runtime regressions: четыре связанных модуля — 87 passed; `compileall` и `git diff --check` прошли. Verify нового SHA ожидается. Локальный полный pytest снова упёрся в `WinError 5` при cleanup basetemp. PR открыт, merge не выполнялся |
 
 Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Функционал и повторные исправления R1/R2 прошли CI. PR #696 остаётся открытым для повторного review и слияния другой моделью.
 
@@ -298,3 +298,14 @@
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP и этот документ обновлены; DECISIONS не менялся — новые архитектурные решения не вводились.
 7. **Review Classification:** повторный Architecture Review PR #696 обязателен.
 8. **Next Recommended Step:** повторить review PR #696 на прошедшем CI code SHA; слияние и deployment не выполнять.
+
+## 22. Исправление эквивалентных десятичных форматов цены
+
+1. **Change Summary:** `_current_price_cents` снимает только незначащие завершающие нули, пока исходное значение не представимо с точностью до копейки. Поэтому редактор, принявший `11.110`, и планировщик используют одни и те же 1 111 копеек. Значение `11.111` по-прежнему не является допустимой точкой поиска. Парсер сравниваемого списка не менялся.
+2. **Files Changed:** изменены существующий planner, его unit tests, Telegram runtime tests, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, `ROADMAP.md` и это ТЗ. Production API, калькулятор, runtime contract и хранилища не менялись.
+3. **Architecture Impact:** локальная коррекция нормализации в существующем helper; новых слоёв, зависимостей или архитектурных решений нет.
+4. **Preserved Components:** `UnitPriceScenarioService`/`TaxService`, hard cap 128, exact forward validation, provenance, read-only behavior, lifecycle guards и пользовательские данные.
+5. **Testing:** четыре связанных модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Полный локальный pytest не сформировал итог: `PermissionError (WinError 5)` при pytest session cleanup basetemp. Verify нового commit ожидается.
+6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и это ТЗ обновлены; DECISIONS не менялся.
+7. **Review Classification:** правка в рамках уже прошедшего Architecture Review; повторный review PR #696 обязателен.
+8. **Next Recommended Step:** закоммитить и отправить точные файлы в существующую ветку PR #696, дождаться нового полного CI и передать свежий SHA на repeat review; merge не выполнять.

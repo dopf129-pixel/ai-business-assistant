@@ -224,6 +224,52 @@ def test_current_price_probe_accepts_calculator_decimal_comma_and_grouped_spaces
     assert planner._current_price_cents({"price": "1.234,56"}) is None
 
 
+@pytest.mark.parametrize(
+    "price,expected_cents",
+    [
+        ("11.11", 1_111),
+        ("11.110", 1_111),
+        (Decimal("11.110"), 1_111),
+        ("1.0000", 100),
+        ("11.111", None),
+    ],
+)
+def test_current_price_probe_normalizes_only_insignificant_trailing_zeros(
+    price, expected_cents
+):
+    planner, _ = _planner()
+
+    assert planner._current_price_cents({"price": price}) == expected_cents
+
+
+def test_target_search_is_invariant_to_insignificant_trailing_price_zeros():
+    outcomes = []
+    for price in ("11.11", "11.110"):
+        planner, _ = _planner()
+        values = _inputs(
+            price=price,
+            cost="0",
+            commission_rate="68.18",
+            logistics_per_unit="0",
+            last_mile_per_unit="0",
+            acquiring_per_unit="0",
+            advertising_rate="31.81",
+            discount_points_rate="0",
+            tax_mode="NONE",
+            tax_rate=None,
+            minimum_tax_rate=None,
+        )
+        direct = planner.scenario_service.calculate(values)
+        result = planner.solve(values, "0.01")
+
+        assert direct["available"] is True
+        assert direct["calculated"]["profit"] == 0.01
+        outcomes.append(result["target"])
+
+    assert [outcome["price"] for outcome in outcomes] == ["11.08", "11.08"]
+    assert all(outcome["goal_reached"] is True for outcome in outcomes)
+
+
 def test_target_and_comparison_candidates_do_not_inherit_observed_price_provenance():
     planner, _ = _planner()
     source_provenance = {

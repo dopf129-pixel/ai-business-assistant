@@ -365,6 +365,13 @@ class UnitPriceTargetPlanningService:
                 return None
         except (InvalidOperation, TypeError, ValueError):
             return None
+        if price.is_finite() and price.as_tuple().exponent < -2:
+            sign, digits, exponent = price.as_tuple()
+            digits = list(digits)
+            while exponent < -2 and len(digits) > 1 and digits[-1] == 0:
+                digits.pop()
+                exponent += 1
+            price = Decimal((sign, tuple(digits), exponent))
         if not self._is_valid_price(price):
             return None
         return int(price * self.HUNDRED)

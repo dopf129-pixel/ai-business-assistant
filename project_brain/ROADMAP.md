@@ -4,7 +4,7 @@
 
 - Завершено: P00–P08 в PR #694 и SKU-калькулятор плановой цены в PR #695. Текущий merged main после #695: `de21561a`; Verify `38707150836` successful. Исторические очереди ниже сохраняются и не означают незавершённость уже принятых пакетов.
 - Владелец выбрал развитие калькулятора: расчётная цена для целевой маржи, ориентир безубыточности, сравнение 2–5 вариантов и явная подстановка только во временный сценарий.
-- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, этапы M00–M04 завершены. PR #696 открыт для архитектурного review; Verify run 38713193546: Windows и Linux — по 3 189 passed, Linux Docker build/runtime smoke прошли. Локальный изолированный Windows full-suite ограничен ACL (`WinError 5` при перечислении pytest temp root). Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
+- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, этапы M00–M04 завершены. PR #696 остаётся открытым после repeat review; текущая правка нормализует эквивалентные `11.110`/`11.11`. Четыре связанных модуля — 87 passed, полный Verify нового SHA ожидается. Локальный Windows pytest не смог завершить session cleanup из-за ACL (`WinError 5` при перечислении pytest basetemp). Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
 - Использовать существующие math/TaxService/source/runtime. Новые API, Ozon mutations, постоянное хранение сценариев и изменение factual accounting не входят в пакет. После реализации обязательны meaningful regressions, полный CI нового SHA и Architecture Review.
 
 
