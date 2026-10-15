@@ -387,10 +387,6 @@ projection without silently erasing what was previously asserted.
 
 Status:
 
-Implemented
-
----
-
 ## Decision 041
 
 Date:
@@ -2372,6 +2368,38 @@ created it. A return being present at a return location likewise does not prove
 that it became saleable inventory. Explicit return-level recovery evidence avoids
 turning correlated stock movement into an accounting fact and preserves
 fail-closed behavior.
+
+Status:
+
+Implemented
+
+---
+
+## Decision 045
+
+Date:
+
+2026-10-14
+
+Topic:
+
+Price Planning Scenario Isolation
+
+Decision:
+
+The unit-price calculator is a transient, read-only planning scenario. Scenario inputs and computed estimates must remain separate from observed Ozon facts and persisted business settings.
+
+Rules:
+
+- scenario overrides are kept only in short-lived runtime state and never write seller price, product cost, expense evidence, tax policy, finance history or factual unit-economics results;
+- snapshots and callbacks are scoped to the active user/store and exact catalog SKU; callback versions prevent stale messages from mutating the current scenario;
+- price arithmetic stays in the pure scenario service and tax behavior delegates to the existing `TaxService`;
+- the current commission estimate is FBO-only and is not represented as a guaranteed quote for a new price; FBS is not calculated by applying an FBO rate;
+- source refresh is bounded and separate from local recomputation; unknown source values stay unknown until explicitly supplied as scenario assumptions.
+
+Reason:
+
+Price planning changes assumptions frequently and must not alter or overwrite the shop's factual accounting or settings. Keeping the scenario transient and read-only lets the seller compare alternatives without turning projections into recorded facts.
 
 Status:
 

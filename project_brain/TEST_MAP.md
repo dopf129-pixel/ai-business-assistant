@@ -1,4 +1,49 @@
-# Карта тестов — актуальный статус 2026-10-14
+# Карта тестов — актуальный статус 2026-10-15
+
+## PR #695 — R11 исправление неизвестного SKU в auto-b
+
+- `tests/test_unit_price_scenario_source.py`: отсутствие поля SKU, `None`, пустая и пробельная строка помечаются malformed/incomplete; известный другой SKU исключается как раньше даже без bonus.
+- `tests/test_unit_price_scenario_repeat_review_regressions.py`: сквозная проверка raw Ozon accrual → настоящий `FinanceService` → source/math/runtime/public handler; unknown identity запрещает автоматический процент и прибыль, ручной fallback восстанавливает результат.
+- Целевые шесть модулей (source, repeat-review, service, Telegram runtime, architecture regressions, finance accrual breakdown): **63 passed in 1.32s** (Python 3.12, `PYTHONPATH=app`). `compileall -q app tests` и `git diff --check` прошли.
+- Полный CI на code SHA `27dbb2f65166ac63b07fac250eea87a2d9dca939` прошёл: Verify runs **38704396583** и **38704389615** завершились success для Linux full verification, Windows full verification и production Docker build/runtime smoke. GitHub PR review threads пусты.
+
+## R11 — исходное подтверждение до исправления (историческая запись)
+
+- На head `9185f65` пять модулей дали **51 passed in 1.53s**; три изолированных probes для отсутствующей identity подтвердили дефект.
+
+## PR #695 — review 15.10.2026: R11, неразрешённая identity в auto-b
+
+- Пять существующих модулей `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py`: **51 passed in 1.53s** на head `9185f65`.
+- Три изолированных expected-red проверки настоящих FinanceService evidence → UnitPriceScenarioSource для SKU None/пустого/пробельного значения: **3 failed in 0.28s**. Подтверждают автоматические 20%/complete=true при пропущенной строке с неразрешённой identity; правильное поведение — unknown/incomplete и ручной fallback. Probe вне репозитория, fake-only, не входит в стандартный suite и не изменяет business data.
+- Reviewed-head Verify runs `38635120280`/`38635112065` Windows/Linux/Docker success — существующий baseline, не приёмка R11. После исправления нужны штатные parser/source/runtime regressions, новый full pytest и CI. ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`.
+
+## PR #695 — повторный review R10: source/presentation граница
+
+- `tests/test_unit_price_scenario_repeat_review_regressions.py` добавляет source → math → runtime → public `AssistantButtonHandlerService` regressions для сохранённой себестоимости `1e100` и seller price `1e100`. Они проверяют unknown provenance/incomplete source, отсутствие прибыли и `cost_as_of` для unsupported cost, рабочую keyboard, ручное исправление, прибыль 280 ₽, неизменность fake persisted cost, а также безопасные result/edit formatters.
+- Red evidence до исправления: оба интеграционных сценария завершались `UNIT_PRICE_SCENARIO_CALLBACK_FAILED` без keyboard. После исправления calculator/source/math/runtime/architecture/UI/request-bound-tax-policy selection: **59 passed in 1.51s**. Изолированный Windows pytest без seller data/.env: **3 144 passed in 16.17s**; двум production-policy tests задана синтетическая конфигурация USN_INCOME 6%/minimum 1%. `compileall -q app tests` завершился с одной прежней SyntaxWarning в returns-impact test. GitHub Verify exact head `2207ec86` — runs **38634572358**, **38634565693**, обе Windows/Linux/Docker проверки successful.
+
+## PR #695 — regressions повторного review R8/R9
+
+- `tests/test_unit_price_scenario_repeat_review_regressions.py` использует реальные source, math и Telegram runtime с fake facts и injected monotonic clock. Проверяет weighted rate 50/300 с расчётом налога 25 ₽/прибыли 280 ₽/маржи 56%; источник кэшируется один раз; сценарий, открытый при age=590, ровно на TTL=600 и при t=610 становится STALE, отключает price comparison и показывает предупреждение в assumptions. Успешное обновление получает цену 550, начинает свежий TTL и сохраняет ручное advertising=0.
+- `tests/test_unit_price_scenario_service.py` проверяет, что 28-digit bounded recurring rate допустим, а превышение precision guard недопустимо; existing tests сохраняют checks extreme money, не finite, bounds, explicit zero и tax errors.
+- Новый calculator/source/math/runtime/regression set: **48 passed**. Полный изолированный Windows pytest — **3 141 passed in 24.54s**; `compileall -q app tests` прошёл с одной прежней `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`. Verify run **38621277605** на code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f` — success: Windows/Linux full verification, Docker build/runtime smoke. Повторная проверка R8/R9 не выявила блокеров.
+
+## PR #695 — regressions архитектурного review R1–R7
+
+- Добавлен `tests/test_unit_price_scenario_architecture_review_regressions.py`: store/generation-scoped picker, atomic picker-consume/source-ticket interleave, controlled late source loads и refresh, eviction/pending isolation, READY text ownership, реальные Seller Cost/Return Inventory adapters, store switch/disconnect clearing и independent source freshness на result и assumptions screens. Interleavings используют `Event`, не timing sleeps.
+- `tests/test_unit_price_scenario_service.py`: крайние Decimal magnitude/precision отклоняются, невалидный tax output делает итог недоступным, локализованная цена остаётся допустимой.
+- Обновлены `tests/test_unit_price_scenario_telegram_runtime.py` на opaque calculator picker callback.
+- Целевой calculator/runtime/UI/routing набор: **62 passed**. Полный `pytest -q`: **3 138 passed** на изолированной копии текущего кода; пользовательские данные исключены. Compileall прошёл. GitHub Verify run **38616115735** success на code SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7`: Windows full suite, Linux full suite, Docker build и smoke.
+
+## Архитектурный review PR #695 — непокрытые регрессии
+
+- Review SHA `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`: три existing modules `tests/test_unit_price_scenario_service.py`, `tests/test_unit_price_scenario_source.py`, `tests/test_unit_price_scenario_telegram_runtime.py` — **26 passed in 1.38s**.
+- GitHub Verify run `38604649833` success на этом SHA подтверждает existing full-suite/Windows/Linux/Docker baseline (3 119 тестов), а не закрытие новых находок.
+- Восемь дополнительных изолированных probes подтверждают R1–R7: stale store catalog callback; late initial load после clear и после более нового выбора; eviction inactive record при pending active record; unhandled text READY; finite input `1e100`; early-return seller-cost navigation; snapshot age >TTL при продлении session activity. Ни Ozon calls, ни business writes не выполнялись. R2 — concurrent runtime contract; текущая polling application имеет max concurrent updates=1.
+- Probes не включались в pytest как тесты неправильного поведения. Требуемые red→green regressions, integration boundaries и порядок приёмки описаны в `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`; evidence — `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`.
+- Full pytest повторно не запускался: production code не менялся, exact-SHA CI уже прочитан. Новые регрессии и current-head full CI обязательны при исправлениях.
+
+## Историческая приёмка PR #694
 
 - Финальная проверка перед merge выявила и закрыла пропущенные whole-history text refresh (single/CSV confirm/cancel) и локальный auth timeout Performance / budget reason после 401. Новые регрессии: `app/tests/test_seller_cost_confirmation_flow.py::test_text_during_whole_history_confirmation_keeps_valid_draft_buttons`, `tests/test_ozon_performance_historical_reports.py::test_performance_auth_timeout_uses_remaining_local_and_shared_budgets` и `::test_performance_auth_refresh_preserves_exhausted_shared_budget_reason`.
 - После дополнительного patch: cost-flow suite — **16 passed**; Performance/SKU-advertising suite — **99 passed / 3 deselected**. Полный CI code SHA `f7a0f945bc26cadd5d190982a68c2dae6191d632` включает эти три локально исключённых файловых теста: Linux Python 3.11 и Windows Python 3.12 по **3 093 passed**, compileall и production Docker build/smoke прошли. Финальный review одобрил слияние.
@@ -177,6 +222,42 @@ advertising service, runtime sanitizer, and user-facing diagnostic message.
 Only a categorical empty/non-numeric marker is retained; raw row values are not
 passed to Telegram.
 
+
+# Unit Price Scenario Calculator — U00 source audit (2026-10-14)
+
+Baseline on code SHA `655b3a0` (Python 3.12, `PYTHONPATH=app`):
+
+- Existing current economics, source, production wiring and discount-points/tax regression modules: **44 passed**.
+- Source audit: `project_brain/UNIT_PRICE_CALCULATOR_SOURCE_AUDIT_2026-10-14.md`.
+- Confirmed `sale_amount` is already included in gross sales; `bonus` is separately accumulated. Existing aggregate does not prove explicit bonus completeness, and `sales_count` counts positive product rows, not units.
+- No implementation/live Ozon query in U00. New calculation/source/UI tests will be mapped here by their corresponding stages.
+
+## Unit Price Scenario Calculator — U01 pure math
+
+- `tests/test_unit_price_scenario_service.py`: **8 passed**.
+- Verifies the signed 500 ₽/600 ₽ numeric fixtures; seller-price tax base; percent vs fixed-fee behavior; variable/fixed changes after repricing; loss and margin semantics; explicit zero vs missing; input validation including NaN/Infinity/bool; tax policy absence; and USN income-minus-expenses minimum-tax delegation.
+- U01 production module has no Ozon, Telegram, storage or persistence dependency.
+
+## Unit Price Scenario Calculator — U02 source adapter
+
+- `tests/test_unit_price_scenario_source.py` covers finance evidence completeness, explicit zero vs missing bonus, complete pagination, exact SKU, identical/conflicting duplicates, 28-day weighted ratio, incomplete-day fallback, tenant preflight, cache isolation and deep copies.
+- `app/services/finance_service.py::FinanceService.get_daily_discount_points_evidence` checks page completion and returns selected-SKU positive-sale evidence with explicit `bonus`; it does not alter the existing daily financial aggregate contract.
+- Combined U01/U02 + current product source/wiring/integration + discount tax + finance pagination/reconciliation regressions: **62 passed** (Python 3.12). No live Ozon source check.
+
+## Unit Price Scenario Calculator — U03 Telegram runtime
+
+- `tests/test_unit_price_scenario_telegram_runtime.py` covers product selection, exact catalog SKU resolution, explicit ad zero vs unknown, localized numeric input, invalid/replayed callback handling, refresh preserving manual values, restore historical points, store scoping, clearing pending stages and current-unit-economics card CTA. It also checks the FBO-only estimate disclaimer.
+- `tests/test_current_unit_economics_production_wiring.py` and adjacent current-economics/UI/finance routing regressions run with U01/U02/U03: **61 passed** (Python 3.12).
+- `tests/test_period_profit_sku_telegram_flow.py::test_production_factory_exposes_sku_runtime`: **1 passed**. On this Windows sandbox the test was run as an isolated pytest invocation with a pre-created ACL-friendly temp root; its assertions were unchanged.
+- `compileall -q` over changed production modules: passed. Full `pytest`, Linux/Windows CI and final review are U04.
+
+## Unit Price Scenario Calculator — U04 local acceptance
+
+- Architecture review confirmed that product selection should reuse the current unit-economics picker. Calculator selection mode now routes into that picker and consumes the existing `unit_economics:<offer_id>` selection; no parallel catalog keyboard is maintained. Regression tests cover the transition and per-store bounded selection state.
+- Full Windows test suite on the final local tree: **3 119 passed**. The local harness uses an ACL-friendly pytest temp root because the Windows sandbox denies pytest's default temp ACL; test cases/assertions are unchanged. `AI_ASSISTANT_STORAGE_ROOT` is explicitly empty for legacy-storage compatibility tests.
+- `python -m compileall -q app tests`: passed.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailable` protects factory compatibility with partial external/test providers. Production composition wiring is also verified by `test_production_factory_exposes_sku_runtime`.
+- GitHub CI run **38604317400** passed on implementation SHA `acb1e196`: Windows verification, full Linux verification, production Docker image build and runtime smoke. PR #695 remains open for independent architecture review; no merge/deploy was performed.
 
 # Test Map
 

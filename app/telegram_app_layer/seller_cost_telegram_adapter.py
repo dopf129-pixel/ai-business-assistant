@@ -39,6 +39,7 @@ class SellerCostTelegramAdapter(AssistantTelegramAdapter):
             return {"error": True, "message": "Не удалось импортировать таблицу. Изменений не применено.", "code": "SELLER_COST_TABLE_IMPORT_FAILED", "read_only_ozon": True}
 
     def handle_button(self, callback, user_id=None):
+        self._clear_unit_price_calculator_for_navigation(callback, user_id)
         if self.seller_cost_service is None:
             return super().handle_button(callback, user_id)
         profile_failure = self._admit_user_profile(user_id)

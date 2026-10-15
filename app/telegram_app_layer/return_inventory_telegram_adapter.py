@@ -45,6 +45,7 @@ class ReturnInventoryTelegramAdapter(SellerCostTelegramAdapter):
         return super().handle_text(text, user_id)
 
     def handle_button(self, callback, user_id=None):
+        self._clear_unit_price_calculator_for_navigation(callback, user_id)
         service = self.return_inventory_service
         if service is None:
             return super().handle_button(callback, user_id)

@@ -5,6 +5,7 @@ from telegram_core_factory import (
 from current_unit_economics_factory import (
     create_current_unit_economics_query
 )
+from unit_price_scenario_factory import create_unit_price_scenario_runtime
 
 from product_business_decision_factory import (
     create_product_business_decision_query,
@@ -168,7 +169,6 @@ def create_telegram_assistant():
         )
     )
 
-
     product_decision_history = (
         create_product_decision_history()
     )
@@ -229,6 +229,14 @@ def create_telegram_assistant():
 
     keyboard = (
         AssistantKeyboardService()
+    )
+
+    unit_price_calculator_runtime_service = (
+        create_unit_price_scenario_runtime(
+            core_components=system,
+            unit_economics_query=unit_economics_query,
+            keyboard_service=keyboard,
+        )
     )
 
     if period_profit_runtime_service is not None:
@@ -304,6 +312,9 @@ def create_telegram_assistant():
             keyboard_service=keyboard,
             unit_economics_query=(
                 unit_economics_query
+            ),
+            unit_price_calculator_runtime_service=(
+                unit_price_calculator_runtime_service
             ),
             product_business_decision_query=(
                 product_business_decision_query
@@ -446,6 +457,10 @@ def create_telegram_assistant():
 
     runner.unit_economics_query = (
         unit_economics_query
+    )
+
+    runner.unit_price_calculator_runtime_service = (
+        unit_price_calculator_runtime_service
     )
 
 

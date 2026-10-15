@@ -1,3 +1,82 @@
+# 2026-10-15 — PR #695: R11 исправлен и принят при повторной проверке
+
+- `FinanceService.get_daily_discount_points_evidence` теперь относит POSTING с отсутствующим/null/пустым/пробельным SKU к malformed evidence и делает дневную выборку неполной. Известный отличный SKU сохраняет прежнее поведение и исключается из выбранной когорты.
+- Добавлены четыре parser cases и сквозной regression FinanceService → UnitPriceScenarioSource → calculator math/runtime → public handler. Без ручного допущения автоматический процент остаётся unknown и прибыль не показывается; после ручного ввода сценарий рассчитывается.
+- Code commit `27dbb2f65166ac63b07fac250eea87a2d9dca939` прошёл полные Windows/Linux/Docker Verify runs **38704396583** и **38704389615**; целевые шесть модулей дали **63 passed**, `compileall` и `git diff --check` прошли. Повторная проверка R11 не выявила открытых замечаний; PR #695 открыт для слияния другой моделью.
+- Работа ведётся по `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`. Пользовательские `data/tasks.json`, `data/users.json`, lock-файлы и существующие временные каталоги не изменялись.
+
+# История 2026-10-15 — перед исправлением R11
+
+- Дополнительный review head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтвердил закрытие R1–R10 и выявил P2: неразрешённый SKU молча считался другим товаром, поэтому неполное среднее баллов получало `complete=true`.
+- Reviewed-head Windows/Linux/Docker CI runs `38635120280` и `38635112065` были зелёными, но не покрывали дефект. Изначальные red probes записаны ниже как историческое подтверждение.
+
+# История 2026-10-14 — PR #695: R10 принят после полного CI и repeat review
+
+- Для R10 source принимает цену/себестоимость только в существующем техническом диапазоне калькулятора; неподдерживаемое значение становится unknown с incomplete completeness/provenance. Отклонённая сохранённая стоимость не получает `cost_as_of`.
+- `_money`/`_percent` fail closed для неподдерживаемых Decimal; интеграционные тесты проходят через реальный source → math → runtime → handler. Для invalid cost проверены и result screen, и edit prompt; ручная цена/себестоимость восстанавливает расчёт без изменения исходного хранилища.
+- X00 red evidence: оба ожидаемых поведения до исправления возвращали `UNIT_PRICE_SCENARIO_CALLBACK_FAILED`; X01 локальная правка выполнена. Calculator/UI/tax-policy набор: **59 passed in 1.51s**. Один ранний запуск соседних tenant-tax tests не смог стартовать из-за ACL временного каталога Windows; эти два теста не входят в 59.
+- Полный pytest в изолированной Windows копии без seller data/.env: **3 144 passed in 16.17s**; `compileall -q app tests` прошёл с одной существующей `SyntaxWarning` в returns-impact test; `git diff --check` прошёл. Два production-tax-policy теста проверены с синтетическим test-only default policy.
+- GitHub Verify exact head `2207ec86ec96012f7911706429fdc1b4dfacde23`: runs **38634572358** и **38634565693** success — Windows/Linux full suite, compile, production Docker build/runtime smoke. Повторный архитектурный review не обнаружил открытых R10 blockers; R1–R9 сохранены.
+- X00–X03 завершены. PR #695 открыт для слияния другой моделью; merge и production restart не выполнялись. `data/tasks.json`, `data/users.json`, lock/temp файлы сохранены.
+- Review меняет только документы; пользовательские data-файлы/locks/temp и production code сохранены. Слияние выполнит другая модель после приёмки.
+
+# 2026-10-14 — PR #695: локально исправлены findings R8/R9
+
+- R8 исправлен field-aware Decimal validation: денежные суммы по-прежнему ограничены 15 значащими цифрами; bounded процентные ставки принимают до 28 цифр контекста Decimal и сохраняют диапазон 0–100 и проверки порядка величины. Полное source → math → runtime значение 50/300×100 рассчитывает сценарий: налог 25 ₽, прибыль 280 ₽, маржа 56%.
+- R9 исправлен передачей возраста/TTL source cache в runtime. Cache hit сохраняет исходный возраст плюс elapsed; результат и assumptions используют единый freshness calculation. Source stale на точной границе `age >= TTL`; повторное открытие, локальные правки и повторный текст не омолаживают источник; successful refresh обновляет снимок и сохраняет ручное рекламное допущение.
+- Добавлены штатные интеграционные regressions в `tests/test_unit_price_scenario_repeat_review_regressions.py`; targeting calculator/runtime/source/service set: **48 passed**. Red evidence двух кейсов до исправления сохранён в истории review.
+- W00–W03 завершены. Calculator review набор: **48 passed**; полный изолированный Windows pytest: **3 141 passed in 24.54s**; `compileall -q app tests` прошёл с одной прежней `SyntaxWarning` в `tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177`. Code SHA `9ed3e2d9bee334b54b874f63493f69dc4197d15f` прошёл Verify run **38621277605**: полный Windows/Linux suite, Docker build и runtime smoke. Повторная проверка R8/R9 не выявила открытых blockers. PR #695 открыт, слияние оставлено другой модели.
+
+# История 2026-10-14 — PR #695 R1–R7: первая приёмка исправлений
+
+- Исправлены семь findings initial architecture review: catalog picker tokens bound to user/store/generation; потребление picker callback атомарно создаёт source operation ticket; late initial/refresh results отсекаются; scenario eviction isolates pending record; READY text returns calculator screen; Decimal/tax invalid outputs fail closed; adapters and store commands clear calculator state before other navigation; source snapshot TTL no longer slides with edits, включая freshness на assumptions screen.
+- Добавлены controlled `Event` concurrency, adapter/navigation, text routing, math-boundary и freshness regressions в `tests/test_unit_price_scenario_architecture_review_regressions.py`; math service tests покрывают extreme magnitude/precision и invalid tax output.
+- Targeted calculator/UI/routing tests: **62 passed in 2.32s**. Полный Windows pytest: **3 138 passed in 18.68s** в изолированной копии без пользовательских данных, `.env` и live storage. `compileall -q app tests` завершился; видна одна существующая SyntaxWarning в `test_unit_economics_returns_impact_integrity_v971_v980.py:177`.
+- Code-bearing SHA `3f4942b6c2e01238cabfd9fda7c274ab479bcba7` опубликован в PR #695 (`codex/unit-price-calculator`). Повторный review по R1–R7 не оставил блокеров. Verify run **38616115735** — success: Windows full suite, Linux full suite, Docker production build и runtime smoke.
+- Пользовательские `data/tasks.json`/`data/users.json` и локальные temp/lock файлы сохранены и исключены из commits. `git diff --check` прошёл. PR открыт; merge и production запуск не выполнялись.
+
+# 2026-10-14 — PR #695: архитектурный review требует R1–R7
+
+- Проверен PR head `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`, ветка `codex/unit-price-calculator`. Решение review: не сливать до исправления R1–R7 и проверки нового SHA.
+- Один P1 касается callback origin store. Шесть P2 касаются concurrent late activation, pending eviction, text-stage результата, числовой валидации, ранней навигации внешних adapters и source freshness. Для R2 отдельно подтверждено: текущий polling сериализует updates (`max_concurrent_updates=1`), но обязательный параллельный runtime contract нарушен.
+- Review: `ARCHITECTURE_REVIEW_PR695_2026-10-14.md`. ТЗ GPT Luna: `LUNA_PR695_ARCHITECTURE_FIX_TASK_2026-10-14.md`, этапы V00–V08 ещё не начаты.
+- Targeted existing scenario tests: **26 passed in 1.38s**; 8 изолированных воспроизведений подтверждают 7 находок. Verify run `38604649833` success на review SHA — baseline, не acceptance исправлений.
+- В рамках review изменены только документы. Production code, существующие локальные пользовательские данные и API/DB contracts сохранены; merge/deploy не выполнялись.
+
+# 2026-10-14 — U04 локальная приёмка калькулятора цены
+
+- Защищена опциональная composition калькулятора: при неполном test/external unit-economics provider source runtime не создаётся; при штатных sources production wiring остаётся включённым. Добавлен regression.
+- Архитектурная проверка убрала отдельный каталог товара калькулятора: выбор SKU теперь идёт через существующий юнит-экономический picker. Регрессии подтверждают переход и изоляцию выбора по магазину.
+- Полный Windows pytest: **3 119 passed**; `compileall -q app tests`: passed. Локальный sandbox требует ACL-friendly pytest temp root; тесты и assertions не подменялись. `AI_ASSISTANT_STORAGE_ROOT` задан пустым, как ожидают legacy-storage тесты.
+- CI run **38604317400** прошёл на кодовом SHA `acb1e196`: Windows verification, полный Linux verification, Docker build и runtime smoke. PR #695 оставлен открытым для независимого архитектурного review; слияние и production запуск не выполнялись.
+
+# 2026-10-14 — U03 Telegram-калькулятор плановой цены завершён
+
+- Калькулятор встроен в существующий раздел юнит-экономики и detail-карточку; оба пути используют один временный read-only runtime. Сценарии и pending input изолированы по user/store/SKU/id/version и не записывают цену, себестоимость, расходы, налоговую политику или фактические результаты.
+- Пользователь меняет цену, себестоимость, ставку комиссии, рекламу, баллы и ручные расходы L/M/E. Автоматические баллы можно вернуть к взвешенному 28-дневному источнику; обновление источников сохраняет ручные допущения. Неизвестная реклама не становится нулём.
+- UI явно обозначает FBO estimate; ставка из карточки может измениться с новой ценой. FBS не поддержан этим сценарием.
+- U01/U02/U03 + смежные finance/current-economics regressions: **61 passed**; production-factory wiring: **1 passed**; compileall прошёл. На Windows production-factory test вызван с ACL-friendly pytest temporary root. U04 full suite/CI и архитектурный review остаются; live Ozon и production не задействованы.
+
+# 2026-10-14 — U02 read-only источник калькулятора завершён
+
+- Добавлены `FinanceService.get_daily_discount_points_evidence` и `UnitPriceScenarioSource`. Автоматический weighted b доступен только по завершённому 28-дневному точному SKU evidence с явным bonus; отсутствие/конфликт оставляет параметр пустым для ручного ввода.
+- Snapshot берёт текущую seller price/FBO rate как оценки, exact product-id RUB cost и активную store tax policy. Расходы на доставку, последнюю милю, acquiring и рекламу не выводятся из сомнительных per-row средних; их нужно ввести для расчёта.
+- Источник cache изолирован по tenant/user/SKU, TTL 600 секунд, максимум 128; deep copy, общий same-key refresh, HTTP trace 60 секунд/64 попытки. Автоматическое окно определяется локальной датой приложения. Live Ozon не запрашивался.
+- Scenario/source/current finance/tax regressions: **62 passed**. U03 Telegram flow и U04 приёмка остаются.
+
+# 2026-10-14 — U01 чистая модель калькулятора завершена
+
+- `app/services/unit_price_scenario_service.py` — чистый decimal-сервис планового расчёта; `tests/test_unit_price_scenario_service.py` — **8 passed**.
+- Контроль: P=500 ₽ → прибыль 186 ₽, маржа 37,20%; P=600 ₽ при тех же ставках/фиксированных расходах → 258,20 ₽ и 43,03%. Налог вызывает существующий `TaxService`; отсутствующая обязательная ставка/политика остаётся unavailable.
+- Результат включает scenario identity/version, input units/provenance, source metadata, состав включённого/исключённого и read-only флаги. U02 (source + среднее баллов), U03 (Telegram), U04 (приёмка) не завершены.
+
+# 2026-10-14 — U00 аудита калькулятора плановой цены завершён
+
+- Ветка `codex/unit-price-calculator`, базовый squash SHA `655b3a0` (PR #694 уже в main). U00 source map: `project_brain/UNIT_PRICE_CALCULATOR_SOURCE_AUDIT_2026-10-14.md`.
+- Подтверждено: `commission.sale_amount` уже входит в `gross_sales`, `commission.bonus` — отдельные баллы; bonus completeness текущим daily aggregate не доказана. `sales_count` — количество положительных строк товара, не штуки. Текущие finance average L/M/E поэтому не считаются расходом на единицу.
+- V1 запросит ручные L/M/E. Текущая FBO ставка и seller price используются только как помеченные оценки; FBO не переносится на FBS. Налоговую модель получает из активного tenant policy и пересчитывает через `TaxService`.
+- U00 целевой regression baseline: **44 passed** на Python 3.12 (`PYTHONPATH=app`). Live Ozon и новые изменения кода ещё не проверялись/не выполнялись. `data/users.json` и `data/tasks.json` сохранены вне изменений.
+
 # 2026-10-14 — P00–P08 приняты; слияние PR #694 одобрено
 
 - Пользователь поручил принять решение о слиянии. При независимой проверке `fb1b0db` подтверждены два пропущенных пути R1/R4: повторный текст на whole-history confirmation терял действующие кнопки (single/CSV), а auth timeout Performance не учитывал локальный enrichment остаток и после 401 терял причину global budget exhaustion.

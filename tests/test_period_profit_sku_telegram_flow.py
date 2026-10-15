@@ -300,6 +300,17 @@ def test_production_factory_exposes_sku_runtime(monkeypatch, tmp_path):
     from telegram_assistant_factory import create_telegram_assistant
     runner = create_telegram_assistant()
     assert isinstance(runner.period_profit_sku_runtime_service, PeriodProfitSkuRuntimeService)
+    from services.telegram_unit_price_calculator_runtime_service import (
+        TelegramUnitPriceCalculatorRuntimeService,
+    )
+    assert isinstance(
+        runner.unit_price_calculator_runtime_service,
+        TelegramUnitPriceCalculatorRuntimeService,
+    )
+    assert (
+        runner.button_handler.unit_price_calculator_runtime_service
+        is runner.unit_price_calculator_runtime_service
+    )
     from services.telegram_external_expense_runtime_service import (
         TelegramExternalExpenseRuntimeService,
     )
