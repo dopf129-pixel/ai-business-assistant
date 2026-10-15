@@ -384,7 +384,13 @@ class AssistantKeyboardService:
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
-    def build_unit_price_scenario_keyboard(self, scenario_id, version, include_return_mean=False):
+    def build_unit_price_scenario_keyboard(
+        self,
+        scenario_id,
+        version,
+        include_return_mean=False,
+        include_price_planning=False,
+    ):
         sid = str(scenario_id)
         ver = str(version)
         fields = (
@@ -402,6 +408,11 @@ class AssistantKeyboardService:
         buttons.append({"text": "Реклама 0%", "callback": f"upc:z:{sid}:{ver}"})
         if include_return_mean:
             buttons.append({"text": "Вернуть среднее баллов", "callback": f"upc:b:{sid}:{ver}"})
+        if include_price_planning:
+            buttons.extend([
+                {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
+                {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
+            ])
         buttons.extend([
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
@@ -420,6 +431,21 @@ class AssistantKeyboardService:
                 {"text": "Логистика, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:logistics_per_unit"},
                 {"text": "Последняя миля, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:last_mile_per_unit"},
                 {"text": "Эквайринг, ₽/шт.", "callback": f"upc:e:{sid}:{ver}:acquiring_per_unit"},
+                {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_unit_price_planning_result_keyboard(self, scenario_id, version, mode):
+        sid = str(scenario_id)
+        ver = str(version)
+        next_action = "q" if mode == "target_margin" else "g"
+        next_label = "Сравнить другие цены" if next_action == "q" else "Цена для целевой маржи"
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
                 {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
                 {"text": "Главное меню", "callback": "main_menu"},
             ],

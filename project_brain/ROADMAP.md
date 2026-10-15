@@ -4,7 +4,7 @@
 
 - Завершено: P00–P08 в PR #694 и SKU-калькулятор плановой цены в PR #695. Текущий merged main после #695: `de21561a`; Verify `38707150836` successful. Исторические очереди ниже сохраняются и не означают незавершённость уже принятых пакетов.
 - Владелец выбрал развитие калькулятора: расчётная цена для целевой маржи, ориентир безубыточности, сравнение 2–5 вариантов и явная подстановка только во временный сценарий.
-- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, M00 audit завершён (57 baseline passed); M01 pure helper завершён (81 связанных тест passed); M02 Telegram UX/runtime wiring выполняется. Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
+- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, M00 audit, M01 pure helper и M02 Telegram UX/runtime wiring завершены; M02 набор — 63 passed. Сейчас выполняется M03: безопасная явная подстановка варианта и lifecycle guards. Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
 - Использовать существующие math/TaxService/source/runtime. Новые API, Ozon mutations, постоянное хранение сценариев и изменение factual accounting не входят в пакет. После реализации обязательны meaningful regressions, полный CI нового SHA и Architecture Review.
 
 

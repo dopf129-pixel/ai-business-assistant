@@ -208,6 +208,8 @@ class UnitPriceTargetPlanningService:
                 "margin_percent": calculated.get("margin_percent") if available else None,
                 "tax": calculated.get("tax") if available else None,
                 "goal_reached": goal_reached,
+                "missing_inputs": list((forward or {}).get("missing_inputs") or []),
+                "invalid_inputs": list((forward or {}).get("invalid_inputs") or []),
                 "forward_result": forward if available else None,
             })
 

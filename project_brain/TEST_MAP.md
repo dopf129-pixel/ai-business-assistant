@@ -11,7 +11,8 @@
 
 - Новый `tests/test_unit_price_target_planning_service.py` покрывает target parser, price list 2–5 с comma/dot/пробелами тысяч/CRLF, atomic rejection duplicates/invalid tokens, точный предел цели, контрольные цены, отдельный результат безубыточности, три налоговых режима действующего `TaxService`, not-found/missing distinctions, сравнение одинаковых допущений и счётчик максимум 104 (конфигурационный cap 128).
 - Unit-price service/source/runtime + architecture/repeat-review regressions и новый helper module: **81 passed in 1.37s**. `compileall -q app/services/unit_price_target_planning_service.py` passed; кэш pytest отключён, тесты использовали пустой `AI_ASSISTANT_STORAGE_ROOT`.
-- Telegram lifecycle/wiring для новых экранов ещё не реализованы; полный suite и Windows/Linux/Docker CI нового code SHA остаются M04.
+- M02 добавил к этому набору target/list/retry/cancel/missing-input/price-preservation/production-factory/UTF-16 проверки в `tests/test_unit_price_scenario_telegram_runtime.py`. С `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py` и helper module: **63 passed in 1.06s**.
+- В Telegram tests подтверждены отсутствие дополнительного source/API call при поиске и таблице, сохранение цены основного сценария, удержание ранее введённой цели для отметок сравнения, исправление невалидного списка целиком и пределы сообщения/callback. Полный suite и Windows/Linux/Docker CI нового code SHA остаются M04.
 
 ## Планирование цены — baseline и новое ТЗ M00–M04
 

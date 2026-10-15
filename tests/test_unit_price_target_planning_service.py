@@ -250,3 +250,4 @@ def test_comparison_keeps_unavailable_scenarios_distinct_from_target_failure():
     assert all(not row["available"] for row in result["rows"])
     assert all(row["goal_reached"] is None for row in result["rows"])
     assert {row["status"] for row in result["rows"]} == {"MISSING_INPUTS"}
+    assert all(row["missing_inputs"] == ["acquiring_per_unit"] for row in result["rows"])

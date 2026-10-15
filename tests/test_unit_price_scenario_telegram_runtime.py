@@ -7,6 +7,7 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
 class _ProductService:
@@ -79,9 +80,14 @@ class _Source:
 
 def _runtime(clock=None, **kwargs):
     source = _Source()
+    scenario_service = UnitPriceScenarioService(TaxService())
+    kwargs.setdefault(
+        "target_planning_service",
+        UnitPriceTargetPlanningService(scenario_service),
+    )
     runtime = TelegramUnitPriceCalculatorRuntimeService(
         source=source,
-        scenario_service=UnitPriceScenarioService(TaxService()),
+        scenario_service=scenario_service,
         keyboard_service=AssistantKeyboardService(),
         clock=clock,
         **kwargs,
@@ -161,6 +167,152 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert "Оценка одной успешной продажи FBO" in result["message"]
     assert "FBS не поддержан" in result["message"]
     assert "не включены" in result["message"]
+
+
+def test_target_margin_input_retries_then_shows_verified_price_without_changing_scenario():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        price_before = scenario["price_scenario"]["inputs"]["price"]["value"]
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        invalid = runtime.handle_text("120", user_id="user-1")
+        result = runtime.handle_text("20", user_id="user-1")
+        returned = runtime.handle_callback(
+            _find_button(result, "Назад к расчёту")["callback"], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    target = result["price_planning_result"]["target"]
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert "Некорректный процент" in invalid["message"]
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert target["status"] == "FOUND"
+    assert target["goal_reached"] is True
+    assert "Цена для цели" in result["message"]
+    assert "цель 20,00% достигнута" in result["message"]
+    assert result["price_planning_result"]["read_only"] is True
+    assert result["price_planning_result"]["executed"] is False
+    assert price_before == 500
+    assert returned["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(result["message"]) < 3500
+    assert all(len(item["callback"].encode("utf-8")) <= 64 for item in result["keyboard"]["buttons"])
+
+
+def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        price_before = scenario["price_scenario"]["inputs"]["price"]["value"]
+        target_prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"], user_id="user-1"
+        )
+        target_result = runtime.handle_text("20", user_id="user-1")
+        prompt = runtime.handle_callback(
+            _find_button(target_result, "Сравнить другие цены")["callback"],
+            user_id="user-1",
+        )
+        invalid = runtime.handle_text("499,90; 499.90; nope", user_id="user-1")
+        result = runtime.handle_text("499,90; 549,90; 599,90", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert prompt["stage"] == "price_options"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert "Список не принят целиком" in invalid["message"]
+    assert result["status"] == "UNIT_PRICE_PRICE_COMPARISON_RESULT"
+    rows = result["price_planning_result"]["rows"]
+    assert [row["price"] for row in rows] == ["499.90", "549.90", "599.90"]
+    assert all(row["available"] is True for row in rows)
+    assert len({row["profit"] for row in rows}) == 3
+    assert all(row["goal_reached"] is True for row in rows)
+    assert "цель 20,00% достигнута" in result["message"]
+    assert "налог" in result["message"]
+    assert price_before == 500
+    assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
+    runtime, _ = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert result["price_planning_result"]["target"]["status"] == "MISSING_INPUTS"
+    assert "заполните Реклама" in result["message"]
+    assert "Цена основного сценария не изменена" in result["message"]
+
+
+def test_cancel_price_planning_text_keeps_existing_assumptions():
+    runtime, _ = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        sid = scenario["price_scenario"]["scenario_id"]
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Сравнить цены")["callback"], user_id="user-1"
+        )
+        cancelled = runtime.handle_callback(
+            _find_button(prompt, "Отмена")["callback"], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert sid == cancelled["price_scenario"]["scenario_id"]
+    assert cancelled["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert cancelled["price_scenario"]["inputs"]["advertising_rate"]["value"] is None
+
+
+def test_price_comparison_message_stays_within_telegram_utf16_limit():
+    runtime, source = _runtime()
+    original_load = source.load_snapshot
+
+    def load_long_labels(sku, user_id, force_refresh=False):
+        result = original_load(sku, user_id, force_refresh)
+        result["identity"]["store_name"] = "Магазин" * 500
+        result["product"]["name"] = "Товар" * 500
+        return result
+
+    source.load_snapshot = load_long_labels
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        runtime.handle_callback(
+            _find_button(scenario, "Сравнить цены")["callback"], user_id="user-1"
+        )
+        result = runtime.handle_text("499; 549; 599; 649; 699", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["status"] == "UNIT_PRICE_PRICE_COMPARISON_RESULT"
+    assert len(result["message"].encode("utf-16-le")) // 2 <= 4096
+    assert len(result["message"]) < 3500
+    assert "Магазин" * 20 not in result["message"]
 
 
 def test_manual_inputs_survive_source_refresh_and_auto_points_can_be_restored():
@@ -371,3 +523,20 @@ def test_factory_leaves_optional_calculator_disabled_when_sources_are_unavailabl
         unit_economics_query=object(),
         keyboard_service=AssistantKeyboardService(),
     ) is None
+
+
+def test_factory_wires_price_planner_to_same_forward_scenario_service():
+    from unit_price_scenario_factory import create_unit_price_scenario_runtime
+
+    query = type("Query", (), {})()
+    query.product_service = object()
+    query.current_economics_source = object()
+    query.cost_service = object()
+    runtime = create_unit_price_scenario_runtime(
+        core_components={},
+        unit_economics_query=query,
+        keyboard_service=AssistantKeyboardService(),
+    )
+
+    assert isinstance(runtime.target_planning_service, UnitPriceTargetPlanningService)
+    assert runtime.target_planning_service.scenario_service is runtime.scenario_service

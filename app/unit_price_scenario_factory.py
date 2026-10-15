@@ -6,6 +6,7 @@ from services.telegram_unit_price_calculator_runtime_service import (
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_scenario_source import UnitPriceScenarioSource
+from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
 def create_unit_price_scenario_runtime(core_components, unit_economics_query, keyboard_service):
@@ -30,8 +31,10 @@ def create_unit_price_scenario_runtime(core_components, unit_economics_query, ke
         cost_service=cost_service,
         tax_configuration_service=tax_configuration_service,
     )
+    scenario_service = UnitPriceScenarioService(TaxService())
     return TelegramUnitPriceCalculatorRuntimeService(
         source=source,
-        scenario_service=UnitPriceScenarioService(TaxService()),
+        scenario_service=scenario_service,
+        target_planning_service=UnitPriceTargetPlanningService(scenario_service),
         keyboard_service=keyboard_service,
     )

@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — целевая маржа и сравнение вариантов цены
 
-Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M01 завершены; M02 выполняется**.
+Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M02 завершены; M03 выполняется**.
 
 ## 1. Цель и решение владельца
 
@@ -149,8 +149,8 @@
 |---|---|---|
 | M00 | — | **Завершён 15.10.2026**. Main `de21561a`, ветка `codex/price-planning-target-margin-20261015`; диапазон копеек и общий worst case 104 forward calls записаны выше; baseline 57 passed |
 | M01 | M00 | **Завершён 15.10.2026**. Добавлен чистый `UnitPriceTargetPlanningService` и parser; 81 соседний тест passed, compile helper passed; код ещё не подключён к runtime |
-| M02 | M01 | **Выполняется**. Telegram ввод цели/вариантов, компактные результаты, исправление ввода/возврат; никакой неявной смены основного сценария |
-| M03 | M02 | Явное применение цены и полная version/tenant/lifecycle/freshness защита всех новых кнопок и pending stages |
+| M02 | M01 | **Завершён 15.10.2026**. Telegram ввод цели/вариантов, компактные результаты, исправление ввода/возврат; цена основного сценария не меняется |
+| M03 | M02 | **Выполняется**. Явное применение цены и полная version/tenant/lifecycle/freshness защита всех новых кнопок и pending stages |
 | M04 | M01–M03 | Интеграционные регрессии, полный CI нового кода, документация, отдельный PR и передача на архитектурный review |
 
 В M00 допустим короткий source/algorithm note в этом документе. Проблему, не входящую в пакет, фиксировать отдельно; исправлять только если она блокирует его контракт и подтверждена воспроизведением. Не переписывать рабочий runtime целиком ради новых кнопок.
@@ -194,11 +194,11 @@
 |---|---|---|---|
 | M00 | Завершён 15.10.2026 | ветка `codex/price-planning-target-margin-20261015` | Main `de21561a`; bounds и алгоритм записаны в §8.1; пять baseline модулей — 57 passed; exact control prices passed |
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
-| M02 | Выполняется | — | Ввод цели/списка и отображение ещё подключаются |
-| M03 | Не начат | — | Применение новых результатов и их lifecycle ещё не реализованы |
+| M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
+| M03 | Выполняется | — | Подставить цену можно будет только из сохранённого результата текущей версии; guards и lifecycle в работе |
 | M04 | Не начат | — | Полные tests/CI для нового функционала не запускались |
 
-Последовательность исполнения: M00 → M01 → M02 → M03 → M04. M00 выполнен; продолжается M01.
+Последовательность исполнения: M00 → M01 → M02 → M03 → M04. M00–M02 завершены; продолжается M03.
 
 ## 13. Отчёт подготовки ТЗ
 
@@ -232,3 +232,14 @@
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и это ТЗ. DECISIONS не менялся.
 7. **Review Classification:** Architecture Review Required перед слиянием всего пакета; самостоятельный helper нуждается в review вместе с будущей runtime связкой.
 8. **Next Recommended Step:** M02 — добавить ввод целевой маржи и списка цен через уже существующий runtime, сохраняя ошибочный ввод исправимым и сценарий неизменным.
+
+## 16. Отчёт исполнения M02
+
+1. **Change Summary:** ветка `codex/price-planning-target-margin-20261015`; добавлены Telegram кнопки/ввод целевой маржи и списка цен, компактные результаты и сохранение введённой цели внутри ограниченной сессии; запись цены в сценарий отложена до явного действия M03.
+2. **Files Changed:** изменены `assistant_keyboard_service.py`, `telegram_unit_price_calculator_runtime_service.py`, `unit_price_scenario_factory.py`, `unit_price_target_planning_service.py`, их runtime/helper tests, `CHANGELOG.md`, `CURRENT_STATE.md`, `ROADMAP.md`, `TEST_MAP.md`, `telegram-user-guide.md` и это ТЗ. Архитектурные ответственности разделены: helper считает, runtime управляет временным UX, factory соединяет тот же forward calculator.
+3. **Architecture Impact:** Minor architectural extension поверх M01: существующий временный runtime получил два pending stages и bounded transient result внутри существующей сессии; новый слой хранения, внешние вызовы и business contracts не добавлялись.
+4. **Preserved Components:** действующий `UnitPriceScenarioService`/`TaxService`, магазинные настройки и источники, выбранный SKU/store guards, исходный ввод/цена, Ozon read-only, расходы/налог/фактические отчёты и user JSON/locks/temp данные.
+5. **Testing:** четыре связанных калькуляторных модуля — **63 passed in 1.06s**. Проверены production factory injection, retry/cancel, цель и comparison с exact goal, missing inputs, отсутствие HTTP/повторного source read, сохранение цены, 5 вариантов, UTF-16 лимит Telegram и callback ≤64 bytes. Полный pytest, compileall и новый CI выполняются в M04.
+6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP, `docs/telegram-user-guide.md` и это ТЗ обновлены; DECISIONS не менялся — новое решение не потребовалось.
+7. **Review Classification:** Architecture Review Required для общего пакета M01–M04 из-за нового helper и расширенного runtime lifecycle; M02 отдельно — minor extension.
+8. **Next Recommended Step:** M03 — добавить явную подстановку только сохранённой проверенной цены с exact session/version/user/store/SKU/source guards и устареванием результата при изменении допущений.
