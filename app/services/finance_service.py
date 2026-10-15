@@ -530,6 +530,11 @@ class FinanceService:
                     malformed += 1
                     continue
                 product_sku = str(product.get("sku") or "").strip()
+                if not product_sku:
+                    # An unresolved product cannot be safely excluded as a
+                    # different SKU when asserting a complete SKU cohort.
+                    malformed += 1
+                    continue
                 if product_sku != target_sku:
                     continue
                 if not posting_number:

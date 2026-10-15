@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.finance_service import FinanceService
 from services.tax_service import TaxService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from services.telegram_unit_price_calculator_runtime_service import (
@@ -74,6 +75,15 @@ class _Finance:
         return {"error": False, "complete": True, "records": records}
 
 
+class _RawFinanceEvidence(FinanceService):
+    def __init__(self, responses):
+        self.responses = responses
+        self._daily_accrual_cache = {}
+
+    def _get_accruals_by_day(self, accrual_date):
+        return self.responses[str(accrual_date)]
+
+
 class _Costs:
     def __init__(self, cost=120):
         self.cost = cost
@@ -95,9 +105,9 @@ class _TaxPolicy:
         }
 
 
-def _stack(clock, cost=120, seller_price=500):
+def _stack(clock, cost=120, seller_price=500, finance=None):
     current = _CurrentFacts(seller_price=seller_price)
-    finance = _Finance()
+    finance = finance or _Finance()
     source = UnitPriceScenarioSource(
         product_service=_Products(),
         current_economics_source=current,
@@ -224,6 +234,81 @@ def test_complete_weighted_average_survives_source_math_and_runtime_flow():
     assert restored["price_scenario"]["available"] is True
     assert restored["price_scenario"]["inputs"]["discount_points_rate"]["value"] == (
         14.285714285714286
+    )
+
+
+def test_unresolved_raw_sku_keeps_average_unknown_until_manual_fallback():
+    start = date(2026, 9, 16)
+    responses = {
+        (start + timedelta(days=index)).isoformat(): {
+            "error": False,
+            "last_id": "",
+            "pages_loaded": 1,
+            "accruals": [],
+        }
+        for index in range(28)
+    }
+    responses["2026-10-13"]["accruals"] = [
+        {
+            "accrued_category": "POSTING",
+            "unit_number": "known-sale",
+            "posting": {
+                "products": [{
+                    "sku": "sku-1",
+                    "commission": {
+                        "sale_amount": {"amount": "100"},
+                        "bonus": {"amount": "20"},
+                    },
+                }],
+            },
+        },
+        {
+            "accrued_category": "POSTING",
+            "unit_number": "unresolved-sale",
+            "posting": {
+                "products": [{
+                    "commission": {
+                        "sale_amount": {"amount": "900"},
+                        "bonus": {"amount": "0"},
+                    },
+                }],
+            },
+        },
+    ]
+    finance = _RawFinanceEvidence(responses)
+    clock = _Clock()
+    source, runtime, _ = _stack(clock, finance=finance)
+    handler = _handler(runtime, source)
+
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = _select_through_handler(handler)
+
+        scenario = result["price_scenario"]
+        assert result["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
+        assert scenario["inputs"]["discount_points_rate"]["value"] is None
+        assert scenario["inputs"]["discount_points_rate"]["provenance"] == "unknown"
+        assert scenario["source_completeness"]["discount_points"]["complete"] is False
+        assert scenario["calculated"]["profit"] is None
+
+        result = _edit_through_handler(
+            handler, runtime, result, "discount_points_rate", 20
+        )
+        for field in (
+            "logistics_per_unit",
+            "last_mile_per_unit",
+            "acquiring_per_unit",
+            "advertising_rate",
+        ):
+            result = _edit_through_handler(handler, runtime, result, field, 0)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert result["price_scenario"]["available"] is True
+    assert result["price_scenario"]["calculated"]["profit"] == 281
+    assert result["price_scenario"]["inputs"]["discount_points_rate"]["provenance"] == (
+        "manual_seller_assumption"
     )
 
 

@@ -1,6 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
 
+import pytest
+
 from services.finance_service import FinanceService
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from services.unit_price_scenario_source import UnitPriceScenarioSource
@@ -115,6 +117,45 @@ def test_finance_evidence_requires_complete_pagination_and_exact_sku():
     assert partial["complete"] is False
     assert other_sku["complete"] is True
     assert other_sku["records"] == []
+
+
+@pytest.mark.parametrize(
+    "unresolved_sku",
+    [None, "", "   ", "<missing-field>"],
+)
+def test_finance_evidence_marks_unresolved_posting_sku_incomplete(unresolved_sku):
+    row = _accrual(
+        "unresolved-posting",
+        sku=None if unresolved_sku == "<missing-field>" else unresolved_sku,
+        sale="900",
+        bonus="0",
+    )
+    if unresolved_sku == "<missing-field>":
+        del row["posting"]["products"][0]["sku"]
+    finance = _Finance({"2026-10-13": _complete_response([row])})
+
+    result = finance.get_daily_discount_points_evidence(
+        "2026-10-13", "sku-1"
+    )
+
+    assert result["complete"] is False
+    assert result["malformed_record_count"] == 1
+    assert result["records"] == []
+
+
+def test_finance_evidence_ignores_known_other_sku_even_when_bonus_is_missing():
+    finance = _Finance({
+        "2026-10-13": _complete_response([
+            _accrual("other-product", sku="other-sku", bonus=None),
+        ]),
+    })
+
+    result = finance.get_daily_discount_points_evidence(
+        "2026-10-13", "sku-1"
+    )
+
+    assert result["complete"] is True
+    assert result["records"] == []
 
 
 def test_finance_evidence_deduplicates_identical_rows_and_rejects_conflict():

@@ -1,4 +1,15 @@
-# Карта тестов — актуальный статус 2026-10-14
+# Карта тестов — актуальный статус 2026-10-15
+
+## PR #695 — R11 исправление неизвестного SKU в auto-b
+
+- `tests/test_unit_price_scenario_source.py`: отсутствие поля SKU, `None`, пустая и пробельная строка помечаются malformed/incomplete; известный другой SKU исключается как раньше даже без bonus.
+- `tests/test_unit_price_scenario_repeat_review_regressions.py`: сквозная проверка raw Ozon accrual → настоящий `FinanceService` → source/math/runtime/public handler; unknown identity запрещает автоматический процент и прибыль, ручной fallback восстанавливает результат.
+- Целевые шесть модулей (source, repeat-review, service, Telegram runtime, architecture regressions, finance accrual breakdown): **63 passed in 1.32s** (Python 3.12, `PYTHONPATH=app`). `compileall -q app tests` и `git diff --check` прошли.
+- Полный pytest и Windows/Linux/Docker CI нового SHA ещё не запускались. Проверка и обновление PR после публикации commit обязательны; слияние выполнит другая модель.
+
+## R11 — исходное подтверждение до исправления (историческая запись)
+
+- На head `9185f65` пять модулей дали **51 passed in 1.53s**; три изолированных probes для отсутствующей identity подтвердили дефект.
 
 ## PR #695 — review 15.10.2026: R11, неразрешённая identity в auto-b
 

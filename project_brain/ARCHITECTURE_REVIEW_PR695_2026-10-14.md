@@ -337,3 +337,10 @@ Existing calculator modules повторены: **48 passed in 1.16s**. Изол
 6. **Documentation Updates:** CHANGELOG/CURRENT_STATE/TEST_MAP и review/feature task отражают R11; DECISIONS не менялся.
 7. **Review Classification:** Architecture Review Required для PR #695; один P2 блокирует приёмку текущей реализации.
 8. **Next Recommended Step:** выполнить Y00–Y03, получить новый зелёный CI и повторный review; слияние выполнит другая модель.
+
+## Локальная повторная проверка R11 после исправления — 15.10.2026
+
+- В `FinanceService.get_daily_discount_points_evidence` неизвестный/пустой SKU теперь учитывается как malformed до сравнения с target SKU. Явный другой SKU по-прежнему исключается из когорты; его недостающий bonus не делает evidence выбранного товара неполным.
+- Штатные regressions покрывают absent/null/empty/whitespace identity и контрольный другой SKU. Сквозной тест проходит через raw fake FinanceService, настоящий weighted source, math/runtime и public handler: неполный cohort оставляет auto-b unknown, а ручное допущение восстанавливает расчёт.
+- Целевые шесть модулей: **63 passed in 1.32s**; `compileall -q app tests` и `git diff --check` прошли. Изменение не затрагивает формулы, финансовые итоги, TaxService, cache, tenant/callback contracts или хранилище.
+- Предварительная оценка: локально R11 исправлен, новых архитектурных проблем в узком diff не выявлено. Финальная приёмка зависит от полного Windows/Linux/Docker CI и review опубликованного SHA; до них merge blocker остаётся открытым. R1–R10 этим изменением не переоткрываются.

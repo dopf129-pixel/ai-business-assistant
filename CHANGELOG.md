@@ -1,8 +1,9 @@
-# 2026-10-15 — PR #695: review выявил R11 в полноте среднего баллов
+# 2026-10-15 — PR #695: исправление R11 в полноте среднего баллов
 
-- На head `9185f65` подтверждён P2: строка POSTING без разрешённого SKU исключается как другой товар, и неполная выборка получает complete=true и автоматическое среднее баллов. Требуется unknown/manual fallback по существующему контракту.
-- Повторены 51 existing calculator tests; три изолированных expected-red кейса подтверждают R11. Reviewed-head Windows/Linux/Docker CI зелёный, но не покрывает этот путь.
-- Добавлено `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`; review и статусы обновлены. Production code и пользовательские данные не менялись; слияние отложено до исправления.
+- Finance evidence теперь помечает POSTING без SKU как malformed/incomplete; явный другой SKU по-прежнему исключается из когорты выбранного товара.
+- Добавлены parser regressions для отсутствующего/null/пустого/пробельного SKU и сквозной тест FinanceService → source → calculator runtime → handler: automatic rate остаётся unknown, пока пользователь не введёт ручное значение.
+- Целевые шесть модулей: **63 passed**; `compileall -q app tests` и `git diff --check` прошли. Полный pytest, CI нового SHA и повторный review ожидают публикации исправления; PR #695 остаётся открытым для слияния другой моделью.
+- Пользовательские `data/tasks.json`, `data/users.json`, lock-файл и существующие временные каталоги сохранены.
 
 # 2026-10-14 — PR #695: исправлен source/presentation R10
 

@@ -1,9 +1,14 @@
-# 2026-10-15 — PR #695: перед слиянием требуется R11
+# 2026-10-15 — PR #695: R11 исправлен, ожидается CI и повторный review
 
-- Дополнительный review head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтвердил закрытие R1–R10 и выявил P2 в `FinanceService.get_daily_discount_points_evidence`: неразрешённый SKU молча считается другим товаром, поэтому неполное среднее баллов получает complete=true.
-- Реальный evidence → source с fake raw finance: известная продажа 100/20 плюс положительная строка 900/0 без SKU возвращают подтверждённые 20% вместо unknown. Для None/пустого/пробельного SKU получены 3 expected failures; данные пользователя и API не использовались.
-- Пять existing calculator/review modules: **51 passed in 1.53s**. Exact-head Windows/Linux/Docker CI runs `38635120280` и `38635112065` success; новый дефект текущими regressions не покрыт. Full local pytest без изменения production code повторно не запускался.
-- Актуальное ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`, Y00–Y03 ещё не начаты. Требуются fix/regressions/new CI/review перед слиянием другой моделью. Этот review изменяет только документы; локальные пользовательские JSON/locks/temp сохранены.
+- `FinanceService.get_daily_discount_points_evidence` теперь относит POSTING с отсутствующим/null/пустым/пробельным SKU к malformed evidence и делает дневную выборку неполной. Известный отличный SKU сохраняет прежнее поведение и исключается из выбранной когорты.
+- Добавлены четыре parser cases и сквозной regression FinanceService → UnitPriceScenarioSource → calculator math/runtime → public handler. Без ручного допущения автоматический процент остаётся unknown и прибыль не показывается; после ручного ввода сценарий рассчитывается.
+- Целевые шесть модулей: **63 passed**; `compileall -q app tests` и `git diff --check` — success. CI нового code SHA и repeat review ещё не выполнены; PR #695 не сливать этим чатом.
+- Работа ведётся по `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`. Пользовательские `data/tasks.json`, `data/users.json`, lock-файлы и существующие временные каталоги не изменялись.
+
+# История 2026-10-15 — перед исправлением R11
+
+- Дополнительный review head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтвердил закрытие R1–R10 и выявил P2: неразрешённый SKU молча считался другим товаром, поэтому неполное среднее баллов получало `complete=true`.
+- Reviewed-head Windows/Linux/Docker CI runs `38635120280` и `38635112065` были зелёными, но не покрывали дефект. Изначальные red probes записаны ниже как историческое подтверждение.
 
 # История 2026-10-14 — PR #695: R10 принят после полного CI и repeat review
 
