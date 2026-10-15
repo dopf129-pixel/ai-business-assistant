@@ -1080,7 +1080,6 @@ class AssistantPeriodProfitRuntimeService:
         ):
             lines.extend([
                 "Изменение прибыли: " + self._signed_money(profit.get("delta")),
-                "Вклады, объясняющие изменение:",
             ])
             bridge = snapshot.get("profit_bridge")
             bridge_b = bridge.get("B") if isinstance(bridge, dict) else None
@@ -1091,15 +1090,33 @@ class AssistantPeriodProfitRuntimeService:
             )
             if not isinstance(contributions, dict):
                 contributions = {}
-            for key, label in (
-                ("net_accrual_change", "Начисления Ozon"),
-                ("product_cost_contribution", "Себестоимость"),
-                ("return_cogs_contribution", "Return COGS"),
-                ("tax_contribution", "Налог"),
-            ):
-                amount = contributions.get(key)
-                if amount is not None and amount != 0:
-                    lines.append("• " + label + ": " + self._signed_money(amount))
+            if isinstance(bridge_b, dict) and bridge_b.get("status") == "CONFIRMED":
+                contribution_labels = (
+                    ("net_accrual_change", "Начисления Ozon"),
+                    ("product_cost_contribution", "Себестоимость"),
+                    ("return_cogs_contribution", "Return COGS"),
+                    ("tax_contribution", "Налог"),
+                    ("rounding_adjustment", "Округление"),
+                )
+                ranked = []
+                for order, (key, label) in enumerate(contribution_labels):
+                    amount = contributions.get(key)
+                    try:
+                        number = float(amount)
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if isfinite(number) and number != 0:
+                        ranked.append((abs(number), order, label, number))
+                if ranked:
+                    lines.append("Три главных подтверждённых вклада:")
+                    for _magnitude, _order, label, amount in sorted(
+                        ranked, key=lambda item: (-item[0], item[1])
+                    )[:3]:
+                        lines.append("• " + label + ": " + self._signed_money(amount))
+                else:
+                    lines.append("Подтверждённые денежные вклады не выявлены.")
+            else:
+                lines.append("Денежный мост пока не подтверждён.")
         else:
             lines.append("Сравнение прибыли пока не подтверждено.")
             lines.append("Подробности покажут доступные показатели и ограничения.")

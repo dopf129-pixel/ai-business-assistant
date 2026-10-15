@@ -197,6 +197,11 @@ def test_period_profit_analytics_views_are_cached_scoped_and_make_no_new_query()
         assert "01.08.2026 — 31.08.2026" in analytics["text"]
         assert "01.07.2026 — 31.07.2026" in analytics["text"]
         assert "+100.00 ₽" in analytics["text"]
+        assert "Три главных подтверждённых вклада:" in analytics["text"]
+        assert len([
+            line for line in analytics["text"].splitlines()
+            if line.startswith("• ")
+        ]) == 3
 
         details = []
         for label in ("📅 Сравнение периодов", "🧾 Что изменило прибыль", "🛍 Вклад товаров"):
@@ -301,6 +306,28 @@ def test_analytics_snapshot_is_compact_and_sku_labels_cannot_inject_long_text():
         assert _utf16_units(sku_view["text"]) <= 3500
         assert _utf16_units(analytics["text"]) <= 3500
         assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_analytics_menu_does_not_claim_unavailable_bridge_contributions():
+    result = _result()
+    result["profit_bridge"]["B"] = {"status": "UNAVAILABLE"}
+    runtime = AssistantPeriodProfitRuntimeService(
+        _Query(result),
+        keyboard_service=AssistantKeyboardService(),
+        clock=_Clock(),
+    )
+    tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        report = runtime.handle_text("прибыль за 28 дней", user_id="owner-1")
+        analytics = runtime.handle_cached_view(
+            "period_profit_analytics:" + report["report_view_id"],
+            user_id="owner-1",
+        )
+
+        assert "Денежный мост пока не подтверждён." in analytics["text"]
+        assert "вкладов, объясняющих" not in analytics["text"].lower()
     finally:
         reset_current_tenant_user_id(tenant_token)
 
