@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — целевая маржа и сравнение вариантов цены
 
-Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M04 реализованы. Последний review PR #696 выявил несовпадение нормализации `11.110` в базовом калькуляторе и планировщике; исправление покрыто регрессиями, новая проверка CI ожидается.**
+Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M04 реализованы. Последняя review-находка PR #696 по эквивалентным форматам `11.110` и `11.11` исправлена; code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` прошёл Windows/Linux Verify. PR открыт для повторного review.**
 
 ## 1. Цель и решение владельца
 
@@ -196,7 +196,7 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Функционал и review-правки реализованы; новая проверка ожидается | PR #696, базовый code SHA `007bd5a01a53d8451f8fe291810c76c55467b5c6` | Для последней находки эквивалентных `11.110`/`11.11` добавлены helper/runtime regressions: четыре связанных модуля — 87 passed; `compileall` и `git diff --check` прошли. Verify нового SHA ожидается. Локальный полный pytest снова упёрся в `WinError 5` при cleanup basetemp. PR открыт, merge не выполнялся |
+| M04 | Исправления review реализованы и проверены | PR #696, code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` | Четыре связанных модуля — 87 passed; Verify runs `38728949431`/`38728942708`: Windows — 3 204 passed, Linux — 3 204 passed; compileall и Docker build/runtime health-check успешны. Локальный pytest не выдал итог из-за `WinError 5` на basetemp. PR открыт для повторного review, merge не выполнялся |
 
 Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Функционал и повторные исправления R1/R2 прошли CI. PR #696 остаётся открытым для повторного review и слияния другой моделью.
 
@@ -305,7 +305,7 @@
 2. **Files Changed:** изменены существующий planner, его unit tests, Telegram runtime tests, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, `ROADMAP.md` и это ТЗ. Production API, калькулятор, runtime contract и хранилища не менялись.
 3. **Architecture Impact:** локальная коррекция нормализации в существующем helper; новых слоёв, зависимостей или архитектурных решений нет.
 4. **Preserved Components:** `UnitPriceScenarioService`/`TaxService`, hard cap 128, exact forward validation, provenance, read-only behavior, lifecycle guards и пользовательские данные.
-5. **Testing:** четыре связанных модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Полный локальный pytest не сформировал итог: `PermissionError (WinError 5)` при pytest session cleanup basetemp. Verify нового commit ожидается.
+5. **Testing:** четыре связанных модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Verify runs `38728949431`/`38728942708` на code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff`: Windows — **3 204 passed**, Linux — **3 204 passed**, compileall и Docker build/runtime health-check успешны. Локальный full pytest показал ошибки/падения, затем завершился `PermissionError (WinError 5)` при обходе basetemp и не дал сводку; приёмкой служит чистый CI.
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и это ТЗ обновлены; DECISIONS не менялся.
 7. **Review Classification:** правка в рамках уже прошедшего Architecture Review; повторный review PR #696 обязателен.
-8. **Next Recommended Step:** закоммитить и отправить точные файлы в существующую ветку PR #696, дождаться нового полного CI и передать свежий SHA на repeat review; merge не выполнять.
+8. **Next Recommended Step:** передать обновлённый PR #696 на repeat review; слияние выполняет другая модель.
