@@ -454,27 +454,13 @@ class AssistantPeriodProfitRuntimeService:
         return {"error": True, "code": code, "status": "PERIOD_PROFIT_QUERY_UNAVAILABLE", "read_only": True, "executed": False}
 
     def _query_with_optional_comparison(self, **kwargs):
-        compared = self.query_service.query(
+        result = self.query_service.query(
             compare_previous=True,
             **kwargs,
         )
-        if not isinstance(compared, dict) or compared.get("error") is not True:
-            return compared
-
-        current = self.query_service.query(
-            compare_previous=False,
-            **kwargs,
-        )
-        if not isinstance(current, dict) or current.get("error") is not False:
-            return current if isinstance(current, dict) else compared
-
-        degraded = dict(current)
-        degraded["comparison"] = None
-        degraded["previous_summary"] = None
-        degraded["comparison_status"] = "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
-        degraded["comparison_error_code"] = compared.get("code")
-        degraded["comparison_read_only"] = True
-        return degraded
+        if not isinstance(result, dict):
+            return self._error("PERIOD_PROFIT_QUERY_RESULT_INVALID")
+        return result
 
     @staticmethod
     def _custom_period_input_invalid():

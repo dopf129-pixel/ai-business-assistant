@@ -105,6 +105,10 @@ def compact_period_profit_result(result):
 
 def _warnings(result):
     warnings = []
+    if result.get("comparison_status") == "PERIOD_PROFIT_COMPARISON_UNAVAILABLE":
+        warnings.append(
+            "⚠️ Сравнение с прошлым периодом недоступно; текущий расчёт сохранён."
+        )
     external = result.get("external_expense_evidence")
     if isinstance(external, dict):
         if external.get("error") is True:
@@ -666,7 +670,12 @@ def _comparison_line(comparison):
         icon = "➡️"
         sign = ""
 
-    return icon + " К прошлому периоду: " + sign + _money(abs(value))
+    return (
+        icon
+        + " К прошлому периоду до внешних расходов: "
+        + sign
+        + _money(abs(value))
+    )
 
 
 def _period(date_from, date_to):

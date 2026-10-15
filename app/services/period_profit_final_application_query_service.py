@@ -1,4 +1,7 @@
-from period_profit_comparison import build_period_profit_comparison
+from period_profit_comparison import (
+    build_period_profit_comparison,
+    mark_period_profit_comparison_unavailable,
+)
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
@@ -79,26 +82,49 @@ class PeriodProfitFinalApplicationQueryService:
 
         previous_summary = result.get("previous_summary")
         comparison = result.get("comparison")
+        comparison_error_code = None
         if compare_previous:
-            previous = self._previous_summary(result.get("request"))
-            if previous.get("error") is True:
-                return previous
-            previous_summary = previous.get("summary")
-            if previous_summary is None:
-                comparison = None
-                result["comparison_status"] = (
-                    "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
+            try:
+                previous = self._previous_summary(result.get("request"))
+            except Exception:
+                previous = {
+                    "error": True,
+                    "code": "PERIOD_PROFIT_FINAL_PREVIOUS_COMPARISON_UNAVAILABLE",
+                }
+            if not isinstance(previous, dict) or previous.get("error") is True:
+                comparison_error_code = (
+                    previous.get("code")
+                    if isinstance(previous, dict)
+                    else "PERIOD_PROFIT_FINAL_PREVIOUS_COMPARISON_INVALID"
                 )
-                result["comparison_error_code"] = previous.get(
-                    "comparison_error_code"
-                )
-                result["comparison_read_only"] = True
             else:
-                comparison = build_period_profit_comparison(summary, previous_summary)
-                if comparison.get("error"):
-                    return comparison
-            result["previous_summary"] = previous_summary
-            result["comparison"] = comparison
+                previous_summary = previous.get("summary")
+                if previous_summary is None:
+                    comparison_error_code = (
+                        previous.get("comparison_error_code")
+                        or "PERIOD_PROFIT_FINAL_PREVIOUS_SUMMARY_UNAVAILABLE"
+                    )
+                else:
+                    try:
+                        comparison = build_period_profit_comparison(
+                            summary,
+                            previous_summary,
+                        )
+                    except Exception:
+                        comparison_error_code = (
+                            "PERIOD_PROFIT_FINAL_PREVIOUS_COMPARISON_INVALID"
+                        )
+                    if isinstance(comparison, dict) and comparison.get(
+                        "error"
+                    ) is True:
+                        comparison_error_code = comparison.get("code")
+                    if comparison_error_code is None:
+                        result["previous_summary"] = previous_summary
+                        result["comparison"] = comparison
+                        result["comparison_status"] = comparison.get("status")
+            if comparison_error_code is not None:
+                previous_summary = None
+                comparison = None
 
         coverage = build_period_profit_coverage(
             summary,
@@ -131,6 +157,11 @@ class PeriodProfitFinalApplicationQueryService:
         result["period_profit_final_application_complete"] = True
         result["read_only"] = True
         result["executed"] = False
+        if comparison_error_code is not None:
+            return mark_period_profit_comparison_unavailable(
+                result,
+                comparison_error_code,
+            )
         return result
 
     def _previous_summary(self, current_request):

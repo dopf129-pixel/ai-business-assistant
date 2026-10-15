@@ -28,3 +28,36 @@ def test_query_with_previous_comparison():
 def test_product_provider_failure_blocks():
     result = PeriodProfitQueryService(Summary([]), lambda: None).query("7D", today="2026-08-29")
     assert result["code"] == "PERIOD_PROFIT_PRODUCTS_UNAVAILABLE"
+
+
+def test_base_only_query_keeps_current_when_optional_previous_summary_fails():
+    class CurrentThenPreviousFails:
+        def __init__(self):
+            self.calls = []
+
+        def calculate(self, date_from, date_to, products):
+            self.calls.append((date_from, date_to))
+            if len(self.calls) == 2:
+                return {
+                    "error": True,
+                    "code": "TEST_PREVIOUS_SUMMARY_UNAVAILABLE",
+                }
+            return Summary([440]).calculate(date_from, date_to, products)
+
+    summary = CurrentThenPreviousFails()
+    result = PeriodProfitQueryService(summary, lambda: [{"sku": "1"}]).query(
+        "7D",
+        compare_previous=True,
+        today="2026-08-29",
+    )
+
+    assert result["error"] is False
+    assert result["status"] == "PERIOD_PROFIT_QUERY_READY"
+    assert result["summary"]["profit"] == 440
+    assert result["comparison"] is None
+    assert result["comparison_status"] == "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
+    assert result["comparison_error_code"] == "TEST_PREVIOUS_SUMMARY_UNAVAILABLE"
+    assert summary.calls == [
+        ("2026-08-23", "2026-08-29"),
+        ("2026-08-16", "2026-08-22"),
+    ]
