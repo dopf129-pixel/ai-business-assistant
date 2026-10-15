@@ -1,3 +1,9 @@
+# N06 — Telegram-экраны и scoped report snapshots (15.10.2026)
+
+- `tests/test_period_profit_analytics_runtime.py` проверяет public handler route, прежний и текущий период, прибыль до внешних расходов, п.п. маржи, bridge, SKU residual, существующий выбор товара, owner/store isolation, fixed TTL, отсутствие tenant fallback, компактный snapshot и очистку длинной SKU-метки. В тесте присутствует production-factory wiring regression.
+- N06 code commit `e9372b1`. Профильный набор: **74 passed, 1 deselected**; deselected только production-factory regression, потому что локальный Windows runner не позволяет Python зайти в изолированный временный каталог (WinError 5). Отдельно `compileall -q app tests` и `git diff --check` прошли. Production-factory тест обязательно выполнить в N08 clean CI.
+- N07 interleaving cache read/eviction и строгий cap 64 ещё не добавлены; открыть карточку/аналитику должно и дальше давать 0 дополнительных источниковых вызовов.
+
 # N00–N05 — аналитика прибыли, contract, bridge и SKU contribution (15.10.2026)
 
 - `tests/test_period_profit_sku_contribution.py` covers reference store-vs-SKU reconciliation (+4,100 ₽ = +3,000 ₽ matched SKU +1,100 ₽ residual), exact historical SKU change under the same confirmed product+offer, no-zero inference for a missing counterpart, conflicts, ambiguous offer variants, deterministic top five, incomplete coverage, malformed money, and mismatch with the canonical store contract.
