@@ -317,10 +317,62 @@ class AssistantKeyboardService:
         return {
             "error": False,
             "type": "inline_keyboard",
-            "buttons": [{
-                "text": "🔎 Полнота данных",
-                "callback": "period_profit_completeness:" + token,
-            }],
+            "buttons": [
+                {
+                    "text": "📊 Аналитика периода",
+                    "callback": "period_profit_analytics:" + token,
+                },
+                {
+                    "text": "🔎 Полнота данных",
+                    "callback": "period_profit_completeness:" + token,
+                },
+            ],
+        }
+
+    def build_period_profit_analytics_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "📅 Сравнение периодов", "callback": "period_profit_comparison:" + token},
+                {"text": "🧾 Что изменило прибыль", "callback": "period_profit_bridge:" + token},
+                {"text": "🛍 Вклад товаров", "callback": "period_profit_sku_contribution:" + token},
+                {"text": "🔎 Полнота данных", "callback": "period_profit_completeness:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_period_profit_analytics_detail_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "↩️ Аналитика", "callback": "period_profit_analytics:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_period_profit_sku_contribution_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "🔎 Выбрать товар", "callback": "period_profit_sku"},
+                {"text": "↩️ Аналитика", "callback": "period_profit_analytics:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
         }
 
     def build_period_profit_completeness_keyboard(self, report_view_id, actions):
@@ -338,6 +390,10 @@ class AssistantKeyboardService:
             item = labels.get(str(action))
             if item is not None:
                 buttons.append({"text": item[0], "callback": item[1]})
+        buttons.append({
+            "text": "📊 Аналитика периода",
+            "callback": "period_profit_analytics:" + token,
+        })
         buttons.append({
             "text": "↩️ К расчёту",
             "callback": "period_profit_report:" + token,
