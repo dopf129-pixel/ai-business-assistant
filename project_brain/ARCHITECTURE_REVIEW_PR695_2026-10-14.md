@@ -2,7 +2,7 @@
 
 ## Вердикт и проверенная ревизия
 
-**Повторный review 15.10.2026 на head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтверждает R1–R10, но выявил один P2 R11: строка POSTING без разрешённого SKU молча исключается из среднего баллов, после чего неполная когорта считается подтверждённой. Слияние отложить до узкого исправления, regression, нового CI и повторной проверки.**
+**Повторный review 15.10.2026 на code SHA `27dbb2f65166ac63b07fac250eea87a2d9dca939` подтверждает закрытие R1–R11. Новый parser/source/runtime regression, полный Windows/Linux/Docker CI и повторная проверка проходят; открытых технических blockers не найдено. PR #695 остаётся открытым для слияния другой моделью.**
 
 Актуальное ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`. R10 и предыдущие результаты сохранены ниже как история; новое finding R11 описано в конце документа.
 
@@ -338,9 +338,20 @@ Existing calculator modules повторены: **48 passed in 1.16s**. Изол
 7. **Review Classification:** Architecture Review Required для PR #695; один P2 блокирует приёмку текущей реализации.
 8. **Next Recommended Step:** выполнить Y00–Y03, получить новый зелёный CI и повторный review; слияние выполнит другая модель.
 
-## Локальная повторная проверка R11 после исправления — 15.10.2026
+## Финальная повторная проверка R11 после исправления — 15.10.2026
 
 - В `FinanceService.get_daily_discount_points_evidence` неизвестный/пустой SKU теперь учитывается как malformed до сравнения с target SKU. Явный другой SKU по-прежнему исключается из когорты; его недостающий bonus не делает evidence выбранного товара неполным.
 - Штатные regressions покрывают absent/null/empty/whitespace identity и контрольный другой SKU. Сквозной тест проходит через raw fake FinanceService, настоящий weighted source, math/runtime и public handler: неполный cohort оставляет auto-b unknown, а ручное допущение восстанавливает расчёт.
 - Целевые шесть модулей: **63 passed in 1.32s**; `compileall -q app tests` и `git diff --check` прошли. Изменение не затрагивает формулы, финансовые итоги, TaxService, cache, tenant/callback contracts или хранилище.
-- Предварительная оценка: локально R11 исправлен, новых архитектурных проблем в узком diff не выявлено. Финальная приёмка зависит от полного Windows/Linux/Docker CI и review опубликованного SHA; до них merge blocker остаётся открытым. R1–R10 этим изменением не переоткрываются.
+- R11 закрыт. На проверенном code SHA `27dbb2f65166ac63b07fac250eea87a2d9dca939` GitHub Verify runs **38704396583** и **38704389615** завершились success: обе полные проверки, Windows/Linux и production Docker build/runtime smoke. Inline review threads отсутствуют; R1–R10 этим изменением не переоткрываются.
+
+### Итог repeat review
+
+1. **Change Summary:** ветка `codex/unit-price-calculator`, code commit `27dbb2f` (`Fail closed on unresolved SKU discount evidence`). Неопознанные SKU больше не выпадают из полноты средней доли баллов.
+2. **Files Changed:** изменены `app/services/finance_service.py`, два модуля regression tests и changelog/project-brain status artifacts; пользовательские данные не включались.
+3. **Architecture Impact:** no architectural impact; изменена только validation граница существующего finance evidence, новый слой/API/DB contract не добавлен.
+4. **Preserved Components:** формула, налоговая политика, известная SKU-фильтрация, cache/budget, tenant/callback contracts и постоянное хранилище.
+5. **Testing:** шесть локальных модулей — **63 passed**; compileall/diff check passed; exact code-SHA Windows/Linux/Docker Verify runs `38704396583` и `38704389615` success.
+6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP, feature task, corrective task и этот review обновлены; DECISIONS не менялся.
+7. **Review Classification:** Architecture Review Required для всего PR #695; R11 технически принят, открытых блокеров review нет.
+8. **Next Recommended Step:** другая модель может принять решение о слиянии PR; этот чат merge не выполнял.

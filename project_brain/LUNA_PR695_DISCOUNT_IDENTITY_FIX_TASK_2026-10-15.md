@@ -45,14 +45,14 @@ PR #695, ветка `codex/unit-price-calculator`, проверенный head `
 |---|---|
 | Y00 | Выполнен: четыре штатных parser regressions добавлены; до фикса они подтвердили malformed identity gap |
 | Y01 | Выполнен: неизвестный SKU учитывается как malformed, известный другой SKU остаётся исключённым |
-| Y02 | Локальный этап выполнен: целевые шесть модулей **63 passed**; compileall и diff check прошли. Полный suite и CI нового SHA ожидаются |
-| Y03 | Локальная документация обновлена; repeat review на опубликованном SHA ожидается |
+| Y02 | Выполнен: целевые шесть модулей **63 passed**; compileall/diff check прошли; code SHA `27dbb2f` прошёл Windows/Linux/Docker Verify runs `38704396583` и `38704389615` |
+| Y03 | Выполнен: документация и PR обновлены; repeat review R11 не выявил открытых замечаний. Слияние выполняет другая модель |
 
 ## Результат реализации — 15.10.2026
 
 - В `FinanceService.get_daily_discount_points_evidence` пустая identity больше не проходит как известный другой товар: она увеличивает `malformed` и делает evidence incomplete. Явно иной непустой SKU всё ещё пропускается до разбора его bonus.
 - Parser regressions покрывают отсутствующее поле, null, пустое и пробельное значения, а также контрольный случай другого известного SKU.
 - Сквозной regression проходит через FinanceService, weighted source, math, runtime и public Telegram handler: неполная когорта оставляет auto rate неизвестным и расчёт закрытым до ручного fallback; после ввода ручного значения результат снова доступен.
-- Локальные проверки: **63 passed in 1.32s**, `compileall -q app tests` success, `git diff --check` success. Полный pytest/CI нового SHA и финальный repeat review ещё не выполнены; они обязательны до передачи PR другой модели на слияние.
+- Локальные проверки: **63 passed in 1.32s**, `compileall -q app tests` success, `git diff --check` success. Code SHA `27dbb2f65166ac63b07fac250eea87a2d9dca939` прошёл Verify runs `38704396583` и `38704389615`, включая Windows/Linux full suites и production Docker build/runtime smoke. Повторный review R11 закрыт без открытых замечаний; PR не слит.
 
 Бизнес-решение не требуется: это соблюдение уже принятого контракта unknown identity → unavailable auto estimate.

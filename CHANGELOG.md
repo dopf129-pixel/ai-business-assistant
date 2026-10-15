@@ -2,7 +2,7 @@
 
 - Finance evidence теперь помечает POSTING без SKU как malformed/incomplete; явный другой SKU по-прежнему исключается из когорты выбранного товара.
 - Добавлены parser regressions для отсутствующего/null/пустого/пробельного SKU и сквозной тест FinanceService → source → calculator runtime → handler: automatic rate остаётся unknown, пока пользователь не введёт ручное значение.
-- Целевые шесть модулей: **63 passed**; `compileall -q app tests` и `git diff --check` прошли. Полный pytest, CI нового SHA и повторный review ожидают публикации исправления; PR #695 остаётся открытым для слияния другой моделью.
+- Целевые шесть модулей: **63 passed**; `compileall -q app tests` и `git diff --check` прошли. Code SHA `27dbb2f65166ac63b07fac250eea87a2d9dca939` прошёл полные Windows/Linux/Docker Verify runs **38704396583** и **38704389615**. Повторный review R11 не выявил открытых замечаний; PR #695 остаётся открытым для слияния другой моделью.
 - Пользовательские `data/tasks.json`, `data/users.json`, lock-файл и существующие временные каталоги сохранены.
 
 # 2026-10-14 — PR #695: исправлен source/presentation R10

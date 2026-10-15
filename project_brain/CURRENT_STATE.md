@@ -1,8 +1,8 @@
-# 2026-10-15 — PR #695: R11 исправлен, ожидается CI и повторный review
+# 2026-10-15 — PR #695: R11 исправлен и принят при повторной проверке
 
 - `FinanceService.get_daily_discount_points_evidence` теперь относит POSTING с отсутствующим/null/пустым/пробельным SKU к malformed evidence и делает дневную выборку неполной. Известный отличный SKU сохраняет прежнее поведение и исключается из выбранной когорты.
 - Добавлены четыре parser cases и сквозной regression FinanceService → UnitPriceScenarioSource → calculator math/runtime → public handler. Без ручного допущения автоматический процент остаётся unknown и прибыль не показывается; после ручного ввода сценарий рассчитывается.
-- Целевые шесть модулей: **63 passed**; `compileall -q app tests` и `git diff --check` — success. CI нового code SHA и repeat review ещё не выполнены; PR #695 не сливать этим чатом.
+- Code commit `27dbb2f65166ac63b07fac250eea87a2d9dca939` прошёл полные Windows/Linux/Docker Verify runs **38704396583** и **38704389615**; целевые шесть модулей дали **63 passed**, `compileall` и `git diff --check` прошли. Повторная проверка R11 не выявила открытых замечаний; PR #695 открыт для слияния другой моделью.
 - Работа ведётся по `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`. Пользовательские `data/tasks.json`, `data/users.json`, lock-файлы и существующие временные каталоги не изменялись.
 
 # История 2026-10-15 — перед исправлением R11
