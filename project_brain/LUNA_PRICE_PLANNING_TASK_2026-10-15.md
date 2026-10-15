@@ -151,7 +151,7 @@
 | M01 | M00 | **Завершён 15.10.2026**. Добавлен чистый `UnitPriceTargetPlanningService` и parser; 81 соседний тест passed, compile helper passed; код ещё не подключён к runtime |
 | M02 | M01 | **Завершён 15.10.2026**. Telegram ввод цели/вариантов, компактные результаты, исправление ввода/возврат; цена основного сценария не меняется |
 | M03 | M02 | **Завершён 15.10.2026**. Явное применение цены и полная version/tenant/lifecycle/freshness защита новых результатов/pending stages |
-| M04 | M01–M03 | Реализация завершена. Первый review follow-up на `475f2db` прошёл CI, но повторный review `81ab8bf` обнаружил неполное исправление R1 и разбор запятой R2. Обе правки находятся в текущей ветке; новый полный прогон/CI обязателен. PR открыт; слияние выполняет другая модель |
+| M04 | M01–M03 | Реализация и повторная правка завершены. Verify run `38722009779` на SHA `ac43cb70069ac1e4586b13c7b8e70c9db04e2944`: Windows/Linux по 3 195 passed, compileall, production Docker build/runtime smoke успешны. PR #696 открыт, не слит; слияние выполняет другая модель |
 
 В M00 допустим короткий source/algorithm note в этом документе. Проблему, не входящую в пакет, фиксировать отдельно; исправлять только если она блокирует его контракт и подтверждена воспроизведением. Не переписывать рабочий runtime целиком ради новых кнопок.
 
@@ -196,9 +196,9 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Реализация завершена; повторная проверка продолжается | PR #696, перед повторной правкой — `81ab8bfaba293f20f1b0606ba1c3f598b17f0cd1` | Два целевых модуля после повторной правки: 56 passed. Полный pytest/CI нового SHA ожидаются; PR открыт, не слит |
+| M04 | Реализация и исправления review завершены | PR #696, head `ac43cb70069ac1e4586b13c7b8e70c9db04e2944` | Четыре связанных модуля — 78 passed; Verify `38722009779`: Windows/Linux по 3 195 passed, compileall и Docker build/runtime smoke успешны. Полный локальный Windows pytest не принят из-за WinError 5. PR открыт, merge не выполнялся |
 
-Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Функционал реализован; текущая проверка повторных исправлений R1/R2 завершится после полного pytest и CI нового SHA. PR #696 остаётся открытым для слияния другой моделью.
+Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Функционал и повторные исправления R1/R2 прошли CI. PR #696 остаётся открытым для повторного review и слияния другой моделью.
 
 ## 13. Отчёт подготовки ТЗ
 
@@ -283,7 +283,7 @@
 2. **Files Changed:** `app/services/unit_price_target_planning_service.py`, `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md` и это ТЗ. Удалений нет.
 3. **Architecture Impact:** локальная правка существующего pure helper и регрессий; новый service/API/persistence не добавляется, контракты runtime и калькулятора не меняются.
 4. **Preserved Components:** `UnitPriceScenarioService`/`TaxService`, hard cap 128, exact forward validation, read-only policy, transient session и user/store/SKU/version/snapshot guards; пользовательские JSON/lock/temp не включаются.
-5. **Testing:** четыре связанных модуля — **78 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Полный локальный pytest Windows закончен с 2 806 passed, 21 failed и 368 errors; процесс завершился `WinError 5` во время работы/очистки временных каталогов, поэтому полный результат локально не подтверждён. CI нового SHA ожидается.
+5. **Testing:** четыре связанных модуля — **78 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Полный локальный pytest Windows завершился с 2 806 passed, 21 failed и 368 errors; затем pytest получил `WinError 5` при работе/очистке временных каталогов, поэтому локальный полный результат не считается приёмкой. Verify run **38722009779** на code SHA `ac43cb70069ac1e4586b13c7b8e70c9db04e2944`: Windows **3 195 passed in 43.58s**, Linux **3 195 passed in 11.59s**, compileall и production Docker build/runtime smoke успешны.
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP и это ТЗ обновлены. DECISIONS не изменён: существующие границы 036/045 сохранены.
 7. **Review Classification:** исправление в рамках существующей архитектуры; повторный Architecture Review PR #696 остаётся обязательным.
-8. **Next Recommended Step:** завершить полный pytest и CI Windows/Linux/Docker на новом SHA, затем повторить review. Merge/deploy не выполнять.
+8. **Next Recommended Step:** повторить архитектурный review PR #696 с учётом исправлений; merge/deploy не выполнять в рамках этого этапа.

@@ -5,7 +5,8 @@
 - `tests/test_unit_price_target_planning_service.py` покрывает цель 49,99% при неизвестной исходной цене и достижимой цене внутри диапазона, а также запятую/пробелы в исходной цене.
 - `tests/test_unit_price_scenario_telegram_runtime.py` проходит публичный сценарий выбора SKU → ввод целевой маржи без исходной цены → проверенная цена.
 - Четыре связанных модуля: **78 passed in 1.19s**. `compileall -q app tests` и `git diff --check` прошли.
-- Полный pytest Windows: **2 806 passed, 21 failed, 368 errors**; pytest завершился `WinError 5` во время работы с временными каталогами. Результат локального full suite не подтверждён; CI нового SHA ожидается.
+- Полный pytest Windows в локальной среде: **2 806 passed, 21 failed, 368 errors**; pytest завершился `WinError 5` во время работы с временными каталогами. Локальный full suite не используется как приёмка.
+- Verify run **38722009779** на SHA `ac43cb70069ac1e4586b13c7b8e70c9db04e2944`: Windows/Python 3.12 — **3 195 passed in 43.58s**, Linux/Python 3.11 — **3 195 passed in 11.59s**, compileall и production Docker build/runtime smoke успешны.
 
 ## PR #696 — первое исправление review R1/R2 (историческая запись)
 
