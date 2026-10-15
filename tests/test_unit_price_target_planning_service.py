@@ -153,11 +153,11 @@ def test_solver_reports_not_found_without_claiming_that_target_is_impossible():
 
 
 @pytest.mark.parametrize(
-    "target,advertising_rate",
-    [("50", "0"), ("0", "50")],
+    "target,advertising_rate,expected_price",
+    [("50", "0", None), ("0", "50", None), ("49.99", "0.01", "0.02")],
 )
-def test_solver_probes_near_upper_bound_when_maximum_cent_fails_from_rounding(
-    target, advertising_rate
+def test_solver_finds_verified_price_when_maximum_cent_fails_from_rounding(
+    target, advertising_rate, expected_price
 ):
     planner, service = _planner(counting=True)
     values = _inputs(
@@ -178,11 +178,23 @@ def test_solver_probes_near_upper_bound_when_maximum_cent_fails_from_rounding(
 
     outcome = result["target"]
     assert outcome["status"] == "FOUND"
+    if expected_price is not None:
+        assert outcome["price"] == expected_price
     assert outcome["goal_reached"] is True
     assert outcome["forward_result"]["available"] is True
     assert Decimal(outcome["price"]) < planner.max_price
     assert result["evaluation_count"] == service.calls
-    assert result["evaluation_count"] <= 113
+    assert result["evaluation_count"] <= 127
+
+
+def test_current_price_probe_accepts_calculator_decimal_comma_and_grouped_spaces():
+    planner, _ = _planner()
+
+    assert planner._current_price_cents({"price": "500,00"}) == 50_000
+    assert planner._current_price_cents({"price": "1 234,56"}) == 123_456
+    assert planner._current_price_cents({"price": "1\u00a0234,56"}) == 123_456
+    assert planner._current_price_cents({"price": "5e2"}) == 50_000
+    assert planner._current_price_cents({"price": "1.234,56"}) is None
 
 
 def test_target_and_comparison_candidates_do_not_inherit_observed_price_provenance():

@@ -7,6 +7,8 @@ class UnitPriceTargetPlanningService:
 
     MAX_FORWARD_CALCULATIONS = 128
     MAX_UPPER_BOUND_PROBES = 8
+    MAX_LOWER_BOUND_PROBES = 8
+    MAX_PRICE_SCALE_PROBES = 6
     MIN_PRICE_CENTS = 1
     CENT = Decimal("0.01")
     HUNDRED = Decimal("100")
@@ -278,7 +280,7 @@ class UnitPriceTargetPlanningService:
     def _find_feasible_upper_bound(
         self, inputs, low, high, target, call_state, common
     ):
-        """Find a verified bracket when rounding makes the top cent fail."""
+        """Find a verified bracket when cent rounding breaks the top bound."""
         candidates = [
             high - offset
             for offset in range(1, self.MAX_UPPER_BOUND_PROBES + 1)
@@ -287,6 +289,16 @@ class UnitPriceTargetPlanningService:
         current_cents = self._current_price_cents(inputs)
         if current_cents is not None and low < current_cents < high:
             candidates.append(current_cents)
+        candidates.extend(
+            low + offset
+            for offset in range(1, self.MAX_LOWER_BOUND_PROBES + 1)
+            if low + offset < high
+        )
+        candidates.extend(
+            10**power
+            for power in range(1, self.MAX_PRICE_SCALE_PROBES + 1)
+            if low < 10**power < high
+        )
 
         seen = set()
         for cents in candidates:
@@ -334,11 +346,15 @@ class UnitPriceTargetPlanningService:
         if raw_price is None or isinstance(raw_price, bool):
             return None
         try:
-            price = (
-                raw_price
-                if isinstance(raw_price, Decimal)
-                else Decimal(str(raw_price))
-            )
+            if isinstance(raw_price, Decimal):
+                price = raw_price
+            elif isinstance(raw_price, (str, int, float)):
+                text = str(raw_price).strip().replace("\u00a0", "").replace(" ", "")
+                if len(text) > 64 or ("," in text and "." in text):
+                    return None
+                price = Decimal(text.replace(",", "."))
+            else:
+                return None
         except (InvalidOperation, TypeError, ValueError):
             return None
         if not self._is_valid_price(price):

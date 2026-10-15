@@ -1,6 +1,13 @@
 # Карта тестов — актуальный статус 2026-10-15
 
-## PR #696 — повторные исправления review R1/R2
+## PR #696 — повторная правка R1/R2 (проверки продолжаются)
+
+- `tests/test_unit_price_target_planning_service.py` покрывает цель 49,99% при неизвестной исходной цене и достижимой цене внутри диапазона, а также запятую/пробелы в исходной цене.
+- `tests/test_unit_price_scenario_telegram_runtime.py` проходит публичный сценарий выбора SKU → ввод целевой маржи без исходной цены → проверенная цена.
+- Четыре связанных модуля: **78 passed in 1.19s**. `compileall -q app tests` и `git diff --check` прошли.
+- Полный pytest Windows: **2 806 passed, 21 failed, 368 errors**; pytest завершился `WinError 5` во время работы с временными каталогами. Результат локального full suite не подтверждён; CI нового SHA ожидается.
+
+## PR #696 — первое исправление review R1/R2 (историческая запись)
 
 - `tests/test_unit_price_target_planning_service.py` добавляет: достижимая 50% маржа и безубыточность находятся при неуспешной максимальной копейке; provenance рассчитанной и введённой цены отделяется от источника исходной цены. Максимальный счётчик в проверке — ≤113 при hard cap 128.
 - Helper + Telegram runtime + architecture/repeat-review regressions: **75 passed in 1.12s**; `compileall` изменённых Python files и `git diff --check` прошли.
