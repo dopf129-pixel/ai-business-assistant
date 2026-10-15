@@ -2,9 +2,13 @@ from period_profit_comparison import (
     build_period_profit_comparison,
     mark_period_profit_comparison_unavailable,
 )
+from period_profit_comparison_contract import (
+    build_period_profit_comparison_contract,
+)
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_request import build_previous_period_profit_request
 from period_profit_response import build_period_profit_response
+from services.tenant_context import get_current_tenant_user_id
 from services.period_profit_return_cogs_blocker_stage_service import (
     PeriodProfitReturnCogsBlockerStageService,
 )
@@ -82,6 +86,7 @@ class PeriodProfitFinalApplicationQueryService:
 
         previous_summary = result.get("previous_summary")
         comparison = result.get("comparison")
+        previous_finalized = None
         comparison_error_code = None
         if compare_previous:
             try:
@@ -98,6 +103,7 @@ class PeriodProfitFinalApplicationQueryService:
                     else "PERIOD_PROFIT_FINAL_PREVIOUS_COMPARISON_INVALID"
                 )
             else:
+                previous_finalized = previous
                 previous_summary = previous.get("summary")
                 if previous_summary is None:
                     comparison_error_code = (
@@ -137,6 +143,48 @@ class PeriodProfitFinalApplicationQueryService:
         if coverage.get("error"):
             return coverage
         result["coverage"] = coverage
+
+        if compare_previous and previous_finalized is not None and previous_summary is not None:
+            try:
+                comparison_contract = build_period_profit_comparison_contract(
+                    {
+                        "error": False,
+                        "status": "PERIOD_PROFIT_QUERY_READY",
+                        "request": result.get("request"),
+                        "summary": summary,
+                        "coverage": coverage,
+                        "external_expense_evidence": external_evidence,
+                        "external_expense_adjustment": external_adjustment,
+                    },
+                    previous_finalized,
+                    tenant_scope=get_current_tenant_user_id(),
+                )
+            except Exception:
+                comparison_contract = {
+                    "error": True,
+                    "code": "PERIOD_PROFIT_COMPARISON_CONTRACT_INVALID",
+                    "status": "PERIOD_PROFIT_COMPARISON_CONTRACT_UNAVAILABLE",
+                    "read_only": True,
+                    "executed": False,
+                }
+            result["comparison_contract"] = comparison_contract
+            if comparison_contract.get("error") is False:
+                if comparison_contract["profit_bases"]["B"]["status"] != "CONFIRMED":
+                    reasons = comparison_contract["profit_compatibility"].get(
+                        "reason_codes"
+                    ) or []
+                    comparison_error_code = (
+                        reasons[0]
+                        if reasons
+                        else "PERIOD_PROFIT_COMPARISON_BASIS_UNAVAILABLE"
+                    )
+                    comparison = None
+            else:
+                comparison_error_code = comparison_contract.get(
+                    "code",
+                    "PERIOD_PROFIT_COMPARISON_CONTRACT_UNAVAILABLE",
+                )
+                comparison = None
 
         response = build_period_profit_response(
             summary,
@@ -200,25 +248,120 @@ class PeriodProfitFinalApplicationQueryService:
 
         return_loader = getattr(self.base_service, "return_evidence_service", None)
         cogs_service = getattr(self.base_service, "return_cogs_recovery_evidence_service", None)
-        if return_loader is None or cogs_service is None:
-            return {"error": False, "summary": summary}
-        load = getattr(return_loader, "load", None)
-        analyze = getattr(cogs_service, "analyze", None)
-        if not callable(load) or not callable(analyze):
-            return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_DEPENDENCY_UNAVAILABLE")
-        try:
-            return_evidence = load(previous_request["date_from"], previous_request["date_to"])
-            if not isinstance(return_evidence, dict) or return_evidence.get("error") is True:
-                return return_evidence if isinstance(return_evidence, dict) else self._error(
-                    "PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_EVIDENCE_INVALID"
-                )
-            cogs_evidence = analyze(return_evidence, products)
-        except Exception:
-            return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_EVIDENCE_UNAVAILABLE")
+        cogs_evidence = None
+        if return_loader is not None and cogs_service is not None:
+            load = getattr(return_loader, "load", None)
+            analyze = getattr(cogs_service, "analyze", None)
+            if not callable(load) or not callable(analyze):
+                return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_DEPENDENCY_UNAVAILABLE")
+            try:
+                return_evidence = load(previous_request["date_from"], previous_request["date_to"])
+                if not isinstance(return_evidence, dict) or return_evidence.get("error") is True:
+                    return return_evidence if isinstance(return_evidence, dict) else self._error(
+                        "PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_EVIDENCE_INVALID"
+                    )
+                cogs_evidence = analyze(return_evidence, products)
+            except Exception:
+                return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_RETURN_EVIDENCE_UNAVAILABLE")
         application = self._apply(summary, cogs_evidence)
         if application.get("error") is True:
             return application
-        return {"error": False, "summary": application["summary"]}
+        finalized_summary = application.get("summary")
+        if not isinstance(finalized_summary, dict):
+            return self._error("PERIOD_PROFIT_FINAL_PREVIOUS_APPLICATION_INVALID")
+
+        external_evidence = None
+        external_adjustment = None
+        external_service = getattr(
+            self.base_service,
+            "external_expense_evidence_service",
+            None,
+        )
+        if external_service is not None:
+            loader = getattr(external_service, "load", None)
+            if callable(loader):
+                try:
+                    external_evidence = loader(
+                        previous_request["date_from"],
+                        previous_request["date_to"],
+                    )
+                except Exception:
+                    external_evidence = self._external_evidence_unavailable(
+                        "PERIOD_PROFIT_FINAL_PREVIOUS_EXTERNAL_EVIDENCE_UNAVAILABLE"
+                    )
+            else:
+                external_evidence = self._external_evidence_unavailable(
+                    "PERIOD_PROFIT_FINAL_PREVIOUS_EXTERNAL_EVIDENCE_UNAVAILABLE"
+                )
+            if not isinstance(external_evidence, dict):
+                external_evidence = self._external_evidence_unavailable(
+                    "PERIOD_PROFIT_FINAL_PREVIOUS_EXTERNAL_EVIDENCE_INVALID"
+                )
+            adjuster = getattr(
+                self.base_service,
+                "_external_expense_adjustment",
+                None,
+            )
+            if callable(adjuster):
+                try:
+                    external_adjustment = adjuster(
+                        finalized_summary,
+                        external_evidence,
+                    )
+                except Exception:
+                    external_adjustment = None
+            if (
+                not isinstance(external_adjustment, dict)
+                or external_adjustment.get("error") is True
+            ):
+                external_evidence = self._external_evidence_unavailable(
+                    "PERIOD_PROFIT_FINAL_PREVIOUS_EXTERNAL_ADJUSTMENT_UNAVAILABLE"
+                )
+                external_adjustment = self._external_adjustment_unavailable()
+
+        try:
+            coverage = build_period_profit_coverage(
+                finalized_summary,
+                return_cogs_recovery_evidence=cogs_evidence,
+                external_expense_evidence=external_evidence,
+            )
+        except Exception:
+            coverage = None
+        if isinstance(coverage, dict) and coverage.get("error") is True:
+            coverage = None
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_QUERY_READY",
+            "request": previous_request,
+            "summary": finalized_summary,
+            "coverage": coverage,
+            "external_expense_evidence": external_evidence,
+            "external_expense_adjustment": external_adjustment,
+        }
+
+    @staticmethod
+    def _external_evidence_unavailable(code):
+        return {
+            "error": True,
+            "code": code,
+            "status": "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_UNAVAILABLE",
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _external_adjustment_unavailable():
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_EXTERNAL_EXPENSE_ADJUSTMENT_UNAVAILABLE",
+            "profit_adjustment_complete": False,
+            "observed_profit_after_external_expenses": None,
+            "observed_margin_percent": None,
+            "complete_profit_after_external_expenses": None,
+            "complete_margin_percent": None,
+            "read_only": True,
+            "executed": False,
+        }
 
     def _apply(self, summary, evidence):
         apply = getattr(self.return_cogs_application_service, "apply", None)

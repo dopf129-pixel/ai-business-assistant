@@ -17,7 +17,10 @@ def build_period_profit_request(period_code=None, date_from=None, date_to=None, 
         return _blocked("PERIOD_PROFIT_REQUEST_PRESET_INVALID")
     end = _date(today) or date.today()
     days = SUPPORTED_PRESETS[code]
-    start = end - timedelta(days=days - 1)
+    try:
+        start = end - timedelta(days=days - 1)
+    except (OverflowError, ValueError):
+        return _blocked("PERIOD_PROFIT_REQUEST_PERIOD_INVALID")
     return {"error": False, "status": "PERIOD_PROFIT_REQUEST_READY", "mode": "PRESET", "period_code": code, "date_from": start.isoformat(), "date_to": end.isoformat()}
 
 
@@ -30,8 +33,11 @@ def build_previous_period_profit_request(request):
     if start is None or end is None or start > end:
         return _blocked("PERIOD_PROFIT_REQUEST_PERIOD_INVALID")
     days = (end - start).days + 1
-    previous_end = start - timedelta(days=1)
-    previous_start = previous_end - timedelta(days=days - 1)
+    try:
+        previous_end = start - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=days - 1)
+    except (OverflowError, ValueError):
+        return _blocked("PERIOD_PROFIT_REQUEST_PERIOD_INVALID")
     return {"error": False, "status": "PERIOD_PROFIT_REQUEST_READY", "mode": "PREVIOUS_COMPARABLE", "period_code": source.get("period_code"), "date_from": previous_start.isoformat(), "date_to": previous_end.isoformat()}
 
 
