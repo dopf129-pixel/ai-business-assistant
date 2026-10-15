@@ -2,7 +2,7 @@
 
 - На результатах целевой маржи и сравнения появились кнопки для явного выбора предложенной цены. Callback хранит только цель или индекс строки, не произвольную цену; runtime повторно проверяет сохранённый результат прямым калькулятором.
 - Подстановка меняет только временную цену и provenance текущего сценария. Кнопка не действует после смены параметров, SKU, магазина, source snapshot/свежести или версии; expiry удаляет сессию с transient результатом. Успешный source refresh получает отдельную новую версию.
-- Целевой набор math/runtime/lifecycle/public-handler regressions: **72 passed**; compile изменённых модулей и diff check прошли. Полный suite, production smoke и новый CI остаются M04.
+- Целевой набор math/runtime/lifecycle/public-handler regressions: **72 passed**. Новый PR Verify run **38713193546** завершился успехом на Windows и Linux: полный suite — **3 189 passed** на каждой платформе; Linux production Docker build и smoke прошли.
 
 # 2026-10-15 — M02 интерфейс целевой цены и сравнения вариантов
 

@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — целевая маржа и сравнение вариантов цены
 
-Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M03 завершены; M04 выполняется**.
+Дата: 15.10.2026. Подготовил: GPT Sol. Статус: **M00–M04 завершены; PR #696 ожидает независимый Architecture Review**.
 
 ## 1. Цель и решение владельца
 
@@ -151,7 +151,7 @@
 | M01 | M00 | **Завершён 15.10.2026**. Добавлен чистый `UnitPriceTargetPlanningService` и parser; 81 соседний тест passed, compile helper passed; код ещё не подключён к runtime |
 | M02 | M01 | **Завершён 15.10.2026**. Telegram ввод цели/вариантов, компактные результаты, исправление ввода/возврат; цена основного сценария не меняется |
 | M03 | M02 | **Завершён 15.10.2026**. Явное применение цены и полная version/tenant/lifecycle/freshness защита новых результатов/pending stages |
-| M04 | M01–M03 | **Выполняется**. Public-handler regressions, полный CI нового кода, финальная документация, отдельный PR и передача на архитектурный review |
+| M04 | M01–M03 | **Завершён**. Public-handler regression, Windows/Linux полные suite, Linux Docker verification, документация и PR #696 для независимого Architecture Review |
 
 В M00 допустим короткий source/algorithm note в этом документе. Проблему, не входящую в пакет, фиксировать отдельно; исправлять только если она блокирует его контракт и подтверждена воспроизведением. Не переписывать рабочий runtime целиком ради новых кнопок.
 
@@ -196,9 +196,9 @@
 | M01 | Завершён 15.10.2026 | локальный этап | Helper/parser реализованы; шесть связанных модулей — 81 passed; M02 занимается Telegram wiring |
 | M02 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Telegram target/list/retry/cancel/missing inputs/target persistence/wiring, лимиты Telegram, отсутствие API и сохранность цены; **63 passed in 1.06s** |
 | M03 | Завершён 15.10.2026 | отдельный commit на ветке `codex/price-planning-target-margin-20261015` | Выбор target/row без callback-цены, forward recheck, stale/tenant/SKU/snapshot/version/session expiry guards, refresh generation и controlled race; **71 passed in 1.11s**; compile/diff clean |
-| M04 | Выполняется | — | Публичный `AssistantButtonHandlerService` покрыт сквозной регрессией; четыре целевых модуля — 72 passed in 1.13s. Полный изолированный pytest/compile и CI exact new SHA, PR к architecture review ещё выполняются |
+| M04 | Завершён 15.10.2026 | PR #696, head при проверке `46e91cffe66beac1c5f8289ba5cac7984975fd6c` | Public-handler integration; target suite 72 passed in 1.13s; Verify run 38713193546: Windows 3 189 passed/41.30s, Linux 3 189 passed/12.14s, compileall и production Docker build/smoke success. PR открыт, не слит, ожидает независимый Architecture Review |
 
-Последовательность исполнения: M00 → M01 → M02 → M03 → M04. M00–M03 завершены; продолжается M04.
+Последовательность исполнения: M00 → M01 → M02 → M03 → M04. Все этапы завершены; перед слиянием нужен независимый Architecture Review.
 
 ## 13. Отчёт подготовки ТЗ
 
@@ -253,4 +253,15 @@
 5. **Testing:** четыре связанные модуля — **71 passed in 1.11s**. Тесты включают target/row apply, arbitrary callback rejection, direct recheck, parameter/refresh/SKU/store/freshness/session expiry invalidation, late apply after state change, source-call count. Compile modified Python files and diff check passed. Full pytest/CI остаются M04.
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP, quick user guide и это ТЗ обновлены; DECISIONS не менялся — новое архитектурное решение не требуется.
 7. **Review Classification:** Architecture Review Required перед слиянием: M01 introduced helper and M02–M03 expanded runtime lifecycle/UI contracts.
-8. **Next Recommended Step:** M04 — test public Telegram path end-to-end, run complete suite and production compile/smoke, prepare a new-SHA CI-verified PR, then hand it to independent architecture review. Do not merge in this task.
+8. **Next Recommended Step:** передать открытый PR #696 на независимый архитектурный review. Не сливать до review; merge и deployment в это ТЗ не входят.
+
+## 18. Отчёт исполнения M04
+
+1. **Change Summary:** ветка `codex/price-planning-target-margin-20261015`; тестовый commit `46e91cffe66beac1c5f8289ba5cac7984975fd6c` (`Verify target price planning Telegram flow`). Открыт PR #696 для отдельного архитектурного review; слияние не выполнялось.
+2. **Files Changed:** добавлен публичный интеграционный regression в `tests/test_unit_price_scenario_telegram_runtime.py`; обновлены `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md` и это ТЗ. Пользовательские JSON и lock не включались.
+3. **Architecture Impact:** Minor architectural extension в рамках плана: чистый helper и расширение уже существующего временного калькуляторного runtime; новый persistent store/API/Ozon write pipeline не вводился.
+4. **Preserved Components:** действующие `UnitPriceScenarioService`/`TaxService`, отчёты и сохранённые расходы/налоги не менялись; Ozon остаётся read-only. Новая цена применяется только в текущем сценарии после явного выбора.
+5. **Testing:** четыре целевых модуля — **72 passed in 1.13s**; `compileall -q app tests` passed на изолированной копии. Verify run **38713193546**: Windows/Python 3.12 — **3 189 passed in 41.30s**; Linux/Python 3.11 — **3 189 passed in 12.14s**; Linux production Docker build/runtime smoke passed. Локальный изолированный pytest завершился ограничением ACL (`WinError 5` при чтении temporary root), поэтому его результат не выдаётся за pass; успешный CI прошёл на чистых runners. Проверенный branch code был `46e91cf`; PR merge-ref run `a083a17692c701cd4d32772d163d9f9673bbf1f8` включал его.
+6. **Documentation Updates:** обновлены CHANGELOG, CURRENT_STATE, TEST_MAP и это ТЗ; краткая пользовательская инструкция калькулятора уже добавлена в `docs/telegram-user-guide.md`. `DECISIONS.md` не менялся: новых архитектурных решений не потребовалось.
+7. **Review Classification:** Architecture Review Required: helper и расширенный runtime lifecycle. CI зелёный; независимый review ещё нужен.
+8. **Next Recommended Step:** независимый Architecture Review PR #696; после одобрения решение о merge принимает уполномоченный владелец. Автоматического слияния нет.
