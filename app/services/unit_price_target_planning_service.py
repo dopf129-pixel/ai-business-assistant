@@ -6,6 +6,7 @@ class UnitPriceTargetPlanningService:
     """Bounded, read-only price planning over the existing forward calculator."""
 
     MAX_FORWARD_CALCULATIONS = 128
+    MAX_UPPER_BOUND_PROBES = 8
     MIN_PRICE_CENTS = 1
     CENT = Decimal("0.01")
     HUNDRED = Decimal("100")
@@ -84,6 +85,7 @@ class UnitPriceTargetPlanningService:
             "identity": dict(identity or {}),
             "provenance": dict(provenance or {}),
             "sources": dict(sources or {}),
+            "candidate_price_provenance": "planned_seller_price",
         }
 
         break_even = self._find_candidate(
@@ -141,7 +143,8 @@ class UnitPriceTargetPlanningService:
             "evaluation_count": call_state["count"],
             "evaluation_limit": self.MAX_FORWARD_CALCULATIONS,
             "identity": common["identity"],
-            "provenance": common["provenance"],
+            "provenance": self._candidate_provenance(common),
+            "source_price_provenance": common["provenance"].get("price"),
             "sources": common["sources"],
             "read_only": True,
             "executed": False,
@@ -180,6 +183,7 @@ class UnitPriceTargetPlanningService:
             "identity": dict(identity or {}),
             "provenance": dict(provenance or {}),
             "sources": dict(sources or {}),
+            "candidate_price_provenance": "manual_seller_assumption",
         }
         for price in normalized_prices:
             candidate_inputs = dict(inputs)
@@ -188,7 +192,7 @@ class UnitPriceTargetPlanningService:
                 forward = self.scenario_service.calculate(
                     candidate_inputs,
                     identity=common["identity"],
-                    provenance=common["provenance"],
+                    provenance=self._candidate_provenance(common),
                     sources=common["sources"],
                 )
             except (ArithmeticError, OverflowError, TypeError, ValueError):
@@ -223,7 +227,8 @@ class UnitPriceTargetPlanningService:
             "evaluation_count": len(rows),
             "evaluation_limit": len(normalized_prices),
             "identity": common["identity"],
-            "provenance": common["provenance"],
+            "provenance": self._candidate_provenance(common),
+            "source_price_provenance": common["provenance"].get("price"),
             "sources": common["sources"],
             "read_only": True,
             "executed": False,
@@ -244,7 +249,12 @@ class UnitPriceTargetPlanningService:
             return self._unavailable_outcome(high_status, high_result)
         high_price = self._price_from_cents(high)
         if not self._reached(high_result, high_price, target):
-            return self._unavailable_outcome("NOT_FOUND_IN_TESTED_RANGE")
+            feasible_upper = self._find_feasible_upper_bound(
+                inputs, low, high, target, call_state, common
+            )
+            if feasible_upper is None:
+                return self._unavailable_outcome("NOT_FOUND_IN_TESTED_RANGE")
+            high, high_result = feasible_upper
 
         while high - low > 1:
             middle = (low + high) // 2
@@ -265,6 +275,31 @@ class UnitPriceTargetPlanningService:
             self._price_from_cents(high), high_result, target
         )
 
+    def _find_feasible_upper_bound(
+        self, inputs, low, high, target, call_state, common
+    ):
+        """Find a verified bracket when rounding makes the top cent fail."""
+        candidates = [
+            high - offset
+            for offset in range(1, self.MAX_UPPER_BOUND_PROBES + 1)
+            if low < high - offset
+        ]
+        current_cents = self._current_price_cents(inputs)
+        if current_cents is not None and low < current_cents < high:
+            candidates.append(current_cents)
+
+        seen = set()
+        for cents in candidates:
+            if cents in seen:
+                continue
+            seen.add(cents)
+            result, status = self._evaluate(inputs, cents, call_state, common)
+            if status != "CALCULATED":
+                return None
+            if self._reached(result, self._price_from_cents(cents), target):
+                return cents, result
+        return None
+
     def _evaluate(self, inputs, cents, call_state, common, bypass_cache=False):
         if not bypass_cache and cents in call_state["cache"]:
             return call_state["cache"][cents]
@@ -277,7 +312,7 @@ class UnitPriceTargetPlanningService:
             result = self.scenario_service.calculate(
                 candidate_inputs,
                 identity=common["identity"],
-                provenance=common["provenance"],
+                provenance=self._candidate_provenance(common),
                 sources=common["sources"],
             )
         except (ArithmeticError, OverflowError, TypeError, ValueError):
@@ -287,6 +322,28 @@ class UnitPriceTargetPlanningService:
         if not bypass_cache:
             call_state["cache"][cents] = pair
         return pair
+
+    @staticmethod
+    def _candidate_provenance(common):
+        provenance = dict(common["provenance"])
+        provenance["price"] = common["candidate_price_provenance"]
+        return provenance
+
+    def _current_price_cents(self, inputs):
+        raw_price = inputs.get("price")
+        if raw_price is None or isinstance(raw_price, bool):
+            return None
+        try:
+            price = (
+                raw_price
+                if isinstance(raw_price, Decimal)
+                else Decimal(str(raw_price))
+            )
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not self._is_valid_price(price):
+            return None
+        return int(price * self.HUNDRED)
 
     @staticmethod
     def _forward_status(result):

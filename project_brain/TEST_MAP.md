@@ -1,5 +1,11 @@
 # Карта тестов — актуальный статус 2026-10-15
 
+## PR #696 — повторные исправления review R1/R2
+
+- `tests/test_unit_price_target_planning_service.py` добавляет: достижимая 50% маржа и безубыточность находятся при неуспешной максимальной копейке; provenance рассчитанной и введённой цены отделяется от источника исходной цены. Максимальный счётчик в проверке — ≤113 при hard cap 128.
+- Helper + Telegram runtime + architecture/repeat-review regressions: **75 passed in 1.12s**; `compileall` изменённых Python files и `git diff --check` прошли.
+- Полный локальный `pytest -q` не дал достоверного итога: на Windows pytest завершился `WinError 5` при перечислении временного каталога; полный CI на новом SHA ещё не запущен.
+
 ## M00 baseline целевой маржи
 
 - Основа: актуальный merged main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`, ветка `codex/price-planning-target-margin-20261015`.
@@ -9,7 +15,7 @@
 
 ## M01 target search и список цен
 
-- Новый `tests/test_unit_price_target_planning_service.py` покрывает target parser, price list 2–5 с comma/dot/пробелами тысяч/CRLF, atomic rejection duplicates/invalid tokens, точный предел цели, контрольные цены, отдельный результат безубыточности, три налоговых режима действующего `TaxService`, not-found/missing distinctions, сравнение одинаковых допущений и счётчик максимум 104 (конфигурационный cap 128).
+- Новый `tests/test_unit_price_target_planning_service.py` покрывает target parser, price list 2–5 с comma/dot/пробелами тысяч/CRLF, atomic rejection duplicates/invalid tokens, точный предел цели, контрольные цены, отдельный результат безубыточности, три налоговых режима действующего `TaxService`, not-found/missing distinctions, сравнение одинаковых допущений, округлённые верхние границы и счётчик максимум 113 (конфигурационный cap 128).
 - Unit-price service/source/runtime + architecture/repeat-review regressions и новый helper module: **81 passed in 1.37s**. `compileall -q app/services/unit_price_target_planning_service.py` passed; кэш pytest отключён, тесты использовали пустой `AI_ASSISTANT_STORAGE_ROOT`.
 - M02 добавил к этому набору target/list/retry/cancel/missing-input/price-preservation/production-factory/UTF-16 проверки в `tests/test_unit_price_scenario_telegram_runtime.py`. С `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py` и helper module: **63 passed in 1.06s**.
 - В Telegram tests подтверждены отсутствие дополнительного source/API call при поиске и таблице, сохранение цены основного сценария, удержание ранее введённой цели для отметок сравнения, исправление невалидного списка целиком и пределы сообщения/callback. Сквозная регрессия вызывает публичный `AssistantButtonHandlerService` от выбора карточки до явного применения цены. Четыре целевых модуля — **72 passed in 1.13s**.

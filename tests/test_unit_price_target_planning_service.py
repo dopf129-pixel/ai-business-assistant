@@ -152,6 +152,72 @@ def test_solver_reports_not_found_without_claiming_that_target_is_impossible():
     assert result["available"] is False
 
 
+@pytest.mark.parametrize(
+    "target,advertising_rate",
+    [("50", "0"), ("0", "50")],
+)
+def test_solver_probes_near_upper_bound_when_maximum_cent_fails_from_rounding(
+    target, advertising_rate
+):
+    planner, service = _planner(counting=True)
+    values = _inputs(
+        price=None,
+        cost="0",
+        commission_rate="50",
+        logistics_per_unit="0",
+        last_mile_per_unit="0",
+        acquiring_per_unit="0",
+        advertising_rate=advertising_rate,
+        discount_points_rate="0",
+        tax_mode="NONE",
+        tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.solve(values, target)
+
+    outcome = result["target"]
+    assert outcome["status"] == "FOUND"
+    assert outcome["goal_reached"] is True
+    assert outcome["forward_result"]["available"] is True
+    assert Decimal(outcome["price"]) < planner.max_price
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] <= 113
+
+
+def test_target_and_comparison_candidates_do_not_inherit_observed_price_provenance():
+    planner, _ = _planner()
+    source_provenance = {
+        "price": "ozon_current_seller_price",
+        "cost": "manual_seller_assumption",
+    }
+    values = _inputs(price="500")
+
+    plan = planner.solve(
+        values, "20", provenance=source_provenance
+    )
+    comparison = planner.compare_prices(
+        values, "550;600", provenance=source_provenance
+    )
+
+    assert plan["source_price_provenance"] == "ozon_current_seller_price"
+    assert plan["provenance"]["price"] == "planned_seller_price"
+    for outcome in (plan["break_even"], plan["target"]):
+        assert (
+            outcome["forward_result"]["inputs"]["price"]["provenance"]
+            == "planned_seller_price"
+        )
+
+    assert comparison["source_price_provenance"] == "ozon_current_seller_price"
+    assert comparison["provenance"]["price"] == "manual_seller_assumption"
+    for row in comparison["rows"]:
+        assert (
+            row["forward_result"]["inputs"]["price"]["provenance"]
+            == "manual_seller_assumption"
+        )
+    assert comparison["provenance"]["cost"] == "manual_seller_assumption"
+
+
 def test_missing_non_price_inputs_remain_unknown_and_do_not_become_zero():
     planner, service = _planner(counting=True)
     values = _inputs()
@@ -233,7 +299,7 @@ def test_search_stays_inside_forward_evaluation_budget():
     result = planner.solve(_inputs(), "30")
 
     assert result["evaluation_count"] == service.calls
-    assert result["evaluation_count"] <= 104
+    assert result["evaluation_count"] <= 113
     assert result["evaluation_limit"] == 128
     _assert_goal(result["break_even"], "0")
     _assert_goal(result["target"], "30")
