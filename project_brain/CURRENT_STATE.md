@@ -1,4 +1,11 @@
-# 2026-10-14 — PR #695: R10 принят после полного CI и repeat review
+# 2026-10-15 — PR #695: перед слиянием требуется R11
+
+- Дополнительный review head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтвердил закрытие R1–R10 и выявил P2 в `FinanceService.get_daily_discount_points_evidence`: неразрешённый SKU молча считается другим товаром, поэтому неполное среднее баллов получает complete=true.
+- Реальный evidence → source с fake raw finance: известная продажа 100/20 плюс положительная строка 900/0 без SKU возвращают подтверждённые 20% вместо unknown. Для None/пустого/пробельного SKU получены 3 expected failures; данные пользователя и API не использовались.
+- Пять existing calculator/review modules: **51 passed in 1.53s**. Exact-head Windows/Linux/Docker CI runs `38635120280` и `38635112065` success; новый дефект текущими regressions не покрыт. Full local pytest без изменения production code повторно не запускался.
+- Актуальное ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`, Y00–Y03 ещё не начаты. Требуются fix/regressions/new CI/review перед слиянием другой моделью. Этот review изменяет только документы; локальные пользовательские JSON/locks/temp сохранены.
+
+# История 2026-10-14 — PR #695: R10 принят после полного CI и repeat review
 
 - Для R10 source принимает цену/себестоимость только в существующем техническом диапазоне калькулятора; неподдерживаемое значение становится unknown с incomplete completeness/provenance. Отклонённая сохранённая стоимость не получает `cost_as_of`.
 - `_money`/`_percent` fail closed для неподдерживаемых Decimal; интеграционные тесты проходят через реальный source → math → runtime → handler. Для invalid cost проверены и result screen, и edit prompt; ручная цена/себестоимость восстанавливает расчёт без изменения исходного хранилища.

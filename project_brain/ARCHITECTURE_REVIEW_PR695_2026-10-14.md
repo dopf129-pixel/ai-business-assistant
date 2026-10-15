@@ -2,9 +2,9 @@
 
 ## Вердикт и проверенная ревизия
 
-**Финальный repeat review PR head `2207ec86ec96012f7911706429fdc1b4dfacde23` закрывает R10. R1–R9 остаются покрыты существующими regressions; полный CI Windows/Linux/Docker зелёный, новых блокеров не найдено. PR готов к отдельному решению о слиянии другой моделью.**
+**Повторный review 15.10.2026 на head `9185f65fa75ca0b7dc4d333cc362997209a5cd59` подтверждает R1–R10, но выявил один P2 R11: строка POSTING без разрешённого SKU молча исключается из среднего баллов, после чего неполная когорта считается подтверждённой. Слияние отложить до узкого исправления, regression, нового CI и повторной проверки.**
 
-ТЗ и результаты R10: `LUNA_PR695_SOURCE_FORMATTING_FIX_TASK_2026-10-14.md`. Первоначальное finding R10 и review head `060b0e6` сохранены ниже как история; финальная проверка описана в конце документа.
+Актуальное ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`. R10 и предыдущие результаты сохранены ниже как история; новое finding R11 описано в конце документа.
 
 - PR: https://github.com/dopf129-pixel/ai-business-assistant/pull/695
 - Head первичного review: `6d472145fe4586a5fe2a4da0e7b0b796900b8fac`.
@@ -301,3 +301,39 @@ Existing calculator modules повторены: **48 passed in 1.16s**. Изол
 6. **Documentation Updates:** CHANGELOG, CURRENT_STATE, TEST_MAP, feature task, R10 task и этот review обновлены. DECISIONS не менялся; нового архитектурного решения нет.
 7. **Review Classification:** Architecture Review Required для PR #695; финальный repeat review не нашёл открытых технических blockers.
 8. **Next Recommended Step:** PR открыт для решения о слиянии другой моделью; этим чатом слияние не выполнялось.
+
+## Дополнительный review 15.10.2026 — R11, P2
+
+Проверенный head `9185f65fa75ca0b7dc4d333cc362997209a5cd59`; base `655b3a0c46acb258a5e884cccc8da6728a5216a7`. Production code после R10 не менялся. Verify runs `38635120280` и `38635112065` на этом SHA — success, Windows/Linux/Docker. Review threads GitHub пусты; PR открыт, не слит.
+
+### Неизвестный SKU ошибочно равен известному другому товару
+
+Точка: `app/services/finance_service.py:532–534`, новый метод `get_daily_discount_points_evidence`.
+
+`str(product.get("sku") or "").strip()` превращает отсутствующую/null/пустую/пробельную identity в пустую строку. Следующий `if product_sku != target_sku: continue` исключает её без увеличения `malformed`. Поэтому `complete = malformed == 0 and conflicts == 0` объявляет день полным, а source уже не может применить свою защиту `FINANCE_DISCOUNT_POINTS_IDENTITY_UNRESOLVED`: строки нет в records.
+
+Изолированная проверка использует реальный FinanceService evidence и UnitPriceScenarioSource с fake raw daily responses за 28 дат. В одном дне известная продажа выбранного SKU составляет 100 ₽/20 баллов; ещё одна положительная строка 900 ₽/0 баллов не содержит разрешённого SKU. Получено:
+
+```json
+{"daily_complete": true, "malformed_record_count": 0, "record_count": 1, "auto_rate": "20", "period_complete": true, "days_loaded": 28}
+```
+
+Принадлежность второй строки неизвестна; подтверждать среднее по оставшемуся подмножеству нельзя. Исходный feature contract §6 требует unavailable при неразрешённом SKU. Это условный дефект обработки неполного ответа, а не утверждение о наличии таких строк в live Ozon данных пользователя. Нужно различать явно другой непустой SKU и отсутствие identity; второй случай должен делать evidence incomplete и сохранять ручной fallback.
+
+### Проверки и решение
+
+- Пять существующих calculator/source/math/runtime/review modules повторены: **51 passed in 1.53s**.
+- Изолированные assertions ожидаемого unknown для `None`, `""`, `"   "` дали **3 failed in 0.28s**. Probe находится вне репозитория в `pr695-r11-review-20261015/test_unresolved_identity_probe.py` в разрешённой папке визуализаций; live API, credentials и business storage не использовались.
+- Full pytest локально повторно не запускался: production code не менялся, full CI reviewed SHA уже зелёный. Эти существующие проверки не покрывают R11; после исправления требуется новый full suite и CI.
+- **Требуется исправить R11 перед слиянием.** Создано отдельное ТЗ Y00–Y03. R1–R10 не переоткрыты.
+
+### Отчёт review
+
+1. **Change Summary:** review ветки `codex/unit-price-calculator` на `9185f65` (`Record R10 CI and repeat review acceptance`); найден один P2. Новый commit содержит только evidence/документы, SHA указывается в итоговом сообщении.
+2. **Files Changed:** добавлено corrective ТЗ R11; обновлены review, CHANGELOG, CURRENT_STATE, TEST_MAP и статус feature ТЗ. Production files и штатные tests не менялись; удалений нет.
+3. **Architecture Impact:** No architectural impact для review; будущая правка должна уточнить существующую evidence validation без нового service/layer/API/DB contract.
+4. **Preserved Components:** формула, TaxService, cost storage, tenant/callback isolation, source budgets/freshness и пользовательские JSON/locks/temp сохранены.
+5. **Testing:** 51 existing tests passed; 3 expected-red isolated cases; exact reviewed SHA CI success. Full local run не повторён без изменений production code.
+6. **Documentation Updates:** CHANGELOG/CURRENT_STATE/TEST_MAP и review/feature task отражают R11; DECISIONS не менялся.
+7. **Review Classification:** Architecture Review Required для PR #695; один P2 блокирует приёмку текущей реализации.
+8. **Next Recommended Step:** выполнить Y00–Y03, получить новый зелёный CI и повторный review; слияние выполнит другая модель.

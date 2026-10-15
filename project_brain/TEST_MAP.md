@@ -1,5 +1,11 @@
 # Карта тестов — актуальный статус 2026-10-14
 
+## PR #695 — review 15.10.2026: R11, неразрешённая identity в auto-b
+
+- Пять существующих модулей `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py`: **51 passed in 1.53s** на head `9185f65`.
+- Три изолированных expected-red проверки настоящих FinanceService evidence → UnitPriceScenarioSource для SKU None/пустого/пробельного значения: **3 failed in 0.28s**. Подтверждают автоматические 20%/complete=true при пропущенной строке с неразрешённой identity; правильное поведение — unknown/incomplete и ручной fallback. Probe вне репозитория, fake-only, не входит в стандартный suite и не изменяет business data.
+- Reviewed-head Verify runs `38635120280`/`38635112065` Windows/Linux/Docker success — существующий baseline, не приёмка R11. После исправления нужны штатные parser/source/runtime regressions, новый full pytest и CI. ТЗ: `LUNA_PR695_DISCOUNT_IDENTITY_FIX_TASK_2026-10-15.md`.
+
 ## PR #695 — повторный review R10: source/presentation граница
 
 - `tests/test_unit_price_scenario_repeat_review_regressions.py` добавляет source → math → runtime → public `AssistantButtonHandlerService` regressions для сохранённой себестоимости `1e100` и seller price `1e100`. Они проверяют unknown provenance/incomplete source, отсутствие прибыли и `cost_as_of` для unsupported cost, рабочую keyboard, ручное исправление, прибыль 280 ₽, неизменность fake persisted cost, а также безопасные result/edit formatters.
