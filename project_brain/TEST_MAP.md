@@ -7,6 +7,12 @@
 - Восемь синтетических контрольных цен повторены через реальный `UnitPriceScenarioService` + `TaxService`. На 414,70 ₽ и 414,71 ₽ UI показывает 30,00%, но Decimal acceptance target 30% false; на 414,72 ₽ true. Это audit baseline, не тест solver.
 - M01 добавит standalone helper/parser tests; текущий кодовый baseline не заменяет обязательный новый CI Windows/Linux/Docker.
 
+## M01 target search и список цен
+
+- Новый `tests/test_unit_price_target_planning_service.py` покрывает target parser, price list 2–5 с comma/dot/пробелами тысяч/CRLF, atomic rejection duplicates/invalid tokens, точный предел цели, контрольные цены, отдельный результат безубыточности, три налоговых режима действующего `TaxService`, not-found/missing distinctions, сравнение одинаковых допущений и счётчик максимум 104 (конфигурационный cap 128).
+- Unit-price service/source/runtime + architecture/repeat-review regressions и новый helper module: **81 passed in 1.37s**. `compileall -q app/services/unit_price_target_planning_service.py` passed; кэш pytest отключён, тесты использовали пустой `AI_ASSISTANT_STORAGE_ROOT`.
+- Telegram lifecycle/wiring для новых экранов ещё не реализованы; полный suite и Windows/Linux/Docker CI нового code SHA остаются M04.
+
 ## Планирование цены — baseline и новое ТЗ M00–M04
 
 - PR #695 уже слит в main `de21561a8b440570ac34bcfd9b3dc48abee1ffac`; merged-main Verify `38707150836` success. PR integration Verify `38704768075` проверял 3 150 tests на Windows и 3 150 на Linux, compile и Docker build/runtime smoke.
