@@ -188,6 +188,8 @@ def test_period_profit_analytics_views_are_cached_scoped_and_make_no_new_query()
         assert set(button["text"] for button in report["keyboard"]["buttons"]) == {
             "📊 Аналитика периода",
             "🔎 Полнота данных",
+            "⬇️ CSV",
+            "⬇️ JSON",
         }
 
         analytics = handler.handle(
