@@ -3,7 +3,7 @@
 - Добавлен pure sweep builder для цены, себестоимости и рекламы: 3–7 абсолютных значений на ось, до 49 точных ячеек для двух осей, каждая через существующий `UnitPriceScenarioService` и `TaxService`. Исходные inputs и snapshot не меняются; подпись фиксирует identity, версию, inputs, provenance и источники.
 - Telegram-экран запускается из одиночного или пакетного плана, показывает страницы матрицы и as-of, маркирует устаревший снимок и блокирует перенос ячейки. Свежая ячейка повторно считается перед явным переносом; запросов к Ozon и записи цены нет.
 - Цель маржи берётся из открытого целевого сценария/пакета и отмечается только по точному forward-результату. Все 49 ячеек доступны постранично; лучшая/худшая подписываются только среди проверенных.
-- Проверки D00–D03 локально: **117 passed** по sensitivity, batch/single Telegram, scenario и target planning; compileall и `git diff --check` прошли. Полный локальный pytest завершился: **2 978 passed, 21 failed, 369 errors**; затронутые падения используют Windows `tempfile`/SQLite и блокируются `WinError 5` на ACL временных каталогов. Чистый exact-head CI требуется.
+- Проверки D00–D03: локально **117 passed** по sensitivity, batch/single Telegram, scenario и target planning; compileall и `git diff --check` прошли. Полный локальный Windows pytest завершился: **2 978 passed, 21 failed, 369 errors** из-за `WinError 5` при временных каталогах/SQLite. Exact-head `d7c33dfa9d4d1e3ffde626d375dd17d2f0d38824` прошёл Windows и full-verification CI в Verify runs `39065039552` и `39065028764`; полное принятие D зафиксировано на head `292c4cb` родительского PR + D commit. PR #700 открыт stacked над #699, не слит.
 
 # 2026-10-17 — модуль C принят: пакетный план цен
 
