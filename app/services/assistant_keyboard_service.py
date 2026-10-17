@@ -435,6 +435,10 @@ class AssistantKeyboardService:
                 buttons.append({"text": item[0], "callback": item[1]})
         buttons.extend([
             {
+                "text": "📦 Сохранить диагностику",
+                "callback": "period_profit_support_export:" + token,
+            },
+            {
                 "text": "↩️ Полнота данных",
                 "callback": "period_profit_completeness:" + token,
             },

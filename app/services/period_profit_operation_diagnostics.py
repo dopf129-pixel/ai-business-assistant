@@ -245,7 +245,7 @@ class PeriodProfitOperationTrace:
                     ),
                 }
 
-    def support_export_context(self):
+    def _support_export_context(self):
         """Private input for the allowlisted support exporter; never return it directly."""
         root = self
         while root.parent is not None:
@@ -253,8 +253,8 @@ class PeriodProfitOperationTrace:
         summary = root.public_summary()
         with root._lock:
             summary["_identifier_values"] = [
-                value for value in (root.finance_sku, root.catalog_sku)
-                if isinstance(value, str) and value
+                {"field": "finance_sku", "kind": "SKU", "value": root.finance_sku},
+                {"field": "catalog_sku", "kind": "SKU", "value": root.catalog_sku},
             ]
         return summary
 

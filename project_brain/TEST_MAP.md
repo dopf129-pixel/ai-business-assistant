@@ -4,6 +4,8 @@
 
 - F00: tests/test_period_profit_operation_diagnostics.py проверяет 256-entry ring buffer, сохраняемые total/dropped counters, родительско-дочернюю агрегацию попыток и row outcomes без публикации raw identifiers. tests/test_period_profit_diagnostic_view_service.py покрывает whitelist статусов/причин, bounded counters, budget actions и fail-closed поля. tests/test_period_profit_completeness_view.py проверяет точный cached-view маршрут, tenant isolation и отсутствие повторного query.
 - F00 локальный профиль: 27 passed, 1 deselected; исключён единственный existing tmp_path stack-dump тест, поскольку изолированный запуск отключил pytest tmpdir из-за известной ACL. Compileall и diff-check пройдены; полный F acceptance ожидает CI.
+- F01: `tests/test_period_profit_support_diagnostic_export_service.py` проверяет strict JSON allowlist, secret-looking hostile nested fields, отсутствие сумм/raw IDs, стабильные aliases, invalid periods/revisions и default-deny неизвестных полей. `tests/test_period_profit_completeness_view.py` проходит реальный handler → cached owner/store snapshot → `support_diagnostic` document contract; source query выполняется ровно один раз, чужие user/store callbacks истекают.
+- F00/F01 local profile: **34 passed, 1 deselected**; единственное исключение — существующий ACL-bound `tmp_path` stack dump. `compileall -q app tests` и `git diff --check` успешны; полный acceptance ждёт exact-head CI PR F.
 
 - Исполняемое ТЗ: `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`; stage journal: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 - A00–A01: снимок исходной точки и architecture review; код не менялся, pytest не запускался.

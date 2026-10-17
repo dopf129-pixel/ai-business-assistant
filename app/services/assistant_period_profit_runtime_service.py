@@ -18,6 +18,9 @@ from services.period_profit_operation_diagnostics import (
 from services.period_profit_diagnostic_view_service import (
     PeriodProfitDiagnosticViewService,
 )
+from services.period_profit_support_diagnostic_export_service import (
+    PeriodProfitSupportDiagnosticExportService,
+)
 from services.period_profit_effective_cost_service import PeriodProfitEffectiveCostService
 from services.period_profit_identity_confirmation_runtime_service import (
     PeriodProfitIdentityConfirmationRuntimeService,
@@ -46,6 +49,8 @@ class AssistantPeriodProfitRuntimeService:
         sku_runtime_service=None,
         keyboard_service=None,
         clock=None,
+        support_diagnostic_export_service=None,
+        build_metadata_service=None,
     ):
         self.query_service = query_service
         self.cost_confirmation_runtime_service = cost_confirmation_runtime_service
@@ -55,6 +60,11 @@ class AssistantPeriodProfitRuntimeService:
         self.clock = clock or monotonic
         self.completeness_view_service = PeriodProfitCompletenessViewService()
         self.diagnostic_view_service = PeriodProfitDiagnosticViewService()
+        self.support_diagnostic_export_service = (
+            support_diagnostic_export_service
+            or PeriodProfitSupportDiagnosticExportService()
+        )
+        self.build_metadata_service = build_metadata_service
         self._custom_period_users = {}
         self._custom_pre_cogs_users = {}
         self._custom_sku_period_users = {}
@@ -484,6 +494,41 @@ class AssistantPeriodProfitRuntimeService:
             "executed": False,
         }
 
+    def export_support_diagnostic(self, view_id, user_id=None):
+        """Export only the sanitized diagnosis saved with this owner/store report."""
+        token = str(view_id or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{12}", token):
+            return self._cached_view_expired()
+        key = self._report_view_key(user_id, token)
+        now = self._monotonic_now()
+        if key is None or now is None:
+            return self._cached_view_expired()
+        with self._custom_period_lock:
+            cached = self._report_views.get(key)
+            if not isinstance(cached, dict):
+                return self._cached_view_expired()
+            expires_at = cached.get("expires_at")
+            if (
+                isinstance(expires_at, bool)
+                or not isinstance(expires_at, (int, float))
+                or now >= expires_at
+            ):
+                self._report_views.pop(key, None)
+                return self._cached_view_expired()
+            snapshot = cached.get("support_diagnostic_snapshot")
+            if not isinstance(snapshot, dict):
+                return self._cached_view_expired()
+            self._report_views.move_to_end(key)
+            snapshot = deepcopy(snapshot)
+        metadata = None
+        reader = getattr(self.build_metadata_service, "public_metadata", None)
+        if callable(reader):
+            try:
+                metadata = reader()
+            except Exception:
+                metadata = None
+        return self.support_diagnostic_export_service.export(snapshot, metadata)
+
     def _query_pre_cogs(self, period_code=None, date_from=None, date_to=None, today=None):
         request = build_period_profit_request(
             period_code=period_code,
@@ -821,6 +866,20 @@ class AssistantPeriodProfitRuntimeService:
             view,
             operation_summary,
         )
+        support_context = (
+            trace._support_export_context()
+            if trace is not None
+            and callable(getattr(trace, "_support_export_context", None))
+            else None
+        )
+        support_snapshot = self.support_diagnostic_export_service.build_snapshot(
+            diagnostic_view,
+            support_context,
+        )
+        if isinstance(support_snapshot, dict) and support_snapshot.get("error") is True:
+            support_snapshot = None
+        else:
+            support_snapshot = support_snapshot.get("snapshot")
         with self._custom_period_lock:
             self._expire_report_views_locked(created_at)
             self._report_views[key] = {
@@ -828,6 +887,7 @@ class AssistantPeriodProfitRuntimeService:
                 "completeness_text": str(view["message"]),
                 "actions": list(view.get("actions") or []),
                 "diagnostic_view": diagnostic_view,
+                "support_diagnostic_snapshot": support_snapshot,
                 "analytics_snapshot": snapshot,
                 "created_at": created_at,
                 "expires_at": created_at + self.REPORT_VIEW_TTL_SECONDS,

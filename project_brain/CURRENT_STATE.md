@@ -5,7 +5,10 @@
 - Данные `data/tasks.json`, `data/users.json`, временные каталоги pytest и lock-файл сохранены. Хэши пользовательских JSON записаны в журнал.
 - A00–A01 VERIFIED. Review подтвердил: legacy `query_all()` — full-catalog/history lifecycle; price source сбрасывает собственный 60s/64-attempt trace и ждёт inflight фиксированные 61s; outgoing document sender подписывает каждый файл как cost CSV. Это prerequisites для новых путей, не объявлены production regressions.
 - A00–A02 VERIFIED. Общий trace поддерживает parent/child deadline и atomic attempt reservation; UnitPriceScenarioSource умеет наследовать его для сгруппированных запусков, ограничивает in-flight wait и не публикует/кэширует поздний результат после cancel. Standalone 60s/64-attempt defaults сохранены.
-- Текущий этап A03: ограниченные transient snapshots, scoped по owner/store/generation с TTL/LRU и copy isolation.
+- A00–E04 VERIFIED; PR #698–#701 остаются открытыми и не слитыми. Exact-head E code и documentation CI зафиксированы в журнале.
+- F00 VERIFIED на локальном профиле **27 passed, 1 deselected** (единственный `tmp_path` тест исключён из-за известного Windows ACL при отключённом pytest tmpdir); `compileall` и `git diff --check` прошли. Коммит F00 `057d439` на ветке `codex/product-workbench-module-f`, base — E acceptance head `f598d30`.
+- F01 verified locally: strict allowlisted `support_diagnostic` JSON with stable SKU/product aliases, no money/raw identifiers/endpoints/responses, and an owner/store/TTL-bound cached export button. Combined F00/F01 profile **34 passed, 1 deselected**; compileall and diff-check passed. Full F acceptance awaits exact-head CI.
+- Текущий этап F02: безопасная версия работающего процесса, передаваемая в Telegram и диагностический JSON.
 
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 
@@ -4551,3 +4554,5 @@ Completed:
 - Плановые CSV/JSON маркируются как `PLANNED`, одна успешная продажа, оценка FBO, цель, provenance и ограничения. Фактический период помечается как finalized basis. Суммы-разложения несут семантическую пометку, чтобы их не складывали повторно.
 - Public callback → document transport и regressions проверяют payload, полный набор строк, stale/foreign/expired scope, отсутствие повторного чтения источников и прежний seller-cost export.
 - E00–E04 профиль: **73 passed**; `compileall -q app tests` и `git diff --check` прошли. Первый CI нашёл устаревшую assertion состава клавиатуры; после исправления на итоговом SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` Windows и Linux прошли по **3 389 тестов**, Docker build/runtime smoke успешны (Verify `39066587245`). PR #701 открыт, не слит/не развёрнут.
+- E documentation acceptance SHA `f598d300164916434de27a5180bb033d8a9f4293` also passed exact-head Verify `39066774774`.
+- F00 добавил ограниченную 256-событийную трассу с общими счётчиками попыток/проверок и экран «Почему расчёт неполный?» по точному owner/store-bound report snapshot. Экран использует кэш, не повторяет запросы и показывает только разрешённые статусы/причины и действия. Локальный профиль: **27 passed, 1 deselected** (существующий `tmp_path` stack-dump тест исключён из-за Windows ACL при запуске с отключённым tmpdir); compileall и diff-check прошли. F01 — безопасный JSON-экспорт.

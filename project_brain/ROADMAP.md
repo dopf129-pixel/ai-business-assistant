@@ -9,7 +9,7 @@
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
-- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E VERIFIED; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00 verified locally (27 passed, 1 deselected due existing Windows ACL-bound tmpdir test), F01 in progress. PR #700/#701 open for review; G depends on F03.
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E VERIFIED; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00/F01 verified locally (**34 passed, 1 deselected**, existing Windows ACL-bound tmpdir test excluded); F02 is next. PR #700/#701 open for review; G depends on F03.
 - A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
@@ -662,4 +662,4 @@ Next seller-facing accounting priority:
 - [x] E00: явный безопасный контракт документов Telegram; прежняя выгрузка себестоимости сохранена.
 - [x] E01: versioned CSV/JSON serializers с формульной безопасностью и пределом размера без усечения.
 - [x] E02–E04: CSV/JSON из точных snapshots для периода, обзора товаров, пакетного плана и чувствительности; полный scope, фильтры/сортировка, public callback → document transport, ноль повторных источников.
-- [ ] F00 verified locally: bounded operation summary and cached completeness diagnostics. F01–F03: allowlisted support JSON, process version, and diagnostics acceptance.
+- [ ] F00–F01 verified locally: bounded operation summary, cached completeness diagnostics, and allowlisted support JSON. F02–F03: process version and diagnostics acceptance.

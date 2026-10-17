@@ -489,6 +489,7 @@ class AssistantButtonHandlerService:
                 "period_profit:",
                 "period_profit_completeness:",
                 "period_profit_diagnostics:",
+                "period_profit_support_export:",
                 "period_profit_report:",
                 "period_profit_analytics:",
                 "period_profit_comparison:",
@@ -803,6 +804,22 @@ class AssistantButtonHandlerService:
             return self.analytics_export_service.export_period_profit(
                 snapshot_result.get("snapshot"), parts[1]
             )
+
+        if isinstance(button_id, str) and button_id.startswith(
+            "period_profit_support_export:"
+        ):
+            parts = button_id.split(":")
+            if len(parts) != 2:
+                return self._product_overview_stale(
+                    "PERIOD_PROFIT_SUPPORT_DIAGNOSTIC_ACTION_STALE"
+                )
+            runtime = self.period_profit_runtime_service
+            exporter = getattr(runtime, "export_support_diagnostic", None)
+            if not callable(exporter):
+                return self._product_overview_stale(
+                    "PERIOD_PROFIT_SUPPORT_DIAGNOSTIC_UNAVAILABLE"
+                )
+            return exporter(parts[1], user_id=user_id)
 
         if button_id == "unit_price_calculator" or button_id == "upc:m":
             runtime = self.unit_price_calculator_runtime_service

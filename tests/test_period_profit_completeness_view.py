@@ -1,3 +1,5 @@
+import json
+
 from period_profit_completeness_view import PeriodProfitCompletenessViewService
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
@@ -13,6 +15,7 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from telegram_app_layer.telegram_document_contract import prepare_telegram_document
 
 
 START = "2026-08-01"
@@ -431,6 +434,81 @@ def test_diagnostic_screen_uses_exact_cached_report_without_source_calls():
             for button in diagnostic["keyboard"]["buttons"]
         )
         assert wrong_user["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_document():
+    class Query:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, **_kwargs):
+            self.calls += 1
+            return _result()
+
+    query = Query()
+    keyboard = AssistantKeyboardService()
+    runtime = AssistantPeriodProfitRuntimeService(query, keyboard_service=keyboard)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+    )
+    tenant_token = set_current_tenant_user_id("store-A")
+    trace = PeriodProfitOperationTrace("period_profit", ozon_request_budget=4)
+    trace.finance_sku = "raw-sku-123"
+    trace.catalog_sku = "raw-sku-123"
+    trace.record_posting("raw-posting-456")
+    trace.record_posting_result("completed")
+    trace.reserve_ozon_request("/private?token=secret")
+    trace_token = activate_period_profit_trace(trace)
+    try:
+        report = runtime.handle_text("прибыль за 28 дней", user_id="telegram-user")
+    finally:
+        reset_period_profit_trace(trace_token)
+    try:
+        diagnostic = handler.handle(
+            "period_profit_diagnostics:" + report["report_view_id"],
+            user_id="telegram-user",
+        )
+        export = handler.handle(
+            "period_profit_support_export:" + report["report_view_id"],
+            user_id="telegram-user",
+        )
+        other_user = handler.handle(
+            "period_profit_support_export:" + report["report_view_id"],
+            user_id="other-user",
+        )
+        token = set_current_tenant_user_id("store-B")
+        other_store = handler.handle(
+            "period_profit_support_export:" + report["report_view_id"],
+            user_id="telegram-user",
+        )
+        reset_current_tenant_user_id(token)
+
+        assert diagnostic["status"] == "PERIOD_PROFIT_DIAGNOSTICS_READY"
+        assert any(
+            button["callback"] == "period_profit_support_export:" + report["report_view_id"]
+            for button in diagnostic["keyboard"]["buttons"]
+        )
+        assert export["error"] is False
+        assert export["document_kind"] == "support_diagnostic"
+        assert prepare_telegram_document(export)["mime_type"] == "application/json"
+        payload = export["file_content"].decode("utf-8")
+        document = json.loads(payload)
+        assert document["identifier_references"] == {
+            "finance_sku": "SKU_0001",
+            "catalog_sku": "SKU_0001",
+        }
+        assert document["counts"]["http_attempts"] == 1
+        assert "raw-sku-123" not in payload
+        assert "raw-posting-456" not in payload
+        assert "secret" not in payload
+        assert "489721" not in payload
+        assert other_user["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert other_store["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
         assert query.calls == 1
     finally:
         reset_current_tenant_user_id(tenant_token)
