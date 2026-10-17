@@ -41,11 +41,13 @@ class TelegramUnitPriceSensitivityRuntimeService:
         keyboard_service,
         clock=None,
         tenant_scope_provider=None,
+        analytics_export_service=None,
     ):
         self.sensitivity_service = sensitivity_service
         self.single_price_runtime_service = single_price_runtime_service
         self.batch_plan_runtime_service = batch_plan_runtime_service
         self.keyboard_service = keyboard_service
+        self.analytics_export_service = analytics_export_service
         self.clock = clock or monotonic
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self._pending = {}
@@ -195,6 +197,12 @@ class TelegramUnitPriceSensitivityRuntimeService:
             session = deepcopy(self._sessions.get(key))
         if not isinstance(session, dict) or session.get("result_id") != action.get("result_id"):
             return self._stale()
+        if action.get("kind") == "export":
+            if self.analytics_export_service is None or action.get("file_format") not in {"csv", "json"}:
+                return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+            return self.analytics_export_service.export_unit_price_sensitivity(
+                session.get("result"), session.get("context"), action["file_format"]
+            )
         if action.get("kind") == "page":
             session["page"] = action.get("page", 1)
             self._store_session(scope, session)
@@ -317,6 +325,8 @@ class TelegramUnitPriceSensitivityRuntimeService:
         if page < page_count:
             buttons.append({"text": "Следующая", "callback": self._register_action(scope, "page", result_id=session["result_id"], page=page + 1)})
         buttons.extend([
+            {"text": "⬇️ CSV", "callback": self._register_action(scope, "export", result_id=session["result_id"], file_format="csv")},
+            {"text": "⬇️ JSON", "callback": self._register_action(scope, "export", result_id=session["result_id"], file_format="json")},
             {"text": "Назад к плану", "callback": self._register_action(scope, "return", result_id=session["result_id"])},
             {"text": "Закрыть", "callback": "ups:c"},
         ])

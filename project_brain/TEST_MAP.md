@@ -5249,3 +5249,24 @@ Focused local result: **75 passed**. `compileall -q app tests` and `git diff --c
 - `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: exact batch-row context, identity and source-as-of binding for the sensitivity entry.
 - D focused profile: **117 passed** across sensitivity, Telegram batch/single runtimes, scenario and target planning; `compileall -q app tests` and `git diff --check` passed.
 - Full local Windows run: **2,978 passed, 21 failed, 369 errors**. Failures/errors are blocked by the workspace Windows temp ACL (`PermissionError: WinError 5`; SQLite cannot open files under the created temp directory). No project-data JSON hashes changed. Exact-head `d7c33dfa9d4d1e3ffde626d375dd17d2f0d38824` passed Windows/full-verification in runs `39065039552` and `39065028764`; D03 is accepted, PR #700 remains open and unmerged.
+
+# Telegram document contract — E00
+
+- `tests/test_telegram_document_contract.py`: recognized document kinds, matching MIME/extension, safe filename and path rejection, UTF-8 payload conversion, analytics-vs-cost-import caption separation, malformed content rejection.
+- `tests/test_telegram_cost_table_transport.py`: preserves existing cost CSV transport and caption; transport exception yields a failure status/message and never reports success before delivery.
+- `tests/test_seller_cost_table_service.py`: existing export emits explicit `seller_cost_import_template` kind without changing CSV schema or import behavior.
+- E00 profile: **12 passed**; compileall and `git diff --check` passed. E01 extends this contract with versioned serializers and file size handling.
+
+# Analytics export serializer — E01
+
+- `tests/test_analytics_export_serializer.py`: UTF-8 BOM/semicolon CSV, embedded metadata/schema, formula injection in text (including leading whitespace/tab), quoted newline/quotes, decimal comma, numeric negative money, null-vs-zero, JSON schema v1/units/provenance, NaN rejection, unknown columns, row and byte limits with no truncation.
+- Related E00 contract/cost-export tests: **17 passed total**; compileall and `git diff --check` passed.
+
+# Analytics snapshot export — E02–E04
+
+- `tests/test_analytics_export_service.py`: period comparison/bridge/reconciliation/TOP_K semantics; all filtered overview rows; complete batch and sensitivity scopes; planned-vs-factual metadata; null/zero preservation; invalid snapshot/schema fail-closed.
+- `tests/test_analytics_export_runtime.py`: exact report cache snapshot, owner/store isolation, fixed TTL, copy isolation, no source queries; public callback returns a file from the cached result.
+- `tests/test_product_overview_telegram_flow.py`: overview export uses the exact snapshot without a second catalog query and includes seven rows despite five-row display pages.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: exports include all 8 batch rows / 9 matrix cells; one-time callbacks and no source reload.
+- `tests/test_telegram_cost_table_transport.py`: public Telegram callback delivers analytics export with the read-only caption; legacy cost export and send-failure behavior remain covered.
+- Combined E00–E04 profile: **73 passed**; `compileall -q app tests` and `git diff --check` passed. Clean Windows/Linux full verification and Docker smoke remain required on exact PR head.

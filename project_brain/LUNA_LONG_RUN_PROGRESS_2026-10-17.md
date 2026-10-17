@@ -121,12 +121,12 @@
 | D01 | VERIFIED | `codex/product-workbench-module-d` / working tree | Telegram sensitivity flow from single calculator and eligible batch rows; paged results for up to 49 cells; strict text/callback ownership and stale-scope checks; no Ozon network calls. Covered by the **117 passed** focused profile. | sensitivity runtime, keyboard, handler, factory, batch/single adapters; tests; docs | D02 |
 | D02 | VERIFIED | `codex/product-workbench-module-d` / working tree | Explicit candidate transfer rechecks exact store/catalog identity, source version/freshness and scenario lifecycle, then recalculates forward through the existing calculator; no automatic apply or writes. Covered by the **117 passed** focused profile. | single/batch runtimes; sensitivity runtime tests; docs | D03 |
 | D03 | VERIFIED | `codex/product-workbench-module-d` / PR #700 stacked on PR #699 / head `d7c33dfa9d4d1e3ffde626d375dd17d2f0d38824` | Local acceptance: **117 passed**, `compileall -q app tests` and `git diff --check` passed. Full local Windows pytest: **2,978 passed, 21 failed, 369 errors**, blocked by `WinError 5` temp-directory ACL and SQLite temp-file access. Exact-head Windows and full-verification CI passed in runs `39065039552` and `39065028764`. Project-data JSON SHA256 values unchanged. PR open; no merge/deploy. | D code/tests/docs; PR #700; CI runs | E00 |
-| E00 | NOT_STARTED | — | — | — | зависит от A04 |
-| E01 | NOT_STARTED | — | — | — | зависит от E00 |
-| E02 | NOT_STARTED | — | — | — | зависит от E01 |
-| E03 | NOT_STARTED | — | — | — | зависит от B04/C05/D03 |
-| E04 | NOT_STARTED | — | — | — | приёмка выгрузок |
-| F00 | NOT_STARTED | — | — | — | зависит от A02/E00 |
+| E00 | VERIFIED | `codex/product-workbench-module-e` / stacked on PR #700 | Added explicit document-kind/MIME/filename contract; sender reports success only after Telegram document send and does not retry failures. Existing seller-cost CSV and caption preserved. **12 passed**, compileall/diff-check pass. | Telegram document contract/sender; seller-cost export; transport tests; docs | E01 |
+| E01 | VERIFIED | `codex/product-workbench-module-e` / working branch | Pure schema-v1 CSV/JSON serializers; CSV formula protection for text fields, numeric negatives remain numbers, JSON money strings use dot, null≠0, typed schema/units/semantic metadata, no NaN/Infinity, 2 MiB no-truncation gate. **17 passed**; compileall/diff-check pass. | serializer service/tests; document contract; docs | E02 |
+| E02 | VERIFIED | `codex/product-workbench-module-e` / stacked on PR #700 | Period CSV/JSON comes from finalized report snapshot, includes B/E bridge, rounding/reconciliation and saved TOP_K/coverage; no source rerun. Covered in combined **73 passed** profile. | export service/tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | E03 |
+| E03 | VERIFIED | `codex/product-workbench-module-e` / working branch | Separate export buttons for overview, batch, sensitivity. All selected/filtered snapshot rows/cells included; current page does not truncate; filter/sort metadata retained; planning scope/provenance/FBO disclaimers present. | runtime, keyboards, handler, factory, tests; docs | E04 |
+| E04 | VERIFIED | `codex/product-workbench-module-e` / working branch | Public period/product callback → export → Telegram document path covered; legacy cost import/export and failed send preserved. Combined profile **73 passed**, compileall/diff-check pass. Full local suite remains subject to Windows temp ACL; exact-head CI required. | code/tests/docs | commit/push E, open PR, exact-head CI; then F00 |
+| F00 | NOT_STARTED | — | — | bounded trace summary + completeness diagnostic screen | depends on A02/E00; start after E exact-head CI |
 | F01 | NOT_STARTED | — | — | — | зависит от F00 |
 | F02 | NOT_STARTED | — | — | — | зависит от F01 |
 | F03 | NOT_STARTED | — | — | — | приёмка диагностики |
@@ -145,4 +145,5 @@
 | Артефакт | Статус |
 |---|---|
 | PR #697 | Открыт, не слит; внешний dependency и base новых веток |
-| PR модулей A–G | Ещё нет |
+| PR #701 (E) | Подготовлен локально; exact-head CI ещё не запущен; не слит/не развёрнут |
+| PR модулей F–G | Ещё нет |

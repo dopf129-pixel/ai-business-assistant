@@ -1,0 +1,407 @@
+"""Map finalized owner-visible snapshots into explicit export schemas."""
+
+from copy import deepcopy
+
+from services.analytics_export_serializer import AnalyticsExportSerializer
+
+
+class AnalyticsExportService:
+    SCENARIO_AMOUNT_FIELDS = (
+        ("revenue", "revenue", "money"),
+        ("discount_points", "discount_points", "money"),
+        ("taxable_revenue", "taxable_revenue", "money"),
+        ("commission", "commission", "money"),
+        ("advertising", "advertising", "money"),
+        ("fees", "fees", "money"),
+        ("profit_before_tax", "profit_before_tax", "money"),
+        ("tax", "tax", "money"),
+        ("effective_tax_rate", "effective_tax_rate", "decimal"),
+        ("profit", "profit", "money"),
+        ("margin_percent", "margin_percent", "decimal"),
+    )
+
+    def __init__(self, serializer=None):
+        self.serializer = serializer or AnalyticsExportSerializer()
+
+    def export_period_profit(self, snapshot, file_format):
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = self._period_columns()
+        rows = []
+        metrics = snapshot.get("comparison_metrics") or {}
+        for name, metric in metrics.items():
+            if not isinstance(metric, dict):
+                continue
+            rows.append(self._period_row(
+                "comparison_metric", name,
+                current_value=metric.get("current_value"),
+                current_status=metric.get("current_status"),
+                previous_value=metric.get("previous_value"),
+                previous_status=metric.get("previous_status"),
+                delta=metric.get("delta"),
+                unit=metric.get("unit"),
+                semantic="period_metric_delta",
+            ))
+        bridge = snapshot.get("profit_bridge") or {}
+        for basis_name in ("B", "E"):
+            basis = bridge.get(basis_name)
+            if not isinstance(basis, dict):
+                continue
+            rows.append(self._period_row(
+                "profit_bridge", f"{basis_name}.authoritative_delta",
+                value=basis.get("authoritative_delta"),
+                status=basis.get("status"), unit="RUB",
+                semantic="authoritative_total",
+            ))
+            contributions = basis.get("contributions") or {}
+            for key, value in contributions.items():
+                rows.append(self._period_row(
+                    "profit_bridge", f"{basis_name}.{key}", value=value,
+                    status=basis.get("status"), unit="RUB",
+                    semantic=self._bridge_semantic(key),
+                ))
+            detail = basis.get("net_accrual_detail") or {}
+            for key, value in detail.items():
+                if key == "status":
+                    continue
+                rows.append(self._period_row(
+                    "profit_bridge", f"{basis_name}.net_accrual_detail.{key}",
+                    value=value, status=detail.get("status"), unit="RUB",
+                    semantic="reconciliation_component",
+                ))
+
+        sku = snapshot.get("sku_contribution") or {}
+        if isinstance(sku, dict):
+            for key in (
+                "store_profit_delta", "matched_sku_profit_delta", "store_minus_sku_delta",
+            ):
+                if key in sku:
+                    rows.append(self._period_row(
+                        "sku_reconciliation", key, value=sku.get(key),
+                        status=sku.get("reconciliation_status"), unit="RUB",
+                        semantic="reconciliation_total_or_residual",
+                    ))
+            for key in (
+                "matched_sku_count", "unmatched_current_count",
+                "unmatched_previous_count", "ambiguous_identity_count", "invalid_row_count",
+            ):
+                if key in sku:
+                    rows.append(self._period_row(
+                        "sku_coverage", key, count=sku.get(key),
+                        status=sku.get("coverage_status"), unit="rows",
+                        semantic="coverage_count",
+                    ))
+            for list_name in ("top_growth", "top_decline"):
+                entries = sku.get(list_name) or []
+                for row in entries:
+                    if not isinstance(row, dict):
+                        continue
+                    rows.append(self._period_row(
+                        "top_sku_reference", list_name,
+                        sku=row.get("sku"), value=row.get("delta"),
+                        status=row.get("status"), unit="RUB",
+                        semantic="top_k_reference_not_additive",
+                    ))
+
+        top_lists = sku if isinstance(sku, dict) else {}
+        metadata = {
+            "periods": deepcopy(snapshot.get("periods") or {}),
+            "comparison_basis": snapshot.get("comparison_basis"),
+            "comparison_status": snapshot.get("comparison_status"),
+            "comparison_reason_code": snapshot.get("comparison_reason_code"),
+            "coverage_status": snapshot.get("coverage_status"),
+            "snapshot_generated_at": snapshot.get("generated_at"),
+            "profit_bridge_semantics": {
+                "authoritative_delta": "total",
+                "contributions": "additive_components_with_rounding_adjustment",
+                "net_accrual_detail": "decomposition_not_additional_to_net_accrual",
+            },
+            "sku_contribution": {
+                "status": top_lists.get("status"),
+                "coverage_status": top_lists.get("coverage_status"),
+                "basis": top_lists.get("basis"),
+                "reconciliation_status": top_lists.get("reconciliation_status"),
+                "top_k_limit": 5,
+                "top_growth_rows": len(top_lists.get("top_growth") or []),
+                "top_decline_rows": len(top_lists.get("top_decline") or []),
+                "unmatched_rows_are_zero": top_lists.get("unmatched_rows_are_zero"),
+                "matched_sku_count": top_lists.get("matched_sku_count"),
+                "unmatched_current_count": top_lists.get("unmatched_current_count"),
+                "unmatched_previous_count": top_lists.get("unmatched_previous_count"),
+                "ambiguous_identity_count": top_lists.get("ambiguous_identity_count"),
+                "invalid_row_count": top_lists.get("invalid_row_count"),
+            },
+            "row_count": len(rows),
+        }
+        return self.serializer.serialize("period_profit", file_format, columns, rows, metadata)
+
+    def export_product_overview(self, snapshot_result, file_format):
+        if not isinstance(snapshot_result, dict) or snapshot_result.get("error") is True:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("selector", "Запрошенный товар", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("status", "Полнота", "status"),
+            self._column("error", "Причина недоступности", "status"),
+            self._column("decision_type", "Тип решения", "status"),
+            self._column("priority", "Приоритет", "status"),
+            self._column("confidence", "Уверенность", "status"),
+            self._column("reasons", "Причины решения", "text"),
+            self._column("missing_data", "Недостающие данные", "text"),
+            self._column("sales_velocity", "Скорость продаж", "decimal", "шт./день"),
+            self._column("sales_trend", "Тренд продаж", "text"),
+            self._column("current_stock", "Остаток", "decimal", "шт."),
+            self._column("days_of_stock", "Дни запаса", "decimal", "дн."),
+            self._column("stock_priority", "Приоритет остатка", "status"),
+            self._column("decision_profit_per_unit", "Расчётная прибыль с единицы", "money", "RUB/шт.", "model_estimate"),
+            self._column("decision_margin_percent", "Расчётная маржа", "decimal", "%", "model_estimate"),
+            self._column("source_freshness", "Свежесть источников", "json"),
+        ]
+        rows = []
+        for row in snapshot_result.get("rows") or []:
+            if not isinstance(row, dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            identity = row.get("identity") or {}
+            decision = row.get("decision") or {}
+            metrics = row.get("metrics") or {}
+            values = {key: (metrics.get(key) or {}).get("value") for key in (
+                "sales_velocity", "sales_trend", "current_stock", "days_of_stock",
+                "stock_priority", "decision_profit_per_unit", "decision_margin_percent",
+            )}
+            rows.append({
+                "selector": row.get("selector"),
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("catalog_sku"),
+                "status": row.get("status"),
+                "error": row.get("error"),
+                "decision_type": decision.get("decision_type"),
+                "priority": decision.get("priority"),
+                "confidence": decision.get("confidence"),
+                "reasons": "; ".join(str(item) for item in decision.get("reasons") or []),
+                "missing_data": "; ".join(str(item) for item in row.get("missing_data") or []),
+                **values,
+                "source_freshness": deepcopy(row.get("source_freshness") or {}),
+            })
+        pagination = snapshot_result.get("pagination") or {}
+        coverage = deepcopy(snapshot_result.get("coverage") or {})
+        selection_scope = coverage.get("selection_scope") or {}
+        metadata = {
+            "snapshot_kind": "product_overview",
+            "snapshot_captured_at": (snapshot_result.get("source_freshness") or {}).get("captured_at"),
+            "active_filter": pagination.get("filter"),
+            "active_sort": pagination.get("sort_by"),
+            "sort_direction": pagination.get("direction"),
+            "exported_scope": "all_rows_in_selected_snapshot_scope_after_active_filter",
+            "coverage": coverage,
+            "selection_scope": selection_scope,
+            "snapshot_scope_rows": pagination.get("scope_rows"),
+            "filtered_row_count": pagination.get("total_rows"),
+            "exported_row_count": len(rows),
+        }
+        return self.serializer.serialize("product_overview", file_format, columns, rows, metadata)
+
+    def export_unit_price_batch(self, batch, file_format, active_sort="selection"):
+        if not isinstance(batch, dict) or batch.get("kind") != "UNIT_PRICE_BATCH_PLAN":
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns, rows = self._plan_columns_and_rows(batch.get("rows") or [])
+        if isinstance(rows, dict):
+            return rows
+        metadata = {
+            "plan_status": "PLANNED",
+            "sale_basis": "one_successful_sale",
+            "fulfillment_estimate": "FBO",
+            "target_margin_percent": batch.get("target_margin_percent"),
+            "selected_row_count": batch.get("rows_selected"),
+            "attempted_row_count": batch.get("rows_attempted"),
+            "completed_row_count": batch.get("rows_completed"),
+            "evaluation_count": batch.get("evaluation_count"),
+            "evaluation_limit": batch.get("evaluation_limit"),
+            "active_sort": active_sort,
+            "exported_scope": "all_rows_in_exact_batch_snapshot",
+            "source_warning": "Plan is not a forecast of demand or total store profit.",
+        }
+        return self.serializer.serialize("unit_price_batch", file_format, columns, rows, metadata)
+
+    def export_unit_price_sensitivity(self, result, context, file_format):
+        if not isinstance(result, dict) or result.get("kind") != "UNIT_PRICE_SENSITIVITY":
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        origin = (context or {}).get("origin") or {}
+        identity = (context or {}).get("identity") or {}
+        columns = [
+            self._column("sku", "SKU каталога", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("cell_number", "Номер ячейки", "integer"),
+            self._column("coordinates", "Параметры ячейки", "json"),
+            self._column("status", "Статус", "status"),
+            self._column("inputs", "Допущения", "json"),
+            self._column("provenance", "Источники допущений", "json"),
+            *[self._column("calc_" + key, label, kind, unit)
+              for key, label, kind, unit in self._calculation_columns()],
+            self._column("target_reached", "Цель достигнута", "boolean"),
+        ]
+        rows = []
+        for index, cell in enumerate(result.get("cells") or [], start=1):
+            scenario = cell.get("scenario") or {}
+            calculated = scenario.get("calculated") or {}
+            rows.append({
+                "sku": identity.get("catalog_sku") or identity.get("sku"),
+                "offer_id": identity.get("offer_id"),
+                "cell_number": index,
+                "coordinates": deepcopy(cell.get("coordinates") or {}),
+                "status": cell.get("status"),
+                "inputs": deepcopy(cell.get("inputs") or {}),
+                "provenance": deepcopy(cell.get("provenance") or {}),
+                **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
+                "target_reached": cell.get("target_reached"),
+            })
+        metadata = {
+            "plan_status": "PLANNED",
+            "sale_basis": "one_successful_sale",
+            "fulfillment_estimate": "FBO",
+            "origin_kind": origin.get("kind"),
+            "axes": deepcopy(result.get("axes") or {}),
+            "source_as_of": deepcopy(result.get("source_as_of") or {}),
+            "target_margin_percent": result.get("target_margin_percent"),
+            "cell_count": result.get("cell_count"),
+            "available_cell_count": result.get("available_cell_count"),
+            "best_checked_cell_id": result.get("best_checked_cell_id"),
+            "worst_checked_cell_id": result.get("worst_checked_cell_id"),
+            "best_worst_basis": result.get("best_worst_basis"),
+            "exported_scope": "all_cells_in_exact_sensitivity_snapshot",
+            "source_warning": "This is a one-sale estimate, not a demand forecast or total store profit.",
+        }
+        return self.serializer.serialize("unit_price_sensitivity", file_format, columns, rows, metadata)
+
+    def _plan_columns_and_rows(self, plan_rows):
+        columns = [
+            self._column("row_id", "ID строки", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("status", "Статус сценария", "status"),
+            self._column("reason", "Причина", "status"),
+            self._column("missing_inputs", "Недостающие допущения", "text"),
+            self._column("invalid_inputs", "Некорректные допущения", "text"),
+            self._column("inputs", "Допущения", "json"),
+            self._column("provenance", "Источники допущений", "json"),
+            self._column("manual_assumptions", "Ручные допущения", "json"),
+            self._column("source_as_of", "Дата источников", "json"),
+            self._column("scheme", "Схема исполнения", "status"),
+        ]
+        columns.extend([
+            self._column("calc_" + key, label, kind, unit)
+            for key, label, kind, unit in self._calculation_columns()
+        ])
+        for group in ("break_even", "target"):
+            columns.extend([
+                self._column(group + "_status", group + " статус", "status"),
+                self._column(group + "_price", group + " цена", "money", "RUB"),
+                self._column(group + "_profit", group + " прибыль", "money", "RUB/шт."),
+                self._column(group + "_margin", group + " маржа", "decimal", "%"),
+                self._column(group + "_tax", group + " налог", "money", "RUB/шт."),
+                self._column(group + "_goal_reached", group + " цель достигнута", "boolean"),
+            ])
+        rows = []
+        for row in plan_rows:
+            if not isinstance(row, dict):
+                return columns, self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            identity = row.get("identity") or {}
+            scenario = row.get("scenario") or {}
+            calculated = scenario.get("calculated") or {}
+            planning = row.get("planning") or {}
+            projected = {
+                "row_id": row.get("row_id"),
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("catalog_sku"),
+                "status": row.get("status"),
+                "reason": row.get("reason"),
+                "missing_inputs": "; ".join(row.get("missing_inputs") or []),
+                "invalid_inputs": "; ".join(row.get("invalid_inputs") or []),
+                "inputs": deepcopy(row.get("inputs") or {}),
+                "provenance": deepcopy(row.get("provenance") or {}),
+                "manual_assumptions": deepcopy(row.get("manual_assumptions") or {}),
+                "source_as_of": deepcopy(row.get("source_as_of") or {}),
+                "scheme": row.get("scheme"),
+                **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
+            }
+            for group in ("break_even", "target"):
+                outcome = planning.get(group) or {}
+                projected.update({
+                    group + "_status": outcome.get("status"),
+                    group + "_price": outcome.get("price"),
+                    group + "_profit": outcome.get("profit"),
+                    group + "_margin": outcome.get("margin_percent"),
+                    group + "_tax": outcome.get("tax"),
+                    group + "_goal_reached": outcome.get("goal_reached"),
+                })
+            rows.append(projected)
+        return columns, rows
+
+    @staticmethod
+    def _period_columns():
+        return [
+            AnalyticsExportService._column("section", "Раздел", "text"),
+            AnalyticsExportService._column("name", "Показатель", "text"),
+            AnalyticsExportService._column("sku", "SKU", "text"),
+            AnalyticsExportService._column("current_value", "Текущее значение", "decimal"),
+            AnalyticsExportService._column("current_status", "Статус текущего", "status"),
+            AnalyticsExportService._column("previous_value", "Предыдущее значение", "decimal"),
+            AnalyticsExportService._column("previous_status", "Статус предыдущего", "status"),
+            AnalyticsExportService._column("delta", "Изменение", "decimal"),
+            AnalyticsExportService._column("value", "Сумма", "decimal"),
+            AnalyticsExportService._column("count", "Количество", "integer"),
+            AnalyticsExportService._column("status", "Статус", "status"),
+            AnalyticsExportService._column("unit", "Единица", "text"),
+            AnalyticsExportService._column("semantic", "Семантика суммы", "status"),
+        ]
+
+    @staticmethod
+    def _period_row(section, name, **values):
+        row = {key: None for key in (
+            "section", "name", "sku", "current_value", "current_status",
+            "previous_value", "previous_status", "delta", "value", "count",
+            "status", "unit", "semantic",
+        )}
+        row.update(section=section, name=name, **values)
+        return row
+
+    @staticmethod
+    def _bridge_semantic(name):
+        if "rounding" in name:
+            return "rounding_adjustment"
+        if name == "authoritative_delta":
+            return "authoritative_total"
+        return "additive_component"
+
+    @staticmethod
+    def _calculation_columns():
+        return (
+            ("revenue", "Выручка", "money", "RUB/шт."),
+            ("discount_points", "Баллы", "money", "RUB/шт."),
+            ("taxable_revenue", "Налоговая база", "money", "RUB/шт."),
+            ("commission", "Комиссия", "money", "RUB/шт."),
+            ("advertising", "Реклама", "money", "RUB/шт."),
+            ("fees", "Прочие расходы", "money", "RUB/шт."),
+            ("profit_before_tax", "Прибыль до налога", "money", "RUB/шт."),
+            ("tax", "Налог", "money", "RUB/шт."),
+            ("effective_tax_rate", "Фактическая ставка налога", "decimal", "%"),
+            ("profit", "Прибыль после налога", "money", "RUB/шт."),
+            ("margin_percent", "Маржа", "decimal", "%"),
+        )
+
+    @staticmethod
+    def _column(key, label, value_type, unit=None, semantic=None):
+        column = {"key": key, "label": label, "type": value_type}
+        if unit is not None:
+            column["unit"] = unit
+        if semantic is not None:
+            column["semantic"] = semantic
+        return column
+
+    @staticmethod
+    def _error(code):
+        return {"error": True, "code": code, "read_only": True, "executed": False}

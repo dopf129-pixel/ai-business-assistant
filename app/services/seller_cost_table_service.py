@@ -30,6 +30,7 @@ class SellerCostTableService:
             "message": "Заполните колонки «Себестоимость, ₽» и «Действует с». Для новых значений бот предложит сегодняшнюю дату; сохранение будет только после подтверждения.",
             "filename": "sebestoymost.csv",
             "mime_type": "text/csv",
+            "document_kind": "seller_cost_import_template",
             "file_content": "\ufeff" + stream.getvalue(),
             "rows": len(products),
             "read_only_ozon": True,

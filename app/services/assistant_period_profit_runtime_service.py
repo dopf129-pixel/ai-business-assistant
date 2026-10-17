@@ -424,6 +424,40 @@ class AssistantPeriodProfitRuntimeService:
             "executed": False,
         }
 
+    def get_analytics_snapshot_for_export(self, view_id, user_id=None):
+        """Read the finalized analytics snapshot without rerunning its sources."""
+        token = str(view_id or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{12}", token):
+            return self._cached_view_expired()
+        key = self._report_view_key(user_id, token)
+        now = self._monotonic_now()
+        if key is None or now is None:
+            return self._cached_view_expired()
+        with self._custom_period_lock:
+            cached = self._report_views.get(key)
+            if not isinstance(cached, dict):
+                return self._cached_view_expired()
+            expires_at = cached.get("expires_at")
+            if (
+                isinstance(expires_at, bool)
+                or not isinstance(expires_at, (int, float))
+                or now >= expires_at
+            ):
+                self._report_views.pop(key, None)
+                return self._cached_view_expired()
+            snapshot = cached.get("analytics_snapshot")
+            if not isinstance(snapshot, dict):
+                return self._cached_view_expired()
+            self._report_views.move_to_end(key)
+            snapshot = deepcopy(snapshot)
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_EXPORT_SNAPSHOT_READY",
+            "snapshot": snapshot,
+            "read_only": True,
+            "executed": False,
+        }
+
     def _query_pre_cogs(self, period_code=None, date_from=None, date_to=None, today=None):
         request = build_period_profit_request(
             period_code=period_code,
@@ -786,6 +820,12 @@ class AssistantPeriodProfitRuntimeService:
         return {"error": False, "type": "inline_keyboard", "buttons": [{
             "text": "📊 Аналитика периода",
             "callback": "period_profit_analytics:" + view_id,
+        }, {
+            "text": "⬇️ CSV",
+            "callback": "period_profit_export:csv:" + view_id,
+        }, {
+            "text": "⬇️ JSON",
+            "callback": "period_profit_export:json:" + view_id,
         }, {
             "text": "🔎 Полнота данных",
             "callback": "period_profit_completeness:" + view_id,

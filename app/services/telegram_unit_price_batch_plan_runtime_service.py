@@ -49,12 +49,14 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         sensitivity_runtime_service=None,
         clock=None,
         tenant_scope_provider=None,
+        analytics_export_service=None,
     ):
         self.batch_plan_service = batch_plan_service
         self.product_overview_service = product_overview_service
         self.keyboard_service = keyboard_service
         self.single_price_runtime_service = single_price_runtime_service
         self.sensitivity_runtime_service = sensitivity_runtime_service
+        self.analytics_export_service = analytics_export_service
         self.clock = clock or monotonic
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self._pending = OrderedDict()
@@ -269,6 +271,12 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         if batch is None:
             return self._stale()
         kind = action.get("kind")
+        if kind == "export":
+            if self.analytics_export_service is None or action.get("file_format") not in {"csv", "json"}:
+                return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+            return self.analytics_export_service.export_unit_price_batch(
+                batch, action["file_format"], active_sort=action.get("sort_by", "selection")
+            )
         if kind == "page":
             return self._render(
                 scope, batch, page=action.get("page", 1),
@@ -641,6 +649,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             {"text": "Обновить источники", "callback": self._register_action(scope, batch, "refresh")},
             {"text": "Сортировать по целевой цене", "callback": self._register_action(scope, batch, "sort", sort_by="target_price")},
             {"text": "Сортировать по прибыли/шт.", "callback": self._register_action(scope, batch, "sort", sort_by="profit")},
+            {"text": "⬇️ CSV", "callback": self._register_action(scope, batch, "export", file_format="csv", sort_by=sort_by)},
+            {"text": "⬇️ JSON", "callback": self._register_action(scope, batch, "export", file_format="json", sort_by=sort_by)},
         ])
         if eligible_rows:
             buttons.insert(1, {
