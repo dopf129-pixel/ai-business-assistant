@@ -101,6 +101,10 @@ from services.unit_price_batch_plan_service import UnitPriceBatchPlanService
 from services.telegram_unit_price_batch_plan_runtime_service import (
     TelegramUnitPriceBatchPlanRuntimeService,
 )
+from services.unit_price_sensitivity_service import UnitPriceSensitivityService
+from services.telegram_unit_price_sensitivity_runtime_service import (
+    TelegramUnitPriceSensitivityRuntimeService,
+)
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
@@ -266,6 +270,20 @@ def create_telegram_assistant():
             keyboard_service=keyboard,
             single_price_runtime_service=unit_price_calculator_runtime_service,
         )
+    unit_price_sensitivity_runtime_service = None
+    if unit_price_calculator_runtime_service is not None:
+        unit_price_sensitivity_runtime_service = TelegramUnitPriceSensitivityRuntimeService(
+            sensitivity_service=UnitPriceSensitivityService(
+                unit_price_calculator_runtime_service.scenario_service
+            ),
+            single_price_runtime_service=unit_price_calculator_runtime_service,
+            batch_plan_runtime_service=unit_price_batch_plan_runtime_service,
+            keyboard_service=keyboard,
+        )
+        if unit_price_batch_plan_runtime_service is not None:
+            unit_price_batch_plan_runtime_service.sensitivity_runtime_service = (
+                unit_price_sensitivity_runtime_service
+            )
 
     if period_profit_runtime_service is not None:
         period_profit_runtime_service.keyboard_service = keyboard
@@ -387,6 +405,9 @@ def create_telegram_assistant():
             unit_price_batch_plan_runtime_service=(
                 unit_price_batch_plan_runtime_service
             ),
+            unit_price_sensitivity_runtime_service=(
+                unit_price_sensitivity_runtime_service
+            ),
         )
     )
 
@@ -498,6 +519,9 @@ def create_telegram_assistant():
     )
     runner.unit_price_batch_plan_runtime_service = (
         unit_price_batch_plan_runtime_service
+    )
+    runner.unit_price_sensitivity_runtime_service = (
+        unit_price_sensitivity_runtime_service
     )
 
 

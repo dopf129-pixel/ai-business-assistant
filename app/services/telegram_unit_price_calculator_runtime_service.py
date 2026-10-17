@@ -110,6 +110,192 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "tenant_scope": scope,
             }
 
+    def get_sensitivity_context(self, scenario_id, version, user_id=None):
+        """Return a defensive source snapshot for a local sensitivity sweep."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return {"error": True, "code": context_error}
+        session = self._get_session(scenario_id, version, user, scope)
+        if session is None:
+            return self._stale_result()
+        snapshot = session.get("snapshot") or {}
+        identity = deepcopy(snapshot.get("identity") or {})
+        if identity.get("tenant_scope") != scope:
+            return self._stale_result()
+        freshness = self._source_freshness(session)
+        return {
+            "error": False,
+            "snapshot": deepcopy(snapshot),
+            "identity": identity,
+            "inputs": deepcopy(session.get("inputs") or {}),
+            "provenance": deepcopy(session.get("provenance") or {}),
+            "sources": self._scenario_sources(session),
+            "source_age_seconds": freshness["age_seconds"],
+            "source_ttl_seconds": freshness["ttl_seconds"],
+            "source_version": f"{session['scenario_id']}:{session['version']}",
+            "source_as_of": deepcopy(snapshot.get("source_periods") or {}),
+            "target_margin_percent": deepcopy(
+                ((session.get("price_planning_result") or {}).get("result") or {}).get("target_margin_percent")
+            ),
+            "origin": {
+                "kind": "single",
+                "scenario_id": session["scenario_id"],
+                "scenario_version": session["version"],
+                "owner_id": user,
+                "tenant_scope": scope,
+            },
+            "read_only": True,
+            "executed": False,
+        }
+
+    def apply_sensitivity_candidate(self, source_context, cell, user_id=None):
+        """Apply one explicitly chosen fresh sweep cell to the active plan."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        origin = source_context.get("origin") if isinstance(source_context, dict) else None
+        if not isinstance(origin, dict) or origin.get("kind") != "single":
+            return self._stale_result()
+        session = self._get_session(
+            origin.get("scenario_id"), origin.get("scenario_version"), user, scope
+        )
+        if session is None or origin.get("tenant_scope") != scope:
+            return self._stale_result()
+        current = self.get_sensitivity_context(
+            session["scenario_id"], session["version"], user_id=user
+        )
+        if not isinstance(cell, dict) or not isinstance(source_context, dict):
+            return self._stale_result()
+        if (
+            current.get("error") is True
+            or source_context.get("base_input_signature")
+            != cell.get("base_input_signature")
+            or current.get("source_version") != source_context.get("source_version")
+            or current.get("identity") != source_context.get("identity")
+            or current.get("inputs") != source_context.get("inputs")
+            or current.get("provenance") != source_context.get("provenance")
+            or current.get("sources") != source_context.get("sources")
+            or current.get("source_age_seconds", float("inf"))
+            >= current.get("source_ttl_seconds", 0)
+            or current.get("source_ttl_seconds", 0) > self.session_ttl_seconds
+            or cell.get("status") != "AVAILABLE"
+        ):
+            return self._stale_result()
+        candidate = deepcopy(cell.get("inputs") or {})
+        provenance = deepcopy(cell.get("provenance") or {})
+        calculated = self.scenario_service.calculate(
+            candidate,
+            identity=self._scenario_identity(session),
+            provenance=provenance,
+            sources=self._scenario_sources(session),
+        )
+        if calculated.get("available") is not True:
+            return self._stale_result()
+        with self._lock:
+            active = self._scenarios.get(session["scenario_id"])
+            key = (user, scope)
+            if (
+                not isinstance(active, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or active.get("version") != session["version"]
+            ):
+                return self._stale_result()
+            active["inputs"] = candidate
+            active["provenance"] = provenance
+            active["overrides"].update(cell.get("coordinates", {}).keys())
+            active.pop("price_planning_result", None)
+            active["version"] += 1
+            active["updated_at"] = self.clock()
+            updated = deepcopy(active)
+            self._pending.pop(key, None)
+        return self._scenario_screen(
+            updated,
+            notice="Выбранная ячейка чувствительности перенесена в сценарий и проверена повторным расчётом. Цена в Ozon не менялась.",
+        )
+
+    def open_sensitivity_candidate(self, source_context, cell, user_id=None):
+        """Open a verified cell from a batch without fetching or writing sources."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        if not isinstance(source_context, dict) or not isinstance(cell, dict):
+            return self._stale_result()
+        identity = source_context.get("identity")
+        snapshot = source_context.get("snapshot")
+        origin = source_context.get("origin")
+        if (
+            not isinstance(identity, dict)
+            or not isinstance(snapshot, dict)
+            or not isinstance(origin, dict)
+            or origin.get("kind") != "batch"
+            or origin.get("owner_id") != user
+            or origin.get("tenant_scope") != scope
+            or identity.get("tenant_scope") != scope
+            or cell.get("status") != "AVAILABLE"
+            or cell.get("base_input_signature") != source_context.get("base_input_signature")
+            or source_context.get("source_age_seconds", float("inf"))
+            >= source_context.get("source_ttl_seconds", 0)
+            or source_context.get("source_ttl_seconds", 0) > self.session_ttl_seconds
+        ):
+            return self._stale_result()
+        inputs = deepcopy(cell.get("inputs") or {})
+        provenance = deepcopy(cell.get("provenance") or {})
+        scenario_identity = {
+            "user_id": user,
+            "store_id": identity.get("store_id"),
+            "tenant_scope": scope,
+            "product_id": str(identity.get("product_id")),
+            "offer_id": str(identity.get("offer_id") or ""),
+            "sku": str(identity.get("sku") or ""),
+            "sensitivity_origin": "batch",
+            "batch_id": origin.get("batch_id"),
+            "batch_version": origin.get("batch_version"),
+            "row_id": origin.get("row_id"),
+        }
+        sources = deepcopy(source_context.get("sources") or {})
+        result = self.scenario_service.calculate(
+            inputs,
+            identity=scenario_identity,
+            provenance=provenance,
+            sources=sources,
+        )
+        if result.get("available") is not True:
+            return self._stale_result()
+        now = self.clock()
+        scenario_id = uuid4().hex[:10]
+        age = self._nonnegative_seconds(source_context.get("source_age_seconds"), 0.0)
+        ttl = self._nonnegative_seconds(source_context.get("source_ttl_seconds"), 0.0)
+        session = {
+            "scenario_id": scenario_id,
+            "version": 1,
+            "user_id": user,
+            "tenant_scope": scope,
+            "sku": str(identity.get("sku") or ""),
+            "snapshot": deepcopy(snapshot),
+            "inputs": inputs,
+            "provenance": provenance,
+            "overrides": set(cell.get("coordinates", {}).keys()),
+            "created_at": now,
+            "updated_at": now,
+            "source_loaded_at": now,
+            "source_age_seconds_at_load": age,
+            "source_ttl_seconds": ttl,
+        }
+        operation_token = self._begin_source_operation(user, scope)
+        with self._lock:
+            key = (user, scope)
+            if not self._operation_is_current_locked(key, operation_token):
+                return self._stale_result()
+            self._scenarios[scenario_id] = session
+            self._active[key] = scenario_id
+            self._pending.pop(key, None)
+            self._operation_tokens.pop(key, None)
+            self._evict_scenarios()
+        return self._scenario_screen(
+            session,
+            notice="Открыт выбранный сценарий чувствительности из пакетного плана. Цена в Ozon не менялась.",
+        )
+
     def open_batch_candidate(
         self,
         batch,

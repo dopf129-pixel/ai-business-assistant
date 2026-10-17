@@ -211,6 +211,7 @@ class AssistantButtonHandlerService:
         seller_attention_summary_service=None,
         product_overview_service=None,
         unit_price_batch_plan_runtime_service=None,
+        unit_price_sensitivity_runtime_service=None,
     ):
 
         self.assistant = (
@@ -285,6 +286,7 @@ class AssistantButtonHandlerService:
         )
         self.product_overview_service = product_overview_service
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
+        self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
 
 
     def prepare_context(
@@ -543,7 +545,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:")):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:")):
             return
         if (
             isinstance(button_id, str)
@@ -571,6 +573,23 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def handle_text(self, text, user_id=None):
+        sensitivity_handler = getattr(
+            self.unit_price_sensitivity_runtime_service, "handle_text", None
+        )
+        if callable(sensitivity_handler):
+            try:
+                result = sensitivity_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SENSITIVITY_TEXT_FAILED",
+                    "message": "Не удалось обработать чувствительность плановой экономики.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if result is not None:
+                return result
+
         batch_handler = getattr(
             self.unit_price_batch_plan_runtime_service, "handle_text", None
         )
@@ -708,10 +727,64 @@ class AssistantButtonHandlerService:
             self.unit_price_batch_plan_runtime_service, "clear_pending", None
         )
         if callable(batch_clearer) and not (
-            isinstance(button_id, str) and button_id.startswith("upb:")
+            isinstance(button_id, str) and button_id.startswith(("upb:", "ups:"))
         ):
             batch_clearer(user_id)
+        sensitivity_clearer = getattr(
+            self.unit_price_sensitivity_runtime_service, "clear_pending", None
+        )
+        if callable(sensitivity_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("ups:")
+        ):
+            sensitivity_clearer(user_id)
         self._clear_unit_price_input_for_new_flow(button_id, user_id)
+
+        if isinstance(button_id, str) and button_id.startswith("ups:"):
+            runtime = self.unit_price_sensitivity_runtime_service
+            if button_id.startswith("ups:s:"):
+                parts = button_id.split(":")
+                if len(parts) != 4:
+                    return {
+                        "error": True,
+                        "code": "UNIT_PRICE_SENSITIVITY_ACTION_STALE",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                try:
+                    version = int(parts[3])
+                except (TypeError, ValueError):
+                    return {
+                        "error": True,
+                        "code": "UNIT_PRICE_SENSITIVITY_ACTION_STALE",
+                        "read_only": True,
+                        "executed": False,
+                    }
+                opener = getattr(runtime, "begin_from_single", None)
+                if callable(opener):
+                    return opener(parts[2], version, user_id=user_id)
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SENSITIVITY_UNAVAILABLE",
+                    "read_only": True,
+                    "executed": False,
+                }
+            handler = getattr(runtime, "handle_callback", None)
+            if not callable(handler):
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SENSITIVITY_UNAVAILABLE",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_SENSITIVITY_CALLBACK_FAILED",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if button_id == "unit_price_calculator" or button_id == "upc:m":
             runtime = self.unit_price_calculator_runtime_service

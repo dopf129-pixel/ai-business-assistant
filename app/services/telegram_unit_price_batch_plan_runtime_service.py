@@ -46,6 +46,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         product_overview_service,
         keyboard_service,
         single_price_runtime_service=None,
+        sensitivity_runtime_service=None,
         clock=None,
         tenant_scope_provider=None,
     ):
@@ -53,6 +54,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         self.product_overview_service = product_overview_service
         self.keyboard_service = keyboard_service
         self.single_price_runtime_service = single_price_runtime_service
+        self.sensitivity_runtime_service = sensitivity_runtime_service
         self.clock = clock or monotonic
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self._pending = OrderedDict()
@@ -295,6 +297,19 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 user_id=scope["owner_id"],
                 expected_batch_version=action.get("batch_version"),
             )
+        if kind == "sensitivity":
+            runtime = self.sensitivity_runtime_service
+            opener = getattr(runtime, "begin_from_context", None)
+            context_reader = getattr(self, "get_sensitivity_context", None)
+            if not callable(opener) or not callable(context_reader):
+                return self._error("UNIT_PRICE_SENSITIVITY_UNAVAILABLE")
+            context = context_reader(
+                action.get("batch_id"),
+                action.get("batch_version"),
+                action.get("row_id"),
+                user_id=scope["owner_id"],
+            )
+            return opener(context, user_id=scope["owner_id"])
         if kind == "advertising_rate":
             return self._begin_batch_input(
                 scope, batch, "advertising_rate",
@@ -333,6 +348,113 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             self._save_batch(scope, result)
             return self._render(scope, result, notice="Источники обновлены; ручные допущения сохранены.")
         return self._stale()
+
+    def get_sensitivity_context(self, batch_id, batch_version, row_id, user_id=None):
+        """Read an immutable row snapshot for source-free sensitivity planning."""
+        scope = self._scope(user_id)
+        if scope.get("error"):
+            return {"error": True, "code": "UNIT_PRICE_BATCH_CONTEXT_UNAVAILABLE"}
+        batch = self._get_batch(scope, batch_id, batch_version)
+        if batch is None:
+            return {"error": True, "code": "UNIT_PRICE_BATCH_ACTION_STALE"}
+        matches = [row for row in batch.get("rows", []) if row.get("row_id") == row_id]
+        if len(matches) != 1:
+            return {"error": True, "code": "UNIT_PRICE_BATCH_ACTION_STALE"}
+        row = matches[0]
+        snapshot = row.get("snapshot")
+        if not isinstance(snapshot, dict):
+            return {"error": True, "code": "UNIT_PRICE_BATCH_SNAPSHOT_UNAVAILABLE"}
+        snapshot_identity = deepcopy(snapshot.get("identity") or {})
+        row_identity = row.get("identity") or {}
+        if (
+            snapshot_identity.get("tenant_scope") != scope["tenant_scope"]
+            or str(snapshot_identity.get("product_id") or "") != str(row_identity.get("product_id") or "")
+            or str(snapshot_identity.get("offer_id") or "") != str(row_identity.get("offer_id") or "")
+            or str(snapshot_identity.get("sku") or "") != str(row_identity.get("catalog_sku") or "")
+            or str(snapshot_identity.get("store_id") or "") != str(scope["store_id"] or "")
+        ):
+            return {"error": True, "code": "UNIT_PRICE_BATCH_IDENTITY_MISMATCH"}
+        age_at_load = self._seconds(row.get("source_age_seconds_at_load"), 0.0)
+        loaded_at = self._seconds(row.get("source_loaded_at"), self.clock())
+        ttl = min(self._seconds(row.get("source_ttl_seconds"), 0.0), self.SNAPSHOT_TTL_SECONDS)
+        age = age_at_load + max(0.0, float(self.clock()) - loaded_at)
+        periods = deepcopy(snapshot.get("source_periods") or {})
+        return {
+            "error": False,
+            "snapshot": snapshot,
+            "identity": snapshot_identity,
+            "inputs": deepcopy(row.get("inputs") or {}),
+            "provenance": deepcopy(row.get("provenance") or {}),
+            "sources": {
+                "periods": periods,
+                "as_of": periods.get("seller_price_as_of"),
+                "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+            },
+            "source_age_seconds": age,
+            "source_ttl_seconds": ttl,
+            "source_version": f"{batch['batch_id']}:{batch['version']}:{row_id}",
+            "source_as_of": periods,
+            "target_margin_percent": deepcopy(batch.get("target_margin_percent")),
+            "origin": {
+                "kind": "batch",
+                "batch_id": batch["batch_id"],
+                "batch_version": batch["version"],
+                "row_id": row_id,
+                "owner_id": scope["owner_id"],
+                "tenant_scope": scope["tenant_scope"],
+            },
+            "read_only": True,
+            "executed": False,
+        }
+
+    def apply_sensitivity_candidate(self, source_context, cell, user_id=None):
+        """Re-read the same batch row and open a selected sweep cell locally."""
+        origin = source_context.get("origin") if isinstance(source_context, dict) else None
+        if not isinstance(origin, dict) or origin.get("kind") != "batch":
+            return self._stale()
+        current = self.get_sensitivity_context(
+            origin.get("batch_id"),
+            origin.get("batch_version"),
+            origin.get("row_id"),
+            user_id=user_id,
+        )
+        if (
+            current.get("error") is True
+            or current.get("source_version") != source_context.get("source_version")
+            or current.get("identity") != source_context.get("identity")
+            or current.get("inputs") != source_context.get("inputs")
+            or current.get("provenance") != source_context.get("provenance")
+            or current.get("sources") != source_context.get("sources")
+            or current.get("source_age_seconds", float("inf"))
+            >= current.get("source_ttl_seconds", 0)
+            or current.get("source_ttl_seconds", 0) > self.SNAPSHOT_TTL_SECONDS
+            or not isinstance(cell, dict)
+            or cell.get("status") != "AVAILABLE"
+            or cell.get("base_input_signature") != source_context.get("base_input_signature")
+        ):
+            return self._stale()
+        current["base_input_signature"] = source_context["base_input_signature"]
+        opener = getattr(self.single_price_runtime_service, "open_sensitivity_candidate", None)
+        if not callable(opener):
+            return self._error("UNIT_PRICE_SCENARIO_HANDOFF_UNAVAILABLE")
+        return opener(current, cell, user_id=user_id)
+
+    def show_sensitivity_origin(self, origin, user_id=None):
+        scope = self._scope(user_id)
+        if scope.get("error") or not isinstance(origin, dict):
+            return self._context_error()
+        batch = self._get_batch(
+            scope, origin.get("batch_id"), origin.get("batch_version")
+        )
+        if batch is None:
+            return self._stale()
+        context = self.get_sensitivity_context(
+            origin.get("batch_id"), origin.get("batch_version"),
+            origin.get("row_id"), user_id=user_id,
+        )
+        if context.get("error") is True:
+            return self._stale()
+        return self._render(scope, batch, notice="Возврат к исходной строке плана.")
 
     def clear_pending(self, user_id):
         owner = str(user_id or "").strip()
@@ -504,6 +626,13 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                     "text": f"Открыть план · {self._label(row)[:28]}",
                     "callback": self._register_action(
                         scope, batch, "open_candidate", row_id=row["row_id"]
+                    ),
+                })
+            if row.get("status") in {"READY", "INCOMPLETE_INPUTS"}:
+                buttons.append({
+                    "text": f"Чувствительность · {self._label(row)[:24]}",
+                    "callback": self._register_action(
+                        scope, batch, "sensitivity", row_id=row["row_id"]
                     ),
                 })
         eligible_rows = [row for row in rows if row.get("status") in {"READY", "INCOMPLETE_INPUTS"}]
