@@ -9,7 +9,8 @@
 - F00 VERIFIED на локальном профиле **27 passed, 1 deselected** (единственный `tmp_path` тест исключён из-за известного Windows ACL при отключённом pytest tmpdir); `compileall` и `git diff --check` прошли. Коммит F00 `057d439` на ветке `codex/product-workbench-module-f`, base — E acceptance head `f598d30`.
 - F00–F01 verified locally: bounded period-operation diagnostic view and strict allowlisted `support_diagnostic` JSON. F01 commit `59432ef`; export is owner/store/TTL-bound, reads the cached report only, and masks identifiers.
 - F02 verified locally in commit `3e4af5a`: read-only main-menu version screen and the same validated process revision/start time in support JSON; Windows launch script captures Git revision/start time once per launch, and Docker Verify injects the image revision. Profile **58 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head acceptance remains pending.
-- Текущий этап F03: полный набор приёмки диагностики и сквозные проверки модулей F–G.
+- F03 verified locally: regressions cover exact attempt counters and secret-free public traces for HTTP 429/timeout, expiry without source refresh, and support-file delivery failure. The combined F00–F03 profile is **77 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head CI is pending.
+- Текущий этап G00: cross-feature acceptance scenarios for overview, planning, exports and cached period diagnostics.
 
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 
