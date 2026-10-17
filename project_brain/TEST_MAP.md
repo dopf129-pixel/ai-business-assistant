@@ -1,3 +1,10 @@
+# План проверок большого пакета A–G (17.10.2026; NOT_STARTED)
+
+- ТЗ `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` задаёт meaningful regressions: общий parent/child HTTP budget; read-only cohort без history/proposal writes; selected-group partial coverage; точные идентификаторы; stale/cross-store/concurrent callbacks; batch targets; sensitivity cells; CSV/JSON и formula injection; обезличивание diagnostics; public handler/factory/file sender.
+- После каждого этапа — целевые проверки, после модуля — полный pytest и CI актуального SHA Windows/Linux/Docker. Для фиксации используются будущие `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и review handoff, которые исполнитель создаст при A00/G02.
+- При подготовке выполнены только 6 прямых fake-only вызовов настоящих `UnitPriceScenarioService`/`TaxService`: база A profit96/tax24; cost220 profit76; advertising15 profit71; price550 profit131.10; price564.16 profit141.04; B profit55.60. Все числовые примеры совпали с ТЗ. Новые функции/регрессии ещё не реализованы; старый CI #697 их не принимает.
+- Production/test Python files при подготовке не менялись, runtime tests и полный pytest не запускались повторно. Документация проходит проверку stage IDs/dependencies/references/fences и `git diff --check`.
+
 # N06 — Telegram-экраны и scoped report snapshots (15.10.2026)
 
 - `tests/test_period_profit_analytics_runtime.py` проверяет public handler route, прежний и текущий период, прибыль до внешних расходов, п.п. маржи, bridge, SKU residual, существующий выбор товара, owner/store isolation, fixed TTL, отсутствие tenant fallback, компактный snapshot и очистку длинной SKU-метки. В тесте присутствует production-factory wiring regression.
