@@ -3,13 +3,13 @@
 ## Активная программа разработки — 17.10.2026
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
-- A00–A04 and B00–B04 VERIFIED locally. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. Current B head still needs exact-head CI.
+- A00–A04 and B00–B04 VERIFIED. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`; exact B-head CI is tracked by PR #698. C00–C05 VERIFIED on code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`; Verify runs `39063730904` and `39063717597` passed Windows and full-verification, including full pytest and Docker smoke. PR #699 is ready for review and stacked on #698.
 - PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
 - B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавил snapshot-only filters/sorting. B03/B04 добавили Telegram overview, explicit catalog groups, stale-safe callbacks, guarded transition к калькулятору цены и приёмку границ. 93 целевых tests passed; расширенный товарный regression — 1 018 passed, 12 локально ACL-deselected.
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
-- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Объём ориентировочно 12–24 инженерных часа; реализация NOT_STARTED, подготовка документа не запускает кодовые изменения.
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Реализация продолжается; A–C VERIFIED, D выполняется, E–G ожидают зависимости.
 - A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
