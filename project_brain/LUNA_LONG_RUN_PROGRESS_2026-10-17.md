@@ -74,6 +74,17 @@
 - Regressions: 53 passed, 1 deselected (только ACL-bound tmp_path test); compileall и diff-check прошли. Набор включает selection 0/21, точный tenant, duplicate selector, ambiguous identity, missing product, один catalog load, no lifecycle writes, partial source failure, parent budget exhaustion и cache tenant isolation.
 - Следующий шаг: B01 — pure row projection, stable row ID, source provenance/freshness, счётчики полного scope и страницы без источниковых вызовов.
 
+## B01 — подготовка группы и coverage
+
+- Статус: **VERIFIED**.
+- Добавлен `ProductOverviewService`: ограниченный запрос до 20 селекторов преобразуется в короткие строки для нового экрана и публикуется в A03 transient snapshot store, привязанном к активному owner/store. Factory создаёт один общий store и overview service; будущий пакетный план должен подключить тот же экземпляр.
+- Каждая строка содержит stable opaque `row_id`, проверенную identity, только whitelist decision priority/reasons, показатели с единицами, `missing_data`, статус/error и provenance источников. В evidence протаскиваются даты периода продаж, наблюдения и записи источника. Raw внутренний payload не переносится.
+- Coverage считается по уникальным отображаемым строкам; READY, INCOMPLETE, SOURCE_UNAVAILABLE, NOT_FOUND, IDENTITY_AMBIGUOUS, BUDGET_EXHAUSTED и CANCELLED взаимоисключающие. Повторная identity схлопывается и отражается отдельным счётчиком. Некорректная identity не остаётся READY.
+- Snapshot чтение выдаёт ограниченные страницы только из памяти; переход страницы не вызывает decision query/Ozon. Snapshot API повторно проверяет owner/store/generation/version; чужой scope получает stale, истёкший/старый токен не переоткрывает строку.
+- Для свежести сохраняются observed/recorded timestamps, период и возраст на момент создания. Источник не объявляется stale по придуманному business порогу: `freshness_policy` явно говорит, что порог не настроен.
+- Проверка B01: **69 passed** в шести связанных наборах (overview, input provider, selected query, snapshot store, business decision query, factory-backed seller attention); `compileall` изменённых app/tests и `git diff --check` успешны. Использованы `-p no:tmpdir -p no:cacheprovider`, исключён только ранее ACL-заблокированный worker `tmp_path` regression; новые B01 проверки все прошли.
+- Следующий шаг: B02 — фильтры существующих сигналов, sort по текущему приоритету/метрикам и страницы без источниковых вызовов; stale filter реализовать только по подтверждённым source age metadata.
+
 ## Матрица этапов
 
 Статусы: `NOT_STARTED`, `IN_PROGRESS`, `IMPLEMENTED`, `VERIFIED`, `BLOCKED`. `IMPLEMENTED` означает код есть, `VERIFIED` — проверки этапа успешны.
@@ -86,8 +97,8 @@
 | A03 | VERIFIED | `codex/product-workbench-20261017` / base `f42274a` | scoped store; **34 passed, 1 ACL-bound deselected** with A02; compileall/diff-check passed | helper + tests; this journal; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A04 |
 | A04 | VERIFIED | PR #698 exact head `be76a4f8e4c7d78160e0d1047515651993062d54` | Verify `39059951770`: Windows/full verification, full pytest, compileall, Docker build/runtime smoke — success | CI artifact `12111345571`; this journal | B00 |
 | B00 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | public bounded selected-row query; **53 passed, 1 ACL-bound deselected** | code + regression; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B01 |
-| B01 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | projection contract outline | this journal | build stable rows/coverage/pages |
-| B02 | NOT_STARTED | — | — | — | зависит от B01 |
+| B01 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | bounded snapshot builder/pages; **69 passed**, compileall/diff-check passed | code + tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B02 |
+| B02 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | filter/sort contract | this journal | snapshot-only filtering and sorting |
 | B03 | NOT_STARTED | — | — | — | зависит от B02 |
 | B04 | NOT_STARTED | — | — | — | приёмка обзора |
 | C00 | NOT_STARTED | — | — | — | зависит от A04 |

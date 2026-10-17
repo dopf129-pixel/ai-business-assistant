@@ -219,7 +219,7 @@ class ProductBusinessDecisionQueryService:
                 self.sales_metrics_source,
                 sku,
                 source_name="sales",
-            product=product,
+                product=product,
             )
         )
         if sales_invalid:
@@ -234,7 +234,7 @@ class ProductBusinessDecisionQueryService:
                 self.stock_metrics_source,
                 sku,
                 source_name="stock",
-            product=product,
+                product=product,
             )
         )
         if stock_invalid:
@@ -1178,6 +1178,8 @@ class ProductBusinessDecisionQueryService:
             for field in (
                 "sales_source_recorded_at",
                 "sales_observed_at",
+                "sales_period_from",
+                "sales_period_to",
             ):
                 if not self._valid_optional_evidence_string(
                     result.get(field)

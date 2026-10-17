@@ -1206,3 +1206,8 @@ Summary Report теперь включает:
 - Decision query получил bounded read-only метод для до 20 выбранных товаров с единой загрузкой каталога, точной проверкой неоднозначности, coverage по строкам и без history/proposal/task-draft writes.
 - Источники могут принимать уже разрешённый объект каталога; unit-economics cache разделён по активному tenant. B00: 53 passed, 1 ACL-bound test deselected; compileall и diff-check успешны.
 
+# 2026-10-17 — снимок обзора выбранных товаров
+
+- Добавлен `ProductOverviewService`: read-only whitelist строк решений/метрик с единицами, source periods/freshness, явным coverage и owner/store-scoped transient snapshot.
+- Пагинация читает сохранённую группу без повторных источниковых вызовов; неизвестный freshness threshold не выдаётся за проверенную свежесть. B01: **69 passed**, compileall и diff-check успешны.
+

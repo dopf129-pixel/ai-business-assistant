@@ -3,9 +3,9 @@
 ## Активная программа разработки — 17.10.2026
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
-- A00–A04 VERIFIED. Exact PR #698 head `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. B00 selected-row contract is verified; B01 is in progress.
+- A00–A04 and B00–B01 VERIFIED. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. B02 is in progress; no Telegram route has been added yet.
 - PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
-- B00 добавил bounded public read-only query выбранных товаров. B01 сейчас строит stable row projections и coverage поверх этого контракта; маршруты Telegram пока не изменялись.
+- B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавляет snapshot-only filters/sorting. Маршруты Telegram пока не изменялись.
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 

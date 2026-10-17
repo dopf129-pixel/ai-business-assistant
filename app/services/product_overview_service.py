@@ -1,0 +1,481 @@
+"""Read-only product overview projections backed by scoped transient snapshots."""
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from math import isfinite
+
+from services.ozon_account_repository import split_store_tenant_scope
+from services.tenant_context import get_current_tenant_user_id
+
+
+class ProductOverviewService:
+    SNAPSHOT_KIND = "product_overview"
+    MAX_SELECTION = 20
+    DEFAULT_PAGE_SIZE = 5
+    MAX_PAGE_SIZE = 20
+
+    _METRIC_UNITS = {
+        "sales_velocity": "units_per_day",
+        "sales_trend": "trend",
+        "current_stock": "units",
+        "days_of_stock": "days",
+        "decision_profit_per_unit": "RUB_per_unit",
+        "decision_margin_percent": "percent",
+    }
+    _SOURCE_FIELDS = {
+        "sales": (
+            "sales_observed_at",
+            "sales_source_recorded_at",
+            "sales_period_from",
+            "sales_period_to",
+        ),
+        "stock": (
+            "stock_observed_at",
+            "stock_source_recorded_at",
+        ),
+        "unit_economics": (
+            "unit_economics_observed_at",
+            "unit_economics_source_recorded_at",
+        ),
+    }
+    _ROW_STATUSES = {
+        "READY",
+        "INCOMPLETE",
+        "SOURCE_UNAVAILABLE",
+        "NOT_FOUND",
+        "IDENTITY_AMBIGUOUS",
+        "BUDGET_EXHAUSTED",
+        "CANCELLED",
+    }
+
+    def __init__(
+        self,
+        decision_query,
+        snapshot_store,
+        tenant_scope_provider=None,
+        utc_now=None,
+    ):
+        self.decision_query = decision_query
+        self.snapshot_store = snapshot_store
+        self.tenant_scope_provider = (
+            tenant_scope_provider or get_current_tenant_user_id
+        )
+        self.utc_now = utc_now or (lambda: datetime.now(timezone.utc))
+
+    def create_snapshot(self, selectors, page=1, page_size=None):
+        page_size = self.DEFAULT_PAGE_SIZE if page_size is None else page_size
+        validation_error = self._validate_request(selectors, page, page_size)
+        if validation_error:
+            return self._error(validation_error)
+
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+
+        generation_result = self.snapshot_store.begin_generation(
+            owner_id,
+            store_id,
+            self.SNAPSHOT_KIND,
+        )
+        if generation_result.get("error"):
+            return self._error(generation_result.get("code"))
+        generation = generation_result.get("generation")
+
+        try:
+            result = self.decision_query.query_selected_products(selectors)
+        except Exception:
+            return self._error("PRODUCT_OVERVIEW_SOURCE_UNAVAILABLE")
+        if not isinstance(result, dict) or result.get("error") is True:
+            return self._error(
+                (result or {}).get("code")
+                if isinstance(result, dict)
+                else "PRODUCT_OVERVIEW_SOURCE_RESULT_INVALID"
+            )
+        raw_rows = result.get("rows")
+        if not isinstance(raw_rows, list):
+            return self._error("PRODUCT_OVERVIEW_SOURCE_RESULT_INVALID")
+
+        captured_at = self._captured_at()
+        rows, duplicate_identity_count = self._project_rows(
+            raw_rows,
+            owner_id=owner_id,
+            store_id=store_id,
+            captured_at=captured_at,
+        )
+        coverage = self._coverage(rows, duplicate_identity_count)
+        source_freshness = self._source_freshness(rows, captured_at)
+        stored = self.snapshot_store.put_snapshot(
+            owner_id=owner_id,
+            store_id=store_id,
+            kind=self.SNAPSHOT_KIND,
+            generation=generation,
+            version=1,
+            source_freshness=source_freshness,
+            coverage=coverage,
+            rows=rows,
+        )
+        if stored.get("error"):
+            return self._error(stored.get("code"))
+        return self._page_result(stored["snapshot"], page, page_size)
+
+    def get_page(
+        self,
+        snapshot_id,
+        generation,
+        version,
+        page=1,
+        page_size=None,
+    ):
+        page_size = self.DEFAULT_PAGE_SIZE if page_size is None else page_size
+        validation_error = self._validate_page(page, page_size)
+        if validation_error:
+            return self._error(validation_error)
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        loaded = self.snapshot_store.get_snapshot(
+            snapshot_id=snapshot_id,
+            owner_id=owner_id,
+            store_id=store_id,
+            kind=self.SNAPSHOT_KIND,
+            generation=generation,
+            version=version,
+        )
+        if loaded.get("error"):
+            return self._error(loaded.get("code"))
+        return self._page_result(loaded["snapshot"], page, page_size)
+
+    def _project_rows(self, raw_rows, owner_id, store_id, captured_at):
+        rows = []
+        seen_row_ids = set()
+        duplicate_identity_count = 0
+        for raw in raw_rows[: self.MAX_SELECTION]:
+            if not isinstance(raw, dict):
+                continue
+            identity = self._safe_identity(raw.get("identity"))
+            selector = self._safe_text(raw.get("selector"), limit=128)
+            status = self._safe_status(raw.get("status"))
+            code = self._safe_code(raw.get("code"))
+            decision = raw.get("decision")
+            if status in {"READY", "INCOMPLETE"} and (
+                identity is None or not isinstance(decision, dict)
+            ):
+                status = "SOURCE_UNAVAILABLE"
+                code = "PRODUCT_OVERVIEW_ROW_INVALID"
+                decision = None
+            row_id = self._stable_row_id(
+                owner_id,
+                store_id,
+                identity,
+                selector,
+                status,
+            )
+            if row_id in seen_row_ids:
+                duplicate_identity_count += 1
+                continue
+            seen_row_ids.add(row_id)
+
+            row = {
+                "row_id": row_id,
+                "selector": selector,
+                "identity": identity,
+                "status": status,
+                "decision": self._project_decision(decision),
+                "metrics": self._project_metrics(decision),
+                "source_freshness": self._project_sources(
+                    decision,
+                    captured_at,
+                ),
+                "missing_data": self._safe_string_list(
+                    decision.get("missing_data")
+                    if isinstance(decision, dict)
+                    else None
+                ) + (["identity"] if code == "PRODUCT_OVERVIEW_ROW_INVALID" else []),
+                "error": code,
+            }
+            candidate_count = raw.get("candidate_count")
+            if type(candidate_count) is int and candidate_count > 0:
+                row["candidate_count"] = candidate_count
+            rows.append(row)
+        return rows, duplicate_identity_count
+
+    def _project_sources(self, decision, captured_at):
+        decision = decision if isinstance(decision, dict) else {}
+        sources = {}
+        for source_name, fields in self._SOURCE_FIELDS.items():
+            source = {}
+            for field in fields:
+                value = self._safe_text(decision.get(field), limit=80)
+                if value is not None:
+                    source[field] = value
+            observed_field = source_name + "_observed_at"
+            recorded_field = source_name + "_source_recorded_at"
+            observed_at = source.get(observed_field)
+            recorded_at = source.get(recorded_field)
+            if observed_at:
+                source["freshness_status"] = "OBSERVED"
+                source["age_seconds"] = self._age_seconds(
+                    observed_at,
+                    captured_at,
+                )
+            elif recorded_at:
+                source["freshness_status"] = "SOURCE_TIMESTAMP_ONLY"
+                source["age_seconds"] = None
+            else:
+                source["freshness_status"] = "UNKNOWN"
+                source["age_seconds"] = None
+            sources[source_name] = source
+        return sources
+
+    def _project_metrics(self, decision):
+        decision = decision if isinstance(decision, dict) else {}
+        metrics = {}
+        for name, unit in self._METRIC_UNITS.items():
+            value = decision.get(name)
+            if name == "sales_trend":
+                value = self._safe_text(value, limit=32)
+            else:
+                value = self._safe_number(value)
+            metrics[name] = {"value": value, "unit": unit}
+        return metrics
+
+    def _project_decision(self, decision):
+        if not isinstance(decision, dict):
+            return None
+        reasons = self._safe_string_list(decision.get("reasons"), limit=64)
+        return {
+            "decision_type": self._safe_code(decision.get("decision_type")),
+            "priority": self._safe_code(decision.get("priority")),
+            "confidence": self._safe_code(decision.get("confidence")),
+            "reasons": reasons,
+        }
+
+    def _source_freshness(self, rows, captured_at):
+        source_summary = {}
+        for source_name in self._SOURCE_FIELDS:
+            observed = 0
+            timestamp_missing = 0
+            latest_observed = None
+            for row in rows:
+                source = row["source_freshness"].get(source_name) or {}
+                observed_at = source.get(source_name + "_observed_at")
+                if observed_at:
+                    observed += 1
+                    if latest_observed is None or observed_at > latest_observed:
+                        latest_observed = observed_at
+                else:
+                    timestamp_missing += 1
+            source_summary[source_name] = {
+                "observed_count": observed,
+                "timestamp_missing_count": timestamp_missing,
+                "latest_observed_at": latest_observed,
+            }
+        return {
+            "captured_at": captured_at,
+            "freshness_policy": "AGE_EXPOSED_NO_STALE_THRESHOLD_CONFIGURED",
+            "sources": source_summary,
+        }
+
+    def _coverage(self, rows, duplicate_identity_count):
+        statuses = [row["status"] for row in rows]
+        processed_statuses = {"READY", "INCOMPLETE", "SOURCE_UNAVAILABLE"}
+        return {
+            "selected_count": len(rows),
+            "requested_selector_count": len(rows) + duplicate_identity_count,
+            "duplicate_identity_count": duplicate_identity_count,
+            "processed_count": sum(
+                status in processed_statuses for status in statuses
+            ),
+            "decision_ready_count": statuses.count("READY"),
+            "incomplete_count": statuses.count("INCOMPLETE"),
+            "source_unavailable_count": statuses.count("SOURCE_UNAVAILABLE"),
+            "not_found_count": statuses.count("NOT_FOUND"),
+            "identity_conflict_count": statuses.count("IDENTITY_AMBIGUOUS"),
+            "budget_unprocessed_count": statuses.count("BUDGET_EXHAUSTED"),
+            "cancelled_count": statuses.count("CANCELLED"),
+        }
+
+    def _page_result(self, snapshot, page, page_size):
+        rows = list(snapshot.get("rows") or [])
+        total_rows = len(rows)
+        total_pages = (total_rows + page_size - 1) // page_size
+        if page > max(total_pages, 1):
+            return self._error("PRODUCT_OVERVIEW_PAGE_OUT_OF_RANGE")
+        start = (page - 1) * page_size
+        page_rows = rows[start : start + page_size]
+        return {
+            "error": False,
+            "code": None,
+            "snapshot": {
+                key: snapshot.get(key)
+                for key in (
+                    "snapshot_id",
+                    "kind",
+                    "owner_id",
+                    "store_id",
+                    "generation",
+                    "version",
+                    "created_at",
+                    "expires_at",
+                )
+            },
+            "coverage": snapshot.get("coverage") or {},
+            "source_freshness": snapshot.get("source_freshness") or {},
+            "rows": page_rows,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_rows": total_rows,
+                "total_pages": total_pages,
+                "has_previous": page > 1,
+                "has_next": page < total_pages,
+            },
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _active_scope(self):
+        try:
+            tenant = str(self.tenant_scope_provider() or "").strip()
+        except Exception:
+            tenant = ""
+        owner_id, store_id = split_store_tenant_scope(tenant)
+        if not owner_id or not store_id:
+            return None, None, "PRODUCT_OVERVIEW_TENANT_REQUIRED"
+        return str(owner_id), str(store_id), None
+
+    @classmethod
+    def _validate_request(cls, selectors, page, page_size):
+        if not isinstance(selectors, (list, tuple)):
+            return "PRODUCT_OVERVIEW_SELECTION_INVALID"
+        if len(selectors) > cls.MAX_SELECTION:
+            return "PRODUCT_OVERVIEW_SELECTION_LIMIT_EXCEEDED"
+        for selector in selectors:
+            if (
+                not isinstance(selector, str)
+                or not selector.strip()
+                or len(selector.strip()) > 128
+                or any(ord(char) < 32 or ord(char) == 127 for char in selector)
+            ):
+                return "PRODUCT_OVERVIEW_SELECTION_INVALID"
+        return cls._validate_page(page, page_size)
+
+    @classmethod
+    def _validate_page(cls, page, page_size):
+        if type(page) is not int or page < 1:
+            return "PRODUCT_OVERVIEW_PAGE_INVALID"
+        if (
+            type(page_size) is not int
+            or page_size < 1
+            or page_size > cls.MAX_PAGE_SIZE
+        ):
+            return "PRODUCT_OVERVIEW_PAGE_SIZE_INVALID"
+        return None
+
+    def _stable_row_id(self, owner_id, store_id, identity, selector, status):
+        if identity is not None:
+            identity_key = identity
+        else:
+            identity_key = {"selector": selector, "status": status}
+        canonical = json.dumps(
+            [owner_id, store_id, self.SNAPSHOT_KIND, identity_key],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:40]
+        return "overview_" + digest
+
+    @staticmethod
+    def _safe_identity(identity):
+        if not isinstance(identity, dict):
+            return None
+        result = {}
+        for field in ("product_id", "offer_id", "catalog_sku"):
+            value = identity.get(field)
+            if value is None:
+                result[field] = None
+                continue
+            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                text = str(value).strip()
+                if text and len(text) <= 128 and not any(
+                    ord(char) < 32 or ord(char) == 127 for char in text
+                ):
+                    result[field] = text
+                    continue
+            return None
+        if not result["offer_id"] and not result["catalog_sku"]:
+            return None
+        return result
+
+    @staticmethod
+    def _safe_number(value):
+        if type(value) not in (int, float):
+            return None
+        try:
+            return value if isfinite(float(value)) else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @staticmethod
+    def _safe_text(value, limit):
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text or len(text) > limit or any(
+            ord(char) < 32 or ord(char) == 127 for char in text
+        ):
+            return None
+        return text
+
+    @classmethod
+    def _safe_code(cls, value):
+        return cls._safe_text(value, limit=96)
+
+    @classmethod
+    def _safe_status(cls, value):
+        status = cls._safe_text(value, limit=40)
+        return status if status in cls._ROW_STATUSES else "SOURCE_UNAVAILABLE"
+
+    @classmethod
+    def _safe_string_list(cls, values, limit=128):
+        if not isinstance(values, (list, tuple)):
+            return []
+        result = []
+        for value in values:
+            text = cls._safe_text(value, limit)
+            if text and text not in result:
+                result.append(text)
+        return result
+
+    @staticmethod
+    def _age_seconds(observed_at, captured_at):
+        try:
+            observed = datetime.fromisoformat(
+                observed_at.replace("Z", "+00:00")
+            )
+            captured = datetime.fromisoformat(
+                captured_at.replace("Z", "+00:00")
+            )
+            if observed.tzinfo is None or captured.tzinfo is None:
+                return None
+            age = (captured - observed).total_seconds()
+            return max(0, int(age)) if age >= 0 else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def _captured_at(self):
+        current = self.utc_now()
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return current.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _error(code):
+        return {
+            "error": True,
+            "code": code or "PRODUCT_OVERVIEW_ERROR",
+            "read_only": True,
+            "executed": False,
+        }

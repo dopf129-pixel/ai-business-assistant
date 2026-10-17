@@ -93,6 +93,10 @@ from services.telegram_external_expense_runtime_service import (
 from services.seller_attention_summary_service import (
     SellerAttentionSummaryService,
 )
+from services.product_overview_service import ProductOverviewService
+from services.scoped_transient_snapshot_store import (
+    ScopedTransientSnapshotStore,
+)
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
@@ -184,6 +188,12 @@ def create_telegram_assistant():
                 product_decision_history
             )
         )
+    )
+
+    product_overview_snapshot_store = ScopedTransientSnapshotStore()
+    product_overview_service = ProductOverviewService(
+        decision_query=product_business_decision_query,
+        snapshot_store=product_overview_snapshot_store,
     )
 
 
@@ -477,6 +487,8 @@ def create_telegram_assistant():
     runner.product_business_decision_query = (
         product_business_decision_query
     )
+    runner.product_overview_service = product_overview_service
+    runner.scoped_transient_snapshot_store = product_overview_snapshot_store
 
 
     runner.product_decision_history_service = (
