@@ -7,8 +7,9 @@
 - A00–A02 VERIFIED. Общий trace поддерживает parent/child deadline и atomic attempt reservation; UnitPriceScenarioSource умеет наследовать его для сгруппированных запусков, ограничивает in-flight wait и не публикует/кэширует поздний результат после cancel. Standalone 60s/64-attempt defaults сохранены.
 - A00–E04 VERIFIED; PR #698–#701 остаются открытыми и не слитыми. Exact-head E code и documentation CI зафиксированы в журнале.
 - F00 VERIFIED на локальном профиле **27 passed, 1 deselected** (единственный `tmp_path` тест исключён из-за известного Windows ACL при отключённом pytest tmpdir); `compileall` и `git diff --check` прошли. Коммит F00 `057d439` на ветке `codex/product-workbench-module-f`, base — E acceptance head `f598d30`.
-- F01 verified locally: strict allowlisted `support_diagnostic` JSON with stable SKU/product aliases, no money/raw identifiers/endpoints/responses, and an owner/store/TTL-bound cached export button. Combined F00/F01 profile **34 passed, 1 deselected**; compileall and diff-check passed. Full F acceptance awaits exact-head CI.
-- Текущий этап F02: безопасная версия работающего процесса, передаваемая в Telegram и диагностический JSON.
+- F00–F01 verified locally: bounded period-operation diagnostic view and strict allowlisted `support_diagnostic` JSON. F01 commit `59432ef`; export is owner/store/TTL-bound, reads the cached report only, and masks identifiers.
+- F02 verified locally in commit `3e4af5a`: read-only main-menu version screen and the same validated process revision/start time in support JSON; Windows launch script captures Git revision/start time once per launch, and Docker Verify injects the image revision. Profile **58 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head acceptance remains pending.
+- Текущий этап F03: полный набор приёмки диагностики и сквозные проверки модулей F–G.
 
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 

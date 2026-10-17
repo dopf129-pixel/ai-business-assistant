@@ -1,3 +1,9 @@
+# 2026-10-17 — модуль F02: версия работающего бота
+
+- В главное меню добавлена read-only кнопка `ℹ️ О боте / версия`: она показывает только проверенный revision активного процесса и время его старта в UTC. При недоступной версии отображается локальная сборка без заданной версии.
+- Build metadata считывается один раз при запуске процесса и используется в безопасном support-diagnostic JSON. Локальный `start_bot.ps1` фиксирует Git revision и время запуска; Docker получает revision через build arg, а Verify передаёт SHA сборки.
+- Проверки F00–F02: **58 passed, 1 deselected** (существующий ACL-bound `tmp_path` test), compileall и `git diff --check` прошли. Полный exact-head acceptance остаётся в G01.
+
 # 2026-10-17 — модуль F01: обезличенный JSON диагностики
 
 - Добавлен отдельный `support_diagnostic` JSON: schema v1, время/период, случайный operation id, ограниченные status/reason codes, completeness, счётчики, типы полей и псевдонимы `SKU_0001`/`PRODUCT_0001`. Суммы, названия товаров, реальные SKU, отправления, API/tenant/Telegram identifiers, endpoint, raw response и исключения исключены строгой allowlist-схемой.

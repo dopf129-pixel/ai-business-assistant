@@ -662,4 +662,5 @@ Next seller-facing accounting priority:
 - [x] E00: явный безопасный контракт документов Telegram; прежняя выгрузка себестоимости сохранена.
 - [x] E01: versioned CSV/JSON serializers с формульной безопасностью и пределом размера без усечения.
 - [x] E02–E04: CSV/JSON из точных snapshots для периода, обзора товаров, пакетного плана и чувствительности; полный scope, фильтры/сортировка, public callback → document transport, ноль повторных источников.
-- [ ] F00–F01 verified locally: bounded operation summary, cached completeness diagnostics, and allowlisted support JSON. F02–F03: process version and diagnostics acceptance.
+- [x] F00–F02 verified locally: bounded operation summary, cached completeness diagnostics, allowlisted support JSON, and read-only running-process version.
+- [ ] F03: diagnostics acceptance; G00–G02: end-to-end scenarios, full pytest/CI/Docker, and independent review handoff. No merge/deploy.

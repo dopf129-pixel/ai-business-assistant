@@ -12,7 +12,12 @@ Send `/start` to resume required setup or open the main menu. Use
 - `🎯 Решения по товарам` — read-only product recommendations;
 - `↩️ Расходы на возвраты` — return finance impact;
 - `🧠 Память` — seller facts explicitly saved for the assistant;
-- `❓ Помощь и команды` — complete command memo and valid phrase examples.
+- `❓ Помощь и команды` — complete command memo and valid phrase examples;
+- `ℹ️ О боте / версия` — revision captured by the running process and its UTC start time.
+
+If no validated build revision is available, the bot labels itself as a local build
+with no version set. The version display is read-only and reflects the running
+process; updating files on disk does not change it until that process is restarted.
 
 ## Аналитика прибыли магазина
 
@@ -45,6 +50,8 @@ Send `/start` to resume required setup or open the main menu. Use
 суммы, названия товаров, исходные идентификаторы и ответы API не добавляются.
 Файл доступен только владельцу исходного отчёта, в том же магазине и пока не
 истёк снимок. Экспорт использует кэш и не повторяет запросы к Ozon.
+Диагностический JSON также содержит revision и время старта процесса, если они
+прошли проверку формата.
 
 ## Планирование цены SKU
 
