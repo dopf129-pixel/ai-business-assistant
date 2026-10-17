@@ -1,9 +1,16 @@
-# План проверок большого пакета A–G (17.10.2026; NOT_STARTED)
+# План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
+
+## Фактическое выполнение
+
+- Исполняемое ТЗ: `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`; stage journal: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00–A01: снимок исходной точки и architecture review; код не менялся, pytest не запускался.
+- A02: `tests/test_period_profit_operation_diagnostics.py` проверяет parent/child deadline и общий concurrent attempt cap, child/root cancellation и лимит через реальный `OzonClient` request wrapper. `tests/test_unit_price_scenario_source.py` проверяет parent trace propagation/context restoration и clamp in-flight wait.
+- Локальный A02 subset: **20 passed, 1 deselected**; исключён существующий stack-dump `tmp_path` regression из-за недоступного Windows temp ACL. Чистый CI должен включить его.
 
 - ТЗ `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` задаёт meaningful regressions: общий parent/child HTTP budget; read-only cohort без history/proposal writes; selected-group partial coverage; точные идентификаторы; stale/cross-store/concurrent callbacks; batch targets; sensitivity cells; CSV/JSON и formula injection; обезличивание diagnostics; public handler/factory/file sender.
 - После каждого этапа — целевые проверки, после модуля — полный pytest и CI актуального SHA Windows/Linux/Docker. Для фиксации используются будущие `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и review handoff, которые исполнитель создаст при A00/G02.
-- При подготовке выполнены только 6 прямых fake-only вызовов настоящих `UnitPriceScenarioService`/`TaxService`: база A profit96/tax24; cost220 profit76; advertising15 profit71; price550 profit131.10; price564.16 profit141.04; B profit55.60. Все числовые примеры совпали с ТЗ. Новые функции/регрессии ещё не реализованы; старый CI #697 их не принимает.
-- Production/test Python files при подготовке не менялись, runtime tests и полный pytest не запускались повторно. Документация проходит проверку stage IDs/dependencies/references/fences и `git diff --check`.
+- При подготовке выполнены 6 прямых fake-only вызовов настоящих `UnitPriceScenarioService`/`TaxService`; все контрольные числовые примеры ТЗ совпали.
+- A02 добавлены parent deadline/request cap, одновременное резервирование, cancellation и HTTP wrapper/source regressions. Текущие локальные фактические результаты см. выше; полный pytest и clean CI обязательны до закрытия A04.
 
 # N06 — Telegram-экраны и scoped report snapshots (15.10.2026)
 

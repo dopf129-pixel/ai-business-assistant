@@ -1,3 +1,12 @@
+# 2026-10-17 — выполнение программы Luna A–G начато
+
+- Владелец поручил выполнить `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` до готовых PR с зелёным CI; merge и deploy запрещены. Журнал этапов: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00 проверен: PR #697 открыт на head `3f7923ced48ba9434fdf5930d1f55431e0eacedd`, base `main` `c55434327f50134324a5ca58e2f084854b809832`. Рабочая ветка `codex/product-workbench-20261017` содержит подготовительный документальный commit `91aac988aa067082434704095cc61a2400b06159` поверх PR head.
+- Данные `data/tasks.json`, `data/users.json`, временные каталоги pytest и lock-файл сохранены. Хэши пользовательских JSON записаны в журнал.
+- A00–A01 VERIFIED. Review подтвердил: legacy `query_all()` — full-catalog/history lifecycle; price source сбрасывает собственный 60s/64-attempt trace и ждёт inflight фиксированные 61s; outgoing document sender подписывает каждый файл как cost CSV. Это prerequisites для новых путей, не объявлены production regressions.
+- A00–A02 VERIFIED. Общий trace поддерживает parent/child deadline и atomic attempt reservation; UnitPriceScenarioSource умеет наследовать его для сгруппированных запусков, ограничивает in-flight wait и не публикует/кэширует поздний результат после cancel. Standalone 60s/64-attempt defaults сохранены.
+- Текущий этап A03: ограниченные transient snapshots, scoped по owner/store/generation с TTL/LRU и copy isolation.
+
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 
 - Поручение владельца: длительная автономная разработка, включая новые возможности продукта. Подготовлено `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: 7 крупных модулей A–G, 32 этапа, ориентировочно 12–24 инженерных часа; фактическая длительность не является критерием приёмки.

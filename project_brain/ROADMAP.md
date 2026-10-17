@@ -1,5 +1,11 @@
 # Project Roadmap
 
+## Активная программа разработки — 17.10.2026
+
+- Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00–A02 VERIFIED; A03 IN_PROGRESS. Parent-aware time/attempt budgets and cancellation are implemented on the existing trace; source cache/in-flight waits honor them. Focused tests are recorded in the progress journal; full pytest/CI remains at A04.
+- PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
+
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
 - `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Объём ориентировочно 12–24 инженерных часа; реализация NOT_STARTED, подготовка документа не запускает кодовые изменения.

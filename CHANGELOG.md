@@ -1,3 +1,10 @@
+# 2026-10-17 — начато выполнение программы Luna A–G
+
+- A00 завершён: перепроверены PR #697 и base/head SHA; создан журнал `project_brain/LUNA_LONG_RUN_PROGRESS_2026-10-17.md`. Ветка исполнения `codex/product-workbench-20261017` основана на подготовительном commit поверх PR #697.
+- A01 подтвердил реальные границы: decision query обходит каталог и включает history lifecycle, unit-price source создаёт независимый budget, file sender использует caption импорта себестоимости. Это проверенное поведение, не новое обвинение в production ошибке.
+- A02 добавил дочерние traces с родительским deadline/attempt cap, атомарным общим резервированием, cooperative cancellation и bounded in-flight ожиданием в источнике цен. Standalone limits сохранены; late cancelled source result не кэшируется.
+- A02 regressions: 21 passed; один tmp_path тест пропущен локально из-за ACL и должен пройти в clean CI. `compileall` и `git diff --check` успешны. Пользовательские данные сохранены.
+
 # 2026-10-17 — подготовлена программа развития для длительной работы Luna
 
 - Добавлены `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` и обоснование `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`: 7 крупных модулей, 32 этапа, зависимости, лимиты, числовые примеры, meaningful tests и восстановление после compaction.

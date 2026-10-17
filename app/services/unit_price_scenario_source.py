@@ -15,6 +15,12 @@ from services.period_profit_operation_diagnostics import (
 from services.tenant_context import get_current_tenant_user_id
 
 
+class _OperationAborted(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
 class UnitPriceScenarioSource:
     """Build bounded read-only source snapshots for the price calculator."""
 
@@ -55,11 +61,24 @@ class UnitPriceScenarioSource:
         self._inflight = {}
         self._lock = RLock()
 
-    def load_snapshot(self, sku, user_id, force_refresh=False):
+    def load_snapshot(
+        self,
+        sku,
+        user_id,
+        force_refresh=False,
+        operation_trace=None,
+    ):
         target_sku = str(sku or "").strip()
         target_user = str(user_id or "").strip()
         if not target_sku or not target_user:
             return self._error("UNIT_PRICE_SCENARIO_IDENTITY_REQUIRED")
+        if operation_trace is not None and not isinstance(
+            operation_trace, PeriodProfitOperationTrace
+        ):
+            return self._error("UNIT_PRICE_SCENARIO_OPERATION_CONTEXT_INVALID")
+        operation_error = self._operation_error(operation_trace)
+        if operation_error is not None:
+            return self._error(operation_error)
 
         tenant_scope = str(get_current_tenant_user_id() or "").strip()
         scoped_user, store_id = split_store_tenant_scope(tenant_scope)
@@ -69,6 +88,9 @@ class UnitPriceScenarioSource:
         waited_for_refresh = False
 
         while True:
+            operation_error = self._operation_error(operation_trace)
+            if operation_error is not None:
+                return self._error(operation_error)
             with self._lock:
                 cached = self._cache.get(key)
                 age = (
@@ -99,12 +121,32 @@ class UnitPriceScenarioSource:
 
             if leader:
                 break
-            if not pending.wait(timeout=self.TIME_BUDGET_SECONDS + 1):
+            wait_timeout = self.TIME_BUDGET_SECONDS + 1
+            if operation_trace is not None:
+                wait_timeout = min(
+                    float(wait_timeout),
+                    operation_trace.remaining_seconds(),
+                )
+            if wait_timeout <= 0:
+                return self._error("OZON_OPERATION_TIME_BUDGET_EXHAUSTED")
+            if not pending.wait(timeout=wait_timeout):
+                operation_error = self._operation_error(operation_trace)
+                if operation_error is not None:
+                    return self._error(operation_error)
                 return self._error("UNIT_PRICE_SCENARIO_REFRESH_IN_PROGRESS")
             waited_for_refresh = True
 
         try:
-            result = self._load_snapshot(target_sku, target_user, store_id, tenant_scope)
+            result = self._load_snapshot(
+                target_sku,
+                target_user,
+                store_id,
+                tenant_scope,
+                parent_trace=operation_trace,
+            )
+            operation_error = self._operation_error(operation_trace)
+            if operation_error is not None:
+                return self._error(operation_error)
             if result.get("error") is not True:
                 with self._lock:
                     self._cache[key] = {
@@ -126,14 +168,23 @@ class UnitPriceScenarioSource:
                 if event is not None:
                     event.set()
 
-    def _load_snapshot(self, sku, user_id, store_id, tenant_scope):
+    def _load_snapshot(
+        self,
+        sku,
+        user_id,
+        store_id,
+        tenant_scope,
+        parent_trace=None,
+    ):
         trace = PeriodProfitOperationTrace(
             operation="unit_price_scenario_source",
             time_budget_seconds=self.TIME_BUDGET_SECONDS,
             ozon_request_budget=self.HTTP_ATTEMPT_BUDGET,
+            parent=parent_trace,
         )
         trace_token = activate_period_profit_trace(trace)
         try:
+            self._ensure_operation_active(trace)
             try:
                 products = self.product_service.load_products()
             except Exception:
@@ -152,11 +203,21 @@ class UnitPriceScenarioSource:
             if not product or not product.get("product_id") or not product.get("offer_id"):
                 return self._error("UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE")
 
+            self._ensure_operation_active(trace)
             current_facts = self._load_current_facts(product)
+            self._ensure_operation_active(trace)
             cost, cost_updated_at = self._load_cost(product)
+            self._ensure_operation_active(trace)
             policy = self._load_tax_policy()
+            self._ensure_operation_active(trace)
             start_date, end_date = self._discount_points_period()
-            points = self._load_discount_points(sku, start_date, end_date)
+            points = self._load_discount_points(
+                sku,
+                start_date,
+                end_date,
+                operation_trace=trace,
+            )
+            self._ensure_operation_active(trace)
 
             suggested = {
                 "price": current_facts.get("seller_price"),
@@ -238,6 +299,8 @@ class UnitPriceScenarioSource:
                 "read_only": True,
                 "executed": False,
             }
+        except _OperationAborted as exc:
+            return self._error(exc.code)
         except Exception:
             return self._error("UNIT_PRICE_SCENARIO_SOURCE_UNAVAILABLE")
         finally:
@@ -304,7 +367,13 @@ class UnitPriceScenarioSource:
             "minimum_tax_rate": self._rate(policy.get("minimum_tax_rate")),
         }
 
-    def _load_discount_points(self, sku, start_date, end_date):
+    def _load_discount_points(
+        self,
+        sku,
+        start_date,
+        end_date,
+        operation_trace=None,
+    ):
         prepare = getattr(self.finance_service, "prepare_read_session", None)
         begin = getattr(self.finance_service, "begin_read_session", None)
         if callable(prepare) and callable(begin):
@@ -319,6 +388,7 @@ class UnitPriceScenarioSource:
         records_by_identity = {}
         days_complete = 0
         while target_day <= end_day:
+            self._ensure_operation_active(operation_trace)
             day = target_day.isoformat()
             try:
                 evidence = self.finance_service.get_daily_discount_points_evidence(day, sku)
@@ -466,3 +536,19 @@ class UnitPriceScenarioSource:
             "read_only": True,
             "executed": False,
         }
+
+    @staticmethod
+    def _operation_error(trace):
+        if trace is None:
+            return None
+        if trace.is_cancelled():
+            return "OZON_OPERATION_CANCELLED"
+        if trace.remaining_seconds() <= 0:
+            return "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+        return None
+
+    @classmethod
+    def _ensure_operation_active(cls, trace):
+        error = cls._operation_error(trace)
+        if error is not None:
+            raise _OperationAborted(error)
