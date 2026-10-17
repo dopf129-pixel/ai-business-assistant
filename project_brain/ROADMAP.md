@@ -1,5 +1,19 @@
 # Project Roadmap
 
+## Активная программа разработки — 17.10.2026
+
+- Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00–A04 and B00–B04 VERIFIED locally. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. Current B head still needs exact-head CI.
+- PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
+- B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавил snapshot-only filters/sorting. B03/B04 добавили Telegram overview, explicit catalog groups, stale-safe callbacks, guarded transition к калькулятору цены и приёмку границ. 93 целевых tests passed; расширенный товарный regression — 1 018 passed, 12 локально ACL-deselected.
+
+## Подготовлено следующее большое ТЗ — 17.10.2026
+
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Объём ориентировочно 12–24 инженерных часа; реализация NOT_STARTED, подготовка документа не запускает кодовые изменения.
+- A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
+- Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
+- PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
+
 ## Ближайший продуктовый пакет — 15.10.2026
 
 - Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.

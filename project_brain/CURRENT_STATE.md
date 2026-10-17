@@ -1,3 +1,21 @@
+# 2026-10-17 — выполнение программы Luna A–G начато
+
+- Владелец поручил выполнить `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` до готовых PR с зелёным CI; merge и deploy запрещены. Журнал этапов: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00 проверен: PR #697 открыт на head `3f7923ced48ba9434fdf5930d1f55431e0eacedd`, base `main` `c55434327f50134324a5ca58e2f084854b809832`. Рабочая ветка `codex/product-workbench-20261017` содержит подготовительный документальный commit `91aac988aa067082434704095cc61a2400b06159` поверх PR head.
+- Данные `data/tasks.json`, `data/users.json`, временные каталоги pytest и lock-файл сохранены. Хэши пользовательских JSON записаны в журнал.
+- A00–A01 VERIFIED. Review подтвердил: legacy `query_all()` — full-catalog/history lifecycle; price source сбрасывает собственный 60s/64-attempt trace и ждёт inflight фиксированные 61s; outgoing document sender подписывает каждый файл как cost CSV. Это prerequisites для новых путей, не объявлены production regressions.
+- A00–A02 VERIFIED. Общий trace поддерживает parent/child deadline и atomic attempt reservation; UnitPriceScenarioSource умеет наследовать его для сгруппированных запусков, ограничивает in-flight wait и не публикует/кэширует поздний результат после cancel. Standalone 60s/64-attempt defaults сохранены.
+- Текущий этап A03: ограниченные transient snapshots, scoped по owner/store/generation с TTL/LRU и copy isolation.
+
+# 2026-10-17 — подготовлен большой пакет новых функций для Luna
+
+- Поручение владельца: длительная автономная разработка, включая новые возможности продукта. Подготовлено `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: 7 крупных модулей A–G, 32 этапа, ориентировочно 12–24 инженерных часа; фактическая длительность не является критерием приёмки.
+- Новые функции: bounded обзор выбранных товаров с фильтрами; пакетный план цен до 10 SKU; чувствительность price/cost/ad и матрица; CSV/JSON из report snapshots; обезличенная диагностика и версия работающего процесса. Реализация A–G **не начата**.
+- Основание: `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`. Выявлены реальные prerequisites: `query_all` включает history decoration и весь каталог; source калькулятора начинает собственный budget; outgoing file caption привязан к cost CSV. Они описаны как проверенное поведение, без неподтверждённых P1/P2.
+- GitHub проверен 17.10: PR #697 открыт и не слит, head `3f7923ced48ba9434fdf5930d1f55431e0eacedd`, base main `c55434327f50134324a5ca58e2f084854b809832`. Новая реализация должна явно учитывать зависимость, не повторять N00–N08 и не сливать PR автоматически.
+- Проверка подготовки: шесть числовых примеров ТЗ сверены настоящими `UnitPriceScenarioService`/`TaxService` на синтетических входах. Это проверка примеров, не тестирование новых функций. Для markdown-подготовки полный pytest не повторялся; production code и пользовательские `data/tasks.json`/`data/users.json` не изменялись.
+- Следующий шаг: после команды владельца выполнять новое ТЗ с A00, вести checkpoint journal и завершить на небольших PR с CI и независимым review. Восстановление после compaction и работа с блокерами закреплены в ТЗ.
+
 # 2026-10-15 — N08 принят; периодная аналитика готова к архитектурному review PR
 
 - N06 code commits `e9372b1` (`Add period profit analytics Telegram views`) and `9a6523c` (`Limit analytics overview to confirmed top contributions`) добавили кнопку «Аналитика периода», экраны сравнения, денежного моста и вклада SKU, а также переходы к полноте/исходному отчёту/существующему выбору товара. Первый экран показывает не более трёх крупнейших подтверждённых вкладов; при недоступном мосте показывает ограничение. Детали не повторяют Ozon-запросы.
@@ -4479,3 +4497,12 @@ Completed:
 - Ветка `codex/p00-project-baseline`, HEAD `a06150a`; новых commits нет, поскольку `.git` доступен только для чтения. P01 остаётся с внешним критерием Architecture Review и Linux Python 3.11 Verify; локальная Windows-проверка не заменяет их.
 
 # 2026-10-13 — P06 завершён; начат P07
+# 2026-10-17 — база новых экранов обзора и пакетных расчётов
+
+- A00–A04 большой программы Luna выполнены. Общий Ozon budget наследуется grouped calls; точный CI для основания зелёный. B00 добавил selected-row query без истории/предложений и повторных загрузок каталога; B01 строит snapshot projection и coverage.
+- Совместный профиль A02/A03: 34 passed, 1 существующий `tmp_path` test исключён локально из-за Windows ACL. Полный exact-head CI на SHA `be76a4f8e4c7d78160e0d1047515651993062d54` прошёл: Windows/full-verification, полный pytest, compileall и Docker build/runtime smoke; Verify run `39059951770`. A04 закрыт.
+- Реализацию B/C/E нужно подключить к `ScopedTransientSnapshotStore`; пока consumers не подключены, helper не меняет существующие пользовательские экраны.
+- B00 добавил выбранную read-only выборку строк decision query и перестал повторно разрешать один SKU через каталог в каждом источнике. 53 профильных теста прошли; один существующий `tmp_path` тест исключён по ACL. B01 строит snapshot projection и coverage.
+- B01 добавил `ProductOverviewService` с owner/store-scoped snapshot, whitelist решения/метрик, source provenance/freshness и страницами только из снимка. 69 связанных проверок прошли; следующий этап — фильтры и сортировка без Ozon-запросов.
+- B02 добавил snapshot-only фильтры существующих decision signals, безопасную сортировку с unknown числовыми значениями в конце и передачу явного cache-stale metadata; 75 связанных тестов прошли.
+- B03 подключил Telegram «Обзор товаров»: ограниченные группы сортируются по артикулу, явно помечаются как группа, а фильтры/сортировка/страницы читают снимок без нового источникового запроса. Карточка показывает модельные показатели и пропуски без обещания итоговой прибыли магазина. Добавление в пакет цен tenant-scoped и точное по SKU; активный одиночный сценарий заменяется только после явного подтверждения, привязанного к его версии. B04 проверил границы каталога 0/1/20/21, частичные источники, budget exhaustion, конкурентную публикацию поколений, старые/чужие callbacks, лимит 10 SKU, Telegram message/callback limits и wiring production factory. 93 целевых теста прошли; связанный товарный набор — 1 018 passed, 12 тестов с `tmp_path` локально исключены из-за ACL в Windows temp root; `compileall app` и diff-check прошли. B модуль локально VERIFIED, exact-head CI остаётся общей проверкой G01.

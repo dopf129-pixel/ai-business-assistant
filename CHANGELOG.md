@@ -1,3 +1,21 @@
+# 2026-10-17 — начато выполнение программы Luna A–G
+
+- B03 добавил Telegram-раздел «Обзор товаров» с ограниченными группами по каталогу, чтением фильтров/страниц из tenant-scoped снимка, карточкой решения и полнотой данных. Добавление в план цен ограничено точной catalog identity; выбранные SKU хранятся отдельно по владельцу/магазину и дедуплицируются.
+- Кнопка планирования из обзора не заменяет активный расчёт молча: при открытом сценарии бот показывает отдельное подтверждение, привязанное к текущим `scenario_id`/`version`, магазину и строке снимка. Устаревшие токены закрываются; Telegram callback для строки укладывается в 64 байта.
+- B03 проверки: 88 профильных тестов прошли; compileall прошёл. B04 — приёмка границ и публичной фабрики.
+- B04 подтвердил группы каталога 0/1/20/21, частичные источники, общий budget, конкурентные поколения снимков, owner/store callbacks, лимит 10 точных SKU в transient плане, 64-байтовые кнопки и Telegram main-menu wiring. **93 целевых теста прошли**; связанный товарный набор — **1 018 passed, 12 ACL-зависимых tmp-path тестов deselected**; `compileall app` и `git diff --check` прошли. Чистый CI должен прогнать полный набор без исключений.
+
+- A00 завершён: перепроверены PR #697 и base/head SHA; создан журнал `project_brain/LUNA_LONG_RUN_PROGRESS_2026-10-17.md`. Ветка исполнения `codex/product-workbench-20261017` основана на подготовительном commit поверх PR #697.
+- A01 подтвердил реальные границы: decision query обходит каталог и включает history lifecycle, unit-price source создаёт независимый budget, file sender использует caption импорта себестоимости. Это проверенное поведение, не новое обвинение в production ошибке.
+- A02 добавил дочерние traces с родительским deadline/attempt cap, атомарным общим резервированием, cooperative cancellation и bounded in-flight ожиданием в источнике цен. Standalone limits сохранены; late cancelled source result не кэшируется.
+- A02 regressions: 21 passed; один tmp_path тест пропущен локально из-за ACL и должен пройти в clean CI. `compileall` и `git diff --check` успешны. Пользовательские данные сохранены.
+
+# 2026-10-17 — подготовлена программа развития для длительной работы Luna
+
+- Добавлены `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` и обоснование `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`: 7 крупных модулей, 32 этапа, зависимости, лимиты, числовые примеры, meaningful tests и восстановление после compaction.
+- Предусмотрены новые overview/filter, multi-SKU price planning, sensitivity, CSV/JSON exports и диагностика через бота. Статус нового пакета — NOT_STARTED; код бота не менялся. PR #697 остаётся открытой зависимостью.
+- Шесть числовых примеров проверены действующим calculator/TaxService; полнота будущих проверок и журнал стадий описаны в ТЗ. Длительность задана оценкой объёма, без искусственного продления работы.
+
 # 2026-10-15 — N08 приёмка аналитики периода завершена
 
 - Локальный полный pytest на code SHA `bbdebf4` сообщил **2 876 passed, 22 failed, 369 errors in 71.91s**; обычный запуск также встретил `PermissionError (WinError 5)` при обходе pytest basetemp. Причины этого результата не установлены, локальный запуск не принят.
@@ -1182,4 +1200,24 @@ Summary Report теперь включает:
 - Period Profit now has a separate `Без учёта себестоимости` mode for sellers who
   need an operational pre-COGS view even when costs exist or are missing. It is
   explicitly labelled incomplete and never replaces ordinary profit or margin.
+
+# 2026-10-17 — база обзора товаров и пакетных расчётов
+
+- Добавлен bounded transient snapshot store для будущих обзорного и пакетного экранов: строгая привязка к tenant/owner/store/generation, 10-минутный TTL, лимиты размера/числа строк, LRU и изоляция чтения.
+- Совместные проверки A02/A03: 34 passed, 1 ACL-bound test deselected; compileall и diff-check прошли. Локальный полный pytest не дал итога из-за WinError 5 в Windows temp/cleanup; exact-head CI PR #698 прошёл полный pytest, compileall и production Docker smoke.
+
+# 2026-10-17 — публичный запрос выбранных товаров
+
+- Decision query получил bounded read-only метод для до 20 выбранных товаров с единой загрузкой каталога, точной проверкой неоднозначности, coverage по строкам и без history/proposal/task-draft writes.
+- Источники могут принимать уже разрешённый объект каталога; unit-economics cache разделён по активному tenant. B00: 53 passed, 1 ACL-bound test deselected; compileall и diff-check успешны.
+
+# 2026-10-17 — снимок обзора выбранных товаров
+
+- Добавлен `ProductOverviewService`: read-only whitelist строк решений/метрик с единицами, source periods/freshness, явным coverage и owner/store-scoped transient snapshot.
+- Пагинация читает сохранённую группу без повторных источниковых вызовов; неизвестный freshness threshold не выдаётся за проверенную свежесть. B01: **69 passed**, compileall и diff-check успешны.
+
+# 2026-10-17 — фильтры и сортировка обзора товаров
+
+- Добавлены фильтры существующих сигналов decision engine и snapshot-only сортировки с устойчивой identity и unknown числовыми значениями в конце.
+- stale показывается только по явному состоянию unit-economics cache; возраст без подтверждённой политики остаётся наблюдаемым, но не классифицируется по догадке. B02: **75 passed**, compileall и diff-check успешны.
 

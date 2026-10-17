@@ -57,6 +57,10 @@ class AssistantKeyboardService:
                     "callback": "seller_attention",
                 },
                 {
+                    "text": "🧭 Обзор товаров",
+                    "callback": "product_overview",
+                },
+                {
                     "text": "↩️ Расходы на возвраты",
                     "callback": "returns_finance_impact"
                 },
@@ -641,6 +645,117 @@ class AssistantKeyboardService:
             {"text": "💵 Прибыль за период", "callback": "period_profit"},
         ])
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_product_overview_keyboard(
+        self,
+        rows,
+        view_token,
+        pagination,
+        selection_scope=None,
+    ):
+        filter_codes = {
+            "all_selected": "a",
+            "existing_priority": "p",
+            "negative_unit_profit": "n",
+            "low_margin_decision": "m",
+            "incomplete_or_stale": "i",
+        }
+        sort_codes = {
+            "priority": "r",
+            "sales_velocity": "v",
+            "current_stock": "c",
+            "days_of_stock": "d",
+            "decision_profit_per_unit": "p",
+            "decision_margin_percent": "m",
+        }
+        active_filter = filter_codes.get(pagination.get("filter"), "a")
+        active_sort = sort_codes.get(pagination.get("sort_by"), "r")
+        buttons = []
+        for row in rows or []:
+            identity = row.get("identity") or {}
+            label = identity.get("offer_id") or identity.get("catalog_sku")
+            if not isinstance(label, str) or not label.strip():
+                label = row.get("selector") or "Товар"
+            status = row.get("status")
+            icon = "🧩" if status in {"INCOMPLETE", "SOURCE_UNAVAILABLE"} else "📦"
+            callback = f"pov:d:{view_token}:{row.get('row_id', '')}"
+            if len(callback.encode("utf-8")) <= 64:
+                buttons.append({"text": f"{icon} {label[:48]}", "callback": callback})
+        if pagination.get("has_previous"):
+            buttons.append({
+                "text": "⬅️",
+                "callback": f"pov:p:{view_token}:{pagination['page'] - 1}:{active_filter}:{active_sort}",
+            })
+        if pagination.get("has_next"):
+            buttons.append({
+                "text": "➡️",
+                "callback": f"pov:p:{view_token}:{pagination['page'] + 1}:{active_filter}:{active_sort}",
+            })
+        buttons.extend([
+            {"text": "Все", "callback": f"pov:f:{view_token}:a"},
+            {"text": "Приоритет", "callback": f"pov:f:{view_token}:p"},
+            {"text": "Низкая прибыль", "callback": f"pov:f:{view_token}:n"},
+            {"text": "Малая маржа", "callback": f"pov:f:{view_token}:m"},
+            {"text": "Пробелы данных", "callback": f"pov:f:{view_token}:i"},
+            {"text": "Сортировать по прибыли", "callback": f"pov:s:{view_token}:p"},
+            {"text": "Сортировать по продажам", "callback": f"pov:s:{view_token}:v"},
+        ])
+        group = selection_scope or {}
+        if group.get("has_previous_group"):
+            buttons.append({"text": "Предыдущая группа", "callback": f"pov:g:{view_token}:b"})
+        if group.get("has_next_group"):
+            buttons.append({"text": "Следующая группа", "callback": f"pov:g:{view_token}:n"})
+        buttons.extend([
+            {"text": "🔄 Обновить", "callback": f"pov:r:{view_token}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_product_overview_row_keyboard(
+        self,
+        view_token,
+        row_id,
+        exact_catalog_identity,
+    ):
+        buttons = [
+            {
+                "text": "Карточка решения",
+                "callback": f"pov:e:{view_token}:{row_id}",
+            },
+            {
+                "text": "Добавить в план цен",
+                "callback": f"pov:a:{view_token}:{row_id}",
+            },
+            {
+                "text": "Полнота данных",
+                "callback": f"pov:c:{view_token}:{row_id}",
+            },
+        ]
+        if exact_catalog_identity:
+            buttons.insert(0, {
+                "text": "Планировать цену",
+                "callback": f"pov:u:{view_token}:{row_id}",
+            })
+        buttons.extend([
+            {"text": "К обзору", "callback": f"pov:b:{view_token}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        buttons = [
+            item for item in buttons
+            if len(item["callback"].encode("utf-8")) <= 64
+        ]
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_product_overview_plan_transition_keyboard(self, callback):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "Закрыть текущий и открыть новый план", "callback": callback},
+                {"text": "Вернуться к обзору", "callback": "product_overview"},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
 
     def build_product_decision_learning_coverage_keyboard(
         self,

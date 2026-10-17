@@ -23,13 +23,21 @@ class PeriodProfitOperationTrace:
         time_budget_seconds=DEFAULT_TIME_BUDGET_SECONDS,
         ozon_request_budget=DEFAULT_OZON_REQUEST_BUDGET,
         clock=None,
+        parent=None,
     ):
-        self.clock = clock or time.monotonic
+        if parent is not None and not isinstance(parent, PeriodProfitOperationTrace):
+            raise TypeError("parent must be a PeriodProfitOperationTrace")
+        self.clock = clock or (parent.clock if parent is not None else time.monotonic)
         self.operation = str(operation)
         self.started_at = self.clock()
         self.time_budget_seconds = max(0.0, float(time_budget_seconds))
         self.ozon_request_budget = max(0, int(ozon_request_budget))
         self.ozon_requests_reserved = 0
+        self.parent = parent
+        self._budget_lock = (
+            parent._budget_lock if parent is not None else threading.RLock()
+        )
+        self._cancelled = False
         self.worker_thread_id = None
         self.stage = "created"
         self.ozon_api_calls = 0
@@ -85,33 +93,85 @@ class PeriodProfitOperationTrace:
     def reserve_ozon_request(self, endpoint):
         """Reserve one bounded outbound request or return a fail-closed budget error."""
         del endpoint  # Endpoint values belong in request diagnostics, never in the budget key.
-        with self._lock:
-            elapsed = max(0.0, self.clock() - self.started_at)
-            remaining = self.time_budget_seconds - elapsed
+        chain = []
+        current = self
+        while current is not None:
+            chain.append(current)
+            current = current.parent
+
+        with self._budget_lock:
+            if any(trace._cancelled for trace in chain):
+                return {
+                    "error": True,
+                    "code": "OZON_OPERATION_CANCELLED",
+                    "remaining_seconds": self.remaining_seconds(),
+                }
+            remaining = self.remaining_seconds()
             if remaining <= 0:
                 return {
                     "error": True,
                     "code": "OZON_OPERATION_TIME_BUDGET_EXHAUSTED",
                     "remaining_seconds": 0.0,
                 }
-            if self.ozon_requests_reserved >= self.ozon_request_budget:
+            if any(
+                trace.ozon_requests_reserved >= trace.ozon_request_budget
+                for trace in chain
+            ):
                 return {
                     "error": True,
                     "code": "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED",
                     "remaining_seconds": remaining,
                 }
-            self.ozon_requests_reserved += 1
+            for trace in chain:
+                trace.ozon_requests_reserved += 1
             return {
                 "error": False,
                 "remaining_seconds": remaining,
                 "ozon_requests_reserved": self.ozon_requests_reserved,
+                "operation_ozon_requests_reserved": chain[-1].ozon_requests_reserved,
             }
 
     def remaining_seconds(self):
-        with self._lock:
-            return max(
-                0.0,
-                self.time_budget_seconds - max(0.0, self.clock() - self.started_at),
+        remaining = float("inf")
+        current = self
+        while current is not None:
+            elapsed = max(0.0, current.clock() - current.started_at)
+            remaining = min(
+                remaining,
+                max(0.0, current.time_budget_seconds - elapsed),
+            )
+            current = current.parent
+        return remaining
+
+    def cancel(self):
+        """Cooperatively stop this operation and descendants before further work."""
+        with self._budget_lock:
+            self._cancelled = True
+
+    def is_cancelled(self):
+        current = self
+        with self._budget_lock:
+            while current is not None:
+                if current._cancelled:
+                    return True
+                current = current.parent
+        return False
+
+    def is_budget_exhausted(self):
+        """Return whether this operation cannot safely start more row work."""
+        chain = []
+        current = self
+        while current is not None:
+            chain.append(current)
+            current = current.parent
+        with self._budget_lock:
+            if any(trace._cancelled for trace in chain):
+                return True
+            if self.remaining_seconds() <= 0:
+                return True
+            return any(
+                trace.ozon_requests_reserved >= trace.ozon_request_budget
+                for trace in chain
             )
 
     def record_posting(self, posting_number):

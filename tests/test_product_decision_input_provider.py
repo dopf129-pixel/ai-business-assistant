@@ -72,6 +72,21 @@ def test_builds_complete_product_decision_input_from_three_sources():
     }
 
 
+def test_source_periods_are_preserved_as_evidence_not_decision_inputs():
+    provider = ProductDecisionInputProvider()
+
+    result = provider.build(
+        sales_metrics=_sales(
+            sales_period_from="2026-10-01",
+            sales_period_to="2026-10-16",
+        ),
+    )
+
+    assert result["sales_period_from"] == "2026-10-01"
+    assert result["sales_period_to"] == "2026-10-16"
+    assert result["sales_velocity"] == 4.0
+
+
 def test_sales_and_stock_without_economics_preserve_unknown_values():
     provider = ProductDecisionInputProvider()
 

@@ -1,6 +1,10 @@
 from services.product_unit_economics_query_service import (
     ProductUnitEconomicsQueryService,
 )
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class FakeClock:
@@ -124,6 +128,28 @@ def test_second_query_uses_cache_for_offer_or_internal_sku():
     assert second["cache"]["hit"] is True
     assert second["cache"]["stale"] is False
     assert second["unit_price"] == 96.0
+
+
+def test_query_cache_is_scoped_to_active_tenant():
+    clock = FakeClock()
+    service, source = _service([_success(), _success(101.0)], clock)
+    tenant_a = set_current_tenant_user_id("user-1::ozon::store-A")
+    try:
+        service.query("hook-2")
+    finally:
+        reset_current_tenant_user_id(tenant_a)
+
+    tenant_b = set_current_tenant_user_id("user-1::ozon::store-B")
+    try:
+        result = service.query_for_product(
+            "hook-2",
+            {"product_id": "2", "offer_id": "hook-2", "sku": "2"},
+        )
+    finally:
+        reset_current_tenant_user_id(tenant_b)
+
+    assert source.calls == 2
+    assert result["cache"]["status"] == "miss"
 
 
 def test_cached_result_is_isolated_from_caller_mutation():

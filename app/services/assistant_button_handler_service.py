@@ -209,6 +209,7 @@ class AssistantButtonHandlerService:
         experimental_store_economics_runtime_service=None,
         external_expense_runtime_service=None,
         seller_attention_summary_service=None,
+        product_overview_service=None,
     ):
 
         self.assistant = (
@@ -281,6 +282,7 @@ class AssistantButtonHandlerService:
         self.seller_attention_summary_service = (
             seller_attention_summary_service
         )
+        self.product_overview_service = product_overview_service
 
 
     def prepare_context(
@@ -475,6 +477,7 @@ class AssistantButtonHandlerService:
                 "experimental_store_economics",
                 "external_expenses",
                 "unit_price_calculator",
+                "product_overview",
             }
             or button_id.startswith((
                 "period_profit:",
@@ -489,6 +492,7 @@ class AssistantButtonHandlerService:
                 "experimental_store_economics:",
                 "external_expenses:",
                 "upc:",
+                "pov:",
             ))
         ):
             return
@@ -537,7 +541,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith("upc:"):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:")):
             return
         if (
             isinstance(button_id, str)
@@ -1109,6 +1113,12 @@ class AssistantButtonHandlerService:
                     "read_only": True,
                     "executed": False,
                 }
+
+        if button_id == "product_overview":
+            return self._open_product_overview()
+
+        if isinstance(button_id, str) and button_id.startswith("pov:"):
+            return self._handle_product_overview_callback(button_id, user_id)
 
         if button_id.startswith("product_decisions_page:"):
             page_value = button_id.split(":", 1)[1]
@@ -2172,6 +2182,320 @@ class AssistantButtonHandlerService:
         )
 
         return response
+
+    def _open_product_overview(self):
+        service = self.product_overview_service
+        builder = getattr(service, "create_catalog_group_snapshot", None)
+        if not callable(builder):
+            return self._product_overview_stale("PRODUCT_OVERVIEW_UNAVAILABLE")
+        try:
+            result = builder(page=1, page_size=5)
+        except Exception:
+            result = {"error": True, "code": "PRODUCT_OVERVIEW_QUERY_FAILED"}
+        return self._format_product_overview(result)
+
+    def _handle_product_overview_callback(self, button_id, user_id):
+        service = self.product_overview_service
+        if service is None:
+            return self._product_overview_stale()
+        parts = button_id.split(":")
+        if len(parts) == 3 and parts[:2] == ["pov", "r"]:
+            return self._format_product_overview(
+                service.refresh_by_token(parts[2], page=1, page_size=5)
+            )
+        if len(parts) in (4, 6) and parts[0:2] == ["pov", "p"]:
+            try:
+                page = int(parts[3])
+            except (TypeError, ValueError):
+                return self._product_overview_stale()
+            filters = {
+                "a": "all_selected",
+                "p": "existing_priority",
+                "n": "negative_unit_profit",
+                "m": "low_margin_decision",
+                "i": "incomplete_or_stale",
+            }
+            sorts = {
+                "r": "priority",
+                "v": "sales_velocity",
+                "c": "current_stock",
+                "d": "days_of_stock",
+                "p": "decision_profit_per_unit",
+                "m": "decision_margin_percent",
+            }
+            if len(parts) == 6 and (
+                parts[4] not in filters or parts[5] not in sorts
+            ):
+                return self._product_overview_stale()
+            filter_by = filters.get(parts[4], "all_selected") if len(parts) == 6 else "all_selected"
+            sort_by = sorts.get(parts[5], "priority") if len(parts) == 6 else "priority"
+            return self._format_product_overview(
+                service.get_page_by_token(
+                    parts[2], page=page, page_size=5,
+                    filter_by=filter_by, sort_by=sort_by,
+                )
+            )
+        if len(parts) == 4 and parts[0:2] == ["pov", "f"]:
+            filters = {
+                "a": "all_selected",
+                "p": "existing_priority",
+                "n": "negative_unit_profit",
+                "m": "low_margin_decision",
+                "i": "incomplete_or_stale",
+            }
+            filter_by = filters.get(parts[3])
+            if filter_by is None:
+                return self._product_overview_stale()
+            return self._format_product_overview(
+                service.get_page_by_token(
+                    parts[2], page=1, page_size=5, filter_by=filter_by
+                )
+            )
+        if len(parts) == 4 and parts[0:2] == ["pov", "s"]:
+            sort_by = {
+                "p": "decision_profit_per_unit",
+                "v": "sales_velocity",
+            }.get(parts[3])
+            if sort_by is None:
+                return self._product_overview_stale()
+            return self._format_product_overview(
+                service.get_page_by_token(
+                    parts[2], page=1, page_size=5, sort_by=sort_by
+                )
+            )
+        if len(parts) == 4 and parts[0:2] == ["pov", "g"]:
+            direction = {"n": 1, "b": -1}.get(parts[3])
+            if direction is None:
+                return self._product_overview_stale()
+            return self._format_product_overview(
+                service.next_catalog_group(
+                    parts[2], direction=direction, page=1, page_size=5
+                )
+            )
+        if len(parts) == 4 and parts[0] == "pov" and parts[1] in {"d", "a", "c", "e", "u"}:
+            view_token, row_id = parts[2], parts[3]
+            resolved = service.get_row_by_token(view_token, row_id)
+            if resolved.get("error"):
+                return self._product_overview_stale()
+            row = resolved["row"]
+            if parts[1] == "d":
+                return self._format_product_overview_row(row, view_token)
+            if parts[1] == "a":
+                added = service.add_row_to_price_plan(view_token, row_id)
+                notice = (
+                    "Товар уже был в плане."
+                    if added.get("code") == "PRODUCT_OVERVIEW_PLAN_ITEM_ALREADY_SELECTED"
+                    else "Товар добавлен в план цен."
+                )
+                if added.get("error"):
+                    notice = "Не удалось добавить товар: " + str(added.get("code"))
+                count = added.get("selected_count")
+                if count is not None:
+                    notice += f" Выбрано товаров: {count} из 10."
+                return self._format_product_overview_row(
+                    row, view_token, notice=notice
+                )
+            if parts[1] == "c":
+                return self._format_product_overview_row(
+                    row, view_token, completeness_only=True
+                )
+            if parts[1] == "e":
+                catalog_sku = (row.get("identity") or {}).get("catalog_sku")
+                if not catalog_sku:
+                    return self._product_overview_stale()
+                return self._show_product_decision(catalog_sku)
+            return self._start_overview_price_plan(
+                view_token, row_id, row, user_id
+            )
+        if len(parts) == 3 and parts[:2] == ["pov", "x"]:
+            action = service.consume_price_plan_action(parts[2])
+            runtime = self.unit_price_calculator_runtime_service
+            active_reader = getattr(runtime, "active_scenario_identity", None)
+            active = active_reader(user_id) if callable(active_reader) else None
+            if (
+                action.get("error")
+                or not callable(active_reader)
+                or action.get("expected_scenario") != active
+            ):
+                return {
+                    "error": False,
+                    "message": "Текущий сценарий изменился или кнопка устарела. Откройте товар из обзора снова.",
+                    "keyboard": self.keyboard_service.build_main_keyboard(),
+                    "read_only": True,
+                    "executed": False,
+                }
+            return runtime.handle_callback(action["callback"], user_id=user_id)
+        if len(parts) == 3 and parts[:2] == ["pov", "b"]:
+            return self._format_product_overview(
+                service.get_page_by_token(parts[2], page=1, page_size=5)
+            )
+        return self._product_overview_stale()
+
+    def _start_overview_price_plan(self, view_token, row_id, row, user_id):
+        identity = row.get("identity") or {}
+        catalog_sku = identity.get("catalog_sku")
+        runtime = self.unit_price_calculator_runtime_service
+        callback_builder = getattr(runtime, "build_product_entry_button", None)
+        callback_handler = getattr(runtime, "handle_callback", None)
+        if not catalog_sku or not callable(callback_builder) or not callable(callback_handler):
+            return self._product_overview_stale("UNIT_PRICE_SCENARIO_UNAVAILABLE")
+        button = callback_builder(user_id, catalog_sku)
+        if not isinstance(button, dict) or not isinstance(button.get("callback"), str):
+            return self._product_overview_stale()
+        active_reader = getattr(runtime, "active_scenario_identity", None)
+        active = active_reader(user_id) if callable(active_reader) else None
+        if active is None:
+            return callback_handler(button["callback"], user_id=user_id)
+        transition = self.product_overview_service.register_price_plan_action(
+            view_token, row_id, button["callback"], active
+        )
+        if transition.get("error"):
+            return self._product_overview_stale()
+        return {
+            "error": False,
+            "message": (
+                "У вас уже открыт другой план цены. Подтвердите переход: "
+                "текущий сценарий будет закрыт, откроется план для "
+                + str(identity.get("offer_id") or catalog_sku)
+                + "."
+            ),
+            "keyboard": self.keyboard_service.build_product_overview_plan_transition_keyboard(
+                transition["callback"]
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _format_product_overview(self, result, notice=None):
+        if not isinstance(result, dict) or result.get("error") is True:
+            code = result.get("code") if isinstance(result, dict) else None
+            return self._product_overview_stale(code)
+        snapshot = result.get("snapshot") or {}
+        token = snapshot.get("view_token")
+        if not token:
+            return self._product_overview_stale()
+        coverage = result.get("coverage") or {}
+        group = coverage.get("selection_scope") or {}
+        pagination = result.get("pagination") or {}
+        freshness = result.get("source_freshness") or {}
+        scope_rows = pagination.get("scope_rows", 0)
+        lines = ["🧭 Обзор товаров", ""]
+        if group.get("mode") == "FIRST_SORTED_CATALOG_GROUP":
+            offset = group.get("offset", 0)
+            limit = max(1, group.get("limit", self.product_overview_service.MAX_SELECTION))
+            total = group.get("catalog_identity_count", "неизвестно")
+            lines.append(
+                f"Группа {offset // limit + 1}: товары по артикулу, всего в каталоге: {total}."
+            )
+            lines.append("Это не рейтинг и не полный список, если каталог больше группы.")
+        else:
+            lines.append("Показана выбранная группа товаров.")
+        lines.append(
+            "Строки: "
+            f"выбрано {coverage.get('selected_count', 0)}, "
+            f"готово {coverage.get('decision_ready_count', 0)}, "
+            f"неполно {coverage.get('incomplete_count', 0)}, "
+            f"ошибка источника {coverage.get('source_unavailable_count', 0)}, "
+            f"не обработано по лимиту {coverage.get('budget_unprocessed_count', 0)}."
+        )
+        if freshness.get("captured_at"):
+            lines.append("Снимок: " + str(freshness["captured_at"]))
+        lines.append("")
+        for index, row in enumerate(result.get("rows") or [], start=1):
+            identity = row.get("identity") or {}
+            label = identity.get("offer_id") or identity.get("catalog_sku") or row.get("selector") or "Товар"
+            decision = row.get("decision") or {}
+            priority = self.PRIORITY_LABELS.get(decision.get("priority"), row.get("status", "нет данных"))
+            lines.append(f"{index}. {label} — {priority}")
+            metrics = row.get("metrics") or {}
+            facts = []
+            for name, label, suffix in (
+                ("decision_profit_per_unit", "прибыль/шт.", " ₽"),
+                ("decision_margin_percent", "маржа", "%"),
+                ("current_stock", "остаток", " шт."),
+                ("sales_velocity", "продажи", " шт./день"),
+            ):
+                value = (metrics.get(name) or {}).get("value")
+                if value is not None:
+                    facts.append(f"{label} {value:g}{suffix}")
+            if facts:
+                lines.append("   " + " · ".join(facts))
+            elif row.get("error"):
+                lines.append("   Нет данных: " + str(row["error"]))
+        lines.extend([
+            "",
+            f"Страница {pagination.get('page', 1)} из {max(1, pagination.get('total_pages', 0))}; в фильтре {pagination.get('total_rows', scope_rows)}.",
+            "Прибыль с единицы — показатель решения, не итоговая прибыль магазина.",
+        ])
+        if notice:
+            lines.insert(1, str(notice))
+        return {
+            "error": False,
+            "message": "\n".join(lines)[:3900],
+            "keyboard": self.keyboard_service.build_product_overview_keyboard(
+                result.get("rows") or [], token, pagination, selection_scope=group
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _format_product_overview_row(
+        self, row, view_token, notice=None, completeness_only=False
+    ):
+        identity = row.get("identity") or {}
+        title = identity.get("offer_id") or identity.get("catalog_sku") or row.get("selector") or "Товар"
+        decision = row.get("decision") or {}
+        lines = ["🧭 Полнота данных" if completeness_only else "🧭 Товар из обзора", str(title)]
+        if notice:
+            lines.extend(["", notice])
+        lines.extend(["", "Доступность: " + str(row.get("status") or "нет данных")])
+        if decision:
+            lines.append("Решение: " + str(decision.get("decision_type") or "не сформировано"))
+            lines.append("Приоритет: " + str(decision.get("priority") or "не задан"))
+            reasons = decision.get("reasons") or []
+            if reasons:
+                lines.append("Причины: " + ", ".join(str(value) for value in reasons[:8]))
+        missing = row.get("missing_data") or []
+        lines.extend(["", "Недостающие данные:", ", ".join(str(value) for value in missing[:12]) if missing else "не отмечены"])
+        if not completeness_only:
+            metrics = row.get("metrics") or {}
+            lines.extend(["", "Показатели:"])
+            for field, label, suffix in (
+                ("sales_velocity", "Скорость продаж", " шт./день"),
+                ("sales_trend", "Тренд продаж", ""),
+                ("current_stock", "Остаток", " шт."),
+                ("days_of_stock", "Дни запаса", " дн."),
+                ("decision_profit_per_unit", "Прибыль с единицы по модели", " ₽"),
+                ("decision_margin_percent", "Маржа по модели", "%"),
+            ):
+                value = (metrics.get(field) or {}).get("value")
+                if value is not None:
+                    rendered = f"{value:g}" if type(value) in (int, float) else str(value)
+                    lines.append(f"• {label}: {rendered}{suffix}")
+            sales = (row.get("source_freshness") or {}).get("sales") or {}
+            period_from, period_to = sales.get("sales_period_from"), sales.get("sales_period_to")
+            if period_from or period_to:
+                lines.append(f"Период продаж: {period_from or '?'} — {period_to or '?'}")
+        lines.extend(["", "Фактическая прибыль магазина здесь не рассчитывается."])
+        return {
+            "error": False,
+            "message": "\n".join(lines)[:3900],
+            "keyboard": self.keyboard_service.build_product_overview_row_keyboard(
+                view_token, row["row_id"], bool(identity.get("catalog_sku"))
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _product_overview_stale(self, code=None):
+        return {
+            "error": False,
+            "code": code or "PRODUCT_OVERVIEW_VIEW_STALE",
+            "message": "Обзор обновился или магазин изменился. Откройте обзор товаров снова.",
+            "keyboard": self.keyboard_service.build_main_keyboard(),
+            "read_only": True,
+            "executed": False,
+        }
 
     def _with_verified_product_decision_user_action(
         self,
