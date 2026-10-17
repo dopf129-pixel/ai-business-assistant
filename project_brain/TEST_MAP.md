@@ -5,7 +5,8 @@
 - Исполняемое ТЗ: `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`; stage journal: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 - A00–A01: снимок исходной точки и architecture review; код не менялся, pytest не запускался.
 - A02: `tests/test_period_profit_operation_diagnostics.py` проверяет parent/child deadline и общий concurrent attempt cap, child/root cancellation и лимит через реальный `OzonClient` request wrapper. `tests/test_unit_price_scenario_source.py` проверяет parent trace propagation/context restoration и clamp in-flight wait.
-- Локальный A02 subset: **20 passed, 1 deselected**; исключён существующий stack-dump `tmp_path` regression из-за недоступного Windows temp ACL. Чистый CI должен включить его.
+- Локальный A02 subset: **21 passed, 1 deselected**; исключён существующий stack-dump `tmp_path` regression из-за недоступного Windows temp ACL. Чистый CI должен включить его.
+- A03: `tests/test_scoped_transient_snapshot_store.py` покрывает точную tenant/owner/store изоляцию, version/generation, атомарные копии при LRU eviction, TTL без продления на read, стабильные row IDs и границы размера. Совместный профиль A02/A03: **34 passed, 1 deselected**; тот же ACL-bound `tmp_path` regression. Compileall и `git diff --check` успешны.
 
 - ТЗ `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` задаёт meaningful regressions: общий parent/child HTTP budget; read-only cohort без history/proposal writes; selected-group partial coverage; точные идентификаторы; stale/cross-store/concurrent callbacks; batch targets; sensitivity cells; CSV/JSON и formula injection; обезличивание diagnostics; public handler/factory/file sender.
 - После каждого этапа — целевые проверки, после модуля — полный pytest и CI актуального SHA Windows/Linux/Docker. Для фиксации используются будущие `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и review handoff, которые исполнитель создаст при A00/G02.

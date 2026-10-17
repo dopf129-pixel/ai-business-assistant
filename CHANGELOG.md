@@ -1196,3 +1196,8 @@ Summary Report теперь включает:
   need an operational pre-COGS view even when costs exist or are missing. It is
   explicitly labelled incomplete and never replaces ordinary profit or margin.
 
+# 2026-10-17 — база обзора товаров и пакетных расчётов
+
+- Добавлен bounded transient snapshot store для будущих обзорного и пакетного экранов: строгая привязка к tenant/owner/store/generation, 10-минутный TTL, лимиты размера/числа строк, LRU и изоляция чтения.
+- Совместные проверки A02/A03: 34 passed, 1 ACL-bound test deselected; compileall и diff-check прошли. Локальный полный pytest не дал итоговой сводки из-за WinError 5 в Windows temp/cleanup; точный результат должен прийти из CI.
+

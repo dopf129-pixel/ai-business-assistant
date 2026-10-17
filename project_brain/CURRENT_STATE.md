@@ -4497,3 +4497,8 @@ Completed:
 - Ветка `codex/p00-project-baseline`, HEAD `a06150a`; новых commits нет, поскольку `.git` доступен только для чтения. P01 остаётся с внешним критерием Architecture Review и Linux Python 3.11 Verify; локальная Windows-проверка не заменяет их.
 
 # 2026-10-13 — P06 завершён; начат P07
+# 2026-10-17 — база новых экранов обзора и пакетных расчётов
+
+- A00–A03 большой программы Luna выполнены. Общий Ozon budget теперь наследуется grouped calls; новый transient snapshot store готов для overview/batch consumers, с TTL/LRU, generation guard и строгим tenant scope.
+- Совместный профиль A02/A03: 34 passed, 1 существующий `tmp_path` test исключён из-за Windows ACL. Локальный полный pytest собрал 3 288 тестов, но не завершился итоговой сводкой: старые `tempfile`-сценарии не открыли SQLite и pytest cleanup завершился WinError 5. Это не принято за регрессию нового кода; точный прогон должен выполнить CI. A04 (проверка основания) в работе.
+- Реализацию B/C/E нужно подключить к `ScopedTransientSnapshotStore`; пока consumers не подключены, helper не меняет существующие пользовательские экраны.

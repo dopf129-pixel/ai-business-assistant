@@ -43,7 +43,25 @@
 - Проверка: **21 passed, 1 deselected** (`test_long_running_trace_writes_secret_free_worker_snapshot`, существующий тест зависит от `tmp_path`; Windows ACL блокирует чтение/cleanup basetemp). `compileall` изменённых app/test файлов — успешно; `git diff --check` — успешно. Полный pytest ещё не запускался; он обязателен на A04 и CI.
 - Первые две попытки pytest для baseline не использовали `PYTHONPATH=app`; они остановились при collection и не считаются кодовым дефектом. Повтор с корректным import path показал отдельную WinError 5 на pytest temp tree. Успешный focused запуск отключил только tmpdir fixture и выбрал все остальные тесты этого набора. Не меняли ACL и не удаляли temp data.
 - Изменения A02: `app/services/period_profit_operation_diagnostics.py`, `app/services/unit_price_scenario_source.py`, соответствующие два test modules. CHANGELOG/CURRENT_STATE/TEST_MAP/ROADMAP обновлены. Никаких data/** файлов не изменяли намеренно.
-- Проверяемый commit A02 будет оформлен после фиксации текущей документации. Следующий шаг: A03 — scoped in-memory snapshots для новых обзорного и batch consumers.
+- A02 code commit: `f42274a` (`Bound grouped Ozon reads under parent operation budget`). Он содержит production trace/source изменения и regressions; пользовательские файлы данных не включены.
+- Следующий шаг: A03 — scoped in-memory snapshots для новых обзорного и batch consumers.
+
+## A03 — scoped снимки новых экранов
+
+- Статус: **VERIFIED**.
+- Добавлен `ScopedTransientSnapshotStore`, предназначенный только для новых обзорного и batch consumers. Снимки привязаны к активному tenant, владельцу, магазину и виду отчёта; новый generation инвалидирует предыдущий и не позволяет позднему worker опубликовать старые строки.
+- Снимок содержит случайный ID, generation/version, времена создания/истечения, source freshness, coverage и валидированные строки со стабильным `row_id`. Данные JSON-safe, не более 256 строк и 1 MiB; хранение ограничено 64 snapshot и 64 generation, TTL 600 секунд. Чтение делает изолированную копию под lock; обращения обновляют LRU, но не срок жизни.
+- Добавлены regressions для отсутствующего/чужого tenant, точного owner/store, старого generation, fixed TTL, copy isolation, stable row identity, payload shape/size, 64-entry eviction и конкурентного чтения во время eviction.
+- Совместный A02/A03 профиль: **34 passed, 1 deselected**. Исключён только существующий `test_long_running_trace_writes_secret_free_worker_snapshot`, использующий заблокированный ACL `tmp_path`; его обязан включить чистый CI. Compileall изменённого A03 кода/тестов и `git diff --check` — успешно.
+- A03 не переносит старые кэши и не добавляет persistent storage. Следующие модули B и C обязаны использовать этот helper; иначе A03 не считается востребованным двумя consumers.
+- Следующий шаг: A04 — полный pytest и фиксация общего основания A до B/C/E.
+
+## A04 — фиксация основания
+
+- Статус: **IN_PROGRESS (локальный runner blocked; CI required)**.
+- Полный Windows pytest стартовал на чистом изолированном storage и свежем basetemp: собрал **3 288** тестов. В ходе старых `tempfile` тестов системная temp-папка не дала SQLite открыть файл; cleanup завершился `PermissionError (WinError 5)`, поэтому pytest не выдал итоговую сводку. Повтор одного такого теста с отдельным temp внутри workspace воспроизвёл запрет создания/открытия и очистки временной базы. ACL не менялись; user JSON SHA до/после совпадает с A00.
+- Новые A02/A03 проверки прошли: **34 passed, 1 deselected**. A03 test-модуль отдельно проходит все 13 тестов. Compileall и `git diff --check` успешны. Результат полного набора не объявляется успешным; exact-head GitHub CI нужен для решения A04.
+- Следующий шаг: оформить отдельный A commit из проверенного allowlist, отправить ветку и получить чистые Windows/Linux CI; затем перейти к B00/C00/E00 после результата CI.
 
 ## Матрица этапов
 
@@ -53,9 +71,9 @@
 |---|---|---|---|---|---|
 | A00 | VERIFIED | `codex/product-workbench-20261017` / PR #697 head / `91aac98` | PR открыт; refs и data SHA сохранены | этот журнал; CURRENT_STATE; ROADMAP | A01 |
 | A01 | VERIFIED | `codex/product-workbench-20261017` / production base `3f7923c` | подтверждены public-path, budget, snapshot и file boundaries | этот журнал; audit | A02 |
-| A02 | VERIFIED | `codex/product-workbench-20261017` / base `91aac98` | parent/child deadline, shared atomic cap, cancel and source wait regressions; 21 passed, 1 ACL-bound deselected | code + two test modules; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A03 |
-| A03 | IN_PROGRESS | `codex/product-workbench-20261017` / base `91aac98` | define scoped snapshot helper | этот журнал | implement owner/store/generation/copy/TTL/LRU |
-| A04 | NOT_STARTED | — | — | — | тесты, docs, CI основания |
+| A02 | VERIFIED | `codex/product-workbench-20261017` / base `91aac98` / `f42274a` | parent/child deadline, shared atomic cap, cancel and source wait; 21 passed, 1 ACL-bound deselected | code + two test modules; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A03 |
+| A03 | VERIFIED | `codex/product-workbench-20261017` / base `f42274a` | scoped store; **34 passed, 1 ACL-bound deselected** with A02; compileall/diff-check passed | helper + tests; this journal; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A04 |
+| A04 | IN_PROGRESS | `codex/product-workbench-20261017` / base `f42274a` | local full pytest: 3,288 collected, no summary after WinError 5; clean CI required | this journal | commit/push foundation, wait for CI |
 | B00 | NOT_STARTED | — | — | — | зависит от A04 |
 | B01 | NOT_STARTED | — | — | — | зависит от B00 |
 | B02 | NOT_STARTED | — | — | — | зависит от B01 |
