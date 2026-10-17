@@ -8,7 +8,7 @@
 
 - Исправлена устаревшая проверка состава главного меню после добавления кнопки версии процесса.
 - PR #702 F прошёл exact-head Verify `39069168434`; PR #703 G acceptance head прошёл `39069249065` на Windows/Linux с production Docker smoke.
-- Подготовлен `project_brain/LONG_RUN_REVIEW_HANDOFF_2026-10-17.md` с цепочкой PR и checklist архитектурных инвариантов. Изменения staged/committed не затрагивают локальные project data и временные файлы. Merge/deploy не выполнялись.
+- Подготовлен `project_brain/LONG_RUN_REVIEW_HANDOFF_2026-10-17.md` с цепочкой PR и checklist архитектурных инвариантов. Handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` прошёл Verify `39069517726`. Изменения committed не затрагивают локальные project data и временные файлы. Merge/deploy не выполнялись.
 
 # 2026-10-17 — модуль F03: приёмка диагностики
 

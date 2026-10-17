@@ -12,7 +12,7 @@
 | [#700](https://github.com/dopf129-pixel/ai-business-assistant/pull/700) | D — анализ чувствительности | #699 → `1e19493e1671db4f46f3d8530c0d5d46143fc9ce` | `39065255165` — success | открыт, не слит |
 | [#701](https://github.com/dopf129-pixel/ai-business-assistant/pull/701) | E — безопасные выгрузки снимков | #700 → `f598d300164916434de27a5180bb033d8a9f4293` | `39066587245` (код) и `39066774774` (текущий документационный head) — success | открыт, не слит |
 | [#702](https://github.com/dopf129-pixel/ai-business-assistant/pull/702) | F — диагностика полноты и версия процесса | #701 → `55db3e60fda3c3080051da2fbea1902091a4bfff` | `39069168434` — success: Windows, полный verification и Docker smoke | открыт, не слит |
-| [#703](https://github.com/dopf129-pixel/ai-business-assistant/pull/703) | G — сквозная приёмка | #702 → `12447d4cb48823fea938513fbb16dc4f41a080c2` на момент G00/G01 проверки | `39069249065` — success: Windows, полный verification и Docker smoke. Позднейший handoff-документальный коммит требует проверки последнего run на актуальном PR head | открыт, не слит |
+| [#703](https://github.com/dopf129-pixel/ai-business-assistant/pull/703) | G — сквозная приёмка | #702 → `12447d4cb48823fea938513fbb16dc4f41a080c2` на момент G00/G01 проверки | `39069249065` — success: Windows, полный verification и Docker smoke; handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` также прошёл `39069517726` | открыт, не слит |
 
 PR намеренно stacked: review/merge проводить в порядке #698 → #699 → #700 → #701 → #702 → #703 после исходной зависимости #697. Не менять base на `main`, пока его зависимые изменения не доступны в целевой ветке; иначе предыдущие изменения повторно попадут в diff.
 

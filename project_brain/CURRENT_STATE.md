@@ -16,7 +16,7 @@
 # 2026-10-18 — программа A–G завершена и передана на независимый review
 
 - PR #698–#703 остаются открытыми stacked PR; #697 — исходная зависимость. Последние проверенные code heads A/B–F имеют зелёные Verify; F PR #702 exact head `55db3e60fda3c3080051da2fbea1902091a4bfff`, run `39069168434`.
-- G00/G01 прошли локальные acceptance/regression проверки, а exact code head `12447d4cb48823fea938513fbb16dc4f41a080c2` прошёл Verify `39069249065` (Windows, Linux full verification и Docker smoke). Review handoff: `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`; документационный commit handoff требует нового CI для текущего G PR head.
+- G00/G01 прошли локальные acceptance/regression проверки; exact code head `12447d4cb48823fea938513fbb16dc4f41a080c2` и review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` прошли Verify `39069249065` и `39069517726` соответственно (Windows, Linux full verification и Docker smoke). Review handoff: `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`.
 - Полный локальный Windows pytest заблокирован существующим ACL на временные каталоги (`3 018 passed, 22 failed, 369 errors`); ограничения и исправленная stale menu assertion записаны в журнале. `data/tasks.json`, `data/users.json`, их lock и временные каталоги сохранены вне PR.
 - Слияние и развёртывание не выполнялись. Перед слиянием нужен независимый архитектурный review stacked PR в порядке зависимостей и зелёный CI на текущих heads.
 

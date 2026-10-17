@@ -1,6 +1,6 @@
 # Программа разработки GPT Luna: обзор товаров и пакетное планирование экономики
 
-Дата подготовки: **17.10.2026**. Статус: **IN PROGRESS; A00–A04, B00–B04, C00–C05, D00–D03, E00–E04, F00–F03 VERIFIED; G00/G01 VERIFIED; G02 handoff подготовлен, идёт финальная проверка нового документационного head**. PR #698–#703 открыты для review, не слиты. Exact-head CI и локальные ограничения описаны в `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`. F00–F03 profile: **77 passed, 1 deselected** из-за Windows ACL; G00 profile: **54 passed, 1 ACL-bound `tmp_path` test deselected**. Актуальный журнал: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+Дата подготовки: **17.10.2026**. Статус: **A00–A04, B00–B04, C00–C05, D00–D03, E00–E04, F00–F03, G00–G02 VERIFIED; package готов к независимому architecture review**. PR #698–#703 открыты для review, не слиты. Exact-head CI и локальные ограничения описаны в `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`. F00–F03 profile: **77 passed, 1 deselected** из-за Windows ACL; G00 profile: **54 passed, 1 ACL-bound `tmp_path` test deselected**. Перед merge проверять последние checks текущих PR heads. Журнал этапов: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 
 ## 1. Поручение и результат
 
@@ -453,7 +453,7 @@ B04 + C05 + D03 + E04 + F03 → G00 → G01 → G02
 | D — чувствительность | D00–D03 | VERIFIED; PR #700 open, exact-head Windows/full-verification CI green |
 | E — выгрузки | E00–E04 | VERIFIED; exact-head CI green на PR #701 |
 | F — диагностика | F00–F03 | VERIFIED; PR #702, exact-head Verify `39069168434` green on Windows/Linux and Docker smoke |
-| G — приёмка | G00–G01 VERIFIED; G02 handoff prepared, final documentation-head CI pending | IN_PROGRESS |
+| G — приёмка | G00–G02 VERIFIED; Verify `39069249065` green на кодовом head и `39069517726` green на review-handoff head | VERIFIED; проверить CI текущего head перед merge |
 
 Всего **32 этапа**, каждый имеет проверяемый результат. Это ТЗ разрешает разработку перечисленного пакета только после команды владельца выполнять его; его подготовка сама по себе не запускает реализацию.
 
