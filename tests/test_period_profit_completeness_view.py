@@ -4,6 +4,11 @@ from services.assistant_button_handler_service import AssistantButtonHandlerServ
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
@@ -375,6 +380,57 @@ def test_telegram_button_handler_routes_cached_completeness_with_user_scope():
 
         assert detail["status"] == "PERIOD_PROFIT_COMPLETENESS_READY"
         assert other_user["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_diagnostic_screen_uses_exact_cached_report_without_source_calls():
+    class Query:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, **_kwargs):
+            self.calls += 1
+            return _result()
+
+    query = Query()
+    keyboard = AssistantKeyboardService()
+    runtime = AssistantPeriodProfitRuntimeService(query, keyboard_service=keyboard)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+    )
+    tenant_token = set_current_tenant_user_id("store-A")
+    trace = PeriodProfitOperationTrace("period_profit", ozon_request_budget=4)
+    trace_token = activate_period_profit_trace(trace)
+    try:
+        trace.record_posting("private-posting-id")
+        trace.record_posting_result("completed")
+        trace.reserve_ozon_request("/source")
+        report = runtime.handle_text("прибыль за 28 дней", user_id="telegram-1")
+    finally:
+        reset_period_profit_trace(trace_token)
+    try:
+        diagnostic = handler.handle(
+            "period_profit_diagnostics:" + report["report_view_id"],
+            user_id="telegram-1",
+        )
+        wrong_user = handler.handle(
+            "period_profit_diagnostics:" + report["report_view_id"],
+            user_id="telegram-2",
+        )
+
+        assert diagnostic["status"] == "PERIOD_PROFIT_DIAGNOSTICS_READY"
+        assert "HTTP-попытки 1/4" in diagnostic["text"]
+        assert "1 завершено, 0 неизвестно из 1 попыток" in diagnostic["text"]
+        assert "private-posting-id" not in diagnostic["text"]
+        assert any(
+            button["callback"] == "period_profit_completeness:" + report["report_view_id"]
+            for button in diagnostic["keyboard"]["buttons"]
+        )
+        assert wrong_user["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
         assert query.calls == 1
     finally:
         reset_current_tenant_user_id(tenant_token)

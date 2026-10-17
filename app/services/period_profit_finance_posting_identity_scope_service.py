@@ -462,6 +462,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
                     response = getter(posting_number)
                 except Exception:
                     response = None
+                if trace is not None:
+                    trace.record_posting_result(
+                        "completed"
+                        if isinstance(response, dict)
+                        and response.get("error") is not True
+                        else "unknown"
+                    )
                 products = self._posting_products(response, posting_number)
                 if not products:
                     continue
@@ -1038,6 +1045,13 @@ class PeriodProfitFinancePostingIdentityScopeService(
                         response = getter(posting_number)
                     except Exception:
                         response = None
+                    if trace is not None:
+                        trace.record_posting_result(
+                            "completed"
+                            if isinstance(response, dict)
+                            and response.get("error") is not True
+                            else "unknown"
+                        )
                     if trace is not None:
                         trace.posting_response_cache[response_key] = response
                 products = self._posting_products(response, posting_number)

@@ -403,6 +403,10 @@ class AssistantKeyboardService:
             if item is not None:
                 buttons.append({"text": item[0], "callback": item[1]})
         buttons.append({
+            "text": "❓ Почему расчёт неполный?",
+            "callback": "period_profit_diagnostics:" + token,
+        })
+        buttons.append({
             "text": "📊 Аналитика периода",
             "callback": "period_profit_analytics:" + token,
         })
@@ -411,6 +415,35 @@ class AssistantKeyboardService:
             "callback": "period_profit_report:" + token,
         })
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_period_profit_diagnostics_keyboard(self, report_view_id, actions):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        labels = {
+            "cost": ("💰 Исправить себестоимость", "seller_cost"),
+            "sku": ("🔎 Проверить SKU", "period_profit_sku"),
+            "return_inventory": ("↩️ Проверить возврат", "return_inventory"),
+            "external_expenses": ("💸 Внешние расходы", "external_expenses"),
+            "refresh": ("🔄 Обновить расчёт", "period_profit"),
+        }
+        buttons = []
+        for action in actions or []:
+            item = labels.get(str(action))
+            if item is not None:
+                buttons.append({"text": item[0], "callback": item[1]})
+        buttons.extend([
+            {
+                "text": "↩️ Полнота данных",
+                "callback": "period_profit_completeness:" + token,
+            },
+            {
+                "text": "↩️ К расчёту",
+                "callback": "period_profit_report:" + token,
+            },
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
 

@@ -12,6 +12,12 @@ from period_profit_completeness_view import PeriodProfitCompletenessViewService
 from services.period_profit_cost_confirmation_runtime_service import (
     PeriodProfitCostConfirmationRuntimeService,
 )
+from services.period_profit_operation_diagnostics import (
+    current_period_profit_trace,
+)
+from services.period_profit_diagnostic_view_service import (
+    PeriodProfitDiagnosticViewService,
+)
 from services.period_profit_effective_cost_service import PeriodProfitEffectiveCostService
 from services.period_profit_identity_confirmation_runtime_service import (
     PeriodProfitIdentityConfirmationRuntimeService,
@@ -48,6 +54,7 @@ class AssistantPeriodProfitRuntimeService:
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.completeness_view_service = PeriodProfitCompletenessViewService()
+        self.diagnostic_view_service = PeriodProfitDiagnosticViewService()
         self._custom_period_users = {}
         self._custom_pre_cogs_users = {}
         self._custom_sku_period_users = {}
@@ -346,6 +353,7 @@ class AssistantPeriodProfitRuntimeService:
         value = str(callback_data or "").strip()
         view_prefixes = {
             "period_profit_completeness": "completeness",
+            "period_profit_diagnostics": "diagnostics",
             "period_profit_report": "report",
             "period_profit_analytics": "analytics",
             "period_profit_comparison": "comparison",
@@ -399,6 +407,24 @@ class AssistantPeriodProfitRuntimeService:
                 "status": "PERIOD_PROFIT_COMPLETENESS_READY",
                 "text": cached["completeness_text"],
                 "keyboard": keyboard,
+                "report_view_id": view_id,
+                "read_only": True,
+                "executed": False,
+            }
+        if view_type == "diagnostics":
+            diagnostic = cached.get("diagnostic_view")
+            if (
+                not isinstance(diagnostic, dict)
+                or diagnostic.get("status") != "PERIOD_PROFIT_DIAGNOSTICS_READY"
+            ):
+                return self._cached_view_expired()
+            return {
+                "error": False,
+                "status": diagnostic["status"],
+                "text": diagnostic["text"],
+                "keyboard": self._build_diagnostic_keyboard(
+                    view_id, diagnostic.get("actions") or []
+                ),
                 "report_view_id": view_id,
                 "read_only": True,
                 "executed": False,
@@ -783,12 +809,25 @@ class AssistantPeriodProfitRuntimeService:
         view_id = uuid4().hex[:12]
         key = (*scope, view_id)
         snapshot = self._build_analytics_snapshot(source_result, scope)
+        trace = current_period_profit_trace()
+        operation_summary = (
+            trace.public_summary()
+            if trace is not None and callable(getattr(trace, "public_summary", None))
+            else None
+        )
+        diagnostic_view = self.diagnostic_view_service.build(
+            view.get("date_from"),
+            view.get("date_to"),
+            view,
+            operation_summary,
+        )
         with self._custom_period_lock:
             self._expire_report_views_locked(created_at)
             self._report_views[key] = {
                 "report_text": str(compact_result["text"]),
                 "completeness_text": str(view["message"]),
                 "actions": list(view.get("actions") or []),
+                "diagnostic_view": diagnostic_view,
                 "analytics_snapshot": snapshot,
                 "created_at": created_at,
                 "expires_at": created_at + self.REPORT_VIEW_TTL_SECONDS,
@@ -1400,6 +1439,25 @@ class AssistantPeriodProfitRuntimeService:
             "text": "↩️ К расчёту",
             "callback": "period_profit_report:" + view_id,
         }]}
+
+    def _build_diagnostic_keyboard(self, view_id, actions):
+        builder = getattr(
+            self.keyboard_service,
+            "build_period_profit_diagnostics_keyboard",
+            None,
+        )
+        if callable(builder):
+            return builder(view_id, actions)
+        return {"error": False, "type": "inline_keyboard", "buttons": [
+            {
+                "text": "↩️ Полнота данных",
+                "callback": "period_profit_completeness:" + view_id,
+            },
+            {
+                "text": "↩️ К расчёту",
+                "callback": "period_profit_report:" + view_id,
+            },
+        ]}
 
     @staticmethod
     def _cached_view_expired():

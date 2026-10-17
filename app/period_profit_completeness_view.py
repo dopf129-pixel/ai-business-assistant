@@ -133,6 +133,41 @@ class PeriodProfitCompletenessViewService:
             lines.append(
                 "Return COGS не добавляется к прибыли без полного подтверждения всей цепочки."
             )
+        diagnostic_statuses = {
+            "financial_base": self._diagnostic_status(finance_status),
+            "sku_quantity": self._diagnostic_status(quantity_status),
+            "cost": self._diagnostic_status(cost_status),
+            "historical_return_cost": self._diagnostic_status(historical_status),
+            "tax": self._diagnostic_status(tax_status),
+            "external_expenses": self._diagnostic_status(external_status),
+            "advertising": self._diagnostic_status(advertising_status),
+            "returns": self._diagnostic_status(return_status),
+        }
+        freshness = str(
+            summary.get("source_freshness_status")
+            or summary.get("source_cache_status")
+            or ""
+        ).strip().upper()
+        if (
+            summary.get("source_stale") is True
+            or freshness in {"STALE", "EXPIRED"}
+        ):
+            diagnostic_statuses["source_freshness"] = "STALE"
+        elif freshness == "FRESH":
+            diagnostic_statuses["source_freshness"] = "FRESH"
+        else:
+            diagnostic_statuses["source_freshness"] = "NOT_REPORTED"
+        diagnostic_statuses["identity"] = (
+            "CONFLICT"
+            if summary.get("identity_conflict_detected") is True
+            or summary.get("sku_identity_conflict") is True
+            else "NOT_CONFIRMED"
+            if diagnostic_statuses["sku_quantity"] != "CONFIRMED"
+            else "CONFIRMED"
+        )
+        diagnostic_reason_codes = self._diagnostic_reason_codes(
+            diagnostic_statuses
+        )
         return {
             "error": False,
             "status": "PERIOD_PROFIT_COMPLETENESS_READY",
@@ -140,6 +175,8 @@ class PeriodProfitCompletenessViewService:
             "date_to": end.isoformat(),
             "message": "\n".join(lines),
             "actions": list(dict.fromkeys(actions)),
+            "diagnostic_statuses": diagnostic_statuses,
+            "diagnostic_reason_codes": diagnostic_reason_codes,
             "read_only": True,
             "executed": False,
         }
@@ -495,6 +532,40 @@ class PeriodProfitCompletenessViewService:
     @staticmethod
     def _block(name, status, reason):
         return name + ": " + status + " — " + reason
+
+    @staticmethod
+    def _diagnostic_status(status):
+        return {
+            "ПОДТВЕРЖДЕНО": "CONFIRMED",
+            "ЧАСТИЧНО": "PARTIAL",
+            "НЕИЗВЕСТНО": "UNKNOWN",
+            "ОШИБКА": "ERROR",
+        }.get(str(status or ""), "UNKNOWN")
+
+    @staticmethod
+    def _diagnostic_reason_codes(statuses):
+        reasons = []
+        if statuses.get("source_freshness") == "STALE":
+            reasons.append("SOURCE_STALE")
+        if statuses.get("identity") == "CONFLICT":
+            reasons.append("IDENTITY_CONFLICT")
+        if any(value == "PARTIAL" for value in statuses.values()):
+            reasons.append("PARTIAL_COVERAGE")
+        for key, code in (
+            ("financial_base", "FINANCIAL_BASE_UNCONFIRMED"),
+            ("sku_quantity", "SKU_QUANTITY_UNCONFIRMED"),
+            ("cost", "COST_MISSING"),
+            ("historical_return_cost", "RETURN_COST_UNCONFIRMED"),
+            ("tax", "TAX_POLICY_UNCONFIRMED"),
+            ("external_expenses", "EXTERNAL_EXPENSES_UNCONFIRMED"),
+            ("advertising", "ADVERTISING_EVIDENCE_UNCONFIRMED"),
+            ("returns", "RETURN_EVIDENCE_UNCONFIRMED"),
+        ):
+            if statuses.get(key) in {"PARTIAL", "UNKNOWN", "ERROR"}:
+                reasons.append(code)
+        if statuses.get("identity") == "NOT_CONFIRMED":
+            reasons.append("IDENTITY_NOT_CONFIRMED")
+        return list(dict.fromkeys(reasons))
 
     @staticmethod
     def _unavailable(reason="сначала сформируйте корректный отчёт о прибыли"):

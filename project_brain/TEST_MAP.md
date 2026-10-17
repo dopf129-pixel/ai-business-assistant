@@ -2,6 +2,9 @@
 
 ## Фактическое выполнение
 
+- F00: tests/test_period_profit_operation_diagnostics.py проверяет 256-entry ring buffer, сохраняемые total/dropped counters, родительско-дочернюю агрегацию попыток и row outcomes без публикации raw identifiers. tests/test_period_profit_diagnostic_view_service.py покрывает whitelist статусов/причин, bounded counters, budget actions и fail-closed поля. tests/test_period_profit_completeness_view.py проверяет точный cached-view маршрут, tenant isolation и отсутствие повторного query.
+- F00 локальный профиль: 27 passed, 1 deselected; исключён единственный existing tmp_path stack-dump тест, поскольку изолированный запуск отключил pytest tmpdir из-за известной ACL. Compileall и diff-check пройдены; полный F acceptance ожидает CI.
+
 - Исполняемое ТЗ: `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`; stage journal: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 - A00–A01: снимок исходной точки и architecture review; код не менялся, pytest не запускался.
 - A02: `tests/test_period_profit_operation_diagnostics.py` проверяет parent/child deadline и общий concurrent attempt cap, child/root cancellation и лимит через реальный `OzonClient` request wrapper. `tests/test_unit_price_scenario_source.py` проверяет parent trace propagation/context restoration и clamp in-flight wait.

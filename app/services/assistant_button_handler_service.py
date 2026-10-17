@@ -488,6 +488,7 @@ class AssistantButtonHandlerService:
             or button_id.startswith((
                 "period_profit:",
                 "period_profit_completeness:",
+                "period_profit_diagnostics:",
                 "period_profit_report:",
                 "period_profit_analytics:",
                 "period_profit_comparison:",
@@ -1174,6 +1175,7 @@ class AssistantButtonHandlerService:
 
         if button_id.startswith((
             "period_profit_completeness:",
+            "period_profit_diagnostics:",
             "period_profit_report:",
             "period_profit_analytics:",
             "period_profit_comparison:",
