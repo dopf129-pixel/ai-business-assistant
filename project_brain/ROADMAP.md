@@ -9,7 +9,7 @@
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
-- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Реализация продолжается; A–D и E00–E04 VERIFIED локально; PR #700 открыт на exact-head с зелёным Windows/full-verification CI; F в работе, G ожидает зависимости.
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E VERIFIED; PR #701 E на SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` прошёл Windows/Linux по 3 389 тестов и Docker build/runtime smoke в Verify `39066587245`. PR #700/#701 открыты для review; F начинается после E acceptance, G ожидает зависимости.
 - A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.

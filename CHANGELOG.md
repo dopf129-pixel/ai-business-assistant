@@ -1256,5 +1256,5 @@ Summary Report теперь включает:
 - Добавлены точные CSV/JSON выгрузки финализированного отчёта периода, обзора товаров, пакетного плана цен и матрицы чувствительности. Экспорт использует сохранённый owner/store-scoped snapshot и не повторяет запросы к источникам.
 - Файлы включают все строки выбранного snapshot scope, а не только открытую страницу; обзор фиксирует активные фильтр и сортировку. Периодная выгрузка содержит comparison, bridge, reconciliation и только сохранённый TOP_K список с coverage; подытоги помечены как справочные или неаддитивные.
 - Плановые файлы маркируются как план одной успешной продажи FBO с целью, происхождением допущений и ограничениями. Неизвестные значения остаются `null`; существующая cost-import таблица и поток не изменились.
-- Public callback/document transport и regression profile E00–E04: **73 passed**; compileall и diff-check успешны. Exact-head PR CI предстоит.
+- Public callback/document transport и regression profile E00–E04: **73 passed**; compileall и diff-check успешны. На первом CI SHA `de07c92` выявлено и исправлено устаревшее ожидание кнопок; итоговый exact head PR #701 `47cfa2527b2f963d2604511c76d1a41b6e6201f0`: Windows **3 389 passed**, Linux **3 389 passed**, Docker build/runtime smoke успешны (Verify run `39066587245`). PR #701 открыт, не слит.
 

@@ -125,8 +125,8 @@
 | E01 | VERIFIED | `codex/product-workbench-module-e` / working branch | Pure schema-v1 CSV/JSON serializers; CSV formula protection for text fields, numeric negatives remain numbers, JSON money strings use dot, null≠0, typed schema/units/semantic metadata, no NaN/Infinity, 2 MiB no-truncation gate. **17 passed**; compileall/diff-check pass. | serializer service/tests; document contract; docs | E02 |
 | E02 | VERIFIED | `codex/product-workbench-module-e` / stacked on PR #700 | Period CSV/JSON comes from finalized report snapshot, includes B/E bridge, rounding/reconciliation and saved TOP_K/coverage; no source rerun. Covered in combined **73 passed** profile. | export service/tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | E03 |
 | E03 | VERIFIED | `codex/product-workbench-module-e` / working branch | Separate export buttons for overview, batch, sensitivity. All selected/filtered snapshot rows/cells included; current page does not truncate; filter/sort metadata retained; planning scope/provenance/FBO disclaimers present. | runtime, keyboards, handler, factory, tests; docs | E04 |
-| E04 | VERIFIED | `codex/product-workbench-module-e` / working branch | Public period/product callback → export → Telegram document path covered; legacy cost import/export and failed send preserved. Combined profile **73 passed**, compileall/diff-check pass. Full local suite remains subject to Windows temp ACL; exact-head CI required. | code/tests/docs | commit/push E, open PR, exact-head CI; then F00 |
-| F00 | NOT_STARTED | — | — | bounded trace summary + completeness diagnostic screen | depends on A02/E00; start after E exact-head CI |
+| E04 | VERIFIED | PR #701 `codex/product-workbench-module-e` / base #700 / accepted code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` | Public period/product callback → export → Telegram document path covered; legacy cost import/export and failed send preserved. Focused profile **73 passed**. First CI on `de07c92` caught one stale keyboard assertion; test updated in `47cfa25`. Final exact-head Verify `39066587245`: Windows **3 389 passed**, Linux **3 389 passed**, compileall and Docker build/runtime smoke passed. PR remains open; no merge/deploy. | code/tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; guide; this journal | commit documentation acceptance to PR #701, verify that new head, then F00 |
+| F00 | NOT_STARTED | — | — | bounded trace summary + completeness diagnostic screen | depends on A02/E00; E code CI green, begin on a separate branch after docs acceptance head is green |
 | F01 | NOT_STARTED | — | — | — | зависит от F00 |
 | F02 | NOT_STARTED | — | — | — | зависит от F01 |
 | F03 | NOT_STARTED | — | — | — | приёмка диагностики |
@@ -145,5 +145,5 @@
 | Артефакт | Статус |
 |---|---|
 | PR #697 | Открыт, не слит; внешний dependency и base новых веток |
-| PR #701 (E) | Подготовлен локально; exact-head CI ещё не запущен; не слит/не развёрнут |
+| PR #701 (E) | Открыт: https://github.com/dopf129-pixel/ai-business-assistant/pull/701; code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0`, Verify `39066587245` green: Windows/Linux 3 389 passed, Docker smoke; не слит/не развёрнут |
 | PR модулей F–G | Ещё нет |

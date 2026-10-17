@@ -1,6 +1,6 @@
 # Программа разработки GPT Luna: обзор товаров и пакетное планирование экономики
 
-Дата подготовки: **17.10.2026**. Статус: **IN PROGRESS; A00–A04 VERIFIED, B00–B04 VERIFIED, C00–C05 VERIFIED, D00–D03 VERIFIED, E00–E04 VERIFIED локально**. A–D проверены локально и на exact-head CI; PR #698/#699/#700 открыты для review, не слиты. Модуль E ожидает exact-head CI после публикации PR. Актуальный журнал `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+Дата подготовки: **17.10.2026**. Статус: **IN PROGRESS; A00–A04 VERIFIED, B00–B04 VERIFIED, C00–C05 VERIFIED, D00–D03 VERIFIED, E00–E04 VERIFIED**. A–E проверены локально и на exact-head CI; PR #698/#699/#700/#701 открыты для review, не слиты. PR #701 E прошёл Windows/Linux полный pytest и production Docker build/runtime на SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0`. Текущий этап — F00. Актуальный журнал `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 
 ## 1. Поручение и результат
 
