@@ -309,6 +309,19 @@ class ProductOverviewService:
             result["snapshot"]["view_token"] = str(token)
         return result
 
+    def get_export_snapshot_by_token(
+        self, token, filter_by="all_selected", sort_by="priority", direction=None
+    ):
+        """Return every filtered row in the exact stored overview snapshot."""
+        return self.get_page_by_token(
+            token,
+            page=1,
+            page_size=self.MAX_SELECTION,
+            filter_by=filter_by,
+            sort_by=sort_by,
+            direction=direction,
+        )
+
     def get_row_by_token(self, token, row_id):
         if not isinstance(row_id, str) or not row_id:
             return self._error("PRODUCT_OVERVIEW_ROW_INVALID")

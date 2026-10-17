@@ -14,6 +14,7 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.analytics_export_service import AnalyticsExportService
 
 
 class _Overview:
@@ -114,6 +115,7 @@ class _BatchService:
             self.continue_build.wait(2)
         return {
             "error": False,
+            "kind": "UNIT_PRICE_BATCH_PLAN",
             "batch_id": "batch-1",
             "version": 1,
             "owner_id": user_id,
@@ -165,13 +167,14 @@ class _SensitivityCapture:
         return {"error": False, "status": "SENSITIVITY_STARTED", "read_only": True, "executed": False}
 
 
-def _runtime(service=None, overview=None, clock=lambda: 100):
+def _runtime(service=None, overview=None, clock=lambda: 100, analytics_export_service=None):
     return TelegramUnitPriceBatchPlanRuntimeService(
         batch_plan_service=service or _BatchService(),
         product_overview_service=overview or _Overview([{"identity": {"offer_id": "offer-0"}}, {"identity": {"offer_id": "offer-1"}}]),
         keyboard_service=_Keyboard(),
         clock=clock,
         tenant_scope_provider=lambda: "user-1::ozon::store-a",
+        analytics_export_service=analytics_export_service,
     )
 
 
@@ -200,6 +203,33 @@ def test_batch_prompt_and_render_are_bounded_and_read_only():
     assert result["read_only"] is True and result["executed"] is False
     assert len(result["message"].encode("utf-16-le")) // 2 <= runtime.TEXT_LIMIT_UTF16
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
+
+
+def test_batch_export_contains_all_snapshot_rows_and_stale_action_cannot_repeat():
+    items = [{"identity": {"offer_id": f"offer-{index}"}} for index in range(8)]
+    service = _BatchService()
+    runtime = _runtime(
+        service=service,
+        overview=_Overview(items),
+        analytics_export_service=AnalyticsExportService(),
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        view = runtime.handle_text("25", user_id="user-1")
+        assert len(view["batch_plan"]["rows"]) == 8
+        callback = _button(view, "⬇️ JSON")
+        document = runtime.handle_callback(callback, user_id="user-1")
+        replay = runtime.handle_callback(callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert document["error"] is False
+    assert document["row_count"] == 8
+    assert document["export_kind"] == "unit_price_batch"
+    assert document["read_only"] is True and document["executed"] is False
+    assert replay["status"] == "UNIT_PRICE_BATCH_ACTION_STALE"
+    assert [call[0] for call in service.calls] == ["build"]
 
 
 def test_batch_row_can_open_exact_source_bound_sensitivity_context():

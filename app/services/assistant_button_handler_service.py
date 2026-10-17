@@ -212,6 +212,7 @@ class AssistantButtonHandlerService:
         product_overview_service=None,
         unit_price_batch_plan_runtime_service=None,
         unit_price_sensitivity_runtime_service=None,
+        analytics_export_service=None,
     ):
 
         self.assistant = (
@@ -287,6 +288,7 @@ class AssistantButtonHandlerService:
         self.product_overview_service = product_overview_service
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
         self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
+        self.analytics_export_service = analytics_export_service
 
 
     def prepare_context(
@@ -786,6 +788,21 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
 
+        if isinstance(button_id, str) and button_id.startswith("period_profit_export:"):
+            parts = button_id.split(":")
+            if len(parts) != 3 or parts[1] not in {"csv", "json"}:
+                return self._product_overview_stale("ANALYTICS_EXPORT_ACTION_STALE")
+            runtime = self.period_profit_runtime_service
+            reader = getattr(runtime, "get_analytics_snapshot_for_export", None)
+            if not callable(reader) or self.analytics_export_service is None:
+                return self._product_overview_stale("ANALYTICS_EXPORT_UNAVAILABLE")
+            snapshot_result = reader(parts[2], user_id=user_id)
+            if not isinstance(snapshot_result, dict) or snapshot_result.get("error") is True:
+                return snapshot_result
+            return self.analytics_export_service.export_period_profit(
+                snapshot_result.get("snapshot"), parts[1]
+            )
+
         if button_id == "unit_price_calculator" or button_id == "upc:m":
             runtime = self.unit_price_calculator_runtime_service
             handler = getattr(runtime, "begin_catalog_selection", None)
@@ -1174,6 +1191,9 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             return handler(button_id, user_id=user_id)
+
+        if button_id.startswith("pov:export:"):
+            return self._handle_product_overview_callback(button_id, user_id)
 
         if button_id.startswith("period_profit_pre_cogs:"):
             return self.period_profit_runtime_service.handle_callback(button_id)
@@ -2329,6 +2349,37 @@ class AssistantButtonHandlerService:
             if not callable(starter):
                 return self._product_overview_stale("UNIT_PRICE_BATCH_PLAN_UNAVAILABLE")
             return starter(user_id)
+        if len(parts) == 6 and parts[:2] == ["pov", "export"]:
+            if (
+                parts[3] not in {"a", "p", "n", "m", "i"}
+                or parts[4] not in {"r", "v", "c", "d", "p", "m"}
+                or parts[5] not in {"csv", "json"}
+                or self.analytics_export_service is None
+            ):
+                return self._product_overview_stale("ANALYTICS_EXPORT_ACTION_STALE")
+            filters = {
+                "a": "all_selected", "p": "existing_priority",
+                "n": "negative_unit_profit", "m": "low_margin_decision",
+                "i": "incomplete_or_stale",
+            }
+            sorts = {
+                "r": "priority", "v": "sales_velocity", "c": "current_stock",
+                "d": "days_of_stock", "p": "decision_profit_per_unit",
+                "m": "decision_margin_percent",
+            }
+            reader = getattr(service, "get_export_snapshot_by_token", None)
+            if not callable(reader):
+                return self._product_overview_stale("ANALYTICS_EXPORT_UNAVAILABLE")
+            snapshot = reader(
+                parts[2], filter_by=filters[parts[3]], sort_by=sorts[parts[4]]
+            )
+            if not isinstance(snapshot, dict) or snapshot.get("error") is True:
+                return self._product_overview_stale(
+                    snapshot.get("code") if isinstance(snapshot, dict) else None
+                )
+            return self.analytics_export_service.export_product_overview(
+                snapshot, parts[5]
+            )
         if len(parts) == 3 and parts[:2] == ["pov", "r"]:
             return self._format_product_overview(
                 service.refresh_by_token(parts[2], page=1, page_size=5)

@@ -105,6 +105,7 @@ from services.unit_price_sensitivity_service import UnitPriceSensitivityService
 from services.telegram_unit_price_sensitivity_runtime_service import (
     TelegramUnitPriceSensitivityRuntimeService,
 )
+from services.analytics_export_service import AnalyticsExportService
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
@@ -248,6 +249,7 @@ def create_telegram_assistant():
     keyboard = (
         AssistantKeyboardService()
     )
+    analytics_export_service = AnalyticsExportService()
 
     unit_price_calculator_runtime_service = (
         create_unit_price_scenario_runtime(
@@ -269,6 +271,7 @@ def create_telegram_assistant():
             product_overview_service=product_overview_service,
             keyboard_service=keyboard,
             single_price_runtime_service=unit_price_calculator_runtime_service,
+            analytics_export_service=analytics_export_service,
         )
     unit_price_sensitivity_runtime_service = None
     if unit_price_calculator_runtime_service is not None:
@@ -279,6 +282,7 @@ def create_telegram_assistant():
             single_price_runtime_service=unit_price_calculator_runtime_service,
             batch_plan_runtime_service=unit_price_batch_plan_runtime_service,
             keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
         )
         if unit_price_batch_plan_runtime_service is not None:
             unit_price_batch_plan_runtime_service.sensitivity_runtime_service = (
@@ -408,6 +412,7 @@ def create_telegram_assistant():
             unit_price_sensitivity_runtime_service=(
                 unit_price_sensitivity_runtime_service
             ),
+            analytics_export_service=analytics_export_service,
         )
     )
 

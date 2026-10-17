@@ -9,6 +9,7 @@ from services.telegram_unit_price_batch_plan_runtime_service import TelegramUnit
 from services.telegram_unit_price_sensitivity_runtime_service import TelegramUnitPriceSensitivityRuntimeService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_sensitivity_service import UnitPriceSensitivityService
+from services.analytics_export_service import AnalyticsExportService
 
 
 class _Products:
@@ -54,7 +55,7 @@ def _find(result, text):
     return next(button["callback"] for button in result["keyboard"]["buttons"] if button["text"] == text)
 
 
-def _runtime(clock=lambda: 100):
+def _runtime(clock=lambda: 100, analytics_export_service=None):
     keyboard = AssistantKeyboardService()
     source = _Source(clock)
     scenario = UnitPriceScenarioService(TaxService())
@@ -70,6 +71,7 @@ def _runtime(clock=lambda: 100):
         batch_plan_runtime_service=None,
         keyboard_service=keyboard,
         clock=clock,
+        analytics_export_service=analytics_export_service,
     )
     return single, sensitivity, source
 
@@ -171,6 +173,37 @@ def test_stale_source_remains_viewable_but_has_no_apply_action():
     assert refreshed["status"] == "UNIT_PRICE_SENSITIVITY_READY"
     assert "устарел" in refreshed["message"]
     assert not any(item["text"].startswith("Перенести сценарий") for item in refreshed["keyboard"]["buttons"])
+
+
+def test_sensitivity_export_includes_all_matrix_cells_without_source_reload():
+    single, sensitivity, source = _runtime(
+        analytics_export_service=AnalyticsExportService()
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1"
+        )
+        first_prompt = sensitivity.handle_callback(
+            _find(prompt, "Матрица · Цена продавца × Себестоимость"), user_id="user-1"
+        )
+        second_prompt = sensitivity.handle_text("500;550;600", user_id="user-1")
+        matrix = sensitivity.handle_text("200;220;240", user_id="user-1")
+        source_calls = source.calls
+        document = sensitivity.handle_callback(
+            _find(matrix, "⬇️ JSON"), user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert first_prompt["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert second_prompt["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert document["error"] is False
+    assert document["row_count"] == 9
+    assert document["export_kind"] == "unit_price_sensitivity"
+    assert source.calls == source_calls == 1
 
 
 def test_two_axis_maximum_matrix_is_paginated_without_dropping_cells():

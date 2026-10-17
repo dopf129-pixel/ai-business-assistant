@@ -327,6 +327,14 @@ class AssistantKeyboardService:
                     "callback": "period_profit_analytics:" + token,
                 },
                 {
+                    "text": "⬇️ CSV",
+                    "callback": "period_profit_export:csv:" + token,
+                },
+                {
+                    "text": "⬇️ JSON",
+                    "callback": "period_profit_export:json:" + token,
+                },
+                {
                     "text": "🔎 Полнота данных",
                     "callback": "period_profit_completeness:" + token,
                 },
@@ -708,6 +716,8 @@ class AssistantKeyboardService:
         if group.get("has_next_group"):
             buttons.append({"text": "Следующая группа", "callback": f"pov:g:{view_token}:n"})
         buttons.extend([
+            {"text": "⬇️ CSV", "callback": f"pov:export:{view_token}:{active_filter}:{active_sort}:csv"},
+            {"text": "⬇️ JSON", "callback": f"pov:export:{view_token}:{active_filter}:{active_sort}:json"},
             {"text": "🔄 Обновить", "callback": f"pov:r:{view_token}"},
             {"text": "Главное меню", "callback": "main_menu"},
         ])

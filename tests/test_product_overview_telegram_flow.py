@@ -2,6 +2,7 @@ from services.assistant_button_handler_service import AssistantButtonHandlerServ
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.product_overview_service import ProductOverviewService
 from services.scoped_transient_snapshot_store import ScopedTransientSnapshotStore
+from services.analytics_export_service import AnalyticsExportService
 from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
@@ -84,7 +85,7 @@ class _PriceRuntime:
         return {"error": False, "message": "price scenario", "read_only": True, "executed": False}
 
 
-def _handler(runtime=None):
+def _handler(runtime=None, analytics_export_service=None):
     query = _Query()
     overview = ProductOverviewService(
         query,
@@ -96,6 +97,7 @@ def _handler(runtime=None):
         keyboard_service=keyboard,
         unit_price_calculator_runtime_service=runtime,
         product_overview_service=overview,
+        analytics_export_service=analytics_export_service,
     )
     return handler, overview, query, keyboard
 
@@ -250,3 +252,30 @@ def test_confirmed_price_plan_transition_opens_the_selected_product():
 
     assert result["message"] == "price scenario"
     assert runtime.callbacks == [("upc:p:selection1", "owner-1")]
+
+
+def test_export_button_uses_exact_snapshot_and_does_not_query_catalog_again():
+    handler, _overview, query, _keyboard = _handler(
+        analytics_export_service=AnalyticsExportService()
+    )
+    tenant = _tenant()
+    try:
+        query.rows = [
+            _decision_row(selector=f"offer-{index}", sku=f"sku-{index}")
+            for index in range(7)
+        ]
+        overview = handler.handle("product_overview", user_id="owner-1")
+        calls_after_snapshot = query.calls
+        export_callback = next(
+            item["callback"] for item in overview["keyboard"]["buttons"]
+            if item["callback"].startswith("pov:export:") and item["callback"].endswith(":json")
+        )
+        document = handler.handle(export_callback, user_id="owner-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert document["error"] is False
+    assert document["document_kind"] == "analytics_export"
+    assert document["row_count"] == 7
+    assert query.calls == calls_after_snapshot == 1
+    assert document["read_only"] is True and document["executed"] is False
