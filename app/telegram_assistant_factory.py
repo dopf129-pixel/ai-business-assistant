@@ -97,6 +97,10 @@ from services.product_overview_service import ProductOverviewService
 from services.scoped_transient_snapshot_store import (
     ScopedTransientSnapshotStore,
 )
+from services.unit_price_batch_plan_service import UnitPriceBatchPlanService
+from services.telegram_unit_price_batch_plan_runtime_service import (
+    TelegramUnitPriceBatchPlanRuntimeService,
+)
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
 
@@ -249,6 +253,20 @@ def create_telegram_assistant():
         )
     )
 
+    unit_price_batch_plan_runtime_service = None
+    if unit_price_calculator_runtime_service is not None:
+        batch_plan_service = UnitPriceBatchPlanService(
+            source=unit_price_calculator_runtime_service.source,
+            scenario_service=unit_price_calculator_runtime_service.scenario_service,
+            target_planning_service=unit_price_calculator_runtime_service.target_planning_service,
+        )
+        unit_price_batch_plan_runtime_service = TelegramUnitPriceBatchPlanRuntimeService(
+            batch_plan_service=batch_plan_service,
+            product_overview_service=product_overview_service,
+            keyboard_service=keyboard,
+            single_price_runtime_service=unit_price_calculator_runtime_service,
+        )
+
     if period_profit_runtime_service is not None:
         period_profit_runtime_service.keyboard_service = keyboard
 
@@ -366,6 +384,9 @@ def create_telegram_assistant():
             product_overview_service=(
                 product_overview_service
             ),
+            unit_price_batch_plan_runtime_service=(
+                unit_price_batch_plan_runtime_service
+            ),
         )
     )
 
@@ -474,6 +495,9 @@ def create_telegram_assistant():
 
     runner.unit_price_calculator_runtime_service = (
         unit_price_calculator_runtime_service
+    )
+    runner.unit_price_batch_plan_runtime_service = (
+        unit_price_batch_plan_runtime_service
     )
 
 

@@ -648,3 +648,14 @@ Next seller-facing accounting priority:
 - consume/promote originating-sale quantity evidence only after those independent accounting facts are bound;
 - keep `confirmed_cogs_recovery_amount=0` and profit adjustment blocked until the complete accounting gate is explicit;
 - preserve Decision 036/037/038/039/040 contracts and introduce a new decision only if accounting semantics or persistence ownership changes.
+
+## Модуль C — пакетное планирование цен
+
+- C00/C01 VERIFIED locally; domain portion of C02 implemented and verified. One catalog snapshot feeds up to 10 exact SKU rows; source work inherits one parent budget and cache freshness. Row statuses preserve incomplete, stale, unsupported and failed facts.
+- Local assumptions and target edits are pure snapshot recalculations. Shared ad rate has explicit preview/confirmation; refresh reuses the batch identity and preserves manual assumptions/provenance. Telegram runtime, result table and guarded handoff remain in progress.
+- Focused C00/C01/domain C02 suite: 75 passed; compileall and diff-check passed. Follow exact stage records in `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+# 2026-10-17 — пакетный план цены
+
+- [x] C00–C05: пакетный read-only план для 2–10 точных SKU, общая граница источников, локальные допущения, построчные результаты и проверенный переход готового кандидата в одиночный калькулятор.
+- [ ] Получить полный CI для нового exact head перед закрытием модуля C.
+- [ ] D00–D03: локальная таблица чувствительности по цене, себестоимости и рекламной доле.

@@ -711,6 +711,23 @@ class AssistantKeyboardService:
         ])
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
+    def build_unit_price_batch_keyboard(self, buttons):
+        safe = []
+        for item in buttons or []:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "")[:64]
+            callback = item.get("callback")
+            if (
+                text
+                and isinstance(callback, str)
+                and len(callback.encode("utf-8")) <= 64
+            ):
+                safe.append({"text": text, "callback": callback})
+        if not any(button.get("callback") == "main_menu" for button in safe):
+            safe.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": safe}
+
     def build_product_overview_row_keyboard(
         self,
         view_token,

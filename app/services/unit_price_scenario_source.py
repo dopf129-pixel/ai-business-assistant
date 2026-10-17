@@ -67,6 +67,7 @@ class UnitPriceScenarioSource:
         user_id,
         force_refresh=False,
         operation_trace=None,
+        catalog_product=None,
     ):
         target_sku = str(sku or "").strip()
         target_user = str(user_id or "").strip()
@@ -84,7 +85,26 @@ class UnitPriceScenarioSource:
         scoped_user, store_id = split_store_tenant_scope(tenant_scope)
         if not tenant_scope or scoped_user != target_user:
             return self._error("UNIT_PRICE_SCENARIO_TENANT_MISMATCH")
+        normalized_catalog_product = (
+            self._normalize_product(catalog_product)
+            if catalog_product is not None
+            else None
+        )
+        if catalog_product is not None and (
+            not normalized_catalog_product
+            or str(normalized_catalog_product.get("sku") or "").strip() != target_sku
+            or not str(normalized_catalog_product.get("product_id") or "").strip()
+            or not str(normalized_catalog_product.get("offer_id") or "").strip()
+        ):
+            return self._error("UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE")
+        # A batch supplies the exact product row from its one catalog snapshot.
+        # Keep that cache/in-flight key distinct from legacy SKU-only lookups.
         key = (tenant_scope, target_user, target_sku)
+        if normalized_catalog_product is not None:
+            key += (
+                str(normalized_catalog_product.get("product_id")),
+                str(normalized_catalog_product.get("offer_id")),
+            )
         waited_for_refresh = False
 
         while True:
@@ -143,6 +163,7 @@ class UnitPriceScenarioSource:
                 store_id,
                 tenant_scope,
                 parent_trace=operation_trace,
+                catalog_product=normalized_catalog_product,
             )
             operation_error = self._operation_error(operation_trace)
             if operation_error is not None:
@@ -175,6 +196,7 @@ class UnitPriceScenarioSource:
         store_id,
         tenant_scope,
         parent_trace=None,
+        catalog_product=None,
     ):
         trace = PeriodProfitOperationTrace(
             operation="unit_price_scenario_source",
@@ -185,21 +207,29 @@ class UnitPriceScenarioSource:
         trace_token = activate_period_profit_trace(trace)
         try:
             self._ensure_operation_active(trace)
-            try:
-                products = self.product_service.load_products()
-            except Exception:
-                return self._error("UNIT_PRICE_SCENARIO_CATALOG_UNAVAILABLE")
-            matches = [
-                item for item in (products or [])
-                if self._product_sku(item) == sku
-            ]
-            if len(matches) != 1:
-                return self._error(
-                    "UNIT_PRICE_SCENARIO_SKU_AMBIGUOUS"
-                    if matches
-                    else "UNIT_PRICE_SCENARIO_SKU_NOT_FOUND"
-                )
-            product = self._normalize_product(matches[0])
+            if catalog_product is not None:
+                product = self._normalize_product(catalog_product)
+            else:
+                try:
+                    products = self.product_service.load_products()
+                except Exception:
+                    return self._error("UNIT_PRICE_SCENARIO_CATALOG_UNAVAILABLE")
+                matches = [
+                    item for item in (products or [])
+                    if self._product_sku(item) == sku
+                ]
+                if len(matches) != 1:
+                    return self._error(
+                        "UNIT_PRICE_SCENARIO_SKU_AMBIGUOUS"
+                        if matches
+                        else "UNIT_PRICE_SCENARIO_SKU_NOT_FOUND"
+                    )
+                product = self._normalize_product(matches[0])
+            if (
+                product is None
+                or str(product.get("sku") or "").strip() != sku
+            ):
+                return self._error("UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE")
             if not product or not product.get("product_id") or not product.get("offer_id"):
                 return self._error("UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE")
 
