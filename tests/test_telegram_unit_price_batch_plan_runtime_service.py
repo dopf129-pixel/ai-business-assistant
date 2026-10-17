@@ -33,23 +33,50 @@ class _Keyboard:
 
 
 def _row(index, status="READY"):
+    product_id = f"product-{index}"
+    offer_id = f"offer-{index}"
+    sku = f"sku-{index}"
     return {
         "row_id": f"row-{index}",
         "scheme": "FBO",
         "identity": {
-            "offer_id": f"offer-{index}",
-            "catalog_sku": f"sku-{index}",
+            "product_id": product_id,
+            "offer_id": offer_id,
+            "catalog_sku": sku,
         },
         "status": status,
-        "inputs": {"price": "500", "cost": "100", "advertising_rate": "0"},
-        "provenance": {"advertising_rate": "source"},
+        "inputs": {
+            "price": "500", "cost": "100", "commission_rate": "15",
+            "advertising_rate": "0", "discount_points_rate": "20",
+            "logistics_per_unit": "40", "last_mile_per_unit": "10",
+            "acquiring_per_unit": "5", "tax_mode": "USN_INCOME",
+            "tax_rate": "6", "minimum_tax_rate": "1",
+        },
+        "provenance": {"advertising_rate": "source", "cost": "confirmed_store_cost"},
         "source_age_seconds_at_load": 1,
         "source_ttl_seconds": 600,
         "source_loaded_at": 100,
         "source_as_of": {"seller_price_as_of": "2026-10-17"},
         "snapshot": {
-            "identity": {"catalog_sku": f"sku-{index}"},
+            "identity": {
+                "user_id": "user-1",
+                "store_id": "store-a",
+                "tenant_scope": "user-1::ozon::store-a",
+                "product_id": product_id,
+                "offer_id": offer_id,
+                "sku": sku,
+            },
             "product": {"scheme": "FBO"},
+            "suggested_inputs": {
+                "price": "500", "cost": "100", "commission_rate": "15",
+                "advertising_rate": "0", "discount_points_rate": "20",
+                "logistics_per_unit": "40", "last_mile_per_unit": "10",
+                "acquiring_per_unit": "5", "tax_mode": "USN_INCOME",
+                "tax_rate": "6", "minimum_tax_rate": "1",
+            },
+            "input_provenance": {"cost": "confirmed_store_cost"},
+            "source_periods": {"seller_price_as_of": "2026-10-17"},
+            "source_completeness": {"scheme": "FBO", "commission": {"complete": True}},
         },
         "scenario": {"calculated": {"profit": 100, "margin_percent": 20}},
         "planning": {
@@ -129,6 +156,15 @@ class _SingleOpener:
         return {"error": False, "status": "HANDOFF_OPENED", "read_only": True, "executed": False}
 
 
+class _SensitivityCapture:
+    def __init__(self):
+        self.contexts = []
+
+    def begin_from_context(self, context, user_id=None):
+        self.contexts.append((context, user_id))
+        return {"error": False, "status": "SENSITIVITY_STARTED", "read_only": True, "executed": False}
+
+
 def _runtime(service=None, overview=None, clock=lambda: 100):
     return TelegramUnitPriceBatchPlanRuntimeService(
         batch_plan_service=service or _BatchService(),
@@ -164,6 +200,31 @@ def test_batch_prompt_and_render_are_bounded_and_read_only():
     assert result["read_only"] is True and result["executed"] is False
     assert len(result["message"].encode("utf-16-le")) // 2 <= runtime.TEXT_LIMIT_UTF16
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
+
+
+def test_batch_row_can_open_exact_source_bound_sensitivity_context():
+    runtime = _runtime()
+    capture = _SensitivityCapture()
+    runtime.sensitivity_runtime_service = capture
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        result = runtime.handle_text("20", user_id="user-1")
+        button = next(
+            item for item in result["keyboard"]["buttons"]
+            if item["text"].startswith("Чувствительность")
+        )
+        opened = runtime.handle_callback(button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert opened["status"] == "SENSITIVITY_STARTED"
+    context, owner = capture.contexts[0]
+    assert owner == "user-1"
+    assert context["origin"]["kind"] == "batch"
+    assert context["origin"]["row_id"] == "row-0"
+    assert context["identity"]["tenant_scope"] == "user-1::ozon::store-a"
+    assert context["source_as_of"]["seller_price_as_of"] == "2026-10-17"
 
 
 def test_local_edit_zero_sort_and_pages_make_no_source_requests_and_invalidate_old_actions():

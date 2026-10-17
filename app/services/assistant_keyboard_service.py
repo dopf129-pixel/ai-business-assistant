@@ -473,6 +473,7 @@ class AssistantKeyboardService:
                 {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
             ])
+        buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
         buttons.extend([
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
@@ -526,6 +527,7 @@ class AssistantKeyboardService:
                     })
         buttons.extend([
             {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
+            {"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"},
             {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
             {"text": "Главное меню", "callback": "main_menu"},
         ])

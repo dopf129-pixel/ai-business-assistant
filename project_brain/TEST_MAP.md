@@ -5241,3 +5241,11 @@ Focused local result: **75 passed**. `compileall -q app tests` and `git diff --c
 - Verified local profile: **116 passed** across batch service, source, target solver, scenario calculator and Telegram runtime; `compileall -q services` and `git diff --check` passed. Full CI is required for complete repository validation.
 
 - Module C acceptance on exact code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`: local related B/C product profile **193 passed**, `compileall -q app tests` and `git diff --check` passed. Verify runs `39063730904` and `39063717597` both passed Windows and full-verification jobs, including full pytest, compileall, production Docker build and runtime smoke. PR #699 is open for review; no merge/deployment.
+
+# Unit price sensitivity — D00–D03
+
+- `tests/test_unit_price_sensitivity_service.py`: absolute input parsing and limits, 3–7 values/axis, exact 49-cell matrix, no interpolation, exact target-margin marking, unknown inputs, stale source, invalid/bool/nonfinite/overflow, existing minimum-tax branch, parallel sweeps and snapshot immutability.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: single and batch entry, callback routing, exact source/version/tenant binding, all 49 cells across pages, stale historical view without apply, explicit fresh-cell transfer with forward recalculation, source-free operation, text ownership/return cleanup, and parallel/read isolation.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: exact batch-row context, identity and source-as-of binding for the sensitivity entry.
+- D focused profile: **117 passed** across sensitivity, Telegram batch/single runtimes, scenario and target planning; `compileall -q app tests` and `git diff --check` passed.
+- Full local Windows run: **2,978 passed, 21 failed, 369 errors**. Failures/errors are blocked by the workspace Windows temp ACL (`PermissionError: WinError 5`; SQLite cannot open files under the created temp directory). No project-data JSON hashes changed. A clean Windows/Linux exact-head CI is the acceptance gate for D03.
