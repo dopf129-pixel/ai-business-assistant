@@ -130,8 +130,8 @@
 | F01 | VERIFIED | `codex/product-workbench-module-f` / stacked on #701 docs head / commit `59432ef` | Strict support-diagnostic JSON schema, stable within-file masked SKU aliases, exact cached owner/store/report route; no source rerun, no money or private API/request identifiers. Combined F00/F01 profile **34 passed, 1 deselected** (the existing ACL-bound `tmp_path` stack-dump test); compileall and diff-check passed. Exact acceptance awaits F PR CI. | exporter, runtime cache accessor, handler/keyboard, adversarial tests, user guide, CHANGELOG, TEST_MAP, ROADMAP, CURRENT_STATE, task and journal | F02 process metadata |
 | F02 | VERIFIED | `codex/product-workbench-module-f` / stacked on #701 docs head / commit `3e4af5a0` | Read-only main-menu version view; validated revision and UTC process start are captured once, included in cached support JSON, and never resolved from disk per request. Windows start script captures Git revision and a fresh start timestamp once per launch; Docker/Verify pass the build SHA. Profile **58 passed, 1 deselected** (existing ACL-bound `tmp_path` stack-dump test); compileall and diff-check passed. | metadata service, handler/keyboard/factory wiring, Docker/Verify/startup config, regression and integration tests, user guide and project docs | F03 adversarial diagnostics acceptance |
 | F03 | VERIFIED | `codex/product-workbench-module-f` / commit `fba94596` | F00–F03 profile **77 passed, 1 deselected**. New fake-transport cases cover 429/timeout counters and secret-free public trace, expired export with zero new source calls, and support JSON send failure. Existing coverage includes cancellation, partial source coverage, alias masking, invalid revision, process-start snapshot, foreign owner/store and no-query cached view/export. Compileall/diff-check passed. Exact-head CI remains pending G01. | diagnostic regressions, changelog, test map, current state, roadmap, task and journal | G00 cross-feature flows |
-| G00 | IN_PROGRESS | `codex/product-workbench-module-f` / dependency stack A–F | Build public-flow integration scenarios across overview → filters/local assumptions → batch target → sensitivity → CSV/JSON and finalized period → comparison/export/support JSON; preserve no-repeat-source, scope and legacy menu invariants. | public Telegram/runtime acceptance tests | G01 full pytest and CI |
-| G01 | NOT_STARTED | — | — | — | полный pytest/CI/Docker |
+| G00 | VERIFIED locally | `codex/product-workbench-module-f` / dependency stack A–F | Public-handler acceptance connects overview → incomplete filter → exact item selection → batch target → local cost edit → sensitivity → batch/sensitivity CSV/JSON; period comparison → CSV/JSON → safe support JSON; legacy main-menu destinations remain discoverable. **54 passed, 1 existing `tmp_path` factory test deselected** due local ACL with pytest tmpdir disabled. | `tests/test_product_workbench_acceptance.py`; period/overview regressions; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; user guide; task matrix; this journal | G01 full pytest, exact-head Windows/Linux CI and Docker |
+| G01 | IN_PROGRESS | `codex/product-workbench-module-g` / F head `55db3e60` | Локальный полный Windows pytest: **3 018 passed, 22 failed, 369 errors** за 78,73 с. 21/22 падений воспроизводят недоступность system `%TEMP%` (SQLite `unable to open database file`, очистка `WinError 5`); оставшаяся устаревшая assertion главного меню исправлена коммитом `55db3e60` и покрыта целевым профилем **21 passed, 1 deselected**. `compileall` и diff-check прошли. | G00 acceptance suite; allowlist; этот журнал; G/F PR | точный CI Windows/Linux и Docker на PR #702/#703 |
 | G02 | NOT_STARTED | — | — | — | review handoff и итог |
 
 ## Архитектурные выводы
@@ -146,7 +146,8 @@
 |---|---|
 | PR #697 | Открыт, не слит; внешний dependency и base новых веток |
 | PR #701 (E) | Открыт: https://github.com/dopf129-pixel/ai-business-assistant/pull/701; code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0`, Verify `39066587245` green: Windows/Linux 3 389 passed, Docker smoke; docs SHA `f598d300164916434de27a5180bb033d8a9f4293`, Verify `39066774774` green; не слит/не развёрнут |
-| PR модулей F–G | Ещё нет |
+| PR #702 (F) | Открыт: https://github.com/dopf129-pixel/ai-business-assistant/pull/702; base #701 / `f598d300164916434de27a5180bb033d8a9f4293`; head `55db3e60fda3c3080051da2fbea1902091a4bfff`; Verify run `39069168434` поставлен в очередь; не слит/не развёрнут |
+| PR модуля G | Ветка `codex/product-workbench-module-g` подготовлена поверх F; G00/G01 коммит и PR ещё впереди |
 
 # 2026-10-17 — модуль F02, версия работающего процесса
 
@@ -161,3 +162,20 @@
 - В проверяемом профиле также оставлены существующие регрессии cancellation, partial coverage, точных ring-buffer totals, повторного alias для одинакового SKU, invalid revision, immutable старого process metadata, foreign user/store, read-only flags и source-call count=1 для диагностики/экспорта.
 - F00–F03 итоговый локальный профиль: **77 passed, 1 deselected**; deselected — только существующий ACL-bound `tmp_path` stack dump при отключённом pytest tmpdir. `compileall -q app tests` и `git diff --check` успешны. Exact-head CI пройдёт в G01.
 - F03 закрыт локально. Следующий шаг — G00, сквозные сценарии продукта через публичные runtime/Telegram пути.
+
+# 2026-10-17 — модуль G00, сквозная приёмка
+
+- Добавлен `tests/test_product_workbench_acceptance.py`: через публичный `AssistantButtonHandlerService` проходят обзор → фильтр «Пробелы данных» → точное добавление двух товаров → пакетная цель → исправление отсутствующей себестоимости как локального допущения → анализ чувствительности → JSON пакетного плана и CSV/JSON чувствительности. Используются настоящие `ProductOverviewService`, `UnitPriceBatchPlanService`, `UnitPriceScenarioService`, target solver, Telegram batch/sensitivity runtimes и export serializers с fake источниками.
+- Счётчики подтверждают неизменность источников после загрузки: один query обзора, один catalog read и ровно по одному snapshot на выбранный SKU. Экспортированные документы помечены read-only, `executed=False`; локальная себестоимость зафиксирована в ручной provenance строке плана.
+- Периодная сквозная проверка соединяет finalized comparison, CSV/JSON и support diagnostic JSON; один и тот же query остаётся ровно один. Main-menu regression проверяет доступность прежних разделов рядом с новым обзором.
+- Локальный G00 профиль по семи связанным test modules: **54 passed, 1 deselected**. Единственный deselected — ранее известный factory test с `tmp_path`; он исключён при `-p no:tmpdir` из-за ACL Windows temp root. Все новые G00 acceptance cases прошли. Compileall и `git diff --check` — успешно.
+- `data/tasks.json`, `data/users.json` и существующие ACL-limited temp/lock пути не добавлялись к тестовым изменениям и не менялись намеренно.
+- G00 закрыт локально. Следующий шаг: G01 — сверить allowlist текущего diff и данные, выполнить полный pytest и compileall, подготовить точный финальный SHA, push branches и получить зелёный Windows/Linux full CI и Docker smoke.
+
+# 2026-10-18 — модуль G01, полный локальный прогон и PR F
+
+- Полный локальный Windows pytest завершился результатом **3 018 passed, 22 failed, 369 errors**. Из 22 падений 21 относятся к ранее недоступному system `%TEMP%`: пять затронутых групп используют `TemporaryDirectory`, SQLite отвечает `unable to open database file`, а cleanup завершается `WinError 5`. Оставшаяся ошибка была устаревшей проверкой списка главного меню после добавления F02 кнопки версии; исправлена только assertion, коммит `55db3e60`.
+- После исправления целевой regression-профиль нового G00 и меню: **21 passed, 1 deselected**; deselected — только прежний factory test, требующий ACL-bound `tmp_path`. `compileall -q app tests` и `git diff --check` прошли.
+- F branch опубликована и оформлена как PR #702, stacked на PR #701. Точный head `55db3e60fda3c3080051da2fbea1902091a4bfff`; Verify run `39069168434` queued на момент записи. PR #702 открыт и не слит.
+- Для разделения review создана ветка G поверх F head. `data/tasks.json`, `data/users.json`, ACL-bound temp и lock файлы остаются вне индекса.
+- Следующее: закоммитить только G allowlist, открыть PR #703 stacked на #702, получить exact-head Windows/Linux/Docker CI для обоих PR, затем выполнить G02 review handoff без merge/deploy.

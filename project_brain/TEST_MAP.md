@@ -5281,3 +5281,16 @@ Focused local result: **75 passed**. `compileall -q app tests` and `git diff --c
 - `tests/test_telegram_unit_price_batch_plan_runtime_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: exports include all 8 batch rows / 9 matrix cells; one-time callbacks and no source reload.
 - `tests/test_telegram_cost_table_transport.py`: public Telegram callback delivers analytics export with the read-only caption; legacy cost export and send-failure behavior remain covered.
 - Combined E00–E04 profile: **73 passed**; `compileall -q app tests` and `git diff --check` passed. Clean Windows/Linux full verification and Docker smoke remain required on exact PR head.
+
+# Product workbench cross-feature acceptance — G00
+
+Added:
+
+- `tests/test_product_workbench_acceptance.py`: runs the public Telegram handler through overview filtering, exact product selection, real batch-plan calculator with a local missing-cost correction, sensitivity sweep, and complete batch/sensitivity exports. Verifies one overview query, one catalog read, exactly one snapshot read per selected SKU, and read-only document results.
+
+Updated:
+
+- `tests/test_period_profit_analytics_runtime.py`: connects the finalized period comparison with cached CSV/JSON and support-diagnostic JSON; asserts the period query runs once.
+- `tests/test_product_overview_telegram_flow.py`: checks that legacy main-menu sections remain available alongside workbench navigation.
+
+G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact-head CI/full pytest and Docker smoke remain required in G01.
