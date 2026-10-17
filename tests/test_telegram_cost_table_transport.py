@@ -60,6 +60,30 @@ def test_failed_document_delivery_does_not_report_success():
     assert "Таблица готова" not in message.texts[0][0]
 
 
+def test_failed_support_diagnostic_delivery_does_not_report_success():
+    class FailingMessage(_Message):
+        async def reply_document(self, **kwargs):
+            raise RuntimeError("transport unavailable")
+
+    message = FailingMessage()
+    result = {
+        "error": False,
+        "message": "Обезличенная диагностика готова",
+        "filename": "period_profit_support_diagnostic.json",
+        "mime_type": "application/json",
+        "document_kind": "support_diagnostic",
+        "file_content": b'{"schema":"period_profit_support_diagnostic"}',
+    }
+
+    outcome = asyncio.run(telegram_api_bot._send_result(message, result))
+
+    assert outcome["status"] == "TELEGRAM_DOCUMENT_SEND_FAILED"
+    assert len(message.documents) == 0
+    assert len(message.texts) == 1
+    assert "не удалось отправить" in message.texts[0][0].lower()
+    assert "диагностика готова" not in message.texts[0][0].lower()
+
+
 def test_analytics_export_document_uses_read_only_caption():
     message = _Message()
     payload = b'{"document_kind":"owner_analytics_export"}'

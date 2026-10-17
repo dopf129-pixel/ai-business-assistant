@@ -2,6 +2,9 @@ import json
 import threading
 from datetime import datetime, timezone
 
+import pytest
+import requests
+
 from api.base_ozon_client import OzonClient
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -301,6 +304,59 @@ def test_ozon_request_uses_remaining_operation_budget_and_stops_at_call_limit(
     assert first == {"ok": True}
     assert observed_timeouts == [5.0]
     assert second["code"] == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code"),
+    [
+        ("http_429", "OZON_RATE_LIMITED"),
+        ("timeout", "OZON_API_TIMEOUT"),
+    ],
+)
+def test_http_failure_trace_keeps_exact_attempt_and_excludes_private_details(
+    monkeypatch, failure, expected_code
+):
+    class _Response:
+        status_code = 429
+        headers = {}
+
+    class _Client(OzonClient):
+        def __init__(self):
+            self.base_url = "https://example.invalid"
+            self.client_id = "private-client-id"
+            self.api_key = "private-api-key"
+
+    def post(*_args, **_kwargs):
+        if failure == "timeout":
+            raise requests.exceptions.Timeout("private timeout detail")
+        return _Response()
+
+    monkeypatch.setattr("api.base_ozon_client.requests.post", post)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=30, ozon_request_budget=4
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = _Client()._post(
+            "/private?token=private-token", {}, max_attempts=1
+        )
+        public = trace.public_summary()
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["code"] == expected_code
+    assert public["http_attempts"] == 1
+    assert public["http_attempt_cap"] == 4
+    assert public["events_total"] == 1
+    serialized = json.dumps(public)
+    for secret in (
+        "private-client-id",
+        "private-api-key",
+        "private-token",
+        "private timeout detail",
+        "example.invalid",
+    ):
+        assert secret not in serialized
 
 
 def test_http_client_uses_parent_cap_inside_nested_source_trace(monkeypatch):

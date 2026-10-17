@@ -427,6 +427,8 @@ def test_diagnostic_screen_uses_exact_cached_report_without_source_calls():
         )
 
         assert diagnostic["status"] == "PERIOD_PROFIT_DIAGNOSTICS_READY"
+        assert diagnostic["read_only"] is True
+        assert diagnostic["executed"] is False
         assert "HTTP-попытки 1/4" in diagnostic["text"]
         assert "1 завершено, 0 неизвестно из 1 попыток" in diagnostic["text"]
         assert "private-posting-id" not in diagnostic["text"]
@@ -503,6 +505,8 @@ def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_doc
         )
         assert export["error"] is False
         assert export["document_kind"] == "support_diagnostic"
+        assert export["read_only"] is True
+        assert export["executed"] is False
         assert prepare_telegram_document(export)["mime_type"] == "application/json"
         payload = export["file_content"].decode("utf-8")
         document = json.loads(payload)
@@ -521,6 +525,39 @@ def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_doc
         assert "489721" not in payload
         assert other_user["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
         assert other_store["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_support_export_expires_without_refreshing_sources():
+    class Clock:
+        now = 100.0
+
+        def __call__(self):
+            return self.now
+
+    class Query:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, **_kwargs):
+            self.calls += 1
+            return _result()
+
+    clock = Clock()
+    query = Query()
+    runtime = AssistantPeriodProfitRuntimeService(query, clock=clock)
+    tenant_token = set_current_tenant_user_id("store-A")
+    try:
+        report = runtime.handle_text("прибыль за 28 дней", user_id="telegram-user")
+        clock.now += runtime.REPORT_VIEW_TTL_SECONDS + 1
+
+        exported = runtime.export_support_diagnostic(
+            report["report_view_id"], user_id="telegram-user"
+        )
+
+        assert exported["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
         assert query.calls == 1
     finally:
         reset_current_tenant_user_id(tenant_token)
