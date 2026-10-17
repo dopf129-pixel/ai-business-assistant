@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from threading import Event, Thread
 
 from services.product_overview_service import ProductOverviewService
 from services.scoped_transient_snapshot_store import ScopedTransientSnapshotStore
@@ -68,6 +69,24 @@ class _DecisionQuery:
     def query_selected_products(self, selectors):
         self.calls.append(list(selectors))
         return {"error": False, "rows": list(self.rows)}
+
+    def query_catalog_group(self, offset=0, limit=20):
+        self.calls.append(("catalog_group", offset, limit))
+        selected = list(self.rows[offset : offset + limit])
+        return {
+            "error": False,
+            "rows": selected,
+            "selection_scope": {
+                "mode": "FIRST_SORTED_CATALOG_GROUP",
+                "sort_by": "offer_id_then_catalog_sku",
+                "selected_count": len(selected),
+                "catalog_identity_count": len(self.rows),
+                "offset": offset,
+                "has_previous_group": offset > 0,
+                "has_next_group": offset + len(selected) < len(self.rows),
+                "limit": limit,
+            },
+        }
 
 
 def _service(rows):
@@ -457,3 +476,158 @@ def test_sort_keeps_unknown_numeric_values_after_known_and_pages_filtered_count(
     assert third["pagination"]["has_previous"] is True
     assert invalid["code"] == "PRODUCT_OVERVIEW_FILTER_INVALID"
     assert query.calls == [["b", "unknown", "a"]]
+
+
+def test_short_view_token_routes_to_snapshot_row_and_expires_after_refresh():
+    rows = [
+        _row("offer-a", identity={"product_id": "1", "offer_id": "offer-a", "catalog_sku": "sku-a"}),
+        _row("offer-b", identity={"product_id": "2", "offer_id": "offer-b", "catalog_sku": "sku-b"}),
+    ]
+    service, _store, query = _service(rows)
+    tenant = _tenant()
+    try:
+        first = service.create_catalog_group_snapshot(limit=1, page_size=1)
+        token = first["snapshot"]["view_token"]
+        assert len(token) == 8
+        assert service.get_row_by_token(token, first["rows"][0]["row_id"])["row"]["selector"] == "offer-a"
+        page = service.get_page_by_token(token, page=1, page_size=1)
+        assert page["rows"][0]["selector"] == "offer-a"
+
+        second = service.next_catalog_group(token, direction=1, limit=1, page_size=1)
+        assert second["rows"][0]["selector"] == "offer-b"
+        stale = service.get_row_by_token(token, first["rows"][0]["row_id"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert stale["error"] is True
+    assert stale["code"] == "PRODUCT_OVERVIEW_VIEW_STALE"
+    assert query.calls == [
+        ("catalog_group", 0, 1),
+        ("catalog_group", 1, 1),
+    ]
+
+
+def test_view_token_is_owner_store_scoped_and_basket_deduplicates_exact_identity():
+    service, _store, _query = _service([_row("hook-2")])
+    tenant = _tenant()
+    try:
+        created = service.create_snapshot(["hook-2"])
+        token = created["snapshot"]["view_token"]
+        row_id = created["rows"][0]["row_id"]
+        first = service.add_row_to_price_plan(token, row_id)
+        duplicate = service.add_row_to_price_plan(token, row_id)
+        selection = service.get_price_plan_selection()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert first["error"] is False
+    assert first["selected_count"] == 1
+    assert duplicate["code"] == "PRODUCT_OVERVIEW_PLAN_ITEM_ALREADY_SELECTED"
+    assert selection["selected_count"] == 1
+    assert selection["items"][0]["identity"]["catalog_sku"] == "9001"
+
+    other_store = _tenant("owner-1::ozon::store-2")
+    try:
+        foreign = service.get_row_by_token(token, row_id)
+        isolated = service.get_price_plan_selection()
+    finally:
+        reset_current_tenant_user_id(other_store)
+
+    assert foreign["error"] is True
+    assert foreign["code"] == "PRODUCT_OVERVIEW_VIEW_STALE"
+    assert isolated["selected_count"] == 0
+
+    other_owner = _tenant("owner-2::ozon::store-1")
+    try:
+        foreign_owner = service.get_row_by_token(token, row_id)
+    finally:
+        reset_current_tenant_user_id(other_owner)
+    assert foreign_owner["error"] is True
+    assert foreign_owner["code"] == "PRODUCT_OVERVIEW_VIEW_STALE"
+
+
+def test_price_plan_selection_caps_at_ten_exact_unique_products():
+    rows = [
+        _row(f"offer-{index}", identity={
+            "product_id": str(index),
+            "offer_id": f"offer-{index}",
+            "catalog_sku": f"sku-{index}",
+        })
+        for index in range(11)
+    ]
+    service, _store, _query = _service(rows)
+    tenant = _tenant()
+    try:
+        created = service.create_snapshot(
+            [row["selector"] for row in rows], page_size=20
+        )
+        results = [
+            service.add_row_to_price_plan(
+                created["snapshot"]["view_token"], row["row_id"]
+            )
+            for row in created["rows"]
+        ]
+        selection = service.get_price_plan_selection()
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert all(result["error"] is False for result in results[:10])
+    assert results[-1]["code"] == "PRODUCT_OVERVIEW_PLAN_SELECTION_LIMIT_EXCEEDED"
+    assert selection["selected_count"] == 10
+
+
+def test_concurrent_catalog_refresh_only_publishes_latest_generation():
+    first_started = Event()
+    release_first = Event()
+
+    class ConcurrentQuery:
+        def query_catalog_group(self, offset=0, limit=20):
+            if offset == 0:
+                first_started.set()
+                assert release_first.wait(3)
+                row = _row("first", identity={
+                    "product_id": "1", "offer_id": "first", "catalog_sku": "sku-1"
+                })
+            else:
+                row = _row("second", identity={
+                    "product_id": "2", "offer_id": "second", "catalog_sku": "sku-2"
+                })
+            return {
+                "error": False,
+                "rows": [row],
+                "selection_scope": {
+                    "mode": "FIRST_SORTED_CATALOG_GROUP",
+                    "sort_by": "offer_id_then_catalog_sku",
+                    "selected_count": 1,
+                    "catalog_identity_count": 2,
+                    "offset": offset,
+                    "has_previous_group": offset > 0,
+                    "has_next_group": offset == 0,
+                    "limit": 1,
+                },
+            }
+
+    tenant_provider = lambda: "owner-1::ozon::store-1"
+    store = ScopedTransientSnapshotStore(tenant_scope_provider=tenant_provider)
+    service = ProductOverviewService(
+        ConcurrentQuery(),
+        store,
+        tenant_scope_provider=tenant_provider,
+    )
+    results = {}
+    first_thread = Thread(
+        target=lambda: results.setdefault(
+            "first", service.create_catalog_group_snapshot(offset=0, limit=1)
+        )
+    )
+    first_thread.start()
+    assert first_started.wait(3)
+    results["second"] = service.create_catalog_group_snapshot(offset=1, limit=1)
+    release_first.set()
+    first_thread.join(3)
+
+    assert not first_thread.is_alive()
+    assert results["second"]["error"] is False
+    assert results["second"]["rows"][0]["selector"] == "second"
+    assert results["first"]["error"] is True
+    assert results["first"]["code"] == "TRANSIENT_SNAPSHOT_GENERATION_STALE"

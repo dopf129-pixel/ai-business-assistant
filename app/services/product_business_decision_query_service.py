@@ -451,6 +451,87 @@ class ProductBusinessDecisionQueryService:
                 "PRODUCT_DECISION_CATALOG_INVALID"
             )
 
+        return self._query_selected_products_from_catalog(requested, products)
+
+    def query_catalog_group(self, offset=0, limit=20):
+        """Return the first bounded catalog group in stable identity order.
+
+        This is intentionally a visible catalog group, not a claim that the
+        selected rows represent all products or the best products in a store.
+        """
+        tenant_scope = str(get_current_tenant_user_id() or "").strip()
+        if not tenant_scope:
+            return self._selected_products_error(
+                "PRODUCT_DECISION_TENANT_REQUIRED"
+            )
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= self.MAX_SELECTED_PRODUCTS
+            or type(offset) is not int
+            or not 0 <= offset <= 10000
+        ):
+            return self._selected_products_error(
+                "PRODUCT_DECISION_SELECTION_LIMIT_EXCEEDED"
+            )
+        try:
+            products = self.product_service.load_products() or []
+        except Exception:
+            return self._selected_products_error(
+                "PRODUCT_DECISION_CATALOG_UNAVAILABLE"
+            )
+        if not isinstance(products, (list, tuple)):
+            return self._selected_products_error(
+                "PRODUCT_DECISION_CATALOG_INVALID"
+            )
+
+        candidates = {}
+        for raw_product in products:
+            product = self._normalize_product(raw_product)
+            if product is None:
+                continue
+            identity = self._selected_product_identity(product)
+            if identity is None:
+                continue
+            selector = identity["offer_id"] or identity["catalog_sku"]
+            identity_key = (
+                identity["product_id"],
+                identity["offer_id"],
+                identity["catalog_sku"],
+            )
+            candidates[identity_key] = (selector, product, identity)
+        ordered = sorted(
+            candidates.values(),
+            key=lambda item: (
+                str(item[0]).casefold(),
+                item[1].get("offer_id") is None,
+                str(item[2].get("catalog_sku") or "").casefold(),
+                str(item[2].get("product_id") or ""),
+            ),
+        )
+        selected = ordered[offset : offset + limit]
+        selectors = [item[0] for item in selected]
+        result = self._query_selected_products_from_catalog(
+            selectors, products
+        )
+        if result.get("error") is False:
+            result["selection_scope"] = {
+                "mode": "FIRST_SORTED_CATALOG_GROUP",
+                "sort_by": "offer_id_then_catalog_sku",
+                "selected_count": len(selected),
+                "catalog_identity_count": len(ordered),
+                "offset": offset,
+                "has_previous_group": offset > 0,
+                "has_next_group": offset + len(selected) < len(ordered),
+                "limit": limit,
+            }
+        return result
+
+    def query_first_products(self, limit=20):
+        """Compatibility wrapper for the first catalog group."""
+        return self.query_catalog_group(offset=0, limit=limit)
+
+    def _query_selected_products_from_catalog(self, requested, products):
+
         by_selector = {selector: {} for selector in requested}
         for raw_product in products:
             product = self._normalize_product(raw_product)

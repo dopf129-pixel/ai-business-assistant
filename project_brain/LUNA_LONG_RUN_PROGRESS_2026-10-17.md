@@ -93,7 +93,7 @@
 - Порог возраста не придуман. `ProductBusinessDecisionQueryService` передаёт проверенную метаинформацию unit-economics cache, а обзор маркирует stale только при явном `cache.status=stale`. Невалидная/неполная freshness остаётся в отдельном фильтре без превращения неизвестного в ноль.
 - Priority sort сохраняет стабильный порядок identity; числовая сортировка выводит unknown после числовых значений и стабилизирует ties по identity. Ответ показывает размер scope и отфильтрованной группы, параметры сортировки и номер страницы.
 - Проверка B02 вместе с B01/B00/provider/cache/factory regressions: **75 passed**; `compileall` и `git diff --check` успешны. Pagination/filter/sort не повторяют query; тесты сверяют вызов источников ровно один раз.
-- Следующий шаг: B03 — Telegram entry/card navigation, stale callbacks и переход в текущую карточку/price-planning flow.
+- B03 завершён: Telegram entry/card navigation, stale callbacks, price-plan basket и подтверждение замены активного price scenario. Проверка B03 — 88 passed; следующий шаг B04 — расширить edge/factory acceptance.
 
 ## Матрица этапов
 
@@ -109,8 +109,8 @@
 | B00 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | public bounded selected-row query; **53 passed, 1 ACL-bound deselected** | code + regression; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B01 |
 | B01 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | bounded snapshot builder/pages; **69 passed**, compileall/diff-check passed | code + tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B02 |
 | B02 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | snapshot-only filters/sorts, exact source freshness; **75 passed**, compileall/diff-check passed | code + tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B03 |
-| B03 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | Telegram route/card design | this journal | handler, keyboard and stale callback flow |
-| B04 | NOT_STARTED | — | — | — | приёмка обзора |
+| B03 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | Main-menu entry, group navigation, snapshot-only controls, row/completeness screens, basket for up to 10 exact catalog identities, and version-bound confirmation before replacing an active price scenario; **88 passed**, compileall passed | selected query, overview, Telegram handler/keyboard, price runtime, factory; regressions; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B04 boundary + public factory acceptance |
+| B04 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | Boundary/public-route acceptance: 0/1/20/21, partial/failure rows, budget exhaustion, concurrent generations, owner/store tokens, 10-item basket, message/callback bounds, factory/menu; **93 target passed**; related product suite **1,018 passed, 12 ACL-bound `tmp_path` tests deselected**; `compileall app`, diff-check passed | this journal; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; tests | B00–B04 locally verified. Clean exact-head CI must run all tests. Next C00 |
 | C00 | NOT_STARTED | — | — | — | зависит от A04 |
 | C01 | NOT_STARTED | — | — | — | зависит от C00 |
 | C02 | NOT_STARTED | — | — | — | зависит от C01 |

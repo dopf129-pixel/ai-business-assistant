@@ -100,6 +100,24 @@ def _activate(store="store-1"):
     return set_current_tenant_user_id(f"user-1::ozon::{store}")
 
 
+def test_active_scenario_identity_supports_explicit_replacement_guard():
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        button = runtime.build_product_entry_button("user-1", "3921245627")
+        created = runtime.handle_callback(button["callback"], user_id="user-1")
+        identity = runtime.active_scenario_identity("user-1")
+        wrong_user = runtime.active_scenario_identity("user-2")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert created["error"] is False
+    assert identity["scenario_id"]
+    assert identity["version"] == 1
+    assert identity["tenant_scope"] == "user-1::ozon::store-1"
+    assert wrong_user is None
+
+
 def _find_button(result, text):
     return next(
         item for item in result["keyboard"]["buttons"]

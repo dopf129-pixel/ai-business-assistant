@@ -2,8 +2,12 @@
 
 import hashlib
 import json
+from collections import OrderedDict
 from datetime import datetime, timezone
 from math import isfinite
+from secrets import token_hex
+from threading import RLock
+from time import monotonic
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
@@ -14,6 +18,10 @@ class ProductOverviewService:
     MAX_SELECTION = 20
     DEFAULT_PAGE_SIZE = 5
     MAX_PAGE_SIZE = 20
+    MAX_VIEW_TOKENS = 64
+    MAX_PRICE_PLAN_ITEMS = 10
+    MAX_PRICE_PLAN_SCOPES = 64
+    VIEW_TOKEN_TTL_SECONDS = 600
 
     _METRIC_UNITS = {
         "sales_velocity": "units_per_day",
@@ -79,6 +87,7 @@ class ProductOverviewService:
         snapshot_store,
         tenant_scope_provider=None,
         utc_now=None,
+        clock=None,
     ):
         self.decision_query = decision_query
         self.snapshot_store = snapshot_store
@@ -86,6 +95,11 @@ class ProductOverviewService:
             tenant_scope_provider or get_current_tenant_user_id
         )
         self.utc_now = utc_now or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or monotonic
+        self._view_tokens = OrderedDict()
+        self._plan_actions = OrderedDict()
+        self._price_plan_selections = OrderedDict()
+        self._token_lock = RLock()
 
     def create_snapshot(
         self,
@@ -130,6 +144,92 @@ class ProductOverviewService:
         if not isinstance(raw_rows, list):
             return self._error("PRODUCT_OVERVIEW_SOURCE_RESULT_INVALID")
 
+        return self._persist_query_result(
+            result,
+            owner_id,
+            store_id,
+            generation,
+            page,
+            page_size,
+            filter_by,
+            sort_by,
+            direction,
+        )
+
+    def create_catalog_group_snapshot(
+        self,
+        offset=0,
+        limit=20,
+        page=1,
+        page_size=None,
+        filter_by="all_selected",
+        sort_by="priority",
+        direction=None,
+    ):
+        page_size = self.DEFAULT_PAGE_SIZE if page_size is None else page_size
+        validation_error = self._validate_request_options(
+            page, page_size, filter_by, sort_by, direction
+        )
+        if validation_error:
+            return self._error(validation_error)
+        if (
+            type(offset) is not int
+            or offset < 0
+            or type(limit) is not int
+            or not 1 <= limit <= self.MAX_SELECTION
+        ):
+            return self._error("PRODUCT_OVERVIEW_CATALOG_GROUP_INVALID")
+
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        generation_result = self.snapshot_store.begin_generation(
+            owner_id,
+            store_id,
+            self.SNAPSHOT_KIND,
+        )
+        if generation_result.get("error"):
+            return self._error(generation_result.get("code"))
+        try:
+            result = self.decision_query.query_catalog_group(
+                offset=offset,
+                limit=limit,
+            )
+        except Exception:
+            return self._error("PRODUCT_OVERVIEW_SOURCE_UNAVAILABLE")
+        if not isinstance(result, dict) or result.get("error") is True:
+            return self._error(
+                (result or {}).get("code")
+                if isinstance(result, dict)
+                else "PRODUCT_OVERVIEW_SOURCE_RESULT_INVALID"
+            )
+        return self._persist_query_result(
+            result,
+            owner_id,
+            store_id,
+            generation_result.get("generation"),
+            page,
+            page_size,
+            filter_by,
+            sort_by,
+            direction,
+        )
+
+    def _persist_query_result(
+        self,
+        result,
+        owner_id,
+        store_id,
+        generation,
+        page,
+        page_size,
+        filter_by,
+        sort_by,
+        direction,
+    ):
+        raw_rows = result.get("rows")
+        if not isinstance(raw_rows, list):
+            return self._error("PRODUCT_OVERVIEW_SOURCE_RESULT_INVALID")
         captured_at = self._captured_at()
         rows, duplicate_identity_count = self._project_rows(
             raw_rows,
@@ -138,6 +238,22 @@ class ProductOverviewService:
             captured_at=captured_at,
         )
         coverage = self._coverage(rows, duplicate_identity_count)
+        selection_scope = result.get("selection_scope")
+        if isinstance(selection_scope, dict):
+            coverage["selection_scope"] = {
+                key: value
+                for key, value in selection_scope.items()
+                if key in {
+                    "mode",
+                    "sort_by",
+                    "selected_count",
+                    "catalog_identity_count",
+                    "offset",
+                    "has_previous_group",
+                    "has_next_group",
+                    "limit",
+                }
+            }
         source_freshness = self._source_freshness(rows, captured_at)
         stored = self.snapshot_store.put_snapshot(
             owner_id=owner_id,
@@ -151,9 +267,305 @@ class ProductOverviewService:
         )
         if stored.get("error"):
             return self._error(stored.get("code"))
-        return self._page_result(
+        result = self._page_result(
             stored["snapshot"], page, page_size, filter_by, sort_by, direction
         )
+        if result.get("error") is not True:
+            token = self._register_view(stored["snapshot"])
+            if token is None:
+                return self._error("PRODUCT_OVERVIEW_VIEW_TOKEN_UNAVAILABLE")
+            result["snapshot"]["view_token"] = token
+        return result
+
+    def get_page_by_token(
+        self,
+        token,
+        page=1,
+        page_size=None,
+        filter_by="all_selected",
+        sort_by="priority",
+        direction=None,
+    ):
+        view = self._load_view(token)
+        if view.get("error"):
+            return view
+        result = self.get_page(
+            snapshot_id=view["snapshot_id"],
+            generation=view["generation"],
+            version=view["version"],
+            page=page,
+            page_size=page_size,
+            filter_by=filter_by,
+            sort_by=sort_by,
+            direction=direction,
+        )
+        if result.get("code") in {
+            "TRANSIENT_SNAPSHOT_STALE",
+            "TRANSIENT_SNAPSHOT_EXPIRED",
+            "TRANSIENT_SNAPSHOT_GENERATION_STALE",
+        }:
+            return self._error("PRODUCT_OVERVIEW_VIEW_STALE")
+        if result.get("error") is False:
+            result["snapshot"]["view_token"] = str(token)
+        return result
+
+    def get_row_by_token(self, token, row_id):
+        if not isinstance(row_id, str) or not row_id:
+            return self._error("PRODUCT_OVERVIEW_ROW_INVALID")
+        result = self.get_page_by_token(
+            token,
+            page=1,
+            page_size=self.MAX_SELECTION,
+        )
+        if result.get("error"):
+            return result
+        row = next(
+            (row for row in result["rows"] if row.get("row_id") == row_id),
+            None,
+        )
+        if row is None:
+            return self._error("PRODUCT_OVERVIEW_ROW_STALE")
+        return {"error": False, "row": row, "read_only": True, "executed": False}
+
+    def refresh_by_token(self, token, **options):
+        view = self._load_view(token)
+        if view.get("error"):
+            return view
+        loaded = self.snapshot_store.get_snapshot(
+            snapshot_id=view["snapshot_id"],
+            owner_id=view["owner_id"],
+            store_id=view["store_id"],
+            kind=self.SNAPSHOT_KIND,
+            generation=view["generation"],
+            version=view["version"],
+        )
+        if loaded.get("error"):
+            return self._error(loaded.get("code"))
+        snapshot = loaded["snapshot"]
+        group = (snapshot.get("coverage") or {}).get("selection_scope") or {}
+        if group.get("mode") == "FIRST_SORTED_CATALOG_GROUP":
+            return self.create_catalog_group_snapshot(
+                offset=group.get("offset", 0),
+                limit=group.get("limit", self.MAX_SELECTION),
+                **options,
+            )
+        selectors = [row["selector"] for row in snapshot.get("rows") or [] if row.get("selector")]
+        return self.create_snapshot(selectors, **options)
+
+    def next_catalog_group(self, token, direction=1, **options):
+        options.pop("limit", None)
+        if direction not in (-1, 1):
+            return self._error("PRODUCT_OVERVIEW_CATALOG_GROUP_INVALID")
+        view = self._load_view(token)
+        if view.get("error"):
+            return view
+        loaded = self.snapshot_store.get_snapshot(
+            snapshot_id=view["snapshot_id"],
+            owner_id=view["owner_id"],
+            store_id=view["store_id"],
+            kind=self.SNAPSHOT_KIND,
+            generation=view["generation"],
+            version=view["version"],
+        )
+        if loaded.get("error"):
+            return self._error(loaded.get("code"))
+        group = (loaded["snapshot"].get("coverage") or {}).get("selection_scope") or {}
+        if group.get("mode") != "FIRST_SORTED_CATALOG_GROUP":
+            return self._error("PRODUCT_OVERVIEW_CATALOG_GROUP_UNAVAILABLE")
+        offset = group.get("offset", 0) + direction * group.get("limit", self.MAX_SELECTION)
+        if offset < 0 or (direction > 0 and not group.get("has_next_group")):
+            return self._error("PRODUCT_OVERVIEW_CATALOG_GROUP_OUT_OF_RANGE")
+        if direction < 0 and not group.get("has_previous_group"):
+            return self._error("PRODUCT_OVERVIEW_CATALOG_GROUP_OUT_OF_RANGE")
+        return self.create_catalog_group_snapshot(
+            offset=offset,
+            limit=group.get("limit", self.MAX_SELECTION),
+            **options,
+        )
+
+    def add_row_to_price_plan(self, token, row_id):
+        resolved = self.get_row_by_token(token, row_id)
+        if resolved.get("error"):
+            return resolved
+        row = resolved["row"]
+        identity = row.get("identity") or {}
+        if not identity.get("catalog_sku"):
+            return self._error("PRODUCT_OVERVIEW_EXACT_CATALOG_ID_REQUIRED")
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        key = (owner_id, store_id)
+        now = self.clock()
+        item_key = tuple(identity.get(field) for field in (
+            "product_id", "offer_id", "catalog_sku"
+        ))
+        with self._token_lock:
+            current = self._price_plan_selections.get(key)
+            if not isinstance(current, dict) or now - current.get("created_at", 0) > self.VIEW_TOKEN_TTL_SECONDS:
+                current = {"created_at": now, "items": []}
+            else:
+                self._price_plan_selections.move_to_end(key)
+            items = list(current["items"])
+            if any(item.get("identity_key") == item_key for item in items):
+                return {
+                    "error": False,
+                    "code": "PRODUCT_OVERVIEW_PLAN_ITEM_ALREADY_SELECTED",
+                    "selected_count": len(items),
+                    "row": row,
+                    "read_only": True,
+                    "executed": False,
+                }
+            if len(items) >= self.MAX_PRICE_PLAN_ITEMS:
+                return self._error("PRODUCT_OVERVIEW_PLAN_SELECTION_LIMIT_EXCEEDED")
+            items.append({"identity": identity, "identity_key": item_key})
+            self._price_plan_selections[key] = {
+                "created_at": now,
+                "items": items,
+            }
+            self._price_plan_selections.move_to_end(key)
+            while len(self._price_plan_selections) > self.MAX_PRICE_PLAN_SCOPES:
+                self._price_plan_selections.popitem(last=False)
+        return {
+            "error": False,
+            "code": None,
+            "selected_count": len(items),
+            "row": row,
+            "read_only": True,
+            "executed": False,
+        }
+
+    def get_price_plan_selection(self):
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        key = (owner_id, store_id)
+        with self._token_lock:
+            current = self._price_plan_selections.get(key)
+            if not isinstance(current, dict):
+                items = []
+            elif self.clock() - current.get("created_at", 0) > self.VIEW_TOKEN_TTL_SECONDS:
+                self._price_plan_selections.pop(key, None)
+                items = []
+            else:
+                self._price_plan_selections.move_to_end(key)
+                items = current.get("items", [])
+            return {
+                "error": False,
+                "items": [{"identity": dict(item["identity"])} for item in items],
+                "selected_count": len(items),
+                "read_only": True,
+                "executed": False,
+            }
+
+    def register_price_plan_action(
+        self, view_token, row_id, callback, expected_scenario
+    ):
+        resolved = self.get_row_by_token(view_token, row_id)
+        if resolved.get("error"):
+            return resolved
+        if not isinstance(callback, str) or len(callback.encode("utf-8")) > 64:
+            return self._error("PRODUCT_OVERVIEW_ACTION_INVALID")
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        with self._token_lock:
+            action_token = self._unique_token_locked(self._plan_actions)
+            self._plan_actions[action_token] = {
+                "owner_id": owner_id,
+                "store_id": store_id,
+                "view_token": view_token,
+                "row_id": row_id,
+                "callback": callback,
+                "expected_scenario": expected_scenario,
+                "created_at": self.clock(),
+            }
+            self._plan_actions.move_to_end(action_token)
+            while len(self._plan_actions) > self.MAX_VIEW_TOKENS:
+                self._plan_actions.popitem(last=False)
+        return {
+            "error": False,
+            "callback": "pov:x:" + action_token,
+            "row": resolved["row"],
+            "read_only": True,
+            "executed": False,
+        }
+
+    def consume_price_plan_action(self, action_token):
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        with self._token_lock:
+            action = self._plan_actions.pop(str(action_token or ""), None)
+        if (
+            not isinstance(action, dict)
+            or action.get("owner_id") != owner_id
+            or action.get("store_id") != store_id
+            or self.clock() - action.get("created_at", 0) > self.VIEW_TOKEN_TTL_SECONDS
+        ):
+            return self._error("PRODUCT_OVERVIEW_ACTION_STALE")
+        resolved = self.get_row_by_token(action["view_token"], action["row_id"])
+        if resolved.get("error"):
+            return self._error("PRODUCT_OVERVIEW_ACTION_STALE")
+        return {
+            "error": False,
+            "callback": action["callback"],
+            "expected_scenario": action.get("expected_scenario"),
+            "row": resolved["row"],
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _register_view(self, snapshot):
+        owner_id = str(snapshot.get("owner_id") or "")
+        store_id = str(snapshot.get("store_id") or "")
+        if not owner_id or not store_id:
+            return None
+        with self._token_lock:
+            token = self._unique_token_locked(self._view_tokens)
+            self._view_tokens[token] = {
+                "owner_id": owner_id,
+                "store_id": store_id,
+                "snapshot_id": snapshot.get("snapshot_id"),
+                "generation": snapshot.get("generation"),
+                "version": snapshot.get("version"),
+                "created_at": self.clock(),
+            }
+            self._view_tokens.move_to_end(token)
+            while len(self._view_tokens) > self.MAX_VIEW_TOKENS:
+                self._view_tokens.popitem(last=False)
+        return token
+
+    @staticmethod
+    def _unique_token_locked(entries):
+        token = token_hex(4)
+        while token in entries:
+            token = token_hex(4)
+        return token
+
+    def _load_view(self, token):
+        if not isinstance(token, str) or len(token) != 8 or any(
+            char not in "0123456789abcdef" for char in token
+        ):
+            return self._error("PRODUCT_OVERVIEW_VIEW_STALE")
+        owner_id, store_id, scope_error = self._active_scope()
+        if scope_error:
+            return self._error(scope_error)
+        with self._token_lock:
+            view = self._view_tokens.get(token)
+            if isinstance(view, dict):
+                view = dict(view)
+                if self.clock() - view.get("created_at", 0) > self.VIEW_TOKEN_TTL_SECONDS:
+                    self._view_tokens.pop(token, None)
+                    view = None
+                else:
+                    self._view_tokens.move_to_end(token)
+        if (
+            not isinstance(view, dict)
+            or view.get("owner_id") != owner_id
+            or view.get("store_id") != store_id
+        ):
+            return self._error("PRODUCT_OVERVIEW_VIEW_STALE")
+        return {"error": False, **view}
 
     def get_page(
         self,

@@ -88,6 +88,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
         with self._lock:
             return (user, scope) in self._catalog_selection
 
+    def active_scenario_identity(self, user_id):
+        """Return the exact active scenario identity for guarded transitions."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return None
+        with self._lock:
+            scenario_id = self._active.get((user, scope))
+            session = self._scenarios.get(scenario_id) if scenario_id else None
+            if (
+                not isinstance(session, dict)
+                or session.get("user_id") != user
+                or session.get("tenant_scope") != scope
+                or self.clock() - session.get("updated_at", 0)
+                > self.session_ttl_seconds
+            ):
+                return None
+            return {
+                "scenario_id": session.get("scenario_id"),
+                "version": session.get("version"),
+                "tenant_scope": scope,
+            }
+
     def build_catalog_product_callback(self, user_id, product_reference):
         user, scope, context_error = self._context(user_id)
         if context_error:

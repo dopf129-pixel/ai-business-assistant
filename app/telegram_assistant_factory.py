@@ -363,6 +363,9 @@ def create_telegram_assistant():
             seller_attention_summary_service=(
                 seller_attention_summary_service
             ),
+            product_overview_service=(
+                product_overview_service
+            ),
         )
     )
 
@@ -482,8 +485,6 @@ def create_telegram_assistant():
     runner.seller_attention_summary_service = (
         seller_attention_summary_service
     )
-
-
     runner.product_business_decision_query = (
         product_business_decision_query
     )

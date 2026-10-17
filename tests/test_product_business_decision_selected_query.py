@@ -175,6 +175,89 @@ def test_selected_query_preserves_good_rows_when_one_source_fails():
     assert result["coverage"]["decision_ready_count"] == 1
 
 
+def test_catalog_group_is_stably_sorted_bounded_and_loads_catalog_once():
+    service, catalog, source, economics, lifecycle = _service([
+        {"product_id": "p3", "offer_id": "offer-c", "sku": "sku-c"},
+        {"product_id": "p1", "offer_id": "offer-a", "sku": "sku-a"},
+        {"product_id": "p2", "offer_id": "offer-b", "sku": "sku-b"},
+    ])
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_catalog_group(offset=1, limit=1)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["error"] is False
+    assert result["selection_scope"] == {
+        "mode": "FIRST_SORTED_CATALOG_GROUP",
+        "sort_by": "offer_id_then_catalog_sku",
+        "selected_count": 1,
+        "catalog_identity_count": 3,
+        "offset": 1,
+        "has_previous_group": True,
+        "has_next_group": True,
+        "limit": 1,
+    }
+    assert [row["selector"] for row in result["rows"]] == ["offer-b"]
+    assert catalog.calls == 1
+    assert source.sales_calls == [("offer-b", "p2")]
+    assert economics.calls == [("offer-b", "p2")]
+    assert lifecycle.calls == []
+
+
+def test_catalog_group_boundaries_zero_one_twenty_and_twenty_one():
+    for count in (0, 1, 20, 21):
+        products = [
+            {
+                "product_id": f"p{index:02}",
+                "offer_id": f"offer-{index:02}",
+                "sku": f"sku-{index:02}",
+            }
+            for index in range(count)
+        ]
+        service, catalog, _source, _economics, _lifecycle = _service(products)
+        tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+        try:
+            first = service.query_catalog_group(offset=0, limit=20)
+            next_group = (
+                service.query_catalog_group(offset=20, limit=20)
+                if first.get("selection_scope", {}).get("has_next_group")
+                else None
+            )
+        finally:
+            reset_current_tenant_user_id(tenant)
+
+        assert first["error"] is False
+        assert len(first["rows"]) == min(count, 20)
+        assert first["selection_scope"]["has_next_group"] is (count > 20)
+        assert catalog.calls == (2 if count > 20 else 1)
+        if count > 20:
+            assert len(next_group["rows"]) == 1
+            assert next_group["rows"][0]["selector"] == "offer-20"
+
+
+def test_catalog_group_marks_budget_exhaustion_without_claiming_rows_processed():
+    service, catalog, source, _economics, _lifecycle = _service([
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        {"product_id": "p2", "offer_id": "offer-2", "sku": "sku-2"},
+    ])
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    trace = PeriodProfitOperationTrace(ozon_request_budget=0)
+    trace_token = activate_period_profit_trace(trace)
+    try:
+        result = service.query_catalog_group(offset=0, limit=20)
+    finally:
+        reset_period_profit_trace(trace_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert catalog.calls == 1
+    assert [row["status"] for row in result["rows"]] == [
+        "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED"
+    ]
+    assert result["coverage"]["budget_unprocessed_count"] == 2
+    assert source.sales_calls == []
+
+
 def test_selected_query_preserves_explicit_stale_economics_cache_metadata():
     service, _catalog, _source, economics, _lifecycle = _service([
         {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
