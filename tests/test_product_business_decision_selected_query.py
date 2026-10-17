@@ -57,12 +57,13 @@ class _Metrics:
 
 
 class _Economics:
-    def __init__(self):
+    def __init__(self, cache=None):
         self.calls = []
+        self.cache = cache
 
     def query_for_product(self, sku, product):
         self.calls.append((sku, product["product_id"]))
-        return {
+        result = {
             "error": False,
             "available": True,
             "product_id": product["product_id"],
@@ -71,6 +72,9 @@ class _Economics:
             "margin_percent": 34.0,
             "missing_fields": [],
         }
+        if self.cache is not None:
+            result["cache"] = dict(self.cache)
+        return result
 
 
 class _LifecycleSpy:
@@ -169,6 +173,31 @@ def test_selected_query_preserves_good_rows_when_one_source_fails():
     assert result["rows"][1]["status"] == "READY"
     assert result["coverage"]["source_unavailable_count"] == 1
     assert result["coverage"]["decision_ready_count"] == 1
+
+
+def test_selected_query_preserves_explicit_stale_economics_cache_metadata():
+    service, _catalog, _source, economics, _lifecycle = _service([
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+    ])
+    economics.cache = {
+        "status": "stale",
+        "age_seconds": 900,
+        "ttl_seconds": 600,
+        "cached_at": "2026-10-17T09:00:00Z",
+    }
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_selected_products(["offer-1"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["rows"][0]["decision"]["unit_economics_cache"] == {
+        "status": "stale",
+        "stale": True,
+        "age_seconds": 900.0,
+        "ttl_seconds": 600.0,
+        "cached_at": "2026-10-17T09:00:00Z",
+    }
 
 
 def test_selected_query_requires_tenant_and_caps_selection_at_twenty():

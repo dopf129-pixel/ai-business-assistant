@@ -1476,6 +1476,27 @@ class ProductBusinessDecisionQueryService:
         if observed_at is not None:
             normalized["unit_economics_observed_at"] = observed_at
 
+        cache = result.get("cache")
+        if isinstance(cache, dict):
+            cache_status = cache.get("status")
+            if cache_status in {"hit", "miss", "stale"}:
+                cache_context = {
+                    "status": cache_status,
+                    "stale": cache_status == "stale",
+                }
+                for field in ("age_seconds", "ttl_seconds"):
+                    value = cache.get(field)
+                    if (
+                        type(value) in (int, float)
+                        and isfinite(float(value))
+                        and float(value) >= 0
+                    ):
+                        cache_context[field] = float(value)
+                cached_at = cache.get("cached_at")
+                if isinstance(cached_at, str) and cached_at.strip():
+                    cache_context["cached_at"] = cached_at.strip()[:80]
+                normalized["cache"] = cache_context
+
         return normalized
 
     def _metrics_context(self, prepared):
@@ -1507,24 +1528,30 @@ class ProductBusinessDecisionQueryService:
             return {}
 
         basis = economics.get("economics_basis")
-        if basis is None:
+        cache = economics.get("cache")
+        if basis is None and not isinstance(cache, dict):
             return {}
 
-        return {
-            "economics_basis": basis,
-            "decision_profit_per_unit": economics.get(
-                "net_profit_per_unit"
-            ),
-            "decision_margin_percent": economics.get(
-                "margin_percent"
-            ),
-            "returns_reserve_per_unit": economics.get(
-                "returns_reserve_per_unit"
-            ),
-            "returns_coverage_percent": economics.get(
-                "returns_coverage_percent"
-            ),
-        }
+        context = {}
+        if basis is not None:
+            context.update({
+                "economics_basis": basis,
+                "decision_profit_per_unit": economics.get(
+                    "net_profit_per_unit"
+                ),
+                "decision_margin_percent": economics.get(
+                    "margin_percent"
+                ),
+                "returns_reserve_per_unit": economics.get(
+                    "returns_reserve_per_unit"
+                ),
+                "returns_coverage_percent": economics.get(
+                    "returns_coverage_percent"
+                ),
+            })
+        if isinstance(cache, dict):
+            context["unit_economics_cache"] = deepcopy(cache)
+        return context
 
     def _error_result(self, code, sku, missing_data):
         return {

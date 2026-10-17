@@ -20,8 +20,32 @@ class ProductOverviewService:
         "sales_trend": "trend",
         "current_stock": "units",
         "days_of_stock": "days",
+        "stock_priority": "priority",
         "decision_profit_per_unit": "RUB_per_unit",
         "decision_margin_percent": "percent",
+    }
+    FILTERS = {
+        "all_selected",
+        "existing_priority",
+        "negative_unit_profit",
+        "low_margin_decision",
+        "stock_without_sales",
+        "incomplete_or_stale",
+    }
+    SORT_FIELDS = {
+        "priority",
+        "sales_velocity",
+        "current_stock",
+        "days_of_stock",
+        "decision_profit_per_unit",
+        "decision_margin_percent",
+    }
+    PRIORITY_ORDER = {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "NORMAL": 2,
+        "LOW": 3,
+        "NONE": 4,
     }
     _SOURCE_FIELDS = {
         "sales": (
@@ -63,9 +87,19 @@ class ProductOverviewService:
         )
         self.utc_now = utc_now or (lambda: datetime.now(timezone.utc))
 
-    def create_snapshot(self, selectors, page=1, page_size=None):
+    def create_snapshot(
+        self,
+        selectors,
+        page=1,
+        page_size=None,
+        filter_by="all_selected",
+        sort_by="priority",
+        direction=None,
+    ):
         page_size = self.DEFAULT_PAGE_SIZE if page_size is None else page_size
-        validation_error = self._validate_request(selectors, page, page_size)
+        validation_error = self._validate_request(
+            selectors, page, page_size, filter_by, sort_by, direction
+        )
         if validation_error:
             return self._error(validation_error)
 
@@ -117,7 +151,9 @@ class ProductOverviewService:
         )
         if stored.get("error"):
             return self._error(stored.get("code"))
-        return self._page_result(stored["snapshot"], page, page_size)
+        return self._page_result(
+            stored["snapshot"], page, page_size, filter_by, sort_by, direction
+        )
 
     def get_page(
         self,
@@ -126,9 +162,14 @@ class ProductOverviewService:
         version,
         page=1,
         page_size=None,
+        filter_by="all_selected",
+        sort_by="priority",
+        direction=None,
     ):
         page_size = self.DEFAULT_PAGE_SIZE if page_size is None else page_size
-        validation_error = self._validate_page(page, page_size)
+        validation_error = self._validate_request_options(
+            page, page_size, filter_by, sort_by, direction
+        )
         if validation_error:
             return self._error(validation_error)
         owner_id, store_id, scope_error = self._active_scope()
@@ -144,7 +185,9 @@ class ProductOverviewService:
         )
         if loaded.get("error"):
             return self._error(loaded.get("code"))
-        return self._page_result(loaded["snapshot"], page, page_size)
+        return self._page_result(
+            loaded["snapshot"], page, page_size, filter_by, sort_by, direction
+        )
 
     def _project_rows(self, raw_rows, owner_id, store_id, captured_at):
         rows = []
@@ -226,6 +269,20 @@ class ProductOverviewService:
                 source["freshness_status"] = "UNKNOWN"
                 source["age_seconds"] = None
             sources[source_name] = source
+        cache = decision.get("unit_economics_cache")
+        if isinstance(cache, dict):
+            cache_status = self._safe_text(cache.get("status"), limit=16)
+            if cache_status in {"hit", "miss", "stale"}:
+                sources["unit_economics"].update({
+                    "cache_status": cache_status,
+                    "cache_stale": cache_status == "stale",
+                    "cache_age_seconds": self._safe_non_negative_number(
+                        cache.get("age_seconds")
+                    ),
+                    "cache_ttl_seconds": self._safe_non_negative_number(
+                        cache.get("ttl_seconds")
+                    ),
+                })
         return sources
 
     def _project_metrics(self, decision):
@@ -233,7 +290,7 @@ class ProductOverviewService:
         metrics = {}
         for name, unit in self._METRIC_UNITS.items():
             value = decision.get(name)
-            if name == "sales_trend":
+            if name in {"sales_trend", "stock_priority"}:
                 value = self._safe_text(value, limit=32)
             else:
                 value = self._safe_number(value)
@@ -273,7 +330,7 @@ class ProductOverviewService:
             }
         return {
             "captured_at": captured_at,
-            "freshness_policy": "AGE_EXPOSED_NO_STALE_THRESHOLD_CONFIGURED",
+            "freshness_policy": "EXPLICIT_SOURCE_CACHE_STALE_ONLY",
             "sources": source_summary,
         }
 
@@ -296,8 +353,20 @@ class ProductOverviewService:
             "cancelled_count": statuses.count("CANCELLED"),
         }
 
-    def _page_result(self, snapshot, page, page_size):
-        rows = list(snapshot.get("rows") or [])
+    def _page_result(
+        self,
+        snapshot,
+        page,
+        page_size,
+        filter_by,
+        sort_by,
+        direction,
+    ):
+        all_rows = list(snapshot.get("rows") or [])
+        filtered = [
+            row for row in all_rows if self._matches_filter(row, filter_by)
+        ]
+        rows = self._sort_rows(filtered, sort_by, direction)
         total_rows = len(rows)
         total_pages = (total_rows + page_size - 1) // page_size
         if page > max(total_pages, 1):
@@ -327,6 +396,10 @@ class ProductOverviewService:
                 "page": page,
                 "page_size": page_size,
                 "total_rows": total_rows,
+                "scope_rows": len(all_rows),
+                "filter": filter_by,
+                "sort_by": sort_by,
+                "direction": self._effective_direction(sort_by, direction),
                 "total_pages": total_pages,
                 "has_previous": page > 1,
                 "has_next": page < total_pages,
@@ -334,6 +407,108 @@ class ProductOverviewService:
             "read_only": True,
             "executed": False,
         }
+
+    def _matches_filter(self, row, filter_by):
+        status = row.get("status")
+        decision = row.get("decision") or {}
+        reasons = set(decision.get("reasons") or [])
+        metrics = row.get("metrics") or {}
+        profit = self._metric_value(metrics, "decision_profit_per_unit")
+        if filter_by == "all_selected":
+            return True
+        if filter_by == "existing_priority":
+            return decision.get("priority") in {
+                "CRITICAL", "HIGH", "NORMAL", "LOW"
+            }
+        if filter_by == "negative_unit_profit":
+            return (
+                status == "READY"
+                and profit is not None
+                and profit < 0
+                and "NEGATIVE_UNIT_PROFIT" in reasons
+            )
+        if filter_by == "low_margin_decision":
+            return (
+                status == "READY"
+                and (
+                    "LOW_MARGIN" in reasons
+                    or decision.get("decision_type") == "WATCH_LOW_MARGIN"
+                )
+            )
+        if filter_by == "stock_without_sales":
+            stock = self._metric_value(metrics, "current_stock")
+            velocity = self._metric_value(metrics, "sales_velocity")
+            stock_priority = self._metric_value(metrics, "stock_priority")
+            return (
+                status == "READY"
+                and stock is not None
+                and stock > 0
+                and velocity == 0
+                and stock_priority == "NO_SALES"
+            )
+        if filter_by == "incomplete_or_stale":
+            sources = row.get("source_freshness") or {}
+            source_unknown = any(
+                source.get("freshness_status") == "UNKNOWN"
+                for source in sources.values()
+                if isinstance(source, dict)
+            )
+            unit_economics = sources.get("unit_economics") or {}
+            explicit_stale = unit_economics.get("cache_stale") is True
+            return (
+                status in {"INCOMPLETE", "SOURCE_UNAVAILABLE"}
+                or bool(row.get("missing_data"))
+                or source_unknown
+                or explicit_stale
+            )
+        return False
+
+    def _sort_rows(self, rows, sort_by, direction):
+        descending = self._effective_direction(sort_by, direction) == "DESC"
+        identity_key = lambda row: self._stable_identity_sort_key(row)
+        if sort_by == "priority":
+            stable_rows = sorted(rows, key=identity_key)
+            return sorted(
+                stable_rows,
+                key=lambda row: self.PRIORITY_ORDER.get(
+                    (row.get("decision") or {}).get("priority"), 5
+                ),
+                reverse=descending,
+            )
+
+        known = []
+        unknown = []
+        for row in rows:
+            value = self._metric_value(row.get("metrics") or {}, sort_by)
+            if type(value) in (int, float) and isfinite(float(value)):
+                known.append((row, value))
+            else:
+                unknown.append(row)
+        known.sort(key=lambda item: identity_key(item[0]))
+        known.sort(key=lambda item: item[1], reverse=descending)
+        unknown.sort(key=identity_key)
+        return [row for row, _value in known] + unknown
+
+    @staticmethod
+    def _metric_value(metrics, key):
+        metric = metrics.get(key)
+        return metric.get("value") if isinstance(metric, dict) else None
+
+    @staticmethod
+    def _stable_identity_sort_key(row):
+        identity = row.get("identity") or {}
+        return (
+            str(identity.get("offer_id") or ""),
+            str(identity.get("catalog_sku") or ""),
+            str(identity.get("product_id") or ""),
+            str(row.get("row_id") or ""),
+        )
+
+    @classmethod
+    def _effective_direction(cls, sort_by, direction):
+        if direction is not None:
+            return direction
+        return "ASC" if sort_by == "priority" else "DESC"
 
     def _active_scope(self):
         try:
@@ -346,7 +521,9 @@ class ProductOverviewService:
         return str(owner_id), str(store_id), None
 
     @classmethod
-    def _validate_request(cls, selectors, page, page_size):
+    def _validate_request(
+        cls, selectors, page, page_size, filter_by, sort_by, direction
+    ):
         if not isinstance(selectors, (list, tuple)):
             return "PRODUCT_OVERVIEW_SELECTION_INVALID"
         if len(selectors) > cls.MAX_SELECTION:
@@ -359,7 +536,24 @@ class ProductOverviewService:
                 or any(ord(char) < 32 or ord(char) == 127 for char in selector)
             ):
                 return "PRODUCT_OVERVIEW_SELECTION_INVALID"
-        return cls._validate_page(page, page_size)
+        return cls._validate_request_options(
+            page, page_size, filter_by, sort_by, direction
+        )
+
+    @classmethod
+    def _validate_request_options(
+        cls, page, page_size, filter_by, sort_by, direction
+    ):
+        page_error = cls._validate_page(page, page_size)
+        if page_error:
+            return page_error
+        if not isinstance(filter_by, str) or filter_by not in cls.FILTERS:
+            return "PRODUCT_OVERVIEW_FILTER_INVALID"
+        if not isinstance(sort_by, str) or sort_by not in cls.SORT_FIELDS:
+            return "PRODUCT_OVERVIEW_SORT_INVALID"
+        if direction not in (None, "ASC", "DESC"):
+            return "PRODUCT_OVERVIEW_DIRECTION_INVALID"
+        return None
 
     @classmethod
     def _validate_page(cls, page, page_size):
@@ -415,6 +609,15 @@ class ProductOverviewService:
             return None
         try:
             return value if isfinite(float(value)) else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @staticmethod
+    def _safe_non_negative_number(value):
+        if type(value) not in (int, float):
+            return None
+        try:
+            return value if isfinite(float(value)) and value >= 0 else None
         except (TypeError, ValueError, OverflowError):
             return None
 

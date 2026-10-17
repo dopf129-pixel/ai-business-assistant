@@ -16,16 +16,25 @@ def _row(
     code=None,
     decision=None,
 ):
-    return {
-        "selector": selector,
-        "identity": identity or {
+    if identity is None and status not in {
+        "NOT_FOUND", "IDENTITY_AMBIGUOUS", "BUDGET_EXHAUSTED", "CANCELLED"
+    }:
+        identity = {
             "product_id": "101",
             "offer_id": selector,
             "catalog_sku": "9001",
-        },
+        }
+    return {
+        "selector": selector,
+        "identity": identity,
         "status": status,
         "code": code,
-        "decision": decision or {
+        "decision": (
+            None
+            if decision is None and status in {
+                "NOT_FOUND", "IDENTITY_AMBIGUOUS", "BUDGET_EXHAUSTED", "CANCELLED"
+            }
+            else decision or {
             "error": False,
             "code": None,
             "decision_type": "INVESTIGATE_LOW_PROFIT",
@@ -46,7 +55,8 @@ def _row(
             "stock_observed_at": "2026-10-17T10:00:30Z",
             "unit_economics_observed_at": "2026-10-17T09:58:00Z",
             "internal_payload": {"secret": "must not persist"},
-        },
+            }
+        ),
     }
 
 
@@ -177,6 +187,10 @@ def test_pages_read_the_same_snapshot_without_repeating_sources_and_ids_stay_sta
             "page": 1,
             "page_size": 3,
             "total_rows": 7,
+            "scope_rows": 7,
+            "filter": "all_selected",
+            "sort_by": "priority",
+            "direction": "ASC",
             "total_pages": 3,
             "has_previous": False,
             "has_next": True,
@@ -286,3 +300,160 @@ def test_budget_unprocessed_rows_remain_visible_in_group_coverage():
     assert result["coverage"]["processed_count"] == 0
     assert result["coverage"]["budget_unprocessed_count"] == 1
     assert result["coverage"]["cancelled_count"] == 1
+
+
+def test_filters_use_only_existing_confirmed_decision_signals():
+    def decision(**overrides):
+        value = {
+            "error": False,
+            "decision_type": "HOLD_STOCK",
+            "priority": "LOW",
+            "confidence": "HIGH",
+            "reasons": ["POSITIVE_UNIT_PROFIT"],
+            "missing_data": [],
+            "sales_velocity": 2.0,
+            "sales_trend": "STABLE",
+            "current_stock": 4,
+            "days_of_stock": 2.0,
+            "stock_priority": "CRITICAL",
+            "decision_profit_per_unit": 10.0,
+            "decision_margin_percent": 15.0,
+            "sales_observed_at": "2026-10-17T10:00:00Z",
+            "stock_observed_at": "2026-10-17T10:00:00Z",
+            "unit_economics_observed_at": "2026-10-17T10:00:00Z",
+        }
+        value.update(overrides)
+        return value
+
+    rows = [
+        _row("negative", decision=decision(
+            decision_type="INVESTIGATE_LOW_PROFIT",
+            priority="HIGH",
+            reasons=["NEGATIVE_UNIT_PROFIT"],
+            decision_profit_per_unit=-5.0,
+        )),
+        _row("margin", decision=decision(
+            decision_type="WATCH_LOW_MARGIN",
+            priority="NORMAL",
+            reasons=["LOW_MARGIN"],
+            decision_margin_percent=8.0,
+        )),
+        _row("no-sales", decision=decision(
+            decision_type="HOLD_STOCK",
+            priority="LOW",
+            reasons=["POSITIVE_UNIT_PROFIT"],
+            sales_velocity=0,
+            current_stock=10,
+            days_of_stock=None,
+            stock_priority="NO_SALES",
+        )),
+        _row("incomplete", status="INCOMPLETE", code="INSUFFICIENT_DATA", decision={
+            "decision_type": "INSUFFICIENT_DATA",
+            "priority": "NONE",
+            "confidence": "LOW",
+            "reasons": ["ECONOMICS_INCOMPLETE"],
+            "missing_data": ["tax"],
+        }),
+        _row("stale", decision=decision(
+            unit_economics_cache={
+                "status": "stale",
+                "stale": True,
+                "age_seconds": 900,
+                "ttl_seconds": 600,
+            },
+        )),
+    ]
+    service, _store, query = _service(rows)
+    tenant = _tenant()
+    try:
+        created = service.create_snapshot([row["selector"] for row in rows])
+        snapshot = created["snapshot"]
+
+        def filtered(filter_by):
+            return service.get_page(
+                snapshot["snapshot_id"],
+                snapshot["generation"],
+                snapshot["version"],
+                filter_by=filter_by,
+                page_size=20,
+            )
+
+        assert [row["selector"] for row in filtered("negative_unit_profit")["rows"]] == [
+            "negative"
+        ]
+        assert [row["selector"] for row in filtered("low_margin_decision")["rows"]] == [
+            "margin"
+        ]
+        assert [row["selector"] for row in filtered("stock_without_sales")["rows"]] == [
+            "no-sales"
+        ]
+        assert {
+            row["selector"]
+            for row in filtered("incomplete_or_stale")["rows"]
+        } == {"incomplete", "stale"}
+        assert filtered("low_margin_decision")["coverage"]["selected_count"] == 5
+        assert query.calls == [[row["selector"] for row in rows]]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_sort_keeps_unknown_numeric_values_after_known_and_pages_filtered_count():
+    known_low = _row("b", identity={
+        "product_id": "2", "offer_id": "b", "catalog_sku": "2"
+    }, decision={
+        "decision_type": "HOLD_STOCK", "priority": "LOW", "confidence": "HIGH",
+        "reasons": ["POSITIVE_UNIT_PROFIT"], "missing_data": [],
+        "decision_profit_per_unit": 12.0,
+    })
+    known_high = _row("a", identity={
+        "product_id": "1", "offer_id": "a", "catalog_sku": "1"
+    }, decision={
+        "decision_type": "HOLD_STOCK", "priority": "LOW", "confidence": "HIGH",
+        "reasons": ["POSITIVE_UNIT_PROFIT"], "missing_data": [],
+        "decision_profit_per_unit": 12.0,
+    })
+    unknown = _row("unknown", decision={
+        "decision_type": "INSUFFICIENT_DATA", "priority": "NONE", "confidence": "LOW",
+        "reasons": ["ECONOMICS_INCOMPLETE"], "missing_data": ["profit_per_unit"],
+    })
+    service, _store, query = _service([known_low, unknown, known_high])
+    tenant = _tenant()
+    try:
+        first = service.create_snapshot(
+            ["b", "unknown", "a"],
+            page_size=1,
+            sort_by="decision_profit_per_unit",
+        )
+        second = service.get_page(
+            first["snapshot"]["snapshot_id"],
+            first["snapshot"]["generation"],
+            first["snapshot"]["version"],
+            page=2,
+            page_size=1,
+            sort_by="decision_profit_per_unit",
+        )
+        third = service.get_page(
+            first["snapshot"]["snapshot_id"],
+            first["snapshot"]["generation"],
+            first["snapshot"]["version"],
+            page=3,
+            page_size=1,
+            sort_by="decision_profit_per_unit",
+        )
+        invalid = service.get_page(
+            first["snapshot"]["snapshot_id"],
+            first["snapshot"]["generation"],
+            first["snapshot"]["version"],
+            filter_by={"unexpected": True},
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert first["rows"][0]["selector"] == "a"
+    assert second["rows"][0]["selector"] == "b"
+    assert third["rows"][0]["selector"] == "unknown"
+    assert third["pagination"]["scope_rows"] == 3
+    assert third["pagination"]["total_rows"] == 3
+    assert third["pagination"]["has_previous"] is True
+    assert invalid["code"] == "PRODUCT_OVERVIEW_FILTER_INVALID"
+    assert query.calls == [["b", "unknown", "a"]]

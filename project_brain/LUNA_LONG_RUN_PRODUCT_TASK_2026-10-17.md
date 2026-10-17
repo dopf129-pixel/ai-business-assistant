@@ -1,6 +1,6 @@
 # Программа разработки GPT Luna: обзор товаров и пакетное планирование экономики
 
-Дата подготовки: **17.10.2026**. Статус: **IN PROGRESS; A00–A04 VERIFIED, B00–B01 VERIFIED, B02 IN_PROGRESS**. Актуальный журнал `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+Дата подготовки: **17.10.2026**. Статус: **IN PROGRESS; A00–A04 VERIFIED, B00–B02 VERIFIED, B03 IN_PROGRESS**. Актуальный журнал `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 
 ## 1. Поручение и результат
 
@@ -448,7 +448,7 @@ B04 + C05 + D03 + E04 + F03 → G00 → G01 → G02
 | Модуль | Этапы | Статус |
 |---|---|---|
 | A — база/границы | A00–A04 | VERIFIED |
-| B — обзор товаров | B00–B04 | IN_PROGRESS (B00–B01 VERIFIED, B02 IN_PROGRESS) |
+| B — обзор товаров | B00–B04 | IN_PROGRESS (B00–B02 VERIFIED, B03 IN_PROGRESS) |
 | C — пакетный план цен | C00–C05 | NOT_STARTED |
 | D — чувствительность | D00–D03 | NOT_STARTED |
 | E — выгрузки | E00–E04 | NOT_STARTED |

@@ -85,6 +85,16 @@
 - Проверка B01: **69 passed** в шести связанных наборах (overview, input provider, selected query, snapshot store, business decision query, factory-backed seller attention); `compileall` изменённых app/tests и `git diff --check` успешны. Использованы `-p no:tmpdir -p no:cacheprovider`, исключён только ранее ACL-заблокированный worker `tmp_path` regression; новые B01 проверки все прошли.
 - Следующий шаг: B02 — фильтры существующих сигналов, sort по текущему приоритету/метрикам и страницы без источниковых вызовов; stale filter реализовать только по подтверждённым source age metadata.
 
+## B02 — snapshot filters и sorting
+
+- Статус: **VERIFIED**.
+- `ProductOverviewService.get_page` теперь фильтрует и сортирует уже прочитанный snapshot: все выбранные, существующий приоритет, подтверждённая отрицательная прибыль, существующее решение LOW_MARGIN, положительный остаток без продаж по `NO_SALES`, неполные/устаревшие данные. Правила расчёта решений не дублируются.
+- Низкая маржа определяется только существующим reason `LOW_MARGIN`/решением `WATCH_LOW_MARGIN`; отрицательная прибыль требует одновременно `NEGATIVE_UNIT_PROFIT` и отрицательного числового показателя. Запасы без продаж требуют `stock_priority=NO_SALES`, скорости 0 и остатка >0.
+- Порог возраста не придуман. `ProductBusinessDecisionQueryService` передаёт проверенную метаинформацию unit-economics cache, а обзор маркирует stale только при явном `cache.status=stale`. Невалидная/неполная freshness остаётся в отдельном фильтре без превращения неизвестного в ноль.
+- Priority sort сохраняет стабильный порядок identity; числовая сортировка выводит unknown после числовых значений и стабилизирует ties по identity. Ответ показывает размер scope и отфильтрованной группы, параметры сортировки и номер страницы.
+- Проверка B02 вместе с B01/B00/provider/cache/factory regressions: **75 passed**; `compileall` и `git diff --check` успешны. Pagination/filter/sort не повторяют query; тесты сверяют вызов источников ровно один раз.
+- Следующий шаг: B03 — Telegram entry/card navigation, stale callbacks и переход в текущую карточку/price-planning flow.
+
 ## Матрица этапов
 
 Статусы: `NOT_STARTED`, `IN_PROGRESS`, `IMPLEMENTED`, `VERIFIED`, `BLOCKED`. `IMPLEMENTED` означает код есть, `VERIFIED` — проверки этапа успешны.
@@ -98,8 +108,8 @@
 | A04 | VERIFIED | PR #698 exact head `be76a4f8e4c7d78160e0d1047515651993062d54` | Verify `39059951770`: Windows/full verification, full pytest, compileall, Docker build/runtime smoke — success | CI artifact `12111345571`; this journal | B00 |
 | B00 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | public bounded selected-row query; **53 passed, 1 ACL-bound deselected** | code + regression; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B01 |
 | B01 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | bounded snapshot builder/pages; **69 passed**, compileall/diff-check passed | code + tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B02 |
-| B02 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | filter/sort contract | this journal | snapshot-only filtering and sorting |
-| B03 | NOT_STARTED | — | — | — | зависит от B02 |
+| B02 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | snapshot-only filters/sorts, exact source freshness; **75 passed**, compileall/diff-check passed | code + tests; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B03 |
+| B03 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | Telegram route/card design | this journal | handler, keyboard and stale callback flow |
 | B04 | NOT_STARTED | — | — | — | приёмка обзора |
 | C00 | NOT_STARTED | — | — | — | зависит от A04 |
 | C01 | NOT_STARTED | — | — | — | зависит от C00 |

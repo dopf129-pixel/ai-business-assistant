@@ -4504,3 +4504,4 @@ Completed:
 - Реализацию B/C/E нужно подключить к `ScopedTransientSnapshotStore`; пока consumers не подключены, helper не меняет существующие пользовательские экраны.
 - B00 добавил выбранную read-only выборку строк decision query и перестал повторно разрешать один SKU через каталог в каждом источнике. 53 профильных теста прошли; один существующий `tmp_path` тест исключён по ACL. B01 строит snapshot projection и coverage.
 - B01 добавил `ProductOverviewService` с owner/store-scoped snapshot, whitelist решения/метрик, source provenance/freshness и страницами только из снимка. 69 связанных проверок прошли; следующий этап — фильтры и сортировка без Ozon-запросов.
+- B02 добавил snapshot-only фильтры существующих decision signals, безопасную сортировку с unknown числовыми значениями в конце и передачу явного cache-stale metadata; 75 связанных тестов прошли. B03 подключает Telegram navigation.

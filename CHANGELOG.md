@@ -1211,3 +1211,8 @@ Summary Report теперь включает:
 - Добавлен `ProductOverviewService`: read-only whitelist строк решений/метрик с единицами, source periods/freshness, явным coverage и owner/store-scoped transient snapshot.
 - Пагинация читает сохранённую группу без повторных источниковых вызовов; неизвестный freshness threshold не выдаётся за проверенную свежесть. B01: **69 passed**, compileall и diff-check успешны.
 
+# 2026-10-17 — фильтры и сортировка обзора товаров
+
+- Добавлены фильтры существующих сигналов decision engine и snapshot-only сортировки с устойчивой identity и unknown числовыми значениями в конце.
+- stale показывается только по явному состоянию unit-economics cache; возраст без подтверждённой политики остаётся наблюдаемым, но не классифицируется по догадке. B02: **75 passed**, compileall и diff-check успешны.
+
