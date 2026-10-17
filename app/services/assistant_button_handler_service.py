@@ -8,6 +8,7 @@ from telegram_help_contract import (
     build_telegram_help_response,
     build_telegram_phrase_examples,
 )
+from services.app_build_metadata_service import AppBuildMetadataService
 
 
 class AssistantButtonHandlerService:
@@ -213,6 +214,7 @@ class AssistantButtonHandlerService:
         unit_price_batch_plan_runtime_service=None,
         unit_price_sensitivity_runtime_service=None,
         analytics_export_service=None,
+        build_metadata_service=None,
     ):
 
         self.assistant = (
@@ -289,6 +291,9 @@ class AssistantButtonHandlerService:
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
         self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
         self.analytics_export_service = analytics_export_service
+        self.build_metadata_service = (
+            build_metadata_service or AppBuildMetadataService()
+        )
 
 
     def prepare_context(
@@ -484,10 +489,13 @@ class AssistantButtonHandlerService:
                 "external_expenses",
                 "unit_price_calculator",
                 "product_overview",
+                "about_bot",
             }
             or button_id.startswith((
                 "period_profit:",
                 "period_profit_completeness:",
+                "period_profit_diagnostics:",
+                "period_profit_support_export:",
                 "period_profit_report:",
                 "period_profit_analytics:",
                 "period_profit_comparison:",
@@ -803,6 +811,22 @@ class AssistantButtonHandlerService:
                 snapshot_result.get("snapshot"), parts[1]
             )
 
+        if isinstance(button_id, str) and button_id.startswith(
+            "period_profit_support_export:"
+        ):
+            parts = button_id.split(":")
+            if len(parts) != 2:
+                return self._product_overview_stale(
+                    "PERIOD_PROFIT_SUPPORT_DIAGNOSTIC_ACTION_STALE"
+                )
+            runtime = self.period_profit_runtime_service
+            exporter = getattr(runtime, "export_support_diagnostic", None)
+            if not callable(exporter):
+                return self._product_overview_stale(
+                    "PERIOD_PROFIT_SUPPORT_DIAGNOSTIC_UNAVAILABLE"
+                )
+            return exporter(parts[1], user_id=user_id)
+
         if button_id == "unit_price_calculator" or button_id == "upc:m":
             runtime = self.unit_price_calculator_runtime_service
             handler = getattr(runtime, "begin_catalog_selection", None)
@@ -901,6 +925,18 @@ class AssistantButtonHandlerService:
 
         if button_id == "help":
             return build_telegram_help_response()
+
+        if button_id == "about_bot":
+            message = self.build_metadata_service.user_message()
+            return {
+                "error": False,
+                "status": "APP_BUILD_METADATA_READY",
+                "text": message,
+                "message": message,
+                "keyboard": self.keyboard_service.build_main_keyboard(),
+                "read_only": True,
+                "executed": False,
+            }
 
         if button_id == "help:commands":
             return build_telegram_command_reference()
@@ -1174,6 +1210,7 @@ class AssistantButtonHandlerService:
 
         if button_id.startswith((
             "period_profit_completeness:",
+            "period_profit_diagnostics:",
             "period_profit_report:",
             "period_profit_analytics:",
             "period_profit_comparison:",

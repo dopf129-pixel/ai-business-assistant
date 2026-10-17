@@ -106,8 +106,12 @@ from services.telegram_unit_price_sensitivity_runtime_service import (
     TelegramUnitPriceSensitivityRuntimeService,
 )
 from services.analytics_export_service import AnalyticsExportService
+from services.app_build_metadata_service import AppBuildMetadataService
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
+
+
+_APP_BUILD_METADATA_SERVICE = AppBuildMetadataService()
 
 
 from telegram_app_layer.return_inventory_telegram_adapter import (
@@ -250,6 +254,7 @@ def create_telegram_assistant():
         AssistantKeyboardService()
     )
     analytics_export_service = AnalyticsExportService()
+    app_build_metadata_service = _APP_BUILD_METADATA_SERVICE
 
     unit_price_calculator_runtime_service = (
         create_unit_price_scenario_runtime(
@@ -291,6 +296,7 @@ def create_telegram_assistant():
 
     if period_profit_runtime_service is not None:
         period_profit_runtime_service.keyboard_service = keyboard
+        period_profit_runtime_service.build_metadata_service = app_build_metadata_service
 
     period_profit_query_service = getattr(
         period_profit_runtime_service,
@@ -413,6 +419,7 @@ def create_telegram_assistant():
                 unit_price_sensitivity_runtime_service
             ),
             analytics_export_service=analytics_export_service,
+            build_metadata_service=app_build_metadata_service,
         )
     )
 

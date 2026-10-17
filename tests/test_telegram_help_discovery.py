@@ -1,5 +1,6 @@
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.app_build_metadata_service import AppBuildMetadataService
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from telegram_app_layer.telegram_bot_service import TelegramBotService
 from telegram_app_layer.telegram_command_service import TelegramCommandService
@@ -24,11 +25,12 @@ class _OzonAccounts:
         return {"error": False, "message": "Выберите магазин"}
 
 
-def _production_wired_bot(ozon_account_service=None):
+def _production_wired_bot(ozon_account_service=None, build_metadata_service=None):
     keyboard = AssistantKeyboardService()
     handler = AssistantButtonHandlerService(
         _Assistant(),
         keyboard_service=keyboard,
+        build_metadata_service=build_metadata_service,
     )
     adapter = AssistantTelegramAdapter(
         _Assistant(), keyboard, handler, _Profiles()
@@ -52,6 +54,24 @@ def test_main_menu_makes_help_discoverable():
     assert "help" in _callbacks({"keyboard": keyboard})
     assert "ozon_stores" in _callbacks({"keyboard": keyboard})
     assert "experimental_calculations" in _callbacks({"keyboard": keyboard})
+    assert "about_bot" in _callbacks({"keyboard": keyboard})
+
+
+def test_about_bot_shows_only_captured_validated_process_metadata():
+    metadata = AppBuildMetadataService(
+        revision="ABCDEF1234567890",
+        started_at_utc="2026-10-17T09:30:00+03:00",
+    )
+    bot = _production_wired_bot(build_metadata_service=metadata)
+
+    result = bot.on_callback("seller-a", "about_bot")
+
+    assert result["status"] == "APP_BUILD_METADATA_READY"
+    assert "abcdef1234567890" in result["message"]
+    assert "2026-10-17T06:30:00Z" in result["message"]
+    assert result["read_only"] is True
+    assert result["executed"] is False
+    assert "about_bot" in _callbacks(result)
 
 
 def test_experimental_calculations_button_uses_isolated_read_only_menu():

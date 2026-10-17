@@ -1,5 +1,9 @@
 import json
 import threading
+from datetime import datetime, timezone
+
+import pytest
+import requests
 
 from api.base_ozon_client import OzonClient
 from services.period_profit_operation_diagnostics import (
@@ -46,6 +50,69 @@ def test_long_running_trace_writes_secret_free_worker_snapshot(tmp_path):
     }
     assert payload["worker_stack"]
     assert "api_key" not in target.read_text(encoding="utf-8").lower()
+
+
+def test_public_trace_summary_bounds_events_and_omits_raw_identifiers():
+    class _Clock:
+        now = 100.0
+
+        def __call__(self):
+            return self.now
+
+    clock = _Clock()
+    trace = PeriodProfitOperationTrace(
+        "period_profit",
+        clock=clock,
+        utc_clock=lambda: datetime(2026, 10, 17, tzinfo=timezone.utc),
+    )
+    trace.update(
+        "sku_probe",
+        finance_sku="private-sku-123",
+        catalog_sku="private-catalog-456",
+        posting_number="private-posting-789",
+        endpoint="/private?api_key=secret",
+    )
+    for index in range(300):
+        trace.update("stage_" + str(index))
+
+    summary = trace.public_summary()
+    rendered = json.dumps(summary)
+
+    assert len(trace.events) == trace.MAX_EVENTS == 256
+    assert summary["events_total"] == 301
+    assert summary["events_dropped"] == 45
+    assert summary["operation_id"] == trace.operation_id
+    assert summary["started_at_utc"] == "2026-10-17T00:00:00Z"
+    assert summary["http_attempts"] == 0
+    assert summary["rows_attempted"] == 0
+    assert "private-sku-123" not in rendered
+    assert "private-catalog-456" not in rendered
+    assert "private-posting-789" not in rendered
+    assert "api_key" not in rendered
+
+
+def test_public_trace_summary_aggregates_child_attempts_and_posting_outcomes():
+    parent = PeriodProfitOperationTrace(ozon_request_budget=1)
+    child = PeriodProfitOperationTrace(parent=parent)
+
+    child.record_posting("posting-secret")
+    child.record_posting_result("completed")
+    child.record_posting("posting-secret-2")
+    child.record_posting_result("not-an-allowed-status")
+    assert child.reserve_ozon_request("/safe") ["error"] is False
+    assert child.reserve_ozon_request("/safe") ["code"] == (
+        "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+    )
+
+    summary = parent.public_summary()
+    assert summary["http_attempts"] == 1
+    assert summary["http_attempt_cap"] == 1
+    assert summary["rows_attempted"] == 2
+    assert summary["rows_completed"] == 1
+    assert summary["rows_unknown"] == 1
+    assert summary["budget_reason_code"] == "HTTP_ATTEMPT_BUDGET_EXHAUSTED"
+    assert summary["events_total"] == parent.total_events
+    assert "posting-secret" not in json.dumps(summary)
 
 
 def test_trace_enforces_cooperative_time_and_api_request_budgets():
@@ -237,6 +304,59 @@ def test_ozon_request_uses_remaining_operation_budget_and_stops_at_call_limit(
     assert first == {"ok": True}
     assert observed_timeouts == [5.0]
     assert second["code"] == "OZON_OPERATION_API_CALL_BUDGET_EXHAUSTED"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code"),
+    [
+        ("http_429", "OZON_RATE_LIMITED"),
+        ("timeout", "OZON_API_TIMEOUT"),
+    ],
+)
+def test_http_failure_trace_keeps_exact_attempt_and_excludes_private_details(
+    monkeypatch, failure, expected_code
+):
+    class _Response:
+        status_code = 429
+        headers = {}
+
+    class _Client(OzonClient):
+        def __init__(self):
+            self.base_url = "https://example.invalid"
+            self.client_id = "private-client-id"
+            self.api_key = "private-api-key"
+
+    def post(*_args, **_kwargs):
+        if failure == "timeout":
+            raise requests.exceptions.Timeout("private timeout detail")
+        return _Response()
+
+    monkeypatch.setattr("api.base_ozon_client.requests.post", post)
+    trace = PeriodProfitOperationTrace(
+        "period_profit", time_budget_seconds=30, ozon_request_budget=4
+    )
+    token = activate_period_profit_trace(trace)
+    try:
+        result = _Client()._post(
+            "/private?token=private-token", {}, max_attempts=1
+        )
+        public = trace.public_summary()
+    finally:
+        reset_period_profit_trace(token)
+
+    assert result["code"] == expected_code
+    assert public["http_attempts"] == 1
+    assert public["http_attempt_cap"] == 4
+    assert public["events_total"] == 1
+    serialized = json.dumps(public)
+    for secret in (
+        "private-client-id",
+        "private-api-key",
+        "private-token",
+        "private timeout detail",
+        "example.invalid",
+    ):
+        assert secret not in serialized
 
 
 def test_http_client_uses_parent_cap_inside_nested_source_trace(monkeypatch):

@@ -12,6 +12,8 @@ def test_dockerfile_uses_canonical_telegram_entrypoint():
     assert "PYTHONPATH=/app/app" in dockerfile
     assert 'CMD ["python", "-m", "telegram_api_bot"]' in dockerfile
     assert "COPY app ./app" in dockerfile
+    assert "ARG APP_BUILD_REVISION=" in dockerfile
+    assert "APP_BUILD_REVISION=${APP_BUILD_REVISION}" in dockerfile
 
 
 def test_dockerfile_installs_production_requirements_only():
