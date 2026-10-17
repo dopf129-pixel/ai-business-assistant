@@ -13,6 +13,13 @@
 - G00 verified locally: new public Telegram acceptance connects overview/incomplete filter → exact selection → batch target → local cost assumption → sensitivity → batch/sensitivity CSV/JSON; a period path connects comparison → CSV/JSON → safe support diagnostic. All steps reuse source snapshots, and the main-menu test confirms legacy sections remain accessible. Focused G00 profile: **54 passed, 1 existing ACL-bound `tmp_path` test deselected**. Full exact-head CI remains pending.
 - Текущий этап G01: полный pytest, compileall, diff/secret/data review, exact-head Windows/Linux CI and Docker build/runtime smoke.
 
+# 2026-10-18 — программа A–G завершена и передана на независимый review
+
+- PR #698–#703 остаются открытыми stacked PR; #697 — исходная зависимость. Последние проверенные code heads A/B–F имеют зелёные Verify; F PR #702 exact head `55db3e60fda3c3080051da2fbea1902091a4bfff`, run `39069168434`.
+- G00/G01 прошли локальные acceptance/regression проверки, а exact code head `12447d4cb48823fea938513fbb16dc4f41a080c2` прошёл Verify `39069249065` (Windows, Linux full verification и Docker smoke). Review handoff: `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`; документационный commit handoff требует нового CI для текущего G PR head.
+- Полный локальный Windows pytest заблокирован существующим ACL на временные каталоги (`3 018 passed, 22 failed, 369 errors`); ограничения и исправленная stale menu assertion записаны в журнале. `data/tasks.json`, `data/users.json`, их lock и временные каталоги сохранены вне PR.
+- Слияние и развёртывание не выполнялись. Перед слиянием нужен независимый архитектурный review stacked PR в порядке зависимостей и зелёный CI на текущих heads.
+
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 
 - Поручение владельца: длительная автономная разработка, включая новые возможности продукта. Подготовлено `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: 7 крупных модулей A–G, 32 этапа, ориентировочно 12–24 инженерных часа; фактическая длительность не является критерием приёмки.

@@ -664,4 +664,6 @@ Next seller-facing accounting priority:
 - [x] E02–E04: CSV/JSON из точных snapshots для периода, обзора товаров, пакетного плана и чувствительности; полный scope, фильтры/сортировка, public callback → document transport, ноль повторных источников.
 - [x] F00–F02 verified locally: bounded operation summary, cached completeness diagnostics, allowlisted support JSON, and read-only running-process version.
 - [x] F03: diagnostic privacy, retry/timeout, cancellation, freshness and failed-document acceptance regressions.
-- [ ] G00–G02: end-to-end scenarios, full pytest/CI/Docker, and independent review handoff. No merge/deploy.
+- [x] G00: end-to-end public Telegram acceptance; source queries remain snapshot-bound.
+- [x] G01: exact code head CI for F/G green on Windows/Linux and Docker; local full-suite ACL limitation documented.
+- [x] G02: dependency-ordered architecture review handoff prepared; independent reviewer approval is pending. No merge/deploy.

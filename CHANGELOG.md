@@ -4,6 +4,12 @@
 - Добавлена приёмка периода: сравнение расчёта, CSV/JSON и безопасный support diagnostic читаются из одного finalized snapshot без нового query. Main-menu regression подтверждает доступность старых разделов.
 - G00 профиль: **54 passed, 1 существующий `tmp_path` test deselected** из-за локального ACL при отключённом pytest tmpdir; новые тесты прошли. Полный чистый pytest и Docker acceptance остаются в G01.
 
+# 2026-10-18 — модули F–G, CI и review packet
+
+- Исправлена устаревшая проверка состава главного меню после добавления кнопки версии процесса.
+- PR #702 F прошёл exact-head Verify `39069168434`; PR #703 G acceptance head прошёл `39069249065` на Windows/Linux с production Docker smoke.
+- Подготовлен `project_brain/LONG_RUN_REVIEW_HANDOFF_2026-10-17.md` с цепочкой PR и checklist архитектурных инвариантов. Изменения staged/committed не затрагивают локальные project data и временные файлы. Merge/deploy не выполнялись.
+
 # 2026-10-17 — модуль F03: приёмка диагностики
 
 - Добавлены regressions для обезличенной трассы HTTP 429/timeout с точным числом попыток, просроченного support snapshot без повторного запроса к источнику и ошибки доставки support JSON без ложного сообщения об успехе.

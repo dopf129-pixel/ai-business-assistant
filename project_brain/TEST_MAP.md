@@ -5293,4 +5293,4 @@ Updated:
 - `tests/test_period_profit_analytics_runtime.py`: connects the finalized period comparison with cached CSV/JSON and support-diagnostic JSON; asserts the period query runs once.
 - `tests/test_product_overview_telegram_flow.py`: checks that legacy main-menu sections remain available alongside workbench navigation.
 
-G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact-head CI/full pytest and Docker smoke remain required in G01.
+G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact acceptance head `12447d4cb48823fea938513fbb16dc4f41a080c2` passed Verify `39069249065` (Windows, Linux full verification, Docker smoke). The subsequent review-handoff documentation commit on PR #703 requires its own latest-head CI check.
