@@ -299,6 +299,92 @@ def test_grouped_snapshot_inherits_parent_attempt_budget_through_child_trace():
     assert parent.ozon_requests_reserved == 1
 
 
+def test_batch_snapshot_uses_exact_catalog_product_without_reloading_catalog():
+    products = _ProductService([{
+        "product_id": "p1",
+        "offer_id": "hook",
+        "sku": "sku-1",
+        "name": "Hook",
+    }])
+    products.calls = 0
+    original_load = products.load_products
+
+    def counted_load():
+        products.calls += 1
+        return original_load()
+
+    products.load_products = counted_load
+    source = UnitPriceScenarioSource(
+        product_service=products,
+        current_economics_source=_CurrentSource(),
+        finance_service=_SnapshotFinance({}),
+        cost_service=_CostService(),
+        tax_configuration_service=_TaxConfiguration(),
+        clock=lambda: datetime(2026, 10, 14, 12),
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = source.load_snapshot(
+            "sku-1",
+            user_id="user-1",
+            catalog_product={
+                "product_id": "p1",
+                "offer_id": "hook",
+                "sku": "sku-1",
+                "name": "Hook",
+            },
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert products.calls == 0
+    assert result["identity"]["product_id"] == "p1"
+    assert result["identity"]["offer_id"] == "hook"
+
+
+def test_batch_exact_identity_cache_preserves_age_and_separates_identity_aliases():
+    cache_now = [100.0]
+    current = _CurrentSource()
+    source = UnitPriceScenarioSource(
+        product_service=_ProductService([]),
+        current_economics_source=current,
+        finance_service=_SnapshotFinance({}),
+        cost_service=_CostService(),
+        tax_configuration_service=_TaxConfiguration(),
+        clock=lambda: datetime(2026, 10, 14, 12),
+        cache_clock=lambda: cache_now[0],
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first_product = {
+            "product_id": "p1", "offer_id": "hook", "sku": "sku-1"
+        }
+        first = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=first_product
+        )
+        cache_now[0] += 25
+        cached = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=first_product
+        )
+        alias = source.load_snapshot(
+            "sku-1",
+            "user-1",
+            catalog_product={
+                "product_id": "p2", "offer_id": "hook-alias", "sku": "sku-1"
+            },
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["cache"]["status"] == "miss"
+    assert cached["cache"]["status"] == "hit"
+    assert cached["cache"]["age_seconds"] == 25
+    assert alias["identity"]["product_id"] == "p2"
+    assert alias["identity"]["offer_id"] == "hook-alias"
+    assert current.calls and len(current.calls) == 2
+
+
 def test_inflight_wait_is_clamped_to_parent_remaining_time():
     class _Clock:
         now = 10.0

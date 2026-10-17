@@ -5217,3 +5217,27 @@ Added:
 Covers the separate menu and period picker, explicit incomplete-result contract,
 missing-cost independence, request-local cost exclusion, custom dates, and per-user
 pending-state isolation.
+
+# Unit price batch plan — C00/C01 and domain C02
+
+Added:
+
+- `tests/test_unit_price_batch_plan_service.py`
+
+Covers exact 2–10 catalog identity boundaries, duplicate/invalid selection, stable row IDs and selection ordering, one catalog snapshot, row-level FBS/source failures, shared parent HTTP cap, complete/incomplete rows, independent candidate forward-result check, local zero-cost/ad assumptions, bulk-advertising preview and confirmation/version checks, explicit refresh preserving manual provenance, and no extra source calls during local edits.
+
+Updated:
+
+- `tests/test_unit_price_scenario_source.py`
+
+Covers exact supplied catalog product without a second catalog load, parent budget propagation, cache-age preservation on batch identity cache hits, and isolation of same-SKU product/offer identity aliases.
+
+Focused local result: **75 passed**. `compileall -q app tests` and `git diff --check` passed. Full exact-head CI is required at G01.
+# Unit price batch plan (module C)
+
+- `tests/test_unit_price_batch_plan_service.py`: bounds and exact identities; one catalog read; partial source failure/FBS; parent HTTP budget; exact forward-result confirmation; local zero-valued assumptions; version-bound advertising confirmation; source refresh preserving assumptions.
+- `tests/test_unit_price_scenario_source.py`: exact catalog row reuse, identity-separated cache/in-flight operations, source age retention, parent operation trace.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: text stages, bounded UTF-16 report and callback payloads, local edits/sorts, stale token rejection, tenant change during build, advertising preview/confirm/cancel revocation, overview handler routing, public candidate handoff, no source reload on handoff, and text ownership until the user exits the batch flow.
+- Verified local profile: **116 passed** across batch service, source, target solver, scenario calculator and Telegram runtime; `compileall -q services` and `git diff --check` passed. Full CI is required for complete repository validation.
+
+- Module C acceptance on exact code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`: local related B/C product profile **193 passed**, `compileall -q app tests` and `git diff --check` passed. Verify runs `39063730904` and `39063717597` both passed Windows and full-verification jobs, including full pytest, compileall, production Docker build and runtime smoke. PR #699 is open for review; no merge/deployment.

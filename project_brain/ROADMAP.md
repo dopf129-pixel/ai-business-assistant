@@ -3,13 +3,13 @@
 ## Активная программа разработки — 17.10.2026
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
-- A00–A04 and B00–B04 VERIFIED locally. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. Current B head still needs exact-head CI.
+- A00–A04 and B00–B04 VERIFIED. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`; exact B-head CI is tracked by PR #698. C00–C05 VERIFIED on code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`; Verify runs `39063730904` and `39063717597` passed Windows and full-verification, including full pytest and Docker smoke. PR #699 is ready for review and stacked on #698.
 - PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
 - B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавил snapshot-only filters/sorting. B03/B04 добавили Telegram overview, explicit catalog groups, stale-safe callbacks, guarded transition к калькулятору цены и приёмку границ. 93 целевых tests passed; расширенный товарный regression — 1 018 passed, 12 локально ACL-deselected.
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
-- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Объём ориентировочно 12–24 инженерных часа; реализация NOT_STARTED, подготовка документа не запускает кодовые изменения.
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. Реализация продолжается; A–C VERIFIED, D выполняется, E–G ожидают зависимости.
 - A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
@@ -648,3 +648,14 @@ Next seller-facing accounting priority:
 - consume/promote originating-sale quantity evidence only after those independent accounting facts are bound;
 - keep `confirmed_cogs_recovery_amount=0` and profit adjustment blocked until the complete accounting gate is explicit;
 - preserve Decision 036/037/038/039/040 contracts and introduce a new decision only if accounting semantics or persistence ownership changes.
+
+## Модуль C — пакетное планирование цен
+
+- C00/C01 VERIFIED locally; domain portion of C02 implemented and verified. One catalog snapshot feeds up to 10 exact SKU rows; source work inherits one parent budget and cache freshness. Row statuses preserve incomplete, stale, unsupported and failed facts.
+- Local assumptions and target edits are pure snapshot recalculations. Shared ad rate has explicit preview/confirmation; refresh reuses the batch identity and preserves manual assumptions/provenance. Telegram runtime, result table and guarded handoff remain in progress.
+- Focused C00/C01/domain C02 suite: 75 passed; compileall and diff-check passed. Follow exact stage records in `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+# 2026-10-17 — пакетный план цены
+
+- [x] C00–C05: пакетный read-only план для 2–10 точных SKU, общая граница источников, локальные допущения, построчные результаты и проверенный переход готового кандидата в одиночный калькулятор.
+- [ ] Получить полный CI для нового exact head перед закрытием модуля C.
+- [ ] D00–D03: локальная таблица чувствительности по цене, себестоимости и рекламной доле.

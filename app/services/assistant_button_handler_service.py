@@ -210,6 +210,7 @@ class AssistantButtonHandlerService:
         external_expense_runtime_service=None,
         seller_attention_summary_service=None,
         product_overview_service=None,
+        unit_price_batch_plan_runtime_service=None,
     ):
 
         self.assistant = (
@@ -283,6 +284,7 @@ class AssistantButtonHandlerService:
             seller_attention_summary_service
         )
         self.product_overview_service = product_overview_service
+        self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
 
 
     def prepare_context(
@@ -541,7 +543,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:")):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:")):
             return
         if (
             isinstance(button_id, str)
@@ -569,6 +571,23 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def handle_text(self, text, user_id=None):
+        batch_handler = getattr(
+            self.unit_price_batch_plan_runtime_service, "handle_text", None
+        )
+        if callable(batch_handler):
+            try:
+                result = batch_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_BATCH_TEXT_FAILED",
+                    "message": "Не удалось обработать пакетный план цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if result is not None:
+                return result
+
         runtime = self.unit_price_calculator_runtime_service
         handler = getattr(runtime, "handle_text", None)
         if callable(handler):
@@ -685,6 +704,13 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        batch_clearer = getattr(
+            self.unit_price_batch_plan_runtime_service, "clear_pending", None
+        )
+        if callable(batch_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("upb:")
+        ):
+            batch_clearer(user_id)
         self._clear_unit_price_input_for_new_flow(button_id, user_id)
 
         if button_id == "unit_price_calculator" or button_id == "upc:m":
@@ -729,6 +755,31 @@ class AssistantButtonHandlerService:
                     "error": True,
                     "code": "UNIT_PRICE_SCENARIO_CALLBACK_FAILED",
                     "message": "Не удалось выполнить действие калькулятора цены.",
+                    "read_only": True,
+                    "executed": False,
+                }
+
+        if isinstance(button_id, str) and button_id.startswith("upb:"):
+            handler = getattr(
+                self.unit_price_batch_plan_runtime_service,
+                "handle_callback",
+                None,
+            )
+            if not callable(handler):
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_BATCH_PLAN_UNAVAILABLE",
+                    "message": "Пакетный план цен сейчас недоступен.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_BATCH_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие пакетного плана.",
                     "read_only": True,
                     "executed": False,
                 }
@@ -2199,6 +2250,12 @@ class AssistantButtonHandlerService:
         if service is None:
             return self._product_overview_stale()
         parts = button_id.split(":")
+        if parts == ["pov", "bp"]:
+            runtime = self.unit_price_batch_plan_runtime_service
+            starter = getattr(runtime, "begin_from_overview_selection", None)
+            if not callable(starter):
+                return self._product_overview_stale("UNIT_PRICE_BATCH_PLAN_UNAVAILABLE")
+            return starter(user_id)
         if len(parts) == 3 and parts[:2] == ["pov", "r"]:
             return self._format_product_overview(
                 service.refresh_by_token(parts[2], page=1, page_size=5)
@@ -2429,12 +2486,27 @@ class AssistantButtonHandlerService:
         ])
         if notice:
             lines.insert(1, str(notice))
+        keyboard = self.keyboard_service.build_product_overview_keyboard(
+            result.get("rows") or [], token, pagination, selection_scope=group
+        )
+        try:
+            plan_selection = service.get_price_plan_selection()
+        except Exception:
+            plan_selection = {}
+        selected_count = (
+            plan_selection.get("selected_count", 0)
+            if isinstance(plan_selection, dict)
+            else 0
+        )
+        if isinstance(selected_count, int) and not isinstance(selected_count, bool) and selected_count >= 2:
+            keyboard = dict(keyboard)
+            keyboard["buttons"] = [
+                {"text": f"🧮 План цен · {min(selected_count, 10)} товаров", "callback": "pov:bp"}
+            ] + list(keyboard.get("buttons") or [])
         return {
             "error": False,
             "message": "\n".join(lines)[:3900],
-            "keyboard": self.keyboard_service.build_product_overview_keyboard(
-                result.get("rows") or [], token, pagination, selection_scope=group
-            ),
+            "keyboard": keyboard,
             "read_only": True,
             "executed": False,
         }
