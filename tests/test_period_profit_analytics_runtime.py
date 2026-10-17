@@ -1,7 +1,9 @@
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
+import json
 
+from services.analytics_export_service import AnalyticsExportService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_period_profit_runtime_service import (
@@ -224,6 +226,61 @@ def test_period_profit_analytics_views_are_cached_scoped_and_make_no_new_query()
             assert view["read_only"] is True
             assert view["executed"] is False
         assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_period_comparison_and_owner_exports_reuse_finalized_query_snapshot():
+    query = _Query(_result())
+    clock = _Clock()
+    keyboard = AssistantKeyboardService()
+    runtime = AssistantPeriodProfitRuntimeService(
+        query, keyboard_service=keyboard, clock=clock
+    )
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+        analytics_export_service=AnalyticsExportService(),
+    )
+    tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        report = runtime.handle_text("прибыль за 28 дней", user_id="owner-1")
+        analytics = handler.handle(
+            _callback(report["keyboard"], "📊 Аналитика периода"),
+            user_id="owner-1",
+        )
+        comparison = handler.handle(
+            _callback(analytics["keyboard"], "📅 Сравнение периодов"),
+            user_id="owner-1",
+        )
+        csv_export = handler.handle(
+            _callback(report["keyboard"], "⬇️ CSV"), user_id="owner-1"
+        )
+        json_export = handler.handle(
+            _callback(report["keyboard"], "⬇️ JSON"), user_id="owner-1"
+        )
+        diagnostics = handler.handle(
+            "period_profit_diagnostics:" + report["report_view_id"],
+            user_id="owner-1",
+        )
+        support_export = handler.handle(
+            _callback(diagnostics["keyboard"], "📦 Сохранить диагностику"),
+            user_id="owner-1",
+        )
+
+        exported_period = json.loads(json_export["file_content"].decode("utf-8"))
+        exported_support = json.loads(support_export["file_content"].decode("utf-8"))
+        assert comparison["status"] == "PERIOD_PROFIT_COMPARISON_VIEW_READY"
+        assert "01.07.2026 — 31.07.2026" in comparison["text"]
+        assert csv_export["mime_type"] == "text/csv"
+        assert exported_period["export_kind"] == "period_profit"
+        assert support_export["document_kind"] == "support_diagnostic"
+        assert exported_support["schema"] == "period_profit_support_diagnostic"
+        assert query.calls == 1
+        for result in (csv_export, json_export, support_export):
+            assert result["read_only"] is True
+            assert result["executed"] is False
     finally:
         reset_current_tenant_user_id(tenant_token)
 
