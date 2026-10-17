@@ -6,6 +6,7 @@ from services.assistant_button_handler_service import AssistantButtonHandlerServ
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
+from services.app_build_metadata_service import AppBuildMetadataService
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
     activate_period_profit_trace,
@@ -450,7 +451,14 @@ def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_doc
 
     query = Query()
     keyboard = AssistantKeyboardService()
-    runtime = AssistantPeriodProfitRuntimeService(query, keyboard_service=keyboard)
+    runtime = AssistantPeriodProfitRuntimeService(
+        query,
+        keyboard_service=keyboard,
+        build_metadata_service=AppBuildMetadataService(
+            revision="abcdef1234567",
+            started_at_utc="2026-10-17T12:00:00Z",
+        ),
+    )
     handler = AssistantButtonHandlerService(
         assistant=None,
         keyboard_service=keyboard,
@@ -503,6 +511,10 @@ def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_doc
             "catalog_sku": "SKU_0001",
         }
         assert document["counts"]["http_attempts"] == 1
+        assert document["application"] == {
+            "revision": "abcdef1234567",
+            "started_at_utc": "2026-10-17T12:00:00Z",
+        }
         assert "raw-sku-123" not in payload
         assert "raw-posting-456" not in payload
         assert "secret" not in payload

@@ -53,5 +53,16 @@ AI_ASSISTANT_STORAGE_ROOT=.runtime-data
     exit 2
 }
 
+$DetectedRevision = $null
+$Git = Get-Command git -ErrorAction SilentlyContinue
+if ($Git) {
+    $CandidateRevision = & $Git.Source -C $PSScriptRoot rev-parse --verify HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $CandidateRevision -match '^[0-9a-fA-F]{7,40}$') {
+        $DetectedRevision = $CandidateRevision.Trim()
+    }
+}
+$env:APP_BUILD_REVISION = $DetectedRevision
+$env:APP_BUILD_STARTED_AT_UTC = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
 $env:PYTHONPATH = Join-Path $PSScriptRoot "app"
 Invoke-Checked $VenvPython "-m" "telegram_api_bot"

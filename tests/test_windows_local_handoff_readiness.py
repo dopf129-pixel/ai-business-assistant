@@ -26,6 +26,9 @@ def test_windows_bootstrap_uses_python_312_and_private_local_env():
     assert "AI_ASSISTANT_STORAGE_ROOT=.runtime-data" in script
     assert '"-m" "telegram_api_bot"' in script
     assert "Write-Host $MasterKey" not in script
+    assert "APP_BUILD_REVISION" in script
+    assert "APP_BUILD_STARTED_AT_UTC" in script
+    assert "rev-parse --verify HEAD" in script
 
 
 def test_local_secret_and_runtime_paths_are_gitignored():

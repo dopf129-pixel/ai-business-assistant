@@ -8,6 +8,7 @@ from telegram_help_contract import (
     build_telegram_help_response,
     build_telegram_phrase_examples,
 )
+from services.app_build_metadata_service import AppBuildMetadataService
 
 
 class AssistantButtonHandlerService:
@@ -213,6 +214,7 @@ class AssistantButtonHandlerService:
         unit_price_batch_plan_runtime_service=None,
         unit_price_sensitivity_runtime_service=None,
         analytics_export_service=None,
+        build_metadata_service=None,
     ):
 
         self.assistant = (
@@ -289,6 +291,9 @@ class AssistantButtonHandlerService:
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
         self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
         self.analytics_export_service = analytics_export_service
+        self.build_metadata_service = (
+            build_metadata_service or AppBuildMetadataService()
+        )
 
 
     def prepare_context(
@@ -484,6 +489,7 @@ class AssistantButtonHandlerService:
                 "external_expenses",
                 "unit_price_calculator",
                 "product_overview",
+                "about_bot",
             }
             or button_id.startswith((
                 "period_profit:",
@@ -919,6 +925,18 @@ class AssistantButtonHandlerService:
 
         if button_id == "help":
             return build_telegram_help_response()
+
+        if button_id == "about_bot":
+            message = self.build_metadata_service.user_message()
+            return {
+                "error": False,
+                "status": "APP_BUILD_METADATA_READY",
+                "text": message,
+                "message": message,
+                "keyboard": self.keyboard_service.build_main_keyboard(),
+                "read_only": True,
+                "executed": False,
+            }
 
         if button_id == "help:commands":
             return build_telegram_command_reference()

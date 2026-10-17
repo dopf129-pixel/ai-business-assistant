@@ -67,7 +67,11 @@ class AssistantKeyboardService:
                 {
                     "text": "❓ Помощь и команды",
                     "callback": "help"
-                }
+                },
+                {
+                    "text": "ℹ️ О боте / версия",
+                    "callback": "about_bot",
+                },
             ]
         }
 

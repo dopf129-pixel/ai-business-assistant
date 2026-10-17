@@ -1,9 +1,12 @@
 FROM python:3.12-slim
 
+ARG APP_BUILD_REVISION=
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/app \
-    AI_ASSISTANT_STORAGE_ROOT=/var/lib/ai-business-assistant
+    AI_ASSISTANT_STORAGE_ROOT=/var/lib/ai-business-assistant \
+    APP_BUILD_REVISION=${APP_BUILD_REVISION}
 
 WORKDIR /app
 
