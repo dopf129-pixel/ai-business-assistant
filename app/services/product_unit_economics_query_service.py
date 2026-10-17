@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from time import monotonic
+from services.tenant_context import get_current_tenant_user_id
 
 
 class ProductUnitEconomicsQueryService:
@@ -106,10 +107,37 @@ class ProductUnitEconomicsQueryService:
                 "message": "SKU не найден"
             }
 
+        return self.query_for_product(target_sku, product)
+
+    def query_for_product(self, sku, product):
+        """Run the existing economics query with an already resolved catalog row."""
+        target_sku = str(sku or "").strip()
+        normalized_product = self._normalize_product(product)
+        if not target_sku:
+            return {
+                "error": True,
+                "code": "SKU_REQUIRED",
+                "message": "SKU не указан",
+            }
+        if normalized_product is None or target_sku not in {
+            str(normalized_product.get("offer_id") or "").strip(),
+            str(normalized_product.get("sku") or "").strip(),
+        }:
+            return {
+                "error": True,
+                "code": "PRODUCT_IDENTITY_MISMATCH",
+                "sku": target_sku,
+            }
+        product = normalized_product
+
         cache_key = str(
             product.get("offer_id")
             or product.get("sku")
             or target_sku
+        )
+        cache_key = (
+            str(get_current_tenant_user_id() or "").strip() or None,
+            cache_key,
         )
         cached = self._query_cache.get(cache_key)
         now = self.cache_clock()

@@ -7,11 +7,13 @@
 - A02: `tests/test_period_profit_operation_diagnostics.py` проверяет parent/child deadline и общий concurrent attempt cap, child/root cancellation и лимит через реальный `OzonClient` request wrapper. `tests/test_unit_price_scenario_source.py` проверяет parent trace propagation/context restoration и clamp in-flight wait.
 - Локальный A02 subset: **21 passed, 1 deselected**; исключён существующий stack-dump `tmp_path` regression из-за недоступного Windows temp ACL. Чистый CI должен включить его.
 - A03: `tests/test_scoped_transient_snapshot_store.py` покрывает точную tenant/owner/store изоляцию, version/generation, атомарные копии при LRU eviction, TTL без продления на read, стабильные row IDs и границы размера. Совместный профиль A02/A03: **34 passed, 1 deselected**; тот же ACL-bound `tmp_path` regression. Compileall и `git diff --check` успешны.
+- B00: `tests/test_product_business_decision_selected_query.py` покрывает public selected cohort: один load каталога, dedupe, ambiguous/not-found, tenant/cap, failure isolation, общий trace budget и отсутствие history/proposal/task-draft writes. Вместе с существующими decision, metrics-source, unit-economics-cache и trace regressions: **53 passed, 1 deselected** (тот же ACL-bound test). Compileall и diff-check прошли.
 
 - ТЗ `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` задаёт meaningful regressions: общий parent/child HTTP budget; read-only cohort без history/proposal writes; selected-group partial coverage; точные идентификаторы; stale/cross-store/concurrent callbacks; batch targets; sensitivity cells; CSV/JSON и formula injection; обезличивание diagnostics; public handler/factory/file sender.
 - После каждого этапа — целевые проверки, после модуля — полный pytest и CI актуального SHA Windows/Linux/Docker. Для фиксации используются будущие `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и review handoff, которые исполнитель создаст при A00/G02.
 - При подготовке выполнены 6 прямых fake-only вызовов настоящих `UnitPriceScenarioService`/`TaxService`; все контрольные числовые примеры ТЗ совпали.
-- A02 добавлены parent deadline/request cap, одновременное резервирование, cancellation и HTTP wrapper/source regressions. Текущие локальные фактические результаты см. выше; полный pytest и clean CI обязательны до закрытия A04.
+- A02 добавлены parent deadline/request cap, одновременное резервирование, cancellation и HTTP wrapper/source regressions. A04 закрыт точным CI PR #698, приведённым выше.
+- A04 exact-head CI PR #698 / SHA `be76a4f8e4c7d78160e0d1047515651993062d54`: Verify run `39059951770` прошёл на Windows и full-verification; полный pytest, compileall, production Docker build/runtime smoke успешны. SHA-bound artifact: `12111345571`.
 
 # N06 — Telegram-экраны и scoped report snapshots (15.10.2026)
 

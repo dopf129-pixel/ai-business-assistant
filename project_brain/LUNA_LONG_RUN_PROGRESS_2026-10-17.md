@@ -54,14 +54,25 @@
 - Добавлены regressions для отсутствующего/чужого tenant, точного owner/store, старого generation, fixed TTL, copy isolation, stable row identity, payload shape/size, 64-entry eviction и конкурентного чтения во время eviction.
 - Совместный A02/A03 профиль: **34 passed, 1 deselected**. Исключён только существующий `test_long_running_trace_writes_secret_free_worker_snapshot`, использующий заблокированный ACL `tmp_path`; его обязан включить чистый CI. Compileall изменённого A03 кода/тестов и `git diff --check` — успешно.
 - A03 не переносит старые кэши и не добавляет persistent storage. Следующие модули B и C обязаны использовать этот helper; иначе A03 не считается востребованным двумя consumers.
-- Следующий шаг: A04 — полный pytest и фиксация общего основания A до B/C/E.
+- A04 теперь VERIFIED по exact-head CI; следующий шаг: B00 — начать обзор выбранных товаров.
 
 ## A04 — фиксация основания
 
-- Статус: **IN_PROGRESS (локальный runner blocked; CI required)**.
+- Статус: **VERIFIED**.
 - Полный Windows pytest стартовал на чистом изолированном storage и свежем basetemp: собрал **3 288** тестов. В ходе старых `tempfile` тестов системная temp-папка не дала SQLite открыть файл; cleanup завершился `PermissionError (WinError 5)`, поэтому pytest не выдал итоговую сводку. Повтор одного такого теста с отдельным temp внутри workspace воспроизвёл запрет создания/открытия и очистки временной базы. ACL не менялись; user JSON SHA до/после совпадает с A00.
-- Новые A02/A03 проверки прошли: **34 passed, 1 deselected**. A03 test-модуль отдельно проходит все 13 тестов. Compileall и `git diff --check` успешны. Результат полного набора не объявляется успешным; exact-head GitHub CI нужен для решения A04.
-- Следующий шаг: оформить отдельный A commit из проверенного allowlist, отправить ветку и получить чистые Windows/Linux CI; затем перейти к B00/C00/E00 после результата CI.
+- Новые A02/A03 проверки прошли: **34 passed, 1 deselected**. A03 test-модуль отдельно проходит все 13 тестов. Compileall и `git diff --check` успешны. Полный локальный результат не принят; полная приёмка выполнена exact-head GitHub CI ниже.
+- Exact-head GitHub CI по PR #698, code SHA `be76a4f8e4c7d78160e0d1047515651993062d54`, Verify run `39059951770`: **windows-verification** и **full-verification** — success. Обе jobs скомпилировали приложение и выполнили полный pytest; full verification также успешно собрала production Docker image и прошла runtime smoke. SHA-bound test report опубликован как artifact `12111345571`. Это clean CI приемка основания A несмотря на локальную Windows ACL.
+- A foundation оформлена commit `f42274a` (A02) и `be76a4f` (A03), push на branch `codex/product-workbench-20261017`, draft PR #698 stacked поверх PR #697. B00 начат после точного зеленого CI.
+- Следующий шаг: продолжить B01.
+
+## B00 — публичный read-only row query
+
+- Статус: **VERIFIED**.
+- Добавлен `query_selected_products(selectors)` в decision query service. Он требует активный tenant, принимает до 20 точных строковых selector, дедуплицирует их, загружает каталог один раз, отклоняет неоднозначные offer/catalog SKU, продолжает обработку остальных строк при частичной ошибке и возвращает coverage со статусами каждой строки.
+- Новый путь напрямую использует существующую pure decision calculation; он не использует decorated cache и не вызывает history record, action proposal или task-draft reconciliation. Старый `query()`/`query_all()` lifecycle сохранён.
+- Источники получили совместимые методы `sales_for_product`, `stock_for_product`, `query_for_product`, чтобы использовать уже разрешённую строку каталога вместо повторной загрузки каталога на каждый товар. Unit-economics cache стал owner/store tenant-scoped. Trace предоставляет безопасную проверку, можно ли начинать следующую строку.
+- Regressions: 53 passed, 1 deselected (только ACL-bound tmp_path test); compileall и diff-check прошли. Набор включает selection 0/21, точный tenant, duplicate selector, ambiguous identity, missing product, один catalog load, no lifecycle writes, partial source failure, parent budget exhaustion и cache tenant isolation.
+- Следующий шаг: B01 — pure row projection, stable row ID, source provenance/freshness, счётчики полного scope и страницы без источниковых вызовов.
 
 ## Матрица этапов
 
@@ -73,9 +84,9 @@
 | A01 | VERIFIED | `codex/product-workbench-20261017` / production base `3f7923c` | подтверждены public-path, budget, snapshot и file boundaries | этот журнал; audit | A02 |
 | A02 | VERIFIED | `codex/product-workbench-20261017` / base `91aac98` / `f42274a` | parent/child deadline, shared atomic cap, cancel and source wait; 21 passed, 1 ACL-bound deselected | code + two test modules; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A03 |
 | A03 | VERIFIED | `codex/product-workbench-20261017` / base `f42274a` | scoped store; **34 passed, 1 ACL-bound deselected** with A02; compileall/diff-check passed | helper + tests; this journal; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP | A04 |
-| A04 | IN_PROGRESS | `codex/product-workbench-20261017` / base `f42274a` | local full pytest: 3,288 collected, no summary after WinError 5; clean CI required | this journal | commit/push foundation, wait for CI |
-| B00 | NOT_STARTED | — | — | — | зависит от A04 |
-| B01 | NOT_STARTED | — | — | — | зависит от B00 |
+| A04 | VERIFIED | PR #698 exact head `be76a4f8e4c7d78160e0d1047515651993062d54` | Verify `39059951770`: Windows/full verification, full pytest, compileall, Docker build/runtime smoke — success | CI artifact `12111345571`; this journal | B00 |
+| B00 | VERIFIED | `codex/product-workbench-20261017` / stacked on #698 | public bounded selected-row query; **53 passed, 1 ACL-bound deselected** | code + regression; CHANGELOG; CURRENT_STATE; TEST_MAP; ROADMAP; this journal | B01 |
+| B01 | IN_PROGRESS | `codex/product-workbench-20261017` / stacked on #698 | projection contract outline | this journal | build stable rows/coverage/pages |
 | B02 | NOT_STARTED | — | — | — | зависит от B01 |
 | B03 | NOT_STARTED | — | — | — | зависит от B02 |
 | B04 | NOT_STARTED | — | — | — | приёмка обзора |

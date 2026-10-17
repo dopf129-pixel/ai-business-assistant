@@ -1199,5 +1199,10 @@ Summary Report теперь включает:
 # 2026-10-17 — база обзора товаров и пакетных расчётов
 
 - Добавлен bounded transient snapshot store для будущих обзорного и пакетного экранов: строгая привязка к tenant/owner/store/generation, 10-минутный TTL, лимиты размера/числа строк, LRU и изоляция чтения.
-- Совместные проверки A02/A03: 34 passed, 1 ACL-bound test deselected; compileall и diff-check прошли. Локальный полный pytest не дал итоговой сводки из-за WinError 5 в Windows temp/cleanup; точный результат должен прийти из CI.
+- Совместные проверки A02/A03: 34 passed, 1 ACL-bound test deselected; compileall и diff-check прошли. Локальный полный pytest не дал итога из-за WinError 5 в Windows temp/cleanup; exact-head CI PR #698 прошёл полный pytest, compileall и production Docker smoke.
+
+# 2026-10-17 — публичный запрос выбранных товаров
+
+- Decision query получил bounded read-only метод для до 20 выбранных товаров с единой загрузкой каталога, точной проверкой неоднозначности, coverage по строкам и без history/proposal/task-draft writes.
+- Источники могут принимать уже разрешённый объект каталога; unit-economics cache разделён по активному tenant. B00: 53 passed, 1 ACL-bound test deselected; compileall и diff-check успешны.
 

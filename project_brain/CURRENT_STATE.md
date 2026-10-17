@@ -4499,6 +4499,7 @@ Completed:
 # 2026-10-13 — P06 завершён; начат P07
 # 2026-10-17 — база новых экранов обзора и пакетных расчётов
 
-- A00–A03 большой программы Luna выполнены. Общий Ozon budget теперь наследуется grouped calls; новый transient snapshot store готов для overview/batch consumers, с TTL/LRU, generation guard и строгим tenant scope.
-- Совместный профиль A02/A03: 34 passed, 1 существующий `tmp_path` test исключён из-за Windows ACL. Локальный полный pytest собрал 3 288 тестов, но не завершился итоговой сводкой: старые `tempfile`-сценарии не открыли SQLite и pytest cleanup завершился WinError 5. Это не принято за регрессию нового кода; точный прогон должен выполнить CI. A04 (проверка основания) в работе.
+- A00–A04 большой программы Luna выполнены. Общий Ozon budget наследуется grouped calls; точный CI для основания зелёный. B00 добавил selected-row query без истории/предложений и повторных загрузок каталога; B01 строит snapshot projection и coverage.
+- Совместный профиль A02/A03: 34 passed, 1 существующий `tmp_path` test исключён локально из-за Windows ACL. Полный exact-head CI на SHA `be76a4f8e4c7d78160e0d1047515651993062d54` прошёл: Windows/full-verification, полный pytest, compileall и Docker build/runtime smoke; Verify run `39059951770`. A04 закрыт.
 - Реализацию B/C/E нужно подключить к `ScopedTransientSnapshotStore`; пока consumers не подключены, helper не меняет существующие пользовательские экраны.
+- B00 добавил выбранную read-only выборку строк decision query и перестал повторно разрешать один SKU через каталог в каждом источнике. 53 профильных теста прошли; один существующий `tmp_path` тест исключён по ACL. B01 строит snapshot projection и coverage.

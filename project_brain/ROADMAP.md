@@ -3,8 +3,9 @@
 ## Активная программа разработки — 17.10.2026
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
-- A00–A03 VERIFIED; A04 IN_PROGRESS. Parent-aware time/attempt budgets and cancellation are implemented on the existing trace. Overview/batch transient snapshots are scoped, bounded, and copy-isolated. Focused tests: 34 passed, 1 ACL-bound test deselected; full pytest local runner was blocked by Windows temp ACL, so CI remains authoritative at A04.
+- A00–A04 VERIFIED. Exact PR #698 head `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`, including full pytest, compileall, Docker build/runtime smoke. B00 selected-row contract is verified; B01 is in progress.
 - PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
+- B00 добавил bounded public read-only query выбранных товаров. B01 сейчас строит stable row projections и coverage поверх этого контракта; маршруты Telegram пока не изменялись.
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 

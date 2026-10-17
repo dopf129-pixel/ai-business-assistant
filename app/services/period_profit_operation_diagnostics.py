@@ -157,6 +157,23 @@ class PeriodProfitOperationTrace:
                 current = current.parent
         return False
 
+    def is_budget_exhausted(self):
+        """Return whether this operation cannot safely start more row work."""
+        chain = []
+        current = self
+        while current is not None:
+            chain.append(current)
+            current = current.parent
+        with self._budget_lock:
+            if any(trace._cancelled for trace in chain):
+                return True
+            if self.remaining_seconds() <= 0:
+                return True
+            return any(
+                trace.ozon_requests_reserved >= trace.ozon_request_budget
+                for trace in chain
+            )
+
     def record_posting(self, posting_number):
         with self._lock:
             self.posting_numbers_processed += 1

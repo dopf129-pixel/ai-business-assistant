@@ -4,9 +4,14 @@ from math import isfinite
 from threading import RLock
 from time import monotonic
 from services.tenant_context import get_current_tenant_user_id
+from services.period_profit_operation_diagnostics import (
+    current_period_profit_trace,
+)
 
 
 class ProductBusinessDecisionQueryService:
+
+    MAX_SELECTED_PRODUCTS = 20
 
     CODE_SKU_REQUIRED = "SKU_REQUIRED"
     CODE_SKU_NOT_FOUND = "SKU_NOT_FOUND"
@@ -214,6 +219,7 @@ class ProductBusinessDecisionQueryService:
                 self.sales_metrics_source,
                 sku,
                 source_name="sales",
+            product=product,
             )
         )
         if sales_invalid:
@@ -228,6 +234,7 @@ class ProductBusinessDecisionQueryService:
                 self.stock_metrics_source,
                 sku,
                 source_name="stock",
+            product=product,
             )
         )
         if stock_invalid:
@@ -237,7 +244,16 @@ class ProductBusinessDecisionQueryService:
                 source_name="stock",
             )
         try:
-            economics_result = self.unit_economics_query_service.query(sku)
+            query_for_product = getattr(
+                self.unit_economics_query_service,
+                "query_for_product",
+                None,
+            )
+            economics_result = (
+                query_for_product(sku, product)
+                if callable(query_for_product)
+                else self.unit_economics_query_service.query(sku)
+            )
         except (OSError, TypeError, ValueError, KeyError, AttributeError):
             return self._unit_economics_result_failure(
                 product_id=product_id,
@@ -376,6 +392,216 @@ class ProductBusinessDecisionQueryService:
             "reasons": [],
             "confidence": "LOW",
             "missing_data": ["decision"],
+        }
+
+    def query_selected_products(self, selectors):
+        """Calculate selected catalog rows without history or proposal writes."""
+        tenant_scope = str(get_current_tenant_user_id() or "").strip()
+        if not tenant_scope:
+            return self._selected_products_error(
+                "PRODUCT_DECISION_TENANT_REQUIRED"
+            )
+        if not isinstance(selectors, (list, tuple)):
+            return self._selected_products_error(
+                "PRODUCT_DECISION_SELECTION_INVALID"
+            )
+        if len(selectors) > self.MAX_SELECTED_PRODUCTS:
+            return self._selected_products_error(
+                "PRODUCT_DECISION_SELECTION_LIMIT_EXCEEDED"
+            )
+
+        requested = []
+        seen_selectors = set()
+        for value in selectors:
+            if not isinstance(value, str):
+                return self._selected_products_error(
+                    "PRODUCT_DECISION_SELECTION_INVALID"
+                )
+            selector = value.strip()
+            if (
+                not selector
+                or len(selector) > 128
+                or any(ord(char) < 32 or ord(char) == 127 for char in selector)
+            ):
+                return self._selected_products_error(
+                    "PRODUCT_DECISION_SELECTION_INVALID"
+                )
+            if selector not in seen_selectors:
+                requested.append(selector)
+                seen_selectors.add(selector)
+
+        if not requested:
+            return {
+                "error": False,
+                "code": None,
+                "coverage": self._selected_products_coverage([]),
+                "rows": [],
+                "read_only": True,
+                "executed": False,
+            }
+
+        try:
+            products = self.product_service.load_products() or []
+        except Exception:
+            return self._selected_products_error(
+                "PRODUCT_DECISION_CATALOG_UNAVAILABLE"
+            )
+        if not isinstance(products, (list, tuple)):
+            return self._selected_products_error(
+                "PRODUCT_DECISION_CATALOG_INVALID"
+            )
+
+        by_selector = {selector: {} for selector in requested}
+        for raw_product in products:
+            product = self._normalize_product(raw_product)
+            if product is None:
+                continue
+            identity = self._selected_product_identity(product)
+            if identity is None:
+                continue
+            identity_key = (
+                identity["product_id"],
+                identity["offer_id"],
+                identity["catalog_sku"],
+            )
+            for alias in {
+                identity["offer_id"],
+                identity["catalog_sku"],
+            } - {None}:
+                if alias in by_selector:
+                    by_selector[alias][identity_key] = (product, identity)
+
+        rows = []
+        for index, selector in enumerate(requested):
+            trace = current_period_profit_trace()
+            if trace is not None and (
+                trace.is_cancelled() or trace.is_budget_exhausted()
+            ):
+                status = (
+                    "CANCELLED"
+                    if trace.is_cancelled()
+                    else "BUDGET_EXHAUSTED"
+                )
+                code = (
+                    "PRODUCT_DECISION_OPERATION_CANCELLED"
+                    if status == "CANCELLED"
+                    else "PRODUCT_DECISION_BUDGET_EXHAUSTED"
+                )
+                rows.extend({
+                    "selector": remaining_selector,
+                    "identity": None,
+                    "status": status,
+                    "code": code,
+                    "decision": None,
+                } for remaining_selector in requested[index:])
+                break
+
+            candidates = by_selector.get(selector) or {}
+            if not candidates:
+                rows.append({
+                    "selector": selector,
+                    "identity": None,
+                    "status": "NOT_FOUND",
+                    "code": "SKU_NOT_FOUND",
+                    "decision": None,
+                })
+                continue
+            if len(candidates) > 1:
+                rows.append({
+                    "selector": selector,
+                    "identity": None,
+                    "status": "IDENTITY_AMBIGUOUS",
+                    "code": "PRODUCT_IDENTITY_AMBIGUOUS",
+                    "candidate_count": len(candidates),
+                    "decision": None,
+                })
+                continue
+
+            product, identity = next(iter(candidates.values()))
+            try:
+                decision = self._query_product(selector, product)
+            except Exception:
+                decision = self._decision_result_failure(
+                    identity["product_id"], selector
+                )
+            if not isinstance(decision, dict) or decision.get("error") is True:
+                status = "SOURCE_UNAVAILABLE"
+                code = (
+                    decision.get("code")
+                    if isinstance(decision, dict)
+                    else self.CODE_DECISION_RESULT_INVALID
+                )
+            elif decision.get("decision_type") == self.CODE_INSUFFICIENT_DATA:
+                status = "INCOMPLETE"
+                code = decision.get("code") or self.CODE_INSUFFICIENT_DATA
+            else:
+                status = "READY"
+                code = None
+            rows.append({
+                "selector": selector,
+                "identity": identity,
+                "status": status,
+                "code": code,
+                "decision": deepcopy(decision),
+            })
+
+        return {
+            "error": False,
+            "code": None,
+            "coverage": self._selected_products_coverage(rows),
+            "rows": rows,
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _selected_product_identity(product):
+        product_id = product.get("product_id")
+        offer_id = product.get("offer_id")
+        catalog_sku = product.get("sku")
+        identity = {
+            "product_id": (
+                str(product_id).strip() if product_id is not None else None
+            ),
+            "offer_id": str(offer_id).strip() if offer_id is not None else None,
+            "catalog_sku": (
+                str(catalog_sku).strip() if catalog_sku is not None else None
+            ),
+        }
+        for field in ("product_id", "offer_id", "catalog_sku"):
+            if identity[field] == "":
+                identity[field] = None
+        if not identity["offer_id"] and not identity["catalog_sku"]:
+            return None
+        return identity
+
+    @staticmethod
+    def _selected_products_coverage(rows):
+        statuses = [row.get("status") for row in rows]
+        return {
+            "selected_count": len(rows),
+            "processed_count": sum(
+                status in {"READY", "INCOMPLETE", "SOURCE_UNAVAILABLE"}
+                for status in statuses
+            ),
+            "decision_ready_count": statuses.count("READY"),
+            "incomplete_count": statuses.count("INCOMPLETE"),
+            "source_unavailable_count": statuses.count("SOURCE_UNAVAILABLE"),
+            "not_found_count": statuses.count("NOT_FOUND"),
+            "identity_conflict_count": statuses.count("IDENTITY_AMBIGUOUS"),
+            "budget_unprocessed_count": statuses.count("BUDGET_EXHAUSTED"),
+            "cancelled_count": statuses.count("CANCELLED"),
+        }
+
+    @staticmethod
+    def _selected_products_error(code):
+        return {
+            "error": True,
+            "code": code,
+            "coverage": None,
+            "rows": [],
+            "read_only": True,
+            "executed": False,
         }
 
     def query_all(self):
@@ -872,12 +1098,20 @@ class ProductBusinessDecisionQueryService:
         source,
         sku,
         source_name,
+        product=None,
     ):
         if source is None:
             return None, False
 
         try:
-            if callable(source):
+            product_query = getattr(
+                source,
+                f"{source_name}_for_product",
+                None,
+            )
+            if product is not None and callable(product_query):
+                result = product_query(sku, product)
+            elif callable(source):
                 result = source(sku)
             else:
                 query = getattr(source, "query", None)
