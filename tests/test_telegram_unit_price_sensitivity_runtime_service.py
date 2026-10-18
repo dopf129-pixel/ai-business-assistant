@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
@@ -296,6 +297,87 @@ def test_stale_source_remains_viewable_but_has_no_apply_action():
     assert not any(item["text"].startswith("Перенести сценарий") for item in refreshed["keyboard"]["buttons"])
 
 
+def test_expired_sensitivity_export_matches_screen_and_marks_historical_cells():
+    now = [100]
+    single, sensitivity, source = _runtime(
+        clock=lambda: now[0], analytics_export_service=AnalyticsExportService()
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1"
+        )
+        values = sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1"
+        )
+        report = sensitivity.handle_text("500;550;600", user_id="user-1")
+        now[0] = 701
+        stale_screen = sensitivity.handle_text("ignored", user_id="user-1")
+        json_export = sensitivity.handle_callback(
+            _find(stale_screen, "⬇️ JSON"), user_id="user-1"
+        )
+        csv_export = sensitivity.handle_callback(
+            _find(stale_screen, "⬇️ CSV"), user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    document = json.loads(json_export["file_content"].decode("utf-8"))
+    assert values["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert report["sensitivity_result"]["freshness"]["freshness_status"] == "CURRENT"
+    assert stale_screen["sensitivity_result"]["freshness"]["freshness_status"] == "STALE"
+    assert document["metadata"]["source_freshness_status"] == "STALE"
+    assert document["metadata"]["source_staleness_reason"] == "SOURCE_EXPIRED"
+    assert document["metadata"]["source_age_seconds_at_export"] == 602
+    assert document["metadata"]["source_ttl_seconds"] == 600
+    assert document["metadata"]["freshness_checked_at_export"] is True
+    assert all(row["status"] == "SOURCE_STALE" for row in document["rows"])
+    assert all(row["snapshot_status"] == "AVAILABLE" for row in document["rows"])
+    assert all(row["transfer_allowed"] is False for row in document["rows"])
+    csv_text = csv_export["file_content"].decode("utf-8")
+    assert "source_freshness_status" in csv_text
+    assert "SOURCE_STALE" in csv_text and "AVAILABLE" in csv_text
+    assert "SOURCE_EXPIRED" in csv_text
+    assert source.calls == 1
+
+
+def test_sensitivity_export_marks_changed_origin_without_reloading_source():
+    single, sensitivity, source = _runtime(
+        analytics_export_service=AnalyticsExportService()
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1"
+        )
+        values = sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1"
+        )
+        report = sensitivity.handle_text("500;550;600", user_id="user-1")
+        with single._lock:
+            single._scenarios[active["scenario_id"]]["inputs"]["cost"] = "201"
+        stale_screen = sensitivity.handle_text("ignored", user_id="user-1")
+        exported = sensitivity.handle_callback(
+            _find(stale_screen, "⬇️ JSON"), user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    document = json.loads(exported["file_content"].decode("utf-8"))
+    assert values["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+    assert report["sensitivity_result"]["freshness"]["freshness_status"] == "CURRENT"
+    assert stale_screen["sensitivity_result"]["freshness"]["reason"] == "ORIGIN_CHANGED"
+    assert document["metadata"]["source_freshness_status"] == "STALE"
+    assert document["metadata"]["source_staleness_reason"] == "ORIGIN_CHANGED"
+    assert all(row["snapshot_status"] == "AVAILABLE" for row in document["rows"])
+    assert all(row["status"] == "SOURCE_STALE" for row in document["rows"])
+    assert source.calls == 1
+
+
 def test_sensitivity_export_includes_all_matrix_cells_without_source_reload():
     single, sensitivity, source = _runtime(
         analytics_export_service=AnalyticsExportService()
@@ -436,7 +518,8 @@ def test_batch_sensitivity_revalidates_then_opens_cell_without_network_access():
                     "planning": {},
                 })
             return {
-                "error": False, "batch_id": "batch-x", "version": 1,
+                "error": False, "kind": "UNIT_PRICE_BATCH_PLAN",
+                "batch_id": "batch-x", "version": 1,
                 "owner_id": user_id, "tenant_scope": "user-1::ozon::store-a",
                 "target_margin_percent": target_margin_percent,
                 "rows_selected": 2, "rows": rows,

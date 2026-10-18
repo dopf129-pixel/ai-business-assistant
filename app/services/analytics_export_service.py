@@ -228,9 +228,20 @@ class AnalyticsExportService:
         }
         return self.serializer.serialize("unit_price_batch", file_format, columns, rows, metadata)
 
-    def export_unit_price_sensitivity(self, result, context, file_format):
+    def export_unit_price_sensitivity(self, result, context, file_format, freshness=None):
         if not isinstance(result, dict) or result.get("kind") != "UNIT_PRICE_SENSITIVITY":
             return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        freshness = deepcopy(freshness) if isinstance(freshness, dict) else {
+            "freshness_status": "UNCHECKED",
+            "reason": "NOT_CHECKED_AT_EXPORT",
+            "source_age_seconds_at_check": None,
+            "source_ttl_seconds": None,
+            "freshness_checked": False,
+            "transfer_allowed": False,
+        }
+        freshness_status = freshness.get("freshness_status") or "UNCHECKED"
+        freshness_reason = freshness.get("reason")
+        fresh = freshness_status == "CURRENT" and freshness.get("transfer_allowed") is True
         origin = (context or {}).get("origin") or {}
         identity = (context or {}).get("identity") or {}
         columns = [
@@ -239,6 +250,10 @@ class AnalyticsExportService:
             self._column("cell_number", "Номер ячейки", "integer"),
             self._column("coordinates", "Параметры ячейки", "json"),
             self._column("status", "Статус", "status"),
+            self._column("snapshot_status", "Статус расчёта в исходном снимке", "status"),
+            self._column("source_freshness_status", "Свежесть исходного плана", "status"),
+            self._column("source_staleness_reason", "Причина устаревания", "status"),
+            self._column("transfer_allowed", "Перенос сценария разрешён", "boolean"),
             self._column("inputs", "Допущения", "json"),
             self._column("provenance", "Источники допущений", "json"),
             *[self._column("calc_" + key, label, kind, unit)
@@ -249,12 +264,23 @@ class AnalyticsExportService:
         for index, cell in enumerate(result.get("cells") or [], start=1):
             scenario = cell.get("scenario") or {}
             calculated = scenario.get("calculated") or {}
+            row_status = cell.get("status")
+            if row_status == "AVAILABLE" and not fresh:
+                row_status = (
+                    "SOURCE_STALE"
+                    if freshness_status == "STALE"
+                    else "SOURCE_FRESHNESS_UNCHECKED"
+                )
             rows.append({
                 "sku": identity.get("catalog_sku") or identity.get("sku"),
                 "offer_id": identity.get("offer_id"),
                 "cell_number": index,
                 "coordinates": deepcopy(cell.get("coordinates") or {}),
-                "status": cell.get("status"),
+                "status": row_status,
+                "snapshot_status": cell.get("status"),
+                "source_freshness_status": freshness_status,
+                "source_staleness_reason": freshness_reason,
+                "transfer_allowed": fresh and cell.get("status") == "AVAILABLE",
                 "inputs": deepcopy(cell.get("inputs") or {}),
                 "provenance": deepcopy(cell.get("provenance") or {}),
                 **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
@@ -274,6 +300,12 @@ class AnalyticsExportService:
             "worst_checked_cell_id": result.get("worst_checked_cell_id"),
             "best_worst_basis": result.get("best_worst_basis"),
             "exported_scope": "all_cells_in_exact_sensitivity_snapshot",
+            "source_freshness_status": freshness_status,
+            "source_staleness_reason": freshness_reason,
+            "source_age_seconds_at_export": freshness.get("source_age_seconds_at_check"),
+            "source_ttl_seconds": freshness.get("source_ttl_seconds"),
+            "freshness_checked_at_export": freshness.get("freshness_checked") is True,
+            "transfer_allowed": fresh,
             "source_warning": "This is a one-sale estimate, not a demand forecast or total store profit.",
         }
         return self.serializer.serialize("unit_price_sensitivity", file_format, columns, rows, metadata)

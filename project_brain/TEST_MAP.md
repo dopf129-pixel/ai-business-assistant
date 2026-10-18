@@ -1,5 +1,11 @@
 # План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
 
+## Исправления повторного review R9–R10 (2026-10-18)
+
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: `test_late_row_edit_cannot_overwrite_a_successful_source_refresh` и `test_late_advertising_confirmation_cannot_overwrite_a_successful_refresh` блокируют worker после подготовки старой версии, публикуют refresh и проверяют, что поздний worker получает stale и не меняет новые source facts.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: `test_expired_sensitivity_export_matches_screen_and_marks_historical_cells` сверяет screen, CSV и JSON при истечении source TTL; `test_sensitivity_export_marks_changed_origin_without_reloading_source` проверяет изменённую подпись origin. Обе регрессии проверяют отсутствие повторной загрузки источника.
+- Связанный профиль A–G: **98 passed**. `compileall -q app tests` и `git diff --check` успешны; полный exact-head CI нового SHA требуется.
+
 ## Исправления архитектурного review R1–R8 (2026-10-18)
 
 - `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: production adapter single→sensitivity callback, owner reset, 64-entry LRU/TTL и cleanup action tokens.
