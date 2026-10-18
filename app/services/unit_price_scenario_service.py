@@ -116,7 +116,6 @@ class UnitPriceScenarioService:
             key: float(value) if isinstance(value, Decimal) else value
             for key, value in calculated.items()
         }
-
         scenario_inputs = {}
         for field in self.UNITS:
             value = normalized.get(field)
@@ -161,6 +160,39 @@ class UnitPriceScenarioService:
                 "sales volume and advertising attribution",
                 "future Ozon tariff changes",
             ],
+            "read_only": True,
+            "executed": False,
+        }
+
+    def calculate_components_only(self, inputs):
+        """Return rounded one-sale money components without invoking TaxService.
+
+        Aggregate planning flows use this projection to multiply canonical
+        per-sale amounts by quantity, then calculate tax once on the aggregate.
+        """
+        normalized, missing, invalid = self._normalize(dict(inputs or {}))
+        try:
+            calculated = self._calculate_components(normalized)
+        except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
+            calculated = self._empty_calculation()
+            invalid.append("calculation")
+        calculated = {
+            key: float(value) if isinstance(value, Decimal) else value
+            for key, value in calculated.items()
+        }
+        # The aggregate planning view needs the canonical rounded unit cost
+        # alongside the already-calculated contribution.
+        normalized_cost = normalized.get("cost")
+        calculated["cost"] = (
+            float(self._money_decimal(normalized_cost))
+            if normalized_cost is not None else None
+        )
+        return {
+            "error": False,
+            "available": not missing and not invalid,
+            "calculated": calculated,
+            "missing_inputs": list(dict.fromkeys(missing)),
+            "invalid_inputs": list(dict.fromkeys(invalid)),
             "read_only": True,
             "executed": False,
         }
