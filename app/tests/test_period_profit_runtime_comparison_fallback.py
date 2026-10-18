@@ -19,6 +19,14 @@ class _Query:
 
     def query(self, **kwargs):
         self.calls.append(dict(kwargs))
+        if self.current_error:
+            return {
+                "error": True,
+                "code": "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE",
+                "status": "PERIOD_PROFIT_SUMMARY_UNAVAILABLE",
+                "read_only": True,
+                "executed": False,
+            }
         if kwargs.get("compare_previous") is True:
             return {
                 "error": True,
@@ -58,8 +66,34 @@ class _Query:
 
 
 class PeriodProfitRuntimeComparisonFallbackTests(unittest.TestCase):
-    def test_seven_day_callback_keeps_current_profit_when_previous_comparison_fails(self):
+    def test_current_quantity_failure_is_returned_without_retrying_whole_query(self):
         query = _Query()
+        query.current_error = True
+        runtime = AssistantPeriodProfitRuntimeService(query)
+
+        result = runtime.handle_callback(
+            "period_profit:7D",
+            today="2026-09-14",
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["code"], "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE")
+        self.assertEqual([call["compare_previous"] for call in query.calls], [True])
+        self.assertTrue(result["read_only"])
+        self.assertFalse(result["executed"])
+
+    def test_optional_previous_error_is_presented_when_service_preserves_current(self):
+        query = _Query(current_error=True)
+        query.current_error = False
+
+        def query_with_optional_error(**kwargs):
+            query.calls.append(dict(kwargs))
+            result = _Query(current_error=False).query(compare_previous=False)
+            result["comparison_status"] = "PERIOD_PROFIT_COMPARISON_UNAVAILABLE"
+            result["comparison_error_code"] = "TEST_PREVIOUS_RETURN_UNAVAILABLE"
+            return result
+
+        query.query = query_with_optional_error
         runtime = AssistantPeriodProfitRuntimeService(query)
 
         result = runtime.handle_callback(
@@ -70,36 +104,9 @@ class PeriodProfitRuntimeComparisonFallbackTests(unittest.TestCase):
         self.assertFalse(result["error"])
         self.assertEqual(result["summary"]["profit"], 29.0)
         self.assertEqual(result["comparison_status"], "PERIOD_PROFIT_COMPARISON_UNAVAILABLE")
-        self.assertEqual(
-            result["comparison_error_code"],
-            "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE",
-        )
+        self.assertEqual(len(query.calls), 1)
+        self.assertTrue(query.calls[0]["compare_previous"])
         self.assertIn("💰 Прибыль за период", result["text"])
-        self.assertEqual(
-            [call["compare_previous"] for call in query.calls],
-            [True, False],
-        )
-        self.assertTrue(result["read_only"])
-        self.assertFalse(result["executed"])
-
-    def test_current_quantity_failure_stays_fail_closed(self):
-        query = _Query(current_error=True)
-        runtime = AssistantPeriodProfitRuntimeService(query)
-
-        result = runtime.handle_callback(
-            "period_profit:7D",
-            today="2026-09-14",
-        )
-
-        self.assertTrue(result["error"])
-        self.assertEqual(
-            result["code"],
-            "PERIOD_PROFIT_SALE_QUANTITY_EVIDENCE_UNAVAILABLE",
-        )
-        self.assertEqual(
-            [call["compare_previous"] for call in query.calls],
-            [True, False],
-        )
 
 
 if __name__ == "__main__":

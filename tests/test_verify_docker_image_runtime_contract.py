@@ -12,7 +12,7 @@ def test_verify_builds_production_docker_image_from_repository_root():
     text = _workflow_text()
 
     assert '- name: Build production Docker image' in text
-    assert 'docker build --pull=false --tag "$IMAGE" .' in text
+    assert 'docker build --pull=false --build-arg "APP_BUILD_REVISION=${GITHUB_SHA}" --tag "$IMAGE" .' in text
     assert 'ai-business-assistant:verify-${GITHUB_SHA}' in text
     assert 'docker image inspect "$IMAGE"' in text
 

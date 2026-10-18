@@ -31,6 +31,8 @@ def test_export_csv_contains_catalog_and_blank_costs():
     result = service.export_csv()
     assert result["error"] is False
     assert result["filename"] == "sebestoymost.csv"
+    assert result["mime_type"] == "text/csv"
+    assert result["document_kind"] == "seller_cost_import_template"
     assert "Артикул;Ozon SKU;Себестоимость, ₽;Действует с" in result["file_content"]
     assert "ART-1;101;;" in result["file_content"]
 

@@ -286,7 +286,18 @@ def build_period_profit_response(
         delta = _money(abs(float(comparison.get("profit_change") or 0)))
         percent = comparison.get("profit_change_percent")
         suffix = f" ({abs(percent):.2f}%)" if percent is not None else ""
-        lines.extend(["", f"К предыдущему сопоставимому периоду прибыль {direction} на {delta}{suffix}."])
+        lines.extend([
+            "",
+            (
+                "К предыдущему сопоставимому периоду базовая прибыль "
+                "до внешних расходов "
+                + direction
+                + " на "
+                + delta
+                + suffix
+                + "."
+            ),
+        ])
 
     missing = []
     if source.get("returns_included") is not True:

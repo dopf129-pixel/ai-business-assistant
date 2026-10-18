@@ -6,6 +6,8 @@ class ProductDecisionInputProvider:
         "sales": (
             "sales_source_recorded_at",
             "sales_observed_at",
+            "sales_period_from",
+            "sales_period_to",
         ),
         "stock": (
             "stock_source_recorded_at",

@@ -26,20 +26,44 @@ class ProductDecisionMetricsSource:
         prepared = self._load(target_sku, refresh=True)
         return dict(prepared.get("sales") or {})
 
+    def sales_for_product(self, sku, product):
+        target_sku = str(sku or "").strip()
+        prepared = self._load(
+            target_sku,
+            refresh=True,
+            product_override=product,
+        )
+        return dict(prepared.get("sales") or {})
+
     def stock(self, sku):
         target_sku = str(sku or "").strip()
         prepared = self._load(target_sku)
         self._cache.pop(self._cache_key(target_sku), None)
         return dict(prepared.get("stock") or {})
 
-    def _load(self, sku, refresh=False):
+    def stock_for_product(self, sku, product):
+        target_sku = str(sku or "").strip()
+        prepared = self._load(target_sku, product_override=product)
+        self._cache.pop(self._cache_key(target_sku), None)
+        return dict(prepared.get("stock") or {})
+
+    def _load(self, sku, refresh=False, product_override=None):
         target_sku = str(sku or "").strip()
         cache_key = self._cache_key(target_sku)
 
         if not refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        product = self._find_product(target_sku)
+        product = (
+            self._normalize_product(product_override)
+            if product_override is not None
+            else self._find_product(target_sku)
+        )
+        if product is not None and target_sku not in {
+            str(product.get("offer_id") or "").strip(),
+            str(product.get("sku") or "").strip(),
+        }:
+            product = None
 
         if product is None:
             result = {

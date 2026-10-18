@@ -1,3 +1,82 @@
+# План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
+
+## Исправления повторного review R9–R10 (2026-10-18)
+
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: `test_late_row_edit_cannot_overwrite_a_successful_source_refresh` и `test_late_advertising_confirmation_cannot_overwrite_a_successful_refresh` блокируют worker после подготовки старой версии, публикуют refresh и проверяют, что поздний worker получает stale и не меняет новые source facts. `test_new_batch_cannot_reuse_an_existing_identity_and_version` проверяет, что вторая сборка не публикует другое содержимое под прежней идентичностью версии 1.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: `test_expired_sensitivity_export_matches_screen_and_marks_historical_cells` сверяет screen, CSV и JSON при истечении source TTL; `test_sensitivity_export_marks_changed_origin_without_reloading_source` проверяет изменённую подпись origin. Обе регрессии проверяют отсутствие повторной загрузки источника.
+- Связанный профиль A–G: **99 passed**. `compileall -q app tests` и `git diff --check` успешны. Exact-head Verify `39164302283` на `20ea6f80e7c69329c51ced8fc36c2b41772a3c09` прошёл Windows и full-verification, включая полный pytest и Docker smoke.
+
+## Исправления архитектурного review R1–R8 (2026-10-18)
+
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: production adapter single→sensitivity callback, owner reset, 64-entry LRU/TTL и cleanup action tokens.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: поздний refresh после cancel/edit, parent trace propagation, stale projection parity для экрана/экспорта и сброс при `/start`/переключении магазина.
+- `tests/test_product_overview_service.py`: child time/request budget и инвалидирование in-flight snapshot при owner reset.
+- `tests/test_unit_price_batch_plan_service.py`: удаление устаревших missing/invalid labels после пересчёта.
+- Связанный профиль вместе с acceptance, architecture regression, Telegram integrity и export tests: **86 passed**. `compileall -q app tests` и `git diff --check` прошли.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; трассировки указывают на `PermissionError [WinError 5]` при создании/чтении/очистке pytest temp paths. Повтор с отдельным `--basetemp` дошёл до конца тестов, но teardown тоже заблокирован ACL. Для code SHA `664a370a117251a88297e57668a8ba721a80555c` exact-head Windows и full-verification CI прошли: runs `39161924581`, `39161920417`.
+
+## Фактическое выполнение
+
+- F00: tests/test_period_profit_operation_diagnostics.py проверяет 256-entry ring buffer, сохраняемые total/dropped counters, родительско-дочернюю агрегацию попыток и row outcomes без публикации raw identifiers. tests/test_period_profit_diagnostic_view_service.py покрывает whitelist статусов/причин, bounded counters, budget actions и fail-closed поля. tests/test_period_profit_completeness_view.py проверяет точный cached-view маршрут, tenant isolation и отсутствие повторного query.
+- F00 локальный профиль: 27 passed, 1 deselected; исключён единственный existing tmp_path stack-dump тест, поскольку изолированный запуск отключил pytest tmpdir из-за известной ACL. Compileall и diff-check пройдены; полный F acceptance ожидает CI.
+- F01: `tests/test_period_profit_support_diagnostic_export_service.py` проверяет strict JSON allowlist, secret-looking hostile nested fields, отсутствие сумм/raw IDs, стабильные aliases, invalid periods/revisions и default-deny неизвестных полей. `tests/test_period_profit_completeness_view.py` проходит реальный handler → cached owner/store snapshot → `support_diagnostic` document contract; source query выполняется ровно один раз, чужие user/store callbacks истекают.
+- F00/F01 local profile: **34 passed, 1 deselected**; единственное исключение — существующий ACL-bound `tmp_path` stack dump. `compileall -q app tests` и `git diff --check` успешны; полный acceptance ждёт exact-head CI PR F.
+- F02: `tests/test_app_build_metadata_service.py` verifies allowlisted environment reads, validation, UTC normalization, captured-once semantics and secret non-disclosure. `tests/test_telegram_help_discovery.py` checks the public version button/handler; container, Verify workflow and Windows startup contracts assert revision injection and launch metadata. `tests/test_period_profit_completeness_view.py` checks that the cached support JSON includes process metadata without another source query.
+- Combined F00–F02 profile: **58 passed, 1 deselected**; the single deselection is the existing ACL-bound `tmp_path` stack-dump test. `compileall -q app tests` and `git diff --check` passed. Full exact-head acceptance remains in G01.
+- F03 extends `tests/test_period_profit_operation_diagnostics.py` with fake Ozon HTTP 429 and timeout responses; public summaries retain exact reservation totals while excluding URL, Client ID, API key, token and exception details. `tests/test_period_profit_completeness_view.py` verifies an expired support export does not call its source again; `tests/test_telegram_cost_table_transport.py` verifies failed delivery of the support-diagnostic document reports failure and never claims success.
+- Combined F00–F03 local profile: **77 passed, 1 deselected**; only the existing ACL-bound `tmp_path` stack-dump test is deselected. Compileall and diff check passed; clean exact-head CI remains required.
+
+- Исполняемое ТЗ: `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`; stage journal: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00–A01: снимок исходной точки и architecture review; код не менялся, pytest не запускался.
+- A02: `tests/test_period_profit_operation_diagnostics.py` проверяет parent/child deadline и общий concurrent attempt cap, child/root cancellation и лимит через реальный `OzonClient` request wrapper. `tests/test_unit_price_scenario_source.py` проверяет parent trace propagation/context restoration и clamp in-flight wait.
+- Локальный A02 subset: **21 passed, 1 deselected**; исключён существующий stack-dump `tmp_path` regression из-за недоступного Windows temp ACL. Чистый CI должен включить его.
+- A03: `tests/test_scoped_transient_snapshot_store.py` покрывает точную tenant/owner/store изоляцию, version/generation, атомарные копии при LRU eviction, TTL без продления на read, стабильные row IDs и границы размера. Совместный профиль A02/A03: **34 passed, 1 deselected**; тот же ACL-bound `tmp_path` regression. Compileall и `git diff --check` успешны.
+- B00: `tests/test_product_business_decision_selected_query.py` покрывает public selected cohort: один load каталога, dedupe, ambiguous/not-found, tenant/cap, failure isolation, общий trace budget и отсутствие history/proposal/task-draft writes. Вместе с существующими decision, metrics-source, unit-economics-cache и trace regressions: **53 passed, 1 deselected** (тот же ACL-bound test). Compileall и diff-check прошли.
+- B01: `tests/test_product_overview_service.py` покрывает whitelist projections, units, source periods/age, stable row IDs, duplicate identity, reconciled coverage, budget/cancel visibility, page reads без повторного query, tenant isolation, out-of-range pages и invalid identity fail-closed. Связанный набор вместе с provider, selected-query, scoped-store, decision-query и factory wiring: **69 passed**; compileall/diff-check прошли.
+- B02: тот же overview regression suite проверяет все шесть фильтров существующих сигналов, explicit stale cache propagation, tie-break по identity, unknown numeric values в конце, page counts и отсутствие повторных source calls: совокупно **75 passed**; compileall/diff-check прошли.
+- B03: `tests/test_product_overview_telegram_flow.py` проверяет main-menu entry, карточку и callback ≤64 bytes, stale row callback после refresh, явную замену и version-bound confirmation активного price scenario. `tests/test_product_overview_service.py` проверяет short view tokens, cross-store/generation rejection, next-group refresh и tenant-scoped deduplicated plan basket. Selected-query test проверяет одну загрузку каталога, стабильную сортировку группы и отсутствие lifecycle writes. Связанный набор: **88 passed**; compileall прошёл.
+- B04: границы 0/1/20/21 и budget проверены в `tests/test_product_business_decision_selected_query.py`; concurrent latest-generation publication, cross-owner/store token rejection, cap/dedupe для 10 SKU проверены в `tests/test_product_overview_service.py`; production factory/handler, filter/page source-free reads, Telegram UTF-16 message и 64-byte callbacks — в overview/attention tests. Итог B: **93 профильных passed**; расширенный товарный набор **1 018 passed, 12 ACL-bound `tmp_path` tests deselected**. `compileall -q app` и `git diff --check` успешны. CI обязан включить все 12.
+
+- ТЗ `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` задаёт meaningful regressions: общий parent/child HTTP budget; read-only cohort без history/proposal writes; selected-group partial coverage; точные идентификаторы; stale/cross-store/concurrent callbacks; batch targets; sensitivity cells; CSV/JSON и formula injection; обезличивание diagnostics; public handler/factory/file sender.
+- После каждого этапа — целевые проверки, после модуля — полный pytest и CI актуального SHA Windows/Linux/Docker. Результаты записываются в `LUNA_LONG_RUN_PROGRESS_2026-10-17.md` и итоговый review handoff.
+- E00–E04: `tests/test_telegram_document_contract.py`, `tests/test_analytics_export_serializer.py`, `tests/test_analytics_export_service.py`, `tests/test_analytics_export_runtime.py`, `tests/test_telegram_cost_table_transport.py`, `tests/test_period_profit_analytics_runtime.py`, `tests/test_product_overview_telegram_flow.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, `tests/test_telegram_unit_price_sensitivity_runtime_service.py`. Проверяются документные контракты, formula-safe CSV/JSON, snapshot-only exports, stale/foreign scopes и доставка через public Telegram handler.
+- E exact-head PR #701 SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0`: Windows/Linux full suites **3 389 passed** на каждой платформе; Docker build/runtime smoke passed, Verify run `39066587245`.
+- При подготовке выполнены 6 прямых fake-only вызовов настоящих `UnitPriceScenarioService`/`TaxService`; все контрольные числовые примеры ТЗ совпали.
+- A02 добавлены parent deadline/request cap, одновременное резервирование, cancellation и HTTP wrapper/source regressions. A04 закрыт точным CI PR #698, приведённым выше.
+- A04 exact-head CI PR #698 / SHA `be76a4f8e4c7d78160e0d1047515651993062d54`: Verify run `39059951770` прошёл на Windows и full-verification; полный pytest, compileall, production Docker build/runtime smoke успешны. SHA-bound artifact: `12111345571`.
+
+# N06 — Telegram-экраны и scoped report snapshots (15.10.2026)
+
+- `tests/test_period_profit_analytics_runtime.py` проверяет public handler route, прежний и текущий период, прибыль до внешних расходов, п.п. маржи, bridge, SKU residual, существующий выбор товара, owner/store isolation, fixed TTL, отсутствие tenant fallback, компактный snapshot и очистку длинной SKU-метки. В тесте присутствует production-factory wiring regression.
+- N06 code commits `e9372b1` and `9a6523c`. Последний N06+N07 focused набор: **76 passed, 1 deselected**; deselected только production-factory regression, потому что локальный Windows runner не позволяет Python зайти в изолированный временный каталог (WinError 5). Отдельно `compileall -q app tests` и `git diff --check` прошли. Production-factory regression included and passed in the final N08 full CI.
+- N07 `test_cached_read_and_eviction_are_atomic_and_cache_stays_bounded` делает interleaving через `Event`: cached entry копируется под lock, параллельный расчёт заполняет LRU, читатель получает READY, а после 65 отчётов старый callback expired и новый остаётся доступным; cache не превышает 64.
+- N07 аналитический/query suite: **76 passed, 1 deselected** (production-factory test ждёт clean CI). Отдельно budget/dedup/Performance suite: **13 passed, 68 deselected**, включая Ozon/Performance retries в общем лимите и конкурентные callbacks с owner/store isolation. `compileall -q app tests` и `git diff --check` прошли.
+- N08: локальный full-suite diagnostic на старом SHA `bbdebf4`: **2,876 passed, 22 failed, 369 errors**; обычный pytest также встретил basetemp `WinError 5`; этот локальный результат не использован как приёмка. Exact PR SHA `c36efb6...` выявил одну устаревшую подпись в legacy assertion; исправленный связанный модуль прошёл локально (**10 passed**). Final exact code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d`: Windows **3,268 passed**, Linux **3,268 passed**, compileall и production Docker build/runtime smoke — success (Verify runs `38755542971` and `38755551644`).
+
+# N00–N05 — аналитика прибыли, contract, bridge и SKU contribution (15.10.2026)
+
+- `tests/test_period_profit_sku_contribution.py` covers reference store-vs-SKU reconciliation (+4,100 ₽ = +3,000 ₽ matched SKU +1,100 ₽ residual), exact historical SKU change under the same confirmed product+offer, no-zero inference for a missing counterpart, conflicts, ambiguous offer variants, deterministic top five, incomplete coverage, malformed money, and mismatch with the canonical store contract.
+- `tests/test_period_profit_finalized_comparison_contract.py::test_production_wrapper_exposes_sku_contribution_from_finalized_rows` verifies the production final wrapper exposes the contribution from the same finalized summaries and does not run an extra SKU query.
+- N05 with contract/bridge/metrics and existing finance/legacy-SKU identity regressions: **67 passed in 1.32s**; `compileall -q app tests` and `git diff --check` passed. The store result remains authoritative; unmatched rows are not converted to zero.
+
+- N04 commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0`: `tests/test_period_profit_comparison_bridge.py` verifies reference ΔN/ΔC/ΔK/ΔT sums, nested revenue/net-accrual split, complete and partial E, one-cent rounding, >1-cent mismatch, per-period formula mismatch despite equal delta, applied K/tax, unsupported scope and unknown K. `tests/test_period_profit_finalized_comparison_contract.py` ensures production wrapper exposes the bridge and refuses its inconsistent fake canonical result.
+- N04 focused suite with N01–N03 integration: **100 passed in 2.54s**; compileall and diff check passed. Bridge failure is controlled and does not rewrite the financial report.
+
+- N03 commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c`: `tests/test_period_profit_comparison_metrics.py` covers numeric deltas/revenue shares, zero/negative bases, percentage-point margin changes, independent metrics under tax-policy mismatch, different period lengths, partial external estimates, exact >2^53 unit counts, overflow and malformed contracts. The production-wrapper integration verifies metrics derive from the same finalized comparison contract.
+- N03 related N01–N03 query/contract/presentation suite: **89 passed in 2.30s**; `compileall -q app tests` and `git diff --check` passed. `comparison_metrics` is analysis-only and does not rewrite canonical summaries.
+
+- N02 commit `07c6c99eaea471f5b002e18b5554034af8d5180e`: `tests/test_period_profit_comparison_contract.py` проверяет периоды/исходные request, tenant, tax policy, profit scope, strict final Return COGS marker, independent metrics при несовместимости и B/E complete/partial/unknown coverage. `tests/test_period_profit_finalized_comparison_contract.py` проверяет production wrapper с fake источниками: обе финализации, внешние расходы после финализации, complete E и отказ previous external evidence без потери B. `tests/test_period_profit_request.py` покрывает равные периоды через год/високосный день и controlled underflow.
+- N02 связанный набор из 14 модулей: **80 passed in 2.11s**. `compileall -q app tests` и `git diff --check` прошли. Попытка запустить существующий expense repository/evidence набор `tests/test_external_operating_expense_coverage_v1261_v1270.py` отдельно показала 7 tmp_path setup errors; pytest завершился дополнительным `PermissionError (WinError 5)` при перечислении basetemp и не дал summary. Pure/integration regressions N02 проходят; этот модуль должен быть перепроверен в N08 CI.
+- Контракт N02 намеренно копирует finalized amounts, а не пересчитывает прибыль/налог. Сравнение B требует совместимости canonical scope, tax policy, component flags, периода и tenant; E дополнительно требует complete evidence/adjustment обоих периодов.
+
+- N00 baseline перед кодом N01: `tests/test_period_profit_comparison.py`, `tests/test_period_profit_query_service.py`, `app/tests/test_period_profit_runtime_comparison_fallback.py` — **9 passed in 0.48s** на task SHA `12619f947fd00d5fce056836000abb36ecb5300f`.
+- N01 code `66d79d6a87c6f3509e187f2a2e5b2441e270086f`: production final-wrapper/runtime tests verify previous return-loader and final-application failures preserve one finalized current result, while current errors remain fail-closed with one query. Base-only query regression covers optional previous-summary failure.
+- Pure comparison tests reject absent/bool/string/NaN/infinite/overflow monetary values and non-boolean scope flags; finite Decimal, zero and negative profit remain valid. Compact-report test distinguishes displayed E from B↔B comparison text.
+- **128 passed in 2.14s** across comparison, query, final wrapper, runtime, Return COGS, compact response and related mappings. `compileall -q app` passed. Full suite deferred to N08. No Ozon calls or persistent data writes.
+- Fake-only probes подготовки подтверждали повтор current при отказе прошлых возвратов, принятие `None`/`bool`/`NaN` builder-ом и неподписанное сравнение B рядом с E. Это audit evidence, не успешные исправляющие тесты.
+- Матрица N00–N08 и exact-head CI: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, разделы 16–19.
+- PR #696 уже слит в main `c554343`; результаты ниже относятся к его историческим проверкам и не принимают будущий код аналитики.
+
 # PR #696 — нормализация цены до сетки копеек
 
 - `tests/test_unit_price_target_planning_service.py`: числовые строки/Decimal `11.110` нормализуются к 1 111 копейкам; `1.0000` принимается как 100 копеек, а `11.111` отклоняется. Два эквивалентных исходных формата обязаны дать одну цену при подборе цели.
@@ -5164,3 +5243,69 @@ Added:
 Covers the separate menu and period picker, explicit incomplete-result contract,
 missing-cost independence, request-local cost exclusion, custom dates, and per-user
 pending-state isolation.
+
+# Unit price batch plan — C00/C01 and domain C02
+
+Added:
+
+- `tests/test_unit_price_batch_plan_service.py`
+
+Covers exact 2–10 catalog identity boundaries, duplicate/invalid selection, stable row IDs and selection ordering, one catalog snapshot, row-level FBS/source failures, shared parent HTTP cap, complete/incomplete rows, independent candidate forward-result check, local zero-cost/ad assumptions, bulk-advertising preview and confirmation/version checks, explicit refresh preserving manual provenance, and no extra source calls during local edits.
+
+Updated:
+
+- `tests/test_unit_price_scenario_source.py`
+
+Covers exact supplied catalog product without a second catalog load, parent budget propagation, cache-age preservation on batch identity cache hits, and isolation of same-SKU product/offer identity aliases.
+
+Focused local result: **75 passed**. `compileall -q app tests` and `git diff --check` passed. Full exact-head CI is required at G01.
+# Unit price batch plan (module C)
+
+- `tests/test_unit_price_batch_plan_service.py`: bounds and exact identities; one catalog read; partial source failure/FBS; parent HTTP budget; exact forward-result confirmation; local zero-valued assumptions; version-bound advertising confirmation; source refresh preserving assumptions.
+- `tests/test_unit_price_scenario_source.py`: exact catalog row reuse, identity-separated cache/in-flight operations, source age retention, parent operation trace.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: text stages, bounded UTF-16 report and callback payloads, local edits/sorts, stale token rejection, tenant change during build, advertising preview/confirm/cancel revocation, overview handler routing, public candidate handoff, no source reload on handoff, and text ownership until the user exits the batch flow.
+- Verified local profile: **116 passed** across batch service, source, target solver, scenario calculator and Telegram runtime; `compileall -q services` and `git diff --check` passed. Full CI is required for complete repository validation.
+
+- Module C acceptance on exact code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`: local related B/C product profile **193 passed**, `compileall -q app tests` and `git diff --check` passed. Verify runs `39063730904` and `39063717597` both passed Windows and full-verification jobs, including full pytest, compileall, production Docker build and runtime smoke. PR #699 is open for review; no merge/deployment.
+
+# Unit price sensitivity — D00–D03
+
+- `tests/test_unit_price_sensitivity_service.py`: absolute input parsing and limits, 3–7 values/axis, exact 49-cell matrix, no interpolation, exact target-margin marking, unknown inputs, stale source, invalid/bool/nonfinite/overflow, existing minimum-tax branch, parallel sweeps and snapshot immutability.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: single and batch entry, callback routing, exact source/version/tenant binding, all 49 cells across pages, stale historical view without apply, explicit fresh-cell transfer with forward recalculation, source-free operation, text ownership/return cleanup, and parallel/read isolation.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: exact batch-row context, identity and source-as-of binding for the sensitivity entry.
+- D focused profile: **117 passed** across sensitivity, Telegram batch/single runtimes, scenario and target planning; `compileall -q app tests` and `git diff --check` passed.
+- Full local Windows run: **2,978 passed, 21 failed, 369 errors**. Failures/errors are blocked by the workspace Windows temp ACL (`PermissionError: WinError 5`; SQLite cannot open files under the created temp directory). No project-data JSON hashes changed. Exact-head `d7c33dfa9d4d1e3ffde626d375dd17d2f0d38824` passed Windows/full-verification in runs `39065039552` and `39065028764`; D03 is accepted, PR #700 remains open and unmerged.
+
+# Telegram document contract — E00
+
+- `tests/test_telegram_document_contract.py`: recognized document kinds, matching MIME/extension, safe filename and path rejection, UTF-8 payload conversion, analytics-vs-cost-import caption separation, malformed content rejection.
+- `tests/test_telegram_cost_table_transport.py`: preserves existing cost CSV transport and caption; transport exception yields a failure status/message and never reports success before delivery.
+- `tests/test_seller_cost_table_service.py`: existing export emits explicit `seller_cost_import_template` kind without changing CSV schema or import behavior.
+- E00 profile: **12 passed**; compileall and `git diff --check` passed. E01 extends this contract with versioned serializers and file size handling.
+
+# Analytics export serializer — E01
+
+- `tests/test_analytics_export_serializer.py`: UTF-8 BOM/semicolon CSV, embedded metadata/schema, formula injection in text (including leading whitespace/tab), quoted newline/quotes, decimal comma, numeric negative money, null-vs-zero, JSON schema v1/units/provenance, NaN rejection, unknown columns, row and byte limits with no truncation.
+- Related E00 contract/cost-export tests: **17 passed total**; compileall and `git diff --check` passed.
+
+# Analytics snapshot export — E02–E04
+
+- `tests/test_analytics_export_service.py`: period comparison/bridge/reconciliation/TOP_K semantics; all filtered overview rows; complete batch and sensitivity scopes; planned-vs-factual metadata; null/zero preservation; invalid snapshot/schema fail-closed.
+- `tests/test_analytics_export_runtime.py`: exact report cache snapshot, owner/store isolation, fixed TTL, copy isolation, no source queries; public callback returns a file from the cached result.
+- `tests/test_product_overview_telegram_flow.py`: overview export uses the exact snapshot without a second catalog query and includes seven rows despite five-row display pages.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: exports include all 8 batch rows / 9 matrix cells; one-time callbacks and no source reload.
+- `tests/test_telegram_cost_table_transport.py`: public Telegram callback delivers analytics export with the read-only caption; legacy cost export and send-failure behavior remain covered.
+- Combined E00–E04 profile: **73 passed**; `compileall -q app tests` and `git diff --check` passed. Clean Windows/Linux full verification and Docker smoke remain required on exact PR head.
+
+# Product workbench cross-feature acceptance — G00
+
+Added:
+
+- `tests/test_product_workbench_acceptance.py`: runs the public Telegram handler through overview filtering, exact product selection, real batch-plan calculator with a local missing-cost correction, sensitivity sweep, and complete batch/sensitivity exports. Verifies one overview query, one catalog read, exactly one snapshot read per selected SKU, and read-only document results.
+
+Updated:
+
+- `tests/test_period_profit_analytics_runtime.py`: connects the finalized period comparison with cached CSV/JSON and support-diagnostic JSON; asserts the period query runs once.
+- `tests/test_product_overview_telegram_flow.py`: checks that legacy main-menu sections remain available alongside workbench navigation.
+
+G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact acceptance head `12447d4cb48823fea938513fbb16dc4f41a080c2` passed Verify `39069249065`; review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` passed Verify `39069517726` (Windows, Linux full verification, Docker smoke).

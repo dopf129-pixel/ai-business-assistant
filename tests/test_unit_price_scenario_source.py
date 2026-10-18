@@ -4,6 +4,12 @@ from decimal import Decimal
 import pytest
 
 from services.finance_service import FinanceService
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    current_period_profit_trace,
+    reset_period_profit_trace,
+)
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from services.unit_price_scenario_source import UnitPriceScenarioSource
 
@@ -255,6 +261,196 @@ def test_weighted_points_share_uses_full_28_days_and_exact_sku():
     assert finance.prepared == ("2026-09-16", "2026-10-13")
     assert len(finance.calls) == 28
     assert result["identity"]["store_id"] == "store-1"
+
+
+def test_grouped_snapshot_inherits_parent_attempt_budget_through_child_trace():
+    class _TracingCurrentSource(_CurrentSource):
+        def __init__(self):
+            super().__init__()
+            self.trace = None
+
+        def get(self, **kwargs):
+            self.trace = current_period_profit_trace()
+            reservation = self.trace.reserve_ozon_request("/synthetic-source")
+            if reservation.get("error") is True:
+                return reservation
+            return super().get(**kwargs)
+
+    current = _TracingCurrentSource()
+    source = _source(_SnapshotFinance({}), current=current)
+    parent = PeriodProfitOperationTrace(
+        "price_batch", time_budget_seconds=30, ozon_request_budget=5
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    trace_token = activate_period_profit_trace(parent)
+    try:
+        result = source.load_snapshot(
+            "sku-1", user_id="user-1", operation_trace=parent
+        )
+    finally:
+        assert current_period_profit_trace() is parent
+        reset_period_profit_trace(trace_token)
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert current.trace is not None
+    assert current.trace.parent is parent
+    assert current.trace.ozon_requests_reserved == 1
+    assert parent.ozon_requests_reserved == 1
+
+
+def test_batch_snapshot_uses_exact_catalog_product_without_reloading_catalog():
+    products = _ProductService([{
+        "product_id": "p1",
+        "offer_id": "hook",
+        "sku": "sku-1",
+        "name": "Hook",
+    }])
+    products.calls = 0
+    original_load = products.load_products
+
+    def counted_load():
+        products.calls += 1
+        return original_load()
+
+    products.load_products = counted_load
+    source = UnitPriceScenarioSource(
+        product_service=products,
+        current_economics_source=_CurrentSource(),
+        finance_service=_SnapshotFinance({}),
+        cost_service=_CostService(),
+        tax_configuration_service=_TaxConfiguration(),
+        clock=lambda: datetime(2026, 10, 14, 12),
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = source.load_snapshot(
+            "sku-1",
+            user_id="user-1",
+            catalog_product={
+                "product_id": "p1",
+                "offer_id": "hook",
+                "sku": "sku-1",
+                "name": "Hook",
+            },
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert products.calls == 0
+    assert result["identity"]["product_id"] == "p1"
+    assert result["identity"]["offer_id"] == "hook"
+
+
+def test_batch_exact_identity_cache_preserves_age_and_separates_identity_aliases():
+    cache_now = [100.0]
+    current = _CurrentSource()
+    source = UnitPriceScenarioSource(
+        product_service=_ProductService([]),
+        current_economics_source=current,
+        finance_service=_SnapshotFinance({}),
+        cost_service=_CostService(),
+        tax_configuration_service=_TaxConfiguration(),
+        clock=lambda: datetime(2026, 10, 14, 12),
+        cache_clock=lambda: cache_now[0],
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first_product = {
+            "product_id": "p1", "offer_id": "hook", "sku": "sku-1"
+        }
+        first = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=first_product
+        )
+        cache_now[0] += 25
+        cached = source.load_snapshot(
+            "sku-1", "user-1", catalog_product=first_product
+        )
+        alias = source.load_snapshot(
+            "sku-1",
+            "user-1",
+            catalog_product={
+                "product_id": "p2", "offer_id": "hook-alias", "sku": "sku-1"
+            },
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["cache"]["status"] == "miss"
+    assert cached["cache"]["status"] == "hit"
+    assert cached["cache"]["age_seconds"] == 25
+    assert alias["identity"]["product_id"] == "p2"
+    assert alias["identity"]["offer_id"] == "hook-alias"
+    assert current.calls and len(current.calls) == 2
+
+
+def test_inflight_wait_is_clamped_to_parent_remaining_time():
+    class _Clock:
+        now = 10.0
+
+        def __call__(self):
+            return self.now
+
+    class _Pending:
+        def __init__(self, clock):
+            self.clock = clock
+            self.timeout = None
+
+        def wait(self, timeout=None):
+            self.timeout = timeout
+            self.clock.now = 15
+            return False
+
+    clock = _Clock()
+    parent = PeriodProfitOperationTrace(
+        "price_batch", time_budget_seconds=5, ozon_request_budget=5, clock=clock
+    )
+    source = _source(_SnapshotFinance({}))
+    tenant = "user-1::ozon::store-1"
+    pending = _Pending(clock)
+    key = (tenant, "user-1", "sku-1")
+    source._inflight[key] = pending
+    token = set_current_tenant_user_id(tenant)
+    try:
+        result = source.load_snapshot(
+            "sku-1", user_id="user-1", operation_trace=parent
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+        source._inflight.pop(key, None)
+
+    assert pending.timeout == 5
+    assert result["error"] is True
+    assert result["code"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+
+
+def test_late_source_result_is_not_cached_after_parent_cancellation():
+    class _CancellingCurrentSource(_CurrentSource):
+        def get(self, **kwargs):
+            current_period_profit_trace().parent.cancel()
+            return super().get(**kwargs)
+
+    source = _source(
+        _SnapshotFinance({}),
+        current=_CancellingCurrentSource(),
+    )
+    parent = PeriodProfitOperationTrace(
+        "price_batch", time_budget_seconds=30, ozon_request_budget=5
+    )
+    tenant = "user-1::ozon::store-1"
+    token = set_current_tenant_user_id(tenant)
+    try:
+        result = source.load_snapshot(
+            "sku-1", user_id="user-1", operation_trace=parent
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is True
+    assert result["code"] == "OZON_OPERATION_CANCELLED"
+    assert parent.is_cancelled() is True
+    assert source._cache == {}
 
 
 def test_incomplete_day_or_missing_bonus_keeps_auto_rate_unknown():

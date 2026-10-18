@@ -57,13 +57,21 @@ class AssistantKeyboardService:
                     "callback": "seller_attention",
                 },
                 {
+                    "text": "🧭 Обзор товаров",
+                    "callback": "product_overview",
+                },
+                {
                     "text": "↩️ Расходы на возвраты",
                     "callback": "returns_finance_impact"
                 },
                 {
                     "text": "❓ Помощь и команды",
                     "callback": "help"
-                }
+                },
+                {
+                    "text": "ℹ️ О боте / версия",
+                    "callback": "about_bot",
+                },
             ]
         }
 
@@ -317,10 +325,70 @@ class AssistantKeyboardService:
         return {
             "error": False,
             "type": "inline_keyboard",
-            "buttons": [{
-                "text": "🔎 Полнота данных",
-                "callback": "period_profit_completeness:" + token,
-            }],
+            "buttons": [
+                {
+                    "text": "📊 Аналитика периода",
+                    "callback": "period_profit_analytics:" + token,
+                },
+                {
+                    "text": "⬇️ CSV",
+                    "callback": "period_profit_export:csv:" + token,
+                },
+                {
+                    "text": "⬇️ JSON",
+                    "callback": "period_profit_export:json:" + token,
+                },
+                {
+                    "text": "🔎 Полнота данных",
+                    "callback": "period_profit_completeness:" + token,
+                },
+            ],
+        }
+
+    def build_period_profit_analytics_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "📅 Сравнение периодов", "callback": "period_profit_comparison:" + token},
+                {"text": "🧾 Что изменило прибыль", "callback": "period_profit_bridge:" + token},
+                {"text": "🛍 Вклад товаров", "callback": "period_profit_sku_contribution:" + token},
+                {"text": "🔎 Полнота данных", "callback": "period_profit_completeness:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_period_profit_analytics_detail_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "↩️ Аналитика", "callback": "period_profit_analytics:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
+
+    def build_period_profit_sku_contribution_keyboard(self, report_view_id):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "🔎 Выбрать товар", "callback": "period_profit_sku"},
+                {"text": "↩️ Аналитика", "callback": "period_profit_analytics:" + token},
+                {"text": "↩️ К расчёту", "callback": "period_profit_report:" + token},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
         }
 
     def build_period_profit_completeness_keyboard(self, report_view_id, actions):
@@ -339,10 +407,51 @@ class AssistantKeyboardService:
             if item is not None:
                 buttons.append({"text": item[0], "callback": item[1]})
         buttons.append({
+            "text": "❓ Почему расчёт неполный?",
+            "callback": "period_profit_diagnostics:" + token,
+        })
+        buttons.append({
+            "text": "📊 Аналитика периода",
+            "callback": "period_profit_analytics:" + token,
+        })
+        buttons.append({
             "text": "↩️ К расчёту",
             "callback": "period_profit_report:" + token,
         })
         buttons.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_period_profit_diagnostics_keyboard(self, report_view_id, actions):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        labels = {
+            "cost": ("💰 Исправить себестоимость", "seller_cost"),
+            "sku": ("🔎 Проверить SKU", "period_profit_sku"),
+            "return_inventory": ("↩️ Проверить возврат", "return_inventory"),
+            "external_expenses": ("💸 Внешние расходы", "external_expenses"),
+            "refresh": ("🔄 Обновить расчёт", "period_profit"),
+        }
+        buttons = []
+        for action in actions or []:
+            item = labels.get(str(action))
+            if item is not None:
+                buttons.append({"text": item[0], "callback": item[1]})
+        buttons.extend([
+            {
+                "text": "📦 Сохранить диагностику",
+                "callback": "period_profit_support_export:" + token,
+            },
+            {
+                "text": "↩️ Полнота данных",
+                "callback": "period_profit_completeness:" + token,
+            },
+            {
+                "text": "↩️ К расчёту",
+                "callback": "period_profit_report:" + token,
+            },
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
 
 
@@ -413,6 +522,7 @@ class AssistantKeyboardService:
                 {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
             ])
+        buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
         buttons.extend([
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
@@ -466,6 +576,7 @@ class AssistantKeyboardService:
                     })
         buttons.extend([
             {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
+            {"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"},
             {"text": "Назад к расчёту", "callback": f"upc:v:{sid}:{ver}"},
             {"text": "Главное меню", "callback": "main_menu"},
         ])
@@ -585,6 +696,136 @@ class AssistantKeyboardService:
             {"text": "💵 Прибыль за период", "callback": "period_profit"},
         ])
         return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_product_overview_keyboard(
+        self,
+        rows,
+        view_token,
+        pagination,
+        selection_scope=None,
+    ):
+        filter_codes = {
+            "all_selected": "a",
+            "existing_priority": "p",
+            "negative_unit_profit": "n",
+            "low_margin_decision": "m",
+            "incomplete_or_stale": "i",
+        }
+        sort_codes = {
+            "priority": "r",
+            "sales_velocity": "v",
+            "current_stock": "c",
+            "days_of_stock": "d",
+            "decision_profit_per_unit": "p",
+            "decision_margin_percent": "m",
+        }
+        active_filter = filter_codes.get(pagination.get("filter"), "a")
+        active_sort = sort_codes.get(pagination.get("sort_by"), "r")
+        buttons = []
+        for row in rows or []:
+            identity = row.get("identity") or {}
+            label = identity.get("offer_id") or identity.get("catalog_sku")
+            if not isinstance(label, str) or not label.strip():
+                label = row.get("selector") or "Товар"
+            status = row.get("status")
+            icon = "🧩" if status in {"INCOMPLETE", "SOURCE_UNAVAILABLE"} else "📦"
+            callback = f"pov:d:{view_token}:{row.get('row_id', '')}"
+            if len(callback.encode("utf-8")) <= 64:
+                buttons.append({"text": f"{icon} {label[:48]}", "callback": callback})
+        if pagination.get("has_previous"):
+            buttons.append({
+                "text": "⬅️",
+                "callback": f"pov:p:{view_token}:{pagination['page'] - 1}:{active_filter}:{active_sort}",
+            })
+        if pagination.get("has_next"):
+            buttons.append({
+                "text": "➡️",
+                "callback": f"pov:p:{view_token}:{pagination['page'] + 1}:{active_filter}:{active_sort}",
+            })
+        buttons.extend([
+            {"text": "Все", "callback": f"pov:f:{view_token}:a"},
+            {"text": "Приоритет", "callback": f"pov:f:{view_token}:p"},
+            {"text": "Низкая прибыль", "callback": f"pov:f:{view_token}:n"},
+            {"text": "Малая маржа", "callback": f"pov:f:{view_token}:m"},
+            {"text": "Пробелы данных", "callback": f"pov:f:{view_token}:i"},
+            {"text": "Сортировать по прибыли", "callback": f"pov:s:{view_token}:p"},
+            {"text": "Сортировать по продажам", "callback": f"pov:s:{view_token}:v"},
+        ])
+        group = selection_scope or {}
+        if group.get("has_previous_group"):
+            buttons.append({"text": "Предыдущая группа", "callback": f"pov:g:{view_token}:b"})
+        if group.get("has_next_group"):
+            buttons.append({"text": "Следующая группа", "callback": f"pov:g:{view_token}:n"})
+        buttons.extend([
+            {"text": "⬇️ CSV", "callback": f"pov:export:{view_token}:{active_filter}:{active_sort}:csv"},
+            {"text": "⬇️ JSON", "callback": f"pov:export:{view_token}:{active_filter}:{active_sort}:json"},
+            {"text": "🔄 Обновить", "callback": f"pov:r:{view_token}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_unit_price_batch_keyboard(self, buttons):
+        safe = []
+        for item in buttons or []:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "")[:64]
+            callback = item.get("callback")
+            if (
+                text
+                and isinstance(callback, str)
+                and len(callback.encode("utf-8")) <= 64
+            ):
+                safe.append({"text": text, "callback": callback})
+        if not any(button.get("callback") == "main_menu" for button in safe):
+            safe.append({"text": "Главное меню", "callback": "main_menu"})
+        return {"error": False, "type": "inline_keyboard", "buttons": safe}
+
+    def build_product_overview_row_keyboard(
+        self,
+        view_token,
+        row_id,
+        exact_catalog_identity,
+    ):
+        buttons = [
+            {
+                "text": "Карточка решения",
+                "callback": f"pov:e:{view_token}:{row_id}",
+            },
+            {
+                "text": "Добавить в план цен",
+                "callback": f"pov:a:{view_token}:{row_id}",
+            },
+            {
+                "text": "Полнота данных",
+                "callback": f"pov:c:{view_token}:{row_id}",
+            },
+        ]
+        if exact_catalog_identity:
+            buttons.insert(0, {
+                "text": "Планировать цену",
+                "callback": f"pov:u:{view_token}:{row_id}",
+            })
+        buttons.extend([
+            {"text": "К обзору", "callback": f"pov:b:{view_token}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        buttons = [
+            item for item in buttons
+            if len(item["callback"].encode("utf-8")) <= 64
+        ]
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def build_product_overview_plan_transition_keyboard(self, callback):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {"text": "Закрыть текущий и открыть новый план", "callback": callback},
+                {"text": "Вернуться к обзору", "callback": "product_overview"},
+                {"text": "Главное меню", "callback": "main_menu"},
+            ],
+        }
 
     def build_product_decision_learning_coverage_keyboard(
         self,

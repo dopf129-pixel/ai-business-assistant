@@ -1,3 +1,111 @@
+# 2026-10-18 — исправления повторного review R9–R10
+
+- Batch runtime публикует стартовый план и все обновления через атомарное сравнение с исходной версией. Ручная правка и подтверждение рекламной доли сверяют текущую версию под lock; успешный refresh удаляет ожидающие изменения, рассчитанные из предыдущей версии. Новая сборка не переиспользует тот же batch id/version для другого содержимого. Проверяются границы tenant, ticket, TTL и монотонного `version + 1`.
+- Sensitivity runtime строит одну freshness projection для экрана, переноса ячейки и выгрузок. CSV/JSON показывают актуальный статус/причину и разрешение переноса; исходный статус расчёта остаётся в `snapshot_status`. Для уже истёкшего origin используется сохранённый возраст источника и время создания чувствительности, повторного запроса Ozon нет.
+- Регрессии R9/R10 добавлены в batch и sensitivity runtime tests. Связанный локальный профиль: **99 passed**; compileall и `git diff --check` успешны. Exact-head Verify `39164302283` для `20ea6f80e7c69329c51ced8fc36c2b41772a3c09` прошёл Windows и full-verification, включая полный pytest и production Docker smoke. Повторная проверка изменений не выявила новых замечаний. PR #704 открыт, не слит и не развёрнут.
+- `data/tasks.json`, `data/users.json`, их lock и локальные временные каталоги pytest сохранены и не включены в эти изменения.
+
+# 2026-10-18 — исправления A–G по review R1–R8
+
+- Реализованы восемь исправлений для PR #703: корректное сохранение контекста single/sensitivity; version/ticket-guard от позднего batch refresh; владелец-ориентированный reset новых transient runtimes; дочерние лимиты 120 секунд/128 запросов для product overview; передача родительского operation trace в batch build/refresh; bounded LRU/TTL чувствительности; freshness projection для экрана и экспорта; синхронизация missing/invalid input при пересчёте.
+- Проверки локально: **86 targeted tests passed**, `compileall -q app tests` и `git diff --check` успешны. Полный Windows pytest дал **3 030 passed, 21 failed, 369 errors**; локальный прогон ограничен ACL `PermissionError [WinError 5]` на temporary paths. Code commit `664a370a117251a88297e57668a8ba721a80555c` повторно проверен: новых замечаний R1–R8 нет; оба Windows/full-verification CI runs `39161924581` и `39161920417` прошли. Merge/deploy не выполнялись.
+- Пользовательские `data/tasks.json` и `data/users.json`, lock-файл и ACL-limited временные каталоги сохранены вне списка изменений.
+
+# 2026-10-17 — выполнение программы Luna A–G начато
+
+- Владелец поручил выполнить `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` до готовых PR с зелёным CI; merge и deploy запрещены. Журнал этапов: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00 проверен: PR #697 открыт на head `3f7923ced48ba9434fdf5930d1f55431e0eacedd`, base `main` `c55434327f50134324a5ca58e2f084854b809832`. Рабочая ветка `codex/product-workbench-20261017` содержит подготовительный документальный commit `91aac988aa067082434704095cc61a2400b06159` поверх PR head.
+- Данные `data/tasks.json`, `data/users.json`, временные каталоги pytest и lock-файл сохранены. Хэши пользовательских JSON записаны в журнал.
+- A00–A01 VERIFIED. Review подтвердил: legacy `query_all()` — full-catalog/history lifecycle; price source сбрасывает собственный 60s/64-attempt trace и ждёт inflight фиксированные 61s; outgoing document sender подписывает каждый файл как cost CSV. Это prerequisites для новых путей, не объявлены production regressions.
+- A00–A02 VERIFIED. Общий trace поддерживает parent/child deadline и atomic attempt reservation; UnitPriceScenarioSource умеет наследовать его для сгруппированных запусков, ограничивает in-flight wait и не публикует/кэширует поздний результат после cancel. Standalone 60s/64-attempt defaults сохранены.
+- A00–E04 VERIFIED; PR #698–#701 остаются открытыми и не слитыми. Exact-head E code и documentation CI зафиксированы в журнале.
+- F00 VERIFIED на локальном профиле **27 passed, 1 deselected** (единственный `tmp_path` тест исключён из-за известного Windows ACL при отключённом pytest tmpdir); `compileall` и `git diff --check` прошли. Коммит F00 `057d439` на ветке `codex/product-workbench-module-f`, base — E acceptance head `f598d30`.
+- F00–F01 verified locally: bounded period-operation diagnostic view and strict allowlisted `support_diagnostic` JSON. F01 commit `59432ef`; export is owner/store/TTL-bound, reads the cached report only, and masks identifiers.
+- F02 verified locally in commit `3e4af5a`: read-only main-menu version screen and the same validated process revision/start time in support JSON; Windows launch script captures Git revision/start time once per launch, and Docker Verify injects the image revision. Profile **58 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head acceptance remains pending.
+- F03 verified locally: regressions cover exact attempt counters and secret-free public traces for HTTP 429/timeout, expiry without source refresh, and support-file delivery failure. The combined F00–F03 profile is **77 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head CI is pending.
+- G00 verified locally: new public Telegram acceptance connects overview/incomplete filter → exact selection → batch target → local cost assumption → sensitivity → batch/sensitivity CSV/JSON; a period path connects comparison → CSV/JSON → safe support diagnostic. All steps reuse source snapshots, and the main-menu test confirms legacy sections remain accessible. Focused G00 profile: **54 passed, 1 existing ACL-bound `tmp_path` test deselected**. Full exact-head CI remains pending.
+- Текущий этап G01: полный pytest, compileall, diff/secret/data review, exact-head Windows/Linux CI and Docker build/runtime smoke.
+
+# 2026-10-18 — программа A–G завершена и передана на независимый review
+
+- PR #698–#703 остаются открытыми stacked PR; #697 — исходная зависимость. Последние проверенные code heads A/B–F имеют зелёные Verify; F PR #702 exact head `55db3e60fda3c3080051da2fbea1902091a4bfff`, run `39069168434`.
+- G00/G01 прошли локальные acceptance/regression проверки; exact code head `12447d4cb48823fea938513fbb16dc4f41a080c2` и review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` прошли Verify `39069249065` и `39069517726` соответственно (Windows, Linux full verification и Docker smoke). Review handoff: `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`.
+- Полный локальный Windows pytest заблокирован существующим ACL на временные каталоги (`3 018 passed, 22 failed, 369 errors`); ограничения и исправленная stale menu assertion записаны в журнале. `data/tasks.json`, `data/users.json`, их lock и временные каталоги сохранены вне PR.
+- Слияние и развёртывание не выполнялись. Перед слиянием нужен независимый архитектурный review stacked PR в порядке зависимостей и зелёный CI на текущих heads.
+
+# 2026-10-17 — подготовлен большой пакет новых функций для Luna
+
+- Поручение владельца: длительная автономная разработка, включая новые возможности продукта. Подготовлено `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: 7 крупных модулей A–G, 32 этапа, ориентировочно 12–24 инженерных часа; фактическая длительность не является критерием приёмки.
+- Новые функции программы A–G: A–D реализованы; B добавляет bounded обзор выбранных товаров с фильтрами, C — пакетный план до 10 SKU, D — локальную чувствительность и матрицу цены/себестоимости/рекламы. PR #698/#699 открыты для review; D PR готовится. E–G продолжаются по журналу `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- Основание: `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`. Выявлены реальные prerequisites: `query_all` включает history decoration и весь каталог; source калькулятора начинает собственный budget; outgoing file caption привязан к cost CSV. Они описаны как проверенное поведение, без неподтверждённых P1/P2.
+- GitHub проверен 17.10: PR #697 открыт и не слит, head `3f7923ced48ba9434fdf5930d1f55431e0eacedd`, base main `c55434327f50134324a5ca58e2f084854b809832`. Новая реализация должна явно учитывать зависимость, не повторять N00–N08 и не сливать PR автоматически.
+- Проверка подготовки: шесть числовых примеров ТЗ сверены настоящими `UnitPriceScenarioService`/`TaxService` на синтетических входах. Это проверка примеров, не тестирование новых функций. Для markdown-подготовки полный pytest не повторялся; production code и пользовательские `data/tasks.json`/`data/users.json` не изменялись.
+- Следующий шаг: после команды владельца выполнять новое ТЗ с A00, вести checkpoint journal и завершить на небольших PR с CI и независимым review. Восстановление после compaction и работа с блокерами закреплены в ТЗ.
+
+# 2026-10-15 — N08 принят; периодная аналитика готова к архитектурному review PR
+
+- N06 code commits `e9372b1` (`Add period profit analytics Telegram views`) and `9a6523c` (`Limit analytics overview to confirmed top contributions`) добавили кнопку «Аналитика периода», экраны сравнения, денежного моста и вклада SKU, а также переходы к полноте/исходному отчёту/существующему выбору товара. Первый экран показывает не более трёх крупнейших подтверждённых вкладов; при недоступном мосте показывает ограничение. Детали не повторяют Ozon-запросы.
+- Снимок требует точный tenant и owner, ограничен 64 отчётами/600 секундами, deep-copy читается атомарно. В нём остаются только проекции метрик, моста и максимум пяти строк лидеров; управляющие символы в SKU-метках очищаются, длина ограничена.
+- N06 локальный профиль: 75 passed, 1 factory test исключён из прогона из-за WinError 5 на доступе Python к изолированному временному каталогу. Factory wiring regression прошла в полном N08 CI. `compileall -q app tests` и `git diff --check` прошли.
+- N08 exact code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d`: Windows **3 268 passed**, Linux **3 268 passed**, compileall, production Docker build/runtime smoke — success (Verify runs `38755542971` and `38755551644`). Architecture review: новый аналитический contract остаётся read-only поверх finalized summaries; новых источниковых запросов, финансовых пересчётов, постоянного хранилища или изменения core finance pipeline нет. Обнаруженная устаревшая presentation assertion исправлена, открытых review threads нет. PR #697 открыт и не слит; решение о слиянии остаётся следующему ревьюеру.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными незакоммиченными пользовательскими изменениями. Следующий шаг — независимый review/merge PR #697; развёртывание не выполнялось.
+- N07 test commit `db73c64` (`Verify period analytics cache interleavings`) добавил deterministic `Event` regression: пока callback читает и копирует snapshot внутри атомарного lock, новый расчёт заполняет LRU и вытесняет старый report. Текущий читатель завершает READY без KeyError; после записи старый callback controlled-expired, новый открывается; cache остаётся ровно в лимите 64. N06+N07 suite: **76 passed, 1 factory test deselected**. Отдельные budget/dedup/Performance наборы: **13 passed, 68 deselected**. `compileall -q app tests` и `git diff --check` успешны.
+- N08 локальный full suite на предыдущем code SHA `bbdebf4`: **2 876 passed, 22 failed, 369 errors in 71.91s**; обычный pytest также завершился `PermissionError (WinError 5)` при обходе basetemp. Диагностический запуск отключал только финальную cleanup-функцию pytest, чтобы получить сводку; причины всех локальных ошибок этим не установлены. Локальный прогон не принят как приёмка; итог подтверждён чистым exact-code-head CI ниже.
+- Exact-head CI на промежуточном `c36efb6df6251c470bb0aad887fe2ca3717aa38e` установил одну устаревшую строку ожидания в `test_v1229_existing_comparison_percentage_keeps_its_own_meaning`; исправлено без изменения production-поведения, денежные проверки 40 000 ₽ и 10% сохранены. Связанный локальный модуль: **10 passed**. На окончательном code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d` обе платформы прошли по **3 268 тестов**, compileall и Docker build/runtime smoke успешны.
+
+
+# 2026-10-15 — N05 вклад SKU завершён
+
+- N05 code commit `6beaebe8b23f90ca39d4ec6b105c7a191ef801e7` (`Add period profit SKU contributions`) добавил read-only разбор `summary.products` уже рассчитанных current/previous периодов. Однозначное соответствие принимает точную SKU/catalog-SKU, уникальный offer или пару product+offer; конфликтующие и неоднозначные строки не объединяются. Отсутствие counterpart не превращается в нулевую прибыль: отчёт выводит ограниченный список несопоставленных SKU и считает неполноту покрытия.
+- Production final query attaches `sku_contribution` к тем же finalized результатам, без новых Ozon/Performance запросов и без N+1 расчёта. Два списка показывают максимум пять подтверждённых ростов и снижений; магазинный delta сходится как сумма сопоставимых SKU и арифметический остаток без распределения остатка по товарам.
+- N05 проверочный набор: **67 passed in 1.32s**, включая production-wrapper, source identity recovery, historical cost and contract regressions; `compileall -q app tests` и `git diff --check` прошли. Финансовые значения, налоги, COGS и существующие source loaders не изменялись.
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает проверяемое `ΔN−ΔC+ΔK−ΔT` и E только при полном покрытии. Его **100 связанных тестов прошли**; compileall и diff check успешны.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап: N06 — scoped Telegram-снимки и навигация по отчёту.
+
+# История N03–N04
+
+- N04 code commit `710ea8994881fc10a4a09a3f6ef11d7c7426f2c0` (`Add reconciled profit change bridge`) подключает `profit_bridge` к finalized wrapper. Для разрешённых V3/V4 проверяются обе стороны равенства `P_B=N−C+K−T`; дельты раскладываются в `ΔN−ΔC+ΔK−ΔT`. `ΔN` раскрывается как `Δrevenue + Δ(other net accrual)` внутри одной строки.
+- Сумма B-вкладов проверяется против authoritative delta; signed rounding допускается до 0.01 ₽ и показан отдельно. Большее расхождение или неподдержанная profit scope делает bridge недоступным. E отдельно проверяет полное покрытие и `P_E=P_B−E` для обеих сторон. Отказ внешних расходов не скрывает подтверждённый B.
+- Проверки N04 + предыдущие contract/query integration: **100 passed in 2.54s**; `compileall -q app tests` и `git diff --check` прошли. Неизвестные расходы/категории не вычитаются повторно, новые классификаторы начислений не добавлены.
+- `data/tasks.json` и `data/users.json` остаются сохранёнными пользовательскими изменениями. Следующий этап после N04: N05 — SKU-вклад и reconciliation на уже полученных product rows.
+
+- Ветка `codex/luna-store-analytics-task-20261015`; N03 code commit `a02a42c29e11bbef93f824579dd9a15fbe5e796c` (`Add period comparison metrics`), поверх N02 `07c6c99eaea471f5b002e18b5554034af8d5180e`.
+- Production wrapper добавляет `comparison_metrics` поверх N02 contract. Суммы/штуки показывают signed delta; процент изменения делит на абсолютную предыдущую базу, при нуле процент undefined. Изменение маржи — в процентных пунктах. Доли от выручки формируются только при известной положительной выручке.
+- Налог/прибыль подчиняются policy/scope gate; подтверждённые продажи и независимые метрики могут сравниваться при смене налоговой policy. Частичные внешние расходы видны как partial estimate без delta. Большие количества остаются целыми числами, арифметическое переполнение даёт недоступную дельту без Infinity.
+- Проверки N03 вместе с N02/N01 integration boundary: **89 passed in 2.30s**; `compileall -q app tests` и `git diff --check` прошли. Канонические summary и прибыль не изменяются.
+- `data/tasks.json` и `data/users.json` сохранены вне коммитов. Следующий этап: N04 — сверяемый денежный мост ΔN/ΔC/ΔK/ΔT/ΔE.
+
+# 2026-10-15 — N02 finalized comparison contract завершён
+
+- Ветка: `codex/luna-store-analytics-task-20261015`, основание `main` `c55434327f50134324a5ca58e2f084854b809832`; N02 code commit `07c6c99eaea471f5b002e18b5554034af8d5180e` (`Add finalized profit comparison contract`).
+- N02 вводит read-only проекцию уже finalized summary двух соседних равных периодов. Валидирует период against request, tenant, tax policy, profit scope и component flags; конфликт блокирует только сравнение B/E и сохраняет независимые метрики.
+- Применённый Return COGS учитывается только по явному результату final application; подтверждённый K=0 требует `return_cogs_profit_applied=false`, отсутствие суммы и `tax_recomputed=false`. Для прошлого периода используется тот же final application и существующий external-expense evidence/adjustment service; неполное/недоступное E не блокирует B.
+- Проверки: 80 профильных query/contract/finalization/request/presentation regressions passed in 2.11s; `compileall -q app tests` и `git diff --check` прошли. Существующий `tests/test_external_operating_expense_coverage_v1261_v1270.py` локально не дал итоговой сводки: семь tmp_path setup errors и pytest cleanup `PermissionError (WinError 5)` на basetemp. N08 CI остаётся обязательным.
+- Полный suite отложен до N08 exact-head проверки. `data/tasks.json` и `data/users.json` остаются незакоммиченными пользовательскими изменениями. Следующий этап: N03 — арифметика сравнений, денежных долей и маржи в процентных пунктах.
+
+# 2026-10-15 — N01 исправления сравнения завершены
+
+- N01 code commit: `66d79d6a87c6f3509e187f2a2e5b2441e270086f` (`Keep current profit when comparison is unavailable`), поверх N00 commit `96c3b843621979a1da356d9a0c4363a7b2ff4bb6`.
+- A1: production final wrapper и base-only query сохраняют current при сбоях необязательной previous ветки; ошибка mandatory current остаётся fail-closed. Runtime делает один вызов и больше не запускает current повторно при любой ошибке compare-path. `comparison_status`/безопасный код и Telegram-предупреждение указывают недоступность сравнения.
+- A2: comparison builder отклоняет пропущенную, boolean, строковую, не конечную или переполняющую арифметику прибыли; поддерживает finite int/float/Decimal, конечный отрицательный результат и известный 0. Scope flags требуют настоящих bool.
+- A3: compact и verbose тексты обозначают дельту как прибыль до внешних расходов. Не вычисляется ложная E↔B дельта.
+- Targeted query/runtime/final-application/Return COGS/presentation suite: **128 passed in 2.14s**; `compileall -q app` и `git diff --check` успешны. Полный suite отложен до N08 exact-head проверки. PR #697 теперь содержит подготовку ТЗ, N00 и N01; перед merge требуется Architecture Review.
+- Незакоммиченные `data/tasks.json` и `data/users.json` сохранены, не staged.
+
+# 2026-10-15 — N00 аналитики прибыли завершён
+
+- Реализация продолжается на docs-ветке `codex/luna-store-analytics-task-20261015`, основанной непосредственно на слитом `main` `c55434327f50134324a5ca58e2f084854b809832`. PR #697 с исходными ТЗ/аудитом открыт; ветка не устарела и кодовая реализация ещё не менялась.
+- N00 подтвердил production chain: `period_profit_factory` создаёт base `PeriodProfitQueryService`, оборачивает в `PeriodProfitFinalApplicationQueryService`; runtime вызывает final wrapper, затем compact formatter. Base query остаётся base-only compatibility path.
+- Production wrapper отключает comparison в base query, финализирует current Return COGS/внешние расходы и строит сравнение. Ошибка previous summary уже сохраняет current; ошибка прошлых возвратов/анализа/application выходит как общий error, после чего runtime повторяет current. Base-only query также возвращает optional previous summary error напрямую. Текущий compact текст может показывать adjusted profit рядом с неподписанной base comparison.
+- Исходные focused tests: `9 passed in 0.48s`. A1–A3 остаются открытыми для N01. Текущие локальные изменения `data/tasks.json` и `data/users.json` сохранены и не staged.
+
+# 2026-10-15 — PR #696 слит; подготовлено ТЗ следующего пакета
+
+- PR #696 слит в `main` squash-коммитом `c55434327f50134324a5ca58e2f084854b809832`. После fetch прямой diff деревьев reviewed head `fc15b9c` и `origin/main` пуст. Прежние записи «PR открыт» ниже являются историей.
+- Владелец выбрал приоритеты по аудиту. Аудит `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md` воспроизводит A1–A3 в сравнении периодов; production wrapper уже сохраняет current при ошибке прошлого summary, но отказ прошлых возвратов всё ещё приводит к повтору current через runtime fallback.
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08. Сначала подтверждённые fixes и единая база сравнения, затем таблица метрик, денежный мост, вклад SKU и связанные scoped Telegram views. **Реализация не начата.**
+- Подготовка — только документация. Существующие comparison/query/runtime-fallback tests: **9 passed in 0.48s**; fake-only probes без Ozon/Telegram/business writes. Полный pytest не запускался. Пользовательские `data/tasks.json`/`data/users.json` сохранены.
+
 # 2026-10-15 — Исправлена обработка цены с завершающими нулями в PR #696
 
 - `UnitPriceTargetPlanningService` теперь без потери точности нормализует только завершающие десятичные нули исходной цены до сетки копеек. `11.110` и `11.11` ведут к одинаковому подбору; `11.111` остаётся некорректной исходной точкой для копеечной сетки. Парсер списка цен не ослаблен.
@@ -4415,3 +4523,59 @@ Completed:
 - Ветка `codex/p00-project-baseline`, HEAD `a06150a`; новых commits нет, поскольку `.git` доступен только для чтения. P01 остаётся с внешним критерием Architecture Review и Linux Python 3.11 Verify; локальная Windows-проверка не заменяет их.
 
 # 2026-10-13 — P06 завершён; начат P07
+# 2026-10-17 — база новых экранов обзора и пакетных расчётов
+
+- Модуль C добавляет read-only пакетный план цены для 2–10 точных товаров одного магазина. План строит отдельные результаты по каждой строке, сохраняет source age/provenance, допускает только локальные допущения и подтверждённое обновление источников. Telegram entry находится в обзоре товаров после выбора строк.
+- Готовый candidate можно открыть в одиночном калькуляторе через публичный tenant/version-bound handoff. Freshness, FBO scheme и точная identity проверяются заново; forward calculation повторяется без HTTP. Функциональность не пишет цену в Ozon.
+- Пакетный экран принимает последующий текст только как read-only ввод до явного выхода; смена раздела очищает его callbacks, поэтому текст не уходит старому одиночному сценарию.
+- Локальная регрессия модуля C: **116 passed**; `compileall -q services`, `git diff --check` прошли. Нужна полная CI проверка после push.
+
+- A00–A04 большой программы Luna выполнены. Общий Ozon budget наследуется grouped calls; точный CI для основания зелёный. B00 добавил selected-row query без истории/предложений и повторных загрузок каталога; B01 строит snapshot projection и coverage.
+- Совместный профиль A02/A03: 34 passed, 1 существующий `tmp_path` test исключён локально из-за Windows ACL. Полный exact-head CI на SHA `be76a4f8e4c7d78160e0d1047515651993062d54` прошёл: Windows/full-verification, полный pytest, compileall и Docker build/runtime smoke; Verify run `39059951770`. A04 закрыт.
+- Реализацию B/C/E нужно подключить к `ScopedTransientSnapshotStore`; пока consumers не подключены, helper не меняет существующие пользовательские экраны.
+- B00 добавил выбранную read-only выборку строк decision query и перестал повторно разрешать один SKU через каталог в каждом источнике. 53 профильных теста прошли; один существующий `tmp_path` тест исключён по ACL. B01 строит snapshot projection и coverage.
+- B01 добавил `ProductOverviewService` с owner/store-scoped snapshot, whitelist решения/метрик, source provenance/freshness и страницами только из снимка. 69 связанных проверок прошли; следующий этап — фильтры и сортировка без Ozon-запросов.
+- B02 добавил snapshot-only фильтры существующих decision signals, безопасную сортировку с unknown числовыми значениями в конце и передачу явного cache-stale metadata; 75 связанных тестов прошли.
+- B03 подключил Telegram «Обзор товаров»: ограниченные группы сортируются по артикулу, явно помечаются как группа, а фильтры/сортировка/страницы читают снимок без нового источникового запроса. Карточка показывает модельные показатели и пропуски без обещания итоговой прибыли магазина. Добавление в пакет цен tenant-scoped и точное по SKU; активный одиночный сценарий заменяется только после явного подтверждения, привязанного к его версии. B04 проверил границы каталога 0/1/20/21, частичные источники, budget exhaustion, конкурентную публикацию поколений, старые/чужие callbacks, лимит 10 SKU, Telegram message/callback limits и wiring production factory. 93 целевых теста прошли; связанный товарный набор — 1 018 passed, 12 тестов с `tmp_path` локально исключены из-за ACL в Windows temp root; `compileall app` и diff-check прошли. B модуль локально VERIFIED, exact-head CI остаётся общей проверкой G01.
+
+# 2026-10-17 — пакетный план цен, этапы C00–C02
+
+- C00/C01 добавили пакетный план 2–10 точных SKU одного активного магазина. Один каталог загружается на пакет; source snapshots проверяют полную product/offer/SKU identity, индивидуальную свежесть и provenance, используя общий 120-секундный/128-attempt budget.
+- `UnitPriceScenarioSource` принимает проверенную строку каталога для batch-пути, не загружая каталог повторно, и изолирует cache/in-flight ключи полной идентичностью. Cache hit сохраняет фактические age/TTL.
+- C02 pure core поддерживает локальное редактирование допущений по строке, общую цель маржи, отдельный preview/confirmation для общей рекламы и explicit source refresh с сохранением provenance ручных значений, включая 0. Telegram batch runtime остаётся следующим шагом.
+- Локальный профиль C00/C01/domain C02: 75 passed; `compileall -q app tests` и `git diff --check` прошли.
+
+# 2026-10-17 — приёмка модуля C, этап C05
+
+- Весь модуль C00–C05 принят. Локальный связанный профиль B/C: **193 passed**; `compileall -q app tests` и `git diff --check` прошли.
+- Exact-head `07b9d595df32b11b736aaa2dc13c822df7f52ec4` прошёл Verify runs `39063730904` и `39063717597`: Windows/full-verification, полный pytest, compileall и production Docker build/runtime smoke успешны.
+- PR #699 открыт stacked над PR #698, готов к независимому review; merge/deploy не выполнялись. Следующий модуль — D, чувствительность и матрица цен.
+
+# 2026-10-17 — модуль D, чувствительность плановой экономики
+
+- `UnitPriceSensitivityService` выполняет 1D sweep или 2D матрицу максимум 7×7 через существующий forward calculator. Принимаются только абсолютные числовые значения с границами, разделителем и запретом нечисловых/переполненных значений. Подпись охватывает точную identity/version, inputs, provenance и sources; расчёт не мутирует snapshot.
+- Telegram runtime принимает чувствительность из одиночного калькулятора и готовой строки пакетного плана; текстовый вывод ограничен страницей, и все ячейки доступны без потерь. Stale result остаётся доступным для просмотра с as-of, но перенос отключён. Применение требует точного совпадения исходной версии, owner/store и повторного forward расчёта; сетевых запросов и записи в Ozon нет.
+- Локальный профиль D00–D03: **117 passed**; `compileall -q app tests` и `git diff --check` прошли. Полный локальный pytest: **2 978 passed, 21 failed, 369 errors** из-за ACL Windows temp (`WinError 5`; SQLite не может открыть файл в созданном временном каталоге). Exact-head `d7c33dfa9d4d1e3ffde626d375dd17d2f0d38824` прошёл Windows и full-verification в Verify runs `39065039552` и `39065028764`. Данные `data/tasks.json` и `data/users.json` сохранили исходные SHA256. PR #700 открыт, stacked над #699; merge/deploy не выполнялись.
+
+# 2026-10-17 — модуль E00, безопасная отправка файлов
+
+- В `telegram_document_contract.py` введены allowlist document-kind, MIME/расширения, безопасное имя без пути и статическая подпись. Текущий cost CSV явно объявлен `seller_cost_import_template`; будущие аналитические файлы используют тип, который запрещает загрузку в поток себестоимости.
+- `_send_result` отправляет файл до сообщения об успехе; ошибка контракта/Telegram даёт явную ошибку и не запускает повторную отправку. Существующий шаблон себестоимости и его подпись сохранены.
+- Профиль E00: **12 passed**; compileall и diff-check прошли. Следующий этап E01 — versioned CSV/JSON сериализаторы.
+
+# 2026-10-17 — модуль E01, сериализаторы
+
+- `AnalyticsExportSerializer` формирует schema v1 CSV/JSON из переданных rows и metadata. Поддерживаются денежные/десятичные/целые/текстовые/status/boolean типы; неизвестное сохраняется как `null` в JSON и пустая ячейка в CSV, ноль остаётся нулём.
+- CSV: UTF-8 BOM, `;`, русская десятичная запятая для чисел, формульно безопасные типизированные текстовые ячейки и встроенная metadata/schema. JSON: UTF-8, денежные/десятичные значения строками с точкой, единицы и семантика колонок.
+- Лимит 2 MiB, max rows/columns и default-deny для неизвестных полей; при превышении возвращается явная ошибка, данные не обрезаются. Имена файлов статические.
+- Профиль E01: **17 passed**; compileall и diff-check прошли. Следующий этап — подключить экспорт точных снимков периода.
+
+# 2026-10-17 — модуль E02–E04, выгрузки точных снимков
+
+- `AnalyticsExportService` переводит сохранённые analytics snapshot в отдельные схемы: finalized прибыль за период (сравнение, B/E bridge, reconciliation, top-SKU только с TOP_K/coverage маркерами), обзор товаров, пакетный план и чувствительность.
+- Периодный отчёт экспортируется только из owner/store-bound report cache с прежним TTL. Обзор читает все строки сохранённого scope после текущих filter/sort; пакет и чувствительность экспортируют весь точный snapshot вместо открытой страницы. Callback для плановых выгрузок bound к версии и session.
+- Плановые CSV/JSON маркируются как `PLANNED`, одна успешная продажа, оценка FBO, цель, provenance и ограничения. Фактический период помечается как finalized basis. Суммы-разложения несут семантическую пометку, чтобы их не складывали повторно.
+- Public callback → document transport и regressions проверяют payload, полный набор строк, stale/foreign/expired scope, отсутствие повторного чтения источников и прежний seller-cost export.
+- E00–E04 профиль: **73 passed**; `compileall -q app tests` и `git diff --check` прошли. Первый CI нашёл устаревшую assertion состава клавиатуры; после исправления на итоговом SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` Windows и Linux прошли по **3 389 тестов**, Docker build/runtime smoke успешны (Verify `39066587245`). PR #701 открыт, не слит/не развёрнут.
+- E documentation acceptance SHA `f598d300164916434de27a5180bb033d8a9f4293` also passed exact-head Verify `39066774774`.
+- F00 добавил ограниченную 256-событийную трассу с общими счётчиками попыток/проверок и экран «Почему расчёт неполный?» по точному owner/store-bound report snapshot. Экран использует кэш, не повторяет запросы и показывает только разрешённые статусы/причины и действия. Локальный профиль: **27 passed, 1 deselected** (существующий `tmp_path` stack-dump тест исключён из-за Windows ACL при запуске с отключённым tmpdir); compileall и diff-check прошли. F01 — безопасный JSON-экспорт.

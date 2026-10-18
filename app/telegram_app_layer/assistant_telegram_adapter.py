@@ -352,7 +352,8 @@ class AssistantTelegramAdapter:
         )
 
     def _clear_unit_price_calculator_for_navigation(self, callback, user_id):
-        if str(callback or "").startswith("upc:"):
+        value = str(callback or "")
+        if value.startswith(("upc:", "upb:", "ups:", "pov:")):
             return
         self.clear_unit_price_calculator_state(user_id)
 

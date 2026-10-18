@@ -27,6 +27,37 @@ class Query:
             "decisions": self.decisions,
         }
 
+    def query_catalog_group(self, offset=0, limit=20):
+        rows = []
+        for index, decision in enumerate(self.decisions):
+            sku = decision["sku"]
+            rows.append({
+                "selector": sku,
+                "identity": {
+                    "product_id": str(decision.get("product_id") or index + 1),
+                    "offer_id": str(decision.get("offer_id") or sku),
+                    "catalog_sku": sku,
+                },
+                "status": "READY" if not decision.get("error") else "SOURCE_UNAVAILABLE",
+                "code": decision.get("code"),
+                "decision": decision,
+            })
+        selected = rows[offset : offset + limit]
+        return {
+            "error": False,
+            "rows": selected,
+            "selection_scope": {
+                "mode": "FIRST_SORTED_CATALOG_GROUP",
+                "sort_by": "offer_id_then_catalog_sku",
+                "selected_count": len(selected),
+                "catalog_identity_count": len(rows),
+                "offset": offset,
+                "has_previous_group": offset > 0,
+                "has_next_group": offset + len(selected) < len(rows),
+                "limit": limit,
+            },
+        }
+
 
 def _decision(
     sku,
@@ -359,6 +390,22 @@ def test_production_telegram_factory_wires_attention_summary_to_main_handler(mon
 
     assert isinstance(runner.seller_attention_summary_service, SellerAttentionSummaryService)
     assert runner.seller_attention_summary_service.product_decision_query is query
+    assert runner.product_overview_service.decision_query is query
+    assert runner.product_overview_service.snapshot_store is (
+        runner.scoped_transient_snapshot_store
+    )
+    assert runner.button_handler.product_overview_service is (
+        runner.product_overview_service
+    )
+    tenant = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        overview = runner.button_handler.handle(
+            "product_overview", user_id="owner-1"
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+    assert overview["error"] is False
+    assert "SKU-1" in overview["message"]
     assert (
         runner.button_handler.seller_attention_summary_service
         is runner.seller_attention_summary_service

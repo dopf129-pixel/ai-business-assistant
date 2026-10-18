@@ -19,6 +19,7 @@ from telegram_app_layer.telegram_history_formatter import TelegramHistoryFormatt
 from telegram_app_layer.telegram_plan_formatter import TelegramPlanFormatter
 from telegram_app_layer.telegram_progress_feedback import begin_progress, finish_progress
 from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
+from telegram_app_layer.telegram_document_contract import prepare_telegram_document
 
 
 _runner = None
@@ -123,19 +124,46 @@ async def _send_result(message, result, progress_message=None):
     file_content = result.get("file_content")
     filename = result.get("filename")
     if file_content is not None and filename:
-        payload = file_content.encode("utf-8") if isinstance(file_content, str) else bytes(file_content)
-        document = io.BytesIO(payload)
-        document.name = str(filename)
-        caption = format_response(result)
+        prepared = prepare_telegram_document(result)
+        if prepared is None:
+            failure = "⚠️ Не удалось отправить файл: тип или формат документа не поддерживается."
+            if progress_message is not None:
+                await finish_progress(message, progress_message, failure)
+            else:
+                await message.reply_text(failure)
+            return {
+                "error": True,
+                "status": "TELEGRAM_DOCUMENT_CONTRACT_INVALID",
+                "message": failure,
+                "read_only": True,
+                "executed": False,
+            }
+        document = io.BytesIO(prepared["payload"])
+        document.name = prepared["filename"]
+        try:
+            await message.reply_document(
+                document=document,
+                filename=prepared["filename"],
+                caption=prepared["caption"],
+            )
+        except Exception:
+            failure = "⚠️ Файл не удалось отправить. Запрос не повторён автоматически; сформируйте файл ещё раз."
+            if progress_message is not None:
+                await finish_progress(message, progress_message, failure)
+            else:
+                await message.reply_text(failure)
+            return {
+                "error": True,
+                "status": "TELEGRAM_DOCUMENT_SEND_FAILED",
+                "message": failure,
+                "read_only": True,
+                "executed": False,
+            }
+        response = format_response(result)
         if progress_message is not None:
-            await finish_progress(message, progress_message, caption or "Таблица готова.")
-        elif caption:
-            await message.reply_text(caption)
-        await message.reply_document(
-            document=document,
-            filename=str(filename),
-            caption="Заполните себестоимость и отправьте этот CSV-файл обратно боту.",
-        )
+            await finish_progress(message, progress_message, response or "Файл отправлен.", reply_markup=keyboard)
+        elif response:
+            await message.reply_text(response, reply_markup=keyboard)
         return
     response = format_response(result)
     if progress_message is not None:

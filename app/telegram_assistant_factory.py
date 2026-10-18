@@ -93,8 +93,25 @@ from services.telegram_external_expense_runtime_service import (
 from services.seller_attention_summary_service import (
     SellerAttentionSummaryService,
 )
+from services.product_overview_service import ProductOverviewService
+from services.scoped_transient_snapshot_store import (
+    ScopedTransientSnapshotStore,
+)
+from services.unit_price_batch_plan_service import UnitPriceBatchPlanService
+from services.telegram_unit_price_batch_plan_runtime_service import (
+    TelegramUnitPriceBatchPlanRuntimeService,
+)
+from services.unit_price_sensitivity_service import UnitPriceSensitivityService
+from services.telegram_unit_price_sensitivity_runtime_service import (
+    TelegramUnitPriceSensitivityRuntimeService,
+)
+from services.analytics_export_service import AnalyticsExportService
+from services.app_build_metadata_service import AppBuildMetadataService
 from api.ozon_client import OzonClient
 from services.tax_configuration_service import TaxConfigurationService
+
+
+_APP_BUILD_METADATA_SERVICE = AppBuildMetadataService()
 
 
 from telegram_app_layer.return_inventory_telegram_adapter import (
@@ -186,6 +203,12 @@ def create_telegram_assistant():
         )
     )
 
+    product_overview_snapshot_store = ScopedTransientSnapshotStore()
+    product_overview_service = ProductOverviewService(
+        decision_query=product_business_decision_query,
+        snapshot_store=product_overview_snapshot_store,
+    )
+
 
     product_decision_persistence_verifier = (
         ProductDecisionPersistenceVerificationService(
@@ -230,6 +253,8 @@ def create_telegram_assistant():
     keyboard = (
         AssistantKeyboardService()
     )
+    analytics_export_service = AnalyticsExportService()
+    app_build_metadata_service = _APP_BUILD_METADATA_SERVICE
 
     unit_price_calculator_runtime_service = (
         create_unit_price_scenario_runtime(
@@ -239,8 +264,39 @@ def create_telegram_assistant():
         )
     )
 
+    unit_price_batch_plan_runtime_service = None
+    if unit_price_calculator_runtime_service is not None:
+        batch_plan_service = UnitPriceBatchPlanService(
+            source=unit_price_calculator_runtime_service.source,
+            scenario_service=unit_price_calculator_runtime_service.scenario_service,
+            target_planning_service=unit_price_calculator_runtime_service.target_planning_service,
+        )
+        unit_price_batch_plan_runtime_service = TelegramUnitPriceBatchPlanRuntimeService(
+            batch_plan_service=batch_plan_service,
+            product_overview_service=product_overview_service,
+            keyboard_service=keyboard,
+            single_price_runtime_service=unit_price_calculator_runtime_service,
+            analytics_export_service=analytics_export_service,
+        )
+    unit_price_sensitivity_runtime_service = None
+    if unit_price_calculator_runtime_service is not None:
+        unit_price_sensitivity_runtime_service = TelegramUnitPriceSensitivityRuntimeService(
+            sensitivity_service=UnitPriceSensitivityService(
+                unit_price_calculator_runtime_service.scenario_service
+            ),
+            single_price_runtime_service=unit_price_calculator_runtime_service,
+            batch_plan_runtime_service=unit_price_batch_plan_runtime_service,
+            keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
+        )
+        if unit_price_batch_plan_runtime_service is not None:
+            unit_price_batch_plan_runtime_service.sensitivity_runtime_service = (
+                unit_price_sensitivity_runtime_service
+            )
+
     if period_profit_runtime_service is not None:
         period_profit_runtime_service.keyboard_service = keyboard
+        period_profit_runtime_service.build_metadata_service = app_build_metadata_service
 
     period_profit_query_service = getattr(
         period_profit_runtime_service,
@@ -353,6 +409,17 @@ def create_telegram_assistant():
             seller_attention_summary_service=(
                 seller_attention_summary_service
             ),
+            product_overview_service=(
+                product_overview_service
+            ),
+            unit_price_batch_plan_runtime_service=(
+                unit_price_batch_plan_runtime_service
+            ),
+            unit_price_sensitivity_runtime_service=(
+                unit_price_sensitivity_runtime_service
+            ),
+            analytics_export_service=analytics_export_service,
+            build_metadata_service=app_build_metadata_service,
         )
     )
 
@@ -462,6 +529,12 @@ def create_telegram_assistant():
     runner.unit_price_calculator_runtime_service = (
         unit_price_calculator_runtime_service
     )
+    runner.unit_price_batch_plan_runtime_service = (
+        unit_price_batch_plan_runtime_service
+    )
+    runner.unit_price_sensitivity_runtime_service = (
+        unit_price_sensitivity_runtime_service
+    )
 
 
     runner.period_profit_runtime_service = (
@@ -472,11 +545,11 @@ def create_telegram_assistant():
     runner.seller_attention_summary_service = (
         seller_attention_summary_service
     )
-
-
     runner.product_business_decision_query = (
         product_business_decision_query
     )
+    runner.product_overview_service = product_overview_service
+    runner.scoped_transient_snapshot_store = product_overview_snapshot_store
 
 
     runner.product_decision_history_service = (

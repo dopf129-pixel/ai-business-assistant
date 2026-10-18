@@ -1,7 +1,10 @@
 from math import isfinite
 
 from period_profit_request import build_period_profit_request, build_previous_period_profit_request
-from period_profit_comparison import build_period_profit_comparison
+from period_profit_comparison import (
+    build_period_profit_comparison,
+    mark_period_profit_comparison_unavailable,
+)
 from period_profit_response import build_period_profit_response
 from period_profit_coverage import build_period_profit_coverage
 from period_profit_return_financial_evidence import build_period_profit_return_financial_evidence
@@ -123,16 +126,38 @@ class PeriodProfitQueryService:
 
         comparison = None
         previous_summary = None
+        comparison_error_code = None
         if compare_previous:
-            previous_request = build_previous_period_profit_request(request)
-            if previous_request.get("error"):
-                return previous_request
-            previous_summary = self.summary_service.calculate(previous_request["date_from"], previous_request["date_to"], products)
-            if previous_summary.get("error"):
-                return previous_summary
-            comparison = build_period_profit_comparison(summary, previous_summary)
-            if comparison.get("error"):
-                return comparison
+            try:
+                previous_request = build_previous_period_profit_request(request)
+                if previous_request.get("error") is True:
+                    comparison_error_code = previous_request.get("code")
+                else:
+                    previous_summary = self.summary_service.calculate(
+                        previous_request["date_from"],
+                        previous_request["date_to"],
+                        products,
+                    )
+                    if (
+                        not isinstance(previous_summary, dict)
+                        or previous_summary.get("error") is True
+                    ):
+                        comparison_error_code = (
+                            previous_summary.get("code")
+                            if isinstance(previous_summary, dict)
+                            else None
+                        ) or "PERIOD_PROFIT_PREVIOUS_SUMMARY_UNAVAILABLE"
+                    else:
+                        comparison = build_period_profit_comparison(
+                            summary,
+                            previous_summary,
+                        )
+                        if comparison.get("error") is True:
+                            comparison_error_code = comparison.get("code")
+            except Exception:
+                comparison_error_code = (
+                    "PERIOD_PROFIT_PREVIOUS_COMPARISON_UNAVAILABLE"
+                )
 
         response = build_period_profit_response(
             summary,
@@ -149,7 +174,7 @@ class PeriodProfitQueryService:
         if response.get("error"):
             return response
 
-        return {
+        result = {
             "error": False,
             "status": "PERIOD_PROFIT_QUERY_READY",
             "request": request,
@@ -175,6 +200,12 @@ class PeriodProfitQueryService:
             "read_only": True,
             "executed": False,
         }
+        if comparison_error_code is not None:
+            return mark_period_profit_comparison_unavailable(
+                result,
+                comparison_error_code,
+            )
+        return result
 
     @staticmethod
     def _external_expense_adjustment(

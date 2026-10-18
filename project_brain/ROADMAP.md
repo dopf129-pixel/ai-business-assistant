@@ -1,11 +1,25 @@
 # Project Roadmap
 
+## Активная программа разработки — 17.10.2026
+
+- Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+- A00–A04 and B00–B04 VERIFIED. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`; exact B-head CI is tracked by PR #698. C00–C05 VERIFIED on code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`; Verify runs `39063730904` and `39063717597` passed Windows and full-verification, including full pytest and Docker smoke. Acceptance docs head `292c4cb83d4499045ae200862c2b3132905e409e` passed Windows/full-verification runs `39064061444` and `39064066060`. PR #699 is ready for review and stacked on #698.
+- PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
+- B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавил snapshot-only filters/sorting. B03/B04 добавили Telegram overview, explicit catalog groups, stale-safe callbacks, guarded transition к калькулятору цены и приёмку границ. 93 целевых tests passed; расширенный товарный regression — 1 018 passed, 12 локально ACL-deselected.
+
+## Подготовлено следующее большое ТЗ — 17.10.2026
+
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E exact-head acceptance recorded; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00–F03 and G00 verified locally; G00 profile **54 passed, 1 ACL-bound `tmp_path` test deselected**. Exact-head CI for F–G is next. PR #700/#701 remain open for review.
+- A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G00: сквозные пользовательские пути локально VERIFIED; G01: full CI/Docker; G02: независимый review handoff.
+- Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
+- PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
+
 ## Ближайший продуктовый пакет — 15.10.2026
 
-- Завершено: P00–P08 в PR #694 и SKU-калькулятор плановой цены в PR #695. Текущий merged main после #695: `de21561a`; Verify `38707150836` successful. Исторические очереди ниже сохраняются и не означают незавершённость уже принятых пакетов.
-- Владелец выбрал развитие калькулятора: расчётная цена для целевой маржи, ориентир безубыточности, сравнение 2–5 вариантов и явная подстановка только во временный сценарий.
-- Исполняемое ТЗ: `LUNA_PRICE_PLANNING_TASK_2026-10-15.md`, этапы M00–M04 завершены. PR #696 остаётся открытым после repeat review; исправлена обработка эквивалентных `11.110`/`11.11`. Code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` прошёл Verify runs `38728949431`/`38728942708`: Windows/Linux по 3 204 passed, compileall и Docker health-check успешны. Локальный Windows pytest ограничен ACL (`WinError 5`). Ветка `codex/price-planning-target-margin-20261015` основана на `de21561a`.
-- Использовать существующие math/TaxService/source/runtime. Новые API, Ozon mutations, постоянное хранение сценариев и изменение factual accounting не входят в пакет. После реализации обязательны meaningful regressions, полный CI нового SHA и Architecture Review.
+- Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.
+- Владелец выбрал следующий пакет по результатам аудита. Основание — `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`: три воспроизведённые проблемы сравнения и конкретные пробелы объяснения фактической прибыли.
+- Исполняемое ТЗ: `LUNA_STORE_ANALYTICS_DEVELOPMENT_TASK_2026-10-15.md`, N00–N08 завершены. N06 добавил scoped Telegram-экраны без повторных запросов; N07 проверил cache interleavings и общие operation budgets. После исправления устаревшей assertion final code SHA `05bac9b5be203970f0d40b930fe8cc1b6036415d` прошёл full suite на Windows/Linux (**3 268 passed** каждый), compileall и Docker build/runtime smoke. Architecture review выполнен, открытых findings нет. PR #697 остаётся открытым и не слит для независимого review.
+- Сохранить действующие finance/TaxService/final Return COGS/coverage contracts. Новые Ozon API, платные источники, аллокация account costs по SKU, постоянные сценарии и Ozon mutations не входят в пакет. Перед merge нужны meaningful regressions и полный CI нового SHA.
 
 
 ## Current Stage
@@ -634,3 +648,22 @@ Next seller-facing accounting priority:
 - consume/promote originating-sale quantity evidence only after those independent accounting facts are bound;
 - keep `confirmed_cogs_recovery_amount=0` and profit adjustment blocked until the complete accounting gate is explicit;
 - preserve Decision 036/037/038/039/040 contracts and introduce a new decision only if accounting semantics or persistence ownership changes.
+
+## Модуль C — пакетное планирование цен
+
+- C00/C01 VERIFIED locally; domain portion of C02 implemented and verified. One catalog snapshot feeds up to 10 exact SKU rows; source work inherits one parent budget and cache freshness. Row statuses preserve incomplete, stale, unsupported and failed facts.
+- Local assumptions and target edits are pure snapshot recalculations. Shared ad rate has explicit preview/confirmation; refresh reuses the batch identity and preserves manual assumptions/provenance. Telegram runtime, result table and guarded handoff remain in progress.
+- Focused C00/C01/domain C02 suite: 75 passed; compileall and diff-check passed. Follow exact stage records in `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
+# 2026-10-17 — пакетный план цены
+
+- [x] C00–C05: пакетный read-only план для 2–10 точных SKU, общая граница источников, локальные допущения, построчные результаты и проверенный переход готового кандидата в одиночный калькулятор.
+- [ ] Получить полный CI для нового exact head перед закрытием модуля C.
+- [x] D00–D03: локальная таблица чувствительности по цене, себестоимости и рекламной доле; PR #700 exact-head CI зелёный.
+- [x] E00: явный безопасный контракт документов Telegram; прежняя выгрузка себестоимости сохранена.
+- [x] E01: versioned CSV/JSON serializers с формульной безопасностью и пределом размера без усечения.
+- [x] E02–E04: CSV/JSON из точных snapshots для периода, обзора товаров, пакетного плана и чувствительности; полный scope, фильтры/сортировка, public callback → document transport, ноль повторных источников.
+- [x] F00–F02 verified locally: bounded operation summary, cached completeness diagnostics, allowlisted support JSON, and read-only running-process version.
+- [x] F03: diagnostic privacy, retry/timeout, cancellation, freshness and failed-document acceptance regressions.
+- [x] G00: end-to-end public Telegram acceptance; source queries remain snapshot-bound.
+- [x] G01: exact code head CI for F/G green on Windows/Linux and Docker; local full-suite ACL limitation documented.
+- [x] G02: dependency-ordered architecture review handoff prepared; independent reviewer approval is pending. No merge/deploy.

@@ -1,0 +1,323 @@
+from app.services.product_business_decision_query_service import (
+    ProductBusinessDecisionQueryService,
+)
+from app.services.product_business_decision_service import (
+    ProductBusinessDecisionService,
+)
+from app.services.product_decision_input_provider import (
+    ProductDecisionInputProvider,
+)
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
+
+
+class _Products:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = 0
+
+    def load_products(self):
+        self.calls += 1
+        return list(self.rows)
+
+
+class _Metrics:
+    def __init__(self, fail_product_id=None):
+        self.fail_product_id = fail_product_id
+        self.sales_calls = []
+        self.stock_calls = []
+
+    def sales_for_product(self, sku, product):
+        self.sales_calls.append((sku, product["product_id"]))
+        if product["product_id"] == self.fail_product_id:
+            raise OSError("synthetic source failure")
+        return {
+            "product_id": product["product_id"],
+            "sku": sku,
+            "sales_velocity": 4.0,
+            "sales_trend": "GROWING",
+        }
+
+    def stock_for_product(self, sku, product):
+        self.stock_calls.append((sku, product["product_id"]))
+        return {
+            "product_id": product["product_id"],
+            "sku": sku,
+            "current_stock": 8,
+            "days_of_stock": 2.0,
+            "priority": "CRITICAL",
+        }
+
+
+class _Economics:
+    def __init__(self, cache=None):
+        self.calls = []
+        self.cache = cache
+
+    def query_for_product(self, sku, product):
+        self.calls.append((sku, product["product_id"]))
+        result = {
+            "error": False,
+            "available": True,
+            "product_id": product["product_id"],
+            "sku": sku,
+            "net_profit_per_unit": 510.0,
+            "margin_percent": 34.0,
+            "missing_fields": [],
+        }
+        if self.cache is not None:
+            result["cache"] = dict(self.cache)
+        return result
+
+
+class _LifecycleSpy:
+    def __init__(self):
+        self.calls = []
+
+    def record(self, *args, **kwargs):
+        self.calls.append(("history", args, kwargs))
+
+    def propose(self, *args, **kwargs):
+        self.calls.append(("proposal", args, kwargs))
+
+    def reconcile(self, *args, **kwargs):
+        self.calls.append(("task_draft", args, kwargs))
+
+
+def _service(products, metrics=None):
+    catalog = _Products(products)
+    source = metrics or _Metrics()
+    economics = _Economics()
+    lifecycle = _LifecycleSpy()
+    service = ProductBusinessDecisionQueryService(
+        product_service=catalog,
+        sales_metrics_source=source,
+        stock_metrics_source=source,
+        unit_economics_query_service=economics,
+        decision_input_provider=ProductDecisionInputProvider(),
+        decision_service=ProductBusinessDecisionService(),
+        decision_history_service=lifecycle,
+        action_proposal_service=lifecycle,
+        action_proposal_confirmation_service=lifecycle,
+        cache_ttl_seconds=600,
+    )
+    return service, catalog, source, economics, lifecycle
+
+
+def test_selected_query_loads_catalog_once_deduplicates_and_avoids_write_lifecycle():
+    rows = [
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        {"product_id": "p2", "offer_id": "offer-2", "sku": "sku-2"},
+        {"product_id": "p3", "offer_id": "shared", "sku": "sku-3"},
+        {"product_id": "p4", "offer_id": "offer-4", "sku": "shared"},
+    ]
+    service, catalog, source, economics, lifecycle = _service(rows)
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_selected_products(
+            ["offer-1", "sku-2", "shared", "missing", "offer-1"]
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert catalog.calls == 1
+    assert [row["status"] for row in result["rows"]] == [
+        "READY",
+        "READY",
+        "IDENTITY_AMBIGUOUS",
+        "NOT_FOUND",
+    ]
+    assert result["coverage"] == {
+        "selected_count": 4,
+        "processed_count": 2,
+        "decision_ready_count": 2,
+        "incomplete_count": 0,
+        "source_unavailable_count": 0,
+        "not_found_count": 1,
+        "identity_conflict_count": 1,
+        "budget_unprocessed_count": 0,
+        "cancelled_count": 0,
+    }
+    assert source.sales_calls == [("offer-1", "p1"), ("sku-2", "p2")]
+    assert source.stock_calls == [("offer-1", "p1"), ("sku-2", "p2")]
+    assert economics.calls == [("offer-1", "p1"), ("sku-2", "p2")]
+    assert lifecycle.calls == []
+    assert service._decision_cache == {}
+
+
+def test_selected_query_preserves_good_rows_when_one_source_fails():
+    rows = [
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        {"product_id": "p2", "offer_id": "offer-2", "sku": "sku-2"},
+    ]
+    service, catalog, _source, _economics, _lifecycle = _service(
+        rows,
+        metrics=_Metrics(fail_product_id="p1"),
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_selected_products(["offer-1", "offer-2"])
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert catalog.calls == 1
+    assert result["rows"][0]["status"] == "SOURCE_UNAVAILABLE"
+    assert result["rows"][1]["status"] == "READY"
+    assert result["coverage"]["source_unavailable_count"] == 1
+    assert result["coverage"]["decision_ready_count"] == 1
+
+
+def test_catalog_group_is_stably_sorted_bounded_and_loads_catalog_once():
+    service, catalog, source, economics, lifecycle = _service([
+        {"product_id": "p3", "offer_id": "offer-c", "sku": "sku-c"},
+        {"product_id": "p1", "offer_id": "offer-a", "sku": "sku-a"},
+        {"product_id": "p2", "offer_id": "offer-b", "sku": "sku-b"},
+    ])
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_catalog_group(offset=1, limit=1)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["error"] is False
+    assert result["selection_scope"] == {
+        "mode": "FIRST_SORTED_CATALOG_GROUP",
+        "sort_by": "offer_id_then_catalog_sku",
+        "selected_count": 1,
+        "catalog_identity_count": 3,
+        "offset": 1,
+        "has_previous_group": True,
+        "has_next_group": True,
+        "limit": 1,
+    }
+    assert [row["selector"] for row in result["rows"]] == ["offer-b"]
+    assert catalog.calls == 1
+    assert source.sales_calls == [("offer-b", "p2")]
+    assert economics.calls == [("offer-b", "p2")]
+    assert lifecycle.calls == []
+
+
+def test_catalog_group_boundaries_zero_one_twenty_and_twenty_one():
+    for count in (0, 1, 20, 21):
+        products = [
+            {
+                "product_id": f"p{index:02}",
+                "offer_id": f"offer-{index:02}",
+                "sku": f"sku-{index:02}",
+            }
+            for index in range(count)
+        ]
+        service, catalog, _source, _economics, _lifecycle = _service(products)
+        tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+        try:
+            first = service.query_catalog_group(offset=0, limit=20)
+            next_group = (
+                service.query_catalog_group(offset=20, limit=20)
+                if first.get("selection_scope", {}).get("has_next_group")
+                else None
+            )
+        finally:
+            reset_current_tenant_user_id(tenant)
+
+        assert first["error"] is False
+        assert len(first["rows"]) == min(count, 20)
+        assert first["selection_scope"]["has_next_group"] is (count > 20)
+        assert catalog.calls == (2 if count > 20 else 1)
+        if count > 20:
+            assert len(next_group["rows"]) == 1
+            assert next_group["rows"][0]["selector"] == "offer-20"
+
+
+def test_catalog_group_marks_budget_exhaustion_without_claiming_rows_processed():
+    service, catalog, source, _economics, _lifecycle = _service([
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        {"product_id": "p2", "offer_id": "offer-2", "sku": "sku-2"},
+    ])
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    trace = PeriodProfitOperationTrace(ozon_request_budget=0)
+    trace_token = activate_period_profit_trace(trace)
+    try:
+        result = service.query_catalog_group(offset=0, limit=20)
+    finally:
+        reset_period_profit_trace(trace_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert catalog.calls == 1
+    assert [row["status"] for row in result["rows"]] == [
+        "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED"
+    ]
+    assert result["coverage"]["budget_unprocessed_count"] == 2
+    assert source.sales_calls == []
+
+
+def test_selected_query_preserves_explicit_stale_economics_cache_metadata():
+    service, _catalog, _source, economics, _lifecycle = _service([
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+    ])
+    economics.cache = {
+        "status": "stale",
+        "age_seconds": 900,
+        "ttl_seconds": 600,
+        "cached_at": "2026-10-17T09:00:00Z",
+    }
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = service.query_selected_products(["offer-1"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["rows"][0]["decision"]["unit_economics_cache"] == {
+        "status": "stale",
+        "stale": True,
+        "age_seconds": 900.0,
+        "ttl_seconds": 600.0,
+        "cached_at": "2026-10-17T09:00:00Z",
+    }
+
+
+def test_selected_query_requires_tenant_and_caps_selection_at_twenty():
+    service, catalog, _source, _economics, _lifecycle = _service([])
+    missing_tenant = service.query_selected_products(["one"])
+    assert missing_tenant["code"] == "PRODUCT_DECISION_TENANT_REQUIRED"
+
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        too_many = service.query_selected_products(
+            [f"sku-{index}" for index in range(21)]
+        )
+        empty = service.query_selected_products([])
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert too_many["code"] == "PRODUCT_DECISION_SELECTION_LIMIT_EXCEEDED"
+    assert catalog.calls == 0
+    assert empty["error"] is False
+    assert empty["coverage"]["selected_count"] == 0
+
+
+def test_selected_query_marks_rows_unprocessed_after_parent_budget_exhaustion():
+    service, catalog, source, _economics, _lifecycle = _service([
+        {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        {"product_id": "p2", "offer_id": "offer-2", "sku": "sku-2"},
+    ])
+    tenant = set_current_tenant_user_id("user-1::ozon::store-1")
+    trace = PeriodProfitOperationTrace(ozon_request_budget=0)
+    trace_token = activate_period_profit_trace(trace)
+    try:
+        result = service.query_selected_products(["offer-1", "offer-2"])
+    finally:
+        reset_period_profit_trace(trace_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert catalog.calls == 1
+    assert all(row["status"] == "BUDGET_EXHAUSTED" for row in result["rows"])
+    assert result["coverage"]["budget_unprocessed_count"] == 2
+    assert source.sales_calls == []
