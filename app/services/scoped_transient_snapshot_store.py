@@ -229,6 +229,24 @@ class ScopedTransientSnapshotStore:
         with self._lock:
             return len(self._generations)
 
+    def clear_owner(self, owner_id, kind=None):
+        """Invalidate ephemeral snapshots and generations for one owner."""
+        owner = str(owner_id or "").strip()
+        kind_value = str(kind or "").strip() or None
+        if not owner:
+            return 0
+        removed = 0
+        with self._lock:
+            scopes = [
+                scope for scope in self._generations
+                if scope[1] == owner and (kind_value is None or scope[3] == kind_value)
+            ]
+            for scope in scopes:
+                removed += int(scope in self._generations)
+                removed += sum(1 for key in self._snapshots if key[0] == scope)
+                self._remove_scope_locked(scope)
+        return removed
+
     def _scope(self, owner_id, store_id, kind):
         owner = str(owner_id or "").strip()
         store = str(store_id or "").strip()

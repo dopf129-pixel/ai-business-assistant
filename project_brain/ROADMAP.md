@@ -9,8 +9,8 @@
 
 ## Подготовлено следующее большое ТЗ — 17.10.2026
 
-- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E VERIFIED; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00/F01 verified locally (**34 passed, 1 deselected**, existing Windows ACL-bound tmpdir test excluded); F02 is next. PR #700/#701 open for review; G depends on F03.
-- A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G: full CI, сквозная приёмка и независимый review.
+- `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E exact-head acceptance recorded; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00–F03 and G00 verified locally; G00 profile **54 passed, 1 ACL-bound `tmp_path` test deselected**. Exact-head CI for F–G is next. PR #700/#701 remain open for review.
+- A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G00: сквозные пользовательские пути локально VERIFIED; G01: full CI/Docker; G02: независимый review handoff.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
 
@@ -664,4 +664,6 @@ Next seller-facing accounting priority:
 - [x] E02–E04: CSV/JSON из точных snapshots для периода, обзора товаров, пакетного плана и чувствительности; полный scope, фильтры/сортировка, public callback → document transport, ноль повторных источников.
 - [x] F00–F02 verified locally: bounded operation summary, cached completeness diagnostics, allowlisted support JSON, and read-only running-process version.
 - [x] F03: diagnostic privacy, retry/timeout, cancellation, freshness and failed-document acceptance regressions.
-- [ ] G00–G02: end-to-end scenarios, full pytest/CI/Docker, and independent review handoff. No merge/deploy.
+- [x] G00: end-to-end public Telegram acceptance; source queries remain snapshot-bound.
+- [x] G01: exact code head CI for F/G green on Windows/Linux and Docker; local full-suite ACL limitation documented.
+- [x] G02: dependency-ordered architecture review handoff prepared; independent reviewer approval is pending. No merge/deploy.

@@ -1,3 +1,9 @@
+# 2026-10-18 — исправления A–G по review R1–R8
+
+- Реализованы восемь исправлений для PR #703: корректное сохранение контекста single/sensitivity; version/ticket-guard от позднего batch refresh; владелец-ориентированный reset новых transient runtimes; дочерние лимиты 120 секунд/128 запросов для product overview; передача родительского operation trace в batch build/refresh; bounded LRU/TTL чувствительности; freshness projection для экрана и экспорта; синхронизация missing/invalid input при пересчёте.
+- Проверки локально: **86 targeted tests passed**, `compileall -q app tests` и `git diff --check` успешны. Полный Windows pytest дал **3 030 passed, 21 failed, 369 errors**; локальный прогон ограничен ACL `PermissionError [WinError 5]` на temporary paths. Code commit `664a370a117251a88297e57668a8ba721a80555c` повторно проверен: новых замечаний R1–R8 нет; оба Windows/full-verification CI runs `39161924581` и `39161920417` прошли. Merge/deploy не выполнялись.
+- Пользовательские `data/tasks.json` и `data/users.json`, lock-файл и ACL-limited временные каталоги сохранены вне списка изменений.
+
 # 2026-10-17 — выполнение программы Luna A–G начато
 
 - Владелец поручил выполнить `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md` до готовых PR с зелёным CI; merge и deploy запрещены. Журнал этапов: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
@@ -10,7 +16,15 @@
 - F00–F01 verified locally: bounded period-operation diagnostic view and strict allowlisted `support_diagnostic` JSON. F01 commit `59432ef`; export is owner/store/TTL-bound, reads the cached report only, and masks identifiers.
 - F02 verified locally in commit `3e4af5a`: read-only main-menu version screen and the same validated process revision/start time in support JSON; Windows launch script captures Git revision/start time once per launch, and Docker Verify injects the image revision. Profile **58 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head acceptance remains pending.
 - F03 verified locally: regressions cover exact attempt counters and secret-free public traces for HTTP 429/timeout, expiry without source refresh, and support-file delivery failure. The combined F00–F03 profile is **77 passed, 1 deselected**; compileall and diff-check passed. The excluded test is the existing ACL-bound `tmp_path` worker-stack test. Exact-head CI is pending.
-- Текущий этап G00: cross-feature acceptance scenarios for overview, planning, exports and cached period diagnostics.
+- G00 verified locally: new public Telegram acceptance connects overview/incomplete filter → exact selection → batch target → local cost assumption → sensitivity → batch/sensitivity CSV/JSON; a period path connects comparison → CSV/JSON → safe support diagnostic. All steps reuse source snapshots, and the main-menu test confirms legacy sections remain accessible. Focused G00 profile: **54 passed, 1 existing ACL-bound `tmp_path` test deselected**. Full exact-head CI remains pending.
+- Текущий этап G01: полный pytest, compileall, diff/secret/data review, exact-head Windows/Linux CI and Docker build/runtime smoke.
+
+# 2026-10-18 — программа A–G завершена и передана на независимый review
+
+- PR #698–#703 остаются открытыми stacked PR; #697 — исходная зависимость. Последние проверенные code heads A/B–F имеют зелёные Verify; F PR #702 exact head `55db3e60fda3c3080051da2fbea1902091a4bfff`, run `39069168434`.
+- G00/G01 прошли локальные acceptance/regression проверки; exact code head `12447d4cb48823fea938513fbb16dc4f41a080c2` и review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` прошли Verify `39069249065` и `39069517726` соответственно (Windows, Linux full verification и Docker smoke). Review handoff: `LONG_RUN_REVIEW_HANDOFF_2026-10-17.md`.
+- Полный локальный Windows pytest заблокирован существующим ACL на временные каталоги (`3 018 passed, 22 failed, 369 errors`); ограничения и исправленная stale menu assertion записаны в журнале. `data/tasks.json`, `data/users.json`, их lock и временные каталоги сохранены вне PR.
+- Слияние и развёртывание не выполнялись. Перед слиянием нужен независимый архитектурный review stacked PR в порядке зависимостей и зелёный CI на текущих heads.
 
 # 2026-10-17 — подготовлен большой пакет новых функций для Luna
 

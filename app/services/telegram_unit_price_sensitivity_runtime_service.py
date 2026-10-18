@@ -1,5 +1,6 @@
 """Bounded, tenant-scoped Telegram UI for local price sensitivity sweeps."""
 
+from collections import OrderedDict
 from copy import deepcopy
 from secrets import token_hex
 from threading import RLock
@@ -51,7 +52,7 @@ class TelegramUnitPriceSensitivityRuntimeService:
         self.clock = clock or monotonic
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self._pending = {}
-        self._sessions = {}
+        self._sessions = OrderedDict()
         self._actions = {}
         self._lock = RLock()
 
@@ -81,7 +82,7 @@ class TelegramUnitPriceSensitivityRuntimeService:
                 "target_margin_percent": deepcopy(context.get("target_margin_percent")),
                 "created_at": self.clock(),
             }
-            self._sessions.pop(scope["key"], None)
+            self._drop_session_locked(scope["key"])
             self._evict_locked(self._pending, self.MAX_SESSIONS)
         return self._axis_prompt(scope, token)
 
@@ -98,8 +99,7 @@ class TelegramUnitPriceSensitivityRuntimeService:
         if scope.get("error"):
             return None
         pending, pending_error = self._claim_pending(scope["key"])
-        with self._lock:
-            session = deepcopy(self._sessions.get(scope["key"]))
+        session = self._load_session(scope["key"])
         if pending_error == "BUSY":
             return self._result("UNIT_PRICE_SENSITIVITY_WORK_IN_PROGRESS", "Чувствительность уже рассчитывается. Дождитесь результата.", self._main_keyboard())
         if isinstance(pending, dict):
@@ -193,8 +193,7 @@ class TelegramUnitPriceSensitivityRuntimeService:
                 self.clear_pending(user_id)
                 return self._return_to_origin(scope, {"context": pending.get("context")})
 
-        with self._lock:
-            session = deepcopy(self._sessions.get(key))
+        session = self._load_session(key)
         if not isinstance(session, dict) or session.get("result_id") != action.get("result_id"):
             return self._stale()
         if action.get("kind") == "export":
@@ -222,10 +221,14 @@ class TelegramUnitPriceSensitivityRuntimeService:
             for key in [key for key in self._pending if key[0] == owner]:
                 self._pending.pop(key, None)
             for key in [key for key in self._sessions if key[0] == owner]:
-                self._sessions.pop(key, None)
+                self._drop_session_locked(key)
             for token, action in list(self._actions.items()):
                 if action.get("owner_id") == owner:
                     self._actions.pop(token, None)
+
+    def clear_user_state(self, user_id):
+        """Clear all transient sensitivity state for an owner across stores."""
+        self.clear_pending(user_id)
 
     def _axis_prompt(self, scope, pending_token, notice=None):
         buttons = []
@@ -263,9 +266,8 @@ class TelegramUnitPriceSensitivityRuntimeService:
         )
 
     def _render(self, scope, notice=None):
-        with self._lock:
-            session = deepcopy(self._sessions.get(scope["key"]))
-        if not isinstance(session, dict) or self.clock() - session.get("created_at", 0) > self.SESSION_TTL_SECONDS:
+        session = self._load_session(scope["key"])
+        if not isinstance(session, dict):
             return self._stale()
         context = session["context"]
         current = self._read_current_context(context, scope["owner_id"])
@@ -416,6 +418,15 @@ class TelegramUnitPriceSensitivityRuntimeService:
     def _consume_action(self, token, scope):
         with self._lock:
             action = self._actions.pop(str(token or ""), None)
+            if (
+                isinstance(action, dict)
+                and action.get("owner_id") == scope["owner_id"]
+                and action.get("tenant_scope") == scope["tenant_scope"]
+                and self.clock() - action.get("created_at", 0) > self.SESSION_TTL_SECONDS
+            ):
+                session = self._sessions.get(scope["key"])
+                if isinstance(session, dict) and session.get("result_id") == action.get("result_id"):
+                    self._drop_session_locked(scope["key"])
         if (
             not isinstance(action, dict)
             or action.get("owner_id") != scope["owner_id"]
@@ -452,6 +463,40 @@ class TelegramUnitPriceSensitivityRuntimeService:
     def _store_session(self, scope, state):
         with self._lock:
             self._sessions[scope["key"]] = deepcopy(state)
+            self._sessions.move_to_end(scope["key"])
+            while len(self._sessions) > self.MAX_SESSIONS:
+                key, _session = self._sessions.popitem(last=False)
+                self._remove_session_actions_locked(key, _session)
+
+    def _load_session(self, key):
+        with self._lock:
+            session = self._sessions.get(key)
+            if not isinstance(session, dict):
+                return None
+            if self.clock() - session.get("created_at", 0) > self.SESSION_TTL_SECONDS:
+                self._drop_session_locked(key)
+                return None
+            self._sessions.move_to_end(key)
+            return deepcopy(session)
+
+    def _drop_session_locked(self, key):
+        session = self._sessions.pop(key, None)
+        if session is not None:
+            self._remove_session_actions_locked(key, session)
+        return session
+
+    def _remove_session_actions_locked(self, key, session):
+        if not isinstance(session, dict):
+            return
+        result_id = session.get("result_id")
+        owner, tenant_scope = key
+        for token, action in list(self._actions.items()):
+            if (
+                action.get("owner_id") == owner
+                and action.get("tenant_scope") == tenant_scope
+                and action.get("result_id") == result_id
+            ):
+                self._actions.pop(token, None)
 
     def _scope(self, user_id):
         owner = str(user_id or "").strip()

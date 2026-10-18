@@ -8,6 +8,7 @@ from threading import RLock
 from time import monotonic
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.period_profit_operation_diagnostics import current_period_profit_trace
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -62,6 +63,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         self._pending = OrderedDict()
         self._batches = OrderedDict()
         self._actions = OrderedDict()
+        self._refresh_tickets = OrderedDict()
         self._lock = RLock()
 
     def begin_from_overview_selection(self, user_id):
@@ -82,6 +84,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         ticket = token_hex(8)
         key = scope["key"]
         with self._lock:
+            self._refresh_tickets.pop(key, None)
             self._pending[key] = {
                 "ticket": ticket,
                 "kind": "batch_target",
@@ -187,6 +190,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 pending.get("items"),
                 user_id=scope["owner_id"],
                 target_margin_percent=parsed["normalized"],
+                parent_trace=current_period_profit_trace(),
             )
             if result.get("error") is True:
                 self._release_pending(key, pending["ticket"])
@@ -274,8 +278,11 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         if kind == "export":
             if self.analytics_export_service is None or action.get("file_format") not in {"csv", "json"}:
                 return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+            export_batch = self._project_batch_freshness(batch)
             return self.analytics_export_service.export_unit_price_batch(
-                batch, action["file_format"], active_sort=action.get("sort_by", "selection")
+                export_batch,
+                action["file_format"],
+                active_sort=action.get("sort_by", "selection"),
             )
         if kind == "page":
             return self._render(
@@ -350,10 +357,23 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 batch=batch,
             )
         if kind == "refresh":
-            result = self.batch_plan_service.refresh(batch)
+            refresh_ticket = self._begin_refresh(scope, batch)
+            if refresh_ticket is None:
+                return self._stale()
+            result = self.batch_plan_service.refresh(
+                batch, parent_trace=current_period_profit_trace()
+            )
             if result.get("error") is True:
+                self._finish_refresh_error(scope, refresh_ticket)
                 return self._error(result.get("code"))
-            self._save_batch(scope, result)
+            if not self._publish_refresh(
+                scope, batch, refresh_ticket, result
+            ):
+                return self._result(
+                    "UNIT_PRICE_BATCH_RESULT_STALE",
+                    "Обновление источников завершилось после отмены или изменения плана. Старый результат не применён.",
+                    self._main_keyboard(),
+                )
             return self._render(scope, result, notice="Источники обновлены; ручные допущения сохранены.")
         return self._stale()
 
@@ -473,9 +493,15 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 self._pending.pop(key, None)
             for key in [key for key in self._batches if key[0] == owner]:
                 self._batches.pop(key, None)
+            for key in [key for key in self._refresh_tickets if key[0] == owner]:
+                self._refresh_tickets.pop(key, None)
             for token, action in list(self._actions.items()):
                 if action.get("owner_id") == owner:
                     self._actions.pop(token, None)
+
+    def clear_user_state(self, user_id):
+        """Clear all transient batch state for an owner across every store."""
+        self.clear_pending(user_id)
 
     def _begin_batch_input(self, scope, batch, kind, **fields):
         ticket = token_hex(8)
@@ -546,25 +572,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
 
     def _render(self, scope, batch, page=1, sort_by="selection", notice=None):
         batch = self._get_batch(scope, batch.get("batch_id"), batch.get("version")) or batch
-        display_batch = deepcopy(batch)
+        display_batch = self._project_batch_freshness(batch)
         rows = list(display_batch.get("rows") or [])
-        now = self.clock()
-        for row in rows:
-            age_at_load = self._seconds(row.get("source_age_seconds_at_load"), 0.0)
-            loaded_at = self._seconds(row.get("source_loaded_at"), now)
-            ttl = min(
-                self._seconds(row.get("source_ttl_seconds"), 600.0),
-                600.0,
-            )
-            age = age_at_load + max(0.0, now - loaded_at)
-            row["_display_source_age"] = age
-            if (
-                age >= ttl
-                and row.get("status") not in {
-                    "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME", "BUDGET_EXHAUSTED"
-                }
-            ):
-                row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED")
         if sort_by == "target_price":
             rows.sort(key=lambda row: self._sort_number(
                 ((row.get("planning") or {}).get("target") or {}).get("price")
@@ -673,12 +682,103 @@ class TelegramUnitPriceBatchPlanRuntimeService:
     def _save_batch(self, scope, batch):
         key = scope["key"]
         with self._lock:
+            self._refresh_tickets.pop(key, None)
             self._batches[key] = {
                 "batch": deepcopy(batch),
                 "stored_at": self.clock(),
             }
             self._batches.move_to_end(key)
             self._evict_locked(self._batches, self.MAX_BATCHES)
+
+    def _begin_refresh(self, scope, batch):
+        key = scope["key"]
+        with self._lock:
+            entry = self._batches.get(key)
+            current = entry.get("batch") if isinstance(entry, dict) else None
+            if (
+                not isinstance(current, dict)
+                or current.get("batch_id") != batch.get("batch_id")
+                or current.get("version") != batch.get("version")
+            ):
+                return None
+            ticket = token_hex(8)
+            self._refresh_tickets[key] = ticket
+            self._refresh_tickets.move_to_end(key)
+            self._evict_locked(self._refresh_tickets, self.MAX_BATCHES)
+            return ticket
+
+    def _publish_refresh(self, scope, base_batch, ticket, refreshed_batch):
+        active_scope = self._scope(scope["owner_id"])
+        if (
+            active_scope.get("error")
+            or active_scope.get("tenant_scope") != scope["tenant_scope"]
+        ):
+            self._finish_refresh_error(scope, ticket)
+            return False
+        key = scope["key"]
+        with self._lock:
+            entry = self._batches.get(key)
+            current = entry.get("batch") if isinstance(entry, dict) else None
+            stored_at = entry.get("stored_at", 0) if isinstance(entry, dict) else 0
+            if (
+                self._refresh_tickets.get(key) != ticket
+                or not isinstance(current, dict)
+                or self.clock() - stored_at >= self.SNAPSHOT_TTL_SECONDS
+                or current.get("batch_id") != base_batch.get("batch_id")
+                or current.get("version") != base_batch.get("version")
+                or not isinstance(refreshed_batch, dict)
+                or refreshed_batch.get("batch_id") != base_batch.get("batch_id")
+                or type(refreshed_batch.get("version")) is not int
+                or refreshed_batch.get("version") <= base_batch.get("version")
+                or refreshed_batch.get("owner_id") != scope["owner_id"]
+                or refreshed_batch.get("tenant_scope") != scope["tenant_scope"]
+            ):
+                if self._refresh_tickets.get(key) == ticket:
+                    self._refresh_tickets.pop(key, None)
+                return False
+            self._refresh_tickets.pop(key, None)
+            self._batches[key] = {
+                "batch": deepcopy(refreshed_batch),
+                "stored_at": self.clock(),
+            }
+            self._batches.move_to_end(key)
+            self._evict_locked(self._batches, self.MAX_BATCHES)
+            return True
+
+    def _finish_refresh_error(self, scope, ticket):
+        with self._lock:
+            if self._refresh_tickets.get(scope["key"]) == ticket:
+                self._refresh_tickets.pop(scope["key"], None)
+
+    def _project_batch_freshness(self, batch):
+        projected = deepcopy(batch)
+        now = self.clock()
+        stale_count = 0
+        for row in projected.get("rows") or []:
+            original_status = row.get("status")
+            age_at_load = self._seconds(row.get("source_age_seconds_at_load"), 0.0)
+            loaded_at = self._seconds(row.get("source_loaded_at"), now)
+            ttl = min(self._seconds(row.get("source_ttl_seconds"), 600.0), 600.0)
+            age = age_at_load + max(0.0, now - loaded_at)
+            is_stale = (
+                age >= ttl
+                and original_status not in {
+                    "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME", "BUDGET_EXHAUSTED"
+                }
+            )
+            row["snapshot_status"] = original_status
+            row["source_age_seconds_at_evaluation"] = int(age)
+            row["source_ttl_seconds"] = int(ttl)
+            row["source_freshness_status"] = "STALE" if is_stale else "CURRENT"
+            if is_stale:
+                stale_count += 1
+                row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED")
+        projected["source_freshness_status"] = (
+            "STALE" if stale_count else "CURRENT"
+        )
+        projected["source_stale_row_count"] = stale_count
+        projected["freshness_checked_at_export"] = True
+        return projected
 
     def _get_batch(self, scope, batch_id, version):
         key = scope["key"]
@@ -810,7 +910,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
 
     def _clear_other_scopes(self, owner, tenant_scope):
         with self._lock:
-            for mapping in (self._pending, self._batches):
+            for mapping in (self._pending, self._batches, self._refresh_tickets):
                 for key in [
                     key for key in mapping
                     if key[0] == owner and key[1] != tenant_scope

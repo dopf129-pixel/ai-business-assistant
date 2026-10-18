@@ -1,5 +1,14 @@
 # План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
 
+## Исправления архитектурного review R1–R8 (2026-10-18)
+
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: production adapter single→sensitivity callback, owner reset, 64-entry LRU/TTL и cleanup action tokens.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: поздний refresh после cancel/edit, parent trace propagation, stale projection parity для экрана/экспорта и сброс при `/start`/переключении магазина.
+- `tests/test_product_overview_service.py`: child time/request budget и инвалидирование in-flight snapshot при owner reset.
+- `tests/test_unit_price_batch_plan_service.py`: удаление устаревших missing/invalid labels после пересчёта.
+- Связанный профиль вместе с acceptance, architecture regression, Telegram integrity и export tests: **86 passed**. `compileall -q app tests` и `git diff --check` прошли.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; трассировки указывают на `PermissionError [WinError 5]` при создании/чтении/очистке pytest temp paths. Повтор с отдельным `--basetemp` дошёл до конца тестов, но teardown тоже заблокирован ACL. Для code SHA `664a370a117251a88297e57668a8ba721a80555c` exact-head Windows и full-verification CI прошли: runs `39161924581`, `39161920417`.
+
 ## Фактическое выполнение
 
 - F00: tests/test_period_profit_operation_diagnostics.py проверяет 256-entry ring buffer, сохраняемые total/dropped counters, родительско-дочернюю агрегацию попыток и row outcomes без публикации raw identifiers. tests/test_period_profit_diagnostic_view_service.py покрывает whitelist статусов/причин, bounded counters, budget actions и fail-closed поля. tests/test_period_profit_completeness_view.py проверяет точный cached-view маршрут, tenant isolation и отсутствие повторного query.
@@ -5281,3 +5290,16 @@ Focused local result: **75 passed**. `compileall -q app tests` and `git diff --c
 - `tests/test_telegram_unit_price_batch_plan_runtime_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: exports include all 8 batch rows / 9 matrix cells; one-time callbacks and no source reload.
 - `tests/test_telegram_cost_table_transport.py`: public Telegram callback delivers analytics export with the read-only caption; legacy cost export and send-failure behavior remain covered.
 - Combined E00–E04 profile: **73 passed**; `compileall -q app tests` and `git diff --check` passed. Clean Windows/Linux full verification and Docker smoke remain required on exact PR head.
+
+# Product workbench cross-feature acceptance — G00
+
+Added:
+
+- `tests/test_product_workbench_acceptance.py`: runs the public Telegram handler through overview filtering, exact product selection, real batch-plan calculator with a local missing-cost correction, sensitivity sweep, and complete batch/sensitivity exports. Verifies one overview query, one catalog read, exactly one snapshot read per selected SKU, and read-only document results.
+
+Updated:
+
+- `tests/test_period_profit_analytics_runtime.py`: connects the finalized period comparison with cached CSV/JSON and support-diagnostic JSON; asserts the period query runs once.
+- `tests/test_product_overview_telegram_flow.py`: checks that legacy main-menu sections remain available alongside workbench navigation.
+
+G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact acceptance head `12447d4cb48823fea938513fbb16dc4f41a080c2` passed Verify `39069249065`; review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` passed Verify `39069517726` (Windows, Linux full verification, Docker smoke).

@@ -123,7 +123,16 @@ def test_main_menu_opens_snapshot_and_row_callbacks_fit_telegram_limit():
         reset_current_tenant_user_id(tenant)
 
     detail_callbacks = [item["callback"] for item in detail["keyboard"]["buttons"]]
-    assert "product_overview" in menu_callbacks
+    assert {
+        "product_overview",
+        "period_profit",
+        "external_expenses",
+        "experimental_calculations",
+        "seller_cost",
+        "unit_economics",
+        "product_decisions",
+        "returns_finance_impact",
+    } <= menu_callbacks
     assert response["error"] is False
     assert "не рейтинг" in response["message"]
     assert len(row_button["callback"].encode("utf-8")) == 64
