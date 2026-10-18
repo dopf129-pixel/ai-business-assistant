@@ -7,7 +7,7 @@
 - `tests/test_product_overview_service.py`: child time/request budget и инвалидирование in-flight snapshot при owner reset.
 - `tests/test_unit_price_batch_plan_service.py`: удаление устаревших missing/invalid labels после пересчёта.
 - Связанный профиль вместе с acceptance, architecture regression, Telegram integrity и export tests: **86 passed**. `compileall -q app tests` и `git diff --check` прошли.
-- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; трассировки указывают на `PermissionError [WinError 5]` при создании/чтении/очистке pytest temp paths. Повтор с отдельным `--basetemp` дошёл до конца тестов, но teardown тоже заблокирован ACL. Локальный full suite не зелёный; источник истины для изменений — exact-head CI.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; трассировки указывают на `PermissionError [WinError 5]` при создании/чтении/очистке pytest temp paths. Повтор с отдельным `--basetemp` дошёл до конца тестов, но teardown тоже заблокирован ACL. Для code SHA `664a370a117251a88297e57668a8ba721a80555c` exact-head Windows и full-verification CI прошли: runs `39161924581`, `39161920417`.
 
 ## Фактическое выполнение
 

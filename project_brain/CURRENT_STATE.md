@@ -1,7 +1,7 @@
 # 2026-10-18 — исправления A–G по review R1–R8
 
 - Реализованы восемь исправлений для PR #703: корректное сохранение контекста single/sensitivity; version/ticket-guard от позднего batch refresh; владелец-ориентированный reset новых transient runtimes; дочерние лимиты 120 секунд/128 запросов для product overview; передача родительского operation trace в batch build/refresh; bounded LRU/TTL чувствительности; freshness projection для экрана и экспорта; синхронизация missing/invalid input при пересчёте.
-- Проверки локально: **86 targeted tests passed**, `compileall -q app tests` и `git diff --check` успешны. Полный Windows pytest дал **3 030 passed, 21 failed, 369 errors**; трассировки показывают ACL `PermissionError [WinError 5]` для временных каталогов, в том числе с новым `--basetemp`. Новый точный head должен пройти CI и повторный review.
+- Проверки локально: **86 targeted tests passed**, `compileall -q app tests` и `git diff --check` успешны. Полный Windows pytest дал **3 030 passed, 21 failed, 369 errors**; локальный прогон ограничен ACL `PermissionError [WinError 5]` на temporary paths. Code commit `664a370a117251a88297e57668a8ba721a80555c` повторно проверен: новых замечаний R1–R8 нет; оба Windows/full-verification CI runs `39161924581` и `39161920417` прошли. Merge/deploy не выполнялись.
 - Пользовательские `data/tasks.json` и `data/users.json`, lock-файл и ACL-limited временные каталоги сохранены вне списка изменений.
 
 # 2026-10-17 — выполнение программы Luna A–G начато

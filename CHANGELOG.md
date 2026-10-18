@@ -1,7 +1,7 @@
 # 2026-10-18 — исправления по архитектурному review A–G (R1–R8)
 
 - Закрыты восемь подтверждённых сценариев: переход single→sensitivity, конкурентное обновление batch, сброс transient-состояний при навигации/смене магазина, наследование budget для product overview и batch, ограничение sensitivity LRU, единая свежесть batch-выгрузки и очистка неактуальных input warnings.
-- Добавлены регрессии в batch/sensitivity/overview/plan tests. Целевой профиль: **86 passed**; compileall и `git diff --check` прошли. Полный локальный прогон: **3 030 passed, 21 failed, 369 errors**; трассировки показывают `PermissionError [WinError 5]` на pytest temp paths. Повтор с отдельным basetemp также упёрся в ACL. Exact-head CI после публикации обязателен.
+- Добавлены регрессии в batch/sensitivity/overview/plan tests. Целевой профиль: **86 passed**; compileall и `git diff --check` прошли. Локальный full suite ограничен Windows ACL на pytest temp paths (**3 030 passed, 21 failed, 369 errors**). Повторный review code commit `664a370a117251a88297e57668a8ba721a80555c` не выявил оставшихся проблем R1–R8; exact-head Windows и full-verification CI прошли успешно (runs `39161924581`, `39161920417`).
 
 # 2026-10-17 — модуль G00: сквозная приёмка продукта
 

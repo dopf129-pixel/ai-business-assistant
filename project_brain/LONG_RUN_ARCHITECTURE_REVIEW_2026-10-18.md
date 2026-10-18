@@ -124,4 +124,12 @@ Hook `clear_unit_price_calculator_state` очищает только одино�
 - R1–R8 реализованы на рабочей ветке PR #703: переходы `ups:*` сохранены адаптером; reset очищает transient-состояния single/batch/sensitivity/overview; refresh batch защищён ticket, batch identity/version, active tenant и TTL; overview использует дочерний trace 120s/128 attempts; batch build/refresh наследует текущий parent trace; sensitivity sessions ограничены LRU/TTL с атомарным read и удалением зависимых actions; экран и экспорт используют общий freshness projection; пересчёт строки заново формирует missing/invalid input lists.
 - Добавлены регрессии на production adapter/command seams, конкурентную отмену/правку, меньшие parent budgets, stale export, LRU/TTL и incomplete→ready.
 - Локально: связанный профиль **86 passed**, `compileall -q app tests` прошёл, `git diff --check` прошёл. Эти результаты подтверждают новые сценарии, но не заменяют полный CI.
-- Полный pytest, повторный review текущего diff и exact-head Verify нового SHA ещё ожидаются. До них review остаётся **требующим повторной проверки**, слияние и deployment не выполнялись.
+- Локальный полный pytest ограничен Windows ACL на временные каталоги; точные результаты и CI приведены ниже. Повторный review выполнен на code SHA `664a370a117251a88297e57668a8ba721a80555c`; слияние и deployment не выполнялись.
+
+## Результат повторного review
+
+- Для каждого R1–R8 проверены соответствующие изменения и регрессия. Не обнаружено оставшихся случаев потери калькуляторного контекста, публикации позднего refresh, протекания transient state между магазинами, обхода operation budget, неограниченного sensitivity cache, расхождения свежести экрана/выгрузки или неактуальных input warnings.
+- Целевой профиль: **86 passed**; `compileall -q app tests` и `git diff --check` прошли.
+- На code SHA `664a370a117251a88297e57668a8ba721a80555c` успешны Windows и full-verification jobs в runs `39161924581` и `39161920417`.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; известный ACL `PermissionError [WinError 5]` блокирует временные каталоги. Повторный запуск с локальным `--basetemp` тоже не смог выполнить pytest cleanup. CI на code SHA прошёл полностью.
+- Повторный review: **исправления приняты для передачи на следующий этап**, дополнительных блокирующих замечаний нет. PR #703 остаётся неслитым; deploy не выполнялся.
