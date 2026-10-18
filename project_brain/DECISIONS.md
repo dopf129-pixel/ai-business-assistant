@@ -2436,7 +2436,7 @@ local graceful stop path without process-wide kill behavior or a new web server.
 
 Status:
 
-Implemented locally; exact-head cross-platform CI acceptance pending.
+Implemented. PR #705 Verify `39175656753` passed full Windows/Linux suites (3,443 tests each) and production Docker smoke; independent architecture review remains pending.
 
 ---
 
@@ -2469,7 +2469,7 @@ revision conflicts explicit while preserving existing tenant databases.
 
 Status:
 
-Implemented locally; full-suite and exact-head CI acceptance pending.
+Implemented. PR #706 Verify `39175669828` passed full Windows/Linux suites (3,454 tests each) and production Docker smoke; independent architecture review remains pending.
 
 ---
 
@@ -2501,7 +2501,7 @@ separation between hypothetical plans and store facts.
 
 Status:
 
-Implemented locally; exact-head CI and architecture review pending.
+Implemented. PR #707 Verify `39175679778` passed full Windows/Linux suites (3,466 tests each) and production Docker smoke; independent architecture review remains pending.
 
 ---
 
@@ -2533,4 +2533,4 @@ separates user business data from anonymized support diagnostics.
 
 Status:
 
-Implemented locally; exact-head CI and architecture review pending.
+Implemented. PR #708 code-head Verify `39175690904` passed full Windows/Linux suites (3,497 tests each) and production Docker smoke. The current review handoff is documentation-only; check the latest PR #708 Verify before closing O01. Independent architecture review remains pending.

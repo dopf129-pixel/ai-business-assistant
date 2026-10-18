@@ -3,7 +3,7 @@
 ## Активная программа planning workspace — 19.10.2026
 
 - A–G и предыдущая периодная аналитика находятся в merged `main` `722f368526c278b701cbfd69f3dbb9a474d52386` через PR #702; main Verify `39165543772` successful. Старые статусы PR ниже — исторические checkpoint, не текущая очередь слияния.
-- Исполняемое ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`, реализация H–N завершена локально на `codex/planning-workspace-20261019`; O00 targeted acceptance — **249 passed**. Сейчас O01: публикация PR и полный exact-head Windows/Linux/Docker CI, затем O02 review handoff. Full local pytest приостановлен после документированного ACL/shared-storage инцидента; merge/deploy/live bot запрещены.
+- Исполняемое ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`, реализация H–N и O00 завершена на `codex/planning-workspace-20261019`; O00 targeted acceptance — **249 passed**. PR #705–#708 опубликованы стеком. Их Verify runs прошли Windows/Linux full suites (3,443 / 3,454 / 3,466 / 3,497 tests на соответствующих code heads) и Docker smoke. Review packet включён в PR #708; актуальный exact-head Verify и дальнейший независимый review отслеживаются там. Full local pytest не повторять после документированного ACL/shared-storage инцидента; merge/deploy/live bot не выполнялись.
 - H: управляемый запуск/status/stop своего экземпляра. I: отдельная библиотека saved planning documents. J: допустимая рекламная нагрузка. K: экономика вручную заданных успешных продаж с общим налогом. L: сопоставимый план/факт. M: готовность и последовательное заполнение. N: сравнение вариантов и выгрузки. O: сквозная приёмка и independent review handoff.
 - 36 этапов, зависимости, conservative defaults, числовые примеры, isolation/CAS/tax/budget contracts и журнал `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
 - H добавляет локальное управление единственным polling экземпляром по token fingerprint и штатную остановку; `build_application()` и Ozon read-only не меняются. I добавляет tenant-scoped saved plans; J — проверяемый рекламный предел; K — economics mix с одним общим налогом. L сверяет выбранный план с canonical фактом и маркирует несовместимую прибыль; M добавляет readiness projection и точечное исправление; N сравнивает revisions и использует общий export sender. Локальные проверки не заменяют exact-head CI. Слияние, развёртывание и запуск реального бота запрещены.
@@ -678,6 +678,6 @@ Next seller-facing accounting priority:
 
 ## Planning workspace H–O (active)
 
-- H: local single-instance Telegram lifecycle is implemented; exact-head CI is pending.
-- I: durable, tenant-scoped saved price plans are implemented locally, including revisions and explicit source refresh. Full-suite and exact-head acceptance are pending.
+- H: local single-instance Telegram lifecycle is implemented and PR #705 full Windows/Linux + Docker verification passed.
+- I: durable, tenant-scoped saved price plans are implemented, including revisions and explicit source refresh; PR #706 full Windows/Linux + Docker verification passed.
 - Next dependency: J adds a bounded advertising-rate solver; K uses saved plans to calculate economics for an explicit sales mix. Continue through L–N and only close O after current-head Windows/Linux and Docker checks.

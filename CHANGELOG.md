@@ -2,7 +2,7 @@
 
 - `start_bot.ps1 -Background` запускает скрытый локальный экземпляр; `status_bot.ps1` показывает фактическое состояние polling, ревизию, время и режим; `stop_bot.ps1` запрашивает штатное завершение с ожиданием до 15 секунд. Обычный запуск остаётся видимым.
 - Добавлен token-scoped kernel lock, защищённый generation/secret loopback control и статусы STARTING/RUNNING/STOPPING/STOPPED. RUNNING появляется лишь после запуска Telegram polling и update processing. PID не применяется для завершения процессов; Ozon и `build_application()` не затронуты.
-- Профиль H: 40 passed; `compileall`, PowerShell parser и `git diff --check` прошли. Exact-head CI/H04 acceptance ожидают завершения программы.
+- Модули H–O реализованы и разложены на PR #705–#708; модули H–N и O00 получили локальные проверки, а текущие PR Verify runs прошли Windows/Linux и Docker smoke. Последний docs-only head PR #708 должен иметь собственный зелёный Verify; актуальный результат публикуется в PR. Независимый architecture review ещё впереди.
 
 # 2026-10-19 — сверка сохранённого плана с фактом и готовность плана (L–M)
 
@@ -16,7 +16,7 @@
 
 - Добавлено сравнение двух исторических версий плана в одном магазине. Изменения допущений видны всегда; дельты результата показываются только при совместимых периоде, составе SKU, налоговой политике и версии расчёта.
 - Добавлены пользовательские CSV/JSON выгрузки сохранённого плана, рекламного лимита, sales mix и сравнения через существующий export service/serializer/document sender. Экран и файл используют один snapshot без повторных чтений Ozon.
-- Межмодульный targeted H–O профиль: **249 passed**. Полный exact-head Windows/Linux/Docker CI ожидается на PR; merge/deploy не выполнялись.
+- Межмодульный targeted H–O профиль: **249 passed**. Verify #705–#708 прошли Windows/Linux полный suite (**3,443 / 3,454 / 3,466 / 3,497 passed**) и production Docker smoke на каждом уровне. В handoff включён независимый architecture-review checklist; docs-only обновление PR #708 потребует rerun. Merge/deploy не выполнялись.
 
 # 2026-10-19 — подготовлена программа развития planning workspace H–O
 

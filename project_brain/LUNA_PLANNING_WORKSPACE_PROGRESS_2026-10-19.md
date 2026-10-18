@@ -1,19 +1,21 @@
 # Журнал исполнения GPT Luna — planning workspace H–O
 
-Статус: **IN_PROGRESS — O01 ожидает exact-head CI, затем O02 handoff**. Реализация поручения начата 19.10.2026.
+Статус: **IMPLEMENTED — O01 code verification зелёный; O02 handoff опубликован, независимый review ожидается**. Реализация поручения начата 19.10.2026.
 ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`.
 Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
 
 ## Точка продолжения
 
-- Текущий этап: **O01 — финальная техническая приёмка и CI; затем закрыть O02 handoff**.
+- Текущий этап: **O02 — handoff опубликован в PR #708; проверить latest Verify для текущего PR head и передать пакет независимому reviewer**.
 - Проверенная база: `main` на `722f368526c278b701cbfd69f3dbb9a474d52386`, подтверждена актуальной `origin/main` и успешным GitHub Verify `39165543772`.
 - Рабочая ветка: `codex/planning-workspace-20261019`.
 - Подготовительный commit ТЗ и аудита на feature branch: `79fc0a72 Document planning workspace program and baseline`.
 - H00 завершён: исходная точка сохранена; пользовательские данные и временные каталоги pytest не включены в commit.
 - Последнее широкое локальное окно H–O: **249 passed** на Windows/Python 3.12 с отключённым pytest tmpdir/cache и workspace-local temp plugin; compileall / PowerShell AST / diff-check фиксируются после окончательного docs patch.
-- H implementation commit: `050563b6 Add safe local bot lifecycle controls`; I–N/O integration commit pending.
-- PR программы: ожидает публикации feature branch; exact-head CI и independent review pending.
+- Commits: H `050563b6 Add safe local bot lifecycle controls`; I `4e6b1bc1 Add tenant-scoped saved planning repository`; J–K `b66ebc45 Add bounded ad caps and sales mix planning`; L–N/O integration `a5041e5d Integrate planning comparisons and exports`.
+- PR stack: #705 → #706 → #707 → #708; exact base/head, run IDs and tested merge-ref SHAs in `PLANNING_WORKSPACE_REVIEW_HANDOFF_2026-10-19.md`.
+- Initial Verify runs on all four PR merge refs are green: #705 **3,443 passed**, #706 **3,454 passed**, #707 **3,466 passed**, #708 **3,497 passed** on both Windows and Linux; Docker build/runtime smoke passed on each full-verification job.
+- Review handoff is included in PR #708. The code head `a5041e5d7355d593bae6dacbc20c1590930eed21` passed full Windows/Linux and Docker verification; the current documentation-only head must be checked through the latest PR #708 Verify. Independent architecture review follows; no merge/deploy.
 - Решения владельца: дополнительных вопросов на момент подготовки нет; product defaults закреплены в разделе 5 ТЗ.
 
 ## Что сохранить
@@ -28,14 +30,14 @@
 
 | Модуль | Этапы | Статус | PR / code SHA / проверки |
 |---|---|---|---|
-| H — база и lifecycle | H00, H01, H02, H03, H04 | H00–H03 VERIFIED LOCALLY; H04 NEEDS exact-head CI/review | lifecycle profile 40 passed; included in final H–O targeted profile 249 passed |
-| I — сохранённые планы | I00, I01, I02, I03, I04, I05 | I00–I04 VERIFIED LOCALLY; I05 NEEDS exact-head CI/review | H/I profile 99 passed; included in final H–O profile |
-| J — рекламный предел | J00, J01, J02, J03 | J00–J02 VERIFIED LOCALLY; J03 NEEDS exact-head CI | J profile 63 passed; included in final H–O profile |
-| K — объём продаж | K00, K01, K02, K03, K04 | K00–K03 VERIFIED LOCALLY; K04 NEEDS exact-head CI | K profile 27 passed; included in final H–O profile |
-| L — план и факт | L00, L01, L02, L03, L04 | L00–L03 VERIFIED LOCALLY; L04 NEEDS exact-head CI | combined L/M/N profile 68 passed; final H–O profile 249 passed |
-| M — готовность | M00, M01, M02, M03 | M00–M02 VERIFIED LOCALLY; M03 NEEDS exact-head CI | direct edit CAS regression and concurrent conflict tested; final H–O profile 249 passed |
-| N — сравнение/экспорт | N00, N01, N02, N03 | N00–N02 VERIFIED LOCALLY; N03 NEEDS exact-head CI | pure comparison and four user-report exports covered; final H–O profile 249 passed |
-| O — приёмка | O00, O01, O02 | O00 IMPLEMENTED; O01 IN_PROGRESS; O02 prepared after CI | final local cross-module profile 249 passed; exact-head Windows/Linux/Docker CI not yet run |
+| H — база и lifecycle | H00, H01, H02, H03, H04 | H00–H04 VERIFIED; independent architecture review pending | local H profile 40; PR #705 Verify 3,443 passed Windows/Linux + Docker smoke |
+| I — сохранённые планы | I00, I01, I02, I03, I04, I05 | I00–I05 VERIFIED; independent architecture review pending | local H/I profile 99; PR #706 Verify 3,454 passed Windows/Linux + Docker smoke |
+| J — рекламный предел | J00, J01, J02, J03 | J00–J03 VERIFIED; independent architecture review pending | local J profile 63; PR #707 Verify 3,466 passed Windows/Linux + Docker smoke |
+| K — объём продаж | K00, K01, K02, K03, K04 | K00–K04 VERIFIED; independent architecture review pending | local K profile 27; PR #707 Verify 3,466 passed Windows/Linux + Docker smoke |
+| L — план и факт | L00, L01, L02, L03, L04 | L00–L04 VERIFIED; independent architecture review pending | combined L/M/N 68; PR #708 Verify 3,497 passed Windows/Linux + Docker smoke |
+| M — готовность | M00, M01, M02, M03 | M00–M03 VERIFIED; independent architecture review pending | direct edit CAS and conflict regression; PR #708 full CI green |
+| N — сравнение/экспорт | N00, N01, N02, N03 | N00–N03 VERIFIED; independent architecture review pending | comparison and four user-report exports; PR #708 full CI green |
+| O — приёмка | O00, O01, O02 | O00/O01 VERIFIED for code head; O02 packet published; independent review pending | PR #708 latest exact-head Verify is the gate for the docs-only handoff; previous code-head Verify: 3,497 passed on both platforms + Docker |
 
 ## Шаблон записи этапа
 
@@ -108,9 +110,8 @@ Status: **VERIFIED**
 
 ### H04 — architecture review и приёмка
 
-Status: **IN_PROGRESS**
-Обновлены README, guide, ARCHITECTURE, CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и Decision 046. Review checkpoint обнаружил раннюю публикацию RUNNING в PTB `post_init`; исправлено на отдельный readiness watcher, который проверяет и polling, и Application.start. Также stop допускается в STARTING после bind IPC.
-Остаётся: полный стандартный suite на чистой среде/CI, production Docker healthcheck, exact-head зелёный GitHub Verify и итоговый независимый review package. Local ACL-проблемы не лечатся изменением разрешений и не отменяют требование зелёного CI.
+Status: **VERIFIED for PR #705 head**.
+README, guide, ARCHITECTURE, CHANGELOG, CURRENT_STATE, ROADMAP, TEST_MAP и Decision 046 обновлены. Review checkpoint обнаружил раннюю публикацию RUNNING в PTB `post_init`; исправлено на readiness watcher, который проверяет polling и Application.start. Stop допускается в STARTING после bind IPC. Verify #705 (`39175656753`) прошёл: Windows/Linux **3,443 passed**, compile и production Docker smoke successful. Независимый architecture review остаётся кросс-модульным O02 этапом; локальный full-suite ACL инцидент описан ниже и не влияет на чистый CI.
 
 ### I00 — durable planning contract
 
@@ -135,7 +136,7 @@ Status: **VERIFIED locally**. Новая regression проверяет stale tit
 
 ### I05 — module acceptance
 
-Status: **IN_PROGRESS**. Public-handler acceptance охватывает single save → runtime restart → historical reopen/continue без повторного source call, batch save/continue с пометкой stale, CRUD и refresh → CAS update с ручным override; добавлен explicit copy path. Combined H/I targeted profile на Windows/Python 3.12: **99 passed**.
+Status: **VERIFIED for PR #706 head**. Public-handler acceptance охватывает single save → runtime restart → historical reopen/continue без повторного source call, batch save/continue с пометкой stale, CRUD и refresh → CAS update с ручным override; добавлен explicit copy path. Combined H/I targeted profile на Windows/Python 3.12: **99 passed**. Verify #706 (`39175669828`) прошёл: Windows/Linux **3,454 passed**, compile and Docker smoke successful.
 
 Точная команда:
 
@@ -147,7 +148,7 @@ $env:CODEX_LOCAL_TEST_TMP_ROOT = Join-Path $PWD '.pytest-h03-manual-data'
 
 Полный локальный suite с `AI_ASSISTANT_STORAGE_ROOT` в `.pytest-h03-manual-data/isolated-storage` завершился **3431 passed, 28 failed**. Семь multi-tenant тестов столкнулись с общей persisted storage между тестами; остальные 21 сбой связаны с системными `%TEMP%` ACL (`WinError 5` / SQLite unable to open). Тесты также изменили корневые `data/tasks.json` и `data/users.json` несмотря на указанное хранилище. Предшествующие этому прогону контрольные суммы из H00 были `AC6E856BD17E17029151C25C0D29DE414E553CE7C3607CB8DED9EC22E052110F` и `900FFAE4759D8CCE6A8E462C8F6B9C3CF64DC88F3388EDB7CDBEB157736AF63A`; текущие наблюдаемые суммы — `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698` и `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`. В workspace не найдено точной копии обеих исходных версий, автоматическое восстановление не предпринималось. Файлы оставлены нетронутыми после прогона, не staged/committed. Не запускать локальный полный suite повторно.
 
-Успешные фактические проверки до локального полного прогона: H/I focused profile **99 passed**, compileall и `git diff --check` PASS. Осталось перед закрытием I05: exact-head Windows/Linux CI + Docker и итоговый review handoff. Существующие `.p02-*`, `.p03-*`, `.h03-*`, `.pytest-*` scratch directories сохраняются и не добавляются в Git. Кодовые изменения пока не закоммичены; implementation commit pending.
+Успешные проверки: H/I focused profile **99 passed**, compileall/diff-check PASS; затем PR #706 exact stacked-head Verify `39175669828` прошёл полные Windows/Linux suite (**3,454 passed** обе платформы) и production Docker smoke. PR I содержит только SQLite repository/service и прямые tests; production wiring приходит в зависимом интеграционном PR #708. Локальный full-suite инцидент и актуальные hashes сохранены как есть; existing scratch directories не включены в Git.
 
 ### J00 — рекламный предел: контракт
 
@@ -167,7 +168,7 @@ Single требует явную целевую маржу, показывает
 
 ### J03 — acceptance checkpoint
 
-Status: **IN_PROGRESS**. Связанный профиль Windows/Python 3.12:
+Status: **VERIFIED for PR #707 head**. Связанный профиль Windows/Python 3.12:
 
 ```powershell
 $env:PYTHONPATH = Join-Path $PWD 'app'
@@ -179,7 +180,7 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 Result: **63 passed**. The public-flow regressions prove no extra Ozon reads, fresh-version-only local apply, stale replay rejection and read-only historical view. `compileall -q app tests` passed before current J runtime integration was completed; rerun it and scoped diff-check at the next J acceptance checkpoint. No full local pytest rerun: the previous full attempt was **3431 passed / 28 failed** (seven shared-storage cross-test failures and 21 Windows temp ACL failures) and modified local `data/tasks.json`/`data/users.json`. Initial and post-run SHA-256 values are recorded above and in CURRENT_STATE; original exact file copies were unavailable, so no restoration was attempted. Both local files plus `data/tasks.json.lock` remain outside Git. Do not stage/restore them or re-run the full suite locally.
 
-Next: run safe compileall/diff-check, inspect J code and exact data hashes without changing files, then proceed to K00. Green full suite and Docker smoke can only be claimed from clean exact-head GitHub Verify. H04/I05/J03 and final O02 remain open until those runs and independent review handoff.
+Verify #707 (`39175679778`) passed the full Windows/Linux suites with **3,466 passed** on both platforms and successful production Docker smoke. The commit isolates solver/economics cores; public workflow wiring is in dependent PR #708. Proceeded to K00 after completing J targeted acceptance.
 
 ### K00 — контракт sales mix
 
@@ -203,7 +204,7 @@ Preview показывает Q, price per unit, total revenue/COGS/commission/ad
 
 ### K04 — локальная связанная проверка
 
-Status: **IN_PROGRESS**.
+Status: **VERIFIED for PR #707 head**. K targeted profile: **27 passed**; Verify #707 (`39175679778`) passed Windows/Linux **3,466 tests each** plus production Docker smoke. The connected Telegram/UI and cross-module acceptance is covered by the dependent top PR #708.
 Точная Windows/Python 3.12 команда:
 
 ```powershell
@@ -214,9 +215,9 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 .\.venv\Scripts\python.exe -m pytest -p no:tmpdir -p no:cacheprovider -p h03_temp_fixture_plugin -q tests/test_sales_mix_planning_service.py tests/test_planning_workspace_repository.py::test_sales_mix_persists_explicit_unknown_quantity_and_rejects_bad_scope tests/test_saved_planning_plan_telegram_flow.py::test_sales_mix_public_flow_confirms_zero_expenses_and_saves_revision_without_source_reads tests/test_saved_planning_plan_telegram_flow.py::test_sales_mix_result_shows_per_sku_components_and_price_times_quantity tests/test_unit_price_scenario_service.py tests/test_unit_price_advertising_cap_service.py --tb=short
 ```
 
-Result: **27 passed, 0 failed**. Проверены обязательные 15.2/15.3, округление money component × Q, общий minimum tax, explicit zero/unknown, partial result, mixed tax, fixed expense once, public preview, exact saved-plan revision, no source read, stale confirm race, detailed component display and individually solved cap sum caveat. До закрытия K04 остаются `compileall`, scoped `git diff --check`, production-factory/adapter review и exact-head Windows/Linux CI. Full local pytest не запускается из-за ранее задокументированного инцидента; зелёные CI claims отсутствуют.
+Result: **27 passed, 0 failed**. Проверены обязательные 15.2/15.3, округление money component × Q, общий minimum tax, explicit zero/unknown, partial result, mixed tax, fixed expense once, public preview, exact saved-plan revision, no source read, stale confirm race, detailed component display and individually solved cap sum caveat. `compileall`, PowerShell parse and diff-check passed at final acceptance. Clean Windows/Linux full suite and Docker smoke evidence is Verify #707 as listed above. Full local pytest remains suspended after the recorded workspace incident.
 
-Implementation SHA: **pending**. Новый PR: **pending**. User data policy сохранена: `data/tasks.json`, `data/users.json`, lock и все local ACL scratch directories не staged, не восстановлены и не удалены.
+Implementation SHA for the J–K calculation core: `b66ebc45686e276c76bfcb4173c92cade6100c9c`; PR #707. User data policy сохранена: `data/tasks.json`, `data/users.json`, lock и все local ACL scratch directories не staged, не восстановлены и не удалены.
 
 Следующий шаг: исполнить K04 technical checks; затем продолжить L00 и строить фактическую projection поверх существующего канонического period/SKU report.
 
@@ -257,10 +258,10 @@ Status: **IMPLEMENTED; targeted acceptance passed locally**.
 
 ### O01 — итоговая техническая приёмка
 
-Status: **IN_PROGRESS — exact-head CI pending**.
+Status: **VERIFIED for code head `a5041e5d`; latest docs-only PR head is tracked by GitHub Verify**.
 Финальная Windows/Python 3.12 связанная команда, выполненная с изоляцией локального тестового temp root, завершилась **249 passed in 9.98s**. Команда включила lifecycle, planning repository/runtime, ad caps, sales mix, plan/fact, readiness, comparison/export, Telegram transport/document, legacy overview/sensitivity and return diagnostic regression modules. Два предварительных вызова pytest без сбора тестов из-за неверно указанного test path завершились до выполнения каких-либо тестов; окончательная команда использовала проверенные пути.
 
-Также после реализации: `python -m compileall -q app tests` — **PASS**; PowerShell AST parse `start_bot.ps1`, `status_bot.ps1`, `stop_bot.ps1` — **PASS**; `git diff --check -- . ':(exclude)data/**'` — **PASS**, только предупреждение Git о нормализации LF→CRLF для progress journal. Текущие SHA пользовательских data — tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`, users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`. Data, lock и ACL-limited scratch paths остаются вне Git. Full local pytest повторно не запускать.
+Также после реализации: `python -m compileall -q app tests` — **PASS**; PowerShell AST parse `start_bot.ps1`, `status_bot.ps1`, `stop_bot.ps1` — **PASS**; `git diff --check` — **PASS**. PR Verify runs завершены: #705 run `39175656753` — **3443 passed** Windows/Linux; #706 `39175669828` — **3454 passed** обе платформы; #707 `39175679778` — **3466 passed** обе платформы; #708 `39175690904` — **3497 passed** обе платформы; на каждом Linux full-verification также успешно выполнил production Docker build и runtime smoke. Handoff merge-ref SHA / artifact reference указан в отдельном review handoff. Последующий docs-only commit handoff обновит PR #708 head и требует повторного CI. Текущие SHA пользовательских data — tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`, users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`. Data, lock и ACL-limited scratch paths остаются вне Git. Full local pytest повторно не запускать.
 
 Команда итогового targeted прогона:
 
@@ -274,4 +275,4 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 ### O02 — пакет независимого review
 
-Status: **IN_PROGRESS**. H implementation commit `050563b6` создан; H–N/O code and docs final commit, PR refs, exact-head CI URLs/results pending. Handoff документ будет заполнен после публикации и CI, чтобы указать фактические base/head. Архитектурная классификация — **Architecture Review Required**. До завершения нельзя заявлять зелёный CI или выдавать пакет за полностью принятый.
+Status: **READY FOR INDEPENDENT REVIEW**. Handoff: `PLANNING_WORKSPACE_REVIEW_HANDOFF_2026-10-19.md`; PR #705–#708 opened on a stacked branch chain. All four code-head PR workflows passed full Windows/Linux tests and Docker smoke; exact heads and merge refs are recorded. For the final documentation-only PR #708 head, use its latest Verify run as the exact revision gate. Independent review remains pending. Classification: **Architecture Review Required**. No merge/deploy.
