@@ -488,6 +488,26 @@ def test_late_row_edit_cannot_overwrite_a_successful_source_refresh():
     assert current["rows"][0]["inputs"]["cost"] == "100"
 
 
+def test_new_batch_cannot_reuse_an_existing_identity_and_version():
+    service = _BatchService()
+    runtime = _runtime(service=service)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        first = runtime.handle_text("20", user_id="user-1")
+        runtime.begin_from_overview_selection("user-1")
+        second = runtime.handle_text("25", user_id="user-1")
+        current = runtime._batches[("user-1", "user-1::ozon::store-a")]["batch"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert first["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert second["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+    assert current["batch_id"] == "batch-1"
+    assert current["version"] == 1
+    assert current["target_margin_percent"] == "20.0"
+
+
 def test_late_advertising_confirmation_cannot_overwrite_a_successful_refresh():
     confirm_ready, finish_confirm = Event(), Event()
 

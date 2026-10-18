@@ -750,6 +750,11 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             if (
                 not ticket_matches
                 or not current_matches
+                or (
+                    expected_id is not None
+                    and isinstance(batch, dict)
+                    and batch.get("batch_id") == expected_id
+                )
                 or not self._valid_published_batch(
                     scope, batch, batch.get("batch_id") if isinstance(batch, dict) else None, 1
                 )
