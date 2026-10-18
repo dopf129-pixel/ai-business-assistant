@@ -1,3 +1,10 @@
+# 2026-10-19 — merged A–G и подготовлено следующее ТЗ H–O
+
+- Актуальный baseline подготовки: `main` `722f368526c278b701cbfd69f3dbb9a474d52386`. PR #702 уже слит и включает периодную аналитику, A–G и review fixes R1–R10; записи ниже о незавершённом merge относятся к прежним checkpoint.
+- Merged-main Verify `39165543772` successful: Windows/Linux full verification, compileall, production Docker build/runtime smoke. При подготовке повторно проверены GitHub metadata PR и статусы jobs; новый полный pytest не запускался.
+- Подготовлено `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`: 8 модулей H–O, 36 этапов — lifecycle запуска, сохранённые планы, рекламные пределы, manual sales mix, план/факт, готовность, сравнение/экспорт, приёмка. Статус **PREPARED / NOT_STARTED**; функционал пока не реализован. Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`.
+- Подготовка изменяет только документацию. Пользовательские JSON, lock и temporary directories сохранены; действующие financial/tax/scenario contracts не менялись. Новые planning persistence contracts должны получить отдельный аддитивный ADR при реализации I00. Merge/deploy/реальный запуск в новое ТЗ не входят.
+
 # 2026-10-18 — исправления повторного review R9–R10
 
 - Batch runtime публикует стартовый план и все обновления через атомарное сравнение с исходной версией. Ручная правка и подтверждение рекламной доли сверяют текущую версию под lock; успешный refresh удаляет ожидающие изменения, рассчитанные из предыдущей версии. Новая сборка не переиспользует тот же batch id/version для другого содержимого. Проверяются границы tenant, ticket, TTL и монотонного `version + 1`.

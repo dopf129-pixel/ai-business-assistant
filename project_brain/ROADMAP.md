@@ -1,5 +1,13 @@
 # Project Roadmap
 
+## Следующая подготовленная программа — 19.10.2026
+
+- A–G и предыдущая периодная аналитика находятся в merged `main` `722f368526c278b701cbfd69f3dbb9a474d52386` через PR #702; main Verify `39165543772` successful. Старые статусы PR ниже — исторические checkpoint, не текущая очередь слияния.
+- Новое исполняемое ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`, статус **PREPARED / NOT_STARTED**. Это развитие продукта, без повторного заказа готовых A–G.
+- H: управляемый запуск/status/stop своего экземпляра. I: отдельная библиотека saved planning documents. J: допустимая рекламная нагрузка. K: экономика вручную заданных успешных продаж с общим налогом. L: сопоставимый план/факт. M: готовность и последовательное заполнение. N: сравнение вариантов и выгрузки. O: сквозная приёмка и independent review handoff.
+- 36 этапов, зависимости, conservative defaults, числовые примеры, isolation/CAS/tax/budget contracts и журнал `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
+- Новый функционал пока не выполнен. Постановка не меняет действующий transient/factual boundary; при реализации saved planning space требуется аддитивное решение. Merge/deploy/запуск реального бота — вне поручения.
+
 ## Активная программа разработки — 17.10.2026
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
