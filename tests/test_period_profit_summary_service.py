@@ -49,6 +49,9 @@ def test_calculates_period_profit_with_explicit_scope():
     assert result["product_cost"] == 60
     assert result["tax"] == 18
     assert result["profit"] == 147
+    assert result["products"][0]["product_id"] == "10"
+    assert result["products"][0]["offer_id"] == "hook"
+    assert result["products"][0]["sku"] == "100"
     assert result["fee_components_included"] is True
     assert result["returns_included"] is False
     assert result["advertising_included"] is False

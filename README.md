@@ -12,6 +12,26 @@ py -3.12 -m venv .venv
 .\start_bot.ps1
 ```
 
+### Управление экземпляром бота
+
+Обычный запуск остаётся видимым в текущем окне PowerShell. Для фонового запуска используйте:
+
+```powershell
+.\start_bot.ps1 -Background
+```
+
+Проверить, что Telegram polling действительно готов, и штатно остановить свой экземпляр можно так:
+
+```powershell
+.\status_bot.ps1
+```
+
+```powershell
+.\stop_bot.ps1
+```
+
+Бот не запускает второй polling с тем же токеном в другом окне или checkout. Разные токены имеют независимые экземпляры. Команда остановки ждёт подтверждения до 15 секунд и не завершает процессы Python принудительно; если срок истёк, проверьте состояние повторной командой `status_bot.ps1`.
+
 Для запуска проверок установите зависимости разработчика:
 
 ```powershell
@@ -44,5 +64,45 @@ $env:PYTHONPATH = Join-Path $PWD 'app'
 - [Руководство Telegram-бота](docs/telegram-user-guide.md)
 - [Аудит и ТЗ на 12.10.2026](project_brain/PROJECT_AUDIT_2026-10-12.md)
 - [Очередь заданий для GPT Luna](project_brain/LUNA_DEVELOPMENT_TASK_2026-10-12.md)
+
+## Планы юнит-экономики
+
+В калькуляторе цены можно сохранить текущие допущения как локальный план и
+открыть его позже в `📚 Мои планы`. Просмотр показывает сохранённый исторический
+снимок и не обращается к Ozon. Обновление источников — отдельное действие;
+после него можно сохранить новую ревизию исходного плана через проверку версии
+или создать отдельную копию. Это планирование, не запись факта магазина.
+
+В single и batch планах доступен расчёт допустимой рекламной доли для
+безубыточности и заданной маржи. Это предел на одну успешную продажу от цены
+продавца, а не прогноз эффективности кампании. Подстановка возможна только в
+текущую локальную версию после повторной проверки; сохранённая историческая
+версия остаётся только для просмотра.
+
+Saved plans can also calculate a manually specified mix of successful sales for
+one period. Enter an explicit quantity per SKU (unknown is different from
+zero) and confirm the list of additional period expenses, including an empty
+list when applicable. Rounded per-sale components are multiplied by quantity;
+the existing tax service calculates one tax for the aggregate. Partial inputs
+show a confirmed subtotal without presenting a final group profit or margin.
+The result is a scenario for the selected SKUs, not a demand forecast or total
+store profit.
+
+Saved sales mixes can be explicitly compared with finalized facts for the same
+period and exact selected SKUs. The bot displays only compatible quantity and
+gross-revenue measures, gives their arithmetic bridge, and marks group profit
+as not comparable when advertising, external expenses, or return COGS do not
+share a proven scope. One immutable short-lived result powers the screen and
+CSV/JSON. `Готовность плана` separates calculation status, historical
+assumptions, and fact-comparison status, with direct links to a missing SKU
+input or sales quantity. Updating a saved sales-mix quantity creates a new
+revision only after preview and confirmation.
+
+В `📚 Мои планы` можно сравнить две сохранённые версии одного магазина. Бот
+показывает, какие допущения изменились — например, цена, количество продаж или
+расходы — и рассчитывает разницу результата только если период, SKU и версия
+расчёта совместимы. Историческое сравнение не обращается к Ozon. Из открытой
+карточки доступны CSV/JSON выгрузки плана, лимита рекламы, sales mix и
+сравнения; выгрузка повторяет тот же снимок, который показан в сообщении.
 
 Реальное окружение продавца хранится локально. Не добавляйте `.env`, базы SQLite, резервные копии или сырые ответы Ozon в Git.

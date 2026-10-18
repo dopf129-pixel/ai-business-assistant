@@ -8,6 +8,7 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
@@ -86,6 +87,7 @@ def _runtime(clock=None, **kwargs):
         "target_planning_service",
         UnitPriceTargetPlanningService(scenario_service),
     )
+    kwargs.setdefault("advertising_cap_service", UnitPriceAdvertisingCapService(scenario_service))
     runtime = TelegramUnitPriceCalculatorRuntimeService(
         source=source,
         scenario_service=scenario_service,
@@ -116,6 +118,40 @@ def test_active_scenario_identity_supports_explicit_replacement_guard():
     assert identity["version"] == 1
     assert identity["tenant_scope"] == "user-1::ozon::store-1"
     assert wrong_user is None
+
+
+def test_advertising_cap_requires_explicit_target_and_applies_only_to_current_local_version():
+    runtime, source = _runtime()
+    tenant = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        ad_button = next(
+            item for item in opened["keyboard"]["buttons"]
+            if str(item.get("callback", "")).endswith(":advertising_rate")
+        )
+        prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        scenario = runtime.handle_text("10", user_id="user-1")
+        cap_button = _find_button(scenario, "Сколько можно тратить на рекламу?")
+        target_prompt = runtime.handle_callback(cap_button["callback"], user_id="user-1")
+        cap = runtime.handle_text("25", user_id="user-1")
+        target_button = _find_button(cap, "Подставить предел целевой маржи")
+        applied = runtime.handle_callback(target_button["callback"], user_id="user-1")
+        new_identity = runtime.active_scenario_identity("user-1")
+        stale_apply = runtime.handle_callback(target_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert target_prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert cap["status"] == "UNIT_PRICE_ADVERTISING_CAP_RESULT"
+    target_cap = cap["advertising_cap_result"]["target"]
+    assert target_cap["available"] is True
+    assert "запас" in cap["message"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(target_cap["advertising_rate"])
+    assert new_identity["version"] == 5
+    assert stale_apply["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert len(source.calls) == 1
 
 
 def _find_button(result, text):

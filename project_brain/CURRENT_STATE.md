@@ -1,8 +1,24 @@
-# 2026-10-19 — merged A–G и подготовлено следующее ТЗ H–O
+# 2026-10-19 — выполняется программа H–O на feature branch
+
+- Рабочая ветка `codex/planning-workspace-20261019`, база merged `main` `722f368526c278b701cbfd69f3dbb9a474d52386`; документационный checkpoint `79fc0a72`.
+- H01–H03: добавлено управление локальным экземпляром Telegram через token-scoped kernel lock, безопасный loopback stop, фактическую готовность polling и PowerShell launch/status/stop. H04 ждёт clean exact-head CI.
+- I00–I04: tenant-scoped saved-plan SQLite repository, версионные сохранения, исторический просмотр/продолжение и CRUD через публичный Telegram handler. I05 ждёт clean exact-head CI.
+- J00–J02: bounded ad-cap solver, Telegram для single/batch и исторический read-only просмотр saved-plan cap. Локальный профиль J: **63 passed**.
+- K00–K03: manual sales-mix для сохранённого плана, построчная экономика, однократный aggregate tax, список фиксированных расходов, partial subtotal и пояснённая сумма индивидуальных ad caps. Связанный K профиль: **27 passed**.
+- L00–L04: ограниченная plan/fact projection поверх finalized exact-SKU query, revenue bridge, явная несопоставимость прибыли, immutable snapshot и выгрузка без повторного query. L profile: **36 passed**.
+- M00–M03: отдельные статусы готовности расчёта, исторических допущений и факта; прямой переход к одному SKU-полю/неизвестному Q; preview и CAS перед новой revision. Устаревшая правка безопасно конфликтует с конкурентным сохранением.
+- N00–N03: сравнение исторических revisions и экспорт сохранённого плана, рекламного лимита, sales mix и сравнения через общий sender; при несовместимых результатах денежная delta прибыли/маржи скрыта.
+- O00: межмодульные public flows — **249 targeted tests passed**. O01/O02 ожидают PR, exact-head full CI/Docker и handoff.
+- Запрошенный полный локальный pytest остановлен навсегда в этой рабочей копии после инцидента **3431 passed, 28 failed** и изменения локальных `data/tasks.json`/`data/users.json`; точных исходных копий нет, восстановление не выполнялось. Не повторять full local suite. Требуются зелёные Windows/Linux exact-head GitHub CI и Docker smoke.
+- H/I focused profile до J: **99 passed**; compileall, PowerShell AST и diff-check были успешны. Полный локальный pytest прогон после workaround завершился **3431 passed, 28 failed**: семь multi-tenant тестов из-за повторного использования общей тестовой storage, ещё 21 из-за Windows `%TEMP%` ACL/WinError 5. Он также перезаписал локальные корневые `data/tasks.json` и `data/users.json`; автоматическое восстановление не предпринималось.
+- Контрольные суммы исходных файлов до этого прогона: tasks `AC6E856BD17E17029151C25C0D29DE414E553CE7C3607CB8DED9EC22E052110F`, users `900FFAE4759D8CCE6A8E462C8F6B9C3CF64DC88F3388EDB7CDBEB157736AF63A`. Наблюдаемые после прогона: tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`, users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`. Оба локальных файла и lock оставлены вне Git; точной исходной копии для восстановления в доступных scratch-каталогах не найдено. Не запускать локальный полный suite повторно.
+- Ozon/Telegram API, live bot и `.env` не использовались. Пользовательские JSON и ACL scratch paths сохранены вне Git; SHA-256 данных приведены в журнале. Продолжение по `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`; merge/deploy не выполняются.
+
+## Исторический checkpoint подготовки 19.10.2026
 
 - Актуальный baseline подготовки: `main` `722f368526c278b701cbfd69f3dbb9a474d52386`. PR #702 уже слит и включает периодную аналитику, A–G и review fixes R1–R10; записи ниже о незавершённом merge относятся к прежним checkpoint.
 - Merged-main Verify `39165543772` successful: Windows/Linux full verification, compileall, production Docker build/runtime smoke. При подготовке повторно проверены GitHub metadata PR и статусы jobs; новый полный pytest не запускался.
-- Подготовлено `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`: 8 модулей H–O, 36 этапов — lifecycle запуска, сохранённые планы, рекламные пределы, manual sales mix, план/факт, готовность, сравнение/экспорт, приёмка. Статус **PREPARED / NOT_STARTED**; функционал пока не реализован. Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`.
+- `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`: программа H–O, 36 этапов — lifecycle запуска, сохранённые планы, рекламные пределы, manual sales mix, план/факт, готовность, сравнение/экспорт, приёмка. Реализация выполняется на feature branch; фактические результаты и открытые этапы — в `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`.
 - Подготовка изменяет только документацию. Пользовательские JSON, lock и temporary directories сохранены; действующие financial/tax/scenario contracts не менялись. Новые planning persistence contracts должны получить отдельный аддитивный ADR при реализации I00. Merge/deploy/реальный запуск в новое ТЗ не входят.
 
 # 2026-10-18 — исправления повторного review R9–R10
@@ -4586,3 +4602,11 @@ Completed:
 - E00–E04 профиль: **73 passed**; `compileall -q app tests` и `git diff --check` прошли. Первый CI нашёл устаревшую assertion состава клавиатуры; после исправления на итоговом SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` Windows и Linux прошли по **3 389 тестов**, Docker build/runtime smoke успешны (Verify `39066587245`). PR #701 открыт, не слит/не развёрнут.
 - E documentation acceptance SHA `f598d300164916434de27a5180bb033d8a9f4293` also passed exact-head Verify `39066774774`.
 - F00 добавил ограниченную 256-событийную трассу с общими счётчиками попыток/проверок и экран «Почему расчёт неполный?» по точному owner/store-bound report snapshot. Экран использует кэш, не повторяет запросы и показывает только разрешённые статусы/причины и действия. Локальный профиль: **27 passed, 1 deselected** (существующий `tmp_path` stack-dump тест исключён из-за Windows ACL при запуске с отключённым tmpdir); compileall и diff-check прошли. F01 — безопасный JSON-экспорт.
+
+# 2026-10-19 — H/I: локальный lifecycle и сохранённые планы
+
+- H01–H03 реализованы: один polling-процесс на token fingerprint, локальные status/stop команды и graceful shutdown. RUNNING требует подтверждённого PTB polling и обработки updates. Focused lifecycle profile: **40 passed**; compileall и PowerShell AST validation прошли. Реальный бот не запускался.
+- I00–I04 реализованы: `PlanningWorkspaceRepository` добавляет tenant-scoped таблицы в текущую SQLite DB; сервисы и публичный Telegram handler обеспечивают сохранение single/batch планов, исторический просмотр после пересоздания сервисов, продолжение в transient editor, копирование/переименование/архив, восстановление и подтверждённое удаление.
+- Сохранённый snapshot имеет строгую allowlist; CAS и idempotency защищают версии. После явного refresh можно добавить новую ревизию исходного плана или создать копию. Ручные допущения сохраняются только на той же identity. Ошибки БД, некорректных часов, повреждённой записи и future schema fail closed.
+- H/I focused profile: **98 passed** на Windows/Python 3.12; точная команда указана в `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Полный pytest и exact-head CI ещё не выполнены; H04/I05 остаются незавершёнными до чистых cross-platform checks.
+- `.env`, Ozon/Telegram API и пользовательский бот не запускались. В полном локальном pytest прогоне тесты затронули root `data/tasks.json`/`data/users.json`; после прогона они оставлены на месте, не staged/committed. Исходные H00 SHA256 и текущие SHA256 зафиксированы в `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`; исходные точные копии в доступных scratch directories не найдены. Не выполнять автоматический restore и повторный локальный полный suite.

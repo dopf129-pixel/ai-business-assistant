@@ -213,6 +213,7 @@ class AssistantButtonHandlerService:
         product_overview_service=None,
         unit_price_batch_plan_runtime_service=None,
         unit_price_sensitivity_runtime_service=None,
+        saved_planning_plan_runtime_service=None,
         analytics_export_service=None,
         build_metadata_service=None,
     ):
@@ -290,6 +291,7 @@ class AssistantButtonHandlerService:
         self.product_overview_service = product_overview_service
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
         self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
+        self.saved_planning_plan_runtime_service = saved_planning_plan_runtime_service
         self.analytics_export_service = analytics_export_service
         self.build_metadata_service = (
             build_metadata_service or AppBuildMetadataService()
@@ -555,7 +557,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:")):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:")):
             return
         if (
             isinstance(button_id, str)
@@ -581,6 +583,7 @@ class AssistantButtonHandlerService:
             self.unit_price_calculator_runtime_service,
             self.unit_price_batch_plan_runtime_service,
             self.unit_price_sensitivity_runtime_service,
+            self.saved_planning_plan_runtime_service,
             self.product_overview_service,
         ):
             clearer = getattr(runtime, "clear_user_state", None)
@@ -590,6 +593,23 @@ class AssistantButtonHandlerService:
                 clearer(user_id)
 
     def handle_text(self, text, user_id=None):
+        saved_plans_handler = getattr(
+            self.saved_planning_plan_runtime_service, "handle_text", None
+        )
+        if callable(saved_plans_handler):
+            try:
+                saved_result = saved_plans_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "PLANNING_TEXT_FAILED",
+                    "message": "Не удалось обработать сохранённый план.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if saved_result is not None:
+                return saved_result
+
         sensitivity_handler = getattr(
             self.unit_price_sensitivity_runtime_service, "handle_text", None
         )
@@ -622,7 +642,7 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             if result is not None:
-                return result
+                return self._decorate_saved_plan_editor_result(result, user_id)
 
         runtime = self.unit_price_calculator_runtime_service
         handler = getattr(runtime, "handle_text", None)
@@ -638,7 +658,7 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             if result is not None:
-                return result
+                return self._decorate_saved_plan_editor_result(result, user_id)
 
         runtime = self.external_expense_runtime_service
         handler = getattr(runtime, "handle_text", None)
@@ -673,6 +693,11 @@ class AssistantButtonHandlerService:
         if result is None:
             return None
         return self._with_experimental_result_keyboard(result)
+
+    def _decorate_saved_plan_editor_result(self, result, user_id):
+        runtime = self.saved_planning_plan_runtime_service
+        decorator = getattr(runtime, "decorate_plan_editor_result", None)
+        return decorator(result, user_id=user_id) if callable(decorator) else result
 
     def _with_experimental_result_keyboard(self, result):
         if not isinstance(result, dict):
@@ -740,11 +765,19 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        planning_clearer = getattr(
+            self.saved_planning_plan_runtime_service, "clear_pending", None
+        )
+        if callable(planning_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("upp:")
+        ):
+            planning_clearer(user_id)
         batch_clearer = getattr(
             self.unit_price_batch_plan_runtime_service, "clear_pending", None
         )
         if callable(batch_clearer) and not (
-            isinstance(button_id, str) and button_id.startswith(("upb:", "ups:"))
+            isinstance(button_id, str)
+            and button_id.startswith(("upb:", "ups:", "upp:b:"))
         ):
             batch_clearer(user_id)
         sensitivity_clearer = getattr(
@@ -755,6 +788,23 @@ class AssistantButtonHandlerService:
         ):
             sensitivity_clearer(user_id)
         self._clear_unit_price_input_for_new_flow(button_id, user_id)
+
+        if isinstance(button_id, str) and button_id.startswith("upp:"):
+            runtime = self.saved_planning_plan_runtime_service
+            handler = getattr(runtime, "handle_callback", None)
+            if not callable(handler):
+                return self._product_overview_stale("PLANNING_RUNTIME_UNAVAILABLE")
+            try:
+                result = handler(button_id, user_id=user_id)
+                return self._decorate_saved_plan_editor_result(result, user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "PLANNING_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие с сохранённым планом.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if isinstance(button_id, str) and button_id.startswith("ups:"):
             runtime = self.unit_price_sensitivity_runtime_service
@@ -794,7 +844,8 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             try:
-                return handler(button_id, user_id=user_id)
+                result = handler(button_id, user_id=user_id)
+                return self._decorate_saved_plan_editor_result(result, user_id)
             except Exception:
                 return {
                     "error": True,
@@ -870,7 +921,8 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             try:
-                return handler(button_id, user_id=user_id)
+                result = handler(button_id, user_id=user_id)
+                return self._decorate_saved_plan_editor_result(result, user_id)
             except Exception:
                 return {
                     "error": True,
@@ -895,7 +947,8 @@ class AssistantButtonHandlerService:
                     "executed": False,
                 }
             try:
-                return handler(button_id, user_id=user_id)
+                result = handler(button_id, user_id=user_id)
+                return self._decorate_saved_plan_editor_result(result, user_id)
             except Exception:
                 return {
                     "error": True,

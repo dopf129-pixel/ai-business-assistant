@@ -2,10 +2,12 @@
 
 from collections import OrderedDict
 from copy import deepcopy
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from secrets import token_hex
 from threading import RLock
 from time import monotonic
+from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.period_profit_operation_diagnostics import current_period_profit_trace
@@ -51,6 +53,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         clock=None,
         tenant_scope_provider=None,
         analytics_export_service=None,
+        advertising_cap_service=None,
     ):
         self.batch_plan_service = batch_plan_service
         self.product_overview_service = product_overview_service
@@ -58,6 +61,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         self.single_price_runtime_service = single_price_runtime_service
         self.sensitivity_runtime_service = sensitivity_runtime_service
         self.analytics_export_service = analytics_export_service
+        self.advertising_cap_service = advertising_cap_service
         self.clock = clock or monotonic
         self.tenant_scope_provider = tenant_scope_provider or get_current_tenant_user_id
         self._pending = OrderedDict()
@@ -337,6 +341,10 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 user_id=scope["owner_id"],
             )
             return opener(context, user_id=scope["owner_id"])
+        if kind == "advertising_cap":
+            return self._show_advertising_cap(scope, batch, action.get("row_id"))
+        if kind == "advertising_cap_apply":
+            return self._apply_advertising_cap(scope, batch, action)
         if kind == "advertising_rate":
             return self._begin_batch_input(
                 scope, batch, "advertising_rate",
@@ -452,6 +460,311 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    def _show_advertising_cap(self, scope, batch, row_id):
+        if self.advertising_cap_service is None:
+            return self._error("UNIT_PRICE_ADVERTISING_CAP_UNAVAILABLE")
+        context = self.get_sensitivity_context(
+            batch.get("batch_id"), batch.get("version"), row_id,
+            user_id=scope["owner_id"],
+        )
+        if context.get("error") is True:
+            return self._stale()
+        result = self.advertising_cap_service.solve(
+            context.get("inputs"), batch.get("target_margin_percent"),
+            identity=context.get("identity"), provenance=context.get("provenance"),
+            sources=context.get("sources"),
+        )
+        fresh = (
+            context.get("source_ttl_seconds", 0) > 0
+            and context.get("source_age_seconds", float("inf")) < context.get("source_ttl_seconds", 0)
+        )
+        inputs = context.get("inputs") or {}
+        lines = [
+            "Допустимые расходы на рекламу · сохранённая строка плана",
+            f"Цена продавца: {inputs.get('price', '—')} ₽/шт.; целевая маржа: {batch.get('target_margin_percent', '—')}%.",
+            f"Исходные тарифы: {'актуальны' if fresh else 'устарели; подстановка отключена'}.",
+            "Результат относится к одной успешной продаже и не прогнозирует эффективность кампании.",
+        ]
+        buttons = []
+        for criterion, key, label in (
+            ("break_even", "break_even", "Безубыточность"),
+            ("target", "target", "Целевая маржа"),
+        ):
+            outcome = result.get(key) or {}
+            if outcome.get("available") is True:
+                lines.append(
+                    f"{label}: {outcome.get('advertising_rate')}% = {outcome.get('advertising_per_unit')} ₽/шт.; "
+                    f"прибыль {outcome.get('profit_per_unit')} ₽; запас {outcome.get('headroom_percentage_points')} п.п. / {outcome.get('headroom_per_unit')} ₽/шт."
+                )
+                if fresh:
+                    buttons.append({
+                        "text": f"Подставить · {label.lower()}",
+                        "callback": self._register_action(
+                            scope, batch, "advertising_cap_apply", row_id=row_id,
+                            criterion=criterion, advertising_rate=outcome.get("advertising_rate"),
+                            source_version=context.get("source_version"),
+                        ),
+                    })
+            else:
+                lines.append(f"{label}: предел не подтверждён ({outcome.get('status', result.get('code', 'UNAVAILABLE'))}).")
+        buttons.extend([
+            {"text": "Назад к плану", "callback": self._register_action(scope, batch, "page", page=1)},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return self._result(
+            "UNIT_PRICE_BATCH_ADVERTISING_CAP_RESULT", "\n".join(lines)[:3000],
+            self._keyboard(buttons),
+        )
+
+    def _apply_advertising_cap(self, scope, batch, action):
+        if self.advertising_cap_service is None:
+            return self._stale()
+        row_id = action.get("row_id")
+        context = self.get_sensitivity_context(
+            batch.get("batch_id"), batch.get("version"), row_id,
+            user_id=scope["owner_id"],
+        )
+        if (context.get("error") is True
+                or context.get("source_version") != action.get("source_version")
+                or context.get("source_ttl_seconds", 0) <= 0
+                or context.get("source_age_seconds", float("inf")) >= context.get("source_ttl_seconds", 0)):
+            return self._stale()
+        fresh_cap = self.advertising_cap_service.solve(
+            context.get("inputs"), batch.get("target_margin_percent"),
+            identity=context.get("identity"), provenance=context.get("provenance"),
+            sources=context.get("sources"),
+        )
+        key = action.get("criterion")
+        outcome = (fresh_cap.get(key) or {}) if isinstance(fresh_cap, dict) else {}
+        if (outcome.get("available") is not True
+                or outcome.get("advertising_rate") != action.get("advertising_rate")):
+            return self._stale()
+        updated = self.batch_plan_service.edit_row_assumption(
+            batch, row_id, "advertising_rate", action.get("advertising_rate"),
+        )
+        if updated.get("error") is True or not self._publish_batch_update(
+            scope, updated, expected_batch_id=batch.get("batch_id"),
+            expected_version=batch.get("version"),
+        ):
+            return self._stale()
+        return self._render(
+            scope, updated,
+            notice="Рекламный предел применён только к локальным допущениям строки. Кампании Ozon не изменялись.",
+        )
+
+    def get_saved_plan_capture(self, batch_id, batch_version, user_id=None):
+        """Return a defensive, exact-version recipe for explicit local save."""
+        scope = self._scope(user_id)
+        if scope.get("error"):
+            return self._context_error()
+        if isinstance(batch_version, str) and batch_version.isdigit():
+            batch_version = int(batch_version)
+        if type(batch_version) is not int or batch_version < 1:
+            return self._stale()
+        batch = self._get_batch(scope, batch_id, batch_version)
+        if batch is None or not 2 <= len(batch.get("rows") or []) <= 10:
+            return self._stale()
+        rows = []
+        for row in batch["rows"]:
+            if not isinstance(row, dict) or not isinstance(row.get("identity"), dict):
+                return self._stale()
+            snapshot = row.get("snapshot") if isinstance(row.get("snapshot"), dict) else {}
+            identity = row["identity"]
+            source_identity = snapshot.get("identity") or {}
+            sku = str(identity.get("catalog_sku") or "").strip()
+            product_id = str(identity.get("product_id") or "").strip()
+            offer_id = str(identity.get("offer_id") or "").strip()
+            if not sku or not product_id or not offer_id:
+                return self._stale()
+            if snapshot and (
+                str(source_identity.get("product_id") or "") != product_id
+                or str(source_identity.get("offer_id") or "") != offer_id
+                or str(source_identity.get("sku") or "") != sku
+                or str(source_identity.get("tenant_scope") or "") != scope["tenant_scope"]
+                or str(source_identity.get("store_id") or "") != str(scope["store_id"] or "")
+            ):
+                return self._stale()
+            product = snapshot.get("product") or {}
+            inputs = deepcopy(row.get("inputs") or {})
+            provenance = deepcopy(row.get("provenance") or {})
+            sources = {
+                "periods": deepcopy(snapshot.get("source_periods") or {}),
+                "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
+                "loaded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+            }
+            identity_for_calc = {
+                "user_id": scope["owner_id"], "store_id": scope["store_id"],
+                "tenant_scope": scope["tenant_scope"], "sku": sku,
+                "product_id": product_id, "offer_id": offer_id,
+            }
+            projection_result = self.batch_plan_service.scenario_service.calculate(
+                inputs, identity=identity_for_calc, provenance=provenance,
+                sources={"periods": sources["periods"], "as_of": sources["as_of"],
+                         "completeness": sources["completeness"]},
+            )
+            calculated = projection_result.get("calculated") or {}
+            projection = {
+                "status": str(row.get("status") or "INCOMPLETE_INPUTS"),
+                "available": projection_result.get("available") is True,
+                "missing_inputs": list(projection_result.get("missing_inputs") or row.get("missing_inputs") or [])[:20],
+                "invalid_inputs": list(projection_result.get("invalid_inputs") or [])[:20],
+            }
+            for field in (
+                "revenue", "discount_points", "taxable_revenue", "commission",
+                "advertising", "fees", "profit_before_tax", "tax",
+                "effective_tax_rate", "profit", "margin_percent",
+            ):
+                projection[field] = calculated.get(field)
+            rows.append({
+                "row_id": str(row.get("row_id") or "")[:64],
+                "identity": {
+                    "product_id": product_id, "offer_id": offer_id, "sku": sku,
+                    "product_name": str(product.get("name") or "")[:160] or None,
+                    "store_id": str(scope["store_id"] or ""),
+                    "scheme": str(product.get("scheme") or row.get("scheme") or "FBO")[:24],
+                },
+                "inputs": inputs, "provenance": provenance,
+                "sources": sources, "projection": projection,
+            })
+        return {
+            "error": False,
+            "batch_id": batch["batch_id"],
+            "version": batch["version"],
+            "tenant_scope": scope["tenant_scope"],
+            "payload": {
+                "plan_kind": "batch", "schema_version": 1,
+                "calculation_version": self.batch_plan_service.scenario_service.VERSION,
+                "target_margin_percent": batch.get("target_margin_percent"),
+                "items": rows,
+            },
+            "read_only": True, "executed": False,
+        }
+
+    def restore_saved_plan(self, payload, user_id=None):
+        """Open stored rows locally; source TTL is zero until explicit refresh."""
+        scope = self._scope(user_id)
+        if scope.get("error"):
+            return self._context_error()
+        if (
+            not isinstance(payload, dict)
+            or payload.get("plan_kind") != "batch"
+            or not isinstance(payload.get("items"), list)
+            or not 2 <= len(payload["items"]) <= 10
+        ):
+            return self._stale()
+        rows = []
+        scenario_service = self.batch_plan_service.scenario_service
+        for index, item in enumerate(payload["items"], start=1):
+            if not isinstance(item, dict):
+                return self._stale()
+            identity = item.get("identity") or {}
+            inputs = deepcopy(item.get("inputs") or {})
+            provenance = deepcopy(item.get("provenance") or {})
+            sources = item.get("sources") or {}
+            periods = deepcopy(sources.get("periods") or {})
+            sku = str(identity.get("sku") or "").strip()
+            product_id = str(identity.get("product_id") or "").strip()
+            offer_id = str(identity.get("offer_id") or "").strip()
+            if (
+                not sku or not product_id or not offer_id
+                or str(identity.get("store_id") or "") != str(scope["store_id"] or "")
+            ):
+                return self._stale()
+            snapshot_identity = {
+                "user_id": scope["owner_id"], "store_id": scope["store_id"],
+                "tenant_scope": scope["tenant_scope"], "product_id": product_id,
+                "offer_id": offer_id, "sku": sku,
+            }
+            snapshot = {
+                "identity": snapshot_identity,
+                "product": {"name": str(identity.get("product_name") or offer_id),
+                            "scheme": str(identity.get("scheme") or "FBO")},
+                "suggested_inputs": deepcopy(inputs),
+                "input_provenance": deepcopy(provenance),
+                "source_periods": periods,
+                "source_completeness": deepcopy(sources.get("completeness") or {}),
+            }
+            row_id = str(item.get("row_id") or identity.get("sku") or f"saved_{index}")[:64]
+            if any(existing.get("row_id") == row_id for existing in rows):
+                row_id = f"saved_{index}_{uuid4().hex[:8]}"
+            identity_record = {
+                "product_id": product_id, "offer_id": offer_id, "catalog_sku": sku,
+            }
+            result = scenario_service.calculate(
+                inputs,
+                identity={**snapshot_identity, "batch_id": "saved", "batch_version": 1, "row_id": row_id},
+                provenance=provenance,
+                sources={"periods": periods, "as_of": sources.get("as_of"),
+                         "completeness": snapshot["source_completeness"]},
+            )
+            manual = {
+                field: {"value": value}
+                for field, value in inputs.items()
+                if provenance.get(field) in {
+                    "manual", "manual_seller_assumption", "manual_unit_economics_input",
+                }
+            }
+            rows.append({
+                "row_id": row_id, "identity": identity_record, "scheme": identity.get("scheme") or "FBO",
+                "status": "SOURCE_STALE", "snapshot_status": "SOURCE_STALE",
+                "reason": "HISTORICAL_ASSUMPTIONS", "inputs": inputs,
+                "provenance": provenance, "manual_assumptions": manual,
+                "snapshot": snapshot, "scenario": result, "planning": {},
+                "missing_inputs": result.get("missing_inputs") or [],
+                "source_as_of": periods, "source_age_seconds_at_load": 0,
+                "source_loaded_at": self.clock(), "source_ttl_seconds": 0,
+            })
+        target = payload.get("target_margin_percent")
+        if target is None:
+            target = "0"
+        batch = {
+            "error": False, "kind": "UNIT_PRICE_BATCH_PLAN",
+            "batch_id": uuid4().hex[:20], "version": 1,
+            "owner_id": scope["owner_id"], "store_id": scope["store_id"],
+            "tenant_scope": scope["tenant_scope"],
+            "target_margin_percent": str(target), "rows": rows,
+            "rows_selected": len(rows), "rows_attempted": len(rows),
+            "rows_completed": len(rows), "evaluation_count": 0,
+            "evaluation_limit": self.batch_plan_service.BATCH_CALCULATION_LIMIT,
+            "read_only": True, "executed": False,
+            "restored_from_saved_plan": True,
+        }
+        key = scope["key"]
+        with self._lock:
+            self._store_batch_locked(key, batch)
+        return self._render(
+            scope, batch,
+            notice="Открыты сохранённые допущения. Снимки источников помечены как исторические; для актуальных данных нажмите «Обновить источники».",
+        )
+
+    def edit_saved_plan_field(self, payload, row_id, field, user_id=None):
+        """Open one exact restored batch row and start one field edit locally."""
+        if field not in self.FIELD_LABELS:
+            return self._error("BATCH_PLAN_FIELD_UNSUPPORTED")
+        opened = self.restore_saved_plan(payload, user_id=user_id)
+        batch = opened.get("batch_plan") if isinstance(opened, dict) else None
+        if not isinstance(batch, dict) or batch.get("error") is True:
+            return opened
+        scope = self._scope(user_id)
+        if scope.get("error"):
+            return self._context_error()
+        selected = [row for row in batch.get("rows", []) if row.get("row_id") == row_id]
+        if len(selected) != 1:
+            return self._stale()
+        menu = self._row_edit_menu(scope, batch, row_id)
+        label = self.FIELD_LABELS[field]
+        callback = next((
+            button.get("callback") for button in (menu.get("keyboard") or {}).get("buttons", [])
+            if button.get("text") == label
+        ), None)
+        if not callback:
+            return self._error("BATCH_PLAN_FIELD_UNSUPPORTED")
+        result = self.handle_callback(callback, user_id=user_id)
+        return {**result, "plan_editor": {
+            "kind": "batch", "id": batch["batch_id"], "version": batch["version"],
+        }}
 
     def apply_sensitivity_candidate(self, source_context, cell, user_id=None):
         """Re-read the same batch row and open a selected sweep cell locally."""
@@ -664,6 +977,13 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                     ),
                 })
             if row.get("status") in {"READY", "INCOMPLETE_INPUTS"}:
+                if self.advertising_cap_service is not None:
+                    buttons.append({
+                        "text": f"Рекламный предел · {self._label(row)[:24]}",
+                        "callback": self._register_action(
+                            scope, batch, "advertising_cap", row_id=row["row_id"]
+                        ),
+                    })
                 buttons.append({
                     "text": f"Чувствительность · {self._label(row)[:24]}",
                     "callback": self._register_action(
@@ -672,6 +992,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 })
         eligible_rows = [row for row in rows if row.get("status") in {"READY", "INCOMPLETE_INPUTS"}]
         buttons.extend([
+            {"text": "💾 Сохранить план", "callback": f"upp:b:{batch['batch_id']}:{batch['version']}"},
+            {"text": "📚 Мои планы", "callback": "upp:m"},
             {"text": "Изменить цель", "callback": self._register_action(scope, batch, "target_edit")},
             {"text": "Обновить источники", "callback": self._register_action(scope, batch, "refresh")},
             {"text": "Сортировать по целевой цене", "callback": self._register_action(scope, batch, "sort", sort_by="target_price")},

@@ -18,6 +18,11 @@ class AnalyticsExportSerializer:
         "product_overview": "Обзор товаров",
         "unit_price_batch": "Пакетный план цен",
         "unit_price_sensitivity": "Чувствительность цены",
+        "plan_fact_comparison": "Сравнение плана с фактом",
+        "saved_plan": "Сохранённый план",
+        "advertising_cap": "Предел рекламных расходов",
+        "sales_mix": "Экономика объёма продаж",
+        "plan_comparison": "Сравнение вариантов плана",
     }
     VALUE_TYPES = {"text", "status", "money", "decimal", "integer", "boolean", "json"}
     FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")

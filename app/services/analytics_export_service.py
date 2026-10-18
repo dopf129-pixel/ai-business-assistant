@@ -310,6 +310,267 @@ class AnalyticsExportService:
         }
         return self.serializer.serialize("unit_price_sensitivity", file_format, columns, rows, metadata)
 
+    def export_plan_fact_comparison(self, snapshot_row, file_format):
+        """Export exactly the visible immutable plan/fact comparison snapshot."""
+        if not isinstance(snapshot_row, dict):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        comparison = snapshot_row.get("comparison")
+        if (
+            not isinstance(comparison, dict)
+            or comparison.get("comparison_version") != 1
+            or not isinstance(comparison.get("rows"), list)
+        ):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("row_id", "ID строки", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("quantity_status", "Статус фактического количества", "status"),
+            self._column("plan_quantity", "Количество по плану", "integer", "шт."),
+            self._column("actual_quantity", "Фактическое количество", "integer", "шт."),
+            self._column("plan_price_per_unit", "Цена плана", "money", "RUB/шт."),
+            self._column("plan_revenue", "Выручка плана", "money", "RUB"),
+            self._column("actual_revenue", "Фактическая выручка", "money", "RUB"),
+            self._column("revenue_delta", "Разница выручки", "money", "RUB"),
+            self._column("quantity_effect", "Арифметический эффект количества", "money", "RUB"),
+            self._column("actual_average_revenue_effect", "Остаток по фактической выручке на единицу", "money", "RUB"),
+            self._column("actual_average_revenue_per_unit", "Фактическая выручка на единицу", "money", "RUB/шт."),
+            self._column("actual_components", "Фактические компоненты", "json"),
+        ]
+        rows = []
+        for row in comparison["rows"]:
+            if not isinstance(row, dict) or not isinstance(row.get("identity"), dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            identity = row["identity"]
+            rows.append({
+                "row_id": row.get("row_id"),
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("sku"),
+                "quantity_status": row.get("quantity_status"),
+                "plan_quantity": row.get("plan_quantity"),
+                "actual_quantity": row.get("actual_quantity"),
+                "plan_price_per_unit": row.get("plan_price_per_unit"),
+                "plan_revenue": row.get("plan_revenue"),
+                "actual_revenue": row.get("actual_revenue"),
+                "revenue_delta": row.get("revenue_delta"),
+                "quantity_effect": row.get("quantity_effect"),
+                "actual_average_revenue_effect": row.get("actual_average_revenue_effect"),
+                "actual_average_revenue_per_unit": row.get("actual_average_revenue_per_unit"),
+                "actual_components": deepcopy(row.get("actual_components") or {}),
+            })
+        metadata = {
+            "document_kind": "saved_plan_fact_snapshot",
+            "plan_title": snapshot_row.get("document_title"),
+            "plan_document_id": snapshot_row.get("document_id"),
+            "plan_revision": snapshot_row.get("revision"),
+            "comparison_version": comparison.get("comparison_version"),
+            "generated_at_utc": comparison.get("generated_at_utc"),
+            "plan": deepcopy(comparison.get("plan") or {}),
+            "actual": deepcopy(comparison.get("actual") or {}),
+            "revenue_comparison": deepcopy(comparison.get("revenue_comparison") or {}),
+            "coverage": deepcopy(comparison.get("coverage") or {}),
+            "exported_scope": "all_rows_in_exact_saved_plan_fact_snapshot",
+            "historical_semantics": "export reads the already-built immutable comparison; it does not refresh Ozon",
+        }
+        return self.serializer.serialize(
+            "plan_fact_comparison", file_format, columns, rows, metadata,
+        )
+
+    def export_saved_plan(self, document, file_format, *, sales_mix_projection=None):
+        """Export all rows from one owner-scoped historical document revision."""
+        if not isinstance(document, dict) or not isinstance(document.get("payload"), dict):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        payload = document["payload"]
+        items = payload.get("items")
+        if not isinstance(items, list) or len(items) > 10:
+            return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+        columns = [
+            self._column("row_id", "ID строки", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("calculation_status", "Статус расчёта", "status"),
+            self._column("missing_inputs", "Недостающие поля", "json"),
+            self._column("inputs", "Допущения", "json"),
+            self._column("provenance", "Происхождение допущений", "json"),
+            self._column("projection", "Сохранённая проекция", "json"),
+            self._column("sales_quantity", "Подтверждённое количество", "integer", "шт."),
+        ]
+        mix = payload.get("sales_mix")
+        quantities = mix.get("quantities") if isinstance(mix, dict) else {}
+        rows = []
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            identity = item["identity"]
+            row_id = str(item.get("row_id") or identity.get("sku") or "")
+            projection = deepcopy(item.get("projection") or {})
+            row = {
+                "row_id": row_id,
+                "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"),
+                "sku": identity.get("sku"),
+                "calculation_status": projection.get("status") or item.get("status") or "HISTORICAL",
+                "missing_inputs": deepcopy(projection.get("missing_inputs") or []),
+                "inputs": deepcopy(item.get("inputs") or {}),
+                "provenance": deepcopy(item.get("provenance") or {}),
+                "projection": projection,
+                "sales_quantity": quantities.get(row_id) if isinstance(quantities, dict) else None,
+            }
+            rows.append(row)
+        metadata = {
+            "document_kind": "saved_planning_plan",
+            "document_id": document.get("document_id"),
+            "title": document.get("title"),
+            "revision": document.get("revision"),
+            "current_revision": document.get("current_revision"),
+            "status": document.get("status"),
+            "plan_kind": payload.get("plan_kind"),
+            "schema_version": payload.get("schema_version"),
+            "calculation_version": payload.get("calculation_version"),
+            "store_scope": document.get("store_id"),
+            "source_freshness": "HISTORICAL_ASSUMPTIONS",
+            "recalculated_on_export": False,
+            "sales_mix_period": mix.get("period_label") if isinstance(mix, dict) else None,
+            "sales_mix_confirmed": mix.get("confirmed") if isinstance(mix, dict) else None,
+            "sales_mix_projection": deepcopy(sales_mix_projection),
+            "exported_scope": "all_rows_in_exact_saved_revision",
+        }
+        return self.serializer.serialize("saved_plan", file_format, columns, rows, metadata)
+
+    def export_advertising_cap(self, document, caps, file_format):
+        if not isinstance(document, dict) or not isinstance(caps, list) or len(caps) > 10:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("status", "Статус расчёта", "status"),
+            self._column("target_margin_percent", "Целевая маржа", "decimal", "%"),
+            self._column("break_even_rate", "Реклама безубыточности", "decimal", "%"),
+            self._column("break_even_per_unit", "Реклама безубыточности", "money", "RUB/шт."),
+            self._column("target_rate", "Реклама для цели", "decimal", "%"),
+            self._column("target_per_unit", "Расход на рекламу для цели", "money", "RUB/шт."),
+            self._column("inputs", "Сохранённые допущения", "json"),
+        ]
+        rows = []
+        for item in caps:
+            if not isinstance(item, dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            rows.append({
+                "product_id": item.get("product_id"), "offer_id": item.get("offer_id"),
+                "sku": item.get("sku"), "status": item.get("status"),
+                "target_margin_percent": item.get("target_margin_percent"),
+                "break_even_rate": item.get("break_even_rate"),
+                "break_even_per_unit": item.get("break_even_per_unit"),
+                "target_rate": item.get("target_rate"),
+                "target_per_unit": item.get("target_per_unit"),
+                "inputs": deepcopy(item.get("inputs") or {}),
+            })
+        metadata = {
+            "document_id": document.get("document_id"), "revision": document.get("revision"),
+            "calculation_version": (document.get("payload") or {}).get("calculation_version"),
+            "target_margin_percent": (document.get("payload") or {}).get("target_margin_percent"),
+            "source_freshness": "HISTORICAL_ASSUMPTIONS",
+            "external_reads": 0, "exported_scope": "all_rows_in_exact_saved_revision",
+        }
+        return self.serializer.serialize("advertising_cap", file_format, columns, rows, metadata)
+
+    def export_sales_mix(self, document, projection, file_format):
+        if (not isinstance(document, dict) or not isinstance(projection, dict)
+                or projection.get("kind") != "SALES_MIX_ECONOMICS"):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        payload = document.get("payload") or {}
+        mix = payload.get("sales_mix") or {}
+        projected = {str(row.get("row_id")): row for row in projection.get("rows") or []
+                     if isinstance(row, dict)}
+        excluded = {str(row.get("row_id")): row for row in projection.get("excluded_rows") or []
+                    if isinstance(row, dict)}
+        columns = [
+            self._column("row_id", "ID строки", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("status", "Статус строки", "status"),
+            self._column("quantity", "Успешные продажи", "integer", "шт."),
+            self._column("price_per_unit", "Цена плана", "money", "RUB/шт."),
+            self._column("components", "Компоненты строки", "json"),
+            self._column("exclusion_reason", "Причина исключения", "status"),
+        ]
+        rows = []
+        for item in payload.get("items") or []:
+            if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            identity = item["identity"]
+            row_id = str(item.get("row_id") or identity.get("sku") or "")
+            projected_row = projected.get(row_id)
+            excluded_row = excluded.get(row_id)
+            rows.append({
+                "row_id": row_id, "product_id": identity.get("product_id"),
+                "offer_id": identity.get("offer_id"), "sku": identity.get("sku"),
+                "status": "INCLUDED" if projected_row else "EXCLUDED" if excluded_row else "UNKNOWN",
+                "quantity": projected_row.get("quantity") if projected_row else mix.get("quantities", {}).get(row_id),
+                "price_per_unit": projected_row.get("price_per_unit") if projected_row else None,
+                "components": deepcopy(projected_row.get("components") or {}) if projected_row else None,
+                "exclusion_reason": excluded_row.get("reason") if excluded_row else None,
+            })
+        metadata = {
+            "document_id": document.get("document_id"), "revision": document.get("revision"),
+            "calculation_version": payload.get("calculation_version"),
+            "period": projection.get("period"), "quantity_status": "EXPLICIT_OR_UNKNOWN_PER_ROW",
+            "total_quantity": projection.get("total_quantity"),
+            "components": deepcopy(projection.get("components") or {}),
+            "fixed_expenses": deepcopy(projection.get("fixed_expenses") or []),
+            "fixed_expense_total": projection.get("fixed_expense_total"),
+            "tax": projection.get("tax"), "tax_status": projection.get("tax_status"),
+            "profit": projection.get("profit"), "margin_percent": projection.get("margin_percent"),
+            "coverage_complete": projection.get("coverage_complete"),
+            "source_freshness": "HISTORICAL_ASSUMPTIONS", "recalculated_on_export": True,
+            "exported_scope": "all_rows_in_exact_saved_revision",
+        }
+        return self.serializer.serialize("sales_mix", file_format, columns, rows, metadata)
+
+    def export_plan_comparison(self, snapshot_row, file_format):
+        comparison = snapshot_row.get("comparison") if isinstance(snapshot_row, dict) else None
+        if not isinstance(comparison, dict) or comparison.get("comparison_version") != 1:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        columns = [
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU каталога", "text"),
+            self._column("field", "Параметр", "text"),
+            self._column("before", "Первый вариант", "json"),
+            self._column("after", "Второй вариант", "json"),
+            self._column("delta", "Изменение", "json"),
+            self._column("unit", "Единица", "text"),
+        ]
+        rows = []
+        for product in comparison.get("input_changes") or []:
+            identity = product.get("identity") or {}
+            for change in product.get("changes") or []:
+                rows.append({
+                    "product_id": identity.get("product_id"), "offer_id": identity.get("offer_id"),
+                    "sku": identity.get("sku"), "field": change.get("label"),
+                    "before": change.get("before"), "after": change.get("after"),
+                    "delta": change.get("delta"), "unit": change.get("unit"),
+                })
+        metadata = {
+            "document_kind": "saved_plan_comparison",
+            "comparison_version": comparison.get("comparison_version"),
+            "status": comparison.get("status"), "reason": comparison.get("reason"),
+            "first": deepcopy(comparison.get("first") or {}),
+            "second": deepcopy(comparison.get("second") or {}),
+            "period": deepcopy(comparison.get("period") or {}),
+            "metrics": deepcopy(comparison.get("metrics") or {}),
+            "expense_changes": deepcopy(comparison.get("expense_changes") or []),
+            "changed_dimensions": deepcopy(comparison.get("changed_dimensions") or []),
+            "historical": True, "external_reads": 0,
+            "exported_scope": "all_rows_in_exact_immutable_comparison_snapshot",
+        }
+        return self.serializer.serialize("plan_comparison", file_format, columns, rows, metadata)
+
     def _plan_columns_and_rows(self, plan_rows):
         columns = [
             self._column("row_id", "ID строки", "text"),
