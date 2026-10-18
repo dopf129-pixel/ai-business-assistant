@@ -174,6 +174,57 @@ def test_batch_loads_catalog_once_and_preserves_row_order_and_stable_ids():
     assert first["read_only"] is True and first["executed"] is False
 
 
+def test_completed_assumptions_remove_old_missing_and_invalid_diagnostics():
+    products = [_catalog_item(1), _catalog_item(2)]
+
+    class MissingInputsSource(_Source):
+        def load_snapshot(self, *args, **kwargs):
+            result = super().load_snapshot(*args, **kwargs)
+            result["suggested_inputs"].pop("cost", None)
+            return result
+
+    source = MissingInputsSource(products, complete=True)
+    service = UnitPriceBatchPlanService(
+        source,
+        _Scenario(),
+        _Planner(),
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        assert batch["rows"][0]["status"] == "INCOMPLETE_INPUTS"
+        assert batch["rows"][0]["missing_inputs"] == ["cost"]
+        completed = service.edit_row_assumption(
+            batch, batch["rows"][0]["row_id"], "cost", "200"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    row = completed["rows"][0]
+    assert row["status"] == "READY"
+    assert row["missing_inputs"] == []
+    assert row["invalid_inputs"] == []
+
+
+def test_successful_recalculation_clears_stale_invalid_input_labels():
+    products = [_catalog_item(1), _catalog_item(2)]
+    service, _source = _service(products, complete=True)
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        row = batch["rows"][0]
+        row["missing_inputs"] = ["cost"]
+        row["invalid_inputs"] = ["commission_rate"]
+        service._recalculate_row(batch, row)
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert row["status"] == "READY"
+    assert row["missing_inputs"] == []
+    assert row["invalid_inputs"] == []
+
+
 def test_batch_isolates_bad_identity_scheme_and_source_failure():
     products = [
         _catalog_item(1),

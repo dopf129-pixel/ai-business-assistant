@@ -1,5 +1,10 @@
 from datetime import datetime, timezone
 from threading import Event, Thread
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 
 from services.product_overview_service import ProductOverviewService
 from services.scoped_transient_snapshot_store import ScopedTransientSnapshotStore
@@ -631,3 +636,155 @@ def test_concurrent_catalog_refresh_only_publishes_latest_generation():
     assert results["second"]["rows"][0]["selector"] == "second"
     assert results["first"]["error"] is True
     assert results["first"]["code"] == "TRANSIENT_SNAPSHOT_GENERATION_STALE"
+
+
+def test_catalog_group_query_obeys_128_request_child_limit_and_parent_limit():
+    class BudgetQuery:
+        def __init__(self, clock=None):
+            self.http_attempts = 0
+            self.reservations = 0
+            self.clock = clock
+            self.captured = None
+
+        def query_selected_products(self, selectors):
+            return self.query_catalog_group(limit=len(selectors))
+
+        def query_catalog_group(self, offset=0, limit=20):
+            from services.period_profit_operation_diagnostics import current_period_profit_trace
+
+            trace = current_period_profit_trace()
+            self.captured = trace
+            rows = []
+            for index in range(limit):
+                exhausted = False
+                for _ in range(8):
+                    self.reservations += 1
+                    reservation = trace.reserve_ozon_request("fake-overview")
+                    if reservation["error"]:
+                        exhausted = True
+                        break
+                    self.http_attempts += 1
+                    if self.clock is not None and self.http_attempts == 1:
+                        self.clock[0] = 121
+                if exhausted:
+                    rows.extend(
+                        _row(f"budget-{remaining}", status="BUDGET_EXHAUSTED", code="PRODUCT_DECISION_BUDGET_EXHAUSTED")
+                        for remaining in range(index, limit)
+                    )
+                    break
+                rows.append(_row(f"item-{index}"))
+            return {
+                "error": False,
+                "rows": rows,
+                "selection_scope": {
+                    "mode": "FIRST_SORTED_CATALOG_GROUP",
+                    "sort_by": "offer_id_then_catalog_sku",
+                    "selected_count": len(rows),
+                    "catalog_identity_count": limit,
+                    "offset": offset,
+                    "has_previous_group": offset > 0,
+                    "has_next_group": False,
+                    "limit": limit,
+                },
+            }
+
+    parent = PeriodProfitOperationTrace("parent", ozon_request_budget=300)
+    query = BudgetQuery()
+    store = ScopedTransientSnapshotStore()
+    service = ProductOverviewService(query, store)
+    tenant = _tenant()
+    parent_token = activate_period_profit_trace(parent)
+    try:
+        result = service.create_catalog_group_snapshot(limit=20, page_size=20)
+    finally:
+        reset_period_profit_trace(parent_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert result["error"] is False
+    assert query.http_attempts == 128
+    assert query.reservations == 129  # one denied reservation is not an HTTP attempt
+    assert query.captured.time_budget_seconds == service.QUERY_TIME_BUDGET_SECONDS
+    assert query.captured.ozon_request_budget == service.QUERY_OZON_REQUEST_BUDGET
+    assert parent.ozon_requests_reserved == 128
+    assert any(row["status"] == "BUDGET_EXHAUSTED" for row in result["rows"])
+
+    small_parent = PeriodProfitOperationTrace("small-parent", ozon_request_budget=3)
+    small_query = BudgetQuery()
+    small_service = ProductOverviewService(
+        small_query, ScopedTransientSnapshotStore()
+    )
+    tenant = _tenant()
+    parent_token = activate_period_profit_trace(small_parent)
+    try:
+        small_result = small_service.create_catalog_group_snapshot(
+            limit=20, page_size=20
+        )
+    finally:
+        reset_period_profit_trace(parent_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert small_result["error"] is False
+    assert small_query.http_attempts == 3
+    assert small_query.reservations == 4
+    assert small_parent.ozon_requests_reserved == 3
+
+    operation_clock = [0]
+    timed_parent = PeriodProfitOperationTrace(
+        "timed-parent", time_budget_seconds=600,
+        ozon_request_budget=300, clock=lambda: operation_clock[0],
+    )
+    timed_query = BudgetQuery(clock=operation_clock)
+    timed_service = ProductOverviewService(
+        timed_query, ScopedTransientSnapshotStore()
+    )
+    tenant = _tenant()
+    parent_token = activate_period_profit_trace(timed_parent)
+    try:
+        timed_result = timed_service.create_catalog_group_snapshot(
+            limit=20, page_size=20
+        )
+    finally:
+        reset_period_profit_trace(parent_token)
+        reset_current_tenant_user_id(tenant)
+
+    assert timed_result["error"] is False
+    assert timed_query.http_attempts == 1
+    assert timed_query.captured.time_budget_seconds == 120
+    assert timed_parent.ozon_requests_reserved == 1
+
+
+def test_overview_clear_invalidates_inflight_generation_on_start_or_store_switch():
+    started, release = Event(), Event()
+
+    class BlockingQuery(_DecisionQuery):
+        def query_selected_products(self, selectors):
+            started.set()
+            assert release.wait(2)
+            return super().query_selected_products(selectors)
+
+    tenant_provider = lambda: "owner-1::ozon::store-1"
+    store = ScopedTransientSnapshotStore(tenant_scope_provider=tenant_provider)
+    query = BlockingQuery([_row("hook-2")])
+    service = ProductOverviewService(
+        query, store, tenant_scope_provider=tenant_provider
+    )
+    tenant = _tenant()
+    output = []
+    try:
+        worker = Thread(
+            target=lambda: output.append(service.create_snapshot(["hook-2"]))
+        )
+        worker.start()
+        assert started.wait(1)
+        service.clear_user_state("owner-1")
+        release.set()
+        worker.join(2)
+    finally:
+        release.set()
+        reset_current_tenant_user_id(tenant)
+
+    assert not worker.is_alive()
+    assert output[0]["error"] is True
+    assert output[0]["code"] == "TRANSIENT_SNAPSHOT_GENERATION_STALE"
+    assert store.generation_count == 0
+    assert store.size == 0

@@ -473,6 +473,8 @@ class UnitPriceBatchPlanService:
         return batch
 
     def _recalculate_row(self, batch, row):
+        row["missing_inputs"] = []
+        row["invalid_inputs"] = []
         if not self._row_is_fresh(row):
             row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED", planning=None)
             return
@@ -483,12 +485,12 @@ class UnitPriceBatchPlanService:
             sources=self._scenario_sources(row["snapshot"]),
         )
         row["scenario"] = scenario
+        row["missing_inputs"] = list(scenario.get("missing_inputs") or [])
+        row["invalid_inputs"] = list(scenario.get("invalid_inputs") or [])
         if scenario.get("available") is not True:
             row.update(
                 status="INCOMPLETE_INPUTS",
                 reason="REQUIRED_ASSUMPTIONS_MISSING" if scenario.get("missing_inputs") else "INPUTS_INVALID",
-                missing_inputs=list(scenario.get("missing_inputs") or []),
-                invalid_inputs=list(scenario.get("invalid_inputs") or []),
                 planning=None,
                 evaluation_count=0,
             )

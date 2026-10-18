@@ -187,3 +187,11 @@
 - G00 acceptance head содержит только проверки и документацию поверх F; производственная логика на этапе G не менялась. Новая проверка проходит публичный Telegram handler и реальными builders/runtimes с fake source; source counts подтверждают отсутствие повторного запроса при локальной правке/просмотре/экспорте.
 - Полный локальный Windows suite затруднён локальным доступом к временным каталогам: **3 018 passed, 22 failed, 369 errors**. CI успешен для Windows/full-verification и Linux/Docker. Единственная ошибка тестового контракта главного меню исправлена коммитом F `55db3e60`.
 - Для G02 создан documentation-only review-handoff commit. Его точный head `1a6664429533e092b239a6240e0b1173358f0cfa` прошёл Verify `39069517726`, оба job зелёные. Независимый архитектурный review ожидает reviewer; этот handoff — не approval. Merge и deploy не выполнялись.
+
+# 2026-10-18 — исправления архитектурного review R1–R8
+
+- По замечаниям из `LONG_RUN_ARCHITECTURE_REVIEW_2026-10-18.md` внесены исправления R1–R8 небольшими изменениями в адаптер, runtimes, overview, transient snapshot store, batch service и export projection. Добавлены regressions на реальные public adapter/command boundaries с fake source; live Ozon и credentials не использовались.
+- Целевой совместный профиль: **86 passed in 1.96s**. `compileall -q app tests` прошёл. `git diff --check` прошёл без пробеловых ошибок; Git сообщает только ожидаемую настройку LF→CRLF.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**. Ошибки и traceback связаны с ACL `PermissionError [WinError 5]` на pytest temporary paths; повтор с отдельным basetemp также не смог выполнить cleanup. Результат локального full suite не считается зелёным; необходим exact-head CI.
+- Повторная проверка diff подтвердила, что `data/tasks.json`, `data/users.json`, `data/tasks.json.lock`, ACL-limited temp-каталоги и прочие диагностические файлы не входят в allowlist. Пользовательские данные не менялись этим этапом.
+- Осталось: выполнить полный локальный pytest в пределах доступного Windows ACL, повторный review исправленного кода, выборочно закоммитить production/tests/docs, обновить PR #703, дождаться зелёного exact-head CI и закрыть повторный review. Merge/deploy не выполнять.

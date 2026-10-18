@@ -577,10 +577,17 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def clear_unit_price_calculator_state(self, user_id):
-        runtime = self.unit_price_calculator_runtime_service
-        clearer = getattr(runtime, "clear_pending", None)
-        if callable(clearer):
-            clearer(user_id)
+        for runtime in (
+            self.unit_price_calculator_runtime_service,
+            self.unit_price_batch_plan_runtime_service,
+            self.unit_price_sensitivity_runtime_service,
+            self.product_overview_service,
+        ):
+            clearer = getattr(runtime, "clear_user_state", None)
+            if not callable(clearer):
+                clearer = getattr(runtime, "clear_pending", None)
+            if callable(clearer):
+                clearer(user_id)
 
     def handle_text(self, text, user_id=None):
         sensitivity_handler = getattr(

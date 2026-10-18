@@ -1,3 +1,4 @@
+import json
 from threading import Event, Thread
 
 from services.assistant_button_handler_service import AssistantButtonHandlerService
@@ -10,11 +11,18 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from telegram_app_layer.telegram_command_service import TelegramCommandService
+from telegram_app_layer.return_inventory_telegram_adapter import ReturnInventoryTelegramAdapter
 from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.analytics_export_service import AnalyticsExportService
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    reset_period_profit_trace,
+)
 
 
 class _Overview:
@@ -107,8 +115,8 @@ class _BatchService:
         self.build_started = build_started
         self.continue_build = continue_build
 
-    def build(self, items, user_id, target_margin_percent):
-        self.calls.append(("build", user_id, target_margin_percent))
+    def build(self, items, user_id, target_margin_percent, parent_trace=None):
+        self.calls.append(("build", user_id, target_margin_percent, parent_trace))
         if self.build_started:
             self.build_started.set()
         if self.continue_build:
@@ -144,8 +152,8 @@ class _BatchService:
         self.calls.append(("ad_apply", list(row_ids), rate, kwargs))
         return {**batch, "version": batch["version"] + 1}
 
-    def refresh(self, batch):
-        self.calls.append(("refresh", batch["version"]))
+    def refresh(self, batch, parent_trace=None):
+        self.calls.append(("refresh", batch["version"], parent_trace))
         return {**batch, "version": batch["version"] + 1}
 
 
@@ -360,6 +368,218 @@ def test_late_build_result_is_discarded_after_store_switch():
         reset_current_tenant_user_id(token)
 
     assert output[0]["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+
+
+def test_late_refresh_cannot_restore_cancelled_batch_or_overwrite_newer_edit():
+    def run_case(edit_during_refresh):
+        started, proceed = Event(), Event()
+
+        class BlockingRefreshService(_BatchService):
+            def refresh(self, batch, parent_trace=None):
+                started.set()
+                assert proceed.wait(2)
+                return super().refresh(batch, parent_trace=parent_trace)
+
+        service = BlockingRefreshService()
+        runtime = _runtime(service=service)
+        token = set_current_tenant_user_id("user-1::ozon::store-a")
+        try:
+            runtime.begin_from_overview_selection("user-1")
+            plan = runtime.handle_text("20", user_id="user-1")
+            refresh_callback = _button(plan, "Обновить источники")
+            output = []
+            worker = Thread(
+                target=lambda: output.append(
+                    runtime.handle_callback(refresh_callback, user_id="user-1")
+                )
+            )
+            worker.start()
+            assert started.wait(1)
+            if edit_during_refresh:
+                edit_prompt = runtime.handle_callback(
+                    _button(plan, "Изменить цель"), user_id="user-1"
+                )
+                edited = runtime.handle_text("25", user_id="user-1")
+                assert edit_prompt["status"] == "UNIT_PRICE_BATCH_INPUT_REQUIRED"
+                assert edited["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+            else:
+                cancelled = runtime.handle_callback("upb:c", user_id="user-1")
+                assert cancelled["status"] == "UNIT_PRICE_BATCH_CANCELLED"
+            proceed.set()
+            worker.join(2)
+            assert not worker.is_alive()
+            return runtime, output[0], edit_during_refresh
+        finally:
+            proceed.set()
+            reset_current_tenant_user_id(token)
+
+    cancelled_runtime, cancelled_result, _ = run_case(False)
+    assert cancelled_result["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+    assert ("user-1", "user-1::ozon::store-a") not in cancelled_runtime._batches
+
+    edited_runtime, refresh_result, _ = run_case(True)
+    assert refresh_result["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+    current = edited_runtime._batches[("user-1", "user-1::ozon::store-a")]["batch"]
+    assert current["version"] == 2
+    assert current["target_margin_percent"] == "25"
+
+
+def test_batch_build_and_refresh_inherit_the_current_parent_http_budget():
+    class TracingBatchService(_BatchService):
+        def __init__(self):
+            super().__init__()
+            self.parents = []
+
+        def build(self, items, user_id, target_margin_percent, parent_trace=None):
+            self.parents.append(("build", parent_trace))
+            reservation = parent_trace.reserve_ozon_request("fake-build")
+            if reservation["error"]:
+                return reservation
+            return super().build(items, user_id, target_margin_percent, parent_trace)
+
+        def refresh(self, batch, parent_trace=None):
+            self.parents.append(("refresh", parent_trace))
+            reservation = parent_trace.reserve_ozon_request("fake-refresh")
+            if reservation["error"]:
+                return reservation
+            return super().refresh(batch, parent_trace)
+
+    service = TracingBatchService()
+    runtime = _runtime(service=service)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        build_trace = PeriodProfitOperationTrace("parent-build", ozon_request_budget=1)
+        build_token = activate_period_profit_trace(build_trace)
+        try:
+            plan = runtime.handle_text("20", user_id="user-1")
+        finally:
+            reset_period_profit_trace(build_token)
+        assert plan["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        assert build_trace.ozon_requests_reserved == 1
+
+        refresh_trace = PeriodProfitOperationTrace("parent-refresh", ozon_request_budget=1)
+        refresh_token = activate_period_profit_trace(refresh_trace)
+        try:
+            refreshed = runtime.handle_callback(
+                _button(plan, "Обновить источники"), user_id="user-1"
+            )
+        finally:
+            reset_period_profit_trace(refresh_token)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert refreshed["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert refresh_trace.ozon_requests_reserved == 1
+    assert service.parents == [("build", build_trace), ("refresh", refresh_trace)]
+
+
+def test_start_and_store_roundtrip_clear_owner_batch_state():
+    active_scope = ["user-1::ozon::store-a"]
+    overview = _Overview([
+        {"identity": {"offer_id": "offer-0"}},
+        {"identity": {"offer_id": "offer-1"}},
+    ])
+    runtime = TelegramUnitPriceBatchPlanRuntimeService(
+        _BatchService(), overview, AssistantKeyboardService(),
+        tenant_scope_provider=lambda: active_scope[0],
+    )
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=AssistantKeyboardService(),
+        product_overview_service=overview,
+        unit_price_batch_plan_runtime_service=runtime,
+    )
+    class _ReturnInventory:
+        def open_menu(self, user_id):
+            return {"error": False, "message": "returns"}
+
+        def handle_text(self, user_id, text):
+            return {"error": False, "handled": False}
+
+        def clear_pending(self, user_id):
+            return None
+
+    adapter = ReturnInventoryTelegramAdapter(
+        assistant=None,
+        keyboard_service=AssistantKeyboardService(),
+        button_handler=handler,
+        return_inventory_service=_ReturnInventory(),
+    )
+
+    class _Accounts:
+        def select(self, user_id, store_id):
+            active_scope[0] = f"{user_id}::ozon::{store_id}"
+            return {"error": False}
+
+        def stores(self, user_id):
+            return {"error": False}
+
+    commands = TelegramCommandService(adapter, ozon_account_service=_Accounts())
+    tenant = set_current_tenant_user_id(active_scope[0])
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        plan = runtime.handle_text("20", user_id="user-1")
+        edit_prompt = adapter.handle_button(
+            _button(plan, "Изменить цель"), user_id="user-1"
+        )
+        start = commands.handle("user-1", "/start")
+        start_text = runtime.handle_text("20", user_id="user-1")
+
+        runtime.begin_from_overview_selection("user-1")
+        commands.handle_callback("user-1", "ozon_store:store-b")
+        commands.handle_callback("user-1", "ozon_store:store-a")
+        switched_text = runtime.handle_text("20", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert start["error"] is False
+    assert edit_prompt["status"] == "UNIT_PRICE_BATCH_INPUT_REQUIRED"
+    assert start_text is None
+    assert switched_text is None
+    assert not runtime._pending
+
+
+def test_stale_batch_export_matches_screen_freshness_and_preserves_snapshot_status():
+    now = [100]
+
+    class AgingBatchService(_BatchService):
+        def build(self, items, user_id, target_margin_percent, parent_trace=None):
+            batch = super().build(items, user_id, target_margin_percent, parent_trace)
+            for row in batch["rows"]:
+                row["source_age_seconds_at_load"] = 590
+            return batch
+
+    runtime = _runtime(
+        service=AgingBatchService(),
+        clock=lambda: now[0],
+        analytics_export_service=AnalyticsExportService(),
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        plan = runtime.handle_text("20", user_id="user-1")
+        now[0] = 120
+        screen = runtime.handle_callback(
+            _button(plan, "Сортировать по целевой цене"), user_id="user-1"
+        )
+        export = runtime.handle_callback(
+            _button(screen, "⬇️ JSON"), user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    document = json.loads(export["file_content"].decode("utf-8"))
+    row = document["rows"][0]
+    metadata = document["metadata"]
+    assert "снимок устарел" in screen["message"]
+    assert row["status"] == "SOURCE_STALE"
+    assert row["snapshot_status"] == "READY"
+    assert row["source_freshness_status"] == "STALE"
+    assert row["source_age_seconds_at_evaluation"] == 610
+    assert metadata["source_freshness_status"] == "STALE"
+    assert metadata["source_stale_row_count"] == 2
+    assert metadata["freshness_checked_at_export"] is True
 
 
 def test_assistant_handler_routes_batch_callback_and_overview_entry():

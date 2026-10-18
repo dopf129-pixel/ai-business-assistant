@@ -1,5 +1,14 @@
 # План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
 
+## Исправления архитектурного review R1–R8 (2026-10-18)
+
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: production adapter single→sensitivity callback, owner reset, 64-entry LRU/TTL и cleanup action tokens.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: поздний refresh после cancel/edit, parent trace propagation, stale projection parity для экрана/экспорта и сброс при `/start`/переключении магазина.
+- `tests/test_product_overview_service.py`: child time/request budget и инвалидирование in-flight snapshot при owner reset.
+- `tests/test_unit_price_batch_plan_service.py`: удаление устаревших missing/invalid labels после пересчёта.
+- Связанный профиль вместе с acceptance, architecture regression, Telegram integrity и export tests: **86 passed**. `compileall -q app tests` и `git diff --check` прошли.
+- Полный локальный Windows pytest: **3 030 passed, 21 failed, 369 errors**; трассировки указывают на `PermissionError [WinError 5]` при создании/чтении/очистке pytest temp paths. Повтор с отдельным `--basetemp` дошёл до конца тестов, но teardown тоже заблокирован ACL. Локальный full suite не зелёный; источник истины для изменений — exact-head CI.
+
 ## Фактическое выполнение
 
 - F00: tests/test_period_profit_operation_diagnostics.py проверяет 256-entry ring buffer, сохраняемые total/dropped counters, родительско-дочернюю агрегацию попыток и row outcomes без публикации raw identifiers. tests/test_period_profit_diagnostic_view_service.py покрывает whitelist статусов/причин, bounded counters, budget actions и fail-closed поля. tests/test_period_profit_completeness_view.py проверяет точный cached-view маршрут, tenant isolation и отсутствие повторного query.

@@ -10,6 +10,7 @@ from services.telegram_unit_price_sensitivity_runtime_service import TelegramUni
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_sensitivity_service import UnitPriceSensitivityService
 from services.analytics_export_service import AnalyticsExportService
+from telegram_app_layer.return_inventory_telegram_adapter import ReturnInventoryTelegramAdapter
 
 
 class _Products:
@@ -131,6 +132,126 @@ def test_single_result_keyboard_routes_into_sensitivity_through_button_handler()
 
     assert callback.startswith("ups:s:")
     assert result["status"] == "UNIT_PRICE_SENSITIVITY_AXIS_REQUIRED"
+
+
+def test_production_adapter_preserves_single_scenario_when_opening_sensitivity():
+    single, sensitivity, _source = _runtime()
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=AssistantKeyboardService(),
+        unit_price_calculator_runtime_service=single,
+        unit_price_sensitivity_runtime_service=sensitivity,
+    )
+
+    class _ReturnInventory:
+        def open_menu(self, user_id):
+            return {"error": False, "message": "returns"}
+
+        def handle_text(self, user_id, text):
+            return {"error": False, "handled": False}
+
+        def clear_pending(self, user_id):
+            return None
+
+    adapter = ReturnInventoryTelegramAdapter(
+        assistant=object(),
+        keyboard_service=AssistantKeyboardService(),
+        button_handler=handler,
+        return_inventory_service=_ReturnInventory(),
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        scenario = _start_single(single)
+        callback = _find(scenario, "Чувствительность")
+        result = adapter.handle_button(callback, user_id="user-1")
+        active_after = single.active_scenario_identity("user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_SENSITIVITY_AXIS_REQUIRED"
+    assert active_after is not None
+    assert callback.startswith("ups:s:")
+
+
+def test_owner_reset_clears_single_and_sensitivity_sessions_together():
+    single, sensitivity, _source = _runtime()
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=AssistantKeyboardService(),
+        unit_price_calculator_runtime_service=single,
+        unit_price_sensitivity_runtime_service=sensitivity,
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1"
+        )
+        old_callback = _find(prompt, "Ось · Цена продавца")
+        handler.clear_unit_price_calculator_state("user-1")
+        stale = sensitivity.handle_callback(old_callback, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert single.active_scenario_identity("user-1") is None
+    assert sensitivity.has_pending("user-1") is False
+    assert stale["status"] == "UNIT_PRICE_SENSITIVITY_ACTION_STALE"
+
+
+def test_sensitivity_sessions_are_lru_bounded_and_expire_with_their_actions():
+    now = [100]
+    single, sensitivity, _source = _runtime(clock=lambda: now[0])
+    first_result_id = None
+    for index in range(sensitivity.MAX_SESSIONS + 1):
+        user = f"owner-{index}"
+        tenant = set_current_tenant_user_id(f"{user}::ozon::store-a")
+        try:
+            _start_single(single, user=user)
+            active = single.active_scenario_identity(user)
+            prompt = sensitivity.begin_from_single(
+                active["scenario_id"], active["version"], user_id=user
+            )
+            values_prompt = sensitivity.handle_callback(
+                _find(prompt, "Ось · Цена продавца"), user_id=user
+            )
+            result = sensitivity.handle_text("500;550;600", user_id=user)
+            assert values_prompt["status"] == "UNIT_PRICE_SENSITIVITY_VALUES_REQUIRED"
+            assert result["status"] == "UNIT_PRICE_SENSITIVITY_READY"
+            if index == 0:
+                first_result_id = sensitivity._sessions[
+                    (user, f"{user}::ozon::store-a")
+                ]["result_id"]
+        finally:
+            reset_current_tenant_user_id(tenant)
+
+    assert len(sensitivity._sessions) == sensitivity.MAX_SESSIONS
+    assert ("owner-0", "owner-0::ozon::store-a") not in sensitivity._sessions
+    assert ("owner-64", "owner-64::ozon::store-a") in sensitivity._sessions
+    assert not any(
+        action.get("owner_id") == "owner-0"
+        and action.get("result_id") == first_result_id
+        for action in sensitivity._actions.values()
+    )
+
+    owner = "owner-64"
+    tenant = set_current_tenant_user_id(f"{owner}::ozon::store-a")
+    try:
+        session = sensitivity._load_session((owner, f"{owner}::ozon::store-a"))
+        export_callback = _find(result, "⬇️ JSON")
+        assert session is not None
+        now[0] += sensitivity.SESSION_TTL_SECONDS + 1
+        expired = sensitivity.handle_callback(export_callback, user_id=owner)
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert expired["status"] == "UNIT_PRICE_SENSITIVITY_ACTION_STALE"
+    assert (owner, f"{owner}::ozon::store-a") not in sensitivity._sessions
+    assert not any(
+        action.get("owner_id") == owner
+        and action.get("result_id") == session["result_id"]
+        for action in sensitivity._actions.values()
+    )
 
 
 def test_return_from_axis_prompt_clears_text_ownership():
@@ -274,7 +395,7 @@ def test_batch_sensitivity_revalidates_then_opens_cell_without_network_access():
     class _BatchPlan:
         target_planning_service = _Planner()
 
-        def build(self, items, user_id, target_margin_percent):
+        def build(self, items, user_id, target_margin_percent, parent_trace=None):
             rows = []
             for index in range(2):
                 sku = f"sku-{index}"

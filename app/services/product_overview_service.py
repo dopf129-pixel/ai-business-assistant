@@ -10,6 +10,12 @@ from threading import RLock
 from time import monotonic
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.period_profit_operation_diagnostics import (
+    PeriodProfitOperationTrace,
+    activate_period_profit_trace,
+    current_period_profit_trace,
+    reset_period_profit_trace,
+)
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -22,6 +28,8 @@ class ProductOverviewService:
     MAX_PRICE_PLAN_ITEMS = 10
     MAX_PRICE_PLAN_SCOPES = 64
     VIEW_TOKEN_TTL_SECONDS = 600
+    QUERY_TIME_BUDGET_SECONDS = 120
+    QUERY_OZON_REQUEST_BUDGET = 128
 
     _METRIC_UNITS = {
         "sales_velocity": "units_per_day",
@@ -131,7 +139,11 @@ class ProductOverviewService:
         generation = generation_result.get("generation")
 
         try:
-            result = self.decision_query.query_selected_products(selectors)
+            result = self._run_bounded_query(
+                "product_overview_selected",
+                self.decision_query.query_selected_products,
+                selectors,
+            )
         except Exception:
             return self._error("PRODUCT_OVERVIEW_SOURCE_UNAVAILABLE")
         if not isinstance(result, dict) or result.get("error") is True:
@@ -191,7 +203,9 @@ class ProductOverviewService:
         if generation_result.get("error"):
             return self._error(generation_result.get("code"))
         try:
-            result = self.decision_query.query_catalog_group(
+            result = self._run_bounded_query(
+                "product_overview_catalog_group",
+                self.decision_query.query_catalog_group,
                 offset=offset,
                 limit=limit,
             )
@@ -395,6 +409,41 @@ class ProductOverviewService:
             limit=group.get("limit", self.MAX_SELECTION),
             **options,
         )
+
+    def clear_user_state(self, user_id):
+        """Invalidate transient overview views and selections for one owner."""
+        owner_id = str(user_id or "").strip()
+        if not owner_id:
+            return
+        with self._token_lock:
+            for mapping in (
+                self._price_plan_selections,
+                self._view_tokens,
+            ):
+                for key, value in list(mapping.items()):
+                    scoped_owner = key[0] if isinstance(key, tuple) else value.get("owner_id")
+                    if scoped_owner == owner_id:
+                        mapping.pop(key, None)
+            for token, action in list(self._plan_actions.items()):
+                if action.get("owner_id") == owner_id:
+                    self._plan_actions.pop(token, None)
+        clearer = getattr(self.snapshot_store, "clear_owner", None)
+        if callable(clearer):
+            clearer(owner_id, kind=self.SNAPSHOT_KIND)
+
+    def _run_bounded_query(self, operation, function, *args, **kwargs):
+        parent = current_period_profit_trace()
+        trace = PeriodProfitOperationTrace(
+            operation,
+            time_budget_seconds=self.QUERY_TIME_BUDGET_SECONDS,
+            ozon_request_budget=self.QUERY_OZON_REQUEST_BUDGET,
+            parent=parent,
+        )
+        token = activate_period_profit_trace(trace)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            reset_period_profit_trace(token)
 
     def add_row_to_price_plan(self, token, row_id):
         resolved = self.get_row_by_token(token, row_id)
