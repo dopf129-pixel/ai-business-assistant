@@ -4,7 +4,7 @@
 
 - `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: `test_late_row_edit_cannot_overwrite_a_successful_source_refresh` и `test_late_advertising_confirmation_cannot_overwrite_a_successful_refresh` блокируют worker после подготовки старой версии, публикуют refresh и проверяют, что поздний worker получает stale и не меняет новые source facts. `test_new_batch_cannot_reuse_an_existing_identity_and_version` проверяет, что вторая сборка не публикует другое содержимое под прежней идентичностью версии 1.
 - `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: `test_expired_sensitivity_export_matches_screen_and_marks_historical_cells` сверяет screen, CSV и JSON при истечении source TTL; `test_sensitivity_export_marks_changed_origin_without_reloading_source` проверяет изменённую подпись origin. Обе регрессии проверяют отсутствие повторной загрузки источника.
-- Связанный профиль A–G: **99 passed**. `compileall -q app tests` и `git diff --check` успешны; полный exact-head CI нового SHA требуется.
+- Связанный профиль A–G: **99 passed**. `compileall -q app tests` и `git diff --check` успешны. Exact-head Verify `39164302283` на `20ea6f80e7c69329c51ced8fc36c2b41772a3c09` прошёл Windows и full-verification, включая полный pytest и Docker smoke.
 
 ## Исправления архитектурного review R1–R8 (2026-10-18)
 
