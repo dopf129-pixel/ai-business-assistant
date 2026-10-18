@@ -84,11 +84,25 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         ticket = token_hex(8)
         key = scope["key"]
         with self._lock:
+            current_entry = self._batches.get(key)
+            current_batch = (
+                current_entry.get("batch")
+                if isinstance(current_entry, dict)
+                and self.clock() - current_entry.get("stored_at", 0)
+                < self.SNAPSHOT_TTL_SECONDS
+                else None
+            )
             self._refresh_tickets.pop(key, None)
             self._pending[key] = {
                 "ticket": ticket,
                 "kind": "batch_target",
                 "items": deepcopy(items),
+                "base_batch_id": current_batch.get("batch_id")
+                if isinstance(current_batch, dict)
+                else None,
+                "base_batch_version": current_batch.get("version")
+                if isinstance(current_batch, dict)
+                else None,
                 "created_at": self.clock(),
                 "processing": False,
             }
@@ -195,14 +209,12 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             if result.get("error") is True:
                 self._release_pending(key, pending["ticket"])
                 return self._error(result.get("code"), keyboard=self._prompt_keyboard())
-            if not self._pending_is_current(key, pending["ticket"], scope):
+            if not self._publish_initial_batch(scope, pending, result):
                 return self._result(
                     "UNIT_PRICE_BATCH_RESULT_STALE",
                     "Запрос устарел после смены магазина или нового действия. Откройте обзор снова.",
                     self._main_keyboard(),
                 )
-            self._complete_pending(key, pending["ticket"])
-            self._save_batch(scope, result)
             return self._render(scope, result)
 
         batch = self._batch_for_pending(scope, pending)
@@ -218,7 +230,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                     "Цель не изменилась. Введите процент от 0 до 100, не более двух знаков после запятой.",
                     self._cancel_keyboard(),
                 )
-            return self._finish_mutation(scope, key, pending, result)
+            return self._finish_mutation(scope, pending, result)
         if stage == "row_edit":
             result = self.batch_plan_service.edit_row_assumption(
                 batch,
@@ -234,7 +246,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                     f"Значение для «{label}» не принято. Введите число в допустимом диапазоне; 0 допустим, если это ваше подтверждённое допущение.",
                     self._cancel_keyboard(),
                 )
-            return self._finish_mutation(scope, key, pending, result)
+            return self._finish_mutation(scope, pending, result)
         if stage == "advertising_rate":
             preview = self.batch_plan_service.preview_advertising_rate(
                 batch,
@@ -341,7 +353,13 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             )
             if result.get("error") is True:
                 return self._stale()
-            self._save_batch(scope, result)
+            if not self._publish_batch_update(
+                scope,
+                result,
+                expected_batch_id=action.get("batch_id"),
+                expected_version=action.get("batch_version"),
+            ):
+                return self._stale()
             return self._render(scope, result, notice="Рекламная доля применена только к локальным допущениям.")
         if kind == "advertising_cancel":
             self._revoke_batch_actions(
@@ -679,16 +697,123 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         ])
         return self._result("UNIT_PRICE_BATCH_PLAN_READY", text, self._keyboard(buttons), batch=batch)
 
-    def _save_batch(self, scope, batch):
+    def _store_batch_locked(self, key, batch):
+        self._refresh_tickets.pop(key, None)
+        self._batches[key] = {
+            "batch": deepcopy(batch),
+            "stored_at": self.clock(),
+        }
+        self._batches.move_to_end(key)
+        self._evict_locked(self._batches, self.MAX_BATCHES)
+
+    def _valid_published_batch(self, scope, batch, batch_id, version):
+        return (
+            isinstance(batch, dict)
+            and batch.get("kind") == "UNIT_PRICE_BATCH_PLAN"
+            and isinstance(batch_id, str)
+            and bool(batch_id)
+            and batch.get("batch_id") == batch_id
+            and type(batch.get("version")) is int
+            and batch.get("version") == version
+            and batch.get("owner_id") == scope["owner_id"]
+            and batch.get("tenant_scope") == scope["tenant_scope"]
+        )
+
+    def _publish_initial_batch(self, scope, pending, batch):
+        active_scope = self._scope(scope["owner_id"])
+        if active_scope.get("error") or active_scope.get("tenant_scope") != scope["tenant_scope"]:
+            return False
         key = scope["key"]
         with self._lock:
-            self._refresh_tickets.pop(key, None)
-            self._batches[key] = {
-                "batch": deepcopy(batch),
-                "stored_at": self.clock(),
-            }
-            self._batches.move_to_end(key)
-            self._evict_locked(self._batches, self.MAX_BATCHES)
+            current_pending = self._pending.get(key)
+            entry = self._batches.get(key)
+            current = entry.get("batch") if isinstance(entry, dict) else None
+            stored_at = entry.get("stored_at", 0) if isinstance(entry, dict) else 0
+            if entry is not None and self.clock() - stored_at >= self.SNAPSHOT_TTL_SECONDS:
+                current = None
+                self._batches.pop(key, None)
+            expected_id = pending.get("base_batch_id")
+            expected_version = pending.get("base_batch_version")
+            current_matches = (
+                current is None and expected_id is None and expected_version is None
+            ) or (
+                isinstance(current, dict)
+                and current.get("batch_id") == expected_id
+                and current.get("version") == expected_version
+            )
+            ticket_matches = (
+                isinstance(current_pending, dict)
+                and current_pending.get("ticket") == pending.get("ticket")
+                and self.clock() - current_pending.get("created_at", 0)
+                <= self.PENDING_TTL_SECONDS
+            )
+            if (
+                not ticket_matches
+                or not current_matches
+                or (
+                    expected_id is not None
+                    and isinstance(batch, dict)
+                    and batch.get("batch_id") == expected_id
+                )
+                or not self._valid_published_batch(
+                    scope, batch, batch.get("batch_id") if isinstance(batch, dict) else None, 1
+                )
+            ):
+                if ticket_matches:
+                    self._pending.pop(key, None)
+                return False
+            self._pending.pop(key, None)
+            self._store_batch_locked(key, batch)
+            return True
+
+    def _publish_batch_update(
+        self,
+        scope,
+        batch,
+        expected_batch_id,
+        expected_version,
+        pending_ticket=None,
+    ):
+        active_scope = self._scope(scope["owner_id"])
+        if active_scope.get("error") or active_scope.get("tenant_scope") != scope["tenant_scope"]:
+            return False
+        if type(expected_version) is not int or expected_version < 1:
+            return False
+        key = scope["key"]
+        with self._lock:
+            entry = self._batches.get(key)
+            current = entry.get("batch") if isinstance(entry, dict) else None
+            stored_at = entry.get("stored_at", 0) if isinstance(entry, dict) else 0
+            current_matches = (
+                isinstance(current, dict)
+                and self.clock() - stored_at < self.SNAPSHOT_TTL_SECONDS
+                and current.get("batch_id") == expected_batch_id
+                and current.get("version") == expected_version
+            )
+            pending_matches = True
+            if pending_ticket is not None:
+                pending = self._pending.get(key)
+                pending_matches = (
+                    isinstance(pending, dict)
+                    and pending.get("ticket") == pending_ticket
+                    and pending.get("batch_id") == expected_batch_id
+                    and pending.get("batch_version") == expected_version
+                    and self.clock() - pending.get("created_at", 0)
+                    <= self.PENDING_TTL_SECONDS
+                )
+            result_matches = self._valid_published_batch(
+                scope, batch, expected_batch_id, expected_version + 1
+            )
+            if not (current_matches and pending_matches and result_matches):
+                if pending_ticket is not None:
+                    pending = self._pending.get(key)
+                    if isinstance(pending, dict) and pending.get("ticket") == pending_ticket:
+                        self._pending.pop(key, None)
+                return False
+            if pending_ticket is not None:
+                self._pending.pop(key, None)
+            self._store_batch_locked(key, batch)
+            return True
 
     def _begin_refresh(self, scope, batch):
         key = scope["key"]
@@ -726,17 +851,25 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 or self.clock() - stored_at >= self.SNAPSHOT_TTL_SECONDS
                 or current.get("batch_id") != base_batch.get("batch_id")
                 or current.get("version") != base_batch.get("version")
-                or not isinstance(refreshed_batch, dict)
-                or refreshed_batch.get("batch_id") != base_batch.get("batch_id")
-                or type(refreshed_batch.get("version")) is not int
-                or refreshed_batch.get("version") <= base_batch.get("version")
-                or refreshed_batch.get("owner_id") != scope["owner_id"]
-                or refreshed_batch.get("tenant_scope") != scope["tenant_scope"]
+                or type(base_batch.get("version")) is not int
+                or not self._valid_published_batch(
+                    scope,
+                    refreshed_batch,
+                    base_batch.get("batch_id"),
+                    base_batch.get("version") + 1,
+                )
             ):
                 if self._refresh_tickets.get(key) == ticket:
                     self._refresh_tickets.pop(key, None)
                 return False
             self._refresh_tickets.pop(key, None)
+            pending = self._pending.get(key)
+            if (
+                isinstance(pending, dict)
+                and pending.get("batch_id") == base_batch.get("batch_id")
+                and pending.get("batch_version") == base_batch.get("version")
+            ):
+                self._pending.pop(key, None)
             self._batches[key] = {
                 "batch": deepcopy(refreshed_batch),
                 "stored_at": self.clock(),
@@ -871,27 +1004,24 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             if isinstance(pending, dict) and pending.get("ticket") == ticket:
                 self._pending.pop(key, None)
 
-    def _pending_is_current(self, key, ticket, scope):
-        current_scope = self._scope(scope["owner_id"])
-        if current_scope.get("tenant_scope") != scope["tenant_scope"]:
-            return False
-        with self._lock:
-            current = self._pending.get(key)
-            return isinstance(current, dict) and current.get("ticket") == ticket
-
     def _batch_for_pending(self, scope, pending):
         return self._get_batch(
             scope, pending.get("batch_id"), pending.get("batch_version")
         )
 
-    def _finish_mutation(self, scope, key, pending, result):
+    def _finish_mutation(self, scope, pending, result):
+        key = scope["key"]
         if result.get("error") is True:
             self._release_pending(key, pending["ticket"])
             return self._error(result.get("code"), keyboard=self._cancel_keyboard())
-        if not self._pending_is_current(key, pending["ticket"], scope):
+        if not self._publish_batch_update(
+            scope,
+            result,
+            expected_batch_id=pending.get("batch_id"),
+            expected_version=pending.get("batch_version"),
+            pending_ticket=pending.get("ticket"),
+        ):
             return self._stale()
-        self._complete_pending(key, pending["ticket"])
-        self._save_batch(scope, result)
         return self._render(scope, result)
 
     def _scope(self, user_id):

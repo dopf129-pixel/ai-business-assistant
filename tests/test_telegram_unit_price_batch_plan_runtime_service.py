@@ -424,6 +424,145 @@ def test_late_refresh_cannot_restore_cancelled_batch_or_overwrite_newer_edit():
     assert current["target_margin_percent"] == "25"
 
 
+def test_late_row_edit_cannot_overwrite_a_successful_source_refresh():
+    edit_ready, finish_edit = Event(), Event()
+
+    class BlockingEditService(_BatchService):
+        def edit_row_assumption(self, batch, row_id, field, value):
+            result = super().edit_row_assumption(batch, row_id, field, value)
+            edit_ready.set()
+            assert finish_edit.wait(2)
+            return result
+
+        def refresh(self, batch, parent_trace=None):
+            result = super().refresh(batch, parent_trace=parent_trace)
+            result["rows"] = [dict(row) for row in batch["rows"]]
+            result["rows"][0]["inputs"] = {
+                **result["rows"][0]["inputs"], "price": "750"
+            }
+            result["rows"][0]["snapshot"] = {
+                **result["rows"][0]["snapshot"],
+                "suggested_inputs": {
+                    **result["rows"][0]["snapshot"]["suggested_inputs"],
+                    "price": "750",
+                },
+            }
+            return result
+
+    service = BlockingEditService()
+    runtime = _runtime(service=service)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        plan = runtime.handle_text("20", user_id="user-1")
+        row_menu = runtime.handle_callback(
+            _button(plan, "Изменить · offer-0"), user_id="user-1"
+        )
+        runtime.handle_callback(
+            _button(row_menu, "Себестоимость ₽/шт."), user_id="user-1"
+        )
+        edit_output = []
+        worker = Thread(
+            target=lambda: edit_output.append(
+                runtime.handle_text("250", user_id="user-1")
+            )
+        )
+        worker.start()
+        assert edit_ready.wait(1)
+
+        refreshed = runtime.handle_callback(
+            _button(plan, "Обновить источники"), user_id="user-1"
+        )
+        assert refreshed["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        finish_edit.set()
+        worker.join(2)
+        assert not worker.is_alive()
+        current = runtime._batches[("user-1", "user-1::ozon::store-a")]["batch"]
+    finally:
+        finish_edit.set()
+        reset_current_tenant_user_id(tenant)
+
+    assert edit_output[0]["status"] == "UNIT_PRICE_BATCH_ACTION_STALE"
+    assert current["version"] == 2
+    assert current["rows"][0]["inputs"]["price"] == "750"
+    assert current["rows"][0]["inputs"]["cost"] == "100"
+
+
+def test_new_batch_cannot_reuse_an_existing_identity_and_version():
+    service = _BatchService()
+    runtime = _runtime(service=service)
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        first = runtime.handle_text("20", user_id="user-1")
+        runtime.begin_from_overview_selection("user-1")
+        second = runtime.handle_text("25", user_id="user-1")
+        current = runtime._batches[("user-1", "user-1::ozon::store-a")]["batch"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert first["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert second["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+    assert current["batch_id"] == "batch-1"
+    assert current["version"] == 1
+    assert current["target_margin_percent"] == "20.0"
+
+
+def test_late_advertising_confirmation_cannot_overwrite_a_successful_refresh():
+    confirm_ready, finish_confirm = Event(), Event()
+
+    class BlockingAdvertisingService(_BatchService):
+        def apply_advertising_rate(self, batch, row_ids, rate, **kwargs):
+            result = super().apply_advertising_rate(batch, row_ids, rate, **kwargs)
+            confirm_ready.set()
+            assert finish_confirm.wait(2)
+            return result
+
+        def refresh(self, batch, parent_trace=None):
+            result = super().refresh(batch, parent_trace=parent_trace)
+            result["rows"] = [dict(row) for row in batch["rows"]]
+            result["rows"][0]["inputs"] = {
+                **result["rows"][0]["inputs"], "price": "750"
+            }
+            return result
+
+    runtime = _runtime(service=BlockingAdvertisingService())
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        plan = runtime.handle_text("20", user_id="user-1")
+        runtime.handle_callback(
+            _button(plan, "Реклама для выбранных строк"), user_id="user-1"
+        )
+        preview = runtime.handle_text("12.5", user_id="user-1")
+        confirm_callback = _button(preview, "Подтвердить")
+        confirm_output = []
+        worker = Thread(
+            target=lambda: confirm_output.append(
+                runtime.handle_callback(confirm_callback, user_id="user-1")
+            )
+        )
+        worker.start()
+        assert confirm_ready.wait(1)
+
+        refreshed = runtime.handle_callback(
+            _button(plan, "Обновить источники"), user_id="user-1"
+        )
+        assert refreshed["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        finish_confirm.set()
+        worker.join(2)
+        assert not worker.is_alive()
+        current = runtime._batches[("user-1", "user-1::ozon::store-a")]["batch"]
+    finally:
+        finish_confirm.set()
+        reset_current_tenant_user_id(tenant)
+
+    assert confirm_output[0]["status"] == "UNIT_PRICE_BATCH_ACTION_STALE"
+    assert current["version"] == 2
+    assert current["rows"][0]["inputs"]["price"] == "750"
+    assert current["rows"][0]["inputs"]["advertising_rate"] == "0"
+
+
 def test_batch_build_and_refresh_inherit_the_current_parent_http_budget():
     class TracingBatchService(_BatchService):
         def __init__(self):

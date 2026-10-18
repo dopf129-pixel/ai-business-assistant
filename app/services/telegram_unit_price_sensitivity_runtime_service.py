@@ -2,6 +2,7 @@
 
 from collections import OrderedDict
 from copy import deepcopy
+from math import isfinite
 from secrets import token_hex
 from threading import RLock
 from time import monotonic
@@ -70,6 +71,9 @@ class TelegramUnitPriceSensitivityRuntimeService:
         if not self._valid_context(context, scope):
             return self._stale()
         context = deepcopy(context)
+        context["freshness_age_seconds_at_capture"] = context.get("source_age_seconds")
+        context["freshness_ttl_seconds_at_capture"] = context.get("source_ttl_seconds")
+        context["freshness_captured_at"] = self.clock()
         signature = self.sensitivity_service.context_signature(context)
         if isinstance(signature, dict):
             return self._stale()
@@ -199,8 +203,14 @@ class TelegramUnitPriceSensitivityRuntimeService:
         if action.get("kind") == "export":
             if self.analytics_export_service is None or action.get("file_format") not in {"csv", "json"}:
                 return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+            freshness = self._freshness_projection(
+                session.get("context"), session.get("result"), scope["owner_id"]
+            )
             return self.analytics_export_service.export_unit_price_sensitivity(
-                session.get("result"), session.get("context"), action["file_format"]
+                session.get("result"),
+                session.get("context"),
+                action["file_format"],
+                freshness=freshness,
             )
         if action.get("kind") == "page":
             session["page"] = action.get("page", 1)
@@ -270,15 +280,10 @@ class TelegramUnitPriceSensitivityRuntimeService:
         if not isinstance(session, dict):
             return self._stale()
         context = session["context"]
-        current = self._read_current_context(context, scope["owner_id"])
-        current_signature = self.sensitivity_service.context_signature(current) if isinstance(current, dict) and current.get("error") is not True else None
-        freshness = (
-            isinstance(current, dict)
-            and current.get("error") is not True
-            and current_signature == session["result"].get("base_input_signature")
-            and current.get("source_age_seconds", float("inf")) < current.get("source_ttl_seconds", 0)
-            and current.get("source_ttl_seconds", 0) <= 600
+        freshness = self._freshness_projection(
+            context, session["result"], scope["owner_id"]
         )
+        is_fresh = freshness["freshness_status"] == "CURRENT"
         result = session["result"]
         cells = result.get("cells") or []
         page_count = max(1, (len(cells) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
@@ -293,8 +298,11 @@ class TelegramUnitPriceSensitivityRuntimeService:
             lines.append(f"Точная цель маржи после налога: {result['target_margin_percent']}%.")
         if notice:
             lines.append(notice)
-        if not freshness:
-            lines.append("⚠️ Исходный план или источник устарел. Просмотр доступен, перенос ячеек отключён.")
+        if not is_fresh:
+            lines.append(
+                "⚠️ Исходный план или источник устарел либо изменился. "
+                "Просмотр доступен, перенос ячеек отключён."
+            )
         for index, cell in enumerate(shown, start=(page - 1) * self.PAGE_SIZE + 1):
             coordinates = cell.get("coordinates") or {}
             coordinate_text = ", ".join(
@@ -317,7 +325,7 @@ class TelegramUnitPriceSensitivityRuntimeService:
         lines.append(f"Страница {page} из {page_count}. Оценка одной успешной продажи FBO; спрос и общие расходы магазина не прогнозируются.")
         buttons = []
         for index, cell in enumerate(shown, start=(page - 1) * self.PAGE_SIZE + 1):
-            if freshness and cell.get("status") == "AVAILABLE":
+            if is_fresh and cell.get("status") == "AVAILABLE":
                 buttons.append({
                     "text": f"Перенести сценарий {index}",
                     "callback": self._register_action(scope, "apply", result_id=session["result_id"], cell_id=cell.get("cell_id")),
@@ -332,19 +340,92 @@ class TelegramUnitPriceSensitivityRuntimeService:
             {"text": "Назад к плану", "callback": self._register_action(scope, "return", result_id=session["result_id"])},
             {"text": "Закрыть", "callback": "ups:c"},
         ])
-        return self._result("UNIT_PRICE_SENSITIVITY_READY", self._truncate("\n".join(lines)), self._keyboard(buttons), sensitivity_result=result)
+        display_result = deepcopy(result)
+        display_result["freshness"] = deepcopy(freshness)
+        return self._result("UNIT_PRICE_SENSITIVITY_READY", self._truncate("\n".join(lines)), self._keyboard(buttons), sensitivity_result=display_result)
+
+    def _freshness_projection(self, context, result, user_id, current=None):
+        if current is None:
+            current = self._read_current_context(context or {}, user_id)
+        projection = {
+            "freshness_status": "STALE",
+            "reason": "ORIGIN_UNAVAILABLE",
+            "source_age_seconds_at_check": None,
+            "source_ttl_seconds": None,
+            "freshness_checked": True,
+            "transfer_allowed": False,
+        }
+        if not isinstance(current, dict) or current.get("error") is True:
+            code = current.get("code") if isinstance(current, dict) else None
+            if code:
+                projection["reason"] = "ORIGIN_UNAVAILABLE"
+                projection["origin_error_code"] = str(code)
+            return projection
+
+        if (
+            current.get("status") == "UNIT_PRICE_SCENARIO_STALE"
+            or current.get("source_age_seconds") is None
+            or current.get("source_ttl_seconds") is None
+        ):
+            try:
+                context = context if isinstance(context, dict) else {}
+                captured_age = float(context.get("freshness_age_seconds_at_capture"))
+                captured_ttl = float(context.get("freshness_ttl_seconds_at_capture"))
+                captured_at = float(context.get("freshness_captured_at"))
+            except (TypeError, ValueError, OverflowError):
+                projection["reason"] = "ORIGIN_UNAVAILABLE"
+                return projection
+            age = captured_age + max(0.0, float(self.clock()) - captured_at)
+            if not (
+                isfinite(age)
+                and isfinite(captured_ttl)
+                and age >= 0
+                and captured_ttl > 0
+            ):
+                projection["reason"] = "SOURCE_FRESHNESS_UNAVAILABLE"
+                return projection
+            projection["source_age_seconds_at_check"] = int(age)
+            projection["source_ttl_seconds"] = int(captured_ttl)
+            projection["reason"] = (
+                "SOURCE_EXPIRED" if age >= captured_ttl else "ORIGIN_UNAVAILABLE"
+            )
+            return projection
+
+        try:
+            age = float(current.get("source_age_seconds"))
+            ttl = float(current.get("source_ttl_seconds"))
+        except (TypeError, ValueError, OverflowError):
+            projection["reason"] = "SOURCE_FRESHNESS_UNAVAILABLE"
+        else:
+            if not (isfinite(age) and isfinite(ttl) and age >= 0 and ttl > 0):
+                projection["reason"] = "SOURCE_FRESHNESS_UNAVAILABLE"
+            else:
+                projection["source_age_seconds_at_check"] = int(age)
+                projection["source_ttl_seconds"] = int(ttl)
+                if ttl > 600:
+                    projection["reason"] = "SOURCE_TTL_UNSUPPORTED"
+                elif age >= ttl:
+                    projection["reason"] = "SOURCE_EXPIRED"
+                elif (
+                    self.sensitivity_service.context_signature(current)
+                    != (result or {}).get("base_input_signature")
+                ):
+                    projection["reason"] = "ORIGIN_CHANGED"
+                else:
+                    projection["freshness_status"] = "CURRENT"
+                    projection["reason"] = None
+                    projection["transfer_allowed"] = True
+        return projection
 
     def _apply(self, scope, session, cell_id, user_id):
         context = session.get("context") or {}
         current = self._read_current_context(context, user_id)
         result = session.get("result") or {}
         cell = next((item for item in result.get("cells", []) if item.get("cell_id") == cell_id), None)
-        signature = self.sensitivity_service.context_signature(current) if isinstance(current, dict) and current.get("error") is not True else None
+        freshness = self._freshness_projection(context, result, user_id, current=current)
         if (
             cell is None
-            or signature != result.get("base_input_signature")
-            or current.get("source_age_seconds", float("inf")) >= current.get("source_ttl_seconds", 0)
-            or current.get("source_ttl_seconds", 0) > 600
+            or freshness.get("transfer_allowed") is not True
             or cell.get("status") != "AVAILABLE"
         ):
             return self._result("UNIT_PRICE_SENSITIVITY_SOURCE_STALE", "Исходный план изменился или устарел. Ячейка не перенесена; откройте чувствительность заново.", self._main_keyboard())
