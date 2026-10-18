@@ -1,3 +1,5 @@
+param([switch]$Background)
+
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -65,4 +67,17 @@ $env:APP_BUILD_REVISION = $DetectedRevision
 $env:APP_BUILD_STARTED_AT_UTC = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
 $env:PYTHONPATH = Join-Path $PSScriptRoot "app"
+if ($Background) {
+    $env:APP_BUILD_MODE = "background"
+    $Process = Start-Process `
+        -FilePath $VenvPython `
+        -ArgumentList @("-m", "telegram_api_bot") `
+        -WorkingDirectory $PSScriptRoot `
+        -WindowStyle Hidden `
+        -PassThru
+    Write-Host "Запущен фоновый процесс бота (PID $($Process.Id)). Проверить готовность: .\status_bot.ps1"
+    exit 0
+}
+
+$env:APP_BUILD_MODE = "foreground"
 Invoke-Checked $VenvPython "-m" "telegram_api_bot"

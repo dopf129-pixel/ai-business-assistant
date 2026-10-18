@@ -1,11 +1,13 @@
 import os
 import signal
+import asyncio
 from pathlib import Path
 
 import pytest
 
 import runtime_healthcheck
 from telegram_app_layer import telegram_api_bot
+from services.bot_instance_lifecycle_service import BotInstanceAlreadyRunning
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,23 +104,87 @@ def test_healthcheck_cli_returns_zero_for_healthy_environment(monkeypatch, tmp_p
 def test_telegram_main_registers_graceful_shutdown_signals(monkeypatch):
     calls = []
 
+    class _Lease:
+        def __init__(self, token):
+            assert token == "synthetic-lifecycle-token"
+            self.closed = False
+
+        def acquire(self):
+            calls.append("acquire")
+
+        def close(self):
+            self.closed = True
+            calls.append("close")
+
     class _Application:
+        def __init__(self):
+            self.bot_data = {}
+            self.updater = object()
+
         def run_polling(self, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr(telegram_api_bot, "build_application", lambda: _Application())
+    monkeypatch.setattr(telegram_api_bot, "_resolve_token", lambda: "synthetic-lifecycle-token")
+    monkeypatch.setattr(telegram_api_bot, "BotInstanceLease", _Lease)
+    monkeypatch.setattr(telegram_api_bot, "build_application", lambda token=None: _Application())
 
     telegram_api_bot.main()
 
     assert calls == [
-        {
-            "stop_signals": (
-                None
-                if os.name == "nt"
-                else (signal.SIGINT, signal.SIGTERM)
-            ),
-        }
+        "acquire",
+        {"stop_signals": None if os.name == "nt" else (signal.SIGINT, signal.SIGTERM)},
+        "close",
     ]
+
+
+def test_second_main_owner_does_not_build_or_poll_application(monkeypatch, capsys):
+    class _Lease:
+        def __init__(self, token):
+            self.token = token
+
+        def acquire(self):
+            raise BotInstanceAlreadyRunning()
+
+    monkeypatch.setattr(telegram_api_bot, "_resolve_token", lambda: "synthetic-duplicate-token")
+    monkeypatch.setattr(telegram_api_bot, "BotInstanceLease", _Lease)
+    monkeypatch.setattr(
+        telegram_api_bot,
+        "build_application",
+        lambda token=None: pytest.fail("duplicate instance must not build polling"),
+    )
+
+    assert telegram_api_bot.main() == 3
+    assert "already running" in capsys.readouterr().out
+
+
+def test_running_status_waits_until_updater_and_application_are_running():
+    marks = []
+
+    class _Lease:
+        def mark_running(self):
+            marks.append("ready")
+
+    class _Updater:
+        running = False
+
+    class _Application:
+        updater = _Updater()
+        running = False
+
+    async def scenario():
+        task = asyncio.create_task(
+            telegram_api_bot._publish_polling_readiness(_Application(), _Lease())
+        )
+        await asyncio.sleep(0.05)
+        assert marks == []
+        _Application.updater.running = True
+        await asyncio.sleep(0.05)
+        assert marks == []
+        _Application.running = True
+        await asyncio.wait_for(task, timeout=1)
+
+    asyncio.run(scenario())
+    assert marks == ["ready"]
 
 
 def test_dockerfile_declares_healthcheck_and_sigterm_stop_contract():
