@@ -6,7 +6,7 @@
 
 ## Точка продолжения
 
-- Текущий этап: **O02 — исправления R11–R15 готовы в рабочем дереве: 62 targeted tests, compileall и diff-check прошли; сохранить в PR #708, дождаться exact-head Verify и повторно проверить**.
+- Текущий этап: **O02 — кодовый fix `ecb1709793d6d6d1541332211fbe42e38624fba0` опубликован в PR #708 и прошёл Verify `39232047110`/`39232057817`; документационный checkpoint требует нового exact-head Verify, затем повторное review**.
 - Проверенная база: `main` на `722f368526c278b701cbfd69f3dbb9a474d52386`, подтверждена актуальной `origin/main` и успешным GitHub Verify `39165543772`.
 - Рабочая ветка: `codex/planning-workspace-20261019`.
 - Подготовительный commit ТЗ и аудита на feature branch: `79fc0a72 Document planning workspace program and baseline`.
@@ -275,7 +275,7 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 ### O02 — пакет независимого review
 
-Status: **R11–R15 FIXED LOCALLY; EXACT-HEAD CI AND REPEAT REVIEW PENDING**. The second review and exact findings are recorded in `PLANNING_WORKSPACE_SECOND_REVIEW_2026-10-19.md`; fixes are in the current working tree. Equal but unsupported historical calculation versions are gated before recalculation; single/batch refresh retains its exact update context; legacy empty-store scope is normalized; fixed-expense changes are rendered; comparison details page through the same immutable snapshot with scope changes first. Regressions cover each finding and public flows. The connected Windows profile is **62 passed in 3.85s**; `compileall -q app tests` and `git diff --check` pass. The prior PR #708 head `84ab5168f21a407d86495b4caecaedc1e78c1102` had green Verify `39222308985`/`39222302010`, but those runs do not cover the local fixes. Publish the fix head, require fresh Windows/Linux and Docker Verify, then repeat review. Classification: **Architecture Review Required**. No merge/deploy.
+Status: **R11–R15 FIXED; CODE FIX CI GREEN; REPEAT REVIEW PENDING**. The second review and exact findings are recorded in `PLANNING_WORKSPACE_SECOND_REVIEW_2026-10-19.md`. Equal but unsupported historical calculation versions are gated before recalculation; single/batch refresh retains its exact update context; legacy empty-store scope is normalized; fixed-expense changes are rendered; comparison details page through the same immutable snapshot with scope changes first. Regressions cover each finding and public flows. The connected Windows profile is **62 passed in 3.85s**; `compileall -q app tests` and `git diff --check` pass. Code fix SHA `ecb1709793d6d6d1541332211fbe42e38624fba0` passed Verify `39232047110` and `39232057817`: Windows/Linux full suites, compile, production Docker build and runtime smoke. The latest documentation-only checkpoint will also be exact-head verified before repeat review. Classification: **Architecture Review Required**. No merge/deploy.
 
 ### Review fix record — R1–R10
 

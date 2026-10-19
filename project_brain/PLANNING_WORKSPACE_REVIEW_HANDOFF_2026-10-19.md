@@ -26,7 +26,7 @@ Merge order must follow this dependency chain. The top PR is intentionally not a
 - L: exact-scope plan/fact projection and arithmetic revenue bridge; incompatible profit scope is explicitly unavailable.
 - M: separate calculation/history/fact readiness and targeted edits with preview and revision CAS.
 - N: historical revision comparison and saved-plan, advertising-cap, sales-mix, and comparison CSV/JSON through existing export/document boundaries.
-- O00: connected user flows and local cross-module acceptance. O02 second review found R11–R15; fixes are in the current working tree. Local profile: 62 passed in 3.85s. Publish the fix head, rerun exact-head CI and complete the repeat review before recommending merge.
+- O00: connected user flows and local cross-module acceptance. O02 second review found R11–R15; fixes are in code commit `ecb1709793d6d6d1541332211fbe42e38624fba0`. Local profile: 62 passed in 3.85s. Verify runs `39232047110` and `39232057817` pass Windows/Linux, compile and production Docker smoke. The subsequent docs-only checkpoint needs its own latest-head Verify; repeat review remains before merge.
 
 ## Local verification
 
@@ -65,4 +65,4 @@ The earlier full local pytest attempt produced **3431 passed / 28 failed** due t
 
 - Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed exact-head Verify runs `39221770481` and `39221764654`; both show Windows/Linux success, compile success, production Docker build and runtime smoke success.
 - Before closing O01, confirm the latest Verify run on PR #708 succeeded for its current head; the latest run is authoritative if later commits advance that head.
-- The first review findings R1–R10 and second review findings R11–R15 have local fixes and regression coverage. The latest published head is still the pre-R11–R15 version until the changes are pushed. Earlier CI on that old head does not verify these fixes. Do not recommend merge until fresh exact-head Windows/Linux/Docker CI and repeat independent review pass. CI success alone is not review approval and does not authorize merge.
+- The first review findings R1–R10 and second review findings R11–R15 have regression coverage. Code fix SHA `ecb1709793d6d6d1541332211fbe42e38624fba0` passed Verify `39232047110` and `39232057817` on Windows/Linux with compile and production Docker smoke. The docs-only checkpoint is followed by a fresh exact-head Verify; repeat independent review remains required before merge. CI success alone is not review approval and does not authorize merge.

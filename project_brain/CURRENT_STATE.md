@@ -3,7 +3,7 @@
 - Сравнение сохранённых планов проверяет, что их `calculation_version` поддерживается активным калькулятором, прежде чем пересчитывать сохранённые inputs. Несовместимые версии сохраняют видимые input differences, но скрывают derived metrics и не вызывают calculator.
 - После refresh single/batch планов transient editor context привязан к точному документу и CAS-ревизиям, поэтому последующие локальные правки сохраняют возможность явного обновления исходной ревизии. Идентичность SKU нормализует пустой store ID в поддерживаемом legacy tenant scope.
 - Сравнение расходов видно в Telegram; длинные списки изменений читаются страницами из одного owner/store snapshot. Добавленные/удалённые SKU показываются раньше изменений полей. Внешние источники не перечитываются.
-- R11–R15 покрыты регрессиями. Связанный Windows-профиль: **62 passed in 3.85s**; `compileall -q app tests` и `git diff --check` прошли. Данные `data/tasks.json` и `data/users.json` не менялись этими проверками (хэши совпали с предшествующими контрольными значениями). Exact-head CI и repeat review ожидаются после публикации.
+- R11–R15 покрыты регрессиями. Связанный Windows-профиль: **62 passed in 3.85s**; `compileall -q app tests` и `git diff --check` прошли. Кодовый commit `ecb1709793d6d6d1541332211fbe42e38624fba0` прошёл Verify `39232047110` и `39232057817`: полные Windows/Linux suites, compile и production Docker build/runtime smoke успешны. Данные `data/tasks.json` и `data/users.json` не менялись (хэши совпали с предыдущими значениями). Новый docs-only head проверяется отдельно; repeat review и merge не выполнялись.
 
 # 2026-10-19 — выполняется программа H–O на feature branch
 
