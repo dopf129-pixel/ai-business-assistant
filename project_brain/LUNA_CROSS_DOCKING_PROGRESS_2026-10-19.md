@@ -48,9 +48,9 @@
 - Проверены baseline и branch managed worktree: `6496f0d5`, `codex/cross-docking-unit-economics`. Корневые `data/tasks.json`, `data/users.json`, их lock и main checkout не редактировались.
 - Подтверждены официальные объявления методов supply list/get v3 и beta FBO acts. Live Ozon/Telegram запросов не делалось.
 - После появления точной пользовательской схемы `/v1/supply-order/act/product/get` добавлены endpoint adapter, Telegram input flow в существующий experimental runtime и кнопка. Запрос требует ручного `supply_id` только для диагностики; рабочий расчёт по-прежнему должен находить поставки автоматически.
-- `tests/test_experimental_supply_act_diagnostic.py`: **6 passed**. Связанный профиль из 5 целевых модулей (`test_experimental_store_economics`, factory, analytics data client, request-attempt diagnostics и новый тест) — **58 passed in 3.12s** на проектном Python 3.12 с отдельными `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp. Выполнены только fake API тесты.
+- `tests/test_experimental_supply_act_diagnostic.py`: **6 passed**. Связанный bounded профиль из 6 модулей (включая menu discovery) — **67 passed in 3.43s** на проектном Python 3.12 с отдельными `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp. Выполнены только fake API тесты.
 - Дополнительный exploratory run, включавший legacy `test_assistant_button_handler_flow.py`, дал 59 passed / 4 failed: ошибки в старых `analyze/history/memory/plan` тестах из-за несовпадения сигнатуры `FakeAssistant.ask`; новая диагностическая callback/input regression в том же профиле прошла. Причину не приписываем коду этой ветки без отдельного baseline run.
-- `compileall` не смог записать `__pycache__` в ACL-ограниченном worktree (`WinError 5`). Syntax-only compilation всех 5 изменённых Python файлов прошла; `git diff --check` прошёл. Полный pytest не запускался. Exact-head CI не запускался.
+- `compileall` не смог записать `__pycache__` в ACL-ограниченном worktree (`WinError 5`). Syntax-only compilation всех 6 изменённых Python файлов прошла; `git diff --check` прошёл. Первый exact-head CI (`39312704457`) на Linux нашёл одно устаревшее ожидание callbacks экспериментального меню (3 525 passed, 1 failed). Исправлена проверка `tests/test_telegram_help_discovery.py`; follow-up exact-head Windows/Linux CI ещё ожидается. Полный pytest локально не запускался.
 
 ## Следующий шаг
 
