@@ -23,6 +23,7 @@ class TelegramSavedPlanningPlanRuntimeService:
     MAX_PENDING = 64
     MAX_ACTIONS = 512
     PAGE_SIZE = 10
+    COMPARISON_PAGE_SIZE = 8
 
     def __init__(self, planning_service, single_runtime, batch_runtime,
                  keyboard_service, clock=None, sales_mix_planning_service=None,
@@ -451,19 +452,57 @@ class TelegramSavedPlanningPlanRuntimeService:
                 version = opened.get("scenario_version")
                 if sid and version:
                     refreshed = self.single_runtime.handle_callback(f"upc:r:{sid}:{version}", user_id=user_id)
-                    return self._add_update_controls(
+                    refreshed_id = (
+                        refreshed.get("scenario_id") or self._scenario_id_from_result(refreshed)
+                    )
+                    refreshed_version = (
+                        refreshed.get("scenario_version") or self._scenario_version_from_result(refreshed)
+                    )
+                    result = self._add_update_controls(
                         refreshed, scope, plan_kind="single", document_id=doc_id,
                         revision=revision, state_revision=document["state_revision"],
+                        scenario_id=refreshed_id, version=refreshed_version,
                     )
+                    if result.get("error") is not True and any(
+                        button.get("text") == "💾 Сохранить изменения в этот план"
+                        for button in ((result.get("keyboard") or {}).get("buttons") or [])
+                        if isinstance(button, dict)
+                    ):
+                        self._remember_plan_edit_context(
+                            scope, "single", refreshed_id, refreshed_version,
+                            doc_id, revision, document["state_revision"],
+                        )
+                    return result
                 return opened
             opened = self.batch_runtime.restore_saved_plan(payload, user_id=user_id)
             refresh_callback = self._find_button_callback(opened.get("keyboard"), "Обновить источники")
             if refresh_callback:
                 refreshed = self.batch_runtime.handle_callback(refresh_callback, user_id=user_id)
-                return self._add_update_controls(
+                batch = refreshed.get("batch_plan") if isinstance(refreshed, dict) else None
+                editor = refreshed.get("plan_editor") if isinstance(refreshed, dict) else None
+                refreshed_id = (
+                    editor.get("id") if isinstance(editor, dict)
+                    else batch.get("batch_id") if isinstance(batch, dict) else None
+                )
+                refreshed_version = (
+                    editor.get("version") if isinstance(editor, dict)
+                    else batch.get("version") if isinstance(batch, dict) else None
+                )
+                result = self._add_update_controls(
                     refreshed, scope, plan_kind="batch", document_id=doc_id,
                     revision=revision, state_revision=document["state_revision"],
+                    batch_id=refreshed_id, version=refreshed_version,
                 )
+                if result.get("error") is not True and any(
+                    button.get("text") == "💾 Сохранить изменения в этот план"
+                    for button in ((result.get("keyboard") or {}).get("buttons") or [])
+                    if isinstance(button, dict)
+                ):
+                    self._remember_plan_edit_context(
+                        scope, "batch", refreshed_id, refreshed_version,
+                        doc_id, revision, document["state_revision"],
+                    )
+                return result
             return opened
         if kind == "save_update":
             plan_kind = action.get("plan_kind")
@@ -1388,9 +1427,11 @@ class TelegramSavedPlanningPlanRuntimeService:
             return self.analytics_export_service.export_plan_comparison(
                 row, action.get("file_format"),
             )
-        return self._render_plan_comparison_snapshot(scope, snapshot)
+        return self._render_plan_comparison_snapshot(
+            scope, snapshot, offset=action.get("offset", 0),
+        )
 
-    def _render_plan_comparison_snapshot(self, scope, snapshot):
+    def _render_plan_comparison_snapshot(self, scope, snapshot, offset=0):
         row = next((item for item in snapshot.get("rows", []) if item.get("row_id") == "comparison"), None)
         comparison = row.get("comparison") if isinstance(row, dict) else None
         if not isinstance(comparison, dict):
@@ -1408,20 +1449,50 @@ class TelegramSavedPlanningPlanRuntimeService:
         if dimensions:
             labels = {"price": "цена", "volume": "объём продаж", "assumptions": "другие допущения", "fixed_expenses": "дополнительные расходы", "period": "период"}
             lines.append("Между вариантами меняется: " + ", ".join(labels.get(item, item) for item in dimensions) + ".")
-        changes = []
+        scope_changes = []
+        input_changes = []
         for product in comparison.get("input_changes") or []:
             identity = product.get("identity") or {}
-            label = identity.get("product_name") or identity.get("offer_id") or identity.get("sku") or "Товар"
+            label = str(
+                identity.get("product_name") or identity.get("offer_id")
+                or identity.get("sku") or "Товар"
+            )[:60]
             scope_status = product.get("scope_status")
             if scope_status in {"ADDED_IN_SECOND", "REMOVED_FROM_SECOND"}:
                 sku = identity.get("sku")
                 suffix = f" · SKU {sku}" if sku else ""
                 direction = "добавлен во втором варианте" if scope_status == "ADDED_IN_SECOND" else "есть только в первом варианте"
-                changes.append(f"• Состав SKU · {label}{suffix}: {direction}.")
+                scope_changes.append(f"• Состав SKU · {label}{suffix}: {direction}.")
                 continue
             for change in product.get("changes") or []:
-                changes.append(f"• {label} · {change.get('label')}: {change.get('before', '—')} → {change.get('after', '—')} {change.get('unit', '')}")
-        lines.extend(changes[:24] or ["Введённые параметры не изменились."])
+                input_changes.append(
+                    f"• {label} · {change.get('label')}: "
+                    f"{change.get('before', '—')} → {change.get('after', '—')} "
+                    f"{change.get('unit', '')}"
+                )
+        expense_changes = [
+            f"• Расход «{str(change.get('name') or 'Без названия')[:60]}»: "
+            f"{change.get('before', '0.00')} → {change.get('after', '0.00')} ₽ "
+            f"(изменение {change.get('delta', '—')} ₽)."
+            for change in comparison.get("expense_changes") or []
+            if isinstance(change, dict)
+        ]
+        # Put SKU additions/removals first so scope changes are visible before
+        # long per-field histories. All entries remain reachable by page.
+        changes = scope_changes + input_changes + expense_changes
+        total_changes = len(changes)
+        try:
+            requested_offset = int(offset)
+        except (TypeError, ValueError):
+            requested_offset = 0
+        page_offset = min(max(0, requested_offset), max(0, total_changes - 1))
+        page_offset = (page_offset // self.COMPARISON_PAGE_SIZE) * self.COMPARISON_PAGE_SIZE
+        page_end = min(total_changes, page_offset + self.COMPARISON_PAGE_SIZE)
+        if total_changes:
+            lines.append(f"Изменения {page_offset + 1}–{page_end} из {total_changes}:")
+            lines.extend(self._truncate_utf16(line, 220) for line in changes[page_offset:page_end])
+        else:
+            lines.append("Введённые параметры не изменились.")
         for metric, label in (("revenue", "Выручка"), ("profit", "Прибыль"), ("margin_percent", "Маржа")):
             item = (comparison.get("metrics") or {}).get(metric) or {}
             if item.get("status") == "COMPARABLE":
@@ -1435,9 +1506,21 @@ class TelegramSavedPlanningPlanRuntimeService:
             "snapshot_id": snapshot.get("snapshot_id"), "generation": snapshot.get("generation"),
             "version": snapshot.get("version"),
         }
-        buttons = [
-            {"text": "Подробнее", "callback": self._action_callback(scope, "plan_comparison_view", **token_values)},
-        ]
+        buttons = []
+        if page_offset > 0:
+            buttons.append({"text": "К первой странице", "callback": self._action_callback(
+                scope, "plan_comparison_view", **token_values, offset=0,
+            )})
+            if page_offset > self.COMPARISON_PAGE_SIZE:
+                buttons.append({"text": "← Предыдущая страница", "callback": self._action_callback(
+                    scope, "plan_comparison_view", **token_values,
+                    offset=page_offset - self.COMPARISON_PAGE_SIZE,
+                )})
+        if page_end < total_changes:
+            label = "Подробнее" if page_offset == 0 else "Следующая страница →"
+            buttons.append({"text": label, "callback": self._action_callback(
+                scope, "plan_comparison_view", **token_values, offset=page_end,
+            )})
         for file_format in ("csv", "json"):
             buttons.append({"text": file_format.upper(), "callback": self._action_callback(
                 scope, "plan_comparison_export", **token_values, file_format=file_format,
@@ -1450,8 +1533,12 @@ class TelegramSavedPlanningPlanRuntimeService:
         ])
         return self._result(
             "PLANNING_COMPARISON_READY" if comparison.get("status") == "COMPARABLE" else "PLANNING_COMPARISON_PARTIAL",
-            "\n".join(lines)[:3500], self._keyboard(buttons),
+            self._truncate_utf16("\n".join(lines), 3500), self._keyboard(buttons),
             plan_comparison=deepcopy(comparison), snapshot_id=snapshot.get("snapshot_id"),
+            comparison_page={
+                "offset": page_offset, "shown": max(0, page_end - page_offset),
+                "total": total_changes,
+            },
         )
 
     @staticmethod
@@ -1459,6 +1546,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         labels = {
             "PLAN_KIND_MISMATCH": "различается формат вариантов.",
             "CALCULATION_VERSION_MISMATCH": "варианты рассчитаны разными версиями калькулятора.",
+            "CALCULATION_VERSION_UNSUPPORTED": "версия калькулятора в сохранённых вариантах больше не поддерживается текущим расчётом.",
             "PRODUCT_SCOPE_MISMATCH": "в вариантах различается набор SKU; показаны только общие строки и состав наборов.",
             "PERIOD_MISMATCH": "указаны разные периоды.",
             "CONFIRMED_SALES_MIX_REQUIRED": "не в обоих вариантах подтверждены период и количества успешных продаж.",
@@ -1747,9 +1835,13 @@ class TelegramSavedPlanningPlanRuntimeService:
                 identity = item.get("identity")
                 if not isinstance(identity, dict):
                     return None
-                key = tuple(str(identity.get(field) or "").strip()
-                            for field in ("product_id", "offer_id", "sku", "store_id"))
-                if not all(key) or key in rows:
+                required_identity = tuple(
+                    str(identity.get(field) or "").strip()
+                    for field in ("product_id", "offer_id", "sku")
+                )
+                normalized_store_id = str(identity.get("store_id") or "").strip()
+                key = (*required_identity, normalized_store_id)
+                if not all(required_identity) or key in rows:
                     return None
                 row_id = str(item.get("row_id") or identity.get("sku") or "")
                 if not row_id:
@@ -1797,6 +1889,19 @@ class TelegramSavedPlanningPlanRuntimeService:
                 except ValueError:
                     return None
         return None
+
+    @staticmethod
+    def _truncate_utf16(value, limit):
+        text = str(value or "")
+        output = []
+        used = 0
+        for char in text:
+            units = len(char.encode("utf-16-le")) // 2
+            if used + units > limit:
+                break
+            output.append(char)
+            used += units
+        return "".join(output)
 
     def _register_action(self, scope, kind, **values):
         token = token_hex(5)

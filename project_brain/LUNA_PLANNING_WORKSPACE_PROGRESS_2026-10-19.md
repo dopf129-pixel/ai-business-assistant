@@ -1,12 +1,12 @@
 # Журнал исполнения GPT Luna — planning workspace H–O
 
-Статус: **IMPLEMENTED — O01 code verification зелёный; O02 handoff опубликован, независимый review ожидается**. Реализация поручения начата 19.10.2026.
+Статус: **IMPLEMENTED — review R11–R15 исправлены локально; целевые проверки зелёные; публикация, exact-head CI и повторный review ожидаются**. Реализация поручения начата 19.10.2026.
 ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`.
 Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
 
 ## Точка продолжения
 
-- Текущий этап: **O02 — handoff опубликован в PR #708; проверить latest Verify для текущего PR head и передать пакет независимому reviewer**.
+- Текущий этап: **O02 — исправления R11–R15 готовы в рабочем дереве: 62 targeted tests, compileall и diff-check прошли; сохранить в PR #708, дождаться exact-head Verify и повторно проверить**.
 - Проверенная база: `main` на `722f368526c278b701cbfd69f3dbb9a474d52386`, подтверждена актуальной `origin/main` и успешным GitHub Verify `39165543772`.
 - Рабочая ветка: `codex/planning-workspace-20261019`.
 - Подготовительный commit ТЗ и аудита на feature branch: `79fc0a72 Document planning workspace program and baseline`.
@@ -37,7 +37,7 @@
 | L — план и факт | L00, L01, L02, L03, L04 | L00–L04 VERIFIED; independent architecture review pending | combined L/M/N 68; PR #708 Verify 3,497 passed Windows/Linux + Docker smoke |
 | M — готовность | M00, M01, M02, M03 | M00–M03 VERIFIED; independent architecture review pending | direct edit CAS and conflict regression; PR #708 full CI green |
 | N — сравнение/экспорт | N00, N01, N02, N03 | N00–N03 VERIFIED; independent architecture review pending | comparison and four user-report exports; PR #708 full CI green |
-| O — приёмка | O00, O01, O02 | O00/O01 VERIFIED for code head; O02 packet published; independent review pending | PR #708 latest exact-head Verify is the gate for the docs-only handoff; previous code-head Verify: 3,497 passed on both platforms + Docker |
+| O — приёмка | O00, O01, O02 | O00/O01 verified for prior head; R11–R15 fixed locally; latest exact-head Verify and repeat review pending | prior head `84ab5168`; local fix profile 62 passed; no merge |
 
 ## Шаблон записи этапа
 
@@ -275,7 +275,7 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 ### O02 — пакет независимого review
 
-Status: **R1–R10 FIXED; CODE-HEAD CI GREEN; INDEPENDENT SECOND REVIEW PENDING**. First review and findings: `PLANNING_WORKSPACE_ARCHITECTURE_REVIEW_2026-10-19.md`. Handoff: `PLANNING_WORKSPACE_REVIEW_HANDOFF_2026-10-19.md`. The review identified ten confirmed issues across the #705–#708 stack; all are addressed with targeted regression coverage. The connected H–O profile reports **259 passed**, documentation drift/manager tests **3 passed**, and `compileall -q app tests` plus `git diff --check` pass. Exact code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Verify `39221770481` and repeat `39221764654`: Windows/Linux tests, compile, and full-verification Docker build/runtime smoke are successful. This record is followed by a docs-only commit, which requires its own exact-head Verify. Independent second review remains required. Classification: **Architecture Review Required**. No merge/deploy.
+Status: **R11–R15 FIXED LOCALLY; EXACT-HEAD CI AND REPEAT REVIEW PENDING**. The second review and exact findings are recorded in `PLANNING_WORKSPACE_SECOND_REVIEW_2026-10-19.md`; fixes are in the current working tree. Equal but unsupported historical calculation versions are gated before recalculation; single/batch refresh retains its exact update context; legacy empty-store scope is normalized; fixed-expense changes are rendered; comparison details page through the same immutable snapshot with scope changes first. Regressions cover each finding and public flows. The connected Windows profile is **62 passed in 3.85s**; `compileall -q app tests` and `git diff --check` pass. The prior PR #708 head `84ab5168f21a407d86495b4caecaedc1e78c1102` had green Verify `39222308985`/`39222302010`, but those runs do not cover the local fixes. Publish the fix head, require fresh Windows/Linux and Docker Verify, then repeat review. Classification: **Architecture Review Required**. No merge/deploy.
 
 ### Review fix record — R1–R10
 

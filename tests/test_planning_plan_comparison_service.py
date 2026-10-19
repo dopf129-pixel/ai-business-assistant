@@ -112,6 +112,32 @@ def test_calculation_version_mismatch_keeps_input_diff_without_recalculating_his
     }
 
 
+def test_equal_but_unsupported_calculation_versions_do_not_use_current_calculator():
+    scenario = UnitPriceScenarioService(TaxService())
+    sales_mix = SalesMixPlanningService(scenario, scenario.tax_service)
+    calculate_calls = []
+    calculate = sales_mix.calculate
+    sales_mix.calculate = lambda *args, **kwargs: (
+        calculate_calls.append((args, kwargs)) or calculate(*args, **kwargs)
+    )
+    service = PlanningPlanComparisonService(sales_mix)
+    first = _document(1)
+    second = _document(2, price="550")
+    old_version = scenario.VERSION
+    first["document"]["payload"]["calculation_version"] = old_version
+    second["document"]["payload"]["calculation_version"] = old_version
+    scenario.VERSION = old_version + 1
+
+    result = service.compare(first, second)
+
+    assert result["status"] == "NOT_COMPARABLE"
+    assert result["reason"] == "CALCULATION_VERSION_UNSUPPORTED"
+    assert result["input_changes"][0]["changes"][0]["field"] == "price"
+    assert result["recalculated_from_saved_inputs"] is False
+    assert result["metrics"]["profit"]["status"] == "NOT_COMPARABLE"
+    assert calculate_calls == []
+
+
 def test_expense_add_remove_rename_and_amount_changes_export_to_csv_and_json():
     scenario = UnitPriceScenarioService(TaxService())
     service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
@@ -152,6 +178,133 @@ def test_expense_add_remove_rename_and_amount_changes_export_to_csv_and_json():
             if file_format == "json":
                 document = json.loads(content)
                 assert document["metadata"]["expense_changes"] == expected
+
+
+def test_plan_comparison_screen_shows_expense_changes_instead_of_false_empty_state(tmp_path):
+    scenario = UnitPriceScenarioService(TaxService())
+    sales_mix = SalesMixPlanningService(scenario, scenario.tax_service)
+    service = PlanningPlanComparisonService(sales_mix)
+    first = _document(1)
+    second = _document(2)
+    first["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "Packaging", "amount": "100.00"},
+    ]
+    second["document"]["payload"]["sales_mix"]["expenses"] = [
+        {"name": "Packaging", "amount": "100.00"},
+        {"name": "New expense", "amount": "10.00"},
+    ]
+    comparison = service.compare(first, second)
+    runtime = TelegramSavedPlanningPlanRuntimeService(
+        SavedPlanningPlanService(
+            PlanningWorkspaceRepository(db_path=tmp_path / "expense-render.sqlite"), scenario,
+        ), None, None, AssistantKeyboardService(), sales_mix_planning_service=sales_mix,
+        plan_comparison_service=service,
+    )
+    tenant = set_current_tenant_user_id("owner-1::ozon::store-a")
+    try:
+        scope = runtime._scope("owner-1")
+        generation = runtime.comparison_snapshot_store.begin_generation(
+            "owner-1", "store-a", "plan_comparison",
+        )["generation"]
+        stored = runtime.comparison_snapshot_store.put_snapshot(
+            "owner-1", "store-a", "plan_comparison", generation, 2,
+            {"status": "HISTORICAL_ASSUMPTIONS"}, comparison["scope"],
+            [{"row_id": "comparison", "comparison": comparison}],
+        )
+        screen = runtime._render_plan_comparison_snapshot(scope, stored["snapshot"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert "Расход «New expense»: 0.00 → 10.00 ₽" in screen["message"]
+    assert "Введённые параметры не изменились." not in screen["message"]
+
+
+def test_plan_comparison_detail_pages_expose_every_change_and_added_sku_without_external_reads(tmp_path):
+    scenario = UnitPriceScenarioService(TaxService())
+    sales_mix = SalesMixPlanningService(scenario, scenario.tax_service)
+    service = PlanningPlanComparisonService(sales_mix)
+    first = _document(1)
+    second = _document(2)
+    first_payload = first["document"]["payload"]
+    second_payload = second["document"]["payload"]
+    first_payload["plan_kind"] = second_payload["plan_kind"] = "batch"
+    first_items = []
+    second_items = []
+    for index in range(1, 4):
+        left = deepcopy(first_payload["items"][0])
+        left["row_id"] = f"row-{index}"
+        left["identity"].update(
+            product_id=f"product-{index}", offer_id=f"offer-{index}",
+            sku=f"sku-{index}", product_name=f"Product {index}",
+        )
+        right = deepcopy(left)
+        for field, _label in service.INPUT_FIELDS:
+            before = right["inputs"].get(field)
+            right["inputs"][field] = (
+                "USN_REVENUE" if field == "tax_mode" and before != "USN_REVENUE"
+                else "USN_INCOME" if field == "tax_mode"
+                else str(before) + "1"
+            )
+        first_items.append(left)
+        second_items.append(right)
+    added = deepcopy(second_items[-1])
+    added["row_id"] = "row-added"
+    added["identity"].update(
+        product_id="product-z", offer_id="offer-z", sku="sku-z",
+        product_name="🧪" * 500,
+    )
+    second_items.append(added)
+    first_payload["items"] = first_items
+    second_payload["items"] = second_items
+    first_payload["sales_mix"]["quantities"] = {f"row-{i}": 10 for i in range(1, 4)}
+    second_payload["sales_mix"]["quantities"] = {f"row-{i}": 10 for i in range(1, 4)}
+    comparison = service.compare(first, second)
+    assert comparison["scope"]["row_count"] == 4
+
+    runtime = TelegramSavedPlanningPlanRuntimeService(
+        SavedPlanningPlanService(
+            PlanningWorkspaceRepository(db_path=tmp_path / "comparison-pages.sqlite"), scenario,
+        ), None, None, AssistantKeyboardService(), sales_mix_planning_service=sales_mix,
+        plan_comparison_service=service,
+    )
+    tenant = set_current_tenant_user_id("owner-1::ozon::store-a")
+    try:
+        scope = runtime._scope("owner-1")
+        generation = runtime.comparison_snapshot_store.begin_generation(
+            "owner-1", "store-a", "plan_comparison",
+        )["generation"]
+        stored = runtime.comparison_snapshot_store.put_snapshot(
+            "owner-1", "store-a", "plan_comparison", generation, 2,
+            {"status": "HISTORICAL_ASSUMPTIONS"}, comparison["scope"],
+            [{"row_id": "comparison", "comparison": comparison}],
+        )
+        screen = runtime._render_plan_comparison_snapshot(scope, stored["snapshot"])
+        all_pages = [screen["message"]]
+        callback_values = []
+        while True:
+            callback_values.extend(
+                button["callback"] for button in screen["keyboard"]["buttons"]
+                if isinstance(button.get("callback"), str)
+            )
+            next_button = next((
+                button for button in screen["keyboard"]["buttons"]
+                if button["text"] in {"Подробнее", "Следующая страница →"}
+            ), None)
+            if next_button is None:
+                break
+            screen = runtime.handle_callback(next_button["callback"], user_id="owner-1")
+            all_pages.append(screen["message"])
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert len(all_pages) == 5
+    assert "SKU sku-z: добавлен во втором варианте" in all_pages[0]
+    assert all("Изменения " in page for page in all_pages)
+    assert all(len(page.encode("utf-16-le")) // 2 <= 3500 for page in all_pages)
+    assert all(len(callback.encode("utf-8")) <= 64 for callback in callback_values)
+    assert all(label in "\n".join(all_pages) for _field, label in service.INPUT_FIELDS)
+    assert "Введённые параметры не изменились." not in "\n".join(all_pages)
+    assert comparison["external_reads"] == 0
 
 
 def test_added_and_removed_skus_remain_visible_in_plan_comparison_screen_and_exports(tmp_path):

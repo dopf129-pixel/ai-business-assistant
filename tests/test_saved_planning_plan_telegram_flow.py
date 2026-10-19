@@ -26,16 +26,18 @@ class _Products:
 
 
 class _Source:
-    def __init__(self):
+    def __init__(self, store_id="store-a"):
         self.product_service = _Products()
         self.calls = []
         self.price = "500"
+        self.store_id = store_id
 
     def load_snapshot(self, sku, user_id, force_refresh=False):
         self.calls.append((sku, user_id, force_refresh))
         return {
             "error": False,
-            "identity": {"user_id": user_id, "store_id": "store-a", "tenant_scope": f"{user_id}::ozon::store-a",
+            "identity": {"user_id": user_id, "store_id": self.store_id,
+                         "tenant_scope": f"{user_id}::ozon::{self.store_id}" if self.store_id else user_id,
                          "product_id": "product-1", "offer_id": "offer-1", "sku": sku},
             "product": {"name": "Тестовый товар", "scheme": "FBO"},
             "suggested_inputs": {
@@ -61,8 +63,8 @@ def _button(result, label):
     return next(button["callback"] for button in result["keyboard"]["buttons"] if button["text"] == label)
 
 
-def _setup(tmp_path):
-    source = _Source()
+def _setup(tmp_path, *, store_id="store-a"):
+    source = _Source(store_id=store_id)
     keyboard = AssistantKeyboardService()
     scenario = UnitPriceScenarioService(TaxService())
     single = TelegramUnitPriceCalculatorRuntimeService(
@@ -691,6 +693,14 @@ def test_public_handler_preserves_refreshed_batch_until_saved_revision_is_writte
                 )
             return refreshed
 
+        def edit_row_assumption(self, batch, row_id, field, value):
+            updated = deepcopy(batch)
+            updated["version"] += 1
+            row = next(item for item in updated["rows"] if item["row_id"] == row_id)
+            row["inputs"][field] = value
+            row.setdefault("provenance", {})[field] = "manual_seller_assumption"
+            return updated
+
     saved_runtime, single, _source, plan_service = _setup(tmp_path)
     keyboard = AssistantKeyboardService()
     builder = BatchBuilder(single.scenario_service)
@@ -745,7 +755,18 @@ def test_public_handler_preserves_refreshed_batch_until_saved_revision_is_writte
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(_button(listing, "Batch · v1"), user_id="user-1")
         refreshed = handler.handle(_button(detail, "Обновить источники"), user_id="user-1")
-        save_callback = _button(refreshed, "💾 Сохранить изменения в этот план")
+        edit_button = next(
+            button["callback"] for button in refreshed["keyboard"]["buttons"]
+            if button["text"].startswith("Изменить ·")
+        )
+        edit_menu = handler.handle(edit_button, user_id="user-1")
+        price_callback = next(
+            button["callback"] for button in edit_menu["keyboard"]["buttons"]
+            if button["text"].startswith("Цена продавца")
+        )
+        price_prompt = handler.handle(price_callback, user_id="user-1")
+        edited = handler.handle_text("650", user_id="user-1")
+        save_callback = _button(edited, "💾 Сохранить изменения в этот план")
         saved = handler.handle(save_callback, user_id="user-1")
         current = plan_service.get_document(created["document_id"])["document"]
     finally:
@@ -756,6 +777,8 @@ def test_public_handler_preserves_refreshed_batch_until_saved_revision_is_writte
     assert current["current_revision"] == 2
     assert current["payload"]["plan_kind"] == "batch"
     assert current["payload"]["sales_mix"] == planned_mix
+    assert price_prompt["status"] == "UNIT_PRICE_BATCH_INPUT_REQUIRED"
+    assert current["payload"]["items"][0]["inputs"]["price"] == "650"
 
 
 def test_public_plan_variant_comparison_and_owner_exports_use_historical_saved_scope(tmp_path):
@@ -972,6 +995,7 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
     saved_runtime, single, source, service = _setup(tmp_path)
     handler = AssistantButtonHandlerService(
         assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
     )
     tenant = _activate()
     try:
@@ -1001,7 +1025,11 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         assert refreshed["status"] == "UNIT_PRICE_SCENARIO_READY"
         assert refreshed["price_scenario"]["inputs"]["price"]["value"] == 600
         assert _button(refreshed, "📄 Сохранить копию")
-        update_callback = _button(refreshed, "💾 Сохранить изменения в этот план")
+        price_prompt = handler.handle(_button(refreshed, "Цена"), user_id="user-1")
+        price_edit = handler.handle_text("650", user_id="user-1")
+        cost_prompt = handler.handle(_button(price_edit, "Себестоимость"), user_id="user-1")
+        edited = handler.handle_text("125", user_id="user-1")
+        update_callback = _button(edited, "💾 Сохранить изменения в этот план")
         updated = handler.handle(update_callback, user_id="user-1")
         assert updated["status"] == "PLANNING_DOCUMENT_UPDATED"
         assert updated["revision"] == 2
@@ -1010,10 +1038,54 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         assert [item["revision"] for item in revisions["items"]] == [2, 1]
         current_doc = service.get_document(service.list_documents()["items"][0]["document_id"])
         saved_item = current_doc["document"]["payload"]["items"][0]
-        assert saved_item["inputs"]["price"] == "600"
+        assert saved_item["inputs"]["price"] == "650"
+        assert saved_item["inputs"]["cost"] == "125"
         assert saved_item["provenance"]["price"] == "manual_seller_assumption"
+        assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
         assert source.calls == [
             ("sku-1", "user-1", False), ("sku-1", "user-1", True),
         ]
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_fallback_tenant_scope_preserves_sales_mix_on_refresh_and_explicit_update(tmp_path):
+    saved_runtime, single, _source, service = _setup(tmp_path, store_id=None)
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = set_current_tenant_user_id("user-1")
+    try:
+        selected = _select_single(single)
+        save_prompt = handler.handle(_button(selected, "💾 Сохранить план"), user_id="user-1")
+        saved = handler.handle_text("Fallback scope plan", user_id="user-1")
+        document = service.get_document(saved["document_id"])["document"]
+        item = document["payload"]["items"][0]
+        row_id = str(item.get("row_id") or item["identity"]["sku"])
+        mix = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {row_id: 10}, "expenses": [], "confirmed": True,
+        }
+        mix_saved = service.save_sales_mix_revision(
+            document["document_id"], mix, expected_revision=1,
+            expected_state_revision=document["state_revision"],
+            idempotency_key="fallback-scope-mix",
+        )
+        assert mix_saved["error"] is False, mix_saved
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(_button(listing, "Fallback scope plan · v2"), user_id="user-1")
+        refreshed = handler.handle(_button(detail, "Обновить источники"), user_id="user-1")
+        saved_update = handler.handle(
+            _button(refreshed, "💾 Сохранить изменения в этот план"), user_id="user-1",
+        )
+        current = service.get_document(document["document_id"])["document"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert refreshed["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert saved_update["status"] == "PLANNING_DOCUMENT_UPDATED"
+    assert current["current_revision"] == 3
+    assert current["payload"]["sales_mix"] == mix

@@ -38,6 +38,11 @@ class PlanningPlanComparisonService:
             prerequisite_reason = "PLAN_KIND_MISMATCH"
         elif a.get("calculation_version") != b.get("calculation_version"):
             prerequisite_reason = "CALCULATION_VERSION_MISMATCH"
+        else:
+            scenario_service = getattr(self.sales_mix_planning_service, "scenario_service", None)
+            current_version = getattr(scenario_service, "VERSION", None)
+            if current_version is None or a.get("calculation_version") != current_version:
+                prerequisite_reason = "CALCULATION_VERSION_UNSUPPORTED"
         first_rows = self._identity_map(a.get("items"))
         second_rows = self._identity_map(b.get("items"))
         if first_rows is None or second_rows is None:
