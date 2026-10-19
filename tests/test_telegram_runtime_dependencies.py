@@ -79,6 +79,14 @@ def test_build_application_registers_handlers_without_starting_polling(monkeypat
             self.post_init_callback = callback
             return self
 
+        def post_stop(self, callback):
+            self.post_stop_callback = callback
+            return self
+
+        def post_shutdown(self, callback):
+            self.post_shutdown_callback = callback
+            return self
+
         def build(self):
             return self.application
 
@@ -93,6 +101,9 @@ def test_build_application_registers_handlers_without_starting_polling(monkeypat
 
     assert application is fake_builder.application
     assert fake_builder.token_value == "test-token"
+    assert fake_builder.post_init_callback is telegram_api_bot._post_init
+    assert fake_builder.post_stop_callback is telegram_api_bot._post_stop
+    assert fake_builder.post_shutdown_callback is telegram_api_bot._post_shutdown
     assert len(application.handlers) == 5
     assert any(getattr(handler.callback, "__name__", "") == "document_handler" for handler in application.handlers)
     assert telegram_api_bot._runner is None

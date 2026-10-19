@@ -20,6 +20,11 @@ from telegram_app_layer.telegram_plan_formatter import TelegramPlanFormatter
 from telegram_app_layer.telegram_progress_feedback import begin_progress, finish_progress
 from telegram_app_layer.telegram_response_formatter import TelegramResponseFormatter
 from telegram_app_layer.telegram_document_contract import prepare_telegram_document
+from services.bot_instance_lifecycle_service import (
+    BotInstanceAlreadyRunning,
+    BotInstanceLease,
+    BotLifecycleError,
+)
 
 
 _runner = None
@@ -377,11 +382,53 @@ async def _post_init(application):
         ("menu", "Главное меню"),
     ])
     await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+    instance_lease = application.bot_data.get("bot_instance_lease")
+    if instance_lease is not None:
+        await instance_lease.start_control_server(application)
+        application.bot_data["polling_ready_task"] = asyncio.create_task(
+            _publish_polling_readiness(application, instance_lease)
+        )
+
+
+async def _publish_polling_readiness(application, instance_lease):
+    """Publish RUNNING only after PTB starts both polling and update processing."""
+    while True:
+        updater = application.updater
+        if updater is not None and updater.running and application.running:
+            instance_lease.mark_running()
+            return
+        await asyncio.sleep(0.025)
+
+
+async def _post_stop(application):
+    instance_lease = application.bot_data.get("bot_instance_lease")
+    if instance_lease is not None:
+        await instance_lease.close_control_server()
+
+
+async def _post_shutdown(application):
+    readiness_task = application.bot_data.get("polling_ready_task")
+    if readiness_task is not None and not readiness_task.done():
+        readiness_task.cancel()
+        try:
+            await readiness_task
+        except asyncio.CancelledError:
+            pass
+    instance_lease = application.bot_data.get("bot_instance_lease")
+    if instance_lease is not None:
+        await instance_lease.close_control_server()
 
 
 def build_application(token=None):
     """Build the polling application without starting network traffic."""
-    application = Application.builder().token(_resolve_token(token)).post_init(_post_init).build()
+    application = (
+        Application.builder()
+        .token(_resolve_token(token))
+        .post_init(_post_init)
+        .post_stop(_post_stop)
+        .post_shutdown(_post_shutdown)
+        .build()
+    )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu))
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
@@ -391,12 +438,33 @@ def build_application(token=None):
 
 
 def main():
-    application = build_application()
-    print("Telegram API bot started")
-    application.run_polling(
-        stop_signals=_polling_stop_signals(),
-    )
+    token = _resolve_token()
+    instance_lease = BotInstanceLease(token)
+    try:
+        instance_lease.acquire()
+    except BotInstanceAlreadyRunning as error:
+        print("Telegram bot is already running; polling was not started.")
+        return 3
+    except BotLifecycleError as error:
+        print(f"Telegram bot could not start safely ({error.code}).")
+        return 4
+
+    try:
+        application = build_application(token)
+        bot_data = getattr(application, "bot_data", None)
+        if isinstance(bot_data, dict):
+            bot_data["bot_instance_lease"] = instance_lease
+        if getattr(application, "updater", None) is None:
+            raise BotLifecycleError(
+                "BOT_INSTANCE_UPDATER_UNAVAILABLE",
+                "Telegram polling updater is unavailable.",
+            )
+        print("Telegram API bot starting")
+        application.run_polling(stop_signals=_polling_stop_signals())
+        return 0
+    finally:
+        instance_lease.close()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

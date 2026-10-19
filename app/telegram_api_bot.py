@@ -15,4 +15,4 @@ __all__ = ["build_application", "main"]
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

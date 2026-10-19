@@ -1,4 +1,15 @@
-# План проверок большого пакета A–G (17.10.2026; IN_PROGRESS)
+# Следующий пакет H–O: план будущих проверок (19.10.2026; NOT_STARTED)
+
+- ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Новые тесты/production services в подготовке не добавлены, pytest повторно не запускался.
+- Будущая приёмка H: межпроцессный instance lock, readiness, безопасный stop, stale metadata/PID reuse, Windows/Linux dummy subprocesses без реального бота.
+- I: настоящая temporary SQLite DB, tenant/store isolation, additive migrations, CAS, idempotency, rollback, сохранение/reopen, разделение planning/factual writes.
+- J/K: канонический ad-limit solver и соседний tick, quantity/weighted totals, один aggregate tax, minimum tax с убыточной строкой, partial/zero/unknown и расходы ровно один раз.
+- L/M/N: фактическая basis/quantity/scope compatibility, exact revenue bridge, public correction/navigation, конфликт ревизий, late callbacks, snapshot-only сравнение/CSV/JSON, formula/size/delivery/privacy guards.
+- O: сквозные public factory/handler paths, полный pytest `tests` + `app/tests`, актуальный SHA-bound Windows/Linux CI и production Docker build/runtime smoke. Старый зелёный baseline не принимает будущий код.
+- Подготовительные контрольные числа проверены прямыми синтетическими вызовами действующих calculator/TaxService, без API и пользовательских данных. Это не новые regression tests.
+- Merged A–G baseline: `main` `722f368526c278b701cbfd69f3dbb9a474d52386`, Verify `39165543772` successful. Далее идут исторические записи этапов и review прежнего пакета.
+
+# План проверок большого пакета A–G (17.10.2026; исторические этапы)
 
 ## Исправления повторного review R9–R10 (2026-10-18)
 

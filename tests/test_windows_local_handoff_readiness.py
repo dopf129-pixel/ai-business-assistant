@@ -29,6 +29,20 @@ def test_windows_bootstrap_uses_python_312_and_private_local_env():
     assert "APP_BUILD_REVISION" in script
     assert "APP_BUILD_STARTED_AT_UTC" in script
     assert "rev-parse --verify HEAD" in script
+    assert "param([switch]$Background)" in script
+    assert "-WindowStyle Hidden" in script
+    assert '"-m", "telegram_api_bot"' in script
+    assert 'APP_BUILD_MODE = "background"' in script
+    assert 'APP_BUILD_MODE = "foreground"' in script
+
+
+def test_local_status_and_stop_scripts_use_private_venv_cli():
+    for name, command in (("status_bot.ps1", "status"), ("stop_bot.ps1", "stop")):
+        script = (ROOT / name).read_text(encoding="utf-8")
+        assert ".venv\\Scripts\\python.exe" in script
+        assert "-m telegram_bot_control" in script
+        assert f" {command}" in script
+        assert "TELEGRAM_BOT_TOKEN" not in script
 
 
 def test_local_secret_and_runtime_paths_are_gitignored():
