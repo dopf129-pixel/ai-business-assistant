@@ -1950,7 +1950,10 @@ class TelegramSavedPlanningPlanRuntimeService:
         scoped_owner, store_id = split_store_tenant_scope(tenant_scope)
         if not owner or not tenant_scope or owner != scoped_owner:
             return None
-        return {"owner_id": owner, "store_id": store_id, "tenant_scope": tenant_scope,
+        # SavedPlanningPlanService and the repository persist the supported
+        # legacy/default tenant as an empty store ID. Keep that representation
+        # consistent in every runtime scope check.
+        return {"owner_id": owner, "store_id": str(store_id or "").strip(), "tenant_scope": tenant_scope,
                 "key": (owner, tenant_scope)}
 
     def _keyboard(self, buttons):

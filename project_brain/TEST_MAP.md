@@ -97,6 +97,13 @@
 - `tests/test_unit_price_scenario_telegram_runtime.py`: реальный runtime принимает `11.110` в редакторе и выдаёт ту же подтверждённую цену `11.08 ₽`, что и `11.11`; source читается один раз.
 - Четыре связанных planner/runtime/architecture/repeat-review модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Verify runs `38728949431` и `38728942708` на code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` успешны: Windows/Linux — по **3 204 passed**, compileall и Docker build/runtime health-check прошли. Локальный full pytest не сформировал сводку из-за `PermissionError (WinError 5)` при cleanup basetemp и не считается приёмкой.
 
+# Повторный review planning workspace R16–R17 (19.10.2026)
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_fallback_tenant_can_export_compare_and_edit_readiness_in_public_flow` проходит default tenant без store через план, CSV/JSON export, comparison snapshot/export, readiness cost edit и quantity edit; затем проверяет, что другой явный store не видит документ.
+- `tests/test_scoped_transient_snapshot_store.py::test_snapshot_supports_default_owner_scope_without_store_but_keeps_store_isolation` разрешает snapshot только под активным default tenant и отвергает чтение/создание из выбранного чужого store.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_target_margin_survives_apply_back_save_and_restore` проверяет оба перехода из экрана целевой маржи, сохранение цели, исторический рекламный предел и повторное сохранение после восстановления рецепта.
+- Связанный набор saved-plan Telegram, snapshot store, repository, comparison, target planning, advertising cap и sensitivity runtime: **142 passed in 2.97s**. `compileall -q app tests` и `git diff --check` прошли. Full local suite не запускается из-за зафиксированного Windows ACL/shared-storage инцидента; нужен exact-head CI PR #708.
+
 # Повторный review planning workspace R11–R15 (19.10.2026)
 
 - `tests/test_planning_plan_comparison_service.py::test_equal_but_unsupported_calculation_versions_do_not_use_current_calculator` проверяет две одинаковые исторические версии, устаревшую относительно активного калькулятора: метрики не пересчитываются, input differences остаются.

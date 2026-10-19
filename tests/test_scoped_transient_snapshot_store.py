@@ -95,6 +95,41 @@ def test_snapshot_requires_active_exact_owner_and_store_scope(active_tenant):
     assert result["code"] == "TRANSIENT_SNAPSHOT_TENANT_REQUIRED"
 
 
+def test_snapshot_supports_default_owner_scope_without_store_but_keeps_store_isolation():
+    store = ScopedTransientSnapshotStore()
+    default_tenant = set_current_tenant_user_id("user-1")
+    try:
+        generation_result = store.begin_generation("user-1", "", "plan_comparison")
+        assert generation_result["error"] is False
+        generation = generation_result["generation"]
+        created = _put(
+            store, generation, kind="plan_comparison", store_id="",
+            rows=[{"row_id": "comparison", "value": 1}],
+        )
+        assert created["error"] is False
+        loaded = store.get_snapshot(
+            created["snapshot"]["snapshot_id"], "user-1", "", "plan_comparison",
+            generation, 1,
+        )
+        assert loaded["error"] is False
+    finally:
+        reset_current_tenant_user_id(default_tenant)
+
+    other_store = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        rejected = store.get_snapshot(
+            created["snapshot"]["snapshot_id"], "user-1", "", "plan_comparison",
+            generation, 1,
+        )
+        assert rejected["error"] is True
+        assert rejected["code"] == "TRANSIENT_SNAPSHOT_SCOPE_MISMATCH"
+        assert store.begin_generation("user-1", "", "plan_comparison")["code"] == (
+            "TRANSIENT_SNAPSHOT_SCOPE_MISMATCH"
+        )
+    finally:
+        reset_current_tenant_user_id(other_store)
+
+
 def test_new_generation_rejects_late_old_write_and_old_callback(active_tenant):
     store = ScopedTransientSnapshotStore()
     old_generation = _begin(store)

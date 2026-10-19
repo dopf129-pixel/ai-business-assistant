@@ -137,9 +137,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "source_ttl_seconds": freshness["ttl_seconds"],
             "source_version": f"{session['scenario_id']}:{session['version']}",
             "source_as_of": deepcopy(snapshot.get("source_periods") or {}),
-            "target_margin_percent": deepcopy(
-                ((session.get("price_planning_result") or {}).get("result") or {}).get("target_margin_percent")
-            ),
+            "target_margin_percent": self._target_margin_assumption(session),
             "origin": {
                 "kind": "single",
                 "scenario_id": session["scenario_id"],
@@ -197,11 +195,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "plan_kind": "single",
             "schema_version": 1,
             "calculation_version": self.scenario_service.VERSION,
-            "target_margin_percent": (
-                ((session.get("price_planning_result") or {}).get("result") or {}).get(
-                    "target_margin_percent"
-                )
-            ),
+            "target_margin_percent": self._target_margin_assumption(session),
             "items": [{
                 "identity": {
                     "product_id": str(identity.get("product_id") or ""),
@@ -249,6 +243,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
         inputs = item.get("inputs") if isinstance(item, dict) else None
         provenance = item.get("provenance") if isinstance(item, dict) else None
         sources = item.get("sources") if isinstance(item, dict) else None
+        target_margin = payload.get("target_margin_percent")
+        if target_margin is not None:
+            try:
+                parsed_target = Decimal(str(target_margin))
+            except (InvalidOperation, TypeError, ValueError):
+                return self._stale_result()
+            if not parsed_target.is_finite() or not Decimal("0") <= parsed_target <= Decimal("100"):
+                return self._stale_result()
         if (
             not isinstance(identity, dict)
             or not isinstance(inputs, dict)
@@ -294,6 +296,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "created_at": now, "updated_at": now, "source_loaded_at": now,
             "source_age_seconds_at_load": 0, "source_ttl_seconds": 0,
             "restored_from_saved_plan": True,
+            "price_planning_target_margin": (
+                str(target_margin) if target_margin is not None else None
+            ),
         }
         operation_token = self._begin_source_operation(user, scope)
         with self._lock:
@@ -2118,6 +2123,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "as_of": snapshot.get("source_periods", {}).get("seller_price_as_of"),
             "completeness": snapshot.get("source_completeness") or {},
         }
+
+    @staticmethod
+    def _target_margin_assumption(session):
+        """Return the durable planning goal, independent of transient result UI."""
+        target = session.get("price_planning_target_margin")
+        if target is not None:
+            return deepcopy(target)
+        # Keep compatibility with an in-flight session created before the goal
+        # was stored separately from its disposable result projection.
+        result = (session.get("price_planning_result") or {}).get("result") or {}
+        return deepcopy(result.get("target_margin_percent"))
 
     def _register_selection(self, user, scope, product_reference):
         if not product_reference:

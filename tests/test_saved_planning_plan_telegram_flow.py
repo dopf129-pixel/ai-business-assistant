@@ -1089,3 +1089,182 @@ def test_fallback_tenant_scope_preserves_sales_mix_on_refresh_and_explicit_updat
     assert saved_update["status"] == "PLANNING_DOCUMENT_UPDATED"
     assert current["current_revision"] == 3
     assert current["payload"]["sales_mix"] == mix
+
+
+def test_fallback_tenant_can_export_compare_and_edit_readiness_in_public_flow(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path, store_id=None)
+    saved_runtime.analytics_export_service = AnalyticsExportService()
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = set_current_tenant_user_id("user-1")
+    try:
+        current = _select_single(single)
+        saved_runtime.handle_callback(_button(current, "💾 Сохранить план"), user_id="user-1")
+        saved = saved_runtime.handle_text("Fallback plan", user_id="user-1")
+        document = service.get_document(saved["document_id"])["document"]
+        payload = deepcopy(document["payload"])
+        payload["items"][0]["inputs"]["cost"] = None
+        payload["items"][0]["provenance"].pop("cost", None)
+        payload["items"][0]["projection"].update(
+            available=False, status="INCOMPLETE_INPUTS", missing_inputs=["cost"],
+        )
+        payload["sales_mix"] = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {"sku-1": None}, "expenses": [], "confirmed": True,
+        }
+        updated = service.repository.save_document(
+            title="Fallback plan", payload=payload, owner_id="user-1", store_id="",
+            document_id=document["document_id"], expected_revision=1,
+            expected_state_revision=document["state_revision"],
+            idempotency_key="fallback-readiness-seed",
+        )
+        assert updated["error"] is False
+
+        other_payload = deepcopy(payload)
+        other_payload["items"][0]["inputs"]["price"] = "550"
+        second = service.repository.save_document(
+            title="Fallback option", payload=other_payload, owner_id="user-1", store_id="",
+            idempotency_key="fallback-comparison-seed",
+        )
+        assert second["error"] is False
+
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(
+            _button(listing, "Fallback plan · v2"), user_id="user-1",
+        )
+        csv_export = handler.handle(
+            _button(detail, "Экспорт плана · CSV"), user_id="user-1",
+        )
+        json_export = handler.handle(
+            _button(detail, "Экспорт плана · JSON"), user_id="user-1",
+        )
+        assert csv_export["error"] is False and csv_export["export_kind"] == "saved_plan"
+        assert json_export["error"] is False and json_export["export_kind"] == "saved_plan"
+
+        picker = handler.handle(_button(detail, "Сравнить варианты"), user_id="user-1")
+        option_button = next(
+            button["callback"] for button in picker["keyboard"]["buttons"]
+            if button["text"].startswith("Fallback option ·")
+        )
+        comparison = handler.handle(option_button, user_id="user-1")
+        assert comparison["status"] in {
+            "PLANNING_COMPARISON_READY", "PLANNING_COMPARISON_PARTIAL",
+        }
+        comparison_export = handler.handle(_button(comparison, "CSV"), user_id="user-1")
+        assert comparison_export["error"] is False
+        assert comparison_export["export_kind"] == "plan_comparison"
+
+        readiness = handler.handle(_button(detail, "Готовность плана"), user_id="user-1")
+        edit_button = next(
+            button["callback"] for button in readiness["keyboard"]["buttons"]
+            if button["text"].startswith("Исправить ·")
+        )
+        edit_prompt = handler.handle(edit_button, user_id="user-1")
+        assert edit_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        edited = handler.handle_text("125", user_id="user-1")
+        update_callback = _button(edited, "💾 Сохранить изменения в этот план")
+        saved_update = handler.handle(update_callback, user_id="user-1")
+        assert saved_update["status"] == "PLANNING_DOCUMENT_UPDATED"
+        current_document = service.get_document(document["document_id"])["document"]
+        assert current_document["current_revision"] == 3
+        assert current_document["store_id"] == ""
+        assert current_document["payload"]["items"][0]["inputs"]["cost"] == "125"
+        assert current_document["payload"]["sales_mix"]["quantities"]["sku-1"] is None
+
+        latest_listing = handler.handle("upp:m", user_id="user-1")
+        latest_detail = handler.handle(
+            _button(latest_listing, "Fallback plan · v3"), user_id="user-1",
+        )
+        latest_readiness = handler.handle(
+            _button(latest_detail, "Готовность плана"), user_id="user-1",
+        )
+        quantity_prompt = handler.handle(
+            _button(latest_readiness, "Задать количество · Тестовый товар"), user_id="user-1",
+        )
+        assert quantity_prompt["status"] == "SALES_MIX_QUANTITY_EDIT_REQUIRED"
+        preview = handler.handle_text("0", user_id="user-1")
+        confirmed = handler.handle(
+            _button(preview, "Подтвердить и сохранить ревизию"), user_id="user-1",
+        )
+        assert confirmed["status"] == "PLANNING_DOCUMENT_DETAILS"
+        final_document = service.get_document(document["document_id"])["document"]
+        assert final_document["current_revision"] == 4
+        assert final_document["payload"]["sales_mix"]["quantities"]["sku-1"] == 0
+
+        other_scope = set_current_tenant_user_id("user-1::ozon::other-store")
+        try:
+            other_listing = handler.handle("upp:m", user_id="user-1")
+            assert other_listing["status"] == "PLANNING_DOCUMENT_LIST"
+            assert "Пока нет сохранённых планов." in other_listing["message"]
+        finally:
+            reset_current_tenant_user_id(other_scope)
+    finally:
+        reset_current_tenant_user_id(tenant)
+    assert len(source.calls) == 1
+
+
+def test_single_target_margin_survives_apply_back_save_and_restore(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        saved_ids = []
+        for transition in ("apply", "back"):
+            current = _select_single(single)
+            prompt = single.handle_callback(
+                _button(current, "Цена для целевой маржи") , user_id="user-1",
+            )
+            result = single.handle_text("25", user_id="user-1")
+            assert prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+            assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+            if transition == "apply":
+                current = single.handle_callback(
+                    _button(result, "Подставить цену для цели"), user_id="user-1",
+                )
+            else:
+                current = single.handle_callback(
+                    _button(result, "Назад к расчёту"), user_id="user-1",
+                )
+            save_prompt = handler.handle(
+                _button(current, "💾 Сохранить план"), user_id="user-1",
+            )
+            saved = handler.handle_text("Goal " + transition, user_id="user-1")
+            assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+            assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+            saved_ids.append(saved["document_id"])
+            document = service.get_document(saved["document_id"])["document"]
+            assert document["payload"]["target_margin_percent"] in {"25", "25.00"}
+
+            listing = handler.handle("upp:m", user_id="user-1")
+            detail = handler.handle(
+                _button(listing, "Goal " + transition + " · v1"), user_id="user-1",
+            )
+            cap = handler.handle(
+                _button(detail, "Рекламный предел (сохранённые допущения)"), user_id="user-1",
+            )
+            assert "цель 25%:" in cap["message"]
+
+        # Reopen a saved recipe into a fresh transient session and save a copy;
+        # the explicit goal must survive that round trip too.
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(_button(listing, "Goal apply · v1"), user_id="user-1")
+        restored = handler.handle(
+            _button(detail, "Продолжить по сохранённым допущениям"), user_id="user-1",
+        )
+        save_prompt = handler.handle(
+            _button(restored, "💾 Сохранить план"), user_id="user-1",
+        )
+        copy = handler.handle_text("Goal restored copy", user_id="user-1")
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        assert copy["status"] == "PLANNING_DOCUMENT_SAVED"
+        copied = service.get_document(copy["document_id"])["document"]
+        assert copied["payload"]["target_margin_percent"] in {"25", "25.00"}
+        assert len(saved_ids) == 2
+    finally:
+        reset_current_tenant_user_id(tenant)
+    assert len(source.calls) == 2

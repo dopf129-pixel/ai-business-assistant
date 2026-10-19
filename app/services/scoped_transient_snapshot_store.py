@@ -251,7 +251,7 @@ class ScopedTransientSnapshotStore:
         owner = str(owner_id or "").strip()
         store = str(store_id or "").strip()
         kind_value = str(kind or "").strip()
-        if not owner or not store or not self._valid_kind(kind_value):
+        if not owner or not self._valid_kind(kind_value):
             return None, "TRANSIENT_SNAPSHOT_IDENTITY_REQUIRED"
         try:
             tenant_scope = str(self.tenant_scope_provider() or "").strip()
@@ -260,9 +260,9 @@ class ScopedTransientSnapshotStore:
         if not tenant_scope:
             return None, "TRANSIENT_SNAPSHOT_TENANT_REQUIRED"
         scoped_owner, scoped_store = split_store_tenant_scope(tenant_scope)
-        if not scoped_owner or not scoped_store:
+        if not scoped_owner:
             return None, "TRANSIENT_SNAPSHOT_TENANT_REQUIRED"
-        if scoped_owner != owner or scoped_store != store:
+        if scoped_owner != owner or str(scoped_store or "").strip() != store:
             return None, "TRANSIENT_SNAPSHOT_SCOPE_MISMATCH"
         return (tenant_scope, owner, store, kind_value), None
 
