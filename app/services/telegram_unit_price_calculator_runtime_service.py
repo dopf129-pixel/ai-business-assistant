@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from threading import RLock
@@ -37,10 +38,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
         max_scenarios=MAX_SCENARIOS,
         max_catalog_selections=MAX_CATALOG_SELECTIONS,
         target_planning_service=None,
+        advertising_cap_service=None,
     ):
         self.source = source
         self.scenario_service = scenario_service
         self.target_planning_service = target_planning_service
+        self.advertising_cap_service = advertising_cap_service
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.session_ttl_seconds = max(1, int(session_ttl_seconds))
@@ -134,9 +137,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "source_ttl_seconds": freshness["ttl_seconds"],
             "source_version": f"{session['scenario_id']}:{session['version']}",
             "source_as_of": deepcopy(snapshot.get("source_periods") or {}),
-            "target_margin_percent": deepcopy(
-                ((session.get("price_planning_result") or {}).get("result") or {}).get("target_margin_percent")
-            ),
+            "target_margin_percent": self._target_margin_assumption(session),
             "origin": {
                 "kind": "single",
                 "scenario_id": session["scenario_id"],
@@ -147,6 +148,201 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    def get_saved_plan_capture(self, scenario_id, version, user_id=None):
+        """Return an allowlisted, version-bound planning recipe for explicit save."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return {"error": True, "code": context_error}
+        session = self._get_session(scenario_id, version, user, scope)
+        if session is None:
+            return self._stale_result()
+        snapshot = session.get("snapshot")
+        if not isinstance(snapshot, dict):
+            return self._stale_result()
+        identity = snapshot.get("identity") or {}
+        product = snapshot.get("product") or {}
+        if (
+            identity.get("tenant_scope") != scope
+            or str(identity.get("store_id") or "") != str(split_store_tenant_scope(scope)[1] or "")
+            or str(identity.get("sku") or "") != str(session.get("sku") or "")
+            or not str(identity.get("product_id") or "").strip()
+            or not str(identity.get("offer_id") or "").strip()
+        ):
+            return self._stale_result()
+        sources = self._scenario_sources(session)
+        calculated = self.scenario_service.calculate(
+            session.get("inputs") or {},
+            identity=self._scenario_identity(session),
+            provenance=session.get("provenance") or {},
+            sources=sources,
+        )
+        values = calculated.get("calculated") or {}
+        allowed_projection = (
+            "revenue", "discount_points", "taxable_revenue", "commission",
+            "advertising", "fees", "profit_before_tax", "tax",
+            "effective_tax_rate", "profit", "margin_percent",
+        )
+        projection = {
+            "available": calculated.get("available") is True,
+            "status": "READY" if calculated.get("available") is True else "INCOMPLETE_INPUTS",
+            "missing_inputs": list(calculated.get("missing_inputs") or [])[:20],
+            "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
+        }
+        projection.update({key: values.get(key) for key in allowed_projection})
+        captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        payload = {
+            "plan_kind": "single",
+            "schema_version": 1,
+            "calculation_version": self.scenario_service.VERSION,
+            "target_margin_percent": self._target_margin_assumption(session),
+            "items": [{
+                "identity": {
+                    "product_id": str(identity.get("product_id") or ""),
+                    "offer_id": str(identity.get("offer_id") or ""),
+                    "sku": str(identity.get("sku") or ""),
+                    "product_name": str(product.get("name") or "")[:160] or None,
+                    "store_id": str(identity.get("store_id") or ""),
+                    "scheme": str(product.get("scheme") or "FBO")[:24],
+                },
+                "inputs": deepcopy(session.get("inputs") or {}),
+                "provenance": deepcopy(session.get("provenance") or {}),
+                "sources": {
+                    "periods": deepcopy(snapshot.get("source_periods") or {}),
+                    "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
+                    "loaded_at": captured_at,
+                    "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+                },
+                "projection": projection,
+            }],
+        }
+        return {
+            "error": False,
+            "scenario_id": session["scenario_id"],
+            "version": session["version"],
+            "tenant_scope": scope,
+            "payload": payload,
+            "read_only": True,
+            "executed": False,
+        }
+
+    def restore_saved_plan(self, payload, user_id=None):
+        """Open stored assumptions as a new transient, explicitly stale scenario."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        if (
+            not isinstance(payload, dict)
+            or payload.get("plan_kind") != "single"
+            or not isinstance(payload.get("items"), list)
+            or len(payload["items"]) != 1
+        ):
+            return self._stale_result()
+        item = payload["items"][0]
+        identity = item.get("identity") if isinstance(item, dict) else None
+        inputs = item.get("inputs") if isinstance(item, dict) else None
+        provenance = item.get("provenance") if isinstance(item, dict) else None
+        sources = item.get("sources") if isinstance(item, dict) else None
+        target_margin = payload.get("target_margin_percent")
+        if target_margin is not None:
+            try:
+                parsed_target = Decimal(str(target_margin))
+            except (InvalidOperation, TypeError, ValueError):
+                return self._stale_result()
+            if not parsed_target.is_finite() or not Decimal("0") <= parsed_target <= Decimal("100"):
+                return self._stale_result()
+        if (
+            not isinstance(identity, dict)
+            or not isinstance(inputs, dict)
+            or not isinstance(provenance, dict)
+            or not isinstance(sources, dict)
+            or not str(identity.get("sku") or "").strip()
+            or not str(identity.get("product_id") or "").strip()
+            or not str(identity.get("offer_id") or "").strip()
+            or str(identity.get("store_id") or "") != str(split_store_tenant_scope(scope)[1] or "")
+        ):
+            return self._stale_result()
+        periods = deepcopy(sources.get("periods") or {})
+        snapshot = {
+            "error": False,
+            "identity": {
+                "user_id": user,
+                "store_id": identity.get("store_id"),
+                "tenant_scope": scope,
+                "product_id": str(identity["product_id"]),
+                "offer_id": str(identity["offer_id"]),
+                "sku": str(identity["sku"]),
+            },
+            "product": {
+                "name": str(identity.get("product_name") or identity.get("offer_id"))[:160],
+                "scheme": str(identity.get("scheme") or "FBO")[:24],
+            },
+            "suggested_inputs": deepcopy(inputs),
+            "input_provenance": deepcopy(provenance),
+            "source_periods": periods,
+            "source_completeness": deepcopy(sources.get("completeness") or {}),
+        }
+        scenario_id = uuid4().hex[:10]
+        now = self.clock()
+        manual_fields = {
+            field for field, value in provenance.items()
+            if value in {"manual", "manual_seller_assumption", "manual_unit_economics_input"}
+        }
+        session = {
+            "scenario_id": scenario_id, "version": 1, "user_id": user,
+            "tenant_scope": scope, "sku": str(identity["sku"]),
+            "snapshot": snapshot, "inputs": deepcopy(inputs),
+            "provenance": deepcopy(provenance), "overrides": manual_fields,
+            "created_at": now, "updated_at": now, "source_loaded_at": now,
+            "source_age_seconds_at_load": 0, "source_ttl_seconds": 0,
+            "restored_from_saved_plan": True,
+            "price_planning_target_margin": (
+                str(target_margin) if target_margin is not None else None
+            ),
+        }
+        operation_token = self._begin_source_operation(user, scope)
+        with self._lock:
+            key = (user, scope)
+            if not self._operation_is_current_locked(key, operation_token):
+                return self._stale_result()
+            self._scenarios[scenario_id] = session
+            self._active[key] = scenario_id
+            self._pending.pop(key, None)
+            self._operation_tokens.pop(key, None)
+            self._evict_scenarios()
+        result = self._scenario_screen(
+            session,
+            notice="Открыты сохранённые допущения. Это исторический сценарий; для текущих данных обновите источники.",
+        )
+        result["scenario_id"] = scenario_id
+        result["scenario_version"] = 1
+        return result
+
+    def edit_saved_plan_field(self, payload, field, user_id=None):
+        """Restore a historical single plan and open one allowed input editor."""
+        if field not in self.EDITABLE_FIELDS:
+            return self._stale_result()
+        opened = self.restore_saved_plan(payload, user_id=user_id)
+        scenario_id = opened.get("scenario_id") if isinstance(opened, dict) else None
+        version = opened.get("scenario_version") if isinstance(opened, dict) else None
+        if not scenario_id or not version:
+            return opened
+        if field in {"logistics_per_unit", "last_mile_per_unit", "acquiring_per_unit"}:
+            fee_screen = self.handle_callback(
+                f"upc:f:{scenario_id}:{version}", user_id=user_id,
+            )
+            callback = next((
+                button.get("callback") for button in (fee_screen.get("keyboard") or {}).get("buttons", [])
+                if str(button.get("callback") or "").endswith(":" + field)
+            ), None)
+            if callback:
+                result = self.handle_callback(callback, user_id=user_id)
+                return {**result, "plan_editor": {"kind": "single", "id": scenario_id, "version": version}}
+            return self._stale_result()
+        result = self.handle_callback(
+            f"upc:e:{scenario_id}:{version}:{field}", user_id=user_id,
+        )
+        return {**result, "plan_editor": {"kind": "single", "id": scenario_id, "version": version}}
 
     def apply_sensitivity_candidate(self, source_context, cell, user_id=None):
         """Apply one explicitly chosen fresh sweep cell to the active plan."""
@@ -525,7 +721,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -561,6 +757,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._apply_price_planning_result(
                     session, parts[4], user, scope, expected_version
                 )
+            if action == "j":
+                return self._begin_advertising_cap_target(session, user, scope, expected_version)
+            if action == "k" and len(parts) == 5:
+                return self._apply_advertising_cap(session, parts[4], user, scope, expected_version)
             if action == "c":
                 if not self._clear_pending_for_session(session, user, scope, expected_version):
                     return self._stale_result()
@@ -611,6 +811,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if session is None:
             self._clear_pending_for_key(key)
             return self._stale_result()
+        if pending.get("stage") == "advertising_cap_target":
+            return self._handle_advertising_cap_target_text(text, pending, session, user, scope, key)
         if pending.get("stage") in {"target_margin", "price_options"}:
             return self._handle_price_planning_text(
                 text, pending, session, user, scope, key
@@ -1286,6 +1488,197 @@ class TelegramUnitPriceCalculatorRuntimeService:
             labels.append("минимальную ставку налога")
         return list(dict.fromkeys(labels))
 
+    def _begin_advertising_cap_target(self, session, user, scope, expected_version):
+        if self.advertising_cap_service is None or self.target_planning_service is None:
+            return self._friendly_error("UNIT_PRICE_ADVERTISING_CAP_UNAVAILABLE")
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (not isinstance(current, dict)
+                    or self._active.get(key) != session["scenario_id"]
+                    or current.get("version") != expected_version
+                    or key in self._operation_tokens):
+                return self._stale_result()
+            current.pop("advertising_cap_result", None)
+            current.pop("price_planning_result", None)
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            version = current["version"]
+            self._pending[key] = {
+                "scenario_id": session["scenario_id"],
+                "version": version,
+                "stage": "advertising_cap_target",
+                "created_at": self.clock(),
+            }
+        return {
+            "error": False,
+            "status": "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED",
+            "message": "Введите целевую маржу от 0 до 100%. Бот отдельно найдёт предел безубыточности и предел для этой цели; расчёт не меняет кампании Ozon.",
+            "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                session["scenario_id"], version
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _handle_advertising_cap_target_text(self, text, pending, session, user, scope, key):
+        target = self.target_planning_service.parse_target_margin(str(text or ""))
+        if not isinstance(target, dict) or target.get("error"):
+            return {
+                "error": False,
+                "status": "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED",
+                "message": "Цель не принята. Введите процент от 0 до 100, не более двух знаков после запятой.",
+                "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                    session["scenario_id"], pending["version"]
+                ),
+                "read_only": True,
+                "executed": False,
+            }
+        result = self.advertising_cap_service.solve(
+            session.get("inputs"), target["normalized"],
+            identity=self._scenario_identity(session),
+            provenance=session.get("provenance"),
+            sources=self._scenario_sources(session),
+        )
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (not isinstance(current, dict)
+                    or self._active.get(key) != session["scenario_id"]
+                    or current.get("version") != pending["version"]
+                    or self.clock() - pending.get("created_at", 0) > self.session_ttl_seconds):
+                return self._stale_result()
+            current.pop("price_planning_result", None)
+            # The accepted advertising-cap target is a planning assumption,
+            # not just part of this disposable screen. Keep it in the same
+            # durable session field used by price-target planning and saved
+            # recipe capture.
+            current["price_planning_target_margin"] = target["normalized"]
+            current["advertising_cap_result"] = {
+                "result": deepcopy(result),
+                "target": target["normalized"],
+                "result_version": current["version"],
+                "snapshot_id": (current.get("snapshot") or {}).get("snapshot_id"),
+                "sku": current.get("sku"),
+                "user_id": user,
+                "tenant_scope": scope,
+            }
+            current["updated_at"] = self.clock()
+            saved = deepcopy(current)
+            self._pending.pop(key, None)
+        return self._advertising_cap_screen(saved)
+
+    @staticmethod
+    def _format_advertising_cap_line(label, outcome):
+        if not isinstance(outcome, dict) or outcome.get("available") is not True:
+            status = outcome.get("status") if isinstance(outcome, dict) else "UNAVAILABLE"
+            return f"{label}: предел не подтверждён ({status})."
+        return (
+            f"{label}: {outcome.get('advertising_rate')}% = {outcome.get('advertising_per_unit')} ₽/шт.; "
+            f"прибыль {outcome.get('profit_per_unit')} ₽, налог {outcome.get('tax_per_unit')} ₽; "
+            f"запас {outcome.get('headroom_percentage_points')} п.п. / {outcome.get('headroom_per_unit')} ₽/шт."
+        )
+
+    def _advertising_cap_screen(self, session):
+        stored = session.get("advertising_cap_result") or {}
+        result = stored.get("result") or {}
+        freshness = self._source_freshness(session)
+        direct = self.scenario_service.calculate(
+            session.get("inputs"), identity=self._scenario_identity(session),
+            provenance=session.get("provenance"), sources=self._scenario_sources(session),
+        )
+        price = ((direct.get("inputs") or {}).get("price") or {}).get("value")
+        lines = [
+            "Допустимые расходы на рекламу · один успешный заказ",
+            f"Цена продавца: {price if price is not None else 'не задана'} ₽/шт.",
+            f"Целевая маржа: {result.get('target_margin_percent', stored.get('target', '—'))}%",
+            f"Текущая доля: {result.get('current_advertising_rate', '—')}% · {result.get('current_advertising_per_unit', '—')} ₽/шт.",
+            self._format_advertising_cap_line("Безубыточность", result.get("break_even")),
+            self._format_advertising_cap_line("Целевая маржа", result.get("target")),
+            f"Исходные тарифы: {'актуальны' if freshness.get('status') == 'FRESH' else 'устарели; предел нельзя подставить'}.",
+            "Плановая доля от цены продавца, не прогноз CPC/CPO и не гарантия результата рекламы.",
+        ]
+        if result.get("error") is True:
+            lines.insert(1, "Результат не подтверждён: " + str(result.get("code") or result.get("status")))
+        valid = (
+            result.get("error") is False
+            and freshness.get("status") == "FRESH"
+            and stored.get("result_version") == session.get("version")
+            and stored.get("snapshot_id") == (session.get("snapshot") or {}).get("snapshot_id")
+            and stored.get("sku") == session.get("sku")
+            and stored.get("user_id") == session.get("user_id")
+            and stored.get("tenant_scope") == session.get("tenant_scope")
+        )
+        buttons = []
+        if valid:
+            for selector, key, label in (
+                ("b", "break_even", "Подставить предел безубыточности"),
+                ("t", "target", "Подставить предел целевой маржи"),
+            ):
+                outcome = result.get(key)
+                if isinstance(outcome, dict) and outcome.get("available") is True:
+                    buttons.append({"text": label, "callback": f"upc:k:{session['scenario_id']}:{session['version']}:{selector}"})
+        buttons.extend([
+            {"text": "Назад к расчёту", "callback": f"upc:v:{session['scenario_id']}:{session['version']}"},
+            {"text": "Главное меню", "callback": "main_menu"},
+        ])
+        return {
+            "error": False, "status": "UNIT_PRICE_ADVERTISING_CAP_RESULT",
+            "message": "\n".join(lines)[:3000],
+            "keyboard": {"error": False, "type": "inline_keyboard", "buttons": buttons},
+            "advertising_cap_result": deepcopy(result),
+            "read_only": True, "executed": False,
+        }
+
+    def _apply_advertising_cap(self, session, selector, user, scope, expected_version):
+        key = (user, scope)
+        stored = session.get("advertising_cap_result") or {}
+        result = stored.get("result") or {}
+        if (stored.get("result_version") != expected_version
+                or stored.get("user_id") != user
+                or stored.get("tenant_scope") != scope
+                or stored.get("sku") != session.get("sku")
+                or stored.get("snapshot_id") != (session.get("snapshot") or {}).get("snapshot_id")
+                or self._source_freshness(session).get("status") != "FRESH"
+                or key in self._operation_tokens):
+            return self._stale_result()
+        outcome = result.get("break_even") if selector == "b" else result.get("target") if selector == "t" else None
+        if not isinstance(outcome, dict) or outcome.get("available") is not True:
+            return self._stale_result()
+        candidate = deepcopy(session.get("inputs") or {})
+        candidate["advertising_rate"] = outcome.get("advertising_rate")
+        verified = self.scenario_service.calculate(
+            candidate, identity=self._scenario_identity(session),
+            provenance=session.get("provenance"), sources=self._scenario_sources(session),
+        )
+        calculated = verified.get("calculated") or {}
+        try:
+            profit = Decimal(str(calculated.get("profit")))
+            revenue = Decimal(str(calculated.get("revenue")))
+            target = Decimal(str(stored.get("target")))
+        except Exception:
+            return self._stale_result()
+        feasible = verified.get("available") is True and (
+            profit >= 0 if selector == "b" else profit * 100 >= target * revenue
+        )
+        if not feasible:
+            return self._stale_result()
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (not isinstance(current, dict)
+                    or self._active.get(key) != session["scenario_id"]
+                    or current.get("version") != expected_version):
+                return self._stale_result()
+            current["inputs"]["advertising_rate"] = outcome["advertising_rate"]
+            current["provenance"]["advertising_rate"] = "manual_seller_assumption"
+            current["overrides"].add("advertising_rate")
+            current.pop("advertising_cap_result", None)
+            current.pop("price_planning_result", None)
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            updated = deepcopy(current)
+            self._pending.pop(key, None)
+        return self._scenario_screen(updated, notice="Рекламный предел перенесён только в локальный сценарий и подтверждён прямым пересчётом. Кампании Ozon не менялись.")
+
     def _set_field(self, session, field, value, user, scope, expected_version):
         candidate = dict(session["inputs"])
         candidate[field] = value
@@ -1382,8 +1775,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 snapshot_session,
                 notice="Не удалось обновить источники. Текущие допущения сохранены.",
             )
-        if fresh.get("identity", {}).get("tenant_scope") != scope:
+        fresh_identity = fresh.get("identity")
+        if not isinstance(fresh_identity, dict) or fresh_identity.get("tenant_scope") != scope:
             return self._finish_refresh_as_stale(key, operation_token)
+        if not self._same_catalog_identity(
+            (snapshot_session.get("snapshot") or {}).get("identity"),
+            fresh_identity,
+        ):
+            return self._finish_refresh_as_identity_changed(key, operation_token)
         inputs = deepcopy(fresh.get("suggested_inputs") or {})
         provenance = deepcopy(fresh.get("input_provenance") or {})
         source_age, source_ttl = self._snapshot_freshness_metadata(fresh)
@@ -1416,6 +1815,24 @@ class TelegramUnitPriceCalculatorRuntimeService:
         with self._lock:
             self._remove_operation_token_if_matches_locked(key, operation_token)
         return self._stale_result()
+
+    def _finish_refresh_as_identity_changed(self, key, operation_token):
+        with self._lock:
+            self._remove_operation_token_if_matches_locked(key, operation_token)
+        return self._friendly_error("UNIT_PRICE_SCENARIO_IDENTITY_CHANGED")
+
+    @staticmethod
+    def _same_catalog_identity(previous, current):
+        if not isinstance(previous, dict) or not isinstance(current, dict):
+            return False
+        for field in ("user_id", "tenant_scope", "product_id", "offer_id", "sku"):
+            before = str(previous.get(field) or "").strip()
+            after = str(current.get(field) or "").strip()
+            if not before or before != after:
+                return False
+        return str(previous.get("store_id") or "").strip() == str(
+            current.get("store_id") or ""
+        ).strip()
 
     def _remove_operation_token_if_matches_locked(self, key, operation_token):
         operation = self._operation_tokens.get(key)
@@ -1736,6 +2153,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "completeness": snapshot.get("source_completeness") or {},
         }
 
+    @staticmethod
+    def _target_margin_assumption(session):
+        """Return the durable planning goal, independent of transient result UI."""
+        target = session.get("price_planning_target_margin")
+        if target is not None:
+            return deepcopy(target)
+        # Keep compatibility with an in-flight session created before the goal
+        # was stored separately from its disposable result projection.
+        result = (session.get("price_planning_result") or {}).get("result") or {}
+        return deepcopy(result.get("target_margin_percent"))
+
     def _register_selection(self, user, scope, product_reference):
         if not product_reference:
             return None
@@ -1896,6 +2324,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "UNIT_PRICE_SCENARIO_SKU_AMBIGUOUS": "Не удалось однозначно определить товар. Проверьте каталог SKU.",
             "UNIT_PRICE_SCENARIO_CATALOG_UNAVAILABLE": "Не удалось загрузить каталог товаров. Попробуйте позже.",
             "UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE": "Для товара не хватает данных карточки. Выберите другой товар или обновите каталог.",
+            "UNIT_PRICE_SCENARIO_IDENTITY_CHANGED": "Карточка товара изменилась после сохранения плана. Старые ручные значения не перенесены; откройте новый товар и создайте для него отдельный план.",
         }
         return labels.get(code, "Не удалось загрузить исходные данные. Заполните расчёт заново позже.")
 

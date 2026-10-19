@@ -523,7 +523,10 @@ class AssistantKeyboardService:
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
             ])
         buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
+        buttons.append({"text": "Сколько можно тратить на рекламу?", "callback": f"upc:j:{sid}:{ver}"})
         buttons.extend([
+            {"text": "💾 Сохранить план", "callback": f"upp:s:{sid}:{ver}"},
+            {"text": "📚 Мои планы", "callback": "upp:m"},
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
             {"text": "Другой товар", "callback": "upc:m"},

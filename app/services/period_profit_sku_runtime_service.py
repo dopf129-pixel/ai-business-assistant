@@ -27,6 +27,8 @@ class _RequestScopedProductProvider:
     def __call__(self):
         selected = self.override.get()
         if selected is not None:
+            if isinstance(selected, list):
+                return [dict(row) for row in selected]
             return [dict(selected)]
         return self.provider()
 
@@ -202,6 +204,75 @@ class PeriodProfitSkuRuntimeService:
             date_from=date_from,
             date_to=date_to,
         )
+
+    def query_selected_identities(self, identities, *, date_from, date_to):
+        """Query exact catalog identities together through the canonical pipeline.
+
+        This bounded projection is used by plan/fact comparison. It deliberately
+        performs one finalized period query for the selected group instead of
+        one full query per SKU, and it never resolves historical SKU aliases.
+        """
+        if not isinstance(identities, list) or not 1 <= len(identities) <= 10:
+            return self._error("PERIOD_PROFIT_SELECTED_GROUP_SCOPE_INVALID")
+        requested = []
+        requested_keys = set()
+        for identity in identities:
+            if not isinstance(identity, dict):
+                return self._error("PERIOD_PROFIT_SELECTED_GROUP_IDENTITY_INVALID")
+            key = tuple(self._text(identity.get(field)) for field in (
+                "product_id", "offer_id", "sku",
+            ))
+            if not all(key) or key in requested_keys:
+                return self._error("PERIOD_PROFIT_SELECTED_GROUP_IDENTITY_AMBIGUOUS")
+            requested_keys.add(key)
+            requested.append(key)
+
+        products = self._products()
+        if isinstance(products, dict):
+            return products
+        by_identity = {}
+        for product in products:
+            key = tuple(self._text(product.get(field)) for field in (
+                "product_id", "offer_id", "sku",
+            ))
+            if key in by_identity:
+                return self._error("PERIOD_PROFIT_SKU_CATALOG_AMBIGUOUS")
+            by_identity[key] = product
+        selected = []
+        for key in requested:
+            product = by_identity.get(key)
+            if product is None:
+                return self._error("PERIOD_PROFIT_SELECTED_GROUP_IDENTITY_UNRESOLVED")
+            selected.append({**product, "_period_profit_selected_scope": True})
+
+        if not self._scoped_providers:
+            return self._error("PERIOD_PROFIT_SELECTED_GROUP_QUERY_UNAVAILABLE")
+        trace = current_period_profit_trace() or PeriodProfitOperationTrace(
+            "selected_sku_group_profit"
+        )
+        trace.update(
+            "selected_sku_group_query_start",
+            service=type(self).__name__,
+            method="query_selected_identities",
+            status="selected_group",
+        )
+        trace_token = activate_period_profit_trace(trace)
+        provider_tokens = [
+            provider.override.set(selected)
+            for provider in self._scoped_providers
+        ]
+        try:
+            return self.query_service.query(
+                date_from=date_from,
+                date_to=date_to,
+                compare_previous=False,
+            )
+        except Exception:
+            return self._error("PERIOD_PROFIT_SELECTED_GROUP_QUERY_FAILED")
+        finally:
+            for provider, token in zip(self._scoped_providers, provider_tokens):
+                provider.override.reset(token)
+            reset_period_profit_trace(trace_token)
 
     def _calculate(self, identity, period, today=None, date_from=None, date_to=None):
         try:

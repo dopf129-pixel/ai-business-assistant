@@ -470,7 +470,7 @@ Status:
 
 Implemented
 
-
+---
 
 ---
 
@@ -2404,3 +2404,163 @@ Price planning changes assumptions frequently and must not alter or overwrite th
 Status:
 
 Implemented
+
+---
+
+## Decision 046
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Local Telegram polling instance ownership and graceful stop
+
+Decision:
+
+- one process per configured Telegram bot token and local OS user is enforced by a held kernel file lock in user-private local state;
+- the token is represented only by a one-way SHA-256 namespace fingerprint; plaintext token and bot credentials never enter lifecycle files or output;
+- status distinguishes process lock ownership from PTB readiness; `RUNNING` requires both the Updater polling and application update processing to be active;
+- local stop uses loopback IPC authenticated by random process generation and a short-lived secret, then delegates shutdown to PTB lifecycle callbacks;
+- PID metadata is informational and is never used to kill, signal or identify an unrelated process;
+- the existing composition contract remains: `build_application()` does not acquire locks, open sockets, run polling or access seller APIs;
+- foreground launch stays the default; background launch is an explicit PowerShell option; stop waits for confirmation and never falls back to force termination.
+
+Reason:
+
+Duplicate polling from another console or checkout can create Telegram conflicts and
+make the active bot unclear. A held kernel lock safely represents ownership despite
+stale PID files, while generation-authenticated loopback IPC provides a narrow,
+local graceful stop path without process-wide kill behavior or a new web server.
+
+Status:
+
+Implemented. PR #705 Verify `39175656753` passed full Windows/Linux suites (3,443 tests each) and production Docker smoke; independent architecture review remains pending.
+
+---
+
+## Decision 047
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Durable seller planning workspace
+
+Decision:
+
+- saved planning documents are explicit user-owned recipes and historical projections, separate from factual seller accounting, confirmed cost, tax settings and the in-memory scenario editor;
+- documents are stored in additive, versioned planning tables in the existing tenant SQLite database and are always scoped to the active owner and store;
+- persisted data is an allowlisted projection; callback tickets, credentials, raw API objects and transient session internals are excluded;
+- writes use transaction boundaries, idempotency keys and expected-revision compare-and-swap; an old save cannot overwrite a newer revision;
+- opening a saved plan is historical and source-free; refreshing is explicit and only exact-identity manual assumptions may carry forward;
+- users choose whether refreshed data appends a revision or becomes a separate copy; archive/restore are reversible and physical deletion requires confirmation;
+- corrupt records and unknown future schema versions remain untouched and return controlled errors.
+
+Reason:
+
+Sellers need to resume and compare hypothetical price plans without turning those
+assumptions into accounting facts or silently replacing a newer plan. Keeping the
+durable recipe separate from transient calculations makes scope, freshness and
+revision conflicts explicit while preserving existing tenant databases.
+
+Status:
+
+Implemented. PR #706 Verify `39175669828` passed full Windows/Linux suites (3,454 tests each) and production Docker smoke; independent architecture review remains pending.
+
+---
+
+## Decision 048
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Aggregate seller planning for an explicitly entered sales mix
+
+Decision:
+
+- a sales-mix forecast includes only exact saved-plan SKU identities with manually entered successful-sale quantities; unknown and explicit zero are distinct;
+- the existing canonical per-sale calculation supplies already-rounded monetary components, and period-level fixed expenses are subtracted once from the combined pre-tax result;
+- the existing `TaxService` is called once for the aggregate only when every included row and tax policy is complete and compatible;
+- incomplete plans may expose a labeled confirmed subtotal, but never a final group profit or margin;
+- any sum of individual SKU advertising caps is an indicative sum, not an optimized group budget and not a guarantee of group margin;
+- a user-confirmed preview appends a new owner/store-scoped planning revision with expected-revision CAS; factual seller records and Ozon are not written or queried.
+
+Reason:
+
+Applying tax separately to each SKU can disagree with the seller's aggregate tax,
+especially where a minimum tax applies. An explicit sales-mix document keeps
+quantities and additional plan expenses reviewable while preserving the
+separation between hypothetical plans and store facts.
+
+Status:
+
+Implemented. PR #707 Verify `39175679778` passed full Windows/Linux suites (3,466 tests each) and production Docker smoke; independent architecture review remains pending.
+
+---
+
+## Decision 049
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Historical planning comparison and report exports
+
+Decision:
+
+- comparison reads two saved revisions in the same authenticated owner/store scope and never refreshes Ozon sources;
+- input differences remain useful when projections cannot be compared, but derived revenue/profit/margin deltas require a compatible period, exact SKU set, tax policy and calculation version;
+- margin deltas are presented as percentage points, not as a relative percent change;
+- plan, advertising cap, sales mix, plan/fact and plan-comparison exports are user-owned report projections, separate from strict support-diagnostic JSON;
+- screen and export consume the same bounded snapshot; missing values stay nullable with status/reason and are never serialized as zero;
+- exports reuse the existing serializer, size/formula guards, owner/store validation and Telegram document sender.
+
+Reason:
+
+Sellers need to compare historical planning choices without treating different
+periods or calculation rules as one controlled experiment. Reusing the existing
+snapshot/export boundaries keeps reports consistent with the visible view and
+separates user business data from anonymized support diagnostics.
+
+Status:
+
+Implemented. PR #708 code-head Verify `39175690904` passed full Windows/Linux suites (3,497 tests each) and production Docker smoke. The current review handoff is documentation-only; check the latest PR #708 Verify before closing O01. Independent architecture review remains pending.
+
+---
+
+## Decision 050
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Planning document state CAS and bounded sales-mix inputs
+
+Decision:
+
+- Keep payload `revision` as the history index and introduce a separate monotonic `state_revision` for metadata and payload mutations. All update/rename/archive/restore/delete writes require both expected values and perform atomic compare-and-swap.
+- Initialize and migrate planning schema metadata inside one SQLite `BEGIN IMMEDIATE` transaction with a unique singleton row; preserve existing document and revision data.
+- Align sales-mix validation limits across Telegram/service/persistence, preserve readable legacy inputs when unchanged, and reject new oversized quantities, periods, expenses, or aggregates before Decimal-to-float tax calculation.
+- Preserve a confirmed sales mix during an update only when the exact product identity scope remains unchanged; composition changes require new explicit quantities/preview.
+
+Reason:
+
+Revision-only CAS does not protect destructive actions against metadata changes,
+and an update must not silently discard confirmed planning assumptions. Separate
+state versioning keeps history semantics intact, while bounded inputs protect the
+existing float-based tax service without changing its contract.
+
+Status:
+
+Implemented with R1–R10 regressions. Targeted H–O profile passed (**259**), documentation checks passed (**3**), and exact code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Verify `39221770481` plus repeat `39221764654` on Windows/Linux, compile and production Docker smoke. An additional docs-only update requires its own exact-head Verify; independent second review remains pending. No merge/deploy was performed.

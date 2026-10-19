@@ -1,11 +1,14 @@
-# Следующий пакет H–O: план будущих проверок (19.10.2026; NOT_STARTED)
+# Planning workspace H–O: статус проверок (19.10.2026; PR verification)
 
-- ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Новые тесты/production services в подготовке не добавлены, pytest повторно не запускался.
-- Будущая приёмка H: межпроцессный instance lock, readiness, безопасный stop, stale metadata/PID reuse, Windows/Linux dummy subprocesses без реального бота.
+- ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`.
+- H01–H03: `tests/test_bot_instance_lifecycle_service.py` проверяет token-scoped lock, отсутствие token в persisted metadata, кросс-процессную блокировку второго владельца и authenticated graceful stop без запуска реального бота. `tests/test_telegram_runtime_health_shutdown_contract.py` проверяет main duplicate guard и точное окно readiness. `tests/test_telegram_runtime_dependencies.py` проверяет lifecycle hooks, а `tests/test_windows_local_handoff_readiness.py` — launch/status/stop scripts.
+- Профиль H локально: **40 passed**. Команда использовала временный fixture workaround и отключила стандартный pytest tmpdir/cache plugins из-за WinError 5 на pytest ACL scratch paths; результат не заменяет стандартный exact-head CI. PowerShell parser и `compileall -q app tests` прошли.
+- H04: idempotent stop при STARTING/STOPPING, timeout и malformed metadata покрыты focused regression profile; Verify PR #705 passed full Windows/Linux suites and Docker build/runtime smoke. Для PR #708 актуальный exact-head Verify отслеживается непосредственно в PR после docs-only handoff commit.
+- I: настоящая temporary SQLite DB, tenant/store isolation, additive migrations, CAS, idempotency, rollback, сохранение/reopen, разделение planning/factual writes.
 - I: настоящая temporary SQLite DB, tenant/store isolation, additive migrations, CAS, idempotency, rollback, сохранение/reopen, разделение planning/factual writes.
 - J/K: канонический ad-limit solver и соседний tick, quantity/weighted totals, один aggregate tax, minimum tax с убыточной строкой, partial/zero/unknown и расходы ровно один раз.
 - L/M/N: фактическая basis/quantity/scope compatibility, exact revenue bridge, public correction/navigation, конфликт ревизий, late callbacks, snapshot-only сравнение/CSV/JSON, formula/size/delivery/privacy guards.
-- O: сквозные public factory/handler paths, полный pytest `tests` + `app/tests`, актуальный SHA-bound Windows/Linux CI и production Docker build/runtime smoke. Старый зелёный baseline не принимает будущий код.
+- J/K/L/M/N/O: сквозные public factory/handler paths, полный pytest `tests` + `app/tests`, актуальный SHA-bound Windows/Linux CI и production Docker build/runtime smoke. Старый зелёный baseline не принимает будущий код.
 - Подготовительные контрольные числа проверены прямыми синтетическими вызовами действующих calculator/TaxService, без API и пользовательских данных. Это не новые regression tests.
 - Merged A–G baseline: `main` `722f368526c278b701cbfd69f3dbb9a474d52386`, Verify `39165543772` successful. Далее идут исторические записи этапов и review прежнего пакета.
 
@@ -93,6 +96,27 @@
 - `tests/test_unit_price_target_planning_service.py`: числовые строки/Decimal `11.110` нормализуются к 1 111 копейкам; `1.0000` принимается как 100 копеек, а `11.111` отклоняется. Два эквивалентных исходных формата обязаны дать одну цену при подборе цели.
 - `tests/test_unit_price_scenario_telegram_runtime.py`: реальный runtime принимает `11.110` в редакторе и выдаёт ту же подтверждённую цену `11.08 ₽`, что и `11.11`; source читается один раз.
 - Четыре связанных planner/runtime/architecture/repeat-review модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Verify runs `38728949431` и `38728942708` на code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` успешны: Windows/Linux — по **3 204 passed**, compileall и Docker build/runtime health-check прошли. Локальный full pytest не сформировал сводку из-за `PermissionError (WinError 5)` при cleanup basetemp и не считается приёмкой.
+
+# Повторный review planning workspace R18–R19 (19.10.2026)
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_advertising_target_survives_back_save_restart_and_historical_cap` проходит ввод цели рекламного предела, возврат к сценарию, сохранение, создание новых runtime instances и просмотр исторического предела без внешних чтений.
+- `::test_latest_advertising_target_overrides_price_goal_and_is_saved_in_update` подтверждает, что новая ad-cap цель замещает более раннюю price-planning цель и сохраняется при явном CAS обновлении существующего плана.
+- `::test_saved_single_refresh_rejects_identity_change_without_transferring_cost` проверяет product_id, offer_id и store scope: stale/identity-change закрывает refresh, не переносит ручную себестоимость и не меняет durable revision. `::test_saved_context_rejects_changed_identity_without_sales_mix` закрепляет дополнительный guard сохранения для плана без sales mix.
+- Профиль saved-plan Telegram, single price runtime, repeat-review/architecture regressions и comparison: **86 passed in 1.99s**. Code SHA `0f359c6c88490416634bc0a0bf57f4f8cb00fcea` прошёл Verify runs [39250181095](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250181095) и [39250193274](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250193274): Windows/Linux full pytest, compileall и production Docker build/runtime smoke successful. Полный локальный suite не запускается из-за известного ACL/shared-storage инцидента.
+
+# Повторный review planning workspace R16–R17 (19.10.2026)
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_fallback_tenant_can_export_compare_and_edit_readiness_in_public_flow` проходит default tenant без store через план, CSV/JSON export, comparison snapshot/export, readiness cost edit и quantity edit; затем проверяет, что другой явный store не видит документ.
+- `tests/test_scoped_transient_snapshot_store.py::test_snapshot_supports_default_owner_scope_without_store_but_keeps_store_isolation` разрешает snapshot только под активным default tenant и отвергает чтение/создание из выбранного чужого store.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_target_margin_survives_apply_back_save_and_restore` проверяет оба перехода из экрана целевой маржи, сохранение цели, исторический рекламный предел и повторное сохранение после восстановления рецепта.
+- Связанный набор saved-plan Telegram, snapshot store, repository, comparison, target planning, advertising cap и sensitivity runtime: **142 passed in 2.97s**. `compileall -q app tests` и `git diff --check` прошли. Full local suite не запускается из-за зафиксированного Windows ACL/shared-storage инцидента; нужен exact-head CI PR #708.
+
+# Повторный review planning workspace R11–R15 (19.10.2026)
+
+- `tests/test_planning_plan_comparison_service.py::test_equal_but_unsupported_calculation_versions_do_not_use_current_calculator` проверяет две одинаковые исторические версии, устаревшую относительно активного калькулятора: метрики не пересчитываются, input differences остаются.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_public_handler_preserves_refreshed_batch_until_saved_revision_is_written` и `::test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_override` проходят refresh → несколько ручных правок → явное обновление прежнего документа; `::test_fallback_tenant_scope_preserves_sales_mix_on_refresh_and_explicit_update` подтверждает пустой store ID в legacy scope.
+- `tests/test_planning_plan_comparison_service.py::test_plan_comparison_screen_shows_expense_changes_instead_of_false_empty_state` покрывает UI изменений фиксированных расходов. `::test_plan_comparison_detail_pages_expose_every_change_and_added_sku_without_external_reads` проходит все страницы для 34 изменений, показывает добавленный SKU на первом экране, ограничивает текст и подтверждает отсутствие внешних чтений.
+- Связанный набор repository, saved-plan Telegram, sales mix, comparison, export и readiness: **62 passed in 3.85s**. `compileall -q app tests` и `git diff --check` прошли. Кодовый commit `ecb1709793d6d6d1541332211fbe42e38624fba0` прошёл exact-head Verify `39232047110` и `39232057817` (Windows/Linux full suites и production Docker smoke). Полный локальный pytest не запускался из-за известного Windows ACL/shared-storage инцидента. Новый docs-only head проверяется отдельно.
 
 # Карта тестов — актуальный статус 2026-10-15
 
@@ -5320,3 +5344,51 @@ Updated:
 - `tests/test_product_overview_telegram_flow.py`: checks that legacy main-menu sections remain available alongside workbench navigation.
 
 G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected** because the local Windows temp root is ACL-restricted while pytest tmpdir is disabled. New acceptance tests pass. Exact acceptance head `12447d4cb48823fea938513fbb16dc4f41a080c2` passed Verify `39069249065`; review-handoff head `1a6664429533e092b239a6240e0b1173358f0cfa` passed Verify `39069517726` (Windows, Linux full verification, Docker smoke).
+
+# Planning workspace and lifecycle — H/I
+
+- `tests/test_bot_instance_lifecycle_service.py`, `tests/test_telegram_bot_control_cli.py` and related Telegram/runtime/Windows handoff tests cover the singleton lock, startup readiness, authenticated loopback stop and no-force timeout contract. H focused local profile: **40 passed**.
+- `tests/test_planning_workspace_repository.py`: additive migration with legacy tables, owner/store isolation, idempotency, CAS winner under concurrent writes, archive/restore/confirmed delete, malformed/unallowlisted payload, Decimal/UTC validation, unsupported future schema, storage/clock failure, corrupt historical revision without hiding other records.
+- `tests/test_saved_planning_plan_telegram_flow.py`: public handler save and paged list, service restart/reopen, historical continuation without Ozon reads, stale title ticket, batch restoration as stale, explicit CRUD, exact-source refresh with manual-price preservation, and update by expected revision.
+- H/I combined focused profile: **99 passed** using the workspace-local ACL workaround; exact command and run evidence are recorded in `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. The full local suite attempt ended **3,431 passed, 28 failed**: shared configured storage caused 7 multi-tenant expectation failures and Windows temp ACL caused 21 failures. It also touched root `data/tasks.json`/`data/users.json`; exact-head clean CI is required, and local full-suite reruns are suspended.
+
+# Advertising limit — J00–J02
+
+- `tests/test_unit_price_advertising_cap_service.py`: bounded 0.01 percentage-point grid; canonical calculation; break-even and target-margin boundaries; next-tick confirmation; tax modes and minimum tax; explicit missing/zero; unreachable targets; non-monotonic fail-closed and evaluation ceiling.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: explicit target input, result bound to current scenario/version, second canonical calculation on local apply, stale replay rejection and no additional source calls.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: per-row cap action bound to the exact batch revision and local-only apply.
+- `tests/test_saved_planning_plan_telegram_flow.py`: historical cap display does not query Ozon and offers no direct apply.
+- Connected J profile: **63 passed**. Exact command, boundaries and remaining J03 acceptance are in the progress journal; clean Windows/Linux exact-head CI is still required.
+
+## Sales-mix economics — K00–K03
+
+- `tests/test_sales_mix_planning_service.py`: mandatory two-SKU aggregate, one aggregate tax call, minimum tax instead of summing row taxes, missing-vs-zero quantities, partial subtotal, mixed tax policy, quantity/identity/period/expense validation.
+- `tests/test_unit_price_scenario_service.py`: canonical one-sale scenario remains unchanged; aggregate-only projection adds the rounded input cost for SKU contribution display without invoking TaxService.
+- `tests/test_planning_workspace_repository.py::test_sales_mix_persists_explicit_unknown_quantity_and_rejects_bad_scope`: persisted quantity scope, explicit unknown, rejects invalid scope and negative additional expenses.
+- `tests/test_saved_planning_plan_telegram_flow.py`: public saved-plan input, explicit no-expenses choice, append-by-revision, no source reads, detailed per-SKU components, fixed expense applied once, individual ad-cap sum clearly not described as a group guarantee, and concurrent ticket replacement rejected before CAS write.
+- Connected K profile: **27 passed** with the documented Windows temp-root workaround. Exact command and infrastructure constraints are in `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`; full-suite rerun is suspended after the recorded local-data incident. Exact-head Windows/Linux CI remains required.
+
+## Plan/fact comparison and readiness — L00–M02
+
+- `tests/test_period_profit_plan_fact_comparison.py`: exact tenant/period/SKU scope, confirmed versus unknown successful quantity, Decimal revenue bridge, actual Q=0, invalid duplicate identity, and explicit profit NOT_COMPARABLE status.
+- `tests/test_period_profit_sku_end_to_end_scope.py` and `tests/test_period_profit_summary_service.py`: current exact product identity is retained; selected groups use one canonical period query, never a top-K approximation.
+- `tests/test_saved_planning_plan_telegram_flow.py`: public saved-plan flow through canonical finalized facts, immutable snapshot CSV/JSON without rereads, stale-plan CAS rejection during source query, store switch rejection, readiness navigation to a missing scalar field and an individual unknown quantity, preview-before-revision commit.
+- `tests/test_planning_plan_readiness_service.py`: calculation, historical-assumption and fact statuses remain independent; explicit zero differs from unknown; unresolved identity and stale source are not labeled ready.
+- `tests/test_telegram_unit_price_batch_plan_runtime_service.py::test_readiness_edit_opens_only_the_requested_saved_batch_row_and_field`: targeted edit opens the selected saved batch row and one field.
+- L connected profile: **36 passed**; M readiness/flow/batch checks: **7 passed** in a separate focused invocation. Exact commands and remaining acceptance are recorded in `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`; full local suite remains suspended after the recorded shared-storage and Windows ACL incident. Exact-head Windows/Linux CI is required.
+
+## Saved-plan comparison, exports and H–O acceptance — N/O
+
+- `tests/test_planning_plan_comparison_service.py`: exact owner/store checks, same calculation/period/SKU/tax scope, historical input diffs, profit/margin suppression when projections are incompatible, and no Ozon dependency.
+- `tests/test_saved_planning_plan_telegram_flow.py`: public comparison selection, revision snapshots, historical saved-plan/ad-cap/sales-mix/comparison export through the existing sender, owner scope, and no source rereads.
+- `tests/test_analytics_export_service.py` and `tests/test_analytics_export_serializer.py`: allowlisted export kinds, complete visible snapshot scope, Decimal money, nullable/missing reasons, safe filenames and formula-injection handling. Existing `plan_fact` export remains on its canonical snapshot path.
+- Final broad local H–O profile: **249 passed in 9.98s** on Windows/Python 3.12. It includes lifecycle, repository/runtime, ad cap, sales mix, plan/fact, readiness, comparison/export, Telegram document/transport, existing overview/sensitivity and return diagnostic regressions. The exact command and isolated temp setup are in the progress journal.
+- Full pytest is intentionally not repeated in the developer workspace: the earlier local run caused cross-test shared-storage failures plus Windows `%TEMP%` ACL failures and modified root data JSON. No affected tests were removed or disabled. PR Verify #705–#708 completed the full tests/`app/tests` suites on Windows/Linux (3,443 / 3,454 / 3,466 / 3,497 passed at their respective stacked heads), compileall, and production Docker build/runtime smoke. The docs-only handoff commit will trigger another exact-head CI for PR #708. `data/tasks.json`, `data/users.json`, lock and scratch directories are excluded from version control.
+
+## Architecture-review regressions — R1–R10
+
+- `tests/test_planning_workspace_repository.py`: payload/state-revision CAS, stale delete after rename, atomic schema singleton migration/concurrent initialization, current sales-mix limits, and read/write preservation of existing legacy sales-mix data.
+- `tests/test_saved_planning_plan_telegram_flow.py`: public single/batch save-update preserves exact-scope mix, stale metadata callbacks, refresh ticket and batch lifetime, readiness status, plan/fact response invalidated by reset, and two-field editor continuation under CAS.
+- `tests/test_planning_plan_comparison_service.py`: add/remove/rename/change expense values with CSV/JSON, plus exact added/common/removed SKU identity visibility in screen and full-scope exports.
+- `tests/test_sales_mix_planning_service.py`: common UI/service/persistence limits, period/quantity/expense boundaries, aggregate money guard before float-based tax calculation.
+- H–O linked regression profile after R1–R10: **259 passed**; documentation drift/manager tests: **3 passed**. Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Windows/Linux exact-head Verify `39221770481` and repeat `39221764654`, including compile and production Docker build/runtime smoke. A subsequent docs-only commit requires its own current-head Verify.

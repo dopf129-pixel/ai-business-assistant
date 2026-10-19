@@ -87,3 +87,54 @@ def test_selected_sku_query_is_not_blocked_by_unrelated_missing_cost():
     assert result["summary"]["product_cost"] == 400.0
     assert result["summary"]["profit"] == 400.0
     assert len(base.product_provider()) == 2
+
+
+def test_selected_identity_group_uses_one_canonical_query_and_exact_catalog_scope():
+    base = _BaseQuery()
+    final = _FinalQuery(base)
+    calls = []
+
+    def selected_query(**kwargs):
+        rows = base.product_provider()
+        calls.append((kwargs, rows))
+        assert [row["sku"] for row in rows] == ["catalog-wanted", "catalog-other"]
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_QUERY_READY",
+            "request": {"date_from": kwargs["date_from"], "date_to": kwargs["date_to"]},
+            "summary": {"products": [], "product_count": 0},
+        }
+
+    final.query = selected_query
+    runtime = PeriodProfitSkuRuntimeService(final, cost_service=_Costs())
+    result = runtime.query_selected_identities(
+        [
+            {"product_id": "1", "offer_id": "wanted", "sku": "catalog-wanted"},
+            {"product_id": "2", "offer_id": "other", "sku": "catalog-other"},
+        ],
+        date_from="2026-08-01", date_to="2026-08-31",
+    )
+
+    assert result["error"] is False
+    assert result["request"] == {"date_from": "2026-08-01", "date_to": "2026-08-31"}
+    assert len(calls) == 1
+    assert calls[0][0]["compare_previous"] is False
+    assert all(row.get("_period_profit_selected_scope") is True for row in calls[0][1])
+    assert len(base.product_provider()) == 2
+
+
+def test_selected_identity_group_rejects_unmapped_identity_before_query():
+    base = _BaseQuery()
+    final = _FinalQuery(base)
+    calls = []
+    final.query = lambda **kwargs: calls.append(kwargs)
+    runtime = PeriodProfitSkuRuntimeService(final, cost_service=_Costs())
+
+    result = runtime.query_selected_identities(
+        [{"product_id": "different", "offer_id": "wanted", "sku": "catalog-wanted"}],
+        date_from="2026-08-01", date_to="2026-08-31",
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_SELECTED_GROUP_IDENTITY_UNRESOLVED"
+    assert calls == []

@@ -1,0 +1,68 @@
+# Planning workspace H–O — independent review handoff
+
+Status: **R1–R15 FIXED IN CURRENT WORKING TREE; LOCAL TARGETED PROFILE GREEN; EXACT-HEAD CI AND REPEAT REVIEW PENDING.**
+
+Execution task: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`
+Progress journal: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`
+Review classification: **Architecture Review Required**.
+
+## PR stack and exact revisions
+
+| Order | Modules | Pull request | Base | Head | Verify run |
+|---:|---|---|---|---|---|
+| 1 | H — local process lifecycle | [#705](https://github.com/dopf129-pixel/ai-business-assistant/pull/705) | `main` `722f368526c278b701cbfd69f3dbb9a474d52386` | `050563b6e8766efa06e3b733fc69bc35e086899d` | [39175656753](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175656753) — **success**, 3,443 tests on Windows and Linux; Docker smoke passed. CI merge ref: `a2cfd6b673e68eb4ef068399e39974404db7666e` |
+| 2 | I — tenant planning repository | [#706](https://github.com/dopf129-pixel/ai-business-assistant/pull/706) | `codex/planning-workspace-h` `050563b6e8766efa06e3b733fc69bc35e086899d` | `4e6b1bc1f2d05433537f7caf2fda450b33ccce65` | [39175669828](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175669828) — **success**, 3,454 tests on Windows and Linux; Docker smoke passed. CI merge ref: `902f475f886bfff1d740121b392a8f608ad4187d` |
+| 3 | J–K — advertising cap and sales mix calculation | [#707](https://github.com/dopf129-pixel/ai-business-assistant/pull/707) | `codex/planning-workspace-i` `4e6b1bc1f2d05433537f7caf2fda450b33ccce65` | `b66ebc45686e276c76bfcb4173c92cade6100c9c` | [39175679778](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175679778) — **success**, 3,466 tests on Windows and Linux; Docker smoke passed. CI merge ref: `4c091f6c38017bb3a687e2b08ee6cf5fe6bf9289` |
+| 4 | L–N + O integration/evidence | [#708](https://github.com/dopf129-pixel/ai-business-assistant/pull/708) | `codex/planning-workspace-jk` `b66ebc45686e276c76bfcb4173c92cade6100c9c` | `d057031364e6d934f258fec2efa385a045f6e3bf` | [39221770481](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39221770481) and [39221764654](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39221764654) — both **success** on Windows/Linux; compile and Docker smoke passed. Merge ref: `bedc642ba87b6c3857b7e93ab916b9d058dd7c04`. |
+
+Merge order must follow this dependency chain. The top PR is intentionally not a standalone diff against `main`. The first reviewed revision was pre-fix; the code fix head shown above passed exact-head Verify. This handoff update itself is docs-only and needs a new latest Verify. No PR has been merged and no deployment has been performed.
+
+## Completed scope
+
+- H: token-scoped single-instance lock, readiness only after polling/update processing start, local foreground/background start, status, and authenticated graceful stop; no process-wide kill.
+- I: additive versioned SQLite planning tables, owner/store isolation, idempotency, revision CAS, bounded history, and historical document service.
+- J: bounded Decimal advertising-cap solver over the canonical unit calculator.
+- K: explicit successful-sales quantities, rounded per-sale components, period expenses once, and one aggregate call to the existing tax service.
+- L: exact-scope plan/fact projection and arithmetic revenue bridge; incompatible profit scope is explicitly unavailable.
+- M: separate calculation/history/fact readiness and targeted edits with preview and revision CAS.
+- N: historical revision comparison and saved-plan, advertising-cap, sales-mix, and comparison CSV/JSON through existing export/document boundaries.
+- O00: connected user flows and local cross-module acceptance. O02 second review found R11–R15; fixes are in code commit `ecb1709793d6d6d1541332211fbe42e38624fba0`. Local profile: 62 passed in 3.85s. Verify runs `39232047110` and `39232057817` pass Windows/Linux, compile and production Docker smoke. The subsequent docs-only checkpoint needs its own latest-head Verify; repeat review remains before merge.
+
+## Local verification
+
+- Broad H–O Windows/Python 3.12 profile after review fixes: **259 passed**.
+- Documentation drift/manager tests: **3 passed**.
+- Documentation drift/manager tests: **3 passed**.
+- `python -m compileall -q app tests`: passed.
+- PowerShell AST parse for `start_bot.ps1`, `status_bot.ps1`, `stop_bot.ps1`: passed.
+- `git diff --check`: passed.
+- No real Telegram bot, Telegram/Ozon API, `.env`, seller credentials, or seller reports were used.
+
+The earlier full local pytest attempt produced **3431 passed / 28 failed** due to 7 shared-storage expectation failures and 21 Windows temporary-directory ACL failures, and modified root `data/tasks.json` and `data/users.json`. Exact original copies were unavailable, so no restoration was attempted. The current data hashes are recorded in the progress journal. Neither file, their lock, nor scratch directories are included in the PR commits. Do not rerun the full suite in this workspace; use the complete current GitHub verification jobs instead. No tests were deleted or disabled.
+
+## Architecture and compatibility notes
+
+- The planning schema is additive in the existing tenant SQLite database; no destructive migration or production data migration is included.
+- Hypothetical planning documents remain separate from confirmed seller accounting/cost/tax facts. Historical plan reads and comparisons do not query Ozon.
+- Existing canonical calculator and `TaxService` remain the calculation authorities; aggregate sales mix does not sum per-SKU taxes.
+- Runtime callbacks and writes are scoped to authenticated owner/store and expected revision. Expired, stale, incompatible, partial, and future-schema states fail closed.
+- User report exports may contain the current owner's figures and are authorization-scoped separately from strict anonymized support diagnostics.
+- Existing main-menu flows remain available; process stop is cooperative and never kills an arbitrary PID.
+
+## Independent review checklist
+
+1. Verify SQLite additive migration, tenant identity, allowlist validation, CAS/idempotency, archive/restore/delete boundaries, and future-schema behavior.
+2. Inspect callback tickets, stale-edit races, owner/store switches, reset/expiry, and revision conflict behavior.
+3. Confirm saved planning data cannot enter financial fact, seller-cost, expense, or tax-setting stores.
+4. Recheck Decimal bounds/rounding, monotonicity/evaluation budget, unknown-vs-zero quantity, fixed expenses once, and aggregate `TaxService` invocation.
+5. Validate exact period/SKU/tax/calculation-version gates for fact and revision comparison; ensure incompatible derived deltas remain suppressed.
+6. Confirm historical operations use snapshots and do not repeat Ozon calls; inspect source-operation budgets and expiry behavior.
+7. Review export full-scope semantics, null/reason representation, Unicode/escaping/formula protection, size limits, delivery failure, and separation from diagnostic allowlists.
+8. Verify process-lock ownership/readiness/loopback authentication and that stop cannot signal or kill an unrelated process.
+9. Confirm every PR's exact-head Verify run passes Windows, Linux/full test suite, compile, and production Docker smoke before review completion.
+
+## Final verification gate
+
+- Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed exact-head Verify runs `39221770481` and `39221764654`; both show Windows/Linux success, compile success, production Docker build and runtime smoke success.
+- Before closing O01, confirm the latest Verify run on PR #708 succeeded for its current head; the latest run is authoritative if later commits advance that head.
+- The first review findings R1–R10 and second review findings R11–R15 have regression coverage. Code fix SHA `ecb1709793d6d6d1541332211fbe42e38624fba0` passed Verify `39232047110` and `39232057817` on Windows/Linux with compile and production Docker smoke. The docs-only checkpoint is followed by a fresh exact-head Verify; repeat independent review remains required before merge. CI success alone is not review approval and does not authorize merge.

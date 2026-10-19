@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -22,10 +22,15 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 1
+    DATABASE_SCHEMA_VERSION = 2
     MAX_DOCUMENTS_PER_STORE = 200
     MAX_REVISIONS_PER_DOCUMENT = 20
     MAX_PAYLOAD_BYTES = 64 * 1024
     MAX_PAGE_SIZE = 10
+    MAX_SALES_MIX_QUANTITY_PER_ITEM = 100_000
+    MAX_SALES_MIX_TOTAL_QUANTITY = 1_000_000
+    MAX_SALES_MIX_EXPENSES = 20
+    MAX_SALES_MIX_EXPENSE_TOTAL = Decimal("1000000000.00")
     _TITLE_LIMIT = 80
     _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
     _INPUT_FIELDS = frozenset({
@@ -65,13 +70,20 @@ class PlanningWorkspaceRepository:
 
     def save_document(
         self, *, title, payload, owner_id=None, store_id=None,
-        document_id=None, expected_revision=None, idempotency_key,
+        document_id=None, expected_revision=None, expected_state_revision=None,
+        idempotency_key,
     ):
         scope = self._scope(owner_id, store_id)
         if scope.get("error"):
             return self._error(scope["code"])
+        if document_id is not None and (
+            type(expected_state_revision) is not int or expected_state_revision < 1
+        ):
+            return self._error("PLANNING_DOCUMENT_STATE_REVISION_REQUIRED")
         normalized_title = self._title(title)
-        normalized_payload = self._payload(payload, scope)
+        normalized_payload = self._payload(
+            payload, scope, allow_legacy_sales_mix=document_id is not None,
+        )
         key = self._idempotency_key(idempotency_key)
         if normalized_title is None or normalized_payload is None or key is None:
             return self._error("PLANNING_DOCUMENT_INPUT_INVALID")
@@ -102,11 +114,11 @@ class PlanningWorkspaceRepository:
                 revision = 1
                 connection.execute(
                     """INSERT INTO planning_documents
-                       (document_id, owner_id, store_id, title, status, revision,
+                       (document_id, owner_id, store_id, title, status, revision, state_revision,
                         schema_version, calculation_version, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, 'ACTIVE', 1, 1, ?, ?, ?, ?)""",
                     (document_id, scope["owner_id"], scope["store_id"], normalized_title,
-                     revision, normalized_payload["schema_version"],
+                     normalized_payload["schema_version"],
                      normalized_payload["calculation_version"], now, now),
                 )
             else:
@@ -114,7 +126,7 @@ class PlanningWorkspaceRepository:
                     connection.rollback()
                     return self._error("PLANNING_DOCUMENT_REVISION_REQUIRED")
                 row = connection.execute(
-                    "SELECT revision, status FROM planning_documents "
+                    "SELECT revision, state_revision, status FROM planning_documents "
                     "WHERE document_id=? AND owner_id=? AND store_id=?",
                     (str(document_id), scope["owner_id"], scope["store_id"]),
                 ).fetchone()
@@ -124,6 +136,9 @@ class PlanningWorkspaceRepository:
                 if row["revision"] != expected_revision:
                     connection.rollback()
                     return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
+                if row["state_revision"] != expected_state_revision:
+                    connection.rollback()
+                    return self._error("PLANNING_DOCUMENT_STATE_CONFLICT")
                 if row["status"] != "ACTIVE":
                     connection.rollback()
                     return self._error("PLANNING_DOCUMENT_NOT_ACTIVE")
@@ -131,13 +146,39 @@ class PlanningWorkspaceRepository:
                     connection.rollback()
                     return self._error("PLANNING_DOCUMENT_REVISION_LIMIT")
                 revision = row["revision"] + 1
+                previous_row = connection.execute(
+                    "SELECT payload_json FROM planning_revisions WHERE document_id=? "
+                    "AND owner_id=? AND store_id=? AND revision=?",
+                    (str(document_id), scope["owner_id"], scope["store_id"], row["revision"]),
+                ).fetchone()
+                if previous_row is None:
+                    connection.rollback()
+                    return self._error("PLANNING_DOCUMENT_CORRUPT")
+                previous_payload = json.loads(previous_row["payload_json"])
+                new_mix = normalized_payload.get("sales_mix")
+                if new_mix is not None and not self._valid_sales_mix(
+                    new_mix, normalized_payload["items"],
+                ):
+                    if (
+                        self._sales_mix_identity_scope(previous_payload)
+                        != self._sales_mix_identity_scope(normalized_payload)
+                        or previous_payload.get("sales_mix") != new_mix
+                        or not self._valid_sales_mix(
+                            new_mix, normalized_payload["items"], allow_legacy=True,
+                        )
+                    ):
+                        connection.rollback()
+                        return self._error("PLANNING_DOCUMENT_INPUT_INVALID")
+                params = [normalized_title, revision, normalized_payload["schema_version"],
+                          normalized_payload["calculation_version"], now, str(document_id),
+                          scope["owner_id"], scope["store_id"], expected_revision]
+                params.append(expected_state_revision)
                 changed = connection.execute(
                     "UPDATE planning_documents SET title=?, revision=?, schema_version=?, "
-                    "calculation_version=?, updated_at=? WHERE document_id=? AND owner_id=? "
-                    "AND store_id=? AND revision=? AND status='ACTIVE'",
-                    (normalized_title, revision, normalized_payload["schema_version"],
-                     normalized_payload["calculation_version"], now, str(document_id),
-                     scope["owner_id"], scope["store_id"], expected_revision),
+                    "calculation_version=?, state_revision=state_revision+1, updated_at=? "
+                    "WHERE document_id=? AND owner_id=? AND store_id=? AND revision=? "
+                    "AND status='ACTIVE' AND state_revision=?",
+                    tuple(params),
                 ).rowcount
                 if changed != 1:
                     connection.rollback()
@@ -149,7 +190,8 @@ class PlanningWorkspaceRepository:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (str(document_id), scope["owner_id"], scope["store_id"], revision, encoded, now),
             )
-            result = {"error": False, "document_id": str(document_id), "revision": revision}
+            result = {"error": False, "document_id": str(document_id), "revision": revision,
+                      "state_revision": 1 if expected_revision is None else row["state_revision"] + 1}
             self._remember_idempotency(connection, scope, key, result, now)
             connection.commit()
             return result
@@ -199,7 +241,7 @@ class PlanningWorkspaceRepository:
             payload_schema = payload.get("schema_version") if isinstance(payload, dict) else None
             if type(payload_schema) is int and payload_schema > self.SCHEMA_VERSION:
                 return self._error("PLANNING_DOCUMENT_SCHEMA_UNSUPPORTED")
-            if self._payload(payload, scope) is None:
+            if self._payload(payload, scope, allow_legacy_sales_mix=True) is None:
                 return self._error("PLANNING_DOCUMENT_CORRUPT")
             return {
                 "error": False,
@@ -224,7 +266,7 @@ class PlanningWorkspaceRepository:
             status_filter = "" if include_archived else " AND status='ACTIVE'"
             rows = connection.execute(
                 "SELECT document_id, title, status, revision, schema_version, calculation_version, "
-                "created_at, updated_at FROM planning_documents WHERE owner_id=? AND store_id=?"
+                "state_revision, created_at, updated_at FROM planning_documents WHERE owner_id=? AND store_id=?"
                 + status_filter + " ORDER BY updated_at DESC, document_id LIMIT ? OFFSET ?",
                 (scope["owner_id"], scope["store_id"], limit + 1, offset),
             ).fetchall()
@@ -262,45 +304,44 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
-    def rename_document(self, document_id, title, *, expected_revision, idempotency_key,
+    def rename_document(self, document_id, title, *, expected_revision,
+                        expected_state_revision, idempotency_key,
                         owner_id=None, store_id=None):
         return self._mutate_document(
-            document_id, owner_id, store_id, expected_revision, idempotency_key,
-            "UPDATE planning_documents SET title=?, updated_at=? WHERE document_id=? "
-            "AND owner_id=? AND store_id=? AND revision=? AND status IN ('ACTIVE','ARCHIVED')",
-            (self._title(title),), "PLANNING_DOCUMENT_INPUT_INVALID",
+            document_id, owner_id, store_id, expected_revision, expected_state_revision,
+            idempotency_key, "rename", self._title(title),
         )
 
-    def set_archived(self, document_id, archived, *, expected_revision, idempotency_key,
+    def set_archived(self, document_id, archived, *, expected_revision,
+                     expected_state_revision, idempotency_key,
                      owner_id=None, store_id=None):
         if type(archived) is not bool:
             return self._error("PLANNING_DOCUMENT_INPUT_INVALID")
-        status = "ARCHIVED" if archived else "ACTIVE"
         return self._mutate_document(
-            document_id, owner_id, store_id, expected_revision, idempotency_key,
-            "UPDATE planning_documents SET status=?, updated_at=? WHERE document_id=? "
-            "AND owner_id=? AND store_id=? AND revision=? AND status IN ('ACTIVE','ARCHIVED')",
-            (status,), "PLANNING_DOCUMENT_INPUT_INVALID",
+            document_id, owner_id, store_id, expected_revision, expected_state_revision,
+            idempotency_key, "archive" if archived else "restore", None,
         )
 
-    def delete_document(self, document_id, *, expected_revision, confirmed, idempotency_key,
+    def delete_document(self, document_id, *, expected_revision, expected_state_revision,
+                        confirmed, idempotency_key,
                         owner_id=None, store_id=None):
         if confirmed is not True:
             return self._error("PLANNING_DOCUMENT_CONFIRMATION_REQUIRED")
         return self._mutate_document(
-            document_id, owner_id, store_id, expected_revision, idempotency_key,
-            "DELETE FROM planning_documents WHERE document_id=? AND owner_id=? AND store_id=? AND revision=?",
-            (), "PLANNING_DOCUMENT_INPUT_INVALID", delete=True,
+            document_id, owner_id, store_id, expected_revision, expected_state_revision,
+            idempotency_key, "delete", None,
         )
 
     def _mutate_document(self, document_id, owner_id, store_id, expected_revision,
-                         idempotency_key, sql, extra_params, invalid_code, delete=False):
+                         expected_state_revision, idempotency_key, mutation, value):
         scope = self._scope(owner_id, store_id)
         key = self._idempotency_key(idempotency_key)
         if (scope.get("error") or not isinstance(document_id, str) or not document_id
-                or type(expected_revision) is not int or expected_revision < 1 or key is None
-                or (extra_params and extra_params[0] is None)):
-            return self._error(invalid_code)
+                or type(expected_revision) is not int or expected_revision < 1
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or mutation not in {"rename", "archive", "restore", "delete"}
+                or (mutation == "rename" and value is None) or key is None):
+            return self._error("PLANNING_DOCUMENT_INPUT_INVALID")
         try:
             connection = self.get_connection()
         except (sqlite3.Error, OSError):
@@ -312,32 +353,53 @@ class PlanningWorkspaceRepository:
                 connection.commit()
                 return replay
             now = self._timestamp()
-            if delete:
-                row = connection.execute(
-                    "SELECT revision FROM planning_documents WHERE document_id=? AND owner_id=? AND store_id=?",
-                    (document_id, scope["owner_id"], scope["store_id"]),
-                ).fetchone()
-                if row is None:
-                    connection.rollback()
-                    return self._error("PLANNING_DOCUMENT_NOT_FOUND")
-                if row["revision"] != expected_revision:
-                    connection.rollback()
-                    return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
+            row = connection.execute(
+                "SELECT revision, state_revision FROM planning_documents "
+                "WHERE document_id=? AND owner_id=? AND store_id=?",
+                (document_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_DOCUMENT_NOT_FOUND")
+            if (row["revision"] != expected_revision
+                    or row["state_revision"] != expected_state_revision):
+                connection.rollback()
+                return self._error("PLANNING_DOCUMENT_STATE_CONFLICT")
+            if mutation == "delete":
                 connection.execute("DELETE FROM planning_revisions WHERE document_id=? AND owner_id=? AND store_id=?",
                                    (document_id, scope["owner_id"], scope["store_id"]))
-                changed = connection.execute(sql, (document_id, scope["owner_id"], scope["store_id"], expected_revision)).rowcount
-            elif sql.startswith("UPDATE planning_documents SET title="):
-                changed = connection.execute(sql, (*extra_params, now, document_id, scope["owner_id"], scope["store_id"], expected_revision)).rowcount
+                changed = connection.execute(
+                    "DELETE FROM planning_documents WHERE document_id=? AND owner_id=? AND store_id=? "
+                    "AND revision=? AND state_revision=?",
+                    (document_id, scope["owner_id"], scope["store_id"], expected_revision,
+                     expected_state_revision),
+                ).rowcount
             else:
-                changed = connection.execute(sql, (*extra_params, now, document_id, scope["owner_id"], scope["store_id"], expected_revision)).rowcount
+                if mutation == "rename":
+                    changed = connection.execute(
+                        "UPDATE planning_documents SET title=?, state_revision=state_revision+1, updated_at=? "
+                        "WHERE document_id=? AND owner_id=? AND store_id=? AND revision=? AND state_revision=?",
+                        (value, now, document_id, scope["owner_id"], scope["store_id"],
+                         expected_revision, expected_state_revision),
+                    ).rowcount
+                else:
+                    status = "ARCHIVED" if mutation == "archive" else "ACTIVE"
+                    changed = connection.execute(
+                        "UPDATE planning_documents SET status=?, state_revision=state_revision+1, updated_at=? "
+                        "WHERE document_id=? AND owner_id=? AND store_id=? AND revision=? AND state_revision=?",
+                        (status, now, document_id, scope["owner_id"], scope["store_id"],
+                         expected_revision, expected_state_revision),
+                    ).rowcount
             if changed != 1:
                 exists = connection.execute(
                     "SELECT 1 FROM planning_documents WHERE document_id=? AND owner_id=? AND store_id=?",
                     (document_id, scope["owner_id"], scope["store_id"]),
                 ).fetchone()
                 connection.rollback()
-                return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT" if exists else "PLANNING_DOCUMENT_NOT_FOUND")
-            result = {"error": False, "document_id": document_id, "deleted": bool(delete)}
+                return self._error("PLANNING_DOCUMENT_STATE_CONFLICT" if exists else "PLANNING_DOCUMENT_NOT_FOUND")
+            result = {"error": False, "document_id": document_id,
+                      "deleted": mutation == "delete",
+                      "state_revision": None if mutation == "delete" else expected_state_revision + 1}
             self._remember_idempotency(connection, scope, key, result, now)
             connection.commit()
             return result
@@ -359,7 +421,7 @@ class PlanningWorkspaceRepository:
             return {"error": True, "code": "PLANNING_TENANT_SCOPE_MISMATCH"}
         return {"error": False, "owner_id": owner, "store_id": store}
 
-    def _payload(self, payload, scope):
+    def _payload(self, payload, scope, *, allow_legacy_sales_mix=False):
         if not isinstance(payload, dict) or set(payload) - {
             "plan_kind", "items", "sales_mix", "schema_version", "calculation_version",
             "target_margin_percent",
@@ -458,7 +520,9 @@ class PlanningWorkspaceRepository:
         if kind == "single" and len(normalized_items) != 1:
             return None
         sales_mix = payload.get("sales_mix")
-        if sales_mix is not None and not self._valid_sales_mix(sales_mix, normalized_items):
+        if sales_mix is not None and not self._valid_sales_mix(
+            sales_mix, normalized_items, allow_legacy=allow_legacy_sales_mix,
+        ):
             return None
         target = self._decimal_string(payload.get("target_margin_percent"), nullable=True)
         if target is False:
@@ -540,7 +604,7 @@ class PlanningWorkspaceRepository:
         return cleaned
 
     @staticmethod
-    def _valid_sales_mix(value, items):
+    def _valid_sales_mix(value, items, *, allow_legacy=False):
         if not isinstance(value, dict) or set(value) != {"period_label", "quantities", "expenses", "confirmed"}:
             return False
         period_label = PlanningWorkspaceRepository._short_text(value.get("period_label"), 80)
@@ -550,46 +614,147 @@ class PlanningWorkspaceRepository:
         item_keys = {str(item.get("row_id") or item["identity"]["sku"]) for item in items}
         if not isinstance(quantities, dict) or set(quantities) != item_keys:
             return False
+        quantity_total = 0
         for quantity in quantities.values():
-            if quantity is not None and (type(quantity) is not int or quantity < 0 or quantity > 1_000_000):
+            if quantity is not None and (
+                type(quantity) is not int or quantity < 0
+                or quantity > (1_000_000 if allow_legacy else
+                               PlanningWorkspaceRepository.MAX_SALES_MIX_QUANTITY_PER_ITEM)
+            ):
                 return False
-        expenses = value.get("expenses", [])
-        if not isinstance(expenses, list) or len(expenses) > 50:
+            if quantity is not None:
+                quantity_total += quantity
+        if (not allow_legacy
+                and quantity_total > PlanningWorkspaceRepository.MAX_SALES_MIX_TOTAL_QUANTITY):
             return False
+        if (not allow_legacy
+                and not PlanningWorkspaceRepository._valid_sales_mix_period(period_label)):
+            return False
+        expenses = value.get("expenses", [])
+        if not isinstance(expenses, list) or len(expenses) > (
+            50 if allow_legacy else PlanningWorkspaceRepository.MAX_SALES_MIX_EXPENSES
+        ):
+            return False
+        expense_total = Decimal("0")
         for expense in expenses:
             if not isinstance(expense, dict) or set(expense) != {"name", "amount"}:
                 return False
             if not PlanningWorkspaceRepository._short_text(expense.get("name"), 80):
                 return False
             amount = PlanningWorkspaceRepository._decimal_string(expense.get("amount"))
-            if amount is False or Decimal(amount) < 0:
+            if (amount is False or Decimal(amount) < 0
+                    or (not allow_legacy and Decimal(amount) >
+                        PlanningWorkspaceRepository.MAX_SALES_MIX_EXPENSE_TOTAL)):
+                return False
+            expense_total += Decimal(amount)
+            if (not allow_legacy and expense_total >
+                    PlanningWorkspaceRepository.MAX_SALES_MIX_EXPENSE_TOTAL):
                 return False
         return True
 
+    @staticmethod
+    def _sales_mix_identity_scope(payload):
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            return None
+        scope = []
+        for item in payload["items"]:
+            if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
+                return None
+            identity = item["identity"]
+            row_id = str(item.get("row_id") or identity.get("sku") or "")
+            scope.append((row_id, *(str(identity.get(key) or "") for key in (
+                "product_id", "offer_id", "sku", "store_id",
+            ))))
+        return tuple(sorted(scope))
+
+    @staticmethod
+    def _valid_sales_mix_period(value):
+        match = re.fullmatch(r"\s*(.+?)\s+(?:-|—|–)\s+(.+?)\s*", value)
+        if match is None:
+            return False
+        parsed = []
+        for part in match.groups():
+            try:
+                parsed.append(date.fromisoformat(part))
+            except ValueError:
+                try:
+                    parsed.append(datetime.strptime(part, "%d.%m.%Y").date())
+                except ValueError:
+                    return False
+        return parsed[0] <= parsed[1] and (parsed[1] - parsed[0]).days + 1 <= 366
+
     def _initialize_schema(self, connection):
-        connection.execute("CREATE TABLE IF NOT EXISTS planning_schema (version INTEGER NOT NULL)")
-        rows = connection.execute("SELECT version FROM planning_schema").fetchall()
-        if not rows:
-            connection.execute("INSERT INTO planning_schema(version) VALUES (?)", (self.SCHEMA_VERSION,))
-        elif len(rows) != 1 or rows[0][0] > self.SCHEMA_VERSION:
-            raise sqlite3.DatabaseError("unsupported planning schema version")
-        connection.executescript("""
-            CREATE TABLE IF NOT EXISTS planning_documents (
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            schema_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='planning_schema'"
+            ).fetchone() is not None
+            if not schema_exists:
+                connection.execute(
+                    "CREATE TABLE planning_schema (singleton INTEGER PRIMARY KEY CHECK(singleton=1), "
+                    "version INTEGER NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO planning_schema(singleton, version) VALUES (1, ?)",
+                    (self.DATABASE_SCHEMA_VERSION,),
+                )
+                version = self.DATABASE_SCHEMA_VERSION
+            else:
+                columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(planning_schema)")
+                }
+                rows = connection.execute("SELECT rowid, version FROM planning_schema").fetchall()
+                versions = {row[1] for row in rows}
+                if len(versions) > 1 or (
+                    versions and max(versions) > self.DATABASE_SCHEMA_VERSION
+                ):
+                    raise sqlite3.DatabaseError("unsupported planning schema version")
+                version = next(iter(versions), 1)
+                if "singleton" not in columns:
+                    if len(rows) > 1:
+                        connection.execute(
+                            "DELETE FROM planning_schema WHERE rowid NOT IN "
+                            "(SELECT MIN(rowid) FROM planning_schema)"
+                        )
+                    connection.execute(
+                        "ALTER TABLE planning_schema ADD COLUMN singleton INTEGER NOT NULL DEFAULT 1"
+                    )
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_schema_singleton "
+                    "ON planning_schema(singleton)"
+                )
+                if not rows:
+                    connection.execute(
+                        "INSERT INTO planning_schema(singleton, version) VALUES (1, ?)",
+                        (version,),
+                    )
+
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_documents (
                 document_id TEXT PRIMARY KEY,
                 owner_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 status TEXT NOT NULL CHECK(status IN ('ACTIVE','ARCHIVED')),
                 revision INTEGER NOT NULL CHECK(revision >= 1),
+                state_revision INTEGER NOT NULL DEFAULT 1 CHECK(state_revision >= 1),
                 schema_version INTEGER NOT NULL,
                 calculation_version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(document_id, owner_id, store_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_planning_documents_scope
-                ON planning_documents(owner_id, store_id, status, updated_at);
-            CREATE TABLE IF NOT EXISTS planning_revisions (
+            )""")
+            document_columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(planning_documents)")
+            }
+            if "state_revision" not in document_columns:
+                connection.execute(
+                    "ALTER TABLE planning_documents ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 1"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_planning_documents_scope "
+                "ON planning_documents(owner_id, store_id, status, updated_at)"
+            )
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_revisions (
                 document_id TEXT NOT NULL,
                 owner_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
@@ -599,16 +764,30 @@ class PlanningWorkspaceRepository:
                 PRIMARY KEY(document_id, owner_id, store_id, revision),
                 FOREIGN KEY(document_id, owner_id, store_id)
                     REFERENCES planning_documents(document_id, owner_id, store_id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS planning_idempotency (
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_idempotency (
                 owner_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
                 idempotency_key TEXT NOT NULL,
                 result_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(owner_id, store_id, idempotency_key)
-            );
-        """)
+            )""")
+            if version < self.DATABASE_SCHEMA_VERSION:
+                connection.execute(
+                    "UPDATE planning_schema SET version=? WHERE singleton=1",
+                    (self.DATABASE_SCHEMA_VERSION,),
+                )
+            rows = connection.execute(
+                "SELECT singleton, version FROM planning_schema"
+            ).fetchall()
+            if (len(rows) != 1 or rows[0][0] != 1
+                    or rows[0][1] != self.DATABASE_SCHEMA_VERSION):
+                raise sqlite3.DatabaseError("unsupported planning schema version")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     @classmethod
     def _document_dict(cls, row, revision, payload, revision_created_at):
@@ -616,6 +795,7 @@ class PlanningWorkspaceRepository:
             "document_id": row["document_id"], "owner_id": row["owner_id"],
             "store_id": row["store_id"], "title": row["title"],
             "status": row["status"], "revision": revision,
+            "state_revision": row["state_revision"],
             "current_revision": row["revision"], "schema_version": row["schema_version"],
             "calculation_version": row["calculation_version"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],

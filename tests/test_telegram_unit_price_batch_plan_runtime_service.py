@@ -17,6 +17,7 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.analytics_export_service import AnalyticsExportService
 from services.period_profit_operation_diagnostics import (
     PeriodProfitOperationTrace,
@@ -137,7 +138,8 @@ class _BatchService:
         self.calls.append(("edit", row_id, field, value))
         updated = {**batch, "version": batch["version"] + 1}
         updated["rows"] = [dict(row) for row in batch["rows"]]
-        updated["rows"][0]["inputs"] = {**updated["rows"][0]["inputs"], field: value}
+        selected = next(row for row in updated["rows"] if row["row_id"] == row_id)
+        selected["inputs"] = {**selected["inputs"], field: value}
         return updated
 
     def set_target_margin(self, batch, value):
@@ -175,7 +177,8 @@ class _SensitivityCapture:
         return {"error": False, "status": "SENSITIVITY_STARTED", "read_only": True, "executed": False}
 
 
-def _runtime(service=None, overview=None, clock=lambda: 100, analytics_export_service=None):
+def _runtime(service=None, overview=None, clock=lambda: 100, analytics_export_service=None,
+             advertising_cap_service=None):
     return TelegramUnitPriceBatchPlanRuntimeService(
         batch_plan_service=service or _BatchService(),
         product_overview_service=overview or _Overview([{"identity": {"offer_id": "offer-0"}}, {"identity": {"offer_id": "offer-1"}}]),
@@ -183,6 +186,7 @@ def _runtime(service=None, overview=None, clock=lambda: 100, analytics_export_se
         clock=clock,
         tenant_scope_provider=lambda: "user-1::ozon::store-a",
         analytics_export_service=analytics_export_service,
+        advertising_cap_service=advertising_cap_service,
     )
 
 
@@ -211,6 +215,34 @@ def test_batch_prompt_and_render_are_bounded_and_read_only():
     assert result["read_only"] is True and result["executed"] is False
     assert len(result["message"].encode("utf-16-le")) // 2 <= runtime.TEXT_LIMIT_UTF16
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
+
+
+def test_batch_advertising_cap_is_row_bound_and_applies_only_to_local_plan():
+    service = _BatchService()
+    scenario_service = UnitPriceScenarioService(TaxService())
+    runtime = _runtime(
+        service=service,
+        advertising_cap_service=UnitPriceAdvertisingCapService(scenario_service),
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        runtime.begin_from_overview_selection("user-1")
+        view = runtime.handle_text("20", user_id="user-1")
+        label = next(item["text"] for item in view["keyboard"]["buttons"]
+                     if item["text"].startswith("Рекламный предел"))
+        result = runtime.handle_callback(_button(view, label), user_id="user-1")
+        apply = next(item["callback"] for item in result["keyboard"]["buttons"]
+                     if item["text"] == "Подставить · безубыточность")
+        updated = runtime.handle_callback(apply, user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert result["status"] == "UNIT_PRICE_BATCH_ADVERTISING_CAP_RESULT"
+    assert "безубыточность" in result["message"].lower()
+    assert updated["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert updated["batch_plan"]["version"] == 2
+    assert updated["batch_plan"]["rows"][0]["inputs"]["advertising_rate"] != "0"
+    assert service.calls[-1][0:3] == ("edit", "row-0", "advertising_rate")
 
 
 def test_batch_export_contains_all_snapshot_rows_and_stale_action_cannot_repeat():
@@ -368,6 +400,46 @@ def test_late_build_result_is_discarded_after_store_switch():
         reset_current_tenant_user_id(token)
 
     assert output[0]["status"] == "UNIT_PRICE_BATCH_RESULT_STALE"
+
+
+def test_readiness_edit_opens_only_the_requested_saved_batch_row_and_field():
+    runtime = _runtime()
+    runtime.batch_plan_service.scenario_service = UnitPriceScenarioService(TaxService())
+    runtime.batch_plan_service.BATCH_CALCULATION_LIMIT = 128
+    payload = {
+        "plan_kind": "batch", "target_margin_percent": "25",
+        "items": [],
+    }
+    for index in (1, 2):
+        payload["items"].append({
+            "row_id": f"row-{index}",
+            "identity": {
+                "product_id": f"product-{index}", "offer_id": f"offer-{index}",
+                "sku": f"sku-{index}", "store_id": "store-a", "scheme": "FBO",
+            },
+            "inputs": {
+                "price": "500", "cost": "100", "commission_rate": "15",
+                "advertising_rate": "0", "discount_points_rate": "20",
+                "logistics_per_unit": "40", "last_mile_per_unit": "10",
+                "acquiring_per_unit": "5", "tax_mode": "USN_INCOME",
+                "tax_rate": "6", "minimum_tax_rate": "1",
+            },
+            "provenance": {}, "sources": {"periods": {}, "completeness": {}},
+        })
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        prompt = runtime.edit_saved_plan_field(payload, "row-2", "cost", user_id="user-1")
+        assert prompt["status"] == "UNIT_PRICE_BATCH_INPUT_REQUIRED"
+        pending = runtime._pending[("user-1", "user-1::ozon::store-a")]
+        assert pending["row_id"] == "row-2"
+        assert pending["field"] == "cost"
+        edited = runtime.handle_text("125", user_id="user-1")
+        assert edited["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+        rows = edited["batch_plan"]["rows"]
+        assert next(row for row in rows if row["row_id"] == "row-1")["inputs"]["cost"] == "100"
+        assert next(row for row in rows if row["row_id"] == "row-2")["inputs"]["cost"] == "125"
+    finally:
+        reset_current_tenant_user_id(token)
 
 
 def test_late_refresh_cannot_restore_cancelled_batch_or_overwrite_newer_edit():

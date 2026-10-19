@@ -122,6 +122,7 @@ class PeriodProfitSummaryService:
                 str(sku),
                 str(offer_id),
                 cost,
+                product_id=product.get("product_id"),
             )
             if row.get("error"):
                 return row
@@ -480,6 +481,7 @@ class PeriodProfitSummaryService:
         sku,
         offer_id,
         cost,
+        product_id=None,
     ):
         values = self._empty_totals()
         fee_breakdown = {}
@@ -638,6 +640,7 @@ class PeriodProfitSummaryService:
 
         return {
             "error": False,
+            "product_id": str(product_id) if product_id is not None else None,
             "sku": sku,
             "offer_id": offer_id,
             "cost_per_unit": round(cost, 2),
