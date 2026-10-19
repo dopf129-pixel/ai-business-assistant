@@ -97,6 +97,13 @@
 - `tests/test_unit_price_scenario_telegram_runtime.py`: реальный runtime принимает `11.110` в редакторе и выдаёт ту же подтверждённую цену `11.08 ₽`, что и `11.11`; source читается один раз.
 - Четыре связанных planner/runtime/architecture/repeat-review модуля — **87 passed in 1.19s**; `compileall -q app tests` и `git diff --check` прошли. Verify runs `38728949431` и `38728942708` на code SHA `4b7839caf54650e672b4410ee21bc1b64c627eff` успешны: Windows/Linux — по **3 204 passed**, compileall и Docker build/runtime health-check прошли. Локальный full pytest не сформировал сводку из-за `PermissionError (WinError 5)` при cleanup basetemp и не считается приёмкой.
 
+# Повторный review planning workspace R18–R19 (19.10.2026)
+
+- `tests/test_saved_planning_plan_telegram_flow.py::test_advertising_target_survives_back_save_restart_and_historical_cap` проходит ввод цели рекламного предела, возврат к сценарию, сохранение, создание новых runtime instances и просмотр исторического предела без внешних чтений.
+- `::test_latest_advertising_target_overrides_price_goal_and_is_saved_in_update` подтверждает, что новая ad-cap цель замещает более раннюю price-planning цель и сохраняется при явном CAS обновлении существующего плана.
+- `::test_saved_single_refresh_rejects_identity_change_without_transferring_cost` проверяет product_id, offer_id и store scope: stale/identity-change закрывает refresh, не переносит ручную себестоимость и не меняет durable revision. `::test_saved_context_rejects_changed_identity_without_sales_mix` закрепляет дополнительный guard сохранения для плана без sales mix.
+- Профиль saved-plan Telegram, single price runtime, repeat-review/architecture regressions и comparison: **86 passed in 1.99s**. Полный локальный suite не запускается из-за известного ACL/shared-storage инцидента; exact-head CI требуется после публикации.
+
 # Повторный review planning workspace R16–R17 (19.10.2026)
 
 - `tests/test_saved_planning_plan_telegram_flow.py::test_fallback_tenant_can_export_compare_and_edit_readiness_in_public_flow` проходит default tenant без store через план, CSV/JSON export, comparison snapshot/export, readiness cost edit и quantity edit; затем проверяет, что другой явный store не видит документ.

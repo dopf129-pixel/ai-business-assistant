@@ -1,4 +1,5 @@
 from copy import deepcopy
+import pytest
 
 from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
@@ -21,8 +22,13 @@ from services.unit_price_target_planning_service import UnitPriceTargetPlanningS
 
 
 class _Products:
+    def __init__(self):
+        self.product_id = "product-1"
+        self.offer_id = "offer-1"
+
     def load_products(self):
-        return [{"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1", "name": "Тестовый товар"}]
+        return [{"product_id": self.product_id, "offer_id": self.offer_id,
+                 "sku": "sku-1", "name": "Тестовый товар"}]
 
 
 class _Source:
@@ -38,7 +44,8 @@ class _Source:
             "error": False,
             "identity": {"user_id": user_id, "store_id": self.store_id,
                          "tenant_scope": f"{user_id}::ozon::{self.store_id}" if self.store_id else user_id,
-                         "product_id": "product-1", "offer_id": "offer-1", "sku": sku},
+                         "product_id": self.product_service.product_id,
+                         "offer_id": self.product_service.offer_id, "sku": sku},
             "product": {"name": "Тестовый товар", "scheme": "FBO"},
             "suggested_inputs": {
                 "price": self.price, "cost": "100", "commission_rate": "15",
@@ -1268,3 +1275,196 @@ def test_single_target_margin_survives_apply_back_save_and_restore(tmp_path):
     finally:
         reset_current_tenant_user_id(tenant)
     assert len(source.calls) == 2
+
+
+def test_advertising_target_survives_back_save_restart_and_historical_cap(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        prompt = handler.handle(
+            _button(current, "Сколько можно тратить на рекламу?"), user_id="user-1",
+        )
+        cap = handler.handle_text("25", user_id="user-1")
+        returned = handler.handle(_button(cap, "Назад к расчёту"), user_id="user-1")
+        save_prompt = handler.handle(
+            _button(returned, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = handler.handle_text("Advertising target", user_id="user-1")
+        document = service.get_document(saved["document_id"])["document"]
+        assert document["payload"]["target_margin_percent"] in {"25", "25.00"}
+
+        # The saved target remains available after constructing fresh runtimes,
+        # just like a process restart in the user's normal workflow.
+        restarted_single = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        restarted_service = SavedPlanningPlanService(
+            PlanningWorkspaceRepository(db_path=service.repository.db_path),
+            single.scenario_service,
+        )
+        restarted_runtime = TelegramSavedPlanningPlanRuntimeService(
+            restarted_service, restarted_single, None, single.keyboard_service,
+        )
+        restarted_handler = AssistantButtonHandlerService(
+            assistant=None, saved_planning_plan_runtime_service=restarted_runtime,
+        )
+        listing = restarted_handler.handle("upp:m", user_id="user-1")
+        detail = restarted_handler.handle(
+            _button(listing, "Advertising target · v1"), user_id="user-1",
+        )
+        historical = restarted_handler.handle(
+            _button(detail, "Рекламный предел (сохранённые допущения)"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert cap["status"] == "UNIT_PRICE_ADVERTISING_CAP_RESULT"
+    assert returned["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    assert historical["status"] == "PLANNING_HISTORICAL_ADVERTISING_CAP"
+    assert "цель 25%:" in historical["message"]
+    assert source.calls == [("sku-1", "user-1", False)]
+
+
+def test_latest_advertising_target_overrides_price_goal_and_is_saved_in_update(tmp_path):
+    saved_runtime, single, _source, service = _setup(tmp_path)
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        price_prompt = handler.handle(
+            _button(current, "Цена для целевой маржи"), user_id="user-1",
+        )
+        price_result = handler.handle_text("25", user_id="user-1")
+        returned = handler.handle(
+            _button(price_result, "Назад к расчёту"), user_id="user-1",
+        )
+        ad_prompt = handler.handle(
+            _button(returned, "Сколько можно тратить на рекламу?"), user_id="user-1",
+        )
+        ad_result = handler.handle_text("30", user_id="user-1")
+        applied = handler.handle(
+            _button(ad_result, "Подставить предел целевой маржи"), user_id="user-1",
+        )
+        save_prompt = handler.handle(
+            _button(applied, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = handler.handle_text("Latest target", user_id="user-1")
+        initial = service.get_document(saved["document_id"])["document"]
+
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(
+            _button(listing, "Latest target · v1"), user_id="user-1",
+        )
+        refreshed = handler.handle(
+            _button(detail, "Обновить источники"), user_id="user-1",
+        )
+        update = handler.handle(
+            _button(refreshed, "💾 Сохранить изменения в этот план"), user_id="user-1",
+        )
+        final = service.get_document(saved["document_id"])["document"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert price_result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert ad_prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert ad_result["status"] == "UNIT_PRICE_ADVERTISING_CAP_RESULT"
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert initial["payload"]["target_margin_percent"] in {"30", "30.00"}
+    assert refreshed["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert update["status"] == "PLANNING_DOCUMENT_UPDATED"
+    assert update["revision"] == 2
+    assert final["payload"]["target_margin_percent"] in {"30", "30.00"}
+
+
+@pytest.mark.parametrize(
+    ("changed_identity_field", "expected_code"),
+    [
+        ("product_id", "UNIT_PRICE_SCENARIO_IDENTITY_CHANGED"),
+        ("offer_id", "UNIT_PRICE_SCENARIO_IDENTITY_CHANGED"),
+        ("store_id", None),
+    ],
+)
+def test_saved_single_refresh_rejects_identity_change_without_transferring_cost(
+    tmp_path, changed_identity_field, expected_code,
+):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    handler = AssistantButtonHandlerService(
+        assistant=None, saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        cost_prompt = handler.handle(_button(current, "Себестоимость"), user_id="user-1")
+        cost_entry = handler.handle_text("125", user_id="user-1")
+        save_prompt = handler.handle(
+            _button(cost_entry, "💾 Сохранить план"), user_id="user-1",
+        )
+        saved = handler.handle_text("Identity guard", user_id="user-1")
+        before = service.get_document(saved["document_id"])["document"]
+
+        if changed_identity_field in {"product_id", "offer_id"}:
+            setattr(source.product_service, changed_identity_field, "new-" + changed_identity_field)
+        else:
+            source.store_id = "store-b"
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(
+            _button(listing, "Identity guard · v1"), user_id="user-1",
+        )
+        refreshed = handler.handle(
+            _button(detail, "Обновить источники"), user_id="user-1",
+        )
+        after = service.get_document(saved["document_id"])["document"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+    assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+    if expected_code is None:
+        assert refreshed["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    else:
+        assert refreshed["error"] is True
+        assert refreshed["code"] == expected_code
+    assert after["current_revision"] == before["current_revision"] == 1
+    assert after["payload"]["items"][0]["identity"] == before["payload"]["items"][0]["identity"]
+    assert after["payload"]["items"][0]["inputs"]["cost"] == "125"
+    assert len(source.calls) == 2
+
+
+def test_saved_context_rejects_changed_identity_without_sales_mix():
+    old_identity = {
+        "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+        "store_id": "store-a",
+    }
+    new_identity = {**old_identity, "product_id": "product-new"}
+    document = {
+        "payload": {"plan_kind": "single", "items": [{
+            "row_id": "sku-1", "identity": old_identity,
+        }]},
+    }
+    capture = {"payload": {"plan_kind": "single", "items": [{
+        "row_id": "sku-1", "identity": new_identity,
+    }]}}
+
+    result = TelegramSavedPlanningPlanRuntimeService._preserve_saved_plan_context(
+        document, capture,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "PLANNING_PLAN_IDENTITY_CHANGED"

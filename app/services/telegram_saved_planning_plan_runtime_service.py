@@ -1822,8 +1822,8 @@ class TelegramSavedPlanningPlanRuntimeService:
         if not isinstance(old_payload, dict) or not isinstance(new_payload, dict):
             return {"error": True, "code": "PLANNING_CAPTURE_INVALID"}
         sales_mix = old_payload.get("sales_mix")
-        if sales_mix is None:
-            return capture
+        if old_payload.get("plan_kind") != new_payload.get("plan_kind"):
+            return {"error": True, "code": "PLANNING_PLAN_IDENTITY_CHANGED"}
 
         def rows_by_identity(items):
             if not isinstance(items, list):
@@ -1846,15 +1846,20 @@ class TelegramSavedPlanningPlanRuntimeService:
                 row_id = str(item.get("row_id") or identity.get("sku") or "")
                 if not row_id:
                     return None
+                if row_id in rows.values():
+                    return None
                 rows[key] = row_id
             return rows
 
         previous_rows = rows_by_identity(old_payload.get("items"))
         current_rows = rows_by_identity(new_payload.get("items"))
-        old_quantities = sales_mix.get("quantities") if isinstance(sales_mix, dict) else None
         if (previous_rows is None or current_rows is None
-                or set(previous_rows) != set(current_rows)
-                or not isinstance(old_quantities, dict)
+                or set(previous_rows) != set(current_rows)):
+            return {"error": True, "code": "PLANNING_PLAN_IDENTITY_CHANGED"}
+        if sales_mix is None:
+            return capture
+        old_quantities = sales_mix.get("quantities") if isinstance(sales_mix, dict) else None
+        if (not isinstance(old_quantities, dict)
                 or set(old_quantities) != set(previous_rows.values())):
             return {"error": True, "code": "PLANNING_SALES_MIX_SCOPE_CHANGED"}
         quantities_by_identity = {
@@ -2022,6 +2027,7 @@ class TelegramSavedPlanningPlanRuntimeService:
             "PLANNING_DOCUMENT_STATE_CONFLICT": "Название или состояние плана изменилось после открытия действия. Откройте план заново и подтвердите нужное действие ещё раз.",
             "PLANNING_DOCUMENT_STATE_REVISION_REQUIRED": "Действие устарело. Откройте план заново, чтобы получить актуальное состояние.",
             "PLANNING_STORAGE_UNAVAILABLE": "Локальное хранилище планов временно недоступно. Ничего не сохранено; повторите позже.",
+            "PLANNING_PLAN_IDENTITY_CHANGED": "Карточка товара или состав плана изменились. Старые ручные значения не перенесены; сохраните отдельную копию для нового состава.",
             "PLAN_FACT_CALCULATION_VERSION_INCOMPATIBLE": "У этой версии плана другая версия расчёта. Сначала откройте план и создайте актуальную локальную ревизию; исходная версия останется сохранённой.",
             "PLAN_FACT_PERIOD_INVALID": "В плане не удалось подтвердить календарный период. Откройте план и задайте период заново.",
             "PLAN_FACT_ACTUAL_SCOPE_MISMATCH": "Не удалось точно сопоставить весь набор SKU с текущими товарами. Факт не приложен к плану.",

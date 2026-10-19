@@ -1548,6 +1548,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     or self.clock() - pending.get("created_at", 0) > self.session_ttl_seconds):
                 return self._stale_result()
             current.pop("price_planning_result", None)
+            # The accepted advertising-cap target is a planning assumption,
+            # not just part of this disposable screen. Keep it in the same
+            # durable session field used by price-target planning and saved
+            # recipe capture.
+            current["price_planning_target_margin"] = target["normalized"]
             current["advertising_cap_result"] = {
                 "result": deepcopy(result),
                 "target": target["normalized"],
@@ -1770,8 +1775,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 snapshot_session,
                 notice="Не удалось обновить источники. Текущие допущения сохранены.",
             )
-        if fresh.get("identity", {}).get("tenant_scope") != scope:
+        fresh_identity = fresh.get("identity")
+        if not isinstance(fresh_identity, dict) or fresh_identity.get("tenant_scope") != scope:
             return self._finish_refresh_as_stale(key, operation_token)
+        if not self._same_catalog_identity(
+            (snapshot_session.get("snapshot") or {}).get("identity"),
+            fresh_identity,
+        ):
+            return self._finish_refresh_as_identity_changed(key, operation_token)
         inputs = deepcopy(fresh.get("suggested_inputs") or {})
         provenance = deepcopy(fresh.get("input_provenance") or {})
         source_age, source_ttl = self._snapshot_freshness_metadata(fresh)
@@ -1804,6 +1815,24 @@ class TelegramUnitPriceCalculatorRuntimeService:
         with self._lock:
             self._remove_operation_token_if_matches_locked(key, operation_token)
         return self._stale_result()
+
+    def _finish_refresh_as_identity_changed(self, key, operation_token):
+        with self._lock:
+            self._remove_operation_token_if_matches_locked(key, operation_token)
+        return self._friendly_error("UNIT_PRICE_SCENARIO_IDENTITY_CHANGED")
+
+    @staticmethod
+    def _same_catalog_identity(previous, current):
+        if not isinstance(previous, dict) or not isinstance(current, dict):
+            return False
+        for field in ("user_id", "tenant_scope", "product_id", "offer_id", "sku"):
+            before = str(previous.get(field) or "").strip()
+            after = str(current.get(field) or "").strip()
+            if not before or before != after:
+                return False
+        return str(previous.get("store_id") or "").strip() == str(
+            current.get("store_id") or ""
+        ).strip()
 
     def _remove_operation_token_if_matches_locked(self, key, operation_token):
         operation = self._operation_tokens.get(key)
@@ -2295,6 +2324,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "UNIT_PRICE_SCENARIO_SKU_AMBIGUOUS": "Не удалось однозначно определить товар. Проверьте каталог SKU.",
             "UNIT_PRICE_SCENARIO_CATALOG_UNAVAILABLE": "Не удалось загрузить каталог товаров. Попробуйте позже.",
             "UNIT_PRICE_SCENARIO_PRODUCT_IDENTITY_INCOMPLETE": "Для товара не хватает данных карточки. Выберите другой товар или обновите каталог.",
+            "UNIT_PRICE_SCENARIO_IDENTITY_CHANGED": "Карточка товара изменилась после сохранения плана. Старые ручные значения не перенесены; откройте новый товар и создайте для него отдельный план.",
         }
         return labels.get(code, "Не удалось загрузить исходные данные. Заполните расчёт заново позже.")
 
