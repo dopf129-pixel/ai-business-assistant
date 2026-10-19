@@ -35,6 +35,10 @@ class ExperimentalStoreEconomicsRuntimeService:
     RETURNS_DIAGNOSTIC_TIME_BUDGET_SECONDS = 120
     ANALYTICS_DIAGNOSTIC_MAX_HTTP_ATTEMPTS = 2
     ANALYTICS_DIAGNOSTIC_TIME_BUDGET_SECONDS = 30
+    SUPPLY_ACT_DIAGNOSTIC_PENDING_TTL_SECONDS = 300
+    SUPPLY_ACT_DIAGNOSTIC_TIMEOUT_SECONDS = 15
+    SUPPLY_ACT_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 25
+    SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 12
     REPORT_CACHE_MAX_SCOPES = 64
     FEE_LABEL_MATCHERS = {
         "last_mile": (
@@ -156,6 +160,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         self.analytics_client = analytics_client
         self.finance_transaction_client = finance_transaction_client
         self._pending_custom_period_users = {}
+        self._pending_supply_act_diagnostic_users = {}
         self._pending_lock = RLock()
         self._calculation_inflight = set()
         self._report_views = OrderedDict()
@@ -197,7 +202,274 @@ class ExperimentalStoreEconomicsRuntimeService:
             "executed": False,
         }
 
+    def begin_supply_act_diagnostic(self, user_id):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return self._supply_act_diagnostic_error(
+                "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_USER_REQUIRED"
+            )
+        scope = self._tenant_scope(user_key)
+        with self._pending_lock:
+            self._pending_supply_act_diagnostic_users[user_key] = {
+                "tenant_scope": scope,
+                "created_at": monotonic(),
+            }
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_INPUT_REQUIRED",
+            "message": (
+                "Введите ID поставки (supply_id) из акта Ozon. "
+                "Бот прочитает только строки товаров и скроет SKU, "
+                "названия и идентификаторы. Для отмены отправьте «Отмена»."
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def handle_supply_act_diagnostic_text(self, text, user_id=None):
+        user_key = self._user_key(user_id)
+        if not user_key:
+            return None
+        current_scope = self._tenant_scope(user_key)
+        with self._pending_lock:
+            pending = self._pending_supply_act_diagnostic_users.get(user_key)
+            if pending is None:
+                return None
+            if pending.get("tenant_scope") != current_scope:
+                self._pending_supply_act_diagnostic_users.pop(user_key, None)
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_SCOPE_CHANGED",
+                    "message": (
+                        "Вы переключили магазин. Старый запрос отменён; "
+                        "откройте диагностику заново в текущем магазине."
+                    ),
+                    "read_only": True,
+                    "executed": False,
+                }
+            if monotonic() - pending.get("created_at", 0) > (
+                self.SUPPLY_ACT_DIAGNOSTIC_PENDING_TTL_SECONDS
+            ):
+                self._pending_supply_act_diagnostic_users.pop(user_key, None)
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_INPUT_EXPIRED",
+                    "message": (
+                        "Время ввода истекло. Откройте диагностику акта "
+                        "ещё раз."
+                    ),
+                    "read_only": True,
+                    "executed": False,
+                }
+            value = str(text or "").strip()
+            if value.casefold() in {"отмена", "cancel", "/cancel"}:
+                self._pending_supply_act_diagnostic_users.pop(user_key, None)
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_CANCELLED",
+                    "message": "Проверка акта отменена.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            supply_id = self._parse_supply_act_id(value)
+            if supply_id is None:
+                return {
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_ID_INVALID",
+                    "message": (
+                        "Нужен положительный числовой ID поставки из акта. "
+                        "Введите его ещё раз или отправьте «Отмена»."
+                    ),
+                    "read_only": True,
+                    "executed": False,
+                }
+            self._pending_supply_act_diagnostic_users.pop(user_key, None)
+
+        getter = getattr(self.analytics_client, "get_supply_act_products", None)
+        if not callable(getter):
+            return self._supply_act_diagnostic_error(
+                "OZON_SUPPLY_ACT_CLIENT_UNAVAILABLE"
+            )
+        try:
+            response = getter(
+                supply_id,
+                timeout=self.SUPPLY_ACT_DIAGNOSTIC_TIMEOUT_SECONDS,
+                max_attempts=2,
+                total_timeout=self.SUPPLY_ACT_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            return self._supply_act_diagnostic_error(
+                "OZON_SUPPLY_ACT_REQUEST_FAILED"
+            )
+        return self._render_supply_act_product_diagnostic(response)
+
+    def clear_pending_supply_act_diagnostic_input(self, user_id):
+        user_key = self._user_key(user_id)
+        if user_key:
+            with self._pending_lock:
+                self._pending_supply_act_diagnostic_users.pop(user_key, None)
+
+    @staticmethod
+    def _parse_supply_act_id(value):
+        text = str(value or "").strip()
+        if not text or not text.isascii() or not text.isdigit():
+            return None
+        try:
+            parsed = int(text)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
+            return None
+        return parsed
+
+    @classmethod
+    def _render_supply_act_product_diagnostic(cls, response):
+        if not isinstance(response, dict):
+            return cls._supply_act_diagnostic_error(
+                "OZON_SUPPLY_ACT_RESPONSE_INVALID"
+            )
+        if response.get("error") is True:
+            code = str(response.get("code") or "OZON_SUPPLY_ACT_REQUEST_FAILED")
+            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
+                code = "OZON_SUPPLY_ACT_REQUEST_FAILED"
+            return cls._supply_act_diagnostic_error(code)
+        acts = response.get("supply_acts")
+        if not isinstance(acts, list):
+            return cls._supply_act_diagnostic_error(
+                "OZON_SUPPLY_ACT_RESPONSE_INVALID"
+            )
+
+        quantity_fields = (
+            "declared_quantity",
+            "approved_quantity",
+            "fact_quantity",
+            "unidentified_quantity",
+        )
+        totals = {field: 0 for field in quantity_fields}
+        covered = {field: 0 for field in quantity_fields}
+        item_count = 0
+        shown_items = []
+        item_field_types = None
+        act_labels = []
+        defect_count = len(response.get("skus_defects") or []) if isinstance(
+            response.get("skus_defects"), list
+        ) else 0
+
+        for act_index, act in enumerate(acts, start=1):
+            if not isinstance(act, dict):
+                return cls._supply_act_diagnostic_error(
+                    "OZON_SUPPLY_ACT_RESPONSE_INVALID"
+                )
+            raw_type = str(act.get("type") or "").strip()
+            act_type = (
+                raw_type[:40]
+                if re.fullmatch(r"[A-Za-z0-9_ -]{1,40}", raw_type)
+                else "не указан"
+            )
+            act_labels.append(f"акт {act_index}: {act_type}")
+            items = act.get("items", [])
+            if not isinstance(items, list):
+                return cls._supply_act_diagnostic_error(
+                    "OZON_SUPPLY_ACT_RESPONSE_INVALID"
+                )
+            for item in items:
+                if not isinstance(item, dict):
+                    return cls._supply_act_diagnostic_error(
+                        "OZON_SUPPLY_ACT_RESPONSE_INVALID"
+                    )
+                item_count += 1
+                if item_field_types is None:
+                    item_field_types = {
+                        field: type(item[field]).__name__
+                        for field in quantity_fields
+                        if field in item
+                    }
+                    sku_info = item.get("sku_info")
+                    if isinstance(sku_info, dict) and "sku" in sku_info:
+                        item_field_types["sku_info.sku"] = type(
+                            sku_info["sku"]
+                        ).__name__
+                quantities = {}
+                for field in quantity_fields:
+                    raw_quantity = item.get(field)
+                    quantity = (
+                        raw_quantity
+                        if type(raw_quantity) is int and raw_quantity >= 0
+                        else None
+                    )
+                    quantities[field] = quantity
+                    if quantity is not None:
+                        totals[field] += quantity
+                        covered[field] += 1
+                if len(shown_items) < cls.SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN:
+                    shown_items.append(quantities)
+
+        lines = [
+            "🔎 Данные товаров в акте Ozon",
+            "Метод: /v1/supply-order/act/product/get (только чтение).",
+            f"Актов: {len(acts)}; строк товаров: {item_count}; строк брака: {defect_count}.",
+        ]
+        if act_labels:
+            lines.append("Типы: " + ", ".join(act_labels[:8]) + ".")
+        if shown_items:
+            lines.append("Количество по строкам (SKU и названия скрыты):")
+            for index, quantities in enumerate(shown_items, start=1):
+                rendered = ", ".join(
+                    f"{field}={quantities[field] if quantities[field] is not None else 'нет поля'}"
+                    for field in quantity_fields[:3]
+                )
+                lines.append(f"{index}. {rendered}")
+            if item_count > len(shown_items):
+                lines.append(
+                    f"Показаны первые {len(shown_items)} строк из {item_count}."
+                )
+        lines.append("Суммы по полям (значения / строки с полем):")
+        for field in quantity_fields:
+            value = str(totals[field]) if covered[field] else "нет данных"
+            lines.append(f"• {field}: {value} / {covered[field]} из {item_count}")
+        if item_field_types:
+            lines.append(
+                "Типы полей первой строки: "
+                + ", ".join(
+                    f"{field}={kind}" for field, kind in item_field_types.items()
+                )
+                + "."
+            )
+        lines.append(
+            "В этом методе нет даты и статуса акта; они запрашиваются отдельно "
+            "по ID заявки. Ответ не содержит SKU, названий, штрихкодов и ID акта."
+        )
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_READY",
+            "message": "\n".join(lines),
+            "read_only": True,
+            "executed": False,
+        }
+
+    @staticmethod
+    def _supply_act_diagnostic_error(code):
+        safe_code = str(code or "OZON_SUPPLY_ACT_REQUEST_FAILED")
+        if not re.fullmatch(r"[A-Z0-9_]{1,80}", safe_code):
+            safe_code = "OZON_SUPPLY_ACT_REQUEST_FAILED"
+        return {
+            "error": False,
+            "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_UNAVAILABLE",
+            "message": (
+                "Не удалось получить безопасную сводку акта. "
+                "Код диагностики: " + safe_code
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
     def handle_text(self, text, user_id=None, today=None):
+        supply_diagnostic = self.handle_supply_act_diagnostic_text(
+            text,
+            user_id=user_id,
+        )
+        if supply_diagnostic is not None:
+            return supply_diagnostic
         user_key = self._user_key(user_id)
         if not user_key:
             return None
@@ -348,6 +620,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         if user_key:
             with self._pending_lock:
                 self._pending_custom_period_users.pop(user_key, None)
+                self._pending_supply_act_diagnostic_users.pop(user_key, None)
 
     @classmethod
     def _tenant_scope(cls, user_key):

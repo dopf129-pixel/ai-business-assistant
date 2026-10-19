@@ -526,6 +526,13 @@ class AssistantButtonHandlerService:
         user_id,
     ):
         if button_id == "experimental_store_economics:custom":
+            clear_diagnostic = getattr(
+                self.experimental_store_economics_runtime_service,
+                "clear_pending_supply_act_diagnostic_input",
+                None,
+            )
+            if callable(clear_diagnostic):
+                clear_diagnostic(user_id)
             return
         clearer = getattr(
             self.experimental_store_economics_runtime_service,
@@ -703,14 +710,25 @@ class AssistantButtonHandlerService:
         if not isinstance(result, dict):
             return result
         output = dict(result)
+        status = output.get("status")
+        if status in {
+            "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_INPUT_REQUIRED",
+            "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_ID_INVALID",
+        }:
+            builder_name = "build_experimental_supply_act_diagnostic_input_keyboard"
+        elif isinstance(status, str) and status.startswith(
+            "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_"
+        ):
+            builder_name = "build_experimental_calculations_keyboard"
+        else:
+            builder_name = (
+                "build_experimental_store_economics_details_keyboard"
+                if status == "EXPERIMENTAL_STORE_ECONOMICS_DETAILS_READY"
+                else "build_experimental_store_economics_result_keyboard"
+            )
         builder = getattr(
             self.keyboard_service,
-            (
-                "build_experimental_store_economics_details_keyboard"
-                if output.get("status")
-                == "EXPERIMENTAL_STORE_ECONOMICS_DETAILS_READY"
-                else "build_experimental_store_economics_result_keyboard"
-            ),
+            builder_name,
             None,
         )
         if callable(builder) and "keyboard" not in output:
@@ -1055,6 +1073,29 @@ class AssistantButtonHandlerService:
                 "read_only": True,
                 "executed": False,
             }
+
+        if button_id == "experimental_supply_act_diagnostic":
+            runtime = self.experimental_store_economics_runtime_service
+            opener = getattr(runtime, "begin_supply_act_diagnostic", None)
+            if not callable(opener):
+                return self._with_experimental_result_keyboard({
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_UNAVAILABLE",
+                    "message": "Диагностика акта поставки недоступна.",
+                    "read_only": True,
+                    "executed": False,
+                })
+            try:
+                result = opener(user_id)
+            except Exception:
+                result = {
+                    "error": False,
+                    "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_UNAVAILABLE",
+                    "message": "Не удалось открыть диагностику акта поставки.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            return self._with_experimental_result_keyboard(result)
 
         if button_id == "experimental_store_economics":
             return {

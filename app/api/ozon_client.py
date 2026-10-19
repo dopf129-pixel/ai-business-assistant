@@ -139,6 +139,47 @@ class OzonClient(BaseOzonClient):
             return "EXPLICIT_VALIDATION"
         return str(self._credentials().get("source") or "UNKNOWN")
 
+    def get_supply_act_products(
+        self,
+        supply_id,
+        timeout=15,
+        max_attempts=2,
+        total_timeout=25,
+        request_attempt_observer=None,
+    ):
+        """Read product quantities from an FBO supply acceptance act."""
+        try:
+            raw = str(supply_id).strip()
+            if not raw.isascii() or not raw.isdigit():
+                raise ValueError
+            parsed = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ACT_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ACT_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        return self._post(
+            "/v1/supply-order/act/product/get",
+            {"supply_id": parsed},
+            **options,
+        )
+
     def get_fbo_postings(
         self,
         since,

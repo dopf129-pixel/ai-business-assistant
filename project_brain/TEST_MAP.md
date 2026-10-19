@@ -1,3 +1,8 @@
+# Cross-docking acceptance-act diagnostic (X00 helper)
+
+- `tests/test_experimental_supply_act_diagnostic.py` verifies the documented `POST /v1/supply-order/act/product/get` request body, bounded options and invalid-ID rejection; the Telegram button/input flow; no API call before explicit input; quantity field coverage; SKU/name/barcode/act-ID redaction; cancellation; tenant-switch invalidation; and safe API errors.
+- Focused diagnostic file: **6 passed**. Linked profile with isolated `AI_ASSISTANT_STORAGE_ROOT` and `--basetemp`: **58 passed**. An exploratory profile including the unrelated legacy root `test_assistant_button_handler_flow.py` had **59 passed, 4 failed** in existing `FakeAssistant.ask`-signature scenarios; the new public callback/input regression passed. Syntax-only compilation passed for all 5 changed Python files; `compileall` cannot write `__pycache__` in this ACL-limited worktree. `git diff --check` passed. Do not run the full local suite because the known pytest ACL/shared-storage incident remains in force. Exact-head Windows/Linux CI is required before review handoff.
+
 # Planning workspace H–O: статус проверок (19.10.2026; PR verification)
 
 - ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`; журнал: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`.

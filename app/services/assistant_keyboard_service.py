@@ -86,6 +86,26 @@ class AssistantKeyboardService:
                     "callback": "experimental_store_economics",
                 },
                 {
+                    "text": "🔎 Проверить товары в акте поставки",
+                    "callback": "experimental_supply_act_diagnostic",
+                },
+                {
+                    "text": "↩️ Главное меню",
+                    "callback": "main_menu",
+                },
+            ],
+        }
+
+    def build_experimental_supply_act_diagnostic_input_keyboard(self):
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": [
+                {
+                    "text": "↩️ Эксперименты",
+                    "callback": "experimental_calculations",
+                },
+                {
                     "text": "↩️ Главное меню",
                     "callback": "main_menu",
                 },

@@ -1,3 +1,10 @@
+# 2026-10-19 — диагностический запрос товаров из акта FBO
+
+- В экспериментальном меню добавлена read-only проверка `/v1/supply-order/act/product/get` по введённому `supply_id`. Запрос выполняется только после явного ввода, tenant scope привязан к текущему магазину, ввод истекает через 5 минут, сетевой вызов ограничен 15/25 секундами и двумя попытками.
+- Ответ выводит значения и coverage `declared_quantity`, `approved_quantity`, `fact_quantity`, `unidentified_quantity`; SKU, названия, штрихкоды, `act_id` и `supply_id` не попадают в сообщение. Поле `fact_quantity` не интерпретируется как принятое количество без подтверждённой семантики.
+- Это разовая диагностика по ID, а не штатный ручной ввод юнит-экономики. `/v1/supply-order/act/product/get` не даёт дату/статус; автоперечисление кросс-докинговых поставок ещё не реализовано. X00 остаётся частично заблокированным до точного контракта списка/деталей поставок и даты фактической приёмки.
+- Новые регрессии: `tests/test_experimental_supply_act_diagnostic.py` — **6 passed**. Связанный профиль (`tests/test_experimental_store_economics.py`, factory, analytics client и request-attempt diagnostics) — **58 passed** на Python 3.12, с отдельными `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp. Широкий диагностический запуск также включал legacy `test_assistant_button_handler_flow.py`: 59 passed и 4 упали в старых unrelated `analyze/history/memory/plan` сценариях (`FakeAssistant.ask` signature); эти тесты не относятся к новой callback/input ветке, которая покрыта новым публичным тестом. `compileall` упёрся в известный Windows ACL при записи `__pycache__`; syntax-only compile для 5 изменённых Python файлов прошёл. `git diff --check` прошёл. Полный pytest не запускался; exact-head CI ещё нужен.
+
 # 2026-10-19 — исправления repeat review planning workspace (R18–R19)
 
 - Цель из рекламного калькулятора хранится в явном session assumption и переживает возврат, применение, сохранение, перезапуск и исторический просмотр; при обновлении существующего плана сохраняется последняя введённая цель.
