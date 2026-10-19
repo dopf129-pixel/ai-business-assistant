@@ -143,5 +143,9 @@ PR #705–#708 остаются открыты, проверенные heads:
   связанных модулей; `compileall -q app tests` и `git diff --check` прошли.
   Полный локальный suite не запускается из-за известного Windows ACL/shared-
   storage инцидента. SHA-256 пользовательских `data/tasks.json` и
-  `data/users.json` совпали с baseline этого review. Новый exact-head CI PR #708
-  и повторный independent review ожидаются; merge/deploy не выполнялись.
+  `data/users.json` совпали с baseline этого review. Code commit
+  `0f359c6c88490416634bc0a0bf57f4f8cb00fcea` прошёл Verify runs
+  [39250181095](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250181095)
+  и [39250193274](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250193274):
+  Windows/Linux full suites, compile и production Docker build/runtime smoke
+  успешны. Независимый повторный review ожидается; merge/deploy не выполнялись.

@@ -102,7 +102,7 @@
 - `tests/test_saved_planning_plan_telegram_flow.py::test_advertising_target_survives_back_save_restart_and_historical_cap` проходит ввод цели рекламного предела, возврат к сценарию, сохранение, создание новых runtime instances и просмотр исторического предела без внешних чтений.
 - `::test_latest_advertising_target_overrides_price_goal_and_is_saved_in_update` подтверждает, что новая ad-cap цель замещает более раннюю price-planning цель и сохраняется при явном CAS обновлении существующего плана.
 - `::test_saved_single_refresh_rejects_identity_change_without_transferring_cost` проверяет product_id, offer_id и store scope: stale/identity-change закрывает refresh, не переносит ручную себестоимость и не меняет durable revision. `::test_saved_context_rejects_changed_identity_without_sales_mix` закрепляет дополнительный guard сохранения для плана без sales mix.
-- Профиль saved-plan Telegram, single price runtime, repeat-review/architecture regressions и comparison: **86 passed in 1.99s**. Полный локальный suite не запускается из-за известного ACL/shared-storage инцидента; exact-head CI требуется после публикации.
+- Профиль saved-plan Telegram, single price runtime, repeat-review/architecture regressions и comparison: **86 passed in 1.99s**. Code SHA `0f359c6c88490416634bc0a0bf57f4f8cb00fcea` прошёл Verify runs [39250181095](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250181095) и [39250193274](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250193274): Windows/Linux full pytest, compileall и production Docker build/runtime smoke successful. Полный локальный suite не запускается из-за известного ACL/shared-storage инцидента.
 
 # Повторный review planning workspace R16–R17 (19.10.2026)
 

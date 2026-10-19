@@ -2,7 +2,7 @@
 
 - Цель из рекламного калькулятора хранится в явном session assumption и переживает возврат, применение, сохранение, перезапуск и исторический просмотр; при обновлении существующего плана сохраняется последняя введённая цель.
 - Refresh сохранённого single-плана прекращается до переноса ручных значений, если изменилась карточка (`product_id`, `offer_id`, SKU), магазин или owner scope. Перед CAS update точная identity сверяется также для планов без sales mix; прежняя ревизия остаётся нетронутой.
-- Добавлены R18/R19 public-flow регрессии. Связанный профиль: **86 passed in 1.99s**; `compileall -q app tests` и `git diff --check` прошли. Exact-head CI PR #708 и повторный review ожидаются. Пользовательские `data/tasks.json` и `data/users.json` сохранены вне Git; merge/deploy не выполнялись.
+- Добавлены R18/R19 public-flow регрессии. Связанный профиль: **86 passed in 1.99s**; `compileall -q app tests` и `git diff --check` прошли. Code commit `0f359c6c88490416634bc0a0bf57f4f8cb00fcea` прошёл Verify runs [39250181095](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250181095) и [39250193274](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250193274): полные Windows/Linux suites, compile и production Docker build/runtime smoke успешны. Пользовательские `data/tasks.json` и `data/users.json` сохранены вне Git; независимый review и merge/deploy не выполнялись.
 
 # 2026-10-19 — исправления repeat review planning workspace (R16–R17)
 

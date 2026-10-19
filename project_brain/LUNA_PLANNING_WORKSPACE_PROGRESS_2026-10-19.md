@@ -1,6 +1,6 @@
 # Журнал исполнения GPT Luna — planning workspace H–O
 
-Статус: **R11–R19 исправлены локально; целевые проверки зелёные; публикация, exact-head CI и повторный review ожидаются**. Реализация поручения начата 19.10.2026.
+Статус: **R11–R19 исправлены и опубликованы в PR #708; code commit проверен exact-head CI; независимый повторный review ожидается**. Реализация поручения начата 19.10.2026.
 ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`.
 Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
 
@@ -275,7 +275,7 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 ### O02 — пакет независимого review
 
-Status: **R11–R19 FIXED LOCALLY; PR #708 exact-head CI and repeat review pending**. R11–R15 evidence remains recorded in `PLANNING_WORKSPACE_SECOND_REVIEW_2026-10-19.md`; R16–R17 in `PLANNING_WORKSPACE_THIRD_REVIEW_2026-10-19.md`; R18–R19 in `PLANNING_WORKSPACE_FOURTH_REVIEW_2026-10-19.md`. The default owner-only tenant uses consistent empty-store identity. Price and advertising targets persist as explicit recipe assumptions; the latest accepted goal wins and survives historical cap reads and revision update. Refresh now compares owner/store/product/offer/SKU identity before carrying manual values; the save-update boundary independently checks identity even without sales mix. Public regressions cover restart, historical cap, CAS update, changed product/offer/store and preservation of existing manual assumptions. The connected Windows profile is **86 passed in 1.99s**; compileall and diff-check are recorded for the current head. The targeted full local pytest remains prohibited after the documented ACL/shared-storage incident. Push, exact-head PR #708 CI and repeat review are required; no merge/deploy.
+Status: **R11–R19 FIXED AND PUBLISHED; code commit `0f359c6c88490416634bc0a0bf57f4f8cb00fcea` passed exact-head Verify; independent repeat review pending**. R11–R15 evidence remains recorded in `PLANNING_WORKSPACE_SECOND_REVIEW_2026-10-19.md`; R16–R17 in `PLANNING_WORKSPACE_THIRD_REVIEW_2026-10-19.md`; R18–R19 in `PLANNING_WORKSPACE_FOURTH_REVIEW_2026-10-19.md`. The default owner-only tenant uses consistent empty-store identity. Price and advertising targets persist as explicit recipe assumptions; the latest accepted goal wins and survives historical cap reads and revision update. Refresh compares owner/store/product/offer/SKU identity before carrying manual values; save-update independently checks identity even without sales mix. Public regressions cover restart, historical cap, CAS update, changed product/offer/store and preservation of existing manual assumptions. The connected Windows profile is **86 passed in 1.99s**. Verify runs [39250181095](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250181095) and [39250193274](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39250193274) passed full Windows/Linux suites, compile and production Docker build/runtime smoke. The targeted full local pytest remains prohibited after the documented ACL/shared-storage incident. No merge/deploy.
 
 ### Review fix record — R1–R10
 
