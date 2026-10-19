@@ -2534,3 +2534,33 @@ separates user business data from anonymized support diagnostics.
 Status:
 
 Implemented. PR #708 code-head Verify `39175690904` passed full Windows/Linux suites (3,497 tests each) and production Docker smoke. The current review handoff is documentation-only; check the latest PR #708 Verify before closing O01. Independent architecture review remains pending.
+
+---
+
+## Decision 050
+
+Date:
+
+2026-10-19
+
+Topic:
+
+Planning document state CAS and bounded sales-mix inputs
+
+Decision:
+
+- Keep payload `revision` as the history index and introduce a separate monotonic `state_revision` for metadata and payload mutations. All update/rename/archive/restore/delete writes require both expected values and perform atomic compare-and-swap.
+- Initialize and migrate planning schema metadata inside one SQLite `BEGIN IMMEDIATE` transaction with a unique singleton row; preserve existing document and revision data.
+- Align sales-mix validation limits across Telegram/service/persistence, preserve readable legacy inputs when unchanged, and reject new oversized quantities, periods, expenses, or aggregates before Decimal-to-float tax calculation.
+- Preserve a confirmed sales mix during an update only when the exact product identity scope remains unchanged; composition changes require new explicit quantities/preview.
+
+Reason:
+
+Revision-only CAS does not protect destructive actions against metadata changes,
+and an update must not silently discard confirmed planning assumptions. Separate
+state versioning keeps history semantics intact, while bounded inputs protect the
+existing float-based tax service without changing its contract.
+
+Status:
+
+Implemented locally with R1–R10 regressions. Targeted H–O profile passed; exact-head CI and independent review remain pending. No merge/deploy was performed.

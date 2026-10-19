@@ -540,6 +540,7 @@ class AnalyticsExportService:
             self._column("product_id", "ID товара", "text"),
             self._column("offer_id", "Артикул", "text"),
             self._column("sku", "SKU каталога", "text"),
+            self._column("scope_status", "Изменение состава SKU", "status"),
             self._column("field", "Параметр", "text"),
             self._column("before", "Первый вариант", "json"),
             self._column("after", "Второй вариант", "json"),
@@ -549,10 +550,39 @@ class AnalyticsExportService:
         rows = []
         for product in comparison.get("input_changes") or []:
             identity = product.get("identity") or {}
-            for change in product.get("changes") or []:
+            scope_status = product.get("scope_status")
+            if scope_status in {"ADDED_IN_SECOND", "REMOVED_FROM_SECOND"}:
+                added = scope_status == "ADDED_IN_SECOND"
+                rows.append({
+                    "product_id": identity.get("product_id"),
+                    "offer_id": identity.get("offer_id"),
+                    "sku": identity.get("sku"),
+                    "scope_status": scope_status,
+                    "field": "Состав SKU",
+                    "before": "Отсутствовал" if added else "Входил",
+                    "after": "Входит" if added else "Отсутствует",
+                    "delta": None,
+                    "unit": "scope",
+                })
+                continue
+            changes = product.get("changes") or []
+            if not changes:
+                rows.append({
+                    "product_id": identity.get("product_id"),
+                    "offer_id": identity.get("offer_id"),
+                    "sku": identity.get("sku"),
+                    "scope_status": "COMMON",
+                    "field": "Допущения",
+                    "before": "Без изменений",
+                    "after": "Без изменений",
+                    "delta": None,
+                    "unit": "status",
+                })
+            for change in changes:
                 rows.append({
                     "product_id": identity.get("product_id"), "offer_id": identity.get("offer_id"),
-                    "sku": identity.get("sku"), "field": change.get("label"),
+                    "sku": identity.get("sku"), "scope_status": "COMMON",
+                    "field": change.get("label"),
                     "before": change.get("before"), "after": change.get("after"),
                     "delta": change.get("delta"), "unit": change.get("unit"),
                 })

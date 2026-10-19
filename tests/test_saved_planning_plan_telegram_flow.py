@@ -125,6 +125,11 @@ def test_single_save_list_open_and_continue_uses_historical_snapshot_without_sou
         )
         assert open_result["status"] == "PLANNING_DOCUMENT_DETAILS"
         assert "исторический снимок" in open_result["message"]
+        readiness = restarted_handler.handle(
+            _button(open_result, "Готовность плана"), user_id="user-1",
+        )
+        assert readiness["readiness"]["counts"]["calculations_ready"] == 1
+        assert readiness["readiness"]["calculation_status"] == "READY"
         historical_cap = restarted_handler.handle(
             _button(open_result, "Рекламный предел (сохранённые допущения)"),
             user_id="user-1",
@@ -216,7 +221,8 @@ def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_
         payload["target_margin_percent"] = "25"
         revised = service.repository.save_document(
             title=document["title"], payload=payload, document_id=document["document_id"],
-            expected_revision=1, idempotency_key="seed-target-cap-001",
+            expected_revision=1, expected_state_revision=document["state_revision"],
+            idempotency_key="seed-target-cap-001",
             owner_id="user-1", store_id="store-a",
         )
         assert revised["revision"] == 2
@@ -398,6 +404,7 @@ def test_plan_fact_refresh_does_not_publish_after_plan_revision_changes(tmp_path
             mix["quantities"][row_id] += 1
             changed = plan_service.save_sales_mix_revision(
                 document_id, mix, expected_revision=current["current_revision"],
+                expected_state_revision=current["state_revision"],
                 idempotency_key="concurrent-plan-update",
             )
             assert changed["error"] is False, changed
@@ -434,6 +441,56 @@ def test_plan_fact_refresh_does_not_publish_after_plan_revision_changes(tmp_path
         reset_current_tenant_user_id(tenant)
 
 
+def test_plan_fact_late_response_cannot_recreate_snapshot_after_user_state_reset(tmp_path):
+    saved_runtime, single, _source, plan_service = _setup(tmp_path)
+
+    class ResetDuringQuery:
+        def query_selected_identities(self, identities, *, date_from, date_to):
+            saved_runtime.clear_user_state("user-1")
+            return {"error": False, "rows": [], "status": "COMPLETE"}
+
+    class Comparison:
+        @staticmethod
+        def _period(_label):
+            return ("2026-08-01", "2026-08-31")
+
+        def compare(self, _document, _facts, *, tenant_scope, generated_at_utc):
+            return {"error": False, "status": "COMPARABLE", "coverage": {}}
+
+    saved_runtime.period_profit_sku_runtime = ResetDuringQuery()
+    saved_runtime.plan_fact_comparison_service = Comparison()
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        saved_runtime.handle_callback(_button(current, "💾 Сохранить план"), user_id="user-1")
+        saved = saved_runtime.handle_text("Reset race", user_id="user-1")
+        document = plan_service.get_document(saved["document_id"])["document"]
+        mix = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {"sku-1": 10}, "expenses": [], "confirmed": True,
+        }
+        changed = plan_service.save_sales_mix_revision(
+            saved["document_id"], mix,
+            expected_revision=document["current_revision"],
+            expected_state_revision=document["state_revision"],
+            idempotency_key="reset-race-mix-save",
+        )
+        assert changed["error"] is False
+        listing = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        detail = saved_runtime.handle_callback(
+            _button(listing, "Reset race · v2"), user_id="user-1",
+        )
+        result = saved_runtime.handle_callback(
+            _button(detail, "Сравнить план с фактом"), user_id="user-1",
+        )
+        assert result["error"] is True
+        assert result["code"] == "TRANSIENT_SNAPSHOT_GENERATION_STALE"
+        assert saved_runtime.comparison_snapshot_store._snapshots == {}
+        assert saved_runtime.comparison_snapshot_store._generations == {}
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
 def test_readiness_can_correct_one_unknown_quantity_and_keeps_old_revision_until_confirm(tmp_path):
     saved_runtime, single, source, plan_service = _setup(tmp_path)
     tenant = _activate()
@@ -450,6 +507,7 @@ def test_readiness_can_correct_one_unknown_quantity_and_keeps_old_revision_until
         }
         saved_mix = plan_service.save_sales_mix_revision(
             saved["document_id"], mix, expected_revision=1,
+            expected_state_revision=document["state_revision"],
             idempotency_key="readiness-mix-seed",
         )
         assert saved_mix["error"] is False
@@ -495,9 +553,17 @@ def test_readiness_routes_to_one_missing_single_plan_field_without_saving_it(tmp
         payload["items"][0]["projection"].update(
             available=False, status="INCOMPLETE_INPUTS", missing_inputs=["cost"],
         )
+        saved_mix = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {"sku-1": 100},
+            "expenses": [{"name": "Packaging", "amount": "1200.00"}],
+            "confirmed": True,
+        }
+        payload["sales_mix"] = deepcopy(saved_mix)
         updated = plan_service.repository.save_document(
             title=document["title"], payload=payload, owner_id="user-1", store_id="store-a",
             document_id=document["document_id"], expected_revision=1,
+            expected_state_revision=document["state_revision"],
             idempotency_key="readiness-incomplete-seed",
         )
         assert updated["error"] is False
@@ -512,13 +578,18 @@ def test_readiness_routes_to_one_missing_single_plan_field_without_saving_it(tmp
         assert plan_service.get_document(saved["document_id"])["document"]["current_revision"] == 2
         edited = handler.handle_text("125", user_id="user-1")
         assert edited["error"] is False
-        update_callback = _button(edited, "💾 Сохранить изменения в этот план")
+        price_prompt = handler.handle(_button(edited, "Цена"), user_id="user-1")
+        assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        edited_again = handler.handle_text("700", user_id="user-1")
+        update_callback = _button(edited_again, "💾 Сохранить изменения в этот план")
         assert plan_service.get_document(saved["document_id"])["document"]["current_revision"] == 2
         updated = handler.handle(update_callback, user_id="user-1")
         assert updated["status"] == "PLANNING_DOCUMENT_UPDATED"
         saved_document = plan_service.get_document(saved["document_id"])["document"]
         assert saved_document["current_revision"] == 3
         assert saved_document["payload"]["items"][0]["inputs"]["cost"] == "125"
+        assert saved_document["payload"]["items"][0]["inputs"]["price"] == "700"
+        assert saved_document["payload"]["sales_mix"] == saved_mix
 
         conflicted_payload = deepcopy(saved_document["payload"])
         conflicted_payload["items"][0]["inputs"]["cost"] = None
@@ -528,7 +599,8 @@ def test_readiness_routes_to_one_missing_single_plan_field_without_saving_it(tmp
         plan_service.repository.save_document(
             title=saved_document["title"], payload=conflicted_payload,
             owner_id="user-1", store_id="store-a", document_id=saved["document_id"],
-            expected_revision=3, idempotency_key="readiness-reopen-field",
+            expected_revision=3, expected_state_revision=saved_document["state_revision"],
+            idempotency_key="readiness-reopen-field",
         )
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(_button(listing, "Incomplete plan · v4"), user_id="user-1")
@@ -540,11 +612,12 @@ def test_readiness_routes_to_one_missing_single_plan_field_without_saving_it(tmp
         plan_service.repository.save_document(
             title=competing["title"], payload=competing["payload"],
             owner_id="user-1", store_id="store-a", document_id=saved["document_id"],
-            expected_revision=4, idempotency_key="readiness-concurrent-revision",
+            expected_revision=4, expected_state_revision=competing["state_revision"],
+            idempotency_key="readiness-concurrent-revision",
         )
         rejected = handler.handle(stale_callback, user_id="user-1")
         assert rejected["error"] is True
-        assert rejected["code"] == "PLANNING_DOCUMENT_REVISION_CONFLICT"
+        assert rejected["code"] == "PLANNING_DOCUMENT_STATE_CONFLICT"
         latest = plan_service.get_document(saved["document_id"])["document"]
         assert latest["current_revision"] == 5
         assert latest["payload"]["items"][0]["inputs"]["cost"] is None
@@ -576,11 +649,113 @@ def test_saved_document_crud_uses_explicit_copy_archive_restore_and_delete_confi
         detail = saved_runtime.handle_callback(_button(listing, "Original · v1"), user_id="user-1")
         confirm = saved_runtime.handle_callback(_button(detail, "Удалить…"), user_id="user-1")
         assert confirm["status"] == "PLANNING_DELETE_CONFIRMATION_REQUIRED"
-        deleted = saved_runtime.handle_callback(_button(confirm, "Удалить план и версии"), user_id="user-1")
+        rename_prompt = saved_runtime.handle_callback(_button(detail, "Переименовать"), user_id="user-1")
+        renamed = saved_runtime.handle_text("Renamed", user_id="user-1")
+        assert rename_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        assert renamed["status"] == "PLANNING_DOCUMENT_UPDATED"
+        stale_delete = saved_runtime.handle_callback(
+            _button(confirm, "Удалить план и версии"), user_id="user-1",
+        )
+        assert stale_delete["error"] is True
+        assert stale_delete["code"] == "PLANNING_DOCUMENT_STATE_CONFLICT"
+        current_list = saved_runtime.handle_callback("upp:m", user_id="user-1")
+        current_detail = saved_runtime.handle_callback(
+            _button(current_list, "Renamed · v1"), user_id="user-1",
+        )
+        current_confirm = saved_runtime.handle_callback(
+            _button(current_detail, "Удалить…"), user_id="user-1",
+        )
+        deleted = saved_runtime.handle_callback(
+            _button(current_confirm, "Удалить план и версии"), user_id="user-1",
+        )
         assert "удалены" in deleted["message"]
         assert len(service.list_documents()["items"]) == 1
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_public_handler_preserves_refreshed_batch_until_saved_revision_is_written(tmp_path):
+    class BatchBuilder:
+        BATCH_CALCULATION_LIMIT = 100
+
+        def __init__(self, scenario_service):
+            self.scenario_service = scenario_service
+
+        def refresh(self, batch, parent_trace=None):
+            refreshed = deepcopy(batch)
+            refreshed["version"] += 1
+            for row in refreshed["rows"]:
+                row.update(
+                    status="READY", source_age_seconds_at_load=0,
+                    source_loaded_at=100, source_ttl_seconds=600,
+                )
+            return refreshed
+
+    saved_runtime, single, _source, plan_service = _setup(tmp_path)
+    keyboard = AssistantKeyboardService()
+    builder = BatchBuilder(single.scenario_service)
+    batch_runtime = TelegramUnitPriceBatchPlanRuntimeService(
+        builder, None, keyboard, clock=lambda: 100,
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    saved_runtime.batch_runtime = batch_runtime
+    handler = AssistantButtonHandlerService(
+        assistant=None, keyboard_service=keyboard,
+        saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_batch_plan_runtime_service=batch_runtime,
+    )
+    tenant = _activate()
+    try:
+        current_scenario = _select_single(single)
+        scenario_callback = next(
+            button["callback"] for button in current_scenario["keyboard"]["buttons"]
+            if button["callback"].startswith("upc:e:")
+        )
+        _, _, scenario_id, scenario_version, _ = scenario_callback.split(":")
+        payload_capture = single.get_saved_plan_capture(
+            scenario_id, int(scenario_version),
+            user_id="user-1",
+        )
+        payload = deepcopy(payload_capture["payload"])
+        payload["plan_kind"] = "batch"
+        payload["target_margin_percent"] = "25"
+        payload["items"][0]["row_id"] = "row-1"
+        payload["items"][0]["projection"].update(
+            available=True, status="READY", missing_inputs=[], invalid_inputs=[],
+        )
+        second = deepcopy(payload["items"][0])
+        second["row_id"] = "row-2"
+        second["identity"].update(
+            product_id="product-2", offer_id="offer-2", sku="sku-2",
+            product_name="Тестовый товар 2",
+        )
+        second["sources"]["completeness"]["catalog_identity"] = {"complete": True}
+        payload["items"].append(second)
+        planned_mix = {
+            "period_label": "01.08.2026 - 31.08.2026",
+            "quantities": {"row-1": 10, "row-2": 5},
+            "expenses": [{"name": "Packaging", "amount": "1200.00"}],
+            "confirmed": True,
+        }
+        payload["sales_mix"] = deepcopy(planned_mix)
+        created = plan_service.repository.save_document(
+            title="Batch", payload=payload, owner_id="user-1", store_id="store-a",
+            idempotency_key="batch-save-seed-01",
+        )
+        listing = handler.handle("upp:m", user_id="user-1")
+        detail = handler.handle(_button(listing, "Batch · v1"), user_id="user-1")
+        refreshed = handler.handle(_button(detail, "Обновить источники"), user_id="user-1")
+        save_callback = _button(refreshed, "💾 Сохранить изменения в этот план")
+        saved = handler.handle(save_callback, user_id="user-1")
+        current = plan_service.get_document(created["document_id"])["document"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert refreshed["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
+    assert saved["status"] == "PLANNING_DOCUMENT_UPDATED"
+    assert current["current_revision"] == 2
+    assert current["payload"]["plan_kind"] == "batch"
+    assert current["payload"]["sales_mix"] == planned_mix
 
 
 def test_public_plan_variant_comparison_and_owner_exports_use_historical_saved_scope(tmp_path):
@@ -604,6 +779,7 @@ def test_public_plan_variant_comparison_and_owner_exports_use_historical_saved_s
         }
         mix_saved = service.save_sales_mix_revision(
             first["document_id"], sales_mix, expected_revision=1,
+            expected_state_revision=first["state_revision"],
             idempotency_key="option-a-mix",
         )
         assert mix_saved["error"] is False

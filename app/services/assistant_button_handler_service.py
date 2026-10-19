@@ -771,14 +771,34 @@ class AssistantButtonHandlerService:
         if callable(planning_clearer) and not (
             isinstance(button_id, str) and button_id.startswith("upp:")
         ):
-            planning_clearer(user_id)
+            navigation_clearer = getattr(
+                self.saved_planning_plan_runtime_service,
+                "clear_pending_for_navigation", None,
+            )
+            preserve_saved_editor = isinstance(button_id, str) and button_id.startswith(
+                ("upc:", "upb:", "ups:")
+            )
+            if callable(navigation_clearer):
+                navigation_clearer(
+                    user_id, preserve_editor_context=preserve_saved_editor,
+                )
+            else:
+                planning_clearer(user_id)
+        saved_batch_editor_checker = getattr(
+            self.saved_planning_plan_runtime_service,
+            "should_preserve_batch_editor_for_callback", None,
+        )
+        preserve_saved_batch_editor = (
+            callable(saved_batch_editor_checker)
+            and saved_batch_editor_checker(button_id, user_id)
+        )
         batch_clearer = getattr(
             self.unit_price_batch_plan_runtime_service, "clear_pending", None
         )
         if callable(batch_clearer) and not (
             isinstance(button_id, str)
             and button_id.startswith(("upb:", "ups:", "upp:b:"))
-        ):
+        ) and not preserve_saved_batch_editor:
             batch_clearer(user_id)
         sensitivity_clearer = getattr(
             self.unit_price_sensitivity_runtime_service, "clear_pending", None

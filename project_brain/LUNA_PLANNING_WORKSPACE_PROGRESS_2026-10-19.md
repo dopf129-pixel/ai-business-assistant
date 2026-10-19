@@ -275,4 +275,17 @@ New-Item -ItemType Directory -Force -Path $env:CODEX_LOCAL_TEST_TMP_ROOT | Out-N
 
 ### O02 — пакет независимого review
 
-Status: **READY FOR INDEPENDENT REVIEW**. Handoff: `PLANNING_WORKSPACE_REVIEW_HANDOFF_2026-10-19.md`; PR #705–#708 opened on a stacked branch chain. All four code-head PR workflows passed full Windows/Linux tests and Docker smoke; exact heads and merge refs are recorded. For the final documentation-only PR #708 head, use its latest Verify run as the exact revision gate. Independent review remains pending. Classification: **Architecture Review Required**. No merge/deploy.
+Status: **R1–R10 FIXED LOCALLY; EXACT-HEAD CI AND SECOND REVIEW PENDING**. First review and findings: `PLANNING_WORKSPACE_ARCHITECTURE_REVIEW_2026-10-19.md`. Handoff: `PLANNING_WORKSPACE_REVIEW_HANDOFF_2026-10-19.md`. The review identified ten confirmed issues across the #705–#708 stack; all are addressed in the current worktree with targeted regression coverage. The connected H–O profile now reports **259 passed**, documentation drift/manager tests **3 passed**, and `compileall -q app tests` plus `git diff --check` pass. Existing pre-fix Verify runs remain evidence only for their recorded heads; they do not validate these fixes. Exact-head Windows/Linux CI, full-verification Docker smoke, and an independent second review are still required. Classification: **Architecture Review Required**. No merge/deploy.
+
+### Review fix record — R1–R10
+
+- **R1**: preserve period, quantities, and confirmed expenses on update only for the exact same SKU identity scope; reject silent scope changes.
+- **R2**: add monotonic `state_revision` CAS to payload and metadata mutations, and bind stale callbacks to it.
+- **R3–R5**: keep the source batch alive through its bound save action, preserve saved-editor context across allowed field navigation, and provide one READY/INCOMPLETE status contract.
+- **R6**: make database schema initialization/migration atomic and singleton-versioned while preserving existing documents/revisions.
+- **R7**: begin transient plan/fact generation before the external query so reset invalidates any late response.
+- **R8**: retain document/revision binding for permitted successive edits; stale or cross-scope callbacks fail closed.
+- **R9**: align service/persistence limits and reject aggregate overflow before calling float-based TaxService; unchanged legacy sales-mix records remain readable and preservable.
+- **R10**: keep added, removed, and unchanged common SKU identities visible in the comparison screen and CSV/JSON export.
+- Regression files: `tests/test_planning_workspace_repository.py`, `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_sales_mix_planning_service.py`, `tests/test_planning_plan_comparison_service.py`.
+- Data check after isolated tests: tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`; users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`. Local data and ACL scratch folders remain untouched/uncommitted.

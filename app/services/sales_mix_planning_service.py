@@ -7,9 +7,12 @@ import re
 
 class SalesMixPlanningService:
     MAX_ITEMS = 10
-    MAX_QUANTITY_PER_ITEM = 1_000_000
-    MAX_FIXED_EXPENSES = 50
-    MAX_AMOUNT = Decimal("999999999999.99")
+    MAX_QUANTITY_PER_ITEM = 100_000
+    MAX_TOTAL_QUANTITY = 1_000_000
+    MAX_FIXED_EXPENSES = 20
+    MAX_AMOUNT = Decimal("1000000000.00")
+    MAX_FIXED_EXPENSE_TOTAL = Decimal("1000000000.00")
+    MAX_AGGREGATE_AMOUNT = Decimal("1000000000000.00")
     MONEY_COMPONENTS = (
         "revenue", "cost_of_goods", "discount_points", "commission", "advertising", "fees",
         "profit_before_tax",
@@ -82,6 +85,8 @@ class SalesMixPlanningService:
                     break
                 row_components[field] = (value * quantity).quantize(Decimal("0.01"))
                 totals[field] += row_components[field]
+                if abs(totals[field]) > self.MAX_AGGREGATE_AMOUNT:
+                    return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
             if len(row_components) != len(self.MONEY_COMPONENTS):
                 excluded.append({"row_id": row_id, "label": label, "reason": "UNIT_COMPONENT_UNKNOWN"})
                 continue
@@ -92,7 +97,11 @@ class SalesMixPlanningService:
 
         fixed_expenses = self._validated_expenses(expenses)
         expense_total = sum((amount for _name, amount in fixed_expenses), Decimal("0.00"))
+        if expense_total > self.MAX_FIXED_EXPENSE_TOTAL:
+            return self._error("FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED")
         pre_tax_subtotal = totals["profit_before_tax"] - expense_total
+        if abs(pre_tax_subtotal) > self.MAX_AGGREGATE_AMOUNT:
+            return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
         all_rows_known = quantity_known and complete and not excluded
         same_policy = len(policy_set) == 1 and not policy_missing
         tax = None
@@ -178,9 +187,14 @@ class SalesMixPlanningService:
             identities.add(exact_identity)
         if set(quantities) != keys:
             return "QUANTITY_SCOPE_MISMATCH"
+        known_quantity_total = 0
         for quantity in quantities.values():
             if quantity is not None and (type(quantity) is not int or not 0 <= quantity <= self.MAX_QUANTITY_PER_ITEM):
                 return "INVALID_QUANTITY"
+            if quantity is not None:
+                known_quantity_total += quantity
+        if known_quantity_total > self.MAX_TOTAL_QUANTITY:
+            return "TOTAL_QUANTITY_LIMIT_EXCEEDED"
         if not self._valid_period(period_label):
             return "INVALID_PERIOD"
         if type(expenses_confirmed) is not bool or not expenses_confirmed:
@@ -188,6 +202,7 @@ class SalesMixPlanningService:
         if not isinstance(expenses, list) or len(expenses) > self.MAX_FIXED_EXPENSES:
             return "INVALID_FIXED_EXPENSES"
         try:
+            expense_total = Decimal("0")
             for expense in expenses:
                 if not isinstance(expense, dict) or set(expense) != {"name", "amount"}:
                     return "INVALID_FIXED_EXPENSES"
@@ -196,6 +211,9 @@ class SalesMixPlanningService:
                 amount = self._decimal(expense["amount"])
                 if amount is None or amount < 0 or amount > self.MAX_AMOUNT:
                     return "INVALID_FIXED_EXPENSES"
+                expense_total += amount
+                if expense_total > self.MAX_FIXED_EXPENSE_TOTAL:
+                    return "FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED"
         except (KeyError, TypeError):
             return "INVALID_FIXED_EXPENSES"
         return None
@@ -222,7 +240,7 @@ class SalesMixPlanningService:
                     parsed.append(datetime.strptime(part, "%d.%m.%Y").date())
                 except ValueError:
                     return False
-        return parsed[0] <= parsed[1]
+        return parsed[0] <= parsed[1] and (parsed[1] - parsed[0]).days + 1 <= 366
 
     @staticmethod
     def _tax_policy(inputs):

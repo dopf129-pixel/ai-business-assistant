@@ -22,7 +22,7 @@ class SavedPlanningPlanService:
         self.scenario_service = scenario_service
 
     def save_capture(self, title, capture, *, idempotency_key=None,
-                     document_id=None, expected_revision=None):
+                     document_id=None, expected_revision=None, expected_state_revision=None):
         scope = self._scope()
         if scope is None or not isinstance(capture, dict) or capture.get("error") is not False:
             return self._error("PLANNING_CAPTURE_STALE")
@@ -38,6 +38,7 @@ class SavedPlanningPlanService:
             store_id=scope["store_id"],
             document_id=document_id,
             expected_revision=expected_revision,
+            expected_state_revision=expected_state_revision,
             idempotency_key=idempotency_key or uuid4().hex,
         )
         if result.get("error") is True:
@@ -132,7 +133,8 @@ class SavedPlanningPlanService:
         fresh_capture["payload"] = fresh_payload
         return fresh_capture
 
-    def save_sales_mix_revision(self, document_id, sales_mix, *, expected_revision, idempotency_key=None):
+    def save_sales_mix_revision(self, document_id, sales_mix, *, expected_revision,
+                                expected_state_revision, idempotency_key=None):
         """Append a user-confirmed sales-mix projection by revision CAS."""
         scope = self._scope()
         if scope is None:
@@ -144,6 +146,7 @@ class SavedPlanningPlanService:
         if (document.get("owner_id") != scope["owner_id"]
                 or document.get("store_id") != scope["store_id"]
                 or document.get("current_revision") != expected_revision
+                or document.get("state_revision") != expected_state_revision
                 or document.get("status") != "ACTIVE"):
             return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
         payload = deepcopy(document.get("payload") or {})
@@ -152,6 +155,7 @@ class SavedPlanningPlanService:
             title=document.get("title"), payload=payload,
             owner_id=scope["owner_id"], store_id=scope["store_id"],
             document_id=document_id, expected_revision=expected_revision,
+            expected_state_revision=expected_state_revision,
             idempotency_key=idempotency_key or uuid4().hex,
         )
         if result.get("error") is True:
@@ -165,28 +169,36 @@ class SavedPlanningPlanService:
             "executed": False,
         }
 
-    def rename(self, document_id, title, *, expected_revision, idempotency_key=None):
+    def rename(self, document_id, title, *, expected_revision, expected_state_revision,
+               idempotency_key=None):
         return self._repo_mutation("rename_document", document_id, title,
                                    expected_revision=expected_revision,
+                                   expected_state_revision=expected_state_revision,
                                    idempotency_key=idempotency_key)
 
-    def archive(self, document_id, *, expected_revision, idempotency_key=None):
+    def archive(self, document_id, *, expected_revision, expected_state_revision,
+                idempotency_key=None):
         return self._repo_mutation("set_archived", document_id, True,
                                    expected_revision=expected_revision,
+                                   expected_state_revision=expected_state_revision,
                                    idempotency_key=idempotency_key)
 
-    def restore(self, document_id, *, expected_revision, idempotency_key=None):
+    def restore(self, document_id, *, expected_revision, expected_state_revision,
+                idempotency_key=None):
         return self._repo_mutation("set_archived", document_id, False,
                                    expected_revision=expected_revision,
+                                   expected_state_revision=expected_state_revision,
                                    idempotency_key=idempotency_key)
 
-    def delete(self, document_id, *, expected_revision, confirmed, idempotency_key=None):
+    def delete(self, document_id, *, expected_revision, expected_state_revision,
+               confirmed, idempotency_key=None):
         return self._repo_mutation("delete_document", document_id,
                                    expected_revision=expected_revision,
+                                   expected_state_revision=expected_state_revision,
                                    confirmed=confirmed, idempotency_key=idempotency_key)
 
     def _repo_mutation(self, method_name, document_id, *args, expected_revision,
-                       idempotency_key=None, **kwargs):
+                       expected_state_revision, idempotency_key=None, **kwargs):
         scope = self._scope()
         if scope is None:
             return self._error("PLANNING_TENANT_SCOPE_MISMATCH")
@@ -195,6 +207,7 @@ class SavedPlanningPlanService:
             return self._error("PLANNING_OPERATION_UNAVAILABLE")
         return method(
             document_id, *args, expected_revision=expected_revision,
+            expected_state_revision=expected_state_revision,
             idempotency_key=idempotency_key or uuid4().hex,
             owner_id=scope["owner_id"], store_id=scope["store_id"], **kwargs,
         )

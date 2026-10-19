@@ -162,6 +162,7 @@ class TelegramSavedPlanningPlanRuntimeService:
             result = self.planning_service.rename(
                 pending["document_id"], title,
                 expected_revision=pending["revision"],
+                expected_state_revision=pending["state_revision"],
                 idempotency_key=pending["idempotency_key"],
             )
         elif pending["kind"] == "copy":
@@ -181,17 +182,39 @@ class TelegramSavedPlanningPlanRuntimeService:
         )
 
     def clear_pending(self, user_id):
+        self.clear_pending_for_navigation(user_id, preserve_editor_context=False)
+
+    def clear_pending_for_navigation(self, user_id, *, preserve_editor_context):
         owner = str(user_id or "").strip()
         if not owner:
             return
         with self._lock:
             for key in [key for key in self._pending if key[0] == owner]:
                 self._pending.pop(key, None)
-            for key in [key for key in self._plan_edit_contexts if key[0] == owner]:
-                self._plan_edit_contexts.pop(key, None)
+            if not preserve_editor_context:
+                for key in [key for key in self._plan_edit_contexts if key[0] == owner]:
+                    self._plan_edit_contexts.pop(key, None)
             for token, action in list(self._actions.items()):
                 if action.get("owner_id") == owner:
                     self._actions.pop(token, None)
+
+    def should_preserve_batch_editor_for_callback(self, callback, user_id):
+        value = str(callback or "")
+        parts = value.split(":")
+        if len(parts) != 3 or parts[:2] != ["upp", "a"]:
+            return False
+        scope = self._scope(user_id)
+        if scope is None:
+            return False
+        with self._lock:
+            action = deepcopy(self._actions.get(parts[2]))
+        return bool(
+            isinstance(action, dict)
+            and action.get("kind") == "save_update"
+            and action.get("plan_kind") == "batch"
+            and action.get("owner_id") == scope["owner_id"]
+            and action.get("tenant_scope") == scope["tenant_scope"]
+        )
 
     def clear_user_state(self, user_id):
         self.clear_pending(user_id)
@@ -236,18 +259,21 @@ class TelegramSavedPlanningPlanRuntimeService:
         return self._add_update_controls(
             result, scope, plan_kind=editor["kind"],
             document_id=context["document_id"], revision=context["revision"],
+            state_revision=context["state_revision"],
             scenario_id=editor.get("id") if editor["kind"] == "single" else None,
             version=editor.get("version"),
             batch_id=editor.get("id") if editor["kind"] == "batch" else None,
         )
 
-    def _remember_plan_edit_context(self, scope, kind, editor_id, editor_version, document_id, revision):
+    def _remember_plan_edit_context(self, scope, kind, editor_id, editor_version,
+                                    document_id, revision, state_revision):
         if kind not in {"single", "batch"} or not editor_id or type(editor_version) is not int:
             return
         key = (scope["owner_id"], scope["tenant_scope"], kind, str(editor_id))
         with self._lock:
             self._plan_edit_contexts[key] = {
                 "document_id": str(document_id), "revision": int(revision),
+                "state_revision": int(state_revision),
                 "editor_version": editor_version, "created_at": self.clock(),
             }
             self._plan_edit_contexts.move_to_end(key)
@@ -363,28 +389,44 @@ class TelegramSavedPlanningPlanRuntimeService:
                 self._pending[scope["key"]] = {
                     "ticket": token_hex(12), "kind": "rename" if kind == "rename_prompt" else "copy",
                     "document_id": doc_id, "revision": revision,
+                    "state_revision": action.get("state_revision"),
                     "idempotency_key": uuid4().hex, "created_at": self.clock(),
                 }
             prompt = "Введите новое название плана (1–80 символов)." if kind == "rename_prompt" else "Введите название копии (1–80 символов)."
             return self._result("PLANNING_TITLE_REQUIRED", prompt, self._cancel_keyboard())
         if kind == "archive":
-            result = self.planning_service.archive(doc_id, expected_revision=revision, idempotency_key=uuid4().hex)
+            result = self.planning_service.archive(
+                doc_id, expected_revision=revision,
+                expected_state_revision=action.get("state_revision"),
+                idempotency_key=uuid4().hex,
+            )
             if result.get("error") is True:
                 return self._error(result.get("code"))
             return self._list_screen(scope, notice="План перемещён в архив. Его версии сохранены.")
         if kind == "restore":
-            result = self.planning_service.restore(doc_id, expected_revision=revision, idempotency_key=uuid4().hex)
+            result = self.planning_service.restore(
+                doc_id, expected_revision=revision,
+                expected_state_revision=action.get("state_revision"),
+                idempotency_key=uuid4().hex,
+            )
             if result.get("error") is True:
                 return self._error(result.get("code"))
             return self._list_screen(scope, notice="План восстановлен из архива.")
         if kind == "delete_prompt":
-            token = self._register_action(scope, "delete_confirm", document_id=doc_id, revision=revision)
+            token = self._register_action(
+                scope, "delete_confirm", document_id=doc_id, revision=revision,
+                state_revision=action.get("state_revision"), title=action.get("title"),
+            )
             return self._result("PLANNING_DELETE_CONFIRMATION_REQUIRED",
-                                "Физически удалить этот документ и его версии? Это действие необратимо.",
+                                f"Физически удалить план «{action.get('title') or 'Сохранённый план'}» · состояние {action.get('state_revision')} и его версии? Это действие необратимо.",
                                 self._keyboard([{"text": "Удалить план и версии", "callback": f"upp:a:{token}"},
                                                 {"text": "Отмена", "callback": self._action_callback(scope, "open", document_id=doc_id, revision=revision)}]))
         if kind == "delete_confirm":
-            result = self.planning_service.delete(doc_id, expected_revision=revision, confirmed=True, idempotency_key=uuid4().hex)
+            result = self.planning_service.delete(
+                doc_id, expected_revision=revision,
+                expected_state_revision=action.get("state_revision"),
+                confirmed=True, idempotency_key=uuid4().hex,
+            )
             if result.get("error") is True:
                 return self._error(result.get("code"))
             return self._list_screen(scope, notice="Документ и его версии удалены по подтверждению.")
@@ -392,7 +434,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             result = self.planning_service.get_document(doc_id, revision=revision)
             if result.get("error") is True:
                 return self._error(result.get("code"))
-            payload = result["document"]["payload"]
+            document = result["document"]
+            payload = document["payload"]
             if payload.get("plan_kind") == "single":
                 return self.single_runtime.restore_saved_plan(payload, user_id=user_id)
             return self.batch_runtime.restore_saved_plan(payload, user_id=user_id)
@@ -400,7 +443,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             result = self.planning_service.get_document(doc_id, revision=revision)
             if result.get("error") is True:
                 return self._error(result.get("code"))
-            payload = result["document"]["payload"]
+            document = result["document"]
+            payload = document["payload"]
             if payload.get("plan_kind") == "single":
                 opened = self.single_runtime.restore_saved_plan(payload, user_id=user_id)
                 sid = opened.get("scenario_id")
@@ -409,7 +453,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                     refreshed = self.single_runtime.handle_callback(f"upc:r:{sid}:{version}", user_id=user_id)
                     return self._add_update_controls(
                         refreshed, scope, plan_kind="single", document_id=doc_id,
-                        revision=revision,
+                        revision=revision, state_revision=document["state_revision"],
                     )
                 return opened
             opened = self.batch_runtime.restore_saved_plan(payload, user_id=user_id)
@@ -418,7 +462,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 refreshed = self.batch_runtime.handle_callback(refresh_callback, user_id=user_id)
                 return self._add_update_controls(
                     refreshed, scope, plan_kind="batch", document_id=doc_id,
-                    revision=revision,
+                    revision=revision, state_revision=document["state_revision"],
                 )
             return opened
         if kind == "save_update":
@@ -443,12 +487,17 @@ class TelegramSavedPlanningPlanRuntimeService:
             if (
                 not isinstance(document, dict)
                 or document.get("current_revision") != revision
+                or document.get("state_revision") != action.get("state_revision")
                 or document.get("status") != "ACTIVE"
             ):
-                return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
+                return self._error("PLANNING_DOCUMENT_STATE_CONFLICT")
+            merged_capture = self._preserve_saved_plan_context(document, capture)
+            if merged_capture.get("error") is True:
+                return self._error(merged_capture.get("code"))
             saved = self.planning_service.save_capture(
-                document.get("title"), capture,
+                document.get("title"), merged_capture,
                 document_id=doc_id, expected_revision=revision,
+                expected_state_revision=action.get("state_revision"),
                 idempotency_key=uuid4().hex,
             )
             if saved.get("error") is True:
@@ -504,7 +553,8 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "text": "Исправить · " + item["label"][:32],
                     "callback": self._action_callback(
                         scope, "readiness_edit", document_id=document["document_id"],
-                        revision=document["revision"], row_id=item["row_id"], field=field,
+                        revision=document["revision"], state_revision=document["state_revision"],
+                        row_id=item["row_id"], field=field,
                     ),
                 })
             if (can_edit and readiness["sales_mix_status"] != "NOT_STARTED"
@@ -513,7 +563,8 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "text": "Задать количество · " + item["label"][:28],
                     "callback": self._action_callback(
                         scope, "sales_mix_quantity_edit", document_id=document["document_id"],
-                        revision=document["revision"], row_id=item["row_id"],
+                        revision=document["revision"], state_revision=document["state_revision"],
+                        row_id=item["row_id"],
                     ),
                 })
         if can_edit and readiness["sales_mix_status"] == "NOT_STARTED":
@@ -521,7 +572,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 "text": "Задать объём продаж",
                 "callback": self._action_callback(
                     scope, "sales_mix", document_id=document["document_id"],
-                    revision=document["revision"],
+                    revision=document["revision"], state_revision=document["state_revision"],
                 ),
             })
         if not can_edit:
@@ -549,6 +600,7 @@ class TelegramSavedPlanningPlanRuntimeService:
             document.get("owner_id") != scope["owner_id"]
             or document.get("store_id") != scope["store_id"]
             or document.get("revision") != document.get("current_revision")
+            or document.get("state_revision") != action.get("state_revision")
             or document.get("status") != "ACTIVE"
         ):
             return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
@@ -574,7 +626,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         if isinstance(editor, dict):
             self._remember_plan_edit_context(
                 scope, editor.get("kind"), editor.get("id"), editor.get("version"),
-                document["document_id"], document["revision"],
+                document["document_id"], document["revision"], document["state_revision"],
             )
         return result
 
@@ -592,6 +644,7 @@ class TelegramSavedPlanningPlanRuntimeService:
             or document.get("store_id") != scope["store_id"]
             or document.get("status") != "ACTIVE"
             or document.get("revision") != document.get("current_revision")
+            or document.get("state_revision") != action.get("state_revision")
         ):
             return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
         payload = document.get("payload") or {}
@@ -614,6 +667,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         pending = {
             "ticket": token_hex(12), "kind": "sales_mix", "stage": "quantity_edit",
             "document_id": document["document_id"], "revision": document["revision"],
+            "state_revision": document["state_revision"],
             "payload": deepcopy(payload), "created_at": self.clock(),
             "period_label": period_label, "quantities": deepcopy(quantities),
             "row_id": row_id, "expenses": deepcopy(mix.get("expenses") or []),
@@ -690,7 +744,10 @@ class TelegramSavedPlanningPlanRuntimeService:
             {"text": "Продолжить по сохранённым допущениям", "callback": self._action_callback(scope, "continue", document_id=document["document_id"], revision=document["revision"])},
             {"text": "Обновить источники", "callback": self._action_callback(scope, "refresh", document_id=document["document_id"], revision=document["revision"])},
             {"text": "Сохранить копию", "callback": self._action_callback(scope, "copy_prompt", document_id=document["document_id"], revision=document["revision"])},
-            {"text": "Переименовать", "callback": self._action_callback(scope, "rename_prompt", document_id=document["document_id"], revision=document["current_revision"])},
+            {"text": "Переименовать", "callback": self._action_callback(
+                scope, "rename_prompt", document_id=document["document_id"],
+                revision=document["current_revision"], state_revision=document["state_revision"],
+            )},
             {"text": "История версий", "callback": self._action_callback(scope, "revisions", document_id=document["document_id"], revision=document["revision"])},
         ]
         if self.plan_comparison_service is not None:
@@ -734,7 +791,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 "text": "План объёма продаж",
                 "callback": self._action_callback(
                     scope, "sales_mix", document_id=document["document_id"],
-                    revision=document["revision"],
+                    revision=document["revision"], state_revision=document["state_revision"],
                 ),
             })
         if (
@@ -750,10 +807,20 @@ class TelegramSavedPlanningPlanRuntimeService:
                 ),
             })
         if document.get("status") == "ARCHIVED":
-            buttons.append({"text": "Восстановить", "callback": self._action_callback(scope, "restore", document_id=document["document_id"], revision=document["current_revision"])})
+            buttons.append({"text": "Восстановить", "callback": self._action_callback(
+                scope, "restore", document_id=document["document_id"],
+                revision=document["current_revision"], state_revision=document["state_revision"],
+            )})
         else:
-            buttons.append({"text": "В архив", "callback": self._action_callback(scope, "archive", document_id=document["document_id"], revision=document["current_revision"])})
-        buttons.append({"text": "Удалить…", "callback": self._action_callback(scope, "delete_prompt", document_id=document["document_id"], revision=document["current_revision"])})
+            buttons.append({"text": "В архив", "callback": self._action_callback(
+                scope, "archive", document_id=document["document_id"],
+                revision=document["current_revision"], state_revision=document["state_revision"],
+            )})
+        buttons.append({"text": "Удалить…", "callback": self._action_callback(
+            scope, "delete_prompt", document_id=document["document_id"],
+            revision=document["current_revision"], state_revision=document["state_revision"],
+            title=document.get("title"),
+        )})
         buttons.extend([
             {"text": "К списку", "callback": "upp:m"},
             {"text": "Главное меню", "callback": "main_menu"},
@@ -770,7 +837,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             return self._error(result.get("code"))
         document = result.get("document") or {}
         if (document.get("status") != "ACTIVE"
-                or document.get("revision") != document.get("current_revision")):
+                or document.get("revision") != document.get("current_revision")
+                or document.get("state_revision") != action.get("state_revision")):
             return self._error("PLANNING_DOCUMENT_REVISION_CONFLICT")
         payload = document.get("payload") or {}
         items = payload.get("items")
@@ -782,6 +850,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         pending = {
             "ticket": token_hex(12), "kind": "sales_mix", "stage": "period",
             "document_id": document["document_id"], "revision": document["revision"],
+            "state_revision": document["state_revision"],
             "payload": deepcopy(payload), "created_at": self.clock(),
             "period_label": None, "quantities": {key: None for key in row_keys},
             "row_index": 0, "expenses": [], "expense_count": None,
@@ -817,23 +886,29 @@ class TelegramSavedPlanningPlanRuntimeService:
         stage = pending.get("stage")
         if stage == "period":
             if not self.sales_mix_planning_service._valid_period(value):
-                return self._sales_mix_prompt(scope, pending, "Период не принят. Введите две корректные даты в формате ДД.ММ.ГГГГ - ДД.ММ.ГГГГ.")
+                return self._sales_mix_prompt(scope, pending, "Период не принят. Укажите даты в формате ДД.ММ.ГГГГ - ДД.ММ.ГГГГ; диапазон — не более 366 дней.")
             updated["period_label"] = value
             updated["stage"] = "quantity"
             updated["row_index"] = 0
             return self._save_sales_mix_pending_and_prompt(scope, pending, updated, "Введите целое число подтверждённых успешных продаж. Ноль указывайте явно.")
         if stage == "quantity":
-            if not value.isascii() or not value.isdigit() or len(value) > 7:
-                return self._sales_mix_prompt(scope, pending, "Количество не принято. Введите целое число от 0 до 1 000 000 или оставьте его неизвестным кнопкой.")
+            if not value.isascii() or not value.isdigit() or len(value) > 6:
+                return self._sales_mix_prompt(scope, pending, "Количество не принято. Введите целое число от 0 до 100 000 на SKU или оставьте его неизвестным кнопкой.")
             quantity = int(value)
             if quantity > self.sales_mix_planning_service.MAX_QUANTITY_PER_ITEM:
-                return self._sales_mix_prompt(scope, pending, "Количество превышает лимит. Введите целое число от 0 до 1 000 000.")
+                return self._sales_mix_prompt(scope, pending, "Количество превышает лимит 100 000 на SKU.")
             items = pending["payload"].get("items") or []
             index = pending.get("row_index", 0)
             if not 0 <= index < len(items):
                 return self._stale()
             identity = items[index].get("identity") or {}
             key = str(items[index].get("row_id") or identity.get("sku") or "")
+            known_total = sum(
+                item_quantity for item_key, item_quantity in updated["quantities"].items()
+                if item_key != key and type(item_quantity) is int
+            ) + quantity
+            if known_total > self.sales_mix_planning_service.MAX_TOTAL_QUANTITY:
+                return self._sales_mix_prompt(scope, pending, "Общее подтверждённое количество превышает 1 000 000 единиц.")
             updated["quantities"][key] = quantity
             updated["row_index"] = index + 1
             if updated["row_index"] >= len(items):
@@ -841,21 +916,27 @@ class TelegramSavedPlanningPlanRuntimeService:
                 return self._save_sales_mix_pending_and_prompt(scope, pending, updated, "Введите число дополнительных расходов за период. Введите 0, если явно подтверждаете пустой список.")
             return self._save_sales_mix_pending_and_prompt(scope, pending, updated, "Введите целое количество успешных продаж или оставьте его неизвестным кнопкой.")
         if stage == "quantity_edit":
-            if not value.isascii() or not value.isdigit() or len(value) > 7:
-                return self._sales_mix_prompt(scope, pending, "Количество не принято. Введите целое число от 0 до 1 000 000.")
+            if not value.isascii() or not value.isdigit() or len(value) > 6:
+                return self._sales_mix_prompt(scope, pending, "Количество не принято. Введите целое число от 0 до 100 000 на SKU.")
             quantity = int(value)
             if quantity > self.sales_mix_planning_service.MAX_QUANTITY_PER_ITEM:
-                return self._sales_mix_prompt(scope, pending, "Количество превышает лимит 1 000 000.")
+                return self._sales_mix_prompt(scope, pending, "Количество превышает лимит 100 000 на SKU.")
             row_id = pending.get("row_id")
             if row_id not in updated.get("quantities", {}):
                 return self._stale()
+            known_total = sum(
+                item_quantity for item_key, item_quantity in updated["quantities"].items()
+                if item_key != row_id and type(item_quantity) is int
+            ) + quantity
+            if known_total > self.sales_mix_planning_service.MAX_TOTAL_QUANTITY:
+                return self._sales_mix_prompt(scope, pending, "Общее подтверждённое количество превышает 1 000 000 единиц.")
             updated["quantities"][row_id] = quantity
             updated["stage"] = "preview"
             updated["expenses_confirmed"] = pending.get("expenses_confirmed") is True
             return self._save_sales_mix_preview(scope, pending, updated)
         if stage == "expense_count":
             if not value.isascii() or not value.isdigit() or len(value) > 2 or int(value) > self.sales_mix_planning_service.MAX_FIXED_EXPENSES:
-                return self._sales_mix_prompt(scope, pending, "Введите целое число дополнительных расходов от 0 до 50.")
+                return self._sales_mix_prompt(scope, pending, "Введите целое число дополнительных расходов от 0 до 20.")
             count = int(value)
             updated["expense_count"] = count
             if count == 0:
@@ -871,7 +952,13 @@ class TelegramSavedPlanningPlanRuntimeService:
                 return self._sales_mix_prompt(scope, pending, "Не понял расход. Введите название; сумма, например Реклама; 1250.00")
             amount = self.sales_mix_planning_service._decimal(parts[1].strip().replace(",", "."))
             if amount is None or amount < 0 or amount > self.sales_mix_planning_service.MAX_AMOUNT:
-                return self._sales_mix_prompt(scope, pending, "Сумма расхода не принята. Укажите неотрицательную сумму до 999 999 999 999,99 ₽.")
+                return self._sales_mix_prompt(scope, pending, "Сумма расхода не принята. Укажите неотрицательную сумму до 1 000 000 000 ₽.")
+            current_expense_total = sum(
+                self.sales_mix_planning_service._decimal(item.get("amount")) or Decimal("0")
+                for item in updated.get("expenses") or [] if isinstance(item, dict)
+            )
+            if current_expense_total + amount > self.sales_mix_planning_service.MAX_FIXED_EXPENSE_TOTAL:
+                return self._sales_mix_prompt(scope, pending, "Сумма дополнительных расходов за период не должна превышать 1 000 000 000 ₽.")
             updated["expenses"].append({"name": parts[0].strip(), "amount": format(amount.quantize(Decimal('0.01')), '.2f')})
             updated["expense_index"] += 1
             if updated["expense_index"] >= updated["expense_count"]:
@@ -1045,7 +1132,9 @@ class TelegramSavedPlanningPlanRuntimeService:
                 return self._stale()
             result = self.planning_service.save_sales_mix_revision(
                 pending["document_id"], sales_mix,
-                expected_revision=pending["revision"], idempotency_key=pending["ticket"],
+                expected_revision=pending["revision"],
+                expected_state_revision=pending["state_revision"],
+                idempotency_key=pending["ticket"],
             )
             self._pending.pop(scope["key"], None)
         if result.get("error") is True:
@@ -1101,6 +1190,14 @@ class TelegramSavedPlanningPlanRuntimeService:
                     )}]),
                 )
             self._plan_fact_inflight.add(inflight_key)
+        generation_result = self.comparison_snapshot_store.begin_generation(
+            scope["owner_id"], scope["store_id"], "plan_fact",
+        )
+        if generation_result.get("error") is True:
+            with self._lock:
+                self._plan_fact_inflight.discard(inflight_key)
+            return self._error(generation_result.get("code"))
+        generation = generation_result["generation"]
         try:
             fact_result = self.period_profit_sku_runtime.query_selected_identities(
                 identities, date_from=period[0], date_to=period[1],
@@ -1126,12 +1223,6 @@ class TelegramSavedPlanningPlanRuntimeService:
             )
             if comparison.get("error") is True:
                 return self._error(comparison.get("code"))
-            generation_result = self.comparison_snapshot_store.begin_generation(
-                scope["owner_id"], scope["store_id"], "plan_fact",
-            )
-            if generation_result.get("error") is True:
-                return self._error(generation_result.get("code"))
-            generation = generation_result["generation"]
             stored = self.comparison_snapshot_store.put_snapshot(
                 scope["owner_id"], scope["store_id"], "plan_fact",
                 generation, int(document["revision"]),
@@ -1321,6 +1412,13 @@ class TelegramSavedPlanningPlanRuntimeService:
         for product in comparison.get("input_changes") or []:
             identity = product.get("identity") or {}
             label = identity.get("product_name") or identity.get("offer_id") or identity.get("sku") or "Товар"
+            scope_status = product.get("scope_status")
+            if scope_status in {"ADDED_IN_SECOND", "REMOVED_FROM_SECOND"}:
+                sku = identity.get("sku")
+                suffix = f" · SKU {sku}" if sku else ""
+                direction = "добавлен во втором варианте" if scope_status == "ADDED_IN_SECOND" else "есть только в первом варианте"
+                changes.append(f"• Состав SKU · {label}{suffix}: {direction}.")
+                continue
             for change in product.get("changes") or []:
                 changes.append(f"• {label} · {change.get('label')}: {change.get('before', '—')} → {change.get('after', '—')} {change.get('unit', '')}")
         lines.extend(changes[:24] or ["Введённые параметры не изменились."])
@@ -1590,7 +1688,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         )
 
     def _add_update_controls(
-        self, result, scope, *, plan_kind, document_id, revision,
+        self, result, scope, *, plan_kind, document_id, revision, state_revision,
         scenario_id=None, batch_id=None, version=None,
     ):
         """Offer explicit CAS update and copy after a successful source refresh."""
@@ -1619,11 +1717,67 @@ class TelegramSavedPlanningPlanRuntimeService:
             return result
         callback = self._action_callback(
             scope, "save_update", document_id=document_id, revision=revision,
+            state_revision=state_revision,
             plan_kind=plan_kind, **values,
         )
         buttons.insert(0, {"text": "💾 Сохранить изменения в этот план", "callback": callback})
         result["keyboard"] = self._keyboard(buttons)
         return result
+
+    @staticmethod
+    def _preserve_saved_plan_context(document, capture):
+        """Carry confirmed period inputs across an exact-identity editor update."""
+        if not isinstance(document, dict) or not isinstance(capture, dict):
+            return {"error": True, "code": "PLANNING_CAPTURE_INVALID"}
+        old_payload = document.get("payload")
+        new_payload = deepcopy(capture.get("payload"))
+        if not isinstance(old_payload, dict) or not isinstance(new_payload, dict):
+            return {"error": True, "code": "PLANNING_CAPTURE_INVALID"}
+        sales_mix = old_payload.get("sales_mix")
+        if sales_mix is None:
+            return capture
+
+        def rows_by_identity(items):
+            if not isinstance(items, list):
+                return None
+            rows = {}
+            for item in items:
+                if not isinstance(item, dict):
+                    return None
+                identity = item.get("identity")
+                if not isinstance(identity, dict):
+                    return None
+                key = tuple(str(identity.get(field) or "").strip()
+                            for field in ("product_id", "offer_id", "sku", "store_id"))
+                if not all(key) or key in rows:
+                    return None
+                row_id = str(item.get("row_id") or identity.get("sku") or "")
+                if not row_id:
+                    return None
+                rows[key] = row_id
+            return rows
+
+        previous_rows = rows_by_identity(old_payload.get("items"))
+        current_rows = rows_by_identity(new_payload.get("items"))
+        old_quantities = sales_mix.get("quantities") if isinstance(sales_mix, dict) else None
+        if (previous_rows is None or current_rows is None
+                or set(previous_rows) != set(current_rows)
+                or not isinstance(old_quantities, dict)
+                or set(old_quantities) != set(previous_rows.values())):
+            return {"error": True, "code": "PLANNING_SALES_MIX_SCOPE_CHANGED"}
+        quantities_by_identity = {
+            identity: old_quantities[row_id]
+            for identity, row_id in previous_rows.items()
+        }
+        preserved_mix = deepcopy(sales_mix)
+        preserved_mix["quantities"] = {
+            row_id: quantities_by_identity[identity]
+            for identity, row_id in current_rows.items()
+        }
+        new_payload["sales_mix"] = preserved_mix
+        merged = deepcopy(capture)
+        merged["payload"] = new_payload
+        return merged
 
     @staticmethod
     def _scenario_id_from_result(result):
@@ -1757,6 +1911,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             "PLANNING_DOCUMENT_REVISION_LIMIT": "Достигнут лимит версий этого плана. Можно сохранить его отдельной копией, если остаётся место, или удалить документ и версии после подтверждения.",
             "PLANNING_DOCUMENT_TOO_LARGE": "План превышает допустимый размер и не сохранён. Сократите число товаров или лишние допущения и повторите сохранение; текущие документы не изменены.",
             "PLANNING_DOCUMENT_REVISION_CONFLICT": "План уже изменён в другом действии. Откройте его заново и повторите сохранение; новая версия не перезаписана.",
+            "PLANNING_DOCUMENT_STATE_CONFLICT": "Название или состояние плана изменилось после открытия действия. Откройте план заново и подтвердите нужное действие ещё раз.",
+            "PLANNING_DOCUMENT_STATE_REVISION_REQUIRED": "Действие устарело. Откройте план заново, чтобы получить актуальное состояние.",
             "PLANNING_STORAGE_UNAVAILABLE": "Локальное хранилище планов временно недоступно. Ничего не сохранено; повторите позже.",
             "PLAN_FACT_CALCULATION_VERSION_INCOMPATIBLE": "У этой версии плана другая версия расчёта. Сначала откройте план и создайте актуальную локальную ревизию; исходная версия останется сохранённой.",
             "PLAN_FACT_PERIOD_INVALID": "В плане не удалось подтвердить календарный период. Откройте план и задайте период заново.",

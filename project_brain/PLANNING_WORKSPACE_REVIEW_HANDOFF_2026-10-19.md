@@ -1,6 +1,6 @@
 # Planning workspace H–O — independent review handoff
 
-Status: **READY FOR INDEPENDENT ARCHITECTURE REVIEW — all four PR verification workflows passed.**
+Status: **FIRST REVIEW REQUESTED CHANGES; R1–R10 FIXED LOCALLY. EXACT-HEAD CI AND SECOND REVIEW PENDING.**
 
 Execution task: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`
 Progress journal: `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`
@@ -13,9 +13,9 @@ Review classification: **Architecture Review Required**.
 | 1 | H — local process lifecycle | [#705](https://github.com/dopf129-pixel/ai-business-assistant/pull/705) | `main` `722f368526c278b701cbfd69f3dbb9a474d52386` | `050563b6e8766efa06e3b733fc69bc35e086899d` | [39175656753](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175656753) — **success**, 3,443 tests on Windows and Linux; Docker smoke passed. CI merge ref: `a2cfd6b673e68eb4ef068399e39974404db7666e` |
 | 2 | I — tenant planning repository | [#706](https://github.com/dopf129-pixel/ai-business-assistant/pull/706) | `codex/planning-workspace-h` `050563b6e8766efa06e3b733fc69bc35e086899d` | `4e6b1bc1f2d05433537f7caf2fda450b33ccce65` | [39175669828](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175669828) — **success**, 3,454 tests on Windows and Linux; Docker smoke passed. CI merge ref: `902f475f886bfff1d740121b392a8f608ad4187d` |
 | 3 | J–K — advertising cap and sales mix calculation | [#707](https://github.com/dopf129-pixel/ai-business-assistant/pull/707) | `codex/planning-workspace-i` `4e6b1bc1f2d05433537f7caf2fda450b33ccce65` | `b66ebc45686e276c76bfcb4173c92cade6100c9c` | [39175679778](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175679778) — **success**, 3,466 tests on Windows and Linux; Docker smoke passed. CI merge ref: `4c091f6c38017bb3a687e2b08ee6cf5fe6bf9289` |
-| 4 | L–N + O integration/evidence | [#708](https://github.com/dopf129-pixel/ai-business-assistant/pull/708) | `codex/planning-workspace-jk` `b66ebc45686e276c76bfcb4173c92cade6100c9c` | `a5041e5d7355d593bae6dacbc20c1590930eed21` | [39175690904](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175690904) — **success**, 3,497 tests on Windows and Linux; Docker smoke passed. CI merge ref: `814895b4a09316d9715f586eaef6b315572c8afc` |
+| 4 | L–N + O integration/evidence | [#708](https://github.com/dopf129-pixel/ai-business-assistant/pull/708) | `codex/planning-workspace-jk` `b66ebc45686e276c76bfcb4173c92cade6100c9c` | `a5041e5d7355d593bae6dacbc20c1590930eed21` | [39175690904](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39175690904) — **success**, 3,497 tests on Windows and Linux; Docker smoke passed. CI merge ref: `814895b4a09316d9715f586eaef6b315572c8afc`. This is the pre-fix revision; it does not validate R1–R10. |
 
-Merge order must follow this dependency chain. The top PR is intentionally not a standalone diff against `main`. No PR has been merged and no deployment has been performed.
+Merge order must follow this dependency chain. The top PR is intentionally not a standalone diff against `main`. The table records the reviewed pre-fix revisions; current fixes require a new exact-head Verify run. No PR has been merged and no deployment has been performed.
 
 ## Completed scope
 
@@ -30,7 +30,8 @@ Merge order must follow this dependency chain. The top PR is intentionally not a
 
 ## Local verification
 
-- Broad H–O Windows/Python 3.12 profile: **249 passed in 9.98s**.
+- Broad H–O Windows/Python 3.12 profile after review fixes: **259 passed**.
+- Documentation drift/manager tests: **3 passed**.
 - Documentation drift/manager tests: **3 passed**.
 - `python -m compileall -q app tests`: passed.
 - PowerShell AST parse for `start_bot.ps1`, `status_bot.ps1`, `stop_bot.ps1`: passed.
@@ -62,6 +63,6 @@ The earlier full local pytest attempt produced **3431 passed / 28 failed** due t
 
 ## Final verification gate
 
-- All four code-head PR Verify workflows completed with `success`; each includes Windows and Linux full-suite jobs, compile checks and the full-verification Docker build/runtime smoke. PR workflows test the GitHub merge ref for the declared stacked base plus the PR head; merge refs and exact head SHAs are listed above.
-- This handoff and final progress record are documentation-only additions to PR #708. Before closing O01, confirm the **latest Verify run on PR #708** succeeded for the current head; the PR's latest run is authoritative if later documentation-only commits advance that head.
-- Independent architecture review has not yet been performed. CI success is not a review approval and does not authorize merge.
+- Previous PR Verify runs succeeded only for the pre-fix heads listed above. New R1–R10 code and docs need exact-head Windows/Linux full tests, compile checks, and full-verification Docker build/runtime smoke.
+- Before closing O01, confirm the latest Verify run on PR #708 succeeded for its current head; the latest run is authoritative if later commits advance that head.
+- First independent review returned REQUEST CHANGES. R1–R10 are fixed locally; repeat independent architecture review after exact-head CI. CI success is not review approval and does not authorize merge.

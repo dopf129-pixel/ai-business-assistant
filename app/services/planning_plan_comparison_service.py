@@ -233,11 +233,19 @@ class PlanningPlanComparisonService:
                         output[key] = output.get(key, Decimal("0")) + value
             return output
         left, right = totals(first), totals(second)
-        return [{"name": name, "before": cls._money(left.get(name)),
-                 "after": cls._money(right.get(name)),
-                 "delta": cls._money(right.get(name, Decimal("0")) - left.get(name, Decimal("0")))}
-                for name in sorted(set(left) | set(right))
-                if left.get(name) != right.get(name)]
+        changes = []
+        for name in sorted(set(left) | set(right)):
+            before = left.get(name, Decimal("0"))
+            after = right.get(name, Decimal("0"))
+            if before == after:
+                continue
+            changes.append({
+                "name": name,
+                "before": cls._money(before),
+                "after": cls._money(after),
+                "delta": cls._money(after - before),
+            })
+        return changes
 
     @staticmethod
     def _changed_dimensions(first, second, rows):

@@ -187,6 +187,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         )
         projection = {
             "available": calculated.get("available") is True,
+            "status": "READY" if calculated.get("available") is True else "INCOMPLETE_INPUTS",
             "missing_inputs": list(calculated.get("missing_inputs") or [])[:20],
             "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
         }

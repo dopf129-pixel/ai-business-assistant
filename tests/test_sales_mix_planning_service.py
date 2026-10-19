@@ -177,3 +177,70 @@ def test_invalid_period_quantity_and_duplicate_identity_are_rejected():
     assert service.calculate([item], period_label="2026-08-01 - 2026-08-31", quantities={"A": 1.0}, expenses=[], expenses_confirmed=True)["code"] == "INVALID_QUANTITY"
     duplicate = _item("A", _sample_inputs(), row_id="OTHER")
     assert service.calculate([item, duplicate], quantities={"A": 1, "OTHER": 1}, period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True)["code"] == "DUPLICATE_PRODUCT_IDENTITY"
+
+
+def test_sales_mix_limits_accept_boundaries_and_reject_values_above_them():
+    service, tax = _service()
+    item = _item("A", _sample_inputs())
+    at_boundary = service.calculate(
+        [item], quantities={"A": 100_000},
+        period_label="2025-10-19 - 2026-10-18", expenses=[], expenses_confirmed=True,
+    )
+    too_many_units = service.calculate(
+        [item], quantities={"A": 100_001},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+    too_long_period = service.calculate(
+        [item], quantities={"A": 1},
+        period_label="2025-10-18 - 2026-10-19", expenses=[], expenses_confirmed=True,
+    )
+    too_many_expenses = service.calculate(
+        [item], quantities={"A": 1}, period_label="2026-08-01 - 2026-08-31",
+        expenses=[{"name": f"expense-{n}", "amount": "0"} for n in range(21)],
+        expenses_confirmed=True,
+    )
+    expense_total_overflow = service.calculate(
+        [item], quantities={"A": 1}, period_label="2026-08-01 - 2026-08-31",
+        expenses=[
+            {"name": "one", "amount": "600000000"},
+            {"name": "two", "amount": "600000000"},
+        ], expenses_confirmed=True,
+    )
+
+    assert at_boundary["error"] is False and at_boundary["total_quantity"] == 100_000
+    assert too_many_units["code"] == "INVALID_QUANTITY"
+    assert too_long_period["code"] == "INVALID_PERIOD"
+    assert too_many_expenses["code"] == "INVALID_FIXED_EXPENSES"
+    assert expense_total_overflow["code"] == "FIXED_EXPENSE_TOTAL_LIMIT_EXCEEDED"
+    assert len(tax.calls) == 1
+
+
+def test_aggregate_money_guard_runs_before_float_tax_service_for_single_and_multiple_skus():
+    service, tax = _service()
+    first = _item("A", _sample_inputs(
+        price="6000000", cost="0", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+    second = _item("B", _sample_inputs(
+        price="6000000", cost="0", commission_rate="0", advertising_rate="0",
+        discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0",
+    ))
+    single_overflow = service.calculate(
+        [_item("SINGLE", _sample_inputs(
+            price="999999999.99", cost="0", commission_rate="0", advertising_rate="0",
+            discount_points_rate="0", logistics_per_unit="0", last_mile_per_unit="0",
+            acquiring_per_unit="0",
+        ))],
+        quantities={"SINGLE": 100_000}, period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+    multiple_overflow = service.calculate(
+        [first, second], quantities={"A": 100_000, "B": 100_000},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+    )
+
+    assert single_overflow["code"] == "AGGREGATE_AMOUNT_LIMIT_EXCEEDED"
+    assert multiple_overflow["code"] == "AGGREGATE_AMOUNT_LIMIT_EXCEEDED"
+    assert tax.calls == []

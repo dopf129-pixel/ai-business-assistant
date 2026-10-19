@@ -1,8 +1,15 @@
 from copy import deepcopy
+import json
 
+from services.analytics_export_service import AnalyticsExportService
+from services.assistant_keyboard_service import AssistantKeyboardService
+from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.planning_plan_comparison_service import PlanningPlanComparisonService
+from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.tax_service import TaxService
+from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.telegram_saved_planning_plan_runtime_service import TelegramSavedPlanningPlanRuntimeService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 
 
@@ -103,3 +110,120 @@ def test_calculation_version_mismatch_keeps_input_diff_without_recalculating_his
         }
         for name in service.METRICS
     }
+
+
+def test_expense_add_remove_rename_and_amount_changes_export_to_csv_and_json():
+    scenario = UnitPriceScenarioService(TaxService())
+    service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
+    exporter = AnalyticsExportService()
+    variants = [
+        ([{"name": "Packaging", "amount": "100.00"}],
+         [{"name": "Packaging", "amount": "150.00"}],
+         [{"name": "Packaging", "before": "100.00", "after": "150.00", "delta": "50.00"}]),
+        ([{"name": "Packaging", "amount": "100.00"}], [],
+         [{"name": "Packaging", "before": "100.00", "after": "0.00", "delta": "-100.00"}]),
+        ([], [{"name": "New expense", "amount": "10.00"}],
+         [{"name": "New expense", "before": "0.00", "after": "10.00", "delta": "10.00"}]),
+        ([{"name": "Packaging", "amount": "100.00"}],
+         [{"name": "Packing", "amount": "100.00"}],
+         [
+             {"name": "Packaging", "before": "100.00", "after": "0.00", "delta": "-100.00"},
+             {"name": "Packing", "before": "0.00", "after": "100.00", "delta": "100.00"},
+         ]),
+    ]
+
+    for index, (before_expenses, after_expenses, expected) in enumerate(variants):
+        first = _document(1)
+        second = _document(2)
+        first["document"]["payload"]["sales_mix"]["expenses"] = before_expenses
+        second["document"]["payload"]["sales_mix"]["expenses"] = after_expenses
+        comparison = service.compare(first, second)
+        assert comparison["error"] is False
+        assert comparison["status"] == "COMPARABLE"
+        assert comparison["expense_changes"] == expected
+
+        for file_format in ("csv", "json"):
+            exported = exporter.export_plan_comparison(
+                {"comparison": comparison}, file_format,
+            )
+            assert exported["error"] is False, (index, file_format, exported)
+            content = exported["file_content"].decode("utf-8")
+            assert "expense_changes" in content
+            if file_format == "json":
+                document = json.loads(content)
+                assert document["metadata"]["expense_changes"] == expected
+
+
+def test_added_and_removed_skus_remain_visible_in_plan_comparison_screen_and_exports(tmp_path):
+    scenario = UnitPriceScenarioService(TaxService())
+    sales_mix = SalesMixPlanningService(scenario, scenario.tax_service)
+    service = PlanningPlanComparisonService(sales_mix)
+    exporter = AnalyticsExportService()
+
+    first = _document(1)
+    second = _document(2)
+    first_doc = first["document"]
+    second_doc = second["document"]
+    first_doc["payload"]["plan_kind"] = "batch"
+    second_doc["payload"]["plan_kind"] = "batch"
+    removed = deepcopy(first_doc["payload"]["items"][0])
+    removed["row_id"] = "row-2"
+    removed["identity"].update(
+        product_id="p2", offer_id="offer-2", sku="sku-2", product_name="Removed SKU",
+    )
+    added = deepcopy(second_doc["payload"]["items"][0])
+    added["row_id"] = "row-3"
+    added["identity"].update(
+        product_id="p3", offer_id="offer-3", sku="sku-3", product_name="Added SKU",
+    )
+    first_doc["payload"]["items"].append(removed)
+    second_doc["payload"]["items"].append(added)
+    first_doc["payload"]["sales_mix"]["quantities"] = {"row-1": 10, "row-2": 7}
+    second_doc["payload"]["sales_mix"]["quantities"] = {"row-1": 10, "row-3": 5}
+
+    comparison = service.compare(first, second)
+    assert comparison["status"] == "NOT_COMPARABLE"
+    assert comparison["reason"] == "PRODUCT_SCOPE_MISMATCH"
+    assert comparison["scope"]["row_count"] == 3
+    assert comparison["scope"]["first_only"] == 1
+    assert comparison["scope"]["second_only"] == 1
+    assert all(value["status"] == "NOT_COMPARABLE" for value in comparison["metrics"].values())
+    changed_rows = {
+        (row["identity"]["sku"], row["scope_status"])
+        for row in comparison["input_changes"] if row.get("scope_status")
+    }
+    assert changed_rows == {("sku-2", "REMOVED_FROM_SECOND"), ("sku-3", "ADDED_IN_SECOND")}
+
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        plan_service = SavedPlanningPlanService(
+            PlanningWorkspaceRepository(db_path=tmp_path / "comparison-render.sqlite"), scenario,
+        )
+        runtime = TelegramSavedPlanningPlanRuntimeService(
+            plan_service, None, None, AssistantKeyboardService(),
+            sales_mix_planning_service=sales_mix,
+            plan_comparison_service=service,
+        )
+        scope = runtime._scope("user-1")
+        screen = runtime._render_plan_comparison_snapshot(scope, {
+            "snapshot_id": "snapshot", "generation": "generation", "version": 1,
+            "rows": [{"row_id": "comparison", "comparison": comparison}],
+        })
+    finally:
+        reset_current_tenant_user_id(tenant)
+    assert "SKU sku-2: есть только в первом варианте" in screen["message"]
+    assert "SKU sku-3: добавлен во втором варианте" in screen["message"]
+    assert "Введённые параметры не изменились" not in screen["message"]
+
+    for file_format in ("csv", "json"):
+        exported = exporter.export_plan_comparison({"comparison": comparison}, file_format)
+        assert exported["error"] is False
+        content = exported["file_content"].decode("utf-8")
+        assert "sku-2" in content and "sku-3" in content
+        if file_format == "json":
+            rows = json.loads(content)["rows"]
+            assert exported["row_count"] == 3
+            assert {row["scope_status"] for row in rows} == {
+                "COMMON", "REMOVED_FROM_SECOND", "ADDED_IN_SECOND",
+            }
+            assert {row["sku"] for row in rows} == {"sku-1", "sku-2", "sku-3"}
