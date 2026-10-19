@@ -2563,4 +2563,4 @@ existing float-based tax service without changing its contract.
 
 Status:
 
-Implemented locally with R1–R10 regressions. Targeted H–O profile passed; exact-head CI and independent review remain pending. No merge/deploy was performed.
+Implemented with R1–R10 regressions. Targeted H–O profile passed (**259**), documentation checks passed (**3**), and exact code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Verify `39221770481` plus repeat `39221764654` on Windows/Linux, compile and production Docker smoke. An additional docs-only update requires its own exact-head Verify; independent second review remains pending. No merge/deploy was performed.
