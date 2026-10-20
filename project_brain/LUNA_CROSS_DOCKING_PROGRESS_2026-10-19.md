@@ -2,8 +2,8 @@
 
 Дата начала: 19.10.2026  
 ТЗ: `LUNA_CROSS_DOCKING_UNIT_ECONOMICS_TASK_2026-10-19.md`, редакция 3.  
-База: `main` / `6496f0d5e277df9a3f9690dfa0f1abc8c7c4b832`.  
-Ветка: `codex/cross-docking-unit-economics` (изолированный managed worktree).
+База: `main` / `7e6eabdeba34a822434e5ef417a135995628cc41`.
+Ветка: `codex/cross-docking-x00-x01` (свежий managed worktree; старый dirty worktree сохранён отдельно без изменений).
 
 ## Правила сохранности
 
@@ -16,10 +16,10 @@
 
 | Этап | Статус | Результат |
 |---|---|---|
-| X00 | PARTIAL / BLOCKED — list/detail contract и cross-dock flag подтверждены официальной схемой; фактическая дата приёмки и quantity mapping ещё требуют live evidence | Официальная документация подтверждает `/v3/supply-order/list` cursor `last_id` и `/v3/supply-order/get` с `state`, `state_updated_date`, вложенными `supplies[]`, `is_crossdock`, `supply_id`, `state`. По одному принятому акту ранее `fact_quantity=500` совпал с кабинетом, а `approved_quantity=0` не совпал. Семантика completion time и применимость `fact_quantity` к split/partial supplies не подтверждены. |
-| X01 | BLOCKED BY X00 | Без подтверждённых actual quantity/status/date нельзя безопасно считать denominator. |
-| X02 | BLOCKED BY X01 | Pure calculation не включён в production path до определения DTO/coverage контракта. |
-| X03 | BLOCKED BY X00–X02 | Не проектировать checkpoint/cache до подтверждения completion date и actual-quantity mapping. |
+| X00 | COMPLETE WITH BOUNDED SCOPE | Официальные list/detail/act контракты и два пользовательских live-примера подтверждают источник фактического количества по SKU и дату завершения для заявки с одной вложенной cross-dock поставкой. Неоднозначные multi-supply заявки и строки без ровно одного SKU далее fail closed. |
+| X01 | COMPLETE WITH BOUNDED COVERAGE | Добавлен read-only collection source: cursor list → детали заявок пакетами до 50 → exact accepted act/product lookup. Нормализация использует line `fact_quantity` по SKU и дату только для completed order с одной nested crossdock supply. Multi-supply/unknown/incomplete — `INCOMPLETE`, без denominator. Лимит 64 HTTP попытки/60 секунд; continuation checkpoint остаётся X03. |
+| X02 | NEXT | Pure average может потреблять только complete X01 denominator; calculation пока не включён в production path. |
+| X03 | BLOCKED BY X02 | Source ready; bounded checkpoint/cache and production integration start after the pure-rate contract. |
 | X04 | BLOCKED BY X03 | Нельзя добавлять непроверенную ставку в текущую модель/Telegram. |
 | X05 | BLOCKED BY X04 | Нет подтверждённого snapshot и версии компонента X. |
 | X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
@@ -47,6 +47,23 @@
 - Публичный официальный канал ранее подтвердил наличие `/v3/supply-order/list` и `/v3/supply-order/get` ([анонс 17.09.2025](https://t.me/s/OzonSellerAPI?before=561), [анонс переноса 30.10.2025](https://t.me/s/OzonSellerAPI?after=564)). На тот момент полную схему получить не удалось; пользователь позже предоставил её текст из официальной документации. Схема подтверждает cursor pagination и `supplies[].is_crossdock`, но сама по себе не определяет per-supply completion timestamp и accepted-quantity semantics.
 - В текущей ветке код только read-only и не использует diagnostic values в юнит-экономике. Прогнозные, planned и прямые FBO количества запрещены как fallback. X01 остаётся заблокирован только по неразрешённым вопросам фактической даты и quantity mapping, а не по отсутствию list/detail схемы.
 
+## X00 closure — user-confirmed one-product supplies — 2026-10-20
+
+- Пользователь предоставил фактическую API-диагностику для частично принятой поставки: заявлено `200`, `fact_quantity=100`, строковое `approved_quantity=100`, при этом summary-level `approved_quantity=0` и `fact_quantity=100`. В кабинете поставка завершена 29.09.2026; `/v3/supply-order/get` вернул `state=COMPLETED` и `state_updated_date=2026-09-29T09:22:15Z`; акт создан 28.09.2026. Тем самым `created_date` не является датой завершения, а `state_updated_date` совпал с датой завершения UI для проверенной заявки с одной вложенной поставкой.
+- Ранее проверенный полный акт: 500 заявлено/принято, построчный `fact_quantity=500`, `approved_quantity=0`; дата акта и состояние согласуются с завершённой cross-dock поставкой. Два наблюдения показывают, что для завершённой single-supply заявки построчный `fact_quantity` отражает фактическое принятое количество, включая частичный приём, тогда как `approved_quantity` и summary totals нельзя брать как знаменатель.
+- Пользователь уточнил доменное правило: **1 поставка = 1 товар**. Поэтому подтверждённую привязку API `supply_id → items[].sku_info.sku → fact_quantity` можно агрегировать по SKU. В коде требуется fail closed при нескольких разных SKU в одной поставке, нескольких неразрешённых/непринятых acceptance acts, отсутствующем SKU/количестве или другой неоднозначности.
+- Дата завершения в X01 берётся по `orders[].state_updated_date` только у `COMPLETED` заявки с единственной вложенной supply, которая сама `COMPLETED` и `is_crossdock=true`. Это доказано на проверенном UI/API примере с точностью до календарной даты `Europe/Moscow`; `created_date`, плановая дата и устаревший `arrival_date` не используются. Заявки с несколькими nested supplies пока обозначаются неполным покрытием и не попадают в знаменатель: одна проверка не доказывает individual completion date для split/multi-supply заявок.
+- X00 закрыт только в указанной границе. Универсальная семантика для нескольких supplies в одном order не утверждается; ограничение будет отражено в DTO/coverage и журнале. Зависимый X01 начат.
+
+## X01 — read-only supply evidence collection — 2026-10-20
+
+- Added `app/services/cross_docking_supply_evidence_service.py`, a pure normalizer returning immutable per-SKU records and a total only for fully covered input. It accepts product-row `fact_quantity`, requires an exact accepted `ACCEPTANCE` act and agreement completion, requires matching act summary total plus `unidentified_quantity == 0`, and rejects multiple SKUs per supply. Order and supply IDs are reduced to a SHA-256 identity fingerprint in output; raw response payloads are not persisted.
+- Added `app/services/cross_docking_supply_source.py` over existing `OzonClient` read-only adapters. It follows `/v3/supply-order/list` cursor pages (`COMPLETED`, `ORDER_STATE_UPDATED_AT DESC`), reads `/v3/supply-order/get` in 50-ID batches, then exact act summary and product endpoints for in-window single supplies. It validates list/detail coverage, cursor progress, duplicate/conflicting orders and Moscow local date boundaries. No write/accept endpoints are called.
+- Source caps each collection slice at 64 HTTP attempts and 60 seconds; each endpoint call has one attempt and is constrained by the remaining source deadline. The underlying Ozon client still enforces inherited request-trace budgets. If pagination, detail, act, product or budget coverage is incomplete, normalized `total_units` is `None`; no partial denominator is offered. Durable continuation/checkpoint is explicitly X03.
+- Added `tzdata>=2025.1,<2027` because the local Windows Python lacked IANA timezone data; the named project timezone is `Europe/Moscow` per the task. Tests inject the configured +03 offset for deterministic local boundaries; deployment uses IANA data from the dependency.
+- New focused tests: `tests/test_cross_docking_supply_evidence_service.py` and `tests/test_cross_docking_supply_source.py`: **34 passed in 0.54s**, Python 3.12, isolated basetemp, pytest plugin autoload disabled/cache provider disabled. Combined with `tests/test_experimental_supply_act_diagnostic.py`: **53 passed in 1.03s**. Syntax-only compile and `git diff --check` passed. Full local pytest not run (known ACL/shared-storage incident); no live Ozon API calls or bot launch.
+- X01 complete as the source/projection stage. Known boundary: a multi-supply order has no proven per-supply date and keeps total unavailable. The no-cache source can complete small windows in one slice; cold windows that exceed limits stay incomplete until X03 resume support.
+
 ## X00 implementation update — 2026-10-20
 
 - Message output is capped by showing at most 4 product rows, 4 supplies, and 4 summary acts; aggregate totals and truncation notes remain. Stress regression builds 50 large rows/acts/supplies and confirms the result stays under Telegram's 4,096-character limit.
@@ -72,7 +89,7 @@
 
 ### Что обязательно подтвердить перед X01
 
-Для X01 нужен обезличенный read-only ответ `/v3/supply-order/get` для заявки с известным принятым кросс-докингом, сверенный с кабинетом. Для проверки даты сопоставить `state_updated_date` и дату акта из `/v1/supply-order/act/summary/get`; для quantity проверить `fact_quantity` по каждому `supply_id` в `/v1/supply-order/act/product/get`, включая частичную или split-поставку, если такая уже есть. Оставить имена полей, типы, enum-статусы, shape и формат дат; скрыть идентификаторы, SKU и названия. Не присылать Client ID, API key, заголовки авторизации, `.env` или полную карточку товара. Схемы list/get уже получены и повторно не нужны.
+Требуемые для single-supply формы evidence получены. Для X01 использовать per-SKU `fact_quantity` только после точного сопоставления принятого acceptance act с `supply_id`; использовать `state_updated_date` лишь для completed order с одной completed cross-dock supply. Multi-supply order остаётся неполной частью выборки до отдельного подтверждения индивидуальных дат. Не использовать даты создания/планирования или summary-level quantity как fallback.
 
 ## Проверки
 

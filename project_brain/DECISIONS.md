@@ -1,5 +1,22 @@
 # Architecture Decisions
 
+## Decision 051
+
+Date: 2026-10-20
+
+Topic: Cross-docking supplied-unit identity and accepted quantity
+
+Decision:
+
+- Each cross-docking supply identifies one product/SKU, per the user's business rule.
+- The supplied-unit denominator uses product-row `fact_quantity` from the matching accepted acceptance act, not planned/declared quantity, `approved_quantity`, summary totals, sales or order counts.
+- Eligibility requires a completed order and completed nested cross-dock supply. For the verified single-supply order shape, use the order's `state_updated_date` as the completion day in `Europe/Moscow`; do not use act `created_date`, planned dates or deprecated `arrival_date`.
+- A multi-supply order has no verified per-supply completion timestamp; its supplies must produce incomplete coverage and must not enter a supposedly complete window until their date is proven.
+
+Reason:
+
+Two user-provided read-only diagnostics include a full receipt (500 declared/fact) and a partial receipt (200 declared, 100 fact). The latter's single-supply order completion date matches the Ozon UI and the order's `state_updated_date`, while the act creation date is one day earlier. Summary quantities diverge from the product line. This evidence supports a narrowly scoped rule and explicit fail-closed behavior, not extrapolation to multiple nested supplies.
+
 ## Decision 019
 
 Date: 2026-09-19

@@ -2,3 +2,4 @@ requests>=2.31,<3
 python-dotenv>=1,<2
 cryptography>=43,<46
 python-telegram-bot>=20.7,<22
+tzdata>=2025.1,<2027

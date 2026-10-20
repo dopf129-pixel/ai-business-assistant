@@ -1,3 +1,16 @@
+# 2026-10-20 — реализован bounded read-only источник кросс-докинг-поставок
+
+- X00 закрыт в ограниченной области: две пользовательские сверки подтвердили построчный `fact_quantity` для полной/частичной приёмки и дату завершения одной nested supply по `state_updated_date`; `created_date`, planned dates, `approved_quantity` и summary totals не заменяют эти поля. Доменное правило пользователя: одна supply = один товар.
+- X01 добавляет нормализацию единиц по SKU и read-only сбор list/get/accepted act/product данных через уже существующие Seller API adapters. Single-supply completed cross-dock receipts проходят только при точном совпадении order/supply/act, одном SKU и согласованных количествах; все неоднозначности дают `INCOMPLETE` и `total_units=None`.
+- Сбор ограничен 64 запросами, 60 секундами и одним HTTP attempt на endpoint; полная cursor pagination, 50-ID detail batches, cutoff по отсортированному `state_updated_date`, timezone `Europe/Moscow`. При исчерпании лимита частный знаменатель не публикуется; durable resume/checkpoint и подключение к калькулятору остаются X03–X04.
+- Windows runtime не имел IANA timezone data; добавлен `tzdata` dependency. Новые тесты: **34 passed in 0.54s**; вместе с существующей диагностикой актов — **53 passed in 1.03s**. Syntax-only compile и `git diff --check` прошли. Live Seller API, бот и полный локальный pytest не запускались.
+
+# 2026-10-20 — закрыт X00 для фактического количества кросс-докинга
+
+- Официальные Seller API schemas list/get/act и два пользовательских примера (500/500 и 200/100) подтверждают read-only путь от completed order до одного SKU и фактически принятого `fact_quantity`. `approved_quantity` и summary-level quantity могут расходиться с построчной фактической величиной и не используются как denominator.
+- Для completed заявки с единственной вложенной completed cross-dock supply `state_updated_date` совпал с датой завершения в интерфейсе Ozon; `created_date` акта на проверенном частичном примере был на день раньше. Для multi-supply order individual completion date не доказана; такие данные X01 обязан пометить неполными и не включать в denominator.
+- Пользовательское правило: одна supply относится к одному товару/SKU. X01 начат. Юнит-экономика, storage и production integrations не изменены.
+
 # 2026-10-20 — исправлено разрешение ID поставки в ID заявки
 
 - В диагностике акта пользователь вводит `supply_id`, но `/v3/supply-order/get` и `/v1/supply-order/act/summary/get` требуют `order_id`. Добавлен bounded read-only поиск заявки по списку и точная сверка вложенного `supplies[].supply_id`; в оба метода передаётся только найденный `order_id`.
