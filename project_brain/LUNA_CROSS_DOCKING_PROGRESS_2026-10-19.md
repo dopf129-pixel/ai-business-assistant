@@ -16,13 +16,21 @@
 
 | Этап | Статус | Результат |
 |---|---|---|
-| X00 | PARTIAL / BLOCKED — актовый schema частично подтверждён; нужен контракт списка/деталей и фактической даты | Реализована one-shot диагностика `/v1/supply-order/act/product/get` по введённому `supply_id`. Точный контракт endpoint получен из присланной пользователем официальной документации. Дата и статус в этом методе отсутствуют; для автоматического периода всё ещё не подтверждены list/detail pagination, scheme flag и completion timestamp. |
+| X00 | PARTIAL / BLOCKED — актовые методы подтверждены, автоматический supply list/detail contract и completion timestamp всё ещё открыты | Реализована bounded one-shot диагностика `/v1/supply-order/act/product/get` и `/v1/supply-order/act/summary/get`. Для одного принятого акта из пользовательского отчёта `fact_quantity=500` совпал с кабинетом; `approved_quantity=0` не совпал. `created_date` не считается датой завершения. Для автоматического окна ещё не подтверждены полный list/detail response, cross-dock flag, дата фактической приёмки и пагинация. |
 | X01 | BLOCKED BY X00 | Без подтверждённых actual quantity/status/date нельзя безопасно считать denominator. |
 | X02 | BLOCKED BY X01 | Pure calculation не включён в production path до определения DTO/coverage контракта. |
 | X03 | BLOCKED BY X00–X02 | Не проектировать checkpoint/cache вокруг неподтверждённого запроса/пагинации актов. |
 | X04 | BLOCKED BY X03 | Нельзя добавлять непроверенную ставку в текущую модель/Telegram. |
 | X05 | BLOCKED BY X04 | Нет подтверждённого snapshot и версии компонента X. |
 | X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
+
+## X00 evidence update — 2026-10-20
+
+- Официальная схема, вставленная пользователем из документации Seller API, описывает `/v1/supply-order/act/summary/get` с `order_id` и ответом `supplies_acts[].supply_acts[]`, включая `supply_id`, `act_state`, `created_date`, `deadline_utc`, `summary` и `type`. Для `/v1/supply-order/act/product/get` описаны построчные `declared_quantity`, `approved_quantity`, `fact_quantity` и `sku_info.sku`. Запросы `act/accept` и `act/accept/status` не используются.
+- Пользователь запустил продуктовую диагностику для известного принятого акта из акта приёмки/Excel: UI показывает 500 принятых единиц, API вернул `declared_quantity=500`, `fact_quantity=500`, `approved_quantity=0`. Это реальное подтверждение `fact_quantity` для одного принятого акта с совпадающим заявленным и принятым количеством; значение `approved_quantity` при этом нельзя использовать как accepted denominator. Идентификаторы в журнал не записаны.
+- Изменён diagnostic helper: после успешного `product/get` он выполняет одну bounded read-only попытку `summary/get`, используя введённое число как `order_id`, и сообщает, совпал ли возвращённый `supply_id`. При несовпадении он не показывает состояние/дату чужого акта. Неподтверждённый `created_date` явно не трактуется как completion date. `tests/test_experimental_supply_act_diagnostic.py` — **10 passed** (Windows Python 3.12, isolated pytest basetemp, `PYTHONDONTWRITEBYTECODE=1`, `PYTHONPATH=app`).
+- Публичный официальный канал подтверждает, что `/v3/supply-order/list` и `/v3/supply-order/get` доступны в актуальном семействе v3 и перенесены в основной раздел Seller API ([анонс 17.09.2025](https://t.me/s/OzonSellerAPI?before=561), [анонс переноса 30.10.2025](https://t.me/s/OzonSellerAPI?after=564)); полные request/response schemas и pagination на доступной официальной странице извлечь не удалось (редирект/ошибка browser transport). Эти объявления не подтверждают поля `is_crossdock`, supply completion timestamp или фактическое количество.
+- В текущей ветке код только read-only и не использует diagnostic values в юнит-экономике. X01 остаётся заблокирован до проверяемого контракта list/detail/cross-dock/date/pagination; прежние прогнозные, planned и прямые FBO количества запрещены как fallback.
 
 ## X00 — источник и фактические результаты
 
@@ -41,7 +49,7 @@
 
 ### Что обязательно подтвердить перед X01
 
-Нужен один обезличенный ответ реального completed cross-docking supply для read-only методов актов: поля и типы, перечисления `act_state`, идентификатор/связь supply и SKU, значение фактически принятого количества (отличить `fact_quantity` от declared/approved/planned), дата акта или события приёмки и полная пагинация. Идентификаторы/названия/числа SKU можно заменить; названия полей, типы, enum-статусы, shape и формат дат оставить. Не присылать Client ID, API key, заголовки авторизации, `.env` или полную карточку товара.
+Для X01 нужны: обезличенный результат `summary/get` для того же акта (после обновления бота до follow-up), плюс официальные описания `/v3/supply-order/list` и `/v3/supply-order/get` или обезличенные ответы этих методов. Оставить имена полей, типы, enum-статусы, shape, формат дат и пагинацию; скрыть ID, SKU и названия. Не присылать Client ID, API key, заголовки авторизации, `.env` или полную карточку товара.
 
 ## Проверки
 
@@ -54,7 +62,7 @@
 
 ## Следующий шаг
 
-После слияния этой ветки и обновления бота пользователь сможет нажать «Эксперименты» → «Проверить товары в акте поставки», ввести видимый в акте ID поставки и получить безопасную сводку ответа `product/get`. В текущем методе нет даты/статуса. После получения этой диагностики продолжить X00: получить официальный контракт `/v3/supply-order/list`, `/v3/supply-order/get` и `/v1/supply-order/act/summary/get`; подтвердить enum/status, cross-dock identity, фактическую дату, actual quantity и пагинацию. Не включать неизвестный числитель в юнит-экономику. Действующий бот не запускать и не обновлять автоматически.
+PR #709 с `product/get` уже влит в `main`; пользователь прислал проверку акта с 500 принятыми единицами. В незавершённом follow-up добавлена `summary/get` только для диагностики даты/состояния и только при совпадении ID. После review/CI и слияния follow-up пользователь сможет обновить бота и запросить сводку для того же акта; до этого X01 заблокирован. Дополнительно нужны официальные описания `/v3/supply-order/list` и `/v3/supply-order/get` или обезличенные ответы этих методов с полями, enum, фактической датой, cross-dock discriminator и пагинацией. Не включать неизвестный числитель в юнит-экономику. Реальный бот автоматически не запускать.
 
 ## Дополнительное подтверждение пользователя — акт приёмки в кабинете Ozon
 
