@@ -40,8 +40,25 @@ class ExperimentalStoreEconomicsRuntimeService:
     SUPPLY_ACT_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 25
     SUPPLY_ACT_SUMMARY_TIMEOUT_SECONDS = 10
     SUPPLY_ACT_SUMMARY_TOTAL_TIMEOUT_SECONDS = 15
-    SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS = 10
-    SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 15
+    SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS = 8
+    SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 10
+    SUPPLY_ORDER_LOOKUP_MAX_PAGES = 2
+    SUPPLY_ORDER_LOOKUP_PAGE_SIZE = 100
+    SUPPLY_ORDER_LOOKUP_BATCH_SIZE = 50
+    SUPPLY_ORDER_LOOKUP_TIME_BUDGET_SECONDS = 60
+    SUPPLY_ORDER_LIST_STATES = (
+        "DATA_FILLING",
+        "READY_TO_SUPPLY",
+        "ACCEPTED_AT_SUPPLY_WAREHOUSE",
+        "IN_TRANSIT",
+        "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+        "REPORTS_CONFIRMATION_AWAITING",
+        "REPORT_REJECTED",
+        "COMPLETED",
+        "REJECTED_AT_SUPPLY_WAREHOUSE",
+        "CANCELLED",
+        "OVERDUE",
+    )
     SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 4
     SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN = 4
     SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN = 4
@@ -225,9 +242,9 @@ class ExperimentalStoreEconomicsRuntimeService:
             "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_INPUT_REQUIRED",
             "message": (
                 "Введите ID поставки из акта Ozon. Бот проверит его в "
-                "данных акта и попробует использовать как ID заявки для "
-                "чтения статуса и признака кросс-докинга. SKU, названия "
-                "склада и идентификаторы в ответе будут скрыты. "
+                "товарах акта, затем найдёт соответствующую заявку через "
+                "список поставок и проверит статус и признак кросс-докинга. "
+                "SKU, названия склада и идентификаторы в ответе будут скрыты. "
                 "Для отмены отправьте «Отмена»."
             ),
             "read_only": True,
@@ -315,16 +332,19 @@ class ExperimentalStoreEconomicsRuntimeService:
             or not isinstance(response.get("supply_acts"), list)
         ):
             return self._render_supply_act_product_diagnostic(response)
+        order_lookup = self._find_supply_order_by_supply_id(supply_id)
+        order_response = order_lookup.get("response")
+        order_id = order_lookup.get("order_id")
         summary_response = None
         summary_getter = getattr(
             self.analytics_client,
             "get_supply_act_summary",
             None,
         )
-        if callable(summary_getter):
+        if callable(summary_getter) and order_id is not None:
             try:
                 summary_response = summary_getter(
-                    supply_id,
+                    order_id,
                     timeout=self.SUPPLY_ACT_SUMMARY_TIMEOUT_SECONDS,
                     max_attempts=1,
                     total_timeout=self.SUPPLY_ACT_SUMMARY_TOTAL_TIMEOUT_SECONDS,
@@ -334,31 +354,186 @@ class ExperimentalStoreEconomicsRuntimeService:
                     "error": True,
                     "code": "OZON_SUPPLY_ACT_SUMMARY_REQUEST_FAILED",
                 }
-        order_response = None
-        order_getter = getattr(
-            self.analytics_client,
-            "get_supply_order_details",
-            None,
-        )
-        if callable(order_getter):
-            try:
-                order_response = order_getter(
-                    supply_id,
-                    timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS,
-                    max_attempts=1,
-                    total_timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                order_response = {
-                    "error": True,
-                    "code": "OZON_SUPPLY_ORDER_REQUEST_FAILED",
-                }
+        elif callable(summary_getter):
+            summary_response = {
+                "error": True,
+                "code": "OZON_SUPPLY_ORDER_ID_NOT_RESOLVED",
+            }
         return self._render_supply_act_product_diagnostic(
             response,
             summary_response=summary_response,
             supply_order_response=order_response,
+            expected_order_id=order_id,
             expected_supply_id=supply_id,
         )
+
+    def _find_supply_order_by_supply_id(self, supply_id):
+        list_getter = getattr(self.analytics_client, "get_supply_orders_list", None)
+        details_getter = getattr(
+            self.analytics_client,
+            "get_supply_orders_details",
+            None,
+        )
+        if not callable(list_getter) or not callable(details_getter):
+            return {
+                "response": {
+                    "error": True,
+                    "code": "OZON_SUPPLY_ORDER_LIST_CLIENT_UNAVAILABLE",
+                },
+                "order_id": None,
+            }
+
+        deadline = monotonic() + self.SUPPLY_ORDER_LOOKUP_TIME_BUDGET_SECONDS
+        cursor = None
+        seen_cursors = set()
+        pages_checked = 0
+        order_ids_checked = 0
+        for _ in range(self.SUPPLY_ORDER_LOOKUP_MAX_PAGES):
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return {
+                    "response": {
+                        "error": True,
+                        "code": "OZON_SUPPLY_ORDER_LOOKUP_TIME_BUDGET_EXHAUSTED",
+                    },
+                    "order_id": None,
+                }
+            try:
+                page = list_getter(
+                    states=self.SUPPLY_ORDER_LIST_STATES,
+                    last_id=cursor,
+                    limit=self.SUPPLY_ORDER_LOOKUP_PAGE_SIZE,
+                    sort_by="ORDER_STATE_UPDATED_AT",
+                    sort_dir="DESC",
+                    timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS,
+                    max_attempts=1,
+                    total_timeout=min(
+                        self.SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS,
+                        remaining,
+                    ),
+                )
+            except Exception:
+                return {
+                    "response": {
+                        "error": True,
+                        "code": "OZON_SUPPLY_ORDER_LIST_REQUEST_FAILED",
+                    },
+                    "order_id": None,
+                }
+            if not isinstance(page, dict) or page.get("error") is True:
+                return {"response": page, "order_id": None}
+            raw_order_ids = page.get("order_ids")
+            if not isinstance(raw_order_ids, list):
+                return {
+                    "response": {
+                        "error": True,
+                        "code": "OZON_SUPPLY_ORDER_LIST_RESPONSE_INVALID",
+                    },
+                    "order_id": None,
+                }
+            pages_checked += 1
+            parsed_ids = []
+            for raw_id in raw_order_ids[:self.SUPPLY_ORDER_LOOKUP_PAGE_SIZE]:
+                parsed_id = self._parse_supply_act_id(raw_id)
+                if parsed_id is None:
+                    continue
+                parsed_ids.append(parsed_id)
+            for offset in range(0, len(parsed_ids), self.SUPPLY_ORDER_LOOKUP_BATCH_SIZE):
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    return {
+                        "response": {
+                            "error": True,
+                            "code": "OZON_SUPPLY_ORDER_LOOKUP_TIME_BUDGET_EXHAUSTED",
+                        },
+                        "order_id": None,
+                    }
+                batch = parsed_ids[
+                    offset:offset + self.SUPPLY_ORDER_LOOKUP_BATCH_SIZE
+                ]
+                try:
+                    details = details_getter(
+                        batch,
+                        timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS,
+                        max_attempts=1,
+                        total_timeout=min(
+                            self.SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS,
+                            remaining,
+                        ),
+                    )
+                except Exception:
+                    return {
+                        "response": {
+                            "error": True,
+                            "code": "OZON_SUPPLY_ORDER_REQUEST_FAILED",
+                        },
+                        "order_id": None,
+                    }
+                if not isinstance(details, dict) or details.get("error") is True:
+                    return {"response": details, "order_id": None}
+                orders = details.get("orders")
+                if not isinstance(orders, list):
+                    return {
+                        "response": {
+                            "error": True,
+                            "code": "OZON_SUPPLY_ORDER_RESPONSE_INVALID",
+                        },
+                        "order_id": None,
+                    }
+                order_ids_checked += len(batch)
+                for order in orders:
+                    if not isinstance(order, dict):
+                        continue
+                    supplies = order.get("supplies")
+                    if not isinstance(supplies, list):
+                        continue
+                    if any(
+                        isinstance(supply, dict)
+                        and self._supply_act_id_matches(
+                            supply.get("supply_id"), supply_id
+                        )
+                        for supply in supplies
+                    ):
+                        parsed_order_id = self._parse_supply_act_id(
+                            order.get("order_id")
+                        )
+                        if parsed_order_id is None:
+                            continue
+                        return {
+                            "response": {
+                                "error": False,
+                                "orders": [order],
+                                "lookup_pages_checked": pages_checked,
+                                "lookup_order_ids_checked": order_ids_checked,
+                                "lookup_complete": True,
+                            },
+                            "order_id": parsed_order_id,
+                        }
+            next_cursor = page.get("last_id")
+            cursor_text = (
+                str(next_cursor).strip()
+                if next_cursor is not None
+                else ""
+            )
+            if (
+                not raw_order_ids
+                or not cursor_text
+                or cursor_text in seen_cursors
+            ):
+                break
+            seen_cursors.add(cursor_text)
+            cursor = cursor_text
+
+        return {
+            "response": {
+                "error": False,
+                "orders": [],
+                "lookup_pages_checked": pages_checked,
+                "lookup_order_ids_checked": order_ids_checked,
+                "lookup_complete": False,
+            },
+            "order_id": None,
+        }
 
     def clear_pending_supply_act_diagnostic_input(self, user_id):
         user_key = self._user_key(user_id)
@@ -385,6 +560,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         response,
         summary_response=None,
         supply_order_response=None,
+        expected_order_id=None,
         expected_supply_id=None,
     ):
         if not isinstance(response, dict):
@@ -392,9 +568,10 @@ class ExperimentalStoreEconomicsRuntimeService:
                 "OZON_SUPPLY_ACT_RESPONSE_INVALID"
             )
         if response.get("error") is True:
-            code = str(response.get("code") or "OZON_SUPPLY_ACT_REQUEST_FAILED")
-            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
-                code = "OZON_SUPPLY_ACT_REQUEST_FAILED"
+            code = cls._safe_supply_api_error_code(
+                response,
+                "OZON_SUPPLY_ACT_REQUEST_FAILED",
+            )
             return cls._supply_act_diagnostic_error(code)
         acts = response.get("supply_acts")
         if not isinstance(acts, list):
@@ -501,7 +678,8 @@ class ExperimentalStoreEconomicsRuntimeService:
         cls._append_supply_order_diagnostic(
             lines,
             supply_order_response,
-            expected_order_id=expected_supply_id,
+            expected_order_id=expected_order_id,
+            expected_supply_id=expected_supply_id,
         )
         cls._append_supply_act_summary_diagnostic(
             lines,
@@ -527,6 +705,7 @@ class ExperimentalStoreEconomicsRuntimeService:
         lines,
         response,
         expected_order_id=None,
+        expected_supply_id=None,
     ):
         if response is None:
             lines.append("Детали заявки: метод недоступен в клиенте.")
@@ -535,9 +714,10 @@ class ExperimentalStoreEconomicsRuntimeService:
             lines.append("Детали заявки: некорректный ответ.")
             return
         if response.get("error") is True:
-            code = str(response.get("code") or "OZON_SUPPLY_ORDER_REQUEST_FAILED")
-            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
-                code = "OZON_SUPPLY_ORDER_REQUEST_FAILED"
+            code = cls._safe_supply_api_error_code(
+                response,
+                "OZON_SUPPLY_ORDER_REQUEST_FAILED",
+            )
             lines.append("Детали заявки недоступны: " + code + ".")
             return
         orders = response.get("orders")
@@ -552,12 +732,34 @@ class ExperimentalStoreEconomicsRuntimeService:
                 order.get("order_id"),
                 expected_order_id,
             )
+            and (
+                expected_supply_id is None
+                or any(
+                    isinstance(supply, dict)
+                    and cls._supply_act_id_matches(
+                        supply.get("supply_id"), expected_supply_id
+                    )
+                    for supply in (
+                        order.get("supplies")
+                        if isinstance(order.get("supplies"), list)
+                        else []
+                    )
+                )
+            )
         ]
         if not matching_orders:
-            lines.append(
-                f"Детали заявки: совпадение по ID не найдено "
-                f"(заявок в ответе {len(orders)})."
-            )
+            if response.get("lookup_complete") is True:
+                lines.append(
+                    "Заявка для введённой поставки не найдена в проверенной "
+                    f"выборке: страниц списка "
+                    f"{response.get('lookup_pages_checked', 0)}, заявок "
+                    f"{response.get('lookup_order_ids_checked', 0)}."
+                )
+            else:
+                lines.append(
+                    "Детали заявки: точное совпадение заявки и вложенной "
+                    f"поставки не найдено (заявок в ответе {len(orders)})."
+                )
             return
         order = matching_orders[0]
         state = cls._safe_supply_act_label(order.get("state"))
@@ -572,6 +774,12 @@ class ExperimentalStoreEconomicsRuntimeService:
             f"state={state}; state_updated_date="
             f"{state_updated or 'нет поля'}; вложенных поставок={len(supplies)}."
         )
+        if response.get("lookup_pages_checked") is not None:
+            lines.append(
+                "ID заявки найден через supply_id: проверено страниц "
+                f"{response.get('lookup_pages_checked')}, ID заявок "
+                f"{response.get('lookup_order_ids_checked', 0)}."
+            )
         first_supply = next(
             (supply for supply in supplies if isinstance(supply, dict)),
             None,
@@ -645,6 +853,24 @@ class ExperimentalStoreEconomicsRuntimeService:
             return "object"
         return "unknown"
 
+    @staticmethod
+    def _safe_supply_api_error_code(response, default):
+        status_code = response.get("status_code")
+        try:
+            status_code = int(status_code)
+        except (TypeError, ValueError, OverflowError):
+            status_code = None
+        if status_code == 429:
+            return "OZON_RATE_LIMITED"
+        if status_code is not None and 100 <= status_code <= 599:
+            return f"OZON_HTTP_{status_code}"
+        candidate = response.get("code")
+        if isinstance(candidate, str) and re.fullmatch(
+            r"[A-Z0-9_]{1,80}", candidate
+        ):
+            return candidate
+        return default
+
     @classmethod
     def _append_supply_act_summary_diagnostic(
         cls,
@@ -659,11 +885,10 @@ class ExperimentalStoreEconomicsRuntimeService:
             lines.append("Сводка акта: некорректный ответ.")
             return
         if response.get("error") is True:
-            code = str(
-                response.get("code") or "OZON_SUPPLY_ACT_SUMMARY_FAILED"
+            code = cls._safe_supply_api_error_code(
+                response,
+                "OZON_SUPPLY_ACT_SUMMARY_FAILED",
             )
-            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
-                code = "OZON_SUPPLY_ACT_SUMMARY_FAILED"
             lines.append("Сводка акта недоступна: " + code + ".")
             return
         supplies = response.get("supplies_acts")

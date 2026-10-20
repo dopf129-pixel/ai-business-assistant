@@ -1,5 +1,6 @@
 from api.base_ozon_client import OzonClient as BaseOzonClient
 from datetime import date
+import re
 
 from services.ozon_credential_provider import OzonCredentialProvider
 
@@ -221,6 +222,66 @@ class OzonClient(BaseOzonClient):
             **options,
         )
 
+    def get_supply_orders_list(
+        self,
+        states,
+        last_id=None,
+        limit=100,
+        sort_by="ORDER_STATE_UPDATED_AT",
+        sort_dir="DESC",
+        timeout=8,
+        max_attempts=1,
+        total_timeout=10,
+        request_attempt_observer=None,
+    ):
+        """Read a cursor page of supply order IDs using Ozon's v3 contract."""
+        try:
+            page_limit = int(limit)
+        except (TypeError, ValueError, OverflowError):
+            page_limit = 0
+        state_values = [str(value or "").strip() for value in states] if isinstance(
+            states, (list, tuple)
+        ) else []
+        cursor = None if last_id is None else str(last_id).strip()
+        if (
+            not 1 <= page_limit <= 100
+            or not state_values
+            or any(
+                not re.fullmatch(r"[A-Z_]{1,48}", value)
+                for value in state_values
+            )
+            or sort_by not in {
+                "ORDER_CREATION",
+                "ORDER_STATE_UPDATED_AT",
+                "TIMESLOT_FROM_UTC",
+                "TIMESLOT_FROM_LOCAL",
+            }
+            or sort_dir not in {"ASC", "DESC"}
+            or (cursor is not None and (not cursor or len(cursor) > 256))
+        ):
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ORDER_LIST_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        payload = {
+            "filter": {"states": state_values},
+            "limit": page_limit,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
+        }
+        if cursor is not None:
+            payload["last_id"] = cursor
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        return self._post("/v3/supply-order/list", payload, **options)
+
     def get_supply_order_details(
         self,
         order_id,
@@ -230,19 +291,36 @@ class OzonClient(BaseOzonClient):
         request_attempt_observer=None,
     ):
         """Read one supply-order detail, including its nested supplies."""
+        return self.get_supply_orders_details(
+            [order_id],
+            timeout=timeout,
+            max_attempts=max_attempts,
+            total_timeout=total_timeout,
+            request_attempt_observer=request_attempt_observer,
+        )
+
+    def get_supply_orders_details(
+        self,
+        order_ids,
+        timeout=8,
+        max_attempts=1,
+        total_timeout=10,
+        request_attempt_observer=None,
+    ):
+        """Read up to 50 supply orders in one documented v3 request."""
         try:
-            raw = str(order_id).strip()
-            if not raw.isascii() or not raw.isdigit():
+            if not isinstance(order_ids, (list, tuple)) or not 1 <= len(order_ids) <= 50:
                 raise ValueError
-            parsed = int(raw)
+            parsed_ids = []
+            for order_id in order_ids:
+                raw = str(order_id).strip()
+                if not raw.isascii() or not raw.isdigit():
+                    raise ValueError
+                parsed = int(raw)
+                if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
+                    raise ValueError
+                parsed_ids.append(parsed)
         except (TypeError, ValueError, OverflowError):
-            return {
-                "error": True,
-                "code": "OZON_SUPPLY_ORDER_REQUEST_INVALID",
-                "read_only": True,
-                "executed": False,
-            }
-        if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
             return {
                 "error": True,
                 "code": "OZON_SUPPLY_ORDER_REQUEST_INVALID",
@@ -258,7 +336,7 @@ class OzonClient(BaseOzonClient):
             options["request_attempt_observer"] = request_attempt_observer
         return self._post(
             "/v3/supply-order/get",
-            {"order_ids": [parsed]},
+            {"order_ids": parsed_ids},
             **options,
         )
 
