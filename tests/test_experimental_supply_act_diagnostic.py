@@ -94,6 +94,59 @@ def test_supply_act_summary_client_rejects_invalid_ids_without_request(monkeypat
     assert calls == []
 
 
+def test_supply_order_details_client_uses_documented_read_only_contract(monkeypatch):
+    calls = []
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {"error": False, "orders": []}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client",
+        api_key="secret",
+        credential_provider=object(),
+    )
+
+    result = client.get_supply_order_details(
+        "2000070135564",
+        timeout=7,
+        max_attempts=1,
+        total_timeout=9,
+    )
+
+    assert result == {"error": False, "orders": []}
+    assert calls == [
+        (
+            "/v3/supply-order/get",
+            {"order_ids": [2000070135564]},
+            {"timeout": 7, "max_attempts": 1, "total_timeout": 9},
+        )
+    ]
+
+
+def test_supply_order_details_client_rejects_invalid_ids_without_request(monkeypatch):
+    calls = []
+
+    def post(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"error": False}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client",
+        api_key="secret",
+        credential_provider=object(),
+    )
+
+    for value in (None, "", "abc", "1.2", True, 0, -1, 2**63):
+        result = client.get_supply_order_details(value)
+        assert result["error"] is True
+        assert result["code"] == "OZON_SUPPLY_ORDER_REQUEST_INVALID"
+
+    assert calls == []
+
+
 def test_supply_act_products_client_rejects_invalid_ids_without_request(monkeypatch):
     calls = []
 
@@ -117,11 +170,13 @@ def test_supply_act_products_client_rejects_invalid_ids_without_request(monkeypa
 
 
 class _SupplyActClient:
-    def __init__(self, response=None, summary_response=None):
+    def __init__(self, response=None, summary_response=None, order_response=None):
         self.response = response or {"error": False, "supply_acts": []}
         self.summary_response = summary_response
+        self.order_response = order_response or {"error": False, "orders": []}
         self.calls = []
         self.summary_calls = []
+        self.order_calls = []
 
     def get_supply_act_products(self, supply_id, **kwargs):
         self.calls.append((supply_id, kwargs))
@@ -130,6 +185,10 @@ class _SupplyActClient:
     def get_supply_act_summary(self, order_id, **kwargs):
         self.summary_calls.append((order_id, kwargs))
         return self.summary_response
+
+    def get_supply_order_details(self, order_id, **kwargs):
+        self.order_calls.append((order_id, kwargs))
+        return self.order_response
 
 
 def _handler(client):
@@ -191,6 +250,27 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
                 }
             ],
         },
+        order_response={
+            "error": False,
+            "orders": [
+                {
+                    "order_id": 2000070135564,
+                    "state": "COMPLETED",
+                    "state_updated_date": "2026-10-16T10:00:00Z",
+                    "supplies": [
+                        {
+                            "supply_id": 2000070135564,
+                            "state": "COMPLETED",
+                            "is_crossdock": True,
+                            "storage_warehouse": {
+                                "arrival_date": "2026-10-13T00:00:00Z",
+                                "name": "Private warehouse name",
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
     )
     handler = _handler(client)
 
@@ -220,6 +300,12 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
             {"timeout": 10, "max_attempts": 1, "total_timeout": 15},
         )
     ]
+    assert client.order_calls == [
+        (
+            2000070135564,
+            {"timeout": 10, "max_attempts": 1, "total_timeout": 15},
+        )
+    ]
     assert result["status"] == "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_READY"
     assert "declared_quantity=500" in result["message"]
     assert "approved_quantity=499" in result["message"]
@@ -233,6 +319,11 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
     assert "created_date=2026-10-16T08:30:00Z" in result["message"]
     assert "summary approved_quantity=500, fact_quantity=500" in result["message"]
     assert "есть совпадающий supply_id: да" in result["message"]
+    assert "state=COMPLETED; state_updated_date=2026-10-16T10:00:00Z" in result["message"]
+    assert "is_crossdock=да" in result["message"]
+    assert "arrival_date=2026-10-13T00:00:00Z" in result["message"]
+    assert "supplies[0].is_crossdock=bool" in result["message"]
+    assert "Private warehouse name" not in result["message"]
     assert "сама по себе не доказывает дату фактической приёмки" in result["message"]
     assert "2000070135564" not in result["message"]
     assert result["read_only"] is True
@@ -254,6 +345,7 @@ def test_invalid_supply_act_id_does_not_call_api_and_keeps_prompt_active():
     assert cancelled["status"] == "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_CANCELLED"
     assert client.calls == []
     assert client.summary_calls == []
+    assert client.order_calls == []
 
 
 def test_supply_act_diagnostic_input_is_bound_to_current_tenant():
@@ -274,6 +366,7 @@ def test_supply_act_diagnostic_input_is_bound_to_current_tenant():
     assert result["status"] == "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_SCOPE_CHANGED"
     assert client.calls == []
     assert client.summary_calls == []
+    assert client.order_calls == []
 
 
 def test_supply_act_api_error_code_is_safe_and_response_values_are_not_echoed():
@@ -363,3 +456,40 @@ def test_unmatched_summary_does_not_present_another_supply_act_as_selected():
     assert "OTHER_SUPPLY_STATE" not in result["message"]
     assert "2026-10-16T08:30:00Z" not in result["message"]
     assert "999999999999" not in result["message"]
+
+
+def test_unmatched_supply_order_does_not_expose_another_orders_details():
+    result = ExperimentalStoreEconomicsRuntimeService._render_supply_act_product_diagnostic(
+        {"error": False, "supply_acts": []},
+        supply_order_response={
+            "error": False,
+            "orders": [
+                {
+                    "order_id": 999999999999,
+                    "state": "FOREIGN_ORDER_STATE",
+                    "state_updated_date": "2026-10-17T10:00:00Z",
+                    "supplies": [
+                        {
+                            "supply_id": 888888888888,
+                            "state": "FOREIGN_SUPPLY_STATE",
+                            "is_crossdock": True,
+                            "storage_warehouse": {
+                                "arrival_date": "2026-10-17T00:00:00Z",
+                                "name": "Private warehouse name",
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        expected_supply_id=2000070135564,
+    )
+
+    assert "совпадение по ID не найдено" in result["message"]
+    assert "999999999999" not in result["message"]
+    assert "888888888888" not in result["message"]
+    assert "FOREIGN_ORDER_STATE" not in result["message"]
+    assert "FOREIGN_SUPPLY_STATE" not in result["message"]
+    assert "2026-10-17" not in result["message"]
+    assert "Private warehouse name" not in result["message"]
+
