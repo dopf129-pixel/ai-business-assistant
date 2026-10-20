@@ -1,7 +1,7 @@
 # Cross-docking acceptance-act diagnostic (X00 helper)
 
 - `tests/test_experimental_supply_act_diagnostic.py` verifies documented read-only request bodies for `POST /v1/supply-order/act/product/get` and `/v1/supply-order/act/summary/get`, bounded options and invalid-ID rejection; the Telegram button/input flow; no API call before explicit input; product and summary quantity rendering; summary-error isolation; SKU/name/barcode/act-ID/supply-ID redaction; cancellation; tenant-switch invalidation; and safe API errors.
-- Latest focused diagnostic file: **10 passed** (isolated pytest basetemp/storage); covers unmatched summary identity redaction. Syntax-only compilation passed for the three changed Python files and `git diff --check` passed. The previous merged PR #709 exact-head Verify run **39313354294** remains the baseline CI result; this unmerged follow-up requires its own exact-head CI. Do not run the full local suite because the known pytest ACL/shared-storage incident remains in force.
+- Latest focused diagnostic file: **10 passed** (isolated pytest basetemp/storage); covers unmatched summary identity redaction. Syntax-only compilation passed for the three changed Python files and `git diff --check` passed. For follow-up code SHA `770839eb28edaf9d4f3fce207f89449f55684059`, Verify run **39400776436** passed with **3,530 tests on Windows and 3,530 on Linux**, compilation, production Docker build, and runtime smoke. Do not run the full local suite because the known pytest ACL/shared-storage incident remains in force.
 
 # Planning workspace H–O: статус проверок (19.10.2026; PR verification)
 
