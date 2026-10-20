@@ -72,6 +72,97 @@ def test_supply_act_summary_client_uses_documented_read_only_contract(monkeypatc
     ]
 
 
+def test_supply_order_list_client_uses_documented_cursor_contract(monkeypatch):
+    calls = []
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {"error": False, "order_ids": [123], "last_id": "cursor"}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client",
+        api_key="secret",
+        credential_provider=object(),
+    )
+
+    result = client.get_supply_orders_list(
+        ["COMPLETED"],
+        timeout=7,
+        max_attempts=1,
+        total_timeout=9,
+    )
+
+    assert result == {"error": False, "order_ids": [123], "last_id": "cursor"}
+    assert calls == [
+        (
+            "/v3/supply-order/list",
+            {
+                "filter": {"states": ["COMPLETED"]},
+                "limit": 100,
+                "sort_by": "ORDER_STATE_UPDATED_AT",
+                "sort_dir": "DESC",
+            },
+            {"timeout": 7, "max_attempts": 1, "total_timeout": 9},
+        )
+    ]
+
+
+def test_supply_orders_details_client_batches_up_to_fifty_ids(monkeypatch):
+    calls = []
+
+    def post(self, endpoint, payload, **options):
+        calls.append((endpoint, payload, options))
+        return {"error": False, "orders": []}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client",
+        api_key="secret",
+        credential_provider=object(),
+    )
+
+    result = client.get_supply_orders_details(
+        ["123", 456], timeout=7, max_attempts=1, total_timeout=9
+    )
+
+    assert result == {"error": False, "orders": []}
+    assert calls == [
+        (
+            "/v3/supply-order/get",
+            {"order_ids": [123, 456]},
+            {"timeout": 7, "max_attempts": 1, "total_timeout": 9},
+        )
+    ]
+
+
+def test_supply_order_list_client_rejects_invalid_cursor_and_limit(monkeypatch):
+    calls = []
+
+    def post(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"error": False}
+
+    monkeypatch.setattr(OzonClient, "_post", post)
+    client = OzonClient(
+        client_id="client",
+        api_key="secret",
+        credential_provider=object(),
+    )
+
+    for kwargs in (
+        {"states": []},
+        {"states": ["COMPLETED"], "limit": 101},
+        {"states": ["not-completed"]},
+        {"states": ["COMPLETED"], "last_id": ""},
+    ):
+        result = client.get_supply_orders_list(**kwargs)
+        assert result["error"] is True
+        assert result["code"] == "OZON_SUPPLY_ORDER_LIST_REQUEST_INVALID"
+
+    assert calls == []
+
+
 def test_supply_act_summary_client_rejects_invalid_ids_without_request(monkeypatch):
     calls = []
 
@@ -170,13 +261,26 @@ def test_supply_act_products_client_rejects_invalid_ids_without_request(monkeypa
 
 
 class _SupplyActClient:
-    def __init__(self, response=None, summary_response=None, order_response=None):
+    def __init__(
+        self,
+        response=None,
+        summary_response=None,
+        order_response=None,
+        order_list_responses=None,
+        order_responses=None,
+    ):
         self.response = response or {"error": False, "supply_acts": []}
         self.summary_response = summary_response
         self.order_response = order_response or {"error": False, "orders": []}
+        self.order_responses = list(order_responses or [])
+        self.order_list_responses = list(
+            order_list_responses
+            or [{"error": False, "order_ids": [], "last_id": ""}]
+        )
         self.calls = []
         self.summary_calls = []
         self.order_calls = []
+        self.order_list_calls = []
 
     def get_supply_act_products(self, supply_id, **kwargs):
         self.calls.append((supply_id, kwargs))
@@ -186,8 +290,16 @@ class _SupplyActClient:
         self.summary_calls.append((order_id, kwargs))
         return self.summary_response
 
-    def get_supply_order_details(self, order_id, **kwargs):
-        self.order_calls.append((order_id, kwargs))
+    def get_supply_orders_list(self, **kwargs):
+        self.order_list_calls.append(kwargs)
+        if self.order_list_responses:
+            return self.order_list_responses.pop(0)
+        return {"error": False, "order_ids": [], "last_id": ""}
+
+    def get_supply_orders_details(self, order_ids, **kwargs):
+        self.order_calls.append((order_ids, kwargs))
+        if self.order_responses:
+            return self.order_responses.pop(0)
         return self.order_response
 
 
@@ -254,7 +366,7 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
             "error": False,
             "orders": [
                 {
-                    "order_id": 2000070135564,
+                    "order_id": 987654321,
                     "state": "COMPLETED",
                     "state_updated_date": "2026-10-16T10:00:00Z",
                     "supplies": [
@@ -271,6 +383,13 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
                 }
             ],
         },
+        order_list_responses=[
+            {
+                "error": False,
+                "order_ids": [987654321],
+                "last_id": "next-page",
+            }
+        ],
     )
     handler = _handler(client)
 
@@ -294,18 +413,31 @@ def test_bot_diagnostic_waits_for_user_and_returns_only_redacted_quantities():
             {"timeout": 15, "max_attempts": 2, "total_timeout": 25},
         )
     ]
-    assert client.summary_calls == [
-        (
-            2000070135564,
-            {"timeout": 10, "max_attempts": 1, "total_timeout": 15},
-        )
+    assert client.order_list_calls == [
+        {
+            "states": ExperimentalStoreEconomicsRuntimeService.SUPPLY_ORDER_LIST_STATES,
+            "last_id": None,
+            "limit": 100,
+            "sort_by": "ORDER_STATE_UPDATED_AT",
+            "sort_dir": "DESC",
+            "timeout": 8,
+            "max_attempts": 1,
+            "total_timeout": 10,
+        }
     ]
     assert client.order_calls == [
         (
-            2000070135564,
+            [987654321],
+            {"timeout": 8, "max_attempts": 1, "total_timeout": 10},
+        )
+    ]
+    assert client.summary_calls == [
+        (
+            987654321,
             {"timeout": 10, "max_attempts": 1, "total_timeout": 15},
         )
     ]
+    assert "ID заявки найден через supply_id: проверено страниц 1, ID заявок 1." in result["message"]
     assert result["status"] == "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_READY"
     assert "declared_quantity=500" in result["message"]
     assert "approved_quantity=499" in result["message"]
@@ -346,6 +478,67 @@ def test_invalid_supply_act_id_does_not_call_api_and_keeps_prompt_active():
     assert client.calls == []
     assert client.summary_calls == []
     assert client.order_calls == []
+
+
+def test_supply_order_lookup_uses_cursor_pages_until_nested_supply_matches():
+    target_supply_id = 2000070135564
+    client = _SupplyActClient(
+        {
+            "error": False,
+            "supply_acts": [{"type": "ACCEPTANCE", "items": []}],
+        },
+        summary_response={"error": False, "supplies_acts": []},
+        order_list_responses=[
+            {"error": False, "order_ids": [101], "last_id": "cursor-2"},
+            {"error": False, "order_ids": [202], "last_id": ""},
+        ],
+        order_responses=[
+            {
+                "error": False,
+                "orders": [
+                    {"order_id": 101, "supplies": [{"supply_id": 999}]}
+                ],
+            },
+            {
+                "error": False,
+                "orders": [
+                    {
+                        "order_id": 202,
+                        "state": "COMPLETED",
+                        "state_updated_date": "2026-10-16T10:00:00Z",
+                        "supplies": [
+                            {"supply_id": target_supply_id, "is_crossdock": True}
+                        ],
+                    }
+                ],
+            },
+        ],
+    )
+    handler = _handler(client)
+    handler.handle("experimental_supply_act_diagnostic", user_id=512)
+
+    result = handler.handle_text(str(target_supply_id), user_id=512)
+
+    assert [call["last_id"] for call in client.order_list_calls] == [None, "cursor-2"]
+    assert [call[0] for call in client.order_calls] == [[101], [202]]
+    assert client.summary_calls[0][0] == 202
+    assert "ID заявки найден через supply_id: проверено страниц 2, ID заявок 2." in result["message"]
+    assert "state=COMPLETED" in result["message"]
+
+
+def test_supply_api_http_status_is_reported_without_echoing_response_body():
+    result = ExperimentalStoreEconomicsRuntimeService._render_supply_act_product_diagnostic(
+        {"error": False, "supply_acts": []},
+        supply_order_response={
+            "error": True,
+            "code": "OZON_HTTP_ERROR",
+            "status_code": 404,
+            "message": "Api-Key=private-value",
+        },
+    )
+
+    assert "Детали заявки недоступны: OZON_HTTP_404." in result["message"]
+    assert "private-value" not in result["message"]
 
 
 def test_supply_act_diagnostic_input_is_bound_to_current_tenant():
@@ -403,6 +596,19 @@ def test_summary_error_is_reported_without_discarding_product_quantities():
             "code": "OZON_SUPPLY_ACT_SUMMARY_NOT_FOUND",
             "message": "Api-Key=secret",
         },
+        order_response={
+            "error": False,
+            "orders": [
+                {
+                    "order_id": 987654321,
+                    "state": "COMPLETED",
+                    "supplies": [{"supply_id": 2000070135564, "is_crossdock": True}],
+                }
+            ],
+        },
+        order_list_responses=[
+            {"error": False, "order_ids": [987654321], "last_id": ""}
+        ],
     )
     handler = _handler(client)
     handler.handle("experimental_supply_act_diagnostic", user_id=509)
@@ -443,6 +649,19 @@ def test_unmatched_summary_does_not_present_another_supply_act_as_selected():
                 }
             ],
         },
+        order_response={
+            "error": False,
+            "orders": [
+                {
+                    "order_id": 987654321,
+                    "state": "COMPLETED",
+                    "supplies": [{"supply_id": 2000070135564}],
+                }
+            ],
+        },
+        order_list_responses=[
+            {"error": False, "order_ids": [987654321], "last_id": ""}
+        ],
     )
     handler = _handler(client)
     handler.handle("experimental_supply_act_diagnostic", user_id=510)
@@ -485,7 +704,7 @@ def test_unmatched_supply_order_does_not_expose_another_orders_details():
         expected_supply_id=2000070135564,
     )
 
-    assert "совпадение по ID не найдено" in result["message"]
+    assert "точное совпадение заявки и вложенной поставки не найдено" in result["message"]
     assert "999999999999" not in result["message"]
     assert "888888888888" not in result["message"]
     assert "FOREIGN_ORDER_STATE" not in result["message"]
@@ -552,6 +771,7 @@ def test_large_supply_act_diagnostic_stays_below_telegram_message_limit():
                 }
             ],
         },
+        expected_order_id=supply_id,
         expected_supply_id=supply_id,
     )
 

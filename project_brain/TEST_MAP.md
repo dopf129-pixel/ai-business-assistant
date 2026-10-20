@@ -1,3 +1,7 @@
+# Cross-docking supply ID resolution regression
+
+`tests/test_experimental_supply_act_diagnostic.py` verifies that the user-entered `supply_id` is resolved through `/v3/supply-order/list` and nested `supplies[].supply_id` from `/v3/supply-order/get`, then the distinct `order_id` is used for the act-summary request. Coverage includes cursor pagination, batching, bounded request options, invalid IDs, safe HTTP status display, mismatch privacy, and Telegram output size. Latest focused result: **19 passed in 0.43s**; syntax-only compilation and `git diff --check` passed. Exact-head Verify **39419764407** passed for code SHA `7784d457528dd7b8c3f0b433668ed30768bb25ab`: full Windows/Linux tests, compilation, and production Docker build/runtime smoke. Full local pytest was not run because of the known Windows ACL/shared-storage issue. This remains read-only diagnostic behavior; it does not feed unit-economics calculations.
+
 # Cross-docking acceptance-act diagnostic (X00 helper)
 
 Latest 2026-10-20 result supersedes the earlier count below: the diagnostic now has **14 passed in 0.51s** in the isolated Windows profile. Added a stress regression proving the redacted report remains under Telegram's 4,096-character limit while still showing aggregate counts and truncation notes. Exact-head Verify run **39407794793** for SHA `e9e2f2cec4c55b763660af8dca07ef6f9f8bed10` passed: Linux and Windows each **3,534 passed**, compile and production Docker build/runtime smoke successful.
