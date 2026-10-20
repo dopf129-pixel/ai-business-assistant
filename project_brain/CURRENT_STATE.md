@@ -1,3 +1,10 @@
+# 2026-10-20 — pure расчёт финансового среднего кросс-докинга (X02)
+
+- Общий classifier категорий Ozon вынесен в [`ozon_accrual_fee_classifier.py`](../app/services/ozon_accrual_fee_classifier.py) и повторно используется существующим отчётом и X02.
+- `CrossDockingFinancialEvidenceService` строит complete-only C56 из фактических signed leaf-начислений `/v1/finance/accrual/by-day`, не агрегирует родительские `total_amount`, различает SKU и shared costs и сводит все дни окна, включая дни без продаж.
+- Чистая ставка использует только X01 фактически принятые cross-dock units; sales count в контракте отсутствует. Есть SKU rate либо store estimate при общих расходах; observed zero, net refund, отсутствие поставок и любые пробелы остаются разными состояниями.
+- Связанный targeted profile: **102 passed in 1.70s**. Полный pytest, live Ozon API, бот, merge и deploy не запускались. X02 завершён; durable collection/cache/checkpoint и production wiring остаются X03–X04.
+
 # 2026-10-20 — реализован bounded read-only источник кросс-докинг-поставок
 
 - X00 закрыт в ограниченной области: две пользовательские сверки подтвердили построчный `fact_quantity` для полной/частичной приёмки и дату завершения одной nested supply по `state_updated_date`; `created_date`, planned dates, `approved_quantity` и summary totals не заменяют эти поля. Доменное правило пользователя: одна supply = один товар.

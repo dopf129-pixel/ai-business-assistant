@@ -18,11 +18,20 @@
 |---|---|---|
 | X00 | COMPLETE WITH BOUNDED SCOPE | Официальные list/detail/act контракты и два пользовательских live-примера подтверждают источник фактического количества по SKU и дату завершения для заявки с одной вложенной cross-dock поставкой. Неоднозначные multi-supply заявки и строки без ровно одного SKU далее fail closed. |
 | X01 | COMPLETE WITH BOUNDED COVERAGE | Добавлен read-only collection source: cursor list → детали заявок пакетами до 50 → exact accepted act/product lookup. Нормализация использует line `fact_quantity` по SKU и дату только для completed order с одной nested crossdock supply. Multi-supply/unknown/incomplete — `INCOMPLETE`, без denominator. Лимит 64 HTTP попытки/60 секунд; continuation checkpoint остаётся X03. |
-| X02 | NEXT | Pure average может потреблять только complete X01 denominator; calculation пока не включён в production path. |
-| X03 | BLOCKED BY X02 | Source ready; bounded checkpoint/cache and production integration start after the pure-rate contract. |
-| X04 | BLOCKED BY X03 | Нельзя добавлять непроверенную ставку в текущую модель/Telegram. |
-| X05 | BLOCKED BY X04 | Нет подтверждённого snapshot и версии компонента X. |
+| X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
+| X03 | NEXT | Собрать 56-дневные дневные финансы и X01 supplies с checkpoint/cache/resume, сохранить request budgets, затем подготовить production read-only adapter. |
+| X04 | BLOCKED BY X03 | Нельзя добавлять ставку в текущую модель/Telegram до bounded complete source и проверенной публикации X. |
+| X05 | BLOCKED BY X04 | Нет production snapshot и версии компонента X. |
 | X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
+
+## X02 — signed finance evidence and pure rate — 2026-10-20
+
+- Extracted the fee category aliases and matching rules into `app/services/ozon_accrual_fee_classifier.py`; `ExperimentalStoreEconomicsRuntimeService` delegates to this shared helper so the existing report and new unit-cost logic cannot drift to separate cross-docking labels.
+- Added `CrossDockingFinancialEvidenceService`. It consumes an inclusive date-to-raw-response map from `/v1/finance/accrual/by-day`, validates every day, fee type, leaf amount and `accrual_id`, deduplicates exact repeats within the same accrual day and fails closed on conflicting identity. It traverses the existing FinanceService leaf scopes (posting delivery services, item fees, non-item fees and container fees), classifies from the existing Ozon accrual type dictionary, sums actual signed leaf amounts and never includes aggregate parent `total_amount`.
+- SKU leaf amounts remain SKU-specific; non-item/container amounts remain shared. Positive signed rows reduce the net expense total and are included by their finance date; the service does not need the original supply ID, so a correction to an older supply does not add historical Q again.
+- `calculate_rate` accepts only complete X01 supply evidence and a requested SKU. It uses SKU C/Q when expense attribution is complete, store C/Q when shared amounts exist, and keeps no-supply, target-SKU-not-participating, incomplete evidence, zero denominator, observed zero and net refund distinct. The input contract has no sales metric. Decimal arithmetic uses HALF_UP cents and exposes raw ratio and rounding residual.
+- Added 19 pure tests; combined with X01 supply normalization/source and existing experimental report/finance breakdown regressions: **102 passed in 1.70s**. The first run exposed that the old report depends on a class-level matcher alias; it was restored with identical semantics before the successful rerun. Separate temporary `AI_ASSISTANT_STORAGE_ROOT` and pytest basetemp were used. Full local pytest/live API/bot not run.
+- Static AST compilation and `git diff --check` are recorded in the final verification section below; no code is integrated into the calculators yet.
 
 ## Follow-up — ID заявки для актов Ozon — 2026-10-20
 

@@ -1,5 +1,31 @@
 # Architecture Decisions
 
+## Decision 052
+
+Date:
+
+2026-10-20
+
+Topic:
+
+Cross-docking expense evidence and shared accrual classification
+
+Decision:
+
+- Keep Ozon accrual fee-category aliases in one shared classifier used by the experimental store report and cross-docking unit-cost evidence.
+- Build the 56-day expense numerator from signed, classified leaf amounts on their finance accrual dates. Never reconstruct it from parent `total_amount`, tariffs, payout totals, or sales.
+- Preserve direct SKU attribution for item-level fee leaves; treat seller/container leaves without a SKU as shared and use a store estimate only when complete cross-docking supply coverage exists.
+- Any incomplete day, unknown fee type, malformed leaf, or conflicting accrual identity prevents publication of numeric evidence. Positive amounts reduce the signed expense total; do not apply `abs()` per operation.
+- Keep this component pure and disconnected from current/scenario production calculators until the later bounded source/cache integration stages.
+
+Reason:
+
+The Ozon daily accrual endpoint mixes leaf service amounts with parent financial totals and exposes both SKU-linked and seller-level fee nodes. A shared classifier and signed leaf projection prevent category drift and double counting while preserving the distinction between exact SKU costs and shared store costs.
+
+Status:
+
+Implemented as X02 pure evidence and rate services. Production collection, checkpointing and calculator integration remain X03–X04.
+
 ## Decision 051
 
 Date: 2026-10-20
