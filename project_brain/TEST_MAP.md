@@ -1,5 +1,7 @@
 # Cross-docking acceptance-act diagnostic (X00 helper)
 
+Latest 2026-10-20 result supersedes the earlier count below: the diagnostic now has **14 passed in 0.51s** in the isolated Windows profile. Added a stress regression proving the redacted report remains under Telegram's 4,096-character limit while still showing aggregate counts and truncation notes. Exact-head CI is pending.
+
 2026-10-20 update: diagnostic coverage now includes the documented read-only `POST /v3/supply-order/get` request and redacted rendering of order state, state timestamp, nested supply states, `is_crossdock`, and safe field types. The focused diagnostic file now has **13 passed in 0.51s** under an isolated Windows profile with pytest plugin autoload disabled; exact-head CI remains required. The prior PR head passed Verify run **39401319778** on Windows/Linux (**3,530 passed** each), compilation, production Docker build, and runtime smoke. Full local pytest remains prohibited by the recorded ACL/shared-storage incident.
 
 - `tests/test_experimental_supply_act_diagnostic.py` verifies documented read-only request bodies for `POST /v1/supply-order/act/product/get` and `/v1/supply-order/act/summary/get`, bounded options and invalid-ID rejection; the Telegram button/input flow; no API call before explicit input; product and summary quantity rendering; summary-error isolation; SKU/name/barcode/act-ID/supply-ID redaction; cancellation; tenant-switch invalidation; and safe API errors.

@@ -42,7 +42,9 @@ class ExperimentalStoreEconomicsRuntimeService:
     SUPPLY_ACT_SUMMARY_TOTAL_TIMEOUT_SECONDS = 15
     SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS = 10
     SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 15
-    SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 12
+    SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 4
+    SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN = 4
+    SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN = 4
     REPORT_CACHE_MAX_SCOPES = 64
     FEE_LABEL_MATCHERS = {
         "last_mile": (
@@ -591,7 +593,8 @@ class ExperimentalStoreEconomicsRuntimeService:
             lines.append("Типы полей: " + ", ".join(field_types) + ".")
         if supplies:
             lines.append("Признаки вложенных поставок (ID скрыты):")
-            for index, supply in enumerate(supplies[:8], start=1):
+            max_supplies = cls.SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN
+            for index, supply in enumerate(supplies[:max_supplies], start=1):
                 if not isinstance(supply, dict):
                     continue
                 supply_state = cls._safe_supply_act_label(
@@ -616,9 +619,9 @@ class ExperimentalStoreEconomicsRuntimeService:
                     + (supply_date or "нет поля")
                     + " (поле устарело, не считаем датой приёмки)."
                 )
-            if len(supplies) > 8:
+            if len(supplies) > max_supplies:
                 lines.append(
-                    f"Показаны первые 8 поставок из {len(supplies)}."
+                    f"Показаны первые {max_supplies} поставки из {len(supplies)}."
                 )
         if state_updated:
             lines.append(
@@ -721,7 +724,8 @@ class ExperimentalStoreEconomicsRuntimeService:
                 "Детали актов не показаны: сводку не удалось связать "
                 "с введённой поставкой."
             )
-        for index, act in enumerate(display_rows[:8], start=1):
+        max_acts = cls.SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN
+        for index, act in enumerate(display_rows[:max_acts], start=1):
             state = cls._safe_supply_act_label(act.get("act_state"))
             act_type = cls._safe_supply_act_label(act.get("type"))
             created_date = cls._safe_supply_act_datetime(
@@ -747,8 +751,10 @@ class ExperimentalStoreEconomicsRuntimeService:
             if summary_values:
                 details.append("summary " + ", ".join(summary_values))
             lines.append(f"Сводный акт {index}: " + "; ".join(details) + ".")
-        if len(display_rows) > 8:
-            lines.append(f"Показаны первые 8 актов из {len(display_rows)}.")
+        if len(display_rows) > max_acts:
+            lines.append(
+                f"Показаны первые {max_acts} актов из {len(display_rows)}."
+            )
         if len(supplies) > len(selected_supplies):
             lines.append(
                 f"Проверены первые {len(selected_supplies)} групп поставок "

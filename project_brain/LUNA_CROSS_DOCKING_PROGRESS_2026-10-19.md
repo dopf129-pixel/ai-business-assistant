@@ -41,9 +41,10 @@
 
 ## X00 implementation update — 2026-10-20
 
+- Message output is capped by showing at most 4 product rows, 4 supplies, and 4 summary acts; aggregate totals and truncation notes remain. Stress regression builds 50 large rows/acts/supplies and confirms the result stays under Telegram's 4,096-character limit.
 - Добавлен read-only client adapter к `POST /v3/supply-order/get` с ограничением на один положительный int64 `order_id`, one-attempt timeout budget и документированным `order_ids: [id]` payload.
 - Существующая экспериментальная диагностика после ввода ID дополнительно проверяет детали заявки. Она показывает только безопасные типы полей, совпавший order status/state_updated_date, количество вложенных supplies, их state и boolean `is_crossdock`; идентификаторы, названия склада, SKU и другие значения payload не выводятся. Устаревший `storage_warehouse.arrival_date` помечается как ненадёжная дата приёмки.
-- Добавлена regression, что несовпавший order ID не раскрывает status, даты, supply IDs и складские поля из чужого ответа. `tests/test_experimental_supply_act_diagnostic.py`: **13 passed in 0.51s** с isolated storage/basetemp и отключённым plugin autoload; `git diff --check` прошёл. Обычная автозагрузка тестового плагина на Windows показала все тесты как PASSED, но процесс не завершился штатно; результат не использован как чистое завершение. Exact-head CI ещё не запускался.
+- Добавлены regressions, что несовпавший order ID не раскрывает status, даты, supply IDs и складские поля из чужого ответа, а большой ответ остаётся короче лимита Telegram. `tests/test_experimental_supply_act_diagnostic.py`: **14 passed in 0.51s** с isolated storage/basetemp и отключённым plugin autoload; `git diff --check` прошёл. Обычная автозагрузка тестового плагина на Windows показала все тесты как PASSED, но процесс не завершился штатно; результат не использован как чистое завершение. Exact-head CI ещё не запускался для актуального кода.
 - Этот helper остаётся диагностикой: `state_updated_date` не назначается датой приёмки, `arrival_date` не используется как completion date, а единицы не подключены к стоимости в калькуляторе. X00/X01 остаются заблокированы до сверки фактического detail+act ответа, особенно для split/partial supplies.
 
 ## X00 — источник и фактические результаты

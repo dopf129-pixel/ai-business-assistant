@@ -493,3 +493,71 @@ def test_unmatched_supply_order_does_not_expose_another_orders_details():
     assert "2026-10-17" not in result["message"]
     assert "Private warehouse name" not in result["message"]
 
+
+def test_large_supply_act_diagnostic_stays_below_telegram_message_limit():
+    supply_id = 2000070135564
+    quantity = 9_223_372_036_854_775_807
+    product_items = [
+        {
+            "sku_info": {"sku": index, "name": "Private product name"},
+            "declared_quantity": quantity,
+            "approved_quantity": quantity,
+            "fact_quantity": quantity,
+            "unidentified_quantity": quantity,
+        }
+        for index in range(50)
+    ]
+    summary_acts = [
+        {
+            "act_state": "ACCEPTED",
+            "created_date": "2026-10-16T08:30:00Z",
+            "type": "ACCEPTANCE",
+            "summary": {
+                "declared_quantity": quantity,
+                "approved_quantity": quantity,
+                "fact_quantity": quantity,
+                "sku_quantity": quantity,
+                "unidentified_quantity": quantity,
+            },
+        }
+        for _ in range(50)
+    ]
+    result = ExperimentalStoreEconomicsRuntimeService._render_supply_act_product_diagnostic(
+        {"error": False, "supply_acts": [{"type": "ACCEPTANCE", "items": product_items}]},
+        summary_response={
+            "error": False,
+            "supplies_acts": [
+                {
+                    "supply_id": supply_id,
+                    "is_agreement_completed": True,
+                    "supply_acts": summary_acts,
+                }
+            ],
+        },
+        supply_order_response={
+            "error": False,
+            "orders": [
+                {
+                    "order_id": supply_id,
+                    "state": "COMPLETED",
+                    "state_updated_date": "2026-10-16T10:00:00Z",
+                    "supplies": [
+                        {
+                            "supply_id": supply_id + index,
+                            "state": "COMPLETED",
+                            "is_crossdock": True,
+                        }
+                        for index in range(50)
+                    ],
+                }
+            ],
+        },
+        expected_supply_id=supply_id,
+    )
+
+    assert len(result["message"]) < 4096
+    assert "Показаны первые 4 строк из 50" in result["message"]
+    assert "Показаны первые 4 поставки из 50" in result["message"]
+    assert "Показаны первые 4 актов из 20" in result["message"]
+    assert "Private product name" not in result["message"]
+
