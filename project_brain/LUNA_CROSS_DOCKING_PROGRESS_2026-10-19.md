@@ -30,7 +30,7 @@
 - Исправление выполняет ограниченный поиск через `/v3/supply-order/list` (до 2 страниц по 100 ID) и `/v3/supply-order/get` (пакеты по 50), затем принимает только точное совпадение вложенного `supplies[].supply_id`. Сводка акта вызывается с найденным `order_id`; при отсутствии точного совпадения детали не подставляются.
 - Общий поиск ограничен 60 секундами; каждый запрос поиска выполняется максимум с одной попыткой. HTTP статус отображается в безопасном виде, response body не выводится.
 - Добавлены регрессии, где `supply_id` намеренно отличается от `order_id`, и проверка перехода на следующую cursor-страницу. Live Seller API повторно не вызывался. Расчёт кросс-докинга не изменён; X00/X01 остаются заблокированы прежними бизнес-evidence требованиями по дате приёмки и значению количества.
-- `tests/test_experimental_supply_act_diagnostic.py`: **19 passed in 0.43s** на Python 3.12 из `.venv` с изолированным basetemp и `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`. Syntax-only compile трёх изменённых Python файлов и `git diff --check` прошли. Полный local pytest не запускался из-за зафиксированной ACL/shared-storage проблемы. Exact-head CI ещё не запускался.
+- `tests/test_experimental_supply_act_diagnostic.py`: **19 passed in 0.43s** на Python 3.12 из `.venv` с изолированным basetemp и `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`. Syntax-only compile трёх изменённых Python файлов и `git diff --check` прошли. Полный local pytest не запускался из-за зафиксированной ACL/shared-storage проблемы. Exact-head Verify **39419764407** для code SHA `7784d457528dd7b8c3f0b433668ed30768bb25ab` прошёл Windows и full-verification: полные тесты, compilation и production Docker build/runtime smoke успешны.
 
 ## X00 evidence update — 2026-10-20
 

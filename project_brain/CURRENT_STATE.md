@@ -2,7 +2,7 @@
 
 - В диагностике акта пользователь вводит `supply_id`, но `/v3/supply-order/get` и `/v1/supply-order/act/summary/get` требуют `order_id`. Добавлен bounded read-only поиск заявки по списку и точная сверка вложенного `supplies[].supply_id`; в оба метода передаётся только найденный `order_id`.
 - При отсутствии совпадения или ошибке поиска диагностика не подставляет чужую заявку. Показ HTTP статуса безопасен и не раскрывает тело ответа.
-- Это исправление только диагностического запроса. Оно не включает поставки в расчёт юнит-экономики: X00 остаётся заблокированным по дате фактической приёмки и универсальной семантике принятого количества. `tests/test_experimental_supply_act_diagnostic.py`: **19 passed in 0.43s**; syntax-only compilation и `git diff --check` прошли; полный local pytest не запускался из-за известного ACL/shared-storage ограничения. Exact-head CI ожидает PR.
+- Это исправление только диагностического запроса. Оно не включает поставки в расчёт юнит-экономики: X00 остаётся заблокированным по дате фактической приёмки и универсальной семантике принятого количества. `tests/test_experimental_supply_act_diagnostic.py`: **19 passed in 0.43s**; syntax-only compilation и `git diff --check` прошли; полный local pytest не запускался из-за известного ACL/shared-storage ограничения. Verify run **39419764407** для code SHA `7784d457528dd7b8c3f0b433668ed30768bb25ab` прошёл full-verification и Windows: полные тесты, compilation и production Docker build/runtime smoke успешны.
 
 # 2026-10-20 — расширенная read-only диагностика актов поставки
 
