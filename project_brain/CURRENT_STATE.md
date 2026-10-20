@@ -1,3 +1,10 @@
+# 2026-10-19 — диагностический запрос товаров из акта FBO
+
+- В экспериментальном меню добавлена read-only проверка `/v1/supply-order/act/product/get` по введённому `supply_id`. Запрос выполняется только после явного ввода, tenant scope привязан к текущему магазину, ввод истекает через 5 минут, сетевой вызов ограничен 15/25 секундами и двумя попытками.
+- Ответ выводит значения и coverage `declared_quantity`, `approved_quantity`, `fact_quantity`, `unidentified_quantity`; SKU, названия, штрихкоды, `act_id` и `supply_id` не попадают в сообщение. Поле `fact_quantity` не интерпретируется как принятое количество без подтверждённой семантики.
+- Это разовая диагностика по ID, а не штатный ручной ввод юнит-экономики. `/v1/supply-order/act/product/get` не даёт дату/статус; автоперечисление кросс-докинговых поставок ещё не реализовано. X00 остаётся частично заблокированным до точного контракта списка/деталей поставок и даты фактической приёмки.
+- Новые регрессии: `tests/test_experimental_supply_act_diagnostic.py` — **6 passed**. Связанный профиль с `tests/test_telegram_help_discovery.py` и отдельными `AI_ASSISTANT_STORAGE_ROOT`/pytest basetemp — **67 passed in 3.43s** на Python 3.12. `compileall` упёрся в известный Windows ACL при записи `__pycache__`; syntax-only compile всех 6 изменённых Python файлов и `git diff --check` прошли. Полный pytest локально не запускался. Первый exact-head CI выявил устаревшее ожидание состава меню (Linux: 3 525 passed, 1 failed); ожидание обновлено. Follow-up exact-head Verify run **39313014256** прошёл на Linux и Windows: **3 526 passed** на каждом runner, compile и production Docker build/runtime smoke успешны для code SHA `37c07dfb7779eece976210fb3dba6ac4ead27f8f`.
+
 # 2026-10-19 — исправления repeat review planning workspace (R18–R19)
 
 - Цель из рекламного калькулятора хранится в явном session assumption и переживает возврат, применение, сохранение, перезапуск и исторический просмотр; при обновлении существующего плана сохраняется последняя введённая цель.

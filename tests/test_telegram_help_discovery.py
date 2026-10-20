@@ -85,6 +85,7 @@ def test_experimental_calculations_button_uses_isolated_read_only_menu():
     assert result["executed"] is False
     assert _callbacks(result) == [
         "experimental_store_economics",
+        "experimental_supply_act_diagnostic",
         "main_menu",
     ]
 
@@ -95,7 +96,7 @@ def test_experimental_calculations_button_uses_isolated_read_only_menu():
         "experimental_calculations",
     ]
 
-    main_menu = bot.on_callback("seller-a", _callbacks(result)[1])
+    main_menu = bot.on_callback("seller-a", _callbacks(result)[-1])
     assert main_menu["error"] is False
     assert "experimental_calculations" in _callbacks(main_menu)
 
