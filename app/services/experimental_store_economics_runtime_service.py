@@ -38,7 +38,13 @@ class ExperimentalStoreEconomicsRuntimeService:
     SUPPLY_ACT_DIAGNOSTIC_PENDING_TTL_SECONDS = 300
     SUPPLY_ACT_DIAGNOSTIC_TIMEOUT_SECONDS = 15
     SUPPLY_ACT_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 25
-    SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 12
+    SUPPLY_ACT_SUMMARY_TIMEOUT_SECONDS = 10
+    SUPPLY_ACT_SUMMARY_TOTAL_TIMEOUT_SECONDS = 15
+    SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS = 10
+    SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS = 15
+    SUPPLY_ACT_DIAGNOSTIC_MAX_ITEMS_SHOWN = 4
+    SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN = 4
+    SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN = 4
     REPORT_CACHE_MAX_SCOPES = 64
     FEE_LABEL_MATCHERS = {
         "last_mile": (
@@ -218,9 +224,11 @@ class ExperimentalStoreEconomicsRuntimeService:
             "error": False,
             "status": "EXPERIMENTAL_SUPPLY_ACT_DIAGNOSTIC_INPUT_REQUIRED",
             "message": (
-                "Введите ID поставки (supply_id) из акта Ozon. "
-                "Бот прочитает только строки товаров и скроет SKU, "
-                "названия и идентификаторы. Для отмены отправьте «Отмена»."
+                "Введите ID поставки из акта Ozon. Бот проверит его в "
+                "данных акта и попробует использовать как ID заявки для "
+                "чтения статуса и признака кросс-докинга. SKU, названия "
+                "склада и идентификаторы в ответе будут скрыты. "
+                "Для отмены отправьте «Отмена»."
             ),
             "read_only": True,
             "executed": False,
@@ -301,7 +309,56 @@ class ExperimentalStoreEconomicsRuntimeService:
             return self._supply_act_diagnostic_error(
                 "OZON_SUPPLY_ACT_REQUEST_FAILED"
             )
-        return self._render_supply_act_product_diagnostic(response)
+        if (
+            not isinstance(response, dict)
+            or response.get("error") is True
+            or not isinstance(response.get("supply_acts"), list)
+        ):
+            return self._render_supply_act_product_diagnostic(response)
+        summary_response = None
+        summary_getter = getattr(
+            self.analytics_client,
+            "get_supply_act_summary",
+            None,
+        )
+        if callable(summary_getter):
+            try:
+                summary_response = summary_getter(
+                    supply_id,
+                    timeout=self.SUPPLY_ACT_SUMMARY_TIMEOUT_SECONDS,
+                    max_attempts=1,
+                    total_timeout=self.SUPPLY_ACT_SUMMARY_TOTAL_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                summary_response = {
+                    "error": True,
+                    "code": "OZON_SUPPLY_ACT_SUMMARY_REQUEST_FAILED",
+                }
+        order_response = None
+        order_getter = getattr(
+            self.analytics_client,
+            "get_supply_order_details",
+            None,
+        )
+        if callable(order_getter):
+            try:
+                order_response = order_getter(
+                    supply_id,
+                    timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TIMEOUT_SECONDS,
+                    max_attempts=1,
+                    total_timeout=self.SUPPLY_ORDER_DIAGNOSTIC_TOTAL_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                order_response = {
+                    "error": True,
+                    "code": "OZON_SUPPLY_ORDER_REQUEST_FAILED",
+                }
+        return self._render_supply_act_product_diagnostic(
+            response,
+            summary_response=summary_response,
+            supply_order_response=order_response,
+            expected_supply_id=supply_id,
+        )
 
     def clear_pending_supply_act_diagnostic_input(self, user_id):
         user_key = self._user_key(user_id)
@@ -323,7 +380,13 @@ class ExperimentalStoreEconomicsRuntimeService:
         return parsed
 
     @classmethod
-    def _render_supply_act_product_diagnostic(cls, response):
+    def _render_supply_act_product_diagnostic(
+        cls,
+        response,
+        summary_response=None,
+        supply_order_response=None,
+        expected_supply_id=None,
+    ):
         if not isinstance(response, dict):
             return cls._supply_act_diagnostic_error(
                 "OZON_SUPPLY_ACT_RESPONSE_INVALID"
@@ -435,9 +498,20 @@ class ExperimentalStoreEconomicsRuntimeService:
                 )
                 + "."
             )
+        cls._append_supply_order_diagnostic(
+            lines,
+            supply_order_response,
+            expected_order_id=expected_supply_id,
+        )
+        cls._append_supply_act_summary_diagnostic(
+            lines,
+            summary_response,
+            expected_supply_id=expected_supply_id,
+        )
         lines.append(
-            "В этом методе нет даты и статуса акта; они запрашиваются отдельно "
-            "по ID заявки. Ответ не содержит SKU, названий, штрихкодов и ID акта."
+            "Сводка даёт дату создания и состояние акта, но дата создания "
+            "сама по себе не доказывает дату фактической приёмки. "
+            "SKU, названия, штрихкоды и ID актов/поставок скрыты."
         )
         return {
             "error": False,
@@ -446,6 +520,282 @@ class ExperimentalStoreEconomicsRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    @classmethod
+    def _append_supply_order_diagnostic(
+        cls,
+        lines,
+        response,
+        expected_order_id=None,
+    ):
+        if response is None:
+            lines.append("Детали заявки: метод недоступен в клиенте.")
+            return
+        if not isinstance(response, dict):
+            lines.append("Детали заявки: некорректный ответ.")
+            return
+        if response.get("error") is True:
+            code = str(response.get("code") or "OZON_SUPPLY_ORDER_REQUEST_FAILED")
+            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
+                code = "OZON_SUPPLY_ORDER_REQUEST_FAILED"
+            lines.append("Детали заявки недоступны: " + code + ".")
+            return
+        orders = response.get("orders")
+        if not isinstance(orders, list):
+            lines.append("Детали заявки: некорректная структура ответа.")
+            return
+        matching_orders = [
+            order
+            for order in orders
+            if isinstance(order, dict)
+            and cls._supply_act_id_matches(
+                order.get("order_id"),
+                expected_order_id,
+            )
+        ]
+        if not matching_orders:
+            lines.append(
+                f"Детали заявки: совпадение по ID не найдено "
+                f"(заявок в ответе {len(orders)})."
+            )
+            return
+        order = matching_orders[0]
+        state = cls._safe_supply_act_label(order.get("state"))
+        state_updated = cls._safe_supply_act_datetime(
+            order.get("state_updated_date")
+        )
+        supplies = order.get("supplies")
+        if not isinstance(supplies, list):
+            supplies = []
+        lines.append(
+            "Детали заявки (/v3/supply-order/get): "
+            f"state={state}; state_updated_date="
+            f"{state_updated or 'нет поля'}; вложенных поставок={len(supplies)}."
+        )
+        first_supply = next(
+            (supply for supply in supplies if isinstance(supply, dict)),
+            None,
+        )
+        if first_supply is not None:
+            field_types = []
+            for field in ("order_id", "state", "state_updated_date"):
+                if field in order:
+                    field_types.append(
+                        f"{field}={cls._safe_supply_api_type(order.get(field))}"
+                    )
+            field_types.append("supplies=array")
+            for field in ("supply_id", "state", "is_crossdock"):
+                if field in first_supply:
+                    field_types.append(
+                        f"supplies[0].{field}="
+                        f"{cls._safe_supply_api_type(first_supply.get(field))}"
+                    )
+            lines.append("Типы полей: " + ", ".join(field_types) + ".")
+        if supplies:
+            lines.append("Признаки вложенных поставок (ID скрыты):")
+            max_supplies = cls.SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN
+            for index, supply in enumerate(supplies[:max_supplies], start=1):
+                if not isinstance(supply, dict):
+                    continue
+                supply_state = cls._safe_supply_act_label(
+                    supply.get("state")
+                )
+                is_crossdock = supply.get("is_crossdock")
+                crossdock_text = (
+                    "да" if is_crossdock is True
+                    else "нет" if is_crossdock is False
+                    else "нет поля"
+                )
+                supply_date = None
+                warehouse = supply.get("storage_warehouse")
+                if isinstance(warehouse, dict):
+                    supply_date = cls._safe_supply_act_datetime(
+                        warehouse.get("arrival_date")
+                    )
+                lines.append(
+                    f"{index}. state={supply_state}; "
+                    f"is_crossdock={crossdock_text}; "
+                    "arrival_date="
+                    + (supply_date or "нет поля")
+                    + " (поле устарело, не считаем датой приёмки)."
+                )
+            if len(supplies) > max_supplies:
+                lines.append(
+                    f"Показаны первые {max_supplies} поставки из {len(supplies)}."
+                )
+        if state_updated:
+            lines.append(
+                "state_updated_date — дата обновления статуса заявки; "
+                "пока не считаем её датой приёмки каждой вложенной поставки."
+            )
+
+    @staticmethod
+    def _safe_supply_api_type(value):
+        if value is None:
+            return "null"
+        if type(value) is bool:
+            return "bool"
+        if type(value) is int:
+            return "int"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list):
+            return "array"
+        if isinstance(value, dict):
+            return "object"
+        return "unknown"
+
+    @classmethod
+    def _append_supply_act_summary_diagnostic(
+        cls,
+        lines,
+        response,
+        expected_supply_id=None,
+    ):
+        if response is None:
+            lines.append("Сводка акта: метод недоступен в клиенте.")
+            return
+        if not isinstance(response, dict):
+            lines.append("Сводка акта: некорректный ответ.")
+            return
+        if response.get("error") is True:
+            code = str(
+                response.get("code") or "OZON_SUPPLY_ACT_SUMMARY_FAILED"
+            )
+            if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
+                code = "OZON_SUPPLY_ACT_SUMMARY_FAILED"
+            lines.append("Сводка акта недоступна: " + code + ".")
+            return
+        supplies = response.get("supplies_acts")
+        if not isinstance(supplies, list):
+            lines.append("Сводка акта: некорректная структура ответа.")
+            return
+        act_rows = []
+        related_act_rows = []
+        matching_supply_found = False
+        for supply in supplies[:20]:
+            if not isinstance(supply, dict):
+                continue
+            supply_id = supply.get("supply_id")
+            id_matches = cls._supply_act_id_matches(
+                supply_id,
+                expected_supply_id,
+            )
+            if id_matches:
+                matching_supply_found = True
+            acts = supply.get("supply_acts")
+            if not isinstance(acts, list):
+                continue
+            for act in acts[:20]:
+                if isinstance(act, dict):
+                    act_rows.append(act)
+                    if id_matches:
+                        related_act_rows.append(act)
+        selected_supplies = supplies[:20]
+        completed_values = [
+            supply.get("is_agreement_completed")
+            for supply in selected_supplies
+            if isinstance(supply, dict)
+            and type(supply.get("is_agreement_completed")) is bool
+        ]
+        completed_text = (
+            "да" if completed_values and all(completed_values)
+            else "нет" if completed_values and not any(completed_values)
+            else "смешанное" if completed_values
+            else "нет поля"
+        )
+        lines.append(
+            f"Сводка по заявке: групп поставок {len(supplies)}; "
+            f"актов в первых {len(selected_supplies)} группах {len(act_rows)}; "
+            f"признак согласованности в проверенных группах: {completed_text}."
+        )
+        if expected_supply_id is not None:
+            lines.append(
+                "В ответе сводки есть совпадающий supply_id: "
+                + ("да." if matching_supply_found else "нет.")
+            )
+        display_rows = (
+            related_act_rows
+            if expected_supply_id is not None
+            else act_rows
+        )
+        if expected_supply_id is not None and not matching_supply_found:
+            lines.append(
+                "Детали актов не показаны: сводку не удалось связать "
+                "с введённой поставкой."
+            )
+        max_acts = cls.SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN
+        for index, act in enumerate(display_rows[:max_acts], start=1):
+            state = cls._safe_supply_act_label(act.get("act_state"))
+            act_type = cls._safe_supply_act_label(act.get("type"))
+            created_date = cls._safe_supply_act_datetime(
+                act.get("created_date")
+            )
+            summary = act.get("summary")
+            summary_values = []
+            if isinstance(summary, dict):
+                for field in (
+                    "declared_quantity",
+                    "approved_quantity",
+                    "fact_quantity",
+                    "sku_quantity",
+                    "unidentified_quantity",
+                ):
+                    value = summary.get(field)
+                    if type(value) is int and value >= 0:
+                        summary_values.append(f"{field}={value}")
+            details = [f"состояние={state}", f"тип={act_type}"]
+            details.append(
+                "created_date=" + (created_date or "нет подтверждённой даты")
+            )
+            if summary_values:
+                details.append("summary " + ", ".join(summary_values))
+            lines.append(f"Сводный акт {index}: " + "; ".join(details) + ".")
+        if len(display_rows) > max_acts:
+            lines.append(
+                f"Показаны первые {max_acts} актов из {len(display_rows)}."
+            )
+        if len(supplies) > len(selected_supplies):
+            lines.append(
+                f"Проверены первые {len(selected_supplies)} групп поставок "
+                f"из {len(supplies)}."
+            )
+
+    @staticmethod
+    def _supply_act_id_matches(value, expected_supply_id):
+        if expected_supply_id is None:
+            return False
+        if type(value) is int:
+            parsed = value
+        elif isinstance(value, str) and value.isascii() and value.isdigit():
+            try:
+                parsed = int(value)
+            except (ValueError, OverflowError):
+                return False
+        else:
+            return False
+        return parsed == expected_supply_id
+
+    @staticmethod
+    def _safe_supply_act_label(value):
+        text = str(value or "").strip()
+        if re.fullmatch(r"[A-Za-z0-9_ -]{1,40}", text):
+            return text
+        return "не указан"
+
+    @staticmethod
+    def _safe_supply_act_datetime(value):
+        text = str(value or "").strip()
+        if len(text) > 40 or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?)?",
+            text,
+        ):
+            return None
+        try:
+            datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return text
 
     @staticmethod
     def _supply_act_diagnostic_error(code):
@@ -3457,4 +3807,5 @@ def _extract_postings_page(response):
     if not isinstance(postings, list):
         return [], False
     return postings, response.get("has_next") is False
+
 

@@ -180,6 +180,88 @@ class OzonClient(BaseOzonClient):
             **options,
         )
 
+    def get_supply_act_summary(
+        self,
+        order_id,
+        timeout=10,
+        max_attempts=1,
+        total_timeout=15,
+        request_attempt_observer=None,
+    ):
+        """Read FBO supply-act summary for a supply-order ID."""
+        try:
+            raw = str(order_id).strip()
+            if not raw.isascii() or not raw.isdigit():
+                raise ValueError
+            parsed = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ACT_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ACT_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        return self._post(
+            "/v1/supply-order/act/summary/get",
+            {"order_id": parsed},
+            **options,
+        )
+
+    def get_supply_order_details(
+        self,
+        order_id,
+        timeout=10,
+        max_attempts=1,
+        total_timeout=15,
+        request_attempt_observer=None,
+    ):
+        """Read one supply-order detail, including its nested supplies."""
+        try:
+            raw = str(order_id).strip()
+            if not raw.isascii() or not raw.isdigit():
+                raise ValueError
+            parsed = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ORDER_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if parsed <= 0 or parsed > 9_223_372_036_854_775_807:
+            return {
+                "error": True,
+                "code": "OZON_SUPPLY_ORDER_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+            "total_timeout": total_timeout,
+        }
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        return self._post(
+            "/v3/supply-order/get",
+            {"order_ids": [parsed]},
+            **options,
+        )
+
     def get_fbo_postings(
         self,
         since,
@@ -422,4 +504,5 @@ class OzonClient(BaseOzonClient):
     def _text(value):
         text = str(value or "").strip()
         return text or None
+
 
