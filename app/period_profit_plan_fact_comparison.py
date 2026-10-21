@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 
 class PeriodProfitPlanFactComparisonService:
@@ -45,7 +46,10 @@ class PeriodProfitPlanFactComparisonService:
             return self._error("PLAN_FACT_SALES_MIX_REQUIRED")
         if len(items) < 1 or len(items) > self.MAX_ITEMS:
             return self._error("PLAN_FACT_SCOPE_INVALID")
-        if payload.get("calculation_version") != self.sales_mix_planning_service.scenario_service.VERSION:
+        if not PlanningCrossDockingAdapter.supports(
+            payload,
+            getattr(self.sales_mix_planning_service.scenario_service, "VERSION", None),
+        ):
             return self._error("PLAN_FACT_CALCULATION_VERSION_INCOMPATIBLE")
 
         period = self._period(mix.get("period_label"))
@@ -70,11 +74,12 @@ class PeriodProfitPlanFactComparisonService:
 
         quantities = mix.get("quantities")
         plan = self.sales_mix_planning_service.calculate(
-            items,
+            PlanningCrossDockingAdapter.items_for_sales_mix(payload),
             quantities=quantities,
             period_label=mix.get("period_label"),
             expenses=mix.get("expenses"),
             expenses_confirmed=mix.get("confirmed") is True,
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
         )
         if plan.get("error") is True:
             return self._error("PLAN_FACT_PLAN_PROJECTION_UNAVAILABLE")

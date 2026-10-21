@@ -17,6 +17,7 @@ Decision:
 - An explicit source refresh may feed a new revision or copy after identity and CAS checks. It must not mutate an older revision.
 - Sales-mix planning applies the historical per-supplied-unit rate to planned successful sales Q. This planning deduction does not alter the factual side of plan/fact comparison.
 - Completeness of the collected 56-day window is separate from availability of a usable SKU rate. A complete window with no eligible supplied units may be saved as complete source evidence, but it has no numeric rate and cannot make a positive-Q sales mix complete.
+- Plan/fact accepts legacy v1 and current v2 saved plans. For v2, the frozen rate can affect the plan-only profit projection; the factual quantity/revenue inputs and arithmetic bridge remain unchanged, and an unavailable positive-Q rate keeps planned profit unavailable.
 
 Reason:
 
