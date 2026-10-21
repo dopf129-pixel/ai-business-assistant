@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — средний кросс-докинг на поставленную единицу
 
-Дата: 19.10.2026. Редакция 4. Статус: **IMPLEMENTATION IN PROGRESS; X00–X02 завершены, pure source/rate реализованы, production расчёт ещё не подключён**.
+Дата: 19.10.2026. Редакция 4. Статус: **IMPLEMENTATION IN PROGRESS; X00–X04 завершены, выполняются X05–X06**.
 
 Эта редакция полностью заменяет редакции 1–2. Подтверждено пользователем: **автоматически собрать все начисления кросс-докинга за 56 завершённых дней, включая корректировки, и разделить расходы на количество товара, поставленного кросс-докингом. Ручного ввода суммы нет.**
 
@@ -245,6 +245,8 @@ Q_store = физические единицы всех таких кросс-д�
 4. Отдельно пометить unavailable/stale/no-crossdock-supplies, не заставляя вводить сумму. Старый отчёт без X видим только с явным excluded scope.
 
 **Готово:** выбор SKU → автоматический X → цена/цель/refresh без ручных форм; количество продаж не является источником X.
+
+**Статус выполнения (2026-10-21): COMPLETE.** The current economics provider subtracts a validated rate once before the existing tax calculation. The single-price scenario carries an optional source-derived component, preserving legacy input/result shape when no X source is supplied; unavailable evidence is explicitly excluded instead of becoming zero. Target price, break-even, ad cap and sensitivity use the same canonical calculation. Both current and planning Telegram views explain the 56-day window, SKU/store method, expense divided by actually supplied units, completeness and the reason for exclusion. Raw source SKU/supply IDs are not rendered. The isolated Windows profile across 17 related modules passed **256 tests in 5.54s**. Full local pytest, live Ozon API, bot run, merge and deploy were not performed. X05 remains for frozen snapshots and saved/group-plan compatibility.
 
 ### X05 — сохранённые и групповые планы, версия, сравнение, exports
 

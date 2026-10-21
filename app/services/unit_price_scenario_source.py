@@ -275,6 +275,9 @@ class UnitPriceScenarioSource:
                 "price": current_facts.get("seller_price"),
                 "cost": cost,
                 "commission_rate": current_facts.get("commission_rate"),
+                "cross_docking_per_unit": self._cross_docking_amount(
+                    cross_docking
+                ),
                 "logistics_per_unit": None,
                 "last_mile_per_unit": None,
                 "acquiring_per_unit": None,
@@ -288,6 +291,15 @@ class UnitPriceScenarioSource:
                 "price": "ozon_current_seller_price" if suggested["price"] is not None else "unknown",
                 "cost": "confirmed_store_cost" if cost is not None else "unknown",
                 "commission_rate": "ozon_current_fbo_rate" if suggested["commission_rate"] is not None else "unknown",
+                "cross_docking_per_unit": (
+                    "ozon_cross_docking_sku_average"
+                    if suggested["cross_docking_per_unit"] is not None
+                    and cross_docking.get("method")
+                    == "sku_accrual_cost_per_delivered_crossdock_unit"
+                    else "ozon_cross_docking_store_estimate"
+                    if suggested["cross_docking_per_unit"] is not None
+                    else "unknown"
+                ),
                 "logistics_per_unit": "manual_required",
                 "last_mile_per_unit": "manual_required",
                 "acquiring_per_unit": "manual_required",
@@ -297,7 +309,10 @@ class UnitPriceScenarioSource:
                 "tax_rate": "active_store_tax_policy" if policy.get("mode") else "unknown",
                 "minimum_tax_rate": "active_store_tax_policy" if policy.get("mode") else "unknown",
             }
-            missing = [key for key, value in suggested.items() if value is None]
+            missing = [
+                key for key, value in suggested.items()
+                if value is None and key != "cross_docking_per_unit"
+            ]
             as_of = self._now().isoformat()
             return {
                 "error": False,
@@ -347,6 +362,15 @@ class UnitPriceScenarioSource:
                         "complete": cross_docking.get("evidence_complete") is True,
                         "status": cross_docking.get("status"),
                         "reason": cross_docking.get("reason"),
+                        "amount": suggested["cross_docking_per_unit"],
+                        "method": cross_docking.get("method"),
+                        "applicable_to_sku": cross_docking.get("applicable_to_sku"),
+                        "expense_total": cross_docking.get("expense_total"),
+                        "expense_by_sku": cross_docking.get("expense_by_sku"),
+                        "supplied_units_sku": cross_docking.get("supplied_units_sku"),
+                        "supplied_units_store": cross_docking.get("supplied_units_store"),
+                        "days_complete": cross_docking.get("days_complete"),
+                        "days_expected": cross_docking.get("days_expected"),
                         "date_from": cross_docking.get("date_from"),
                         "date_to": cross_docking.get("date_to"),
                         "denominator_kind": cross_docking.get("denominator_kind"),
@@ -427,12 +451,24 @@ class UnitPriceScenarioSource:
 
     def _load_current_facts(self, product):
         try:
-            result = self.current_economics_source.get(
-                sku=str(product["offer_id"]),
-                product_id=product["product_id"],
-                finance_sku=product["sku"],
-                accrual_dates=[],
+            fast_loader = getattr(
+                self.current_economics_source,
+                "get_price_and_commission_facts",
+                None,
             )
+            if callable(fast_loader):
+                result = fast_loader(
+                    sku=str(product["offer_id"]),
+                    product_id=product["product_id"],
+                    finance_sku=product["sku"],
+                )
+            else:
+                result = self.current_economics_source.get(
+                    sku=str(product["offer_id"]),
+                    product_id=product["product_id"],
+                    finance_sku=product["sku"],
+                    accrual_dates=[],
+                )
         except Exception:
             return {}
         if not isinstance(result, dict) or result.get("error") is True:
@@ -441,6 +477,22 @@ class UnitPriceScenarioSource:
             "seller_price": self._nonnegative_number(result.get("seller_price"), positive=True),
             "commission_rate": self._rate(result.get("commission_rate")),
         }
+
+    @staticmethod
+    def _cross_docking_amount(result):
+        if (
+            not isinstance(result, dict)
+            or result.get("evidence_complete") is not True
+            or result.get("applicable_to_sku") is not True
+        ):
+            return None
+        try:
+            amount = Decimal(str(result.get("cross_docking_per_unit")))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not amount.is_finite() or amount < 0:
+            return None
+        return float(amount)
 
     def _load_cost(self, product):
         try:

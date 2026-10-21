@@ -20,8 +20,8 @@
 | X01 | COMPLETE WITH BOUNDED COVERAGE | Добавлен read-only collection source: cursor list → детали заявок пакетами до 50 → exact accepted act/product lookup. Нормализация использует line `fact_quantity` по SKU и дату только для completed order с одной nested crossdock supply. Multi-supply/unknown/incomplete — `INCOMPLETE`, без denominator. Лимит 64 HTTP попытки/60 секунд; continuation checkpoint остаётся X03. |
 | X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
 | X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
-| X04 | NEXT | Подключить automatic rate to canonical current/unit-price scenarios, target price/break-even/ad-cap/sensitivity calculations and Telegram presentation; preserve old result scope and tax rules. |
-| X05 | BLOCKED BY X04 | Нет замороженного component snapshot/version в сохранённых сценариях. |
+| X04 | COMPLETE | Автоматическая ставка подключена к текущей и плановой юнит-экономике; целевая цена, безубыточность, рекламный предел и sensitivity используют общий расчёт; Telegram показывает период, метод SKU/store, фактические начисления/поставленные единицы, coverage и явное исключение неполной ставки. Профиль: **256 passed in 5.54s**. |
+| X05 | NEXT | Сохранённые и групповые планы должны фиксировать evidence/version и сохранять legacy behavior без подстановки сегодняшних данных в историю. |
 | X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
 
 ## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
@@ -33,6 +33,15 @@
 - A fresh cold request consumes the bounded budget and resumes in the next explicit calculation; tests verify no partial rate, no cross-store reuse, one dictionary lookup per resumed window, overlap reuse, lazy initialization and shared trace limits.
 - Verification on Windows: isolated targeted pytest profile (10 related test files): **146 passed in 2.76s**. Full local pytest was not run because of the recorded ACL/shared-storage restriction. No live Ozon call, bot run, merge or deploy.
 - Scope: X03 complete. Next: X04 mathematical integration and user-facing labels, followed by X05 persistence/version compatibility.
+
+## X04 — калькулятор, текущая экономика и Telegram — 2026-10-21
+
+- `CurrentProductEconomicsSource` получает ставку только для подтверждённых tenant/SKU; сценарный источник использует отдельный быстрый price/commission path, чтобы не запускать один и тот же 56-дневный сбор дважды. При отсутствии конфигурации/identity/полного окна возвращается явное unavailable evidence; числовая ставка не заполняется нулём.
+- Текущая модель вычитает кросс-докинг один раз из прибыли до налога; исходный marketplace fee subtotal остаётся прежним. USN_INCOME сохраняет выручечную налоговую базу; USN_INCOME_MINUS_EXPENSES пропускает расход через существующий TaxService.
+- Единый `UnitPriceScenarioService` переносит optional rate в пересчёт цены. Старый input/result contract остаётся прежним, когда X-ключ отсутствует; когда источник неполон, сценарий считает без X и явно добавляет исключённую область. Target price, break-even, advertising cap, price comparison и sensitivity используют этот же forward calculator.
+- Current and planning UI показывают фактический период 56 дней, SKU-rate/store estimate, signed expense total / actual supplied units, data coverage и безопасную причину, если ставка не включена. В Telegram выводе нет source SKU или supply ID. Unknown/incomplete current result не кэшируется как complete, следующий явный запрос может продолжить checkpoint.
+- Регрессии по 17 связанным модулям (cross-dock collectors, current/scenario sources/providers, cache, runtime, target solver, ad-cap, sensitivity и factory wiring): **256 passed in 5.54s** на Windows. Использованы отдельные test-storage и pytest basetemp с отключённой plugin autoload. `git diff --check` прошёл до документационного обновления; полный local pytest запрещён из-за известного ACL/shared-storage инцидента. Live Ozon API, bot, merge и deploy не запускались.
+- X04 complete. Next: X05 frozen component evidence/version through saved, batch and historical plan paths.
 
 ## X02 — signed finance evidence and pure rate — 2026-10-20
 

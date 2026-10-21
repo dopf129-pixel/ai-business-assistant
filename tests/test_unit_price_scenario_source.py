@@ -550,6 +550,8 @@ def test_incomplete_cross_docking_snapshot_is_not_cached_so_next_request_resumes
                 "error": False,
                 "status": "SKU_SUPPLY_PERIOD_AVERAGE",
                 "cross_docking_per_unit": "10.00",
+                "applicable_to_sku": True,
+                "method": "sku_accrual_cost_per_delivered_crossdock_unit",
                 "reason": None,
                 "evidence_complete": True,
                 "read_only": True,
@@ -570,6 +572,77 @@ def test_incomplete_cross_docking_snapshot_is_not_cached_so_next_request_resumes
         reset_current_tenant_user_id(token)
 
     assert first["cross_docking"]["evidence_complete"] is False
+    assert first["suggested_inputs"]["cross_docking_per_unit"] is None
+    assert "cross_docking_per_unit" not in first["missing_inputs"]
     assert second["cross_docking"]["cross_docking_per_unit"] == "10.00"
+    assert second["suggested_inputs"]["cross_docking_per_unit"] == 10.0
+    assert second["input_provenance"]["cross_docking_per_unit"] == "ozon_cross_docking_sku_average"
     assert second["cache"]["status"] == "miss"
     assert len(cross_docking.calls) == 2
+
+
+def test_scenario_snapshot_loads_cross_docking_once_with_exact_sku_and_source_provenance():
+    class _FastCurrentSource(_CurrentSource):
+        def __init__(self):
+            super().__init__()
+            self.fast_calls = []
+
+        def get(self, **_kwargs):
+            raise AssertionError("fast path must avoid the current unit-economics X lookup")
+
+        def get_price_and_commission_facts(self, **kwargs):
+            self.fast_calls.append(kwargs)
+            return dict(self.result)
+
+    class _CrossDockingSource:
+        def __init__(self):
+            self.calls = []
+
+        def get_rate(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "error": False,
+                "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+                "evidence_complete": True,
+                "applicable_to_sku": True,
+                "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+                "cross_docking_per_unit": "12.50",
+                "expense_total": "1250.00",
+                "expense_by_sku": "1250.00",
+                "supplied_units_sku": 100,
+                "supplied_units_store": 100,
+                "days_complete": 56,
+                "days_expected": 56,
+                "date_from": "2026-08-24",
+                "date_to": "2026-10-18",
+                "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+                "read_only": True,
+                "executed": False,
+            }
+
+    current = _FastCurrentSource()
+    cross_docking = _CrossDockingSource()
+    source = _source(
+        _SnapshotFinance({}),
+        current=current,
+        cross_docking_source=cross_docking,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["error"] is False
+    assert result["suggested_inputs"]["cross_docking_per_unit"] == 12.5
+    assert result["input_provenance"]["cross_docking_per_unit"] == "ozon_cross_docking_sku_average"
+    assert result["source_completeness"]["cross_docking"]["complete"] is True
+    assert result["source_completeness"]["cross_docking"]["supplied_units_sku"] == 100
+    assert "cross_docking_per_unit" not in result["missing_inputs"]
+    assert current.fast_calls == [{
+        "sku": "hook",
+        "product_id": "p1",
+        "finance_sku": "sku-1",
+    }]
+    assert cross_docking.calls[0]["sku"] == "sku-1"
+    assert cross_docking.calls[0]["tenant_scope"] == "user-1::ozon::store-1"

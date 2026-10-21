@@ -1,5 +1,10 @@
 from datetime import datetime, timezone
 
+from services.period_profit_operation_diagnostics import (
+    current_period_profit_trace,
+)
+from services.tenant_context import get_current_tenant_user_id
+
 
 class CurrentProductEconomicsSource:
     """Loads current Ozon commercial facts without calculating profit."""
@@ -28,7 +33,8 @@ class CurrentProductEconomicsSource:
         buyout_since=None,
         buyout_to=None,
         buyout_sample_size=50,
-        finance_sku=None
+        finance_sku=None,
+        include_cross_docking=True,
     ):
         response = self.ozon_client.get_product_prices(
             product_id=product_id,
@@ -87,6 +93,11 @@ class CurrentProductEconomicsSource:
             to=buyout_to,
             sample_size=buyout_sample_size
         )
+        cross_docking = (
+            self._cross_docking_rate(finance_sku)
+            if include_cross_docking
+            else None
+        )
 
         logistics = finance["logistics"]
         last_mile = finance["last_mile"]
@@ -103,7 +114,7 @@ class CurrentProductEconomicsSource:
             ],
         }
 
-        return {
+        result = {
             "error": False,
             "sku": str(item.get("offer_id") or sku),
             "product_id": self._text(
@@ -141,6 +152,73 @@ class CurrentProductEconomicsSource:
                 name for name, value in values.items()
                 if value is None
             ]
+        }
+        if cross_docking is not None:
+            result["cross_docking_per_unit"] = self._cross_docking_amount(
+                cross_docking
+            )
+            result["cross_docking"] = cross_docking
+        return result
+
+    def get_price_and_commission_facts(self, sku, product_id=None, finance_sku=None):
+        """Read the fast price/tariff facts without collecting the 56-day X source."""
+        return self.get(
+            sku=sku,
+            product_id=product_id,
+            finance_sku=finance_sku,
+            accrual_dates=[],
+            include_cross_docking=False,
+        )
+
+    def _cross_docking_rate(self, finance_sku):
+        if self.cross_docking_source is None:
+            return self._cross_docking_unavailable(
+                "CROSSDOCK_SOURCE_NOT_CONFIGURED"
+            )
+        tenant_scope = str(get_current_tenant_user_id() or "").strip()
+        target_sku = self._text(finance_sku)
+        if not tenant_scope or not target_sku:
+            return self._cross_docking_unavailable(
+                "CROSSDOCK_IDENTITY_REQUIRED"
+            )
+        try:
+            result = self.cross_docking_source.get_rate(
+                sku=target_sku,
+                tenant_scope=tenant_scope,
+                operation_trace=current_period_profit_trace(),
+            )
+        except Exception:
+            return self._cross_docking_unavailable(
+                "CROSSDOCK_SOURCE_UNAVAILABLE"
+            )
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return self._cross_docking_unavailable(
+                "CROSSDOCK_SOURCE_UNAVAILABLE"
+            )
+        return result
+
+    @staticmethod
+    def _cross_docking_amount(result):
+        if (
+            not isinstance(result, dict)
+            or result.get("evidence_complete") is not True
+            or result.get("applicable_to_sku") is not True
+        ):
+            return None
+        return result.get("cross_docking_per_unit")
+
+    @staticmethod
+    def _cross_docking_unavailable(reason):
+        return {
+            "error": False,
+            "status": "UNAVAILABLE",
+            "evidence_complete": False,
+            "cross_docking_per_unit": None,
+            "applicable_to_sku": False,
+            "reason": reason,
+            "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+            "read_only": True,
+            "executed": False,
         }
 
     def _empty_result(self, sku, product_id):

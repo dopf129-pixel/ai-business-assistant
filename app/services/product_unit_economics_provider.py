@@ -1,3 +1,6 @@
+from math import isfinite
+
+
 class ProductUnitEconomicsProvider:
 
     REQUIRED_FIELDS = (
@@ -186,6 +189,9 @@ class ProductUnitEconomicsProvider:
             tax_base = buyer_price
 
         cost = self._number(product_cost)
+        cross_docking = self._nonnegative_number(
+            facts.get("cross_docking_per_unit")
+        )
 
         values = {
             field: self._number(facts.get(field))
@@ -239,6 +245,7 @@ class ProductUnitEconomicsProvider:
                 seller_price
                 - marketplace_fees
                 - cost
+                - (cross_docking if cross_docking is not None else 0.0)
             )
             tax_result = self._calculate_tax(
                 revenue=tax_base,
@@ -322,6 +329,42 @@ class ProductUnitEconomicsProvider:
             )
         }
 
+        if "cross_docking" in facts:
+            cross_docking_source = facts.get("cross_docking")
+            cross_docking_source = (
+                cross_docking_source
+                if isinstance(cross_docking_source, dict)
+                else {}
+            )
+            result.update({
+                "cross_docking_per_unit": self._round(cross_docking),
+                "cross_docking_included": cross_docking is not None,
+                "cross_docking_status": cross_docking_source.get("status"),
+                "cross_docking_reason": cross_docking_source.get("reason"),
+                # Propagate only whitelisted public evidence fields. The raw
+                # source also contains SKU and supply IDs and must stay private.
+                "cross_docking": {
+                    key: cross_docking_source.get(key)
+                    for key in (
+                        "status",
+                        "reason",
+                        "evidence_complete",
+                        "applicable_to_sku",
+                        "method",
+                        "date_from",
+                        "date_to",
+                        "expense_total",
+                        "expense_by_sku",
+                        "supplied_units_sku",
+                        "supplied_units_store",
+                        "days_complete",
+                        "days_expected",
+                        "denominator_kind",
+                    )
+                    if key in cross_docking_source
+                },
+            })
+
         for field in (
             "unit_economics_source_recorded_at",
             "unit_economics_observed_at",
@@ -393,6 +436,12 @@ class ProductUnitEconomicsProvider:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _nonnegative_number(self, value):
+        number = self._number(value)
+        if number is None or not isfinite(number) or number < 0:
+            return None
+        return number
 
     def _round(self, value):
         return (

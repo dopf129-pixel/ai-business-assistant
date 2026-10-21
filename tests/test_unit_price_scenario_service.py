@@ -69,6 +69,74 @@ def test_reprice_recalculates_variable_costs_but_preserves_fixed_fees():
     assert repriced["calculated"]["margin_percent"] == 43.03
 
 
+def test_cross_docking_is_subtracted_from_scenario_profit_but_not_usn_income_tax():
+    service = UnitPriceScenarioService(TaxService())
+    result = service.calculate(
+        _inputs(cross_docking_per_unit="12"),
+        sources={"completeness": {"cross_docking": {"status": "SKU_SUPPLY_PERIOD_AVERAGE"}}},
+    )
+
+    assert result["available"] is True
+    assert result["calculated"]["cross_docking"] == 12.0
+    assert result["calculated"]["profit_before_tax"] == 198.0
+    assert result["calculated"]["tax"] == 24.0
+    assert result["calculated"]["profit"] == 174.0
+    assert result["cross_docking_included"] is True
+    assert "56-day cross-docking expense" in result["included_scope"][-1]
+    assert "cross-docking" not in result["excluded_scope"][-1]
+
+
+def test_cross_docking_is_deductible_in_income_minus_expenses_tax_calculation():
+    service = UnitPriceScenarioService(TaxService())
+    inputs = _inputs(
+        tax_mode="USN_INCOME_MINUS_EXPENSES",
+        tax_rate="15",
+        minimum_tax_rate="1",
+        cross_docking_per_unit="12",
+    )
+    result = service.calculate(inputs)
+    without_cross_docking = service.calculate({
+        key: value for key, value in inputs.items()
+        if key != "cross_docking_per_unit"
+    })
+
+    assert result["calculated"]["profit_before_tax"] == 198.0
+    assert result["calculated"]["tax"] == 14.7
+    assert result["calculated"]["profit"] == 183.3
+    assert result["calculated"]["tax"] < without_cross_docking["calculated"]["tax"]
+
+
+def test_missing_cross_docking_is_explicitly_excluded_and_legacy_inputs_stay_unchanged():
+    service = UnitPriceScenarioService(TaxService())
+    legacy = service.calculate(_inputs())
+    unavailable = service.calculate(
+        _inputs(cross_docking_per_unit=None),
+        sources={"completeness": {"cross_docking": {
+            "status": "UNAVAILABLE",
+            "reason": "CROSSDOCK_WINDOW_INCOMPLETE",
+        }}},
+    )
+
+    assert "cross_docking" not in legacy["calculated"]
+    assert "cross_docking_included" not in legacy
+    assert unavailable["calculated"]["cross_docking"] is None
+    assert unavailable["cross_docking_included"] is False
+    assert unavailable["cross_docking_reason"] == "CROSSDOCK_WINDOW_INCOMPLETE"
+    assert any("cross-docking not included" in item for item in unavailable["excluded_scope"])
+
+
+def test_explicit_zero_cross_docking_is_included_and_invalid_values_fail_closed():
+    service = UnitPriceScenarioService(TaxService())
+    zero = service.calculate(_inputs(cross_docking_per_unit="0"))
+    negative = service.calculate(_inputs(cross_docking_per_unit="-0.01"))
+
+    assert zero["available"] is True
+    assert zero["calculated"]["cross_docking"] == 0.0
+    assert zero["cross_docking_included"] is True
+    assert negative["available"] is False
+    assert "cross_docking_per_unit" in negative["invalid_inputs"]
+
+
 def test_margin_is_not_markup_and_loss_is_valid():
     service = UnitPriceScenarioService(TaxService())
     result = service.calculate(_inputs(cost="600"))

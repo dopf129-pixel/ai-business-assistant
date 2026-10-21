@@ -1953,6 +1953,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         else:
             point_line = "Баллы: автоматическая выборка неполная; используйте ручное значение."
         provenance = session.get("provenance") or {}
+        cross_docking = snapshot.get("cross_docking") or {}
+        cross_docking_line = self._cross_docking_assumption(
+            cross_docking,
+            snapshot.get("suggested_inputs", {}).get("cross_docking_per_unit"),
+        )
         lines = [
             "Допущения планового сценария",
             source_line,
@@ -1961,8 +1966,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             point_line,
             "Себестоимость: " + self._source_label(provenance.get("cost")) + ".",
             "Логистика, последняя миля, эквайринг и реклама: ручные значения сценария.",
+            cross_docking_line,
             "Налоговый режим и ставки: политика активного магазина.",
-            "Не включены постоянные расходы, хранение, кросс-докинг, возвраты и отмены.",
+            "Не включены постоянные расходы, хранение, возвраты и отмены.",
         ]
         return {
             "error": False,
@@ -2048,6 +2054,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         )
         inputs = session["inputs"]
         values = result.get("calculated") or {}
+        cross_docking = snapshot.get("cross_docking") or {}
+        cross_docking_line = self._cross_docking_assumption(
+            cross_docking,
+            values.get("cross_docking"),
+        )
         sku = session["sku"]
         lines = [
             "🧮 Плановая юнит-экономика",
@@ -2065,6 +2076,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             ),
             "Реклама " + self._percent(inputs.get("advertising_rate")) + ": " + self._money(values.get("advertising")),
             "Баллы, оценка " + self._percent(inputs.get("discount_points_rate")) + ": " + self._money(values.get("discount_points")),
+            cross_docking_line,
             "Выручка для налога: " + self._money(values.get("taxable_revenue")),
             "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
             "",
@@ -2108,6 +2120,62 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Хранение, общие расходы магазина и возвраты не включены.",
         ])
         return "\n".join(lines)
+
+    def _cross_docking_assumption(self, evidence, amount):
+        evidence = evidence if isinstance(evidence, dict) else {}
+        if amount is None:
+            reason = str(evidence.get("reason") or "нет подтверждённой ставки")
+            labels = {
+                "CROSSDOCK_SOURCE_NOT_CONFIGURED": "источник не подключён",
+                "CROSSDOCK_IDENTITY_REQUIRED": "не удалось подтвердить магазин или SKU",
+                "CROSSDOCK_SOURCE_UNAVAILABLE": "источник временно недоступен",
+                "NO_CROSSDOCK_SUPPLIES": "нет подтверждённых кросс-докинговых поставок за период",
+                "SKU_NOT_IN_CROSSDOCK_WINDOW": "нет поставок этого SKU за период",
+                "CROSSDOCK_WINDOW_INCOMPLETE": "сбор данных за период не завершён",
+                "SUPPLY_EVIDENCE_INCOMPLETE": "данные поставок за период неполные",
+                "FINANCE_EVIDENCE_INCOMPLETE": "данные начислений за период неполные",
+                "FINANCE_WINDOW_INCOMPLETE": "сбор начислений за 56 дней не завершён",
+                "SUPPLY_WINDOW_INCOMPLETE": "сбор поставок за 56 дней не завершён",
+                "REQUEST_BUDGET_EXHAUSTED": "порционную загрузку нужно продолжить следующим запросом",
+                "CROSSDOCK_HTTP_BUDGET_EXHAUSTED": "лимит запросов исчерпан; загрузка продолжится позже",
+                "CROSSDOCK_TIME_BUDGET_EXHAUSTED": "истекло время текущей загрузки; повторите запрос позже",
+                "NET_REFUND_PERIOD": "за период чистая корректировка расходов отрицательная",
+            }
+            reason = labels.get(reason, reason.replace("_", " ").lower())
+            return "Кросс-докинг не включён: " + reason + "."
+
+        method = evidence.get("method")
+        is_sku_rate = (
+            method == "sku_accrual_cost_per_delivered_crossdock_unit"
+        )
+        source = "по расходам этого SKU" if is_sku_rate else "оценка по расходам магазина"
+        period = " — ".join(
+            str(value) for value in (
+                evidence.get("date_from"), evidence.get("date_to")
+            ) if value
+        )
+        expense = evidence.get("expense_by_sku") if is_sku_rate else evidence.get("expense_total")
+        supplied = evidence.get("supplied_units_sku") if is_sku_rate else evidence.get("supplied_units_store")
+        details = (
+            "Кросс-докинг: " + self._money(amount)
+            + " на фактически поставленную единицу (" + source + ")"
+        )
+        if period:
+            details += "; период " + period
+        try:
+            count = int(supplied)
+            if count > 0 and expense is not None:
+                details += (
+                    "; начисления " + self._money(expense)
+                    + " / принято " + str(count) + " шт."
+                )
+        except (TypeError, ValueError, OverflowError):
+            pass
+        days_complete = evidence.get("days_complete")
+        days_expected = evidence.get("days_expected")
+        if days_complete is not None and days_expected is not None:
+            details += "; покрытие " + str(days_complete) + "/" + str(days_expected) + " дней"
+        return details + "."
 
     def _edit_prompt(self, session, field, notice=None):
         label, unit, positive = self.EDITABLE_FIELDS[field]

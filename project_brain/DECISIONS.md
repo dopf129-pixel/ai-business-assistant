@@ -24,7 +24,7 @@ The Ozon daily accrual endpoint mixes leaf service amounts with parent financial
 
 Status:
 
-Implemented through X03 bounded process-local collection/checkpoint/cache and lazy factory wiring. X04 calculator math/UI and X05 immutable saved-scenario compatibility remain.
+Implemented through X04 bounded collection, canonical current/scenario math and Telegram presentation. X05 immutable saved-scenario compatibility remains.
 
 ## Decision 053
 
@@ -49,7 +49,7 @@ The 56-day source can exceed one request budget and the unit-cost denominator is
 
 Status:
 
-Implemented and covered by the X03 bounded regression profile. Persistent scenario snapshots and calculator application remain X04–X05.
+Bounded collection and calculator application are implemented and covered by X03–X04 regression profiles. Persistent scenario snapshots and historical-plan compatibility remain X05.
 
 ## Decision 051
 
