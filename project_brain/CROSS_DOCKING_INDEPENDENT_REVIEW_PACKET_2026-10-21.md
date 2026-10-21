@@ -6,7 +6,7 @@ Pull request: [#712 — Add cross-docking cost to unit economics and saved plans
 
 Base: `main` / `7e6eabdeba34a822434e5ef417a135995628cc41`
 
-Review head at packet creation: `cec03f41a498e72d69365fab05ca488489d9afb9`
+Code head verified by full CI: `4f77cfef6e6725929a4b6539e376a258407e8305`
 
 Branch: `codex/cross-docking-x00-x01`
 
@@ -43,13 +43,13 @@ The historical denominator is actual delivered cross-dock units. In the sales-mi
 - X05 bounded Windows profile after the final unavailable-rate regression: 126 passed in 3.29s across 8 related modules.
 - Changed-Python AST parse and `git diff --check` passed.
 - Full local pytest was intentionally not run because of the task's recorded ACL/shared-storage incident. The PR workflow runs full tests and compilation on Windows/Linux and builds/smoke-tests production Docker on Linux.
-- First full CI on `cec03f41a498e72d69365fab05ca488489d9afb9`: Linux compile passed, 3,633 tests passed and 5 legacy plan/fact tests failed because of strict version equality; Windows and Docker steps on that run were not a final green result. The compatibility fix is covered by a follow-up 52-test Windows profile. The replacement full CI must pass on the final head.
-- Latest head and CI run must be refreshed after the final code/documentation commit.
+- Initial full CI on `cec03f41a498e72d69365fab05ca488489d9afb9` found five v1/v2 plan/fact version regressions. They were fixed with a compatibility adapter and covered by a follow-up 52-test Windows profile.
+- Exact code-head Verify [run 39591125957 (#3161)](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957) passed on `4f77cfef6e6725929a4b6539e376a258407e8305`: Linux **3,640 passed**, Windows **3,640 passed**, compile succeeded on both, and Linux production Docker build/runtime smoke succeeded. The PR may receive documentation-only updates for this handoff; review the latest PR head and its exact-head checks.
 - No live Ozon API calls, Telegram bot run, merge, or deployment were performed.
 
 ## Review focus
 
-Architecture review is required: the PR changes the collection pipeline, calculation projections, saved-plan schema/version compatibility, Telegram presentation and exports (57 files total).
+Architecture review is required: the PR changes the collection pipeline, calculation projections, saved-plan schema/version compatibility, Telegram presentation and exports (60 files total).
 
 1. Confirm official API semantics and the conservative single-nested-supply date rule; multi-supply ambiguity must remain excluded.
 2. Confirm that only signed leaf accruals are summed and shared store expense is not double-counted with SKU-attributed fees.
@@ -60,6 +60,6 @@ Architecture review is required: the PR changes the collection pipeline, calcula
 
 ## Commit order
 
-`0d9bc23f` supply evidence source → `3abab19c` signed expense and rate → `74c9ff7b` bounded production collector → `cf0dd2da` current and unit-economics integration → `4661cc3b` versioned saved plans → `cec03f41` complete-window/unavailable-rate fix and regression.
+`0d9bc23f` supply evidence source → `3abab19c` signed expense and rate → `74c9ff7b` bounded production collector → `cf0dd2da` current and unit-economics integration → `4661cc3b` versioned saved plans → `cec03f41` complete-window/unavailable-rate fix and regression → `4f77cfef` v1/v2 plan-fact compatibility.
 
 No merge or deployment is authorized by this handoff.

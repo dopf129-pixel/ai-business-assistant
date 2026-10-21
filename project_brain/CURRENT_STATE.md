@@ -1,3 +1,10 @@
+# 2026-10-21 — X00–X06 кросс-докинг завершены, PR готов к review
+
+- Автоматический источник считает signed начисления с корректировками за 56 завершённых дней и делит подтверждённую сумму на фактически принятые через cross-docking единицы; расходы SKU и магазина разделены. Неполнота и отсутствие пригодной ставки не превращаются в ноль.
+- Ставка подключена к текущей юнит-экономике, калькулятору и планам. В сохранённых v2 снимках остаются allowlisted evidence; v1 продолжают использовать прежний расчёт. План-факт v2 учитывает ставку только со стороны плановой прибыли, фактическая выручка/количество не меняются.
+- Exact code head `4f77cfef6e6725929a4b6539e376a258407e8305`, PR #712, base `7e6eabdeba34a822434e5ef417a135995628cc41`. Verify run [39591125957](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957): Windows/Linux по **3,640 passed**, compile на обеих ОС, Docker build/runtime smoke successful.
+- Bounded local X05 profile: 126 passed; v1/v2 plan-fact follow-up: 52 passed. Полный локальный pytest не запускался. Независимый review packet: `CROSS_DOCKING_INDEPENDENT_REVIEW_PACKET_2026-10-21.md`. Merge/deploy, live Ozon API и запуск бота не выполнялись.
+
 # 2026-10-21 — кросс-докинг в сохранённых и пакетных планах (X05)
 
 - Сохранённые планы версии 2 хранят замороженную ставку кросс-докинга и allowlisted source evidence; просмотры, сравнения и экспорты не обновляют данные с Ozon. Явное обновление создаёт capture для новой ревизии/копии и сохраняет историю неизменной.
@@ -4695,4 +4702,3 @@ Completed:
 
 - X03 adds read-only 56-day finance and supply collection with process-local scoped checkpoint/resume, a bounded in-memory cache, in-flight deduplication, shared 64-attempt/60-second limits, reuse of the current request's 28-day finance cache, and lazy current/scenario factory wiring.
 - Complete rates are still evidence-only; X is not yet subtracted in unit-economics calculations and is not frozen into saved plans. Those are X04–X05.
-- Isolated focused profile: **146 passed in 2.76s** on Windows. Full local pytest was not run due the recorded ACL/shared-storage restriction. No live API, bot run, merge or deployment.

@@ -1440,3 +1440,9 @@ Summary Report теперь включает:
 - Reused the existing request-local 28-day finance cache and operation trace; incomplete coverage cannot produce a numeric rate. Wired the lazy provider into current and unit-price scenario factories as evidence only. Calculator arithmetic and saved-plan integration remain later stages.
 - Verification: isolated targeted Windows profile, **146 passed in 2.76s**; no live Ozon API, bot run, merge or deployment.
 
+# 2026-10-21 — завершена интеграция среднего кросс-докинга в юнит-экономику и планы
+
+- PR #712 включает сбор подписанных начислений и фактически принятых cross-dock единиц за 56 завершённых дней, ставку по SKU/магазину и её применение в текущей экономике и сценариях планирования. Сохранённые планы версии 2 фиксируют evidence; v1 остаются на прежнем расчёте.
+- Verify run **39591125957** на code SHA `4f77cfef6e6725929a4b6539e376a258407e8305`: Windows **3,640 passed**, Linux **3,640 passed**, compile успешен на обеих ОС, production Docker build/runtime smoke успешны. Полный локальный pytest не запускался из-за ACL/shared-storage ограничения.
+- PR #712 оставлен открытым для независимого архитектурного review. Merge, deploy, live Ozon API и реальный запуск бота не выполнялись.
+

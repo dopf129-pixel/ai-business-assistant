@@ -22,7 +22,7 @@
 | X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
 | X04 | COMPLETE | Автоматическая ставка подключена к текущей и плановой юнит-экономике; целевая цена, безубыточность, рекламный предел и sensitivity используют общий расчёт; Telegram показывает период, метод SKU/store, фактические начисления/поставленные единицы, coverage и явное исключение неполной ставки. Профиль: **256 passed in 5.54s**. |
 | X05 | COMPLETE | Saved v2 evidence, per-SKU batch rates, sales-mix application to planned quantity, frozen revision comparison/export, and explicit refresh/CAS. v1 compatibility remains unchanged and does not load current supplies. Complete source window is distinct from a usable SKU rate. Final bounded Windows profile: **126 passed in 3.29s**. |
-| X06 | IN PROGRESS | Final bounded tests, compile/diff/secret-scratch review, docs and independent-review handoff. No merge/deploy/bot run. |
+| X06 | COMPLETE | Final bounded profiles, exact-head full CI, documentation/source hygiene, PR #712 and independent-review packet completed. No merge/deploy/bot run. |
 
 ## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
 
@@ -52,8 +52,9 @@
 - CSV/JSON saved-plan, sales-mix, advertising-cap and comparison exports include only frozen safe method, denominator, amounts/units, date-window and completeness metadata. Legacy export columns remain unchanged.
 - A full window with zero eligible SKU supplied units can be saved with complete coverage and no rate; positive planned Q remains incomplete and receives no zero-valued expense. This distinct-state path has adapter, repository and sales-mix regression coverage.
 - Verification after this edge-case fix: bounded Windows profile across adapter, repository, sales-mix, compare/export and Telegram saved-plan/batch flows: **126 passed in 3.29s**. Full local pytest was not run per ACL rule. No live Ozon request, bot run, merge or deployment.
-- First PR CI on `cec03f41` ran 3,638 Linux tests and exposed five plan/fact failures caused by strict calculation-version equality after the v2 bump; all other Linux tests passed. `PeriodProfitPlanFactComparisonService` now uses the version adapter, applies v2 cross-docking only to the plan projection, and keeps actual rows/bridge independent. Follow-up bounded Windows profile: **52 passed in 1.85s** across plan-fact, saved-plan, sales-mix and plan-comparison modules. Full PR CI must be green on the updated head before X06 closes.
-- X05 complete. X06 remains active for source/diff hygiene, final syntax and diff checks, remote CI, PR packaging and review handoff.
+- First PR CI on `cec03f41` ran 3,638 Linux tests and exposed five plan/fact failures caused by strict calculation-version equality after the v2 bump; all other Linux tests passed. `PeriodProfitPlanFactComparisonService` now uses the version adapter, applies v2 cross-docking only to the plan projection, and keeps actual rows/bridge independent. Follow-up bounded Windows profile: **52 passed in 1.85s** across plan-fact, saved-plan, sales-mix and plan-comparison modules.
+- Final exact-code-head Verify run **39591125957** (run #3161) passed on `4f77cfef6e6725929a4b6539e376a258407e8305`: Linux **3,640 passed**, Windows **3,640 passed**, compile succeeded on both, and Linux production Docker build plus runtime smoke succeeded. Workflow: https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957 .
+- X06 complete: source/diff hygiene checked, docs and user guide updated, PR #712 is open against `main` at base `7e6eabdeba34a822434e5ef417a135995628cc41`, and the independent-review packet is `project_brain/CROSS_DOCKING_INDEPENDENT_REVIEW_PACKET_2026-10-21.md`. Merge, deploy, live Ozon calls and bot run were not performed.
 
 ## X02 — signed finance evidence and pure rate — 2026-10-20
 
