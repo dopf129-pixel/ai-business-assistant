@@ -13,6 +13,8 @@ from services.product_unit_economics_query_service import (
 from services.product_returns_finance_impact_query_service import (
     ProductReturnsFinanceImpactQueryService
 )
+from services.period_profit_finance_service import PeriodProfitFinanceService
+from unit_price_scenario_factory import create_unit_price_scenario_runtime
 
 
 class HistoricalQuery:
@@ -42,6 +44,11 @@ def test_current_query_is_wired_over_existing_core_contract():
         query.current_economics_source,
         CurrentProductEconomicsSource
     )
+    assert isinstance(
+        query.current_economics_source.finance_service,
+        PeriodProfitFinanceService,
+    )
+    assert query.current_economics_source.cross_docking_source is not None
     assert query.product_service is historical.product_service
     assert (
         query.period_profit_service
@@ -74,3 +81,19 @@ def test_current_query_is_wired_over_existing_core_contract():
         query.returns_finance_impact_query.period_days
         == 30
     )
+
+
+def test_scenario_factory_reuses_the_current_finance_and_cross_docking_sources():
+    query = create_current_unit_economics_query(
+        {"unit_economics_query": HistoricalQuery()}
+    )
+
+    runtime = create_unit_price_scenario_runtime(
+        {},
+        query,
+        keyboard_service=object(),
+    )
+
+    assert runtime is not None
+    assert runtime.source.finance_service is query.current_economics_source.finance_service
+    assert runtime.source.cross_docking_source is query.current_economics_source.cross_docking_source

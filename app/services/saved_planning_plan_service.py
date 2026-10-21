@@ -4,6 +4,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -72,7 +73,9 @@ class SavedPlanningPlanService:
             return result
         document = result["document"]
         payload = document["payload"]
-        if payload.get("calculation_version") == getattr(self.scenario_service, "VERSION", None):
+        if PlanningCrossDockingAdapter.supports(
+            payload, getattr(self.scenario_service, "VERSION", None),
+        ):
             document["historical_calculation_status"] = "SAME_CALCULATION_VERSION"
         else:
             document["historical_calculation_status"] = "HISTORICAL_VERSION_UNAVAILABLE"

@@ -37,9 +37,23 @@ class _Source:
         self.calls = []
         self.price = "500"
         self.store_id = store_id
+        self.cross_docking = None
 
     def load_snapshot(self, sku, user_id, force_refresh=False):
         self.calls.append((sku, user_id, force_refresh))
+        suggested_inputs = {
+            "price": self.price, "cost": "100", "commission_rate": "15",
+            "logistics_per_unit": "40", "last_mile_per_unit": "10", "acquiring_per_unit": "5",
+            "advertising_rate": "8", "discount_points_rate": "20", "tax_mode": "USN_INCOME",
+            "tax_rate": "6", "minimum_tax_rate": "1",
+        }
+        input_provenance = {
+            "price": "ozon_current_seller_price", "cost": "confirmed_store_cost",
+            "advertising_rate": "manual_seller_assumption",
+        }
+        if isinstance(self.cross_docking, dict):
+            suggested_inputs["cross_docking_per_unit"] = self.cross_docking.get("cross_docking_per_unit")
+            input_provenance["cross_docking_per_unit"] = "historical_cross_docking_average"
         return {
             "error": False,
             "identity": {"user_id": user_id, "store_id": self.store_id,
@@ -47,14 +61,8 @@ class _Source:
                          "product_id": self.product_service.product_id,
                          "offer_id": self.product_service.offer_id, "sku": sku},
             "product": {"name": "Тестовый товар", "scheme": "FBO"},
-            "suggested_inputs": {
-                "price": self.price, "cost": "100", "commission_rate": "15",
-                "logistics_per_unit": "40", "last_mile_per_unit": "10", "acquiring_per_unit": "5",
-                "advertising_rate": "8", "discount_points_rate": "20", "tax_mode": "USN_INCOME",
-                "tax_rate": "6", "minimum_tax_rate": "1",
-            },
-            "input_provenance": {"price": "ozon_current_seller_price", "cost": "confirmed_store_cost",
-                                 "advertising_rate": "manual_seller_assumption"},
+            "suggested_inputs": suggested_inputs,
+            "input_provenance": input_provenance,
             "source_periods": {"seller_price_as_of": "2026-10-19T12:00:00+00:00",
                                "cost_as_of": None,
                                "discount_points": {"from": "2026-09-21", "to": "2026-10-18", "calendar_days": 28}},
@@ -62,8 +70,34 @@ class _Source:
                 "catalog_identity": {"complete": True},
                 "discount_points": {"complete": True, "positive_sale_observations": 3},
             },
+            "cross_docking": deepcopy(self.cross_docking),
             "cache": {"age_seconds": 0, "ttl_seconds": 600},
         }
+
+
+def _confirmed_cross_docking_source(rate="12.00", supplied_units=100):
+    amount = f"{float(rate) * supplied_units:.2f}"
+    return {
+        "evidence_complete": True,
+        "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "cross_docking_per_unit": rate,
+        "applicable_to_sku": True,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "expense_total": amount,
+        "expense_by_sku": amount,
+        "supplied_units_sku": supplied_units,
+        "supplied_units_store": supplied_units,
+        "days_complete": 56,
+        "days_expected": 56,
+        "date_from": "2026-08-24",
+        "date_to": "2026-10-18",
+        "as_of": "2026-10-19T12:00:00Z",
+        "timezone": "Europe/Moscow",
+        "financial_date_basis": "ACCRUAL_DATE",
+        "supply_date_basis": "COMPLETED_SINGLE_CROSSDOCK_ORDER_STATE_UPDATED_DATE",
+        "model_version": 1,
+    }
 
 
 def _button(result, label):
@@ -218,6 +252,7 @@ def test_sales_mix_public_flow_confirms_zero_expenses_and_saves_revision_without
 
 def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
     tenant = _activate()
     try:
         current = _select_single(single)
@@ -253,10 +288,11 @@ def test_sales_mix_result_shows_per_sku_components_and_price_times_quantity(tmp_
         assert "комиссия 750.00 ₽" in preview["message"]
         assert "реклама 400.00 ₽" in preview["message"]
         assert "fees 550.00 ₽" in preview["message"]
-        assert "вклад 2300.00 ₽" in preview["message"]
+        assert "кросс-докинг 120.00 ₽" in preview["message"]
+        assert "вклад 2180.00 ₽" in preview["message"]
         assert "Расход за период · Подготовка: 300.00 ₽" in preview["message"]
-        assert "Прибыль до налога после расходов: 2000.00 ₽" in preview["message"]
-        assert "итоговая прибыль: 1760.00 ₽" in preview["message"]
+        assert "Прибыль до налога после расходов: 1880.00 ₽" in preview["message"]
+        assert "итоговая прибыль: 1640.00 ₽" in preview["message"]
         assert "Сумма индивидуальных рекламных пределов при цели 25%" in preview["message"]
         assert "не гарантирует маржу группы" in preview["message"]
         confirm_callback = _button(preview, "Подтвердить и сохранить ревизию")
@@ -790,6 +826,7 @@ def test_public_handler_preserves_refreshed_batch_until_saved_revision_is_writte
 
 def test_public_plan_variant_comparison_and_owner_exports_use_historical_saved_scope(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
     saved_runtime.analytics_export_service = AnalyticsExportService()
     handler = AssistantButtonHandlerService(
         assistant=None, saved_planning_plan_runtime_service=saved_runtime,
@@ -879,6 +916,7 @@ class _BatchBuilder:
     def __init__(self, scenario):
         self.scenario_service = scenario
         self.target_planning_service = _TargetPlanner()
+        self.cross_docking_by_sku = {}
 
     def build(self, items, user_id, target_margin_percent, **kwargs):
         rows = []
@@ -899,22 +937,29 @@ class _BatchBuilder:
                 "acquiring_per_unit": "5", "tax_mode": "USN_INCOME",
                 "tax_rate": "6", "minimum_tax_rate": "1",
             }
+            provenance = {"cost": "confirmed_store_cost"}
             periods = {"seller_price_as_of": "2026-10-19T12:00:00+00:00"}
             completeness = {"scheme": "FBO", "catalog_identity": {"complete": True}}
+            cross_docking = deepcopy(self.cross_docking_by_sku.get(sku))
+            if isinstance(cross_docking, dict):
+                inputs["cross_docking_per_unit"] = cross_docking["cross_docking_per_unit"]
+                provenance["cross_docking_per_unit"] = "historical_cross_docking_average"
+                completeness["cross_docking"] = {"complete": True, "status": "SKU_SUPPLY_PERIOD_AVERAGE"}
             snapshot = {
                 "identity": source_identity,
                 "product": {"name": f"Товар {index}", "scheme": "FBO"},
                 "suggested_inputs": inputs,
-                "input_provenance": {"cost": "confirmed_store_cost"},
+                 "input_provenance": provenance,
                 "source_periods": periods,
                 "source_completeness": completeness,
+                 "cross_docking": cross_docking,
             }
             scenario = self.scenario_service.calculate(inputs, identity=source_identity,
                                                        sources={"periods": periods, "completeness": completeness})
             rows.append({
                 "row_id": f"row-{index}", "scheme": "FBO", "identity": identity,
                 "status": "READY", "inputs": inputs,
-                "provenance": {"cost": "confirmed_store_cost"},
+                 "provenance": provenance,
                 "manual_assumptions": {}, "snapshot": snapshot,
                 "scenario": scenario, "planning": {"target": {}},
                 "missing_inputs": [], "source_as_of": periods,
@@ -935,8 +980,13 @@ class _BatchBuilder:
 def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
     keyboard = AssistantKeyboardService()
     scenario = UnitPriceScenarioService(TaxService())
+    batch_builder = _BatchBuilder(scenario)
+    batch_builder.cross_docking_by_sku = {
+        "sku-1": _confirmed_cross_docking_source("12.00", 100),
+        "sku-2": _confirmed_cross_docking_source("20.00", 50),
+    }
     batch = TelegramUnitPriceBatchPlanRuntimeService(
-        batch_plan_service=_BatchBuilder(scenario), product_overview_service=_Overview(),
+        batch_plan_service=batch_builder, product_overview_service=_Overview(),
         keyboard_service=keyboard,
     )
     source = _Source()
@@ -960,6 +1010,13 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
         assert prompt["status"] == "PLANNING_TITLE_REQUIRED"
         result = handler.handle_text("План партии", user_id="user-1")
         assert result["status"] == "PLANNING_DOCUMENT_SAVED"
+        document_id = result["document_id"]
+        saved_payload = plan_service.get_document(document_id)["document"]["payload"]
+        saved_rates = {
+            item["identity"]["sku"]: item["inputs"]["cross_docking_per_unit"]
+            for item in saved_payload["items"]
+        }
+        assert saved_rates == {"sku-1": "12.00", "sku-2": "20.00"}
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(_button(listing, "План партии · v1"), user_id="user-1")
         reopened = handler.handle(_button(detail, "Продолжить по сохранённым допущениям"), user_id="user-1")
@@ -967,6 +1024,56 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
         assert len(reopened["batch_plan"]["rows"]) == 2
         assert reopened["batch_plan"]["restored_from_saved_plan"] is True
         assert all(row["status"] == "SOURCE_STALE" for row in reopened["batch_plan"]["rows"])
+        reopened_rates = {
+            row["identity"]["catalog_sku"]: row["inputs"]["cross_docking_per_unit"]
+            for row in reopened["batch_plan"]["rows"]
+        }
+        assert reopened_rates == saved_rates
+        reopened_batch = reopened["batch_plan"]
+        recaptured = batch.get_saved_plan_capture(
+            reopened_batch["batch_id"],
+            reopened_batch["version"],
+            user_id="user-1",
+        )
+        assert recaptured["error"] is False
+        scope = plan_service.repository._scope("user-1", "store-a")
+        assert plan_service.repository._payload(recaptured["payload"], scope) is not None
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_single_saved_cross_docking_rate_survives_reopen_and_recapture(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = handler.handle(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        saved = handler.handle_text("Cross docking rate", user_id="user-1")
+        assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+        payload = service.get_document(saved["document_id"])["document"]["payload"]
+
+        reopened = single.restore_saved_plan(payload, user_id="user-1")
+        assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
+        recaptured = single.get_saved_plan_capture(
+            reopened["scenario_id"],
+            reopened["scenario_version"],
+            user_id="user-1",
+        )
+        assert recaptured["error"] is False
+        scope = service.repository._scope("user-1", "store-a")
+        normalized = service.repository._payload(recaptured["payload"], scope)
+        assert normalized is not None
+        assert normalized["items"][0]["inputs"]["cross_docking_per_unit"] == "12.00"
+        assert normalized["items"][0]["sources"]["cross_docking"]["rate_available"] is True
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -1000,6 +1107,7 @@ def test_archiving_does_not_bypass_total_plan_quota_and_error_explains_delete(tm
 
 def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_override(tmp_path):
     saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
     handler = AssistantButtonHandlerService(
         assistant=None, saved_planning_plan_runtime_service=saved_runtime,
         unit_price_calculator_runtime_service=single,
@@ -1018,6 +1126,8 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         assert prompt["status"] == "PLANNING_TITLE_REQUIRED"
         saved = handler.handle_text("Мой план", user_id="user-1")
         assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+        original = service.get_document(saved["document_id"], revision=1)["document"]["payload"]["items"][0]
+        assert original["inputs"]["cross_docking_per_unit"] == "12.00"
         listing = handler.handle("upp:m", user_id="user-1")
         detail = handler.handle(
             _button(listing, "Мой план · v1"), user_id="user-1",
@@ -1026,6 +1136,7 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         # A refreshed catalog price is not allowed to overwrite the seller's
         # explicit price assumption in the new revision.
         source.price = "700"
+        source.cross_docking = _confirmed_cross_docking_source("15.00", 100)
         refreshed = handler.handle(
             _button(detail, "Обновить источники"), user_id="user-1",
         )
@@ -1047,6 +1158,11 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         saved_item = current_doc["document"]["payload"]["items"][0]
         assert saved_item["inputs"]["price"] == "650"
         assert saved_item["inputs"]["cost"] == "125"
+        assert saved_item["inputs"]["cross_docking_per_unit"] == "15.00"
+        assert saved_item["sources"]["cross_docking"]["amount_per_unit"] == "15.00"
+        still_original = service.get_document(saved["document_id"], revision=1)["document"]["payload"]["items"][0]
+        assert still_original["inputs"]["cross_docking_per_unit"] == "12.00"
+        assert still_original["sources"]["cross_docking"]["amount_per_unit"] == "12.00"
         assert saved_item["provenance"]["price"] == "manual_seller_assumption"
         assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
         assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"

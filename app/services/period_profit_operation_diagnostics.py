@@ -45,6 +45,7 @@ class PeriodProfitOperationTrace:
         self._budget_lock = (
             parent._budget_lock if parent is not None else threading.RLock()
         )
+        self._one_time_claims = set() if parent is None else None
         self._cancelled = False
         self.worker_thread_id = None
         self.stage = "created"
@@ -152,6 +153,22 @@ class PeriodProfitOperationTrace:
                 "ozon_requests_reserved": self.ozon_requests_reserved,
                 "operation_ozon_requests_reserved": chain[-1].ozon_requests_reserved,
             }
+
+    def claim_once(self, scope, key):
+        """Claim a small in-memory marker once for this root operation."""
+        try:
+            marker = (str(scope), key)
+            hash(marker)
+        except (TypeError, ValueError):
+            return False
+        root = self
+        while root.parent is not None:
+            root = root.parent
+        with root._budget_lock:
+            if marker in root._one_time_claims:
+                return False
+            root._one_time_claims.add(marker)
+            return True
 
     def remaining_seconds(self):
         remaining = float("inf")

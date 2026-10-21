@@ -3,6 +3,8 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
+
 
 class PlanningPlanComparisonService:
     INPUT_FIELDS = (
@@ -17,6 +19,7 @@ class PlanningPlanComparisonService:
         ("tax_mode", "Налоговый режим"),
         ("tax_rate", "Ставка налога, %"),
         ("minimum_tax_rate", "Минимальная ставка, %"),
+        ("cross_docking_per_unit", "Кросс-докинг на поставленную единицу"),
     )
     METRICS = ("revenue", "profit", "margin_percent")
 
@@ -41,7 +44,7 @@ class PlanningPlanComparisonService:
         else:
             scenario_service = getattr(self.sales_mix_planning_service, "scenario_service", None)
             current_version = getattr(scenario_service, "VERSION", None)
-            if current_version is None or a.get("calculation_version") != current_version:
+            if not PlanningCrossDockingAdapter.supports(a, current_version):
                 prerequisite_reason = "CALCULATION_VERSION_UNSUPPORTED"
         first_rows = self._identity_map(a.get("items"))
         second_rows = self._identity_map(b.get("items"))
@@ -72,7 +75,12 @@ class PlanningPlanComparisonService:
                         "field": field, "label": label,
                         "before": before, "after": after,
                         "delta": self._delta(after, before),
-                        "unit": "pp" if field.endswith("_rate") else "policy" if field == "tax_mode" else "RUB",
+                        "unit": (
+                            "pp" if field.endswith("_rate")
+                            else "policy" if field == "tax_mode"
+                            else "RUB/supplied_unit" if field == "cross_docking_per_unit"
+                            else "RUB"
+                        ),
                     })
             left_quantity = self._quantity(a.get("sales_mix"), left)
             right_quantity = self._quantity(b.get("sales_mix"), right)
@@ -85,6 +93,14 @@ class PlanningPlanComparisonService:
             rows.append({
                 "identity": deepcopy(left.get("identity") or {}),
                 "changes": changes,
+                **({
+                    "cross_docking_source_before": deepcopy(
+                        (left.get("sources") or {}).get("cross_docking")
+                    ),
+                    "cross_docking_source_after": deepcopy(
+                        (right.get("sources") or {}).get("cross_docking")
+                    ),
+                } if PlanningCrossDockingAdapter.is_current(a) else {}),
             })
 
         first_mix = self._project_mix(a) if comparison_reason is None else None
@@ -156,9 +172,10 @@ class PlanningPlanComparisonService:
         if mix.get("confirmed") is not True:
             return None
         result = self.sales_mix_planning_service.calculate(
-            items, quantities=mix.get("quantities"),
+            PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=mix.get("quantities"),
             period_label=mix.get("period_label"), expenses=mix.get("expenses"),
             expenses_confirmed=True,
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
         )
         return result if isinstance(result, dict) and result.get("error") is False else None
 

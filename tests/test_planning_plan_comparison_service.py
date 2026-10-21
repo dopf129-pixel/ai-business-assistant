@@ -34,7 +34,7 @@ def _document(revision, *, price="500", quantity=10, period="01.08.2026 - 31.08.
         "revision": revision, "owner_id": "owner-1", "store_id": store,
         "payload": {
             "plan_kind": "single", "schema_version": 1,
-            "calculation_version": scenario.VERSION, "items": [item],
+            "calculation_version": 1, "items": [item],
             "sales_mix": {
                 "period_label": period, "quantities": {"row-1": quantity},
                 "expenses": [{"name": "Packaging", "amount": "100.00"}],
@@ -136,6 +136,57 @@ def test_equal_but_unsupported_calculation_versions_do_not_use_current_calculato
     assert result["recalculated_from_saved_inputs"] is False
     assert result["metrics"]["profit"]["status"] == "NOT_COMPARABLE"
     assert calculate_calls == []
+
+
+def test_v2_plan_comparison_and_exports_include_frozen_cross_docking_evidence():
+    scenario = UnitPriceScenarioService(TaxService())
+    service = PlanningPlanComparisonService(SalesMixPlanningService(scenario, scenario.tax_service))
+    exporter = AnalyticsExportService()
+
+    def evidence(rate, expense):
+        return {
+            "evidence_complete": True, "rate_available": True,
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE", "reason": None,
+            "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+            "amount_per_unit": rate, "applicable_to_sku": True,
+            "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+            "expense_total": expense, "expense_by_sku": expense,
+            "supplied_units_sku": 100, "supplied_units_store": 100,
+            "days_complete": 56, "days_expected": 56,
+            "date_from": "2026-08-24", "date_to": "2026-10-18",
+            "as_of": "2026-10-19T12:00:00Z", "timezone": "Europe/Moscow",
+            "financial_date_basis": "ACCRUAL_DATE",
+            "supply_date_basis": "COMPLETED_SINGLE_CROSSDOCK_ORDER_STATE_UPDATED_DATE",
+            "model_version": 1,
+        }
+
+    first, second = _document(1), _document(2)
+    for document, rate, expense in ((first, "12.00", "1200.00"), (second, "14.00", "1400.00")):
+        payload = document["document"]["payload"]
+        payload["schema_version"] = 2
+        payload["calculation_version"] = 2
+        item = payload["items"][0]
+        item["inputs"]["cross_docking_per_unit"] = rate
+        item["sources"] = {"cross_docking": evidence(rate, expense)}
+        item["projection"]["cross_docking"] = rate
+
+    comparison = service.compare(first, second)
+
+    assert comparison["status"] == "COMPARABLE"
+    row = comparison["input_changes"][0]
+    assert any(change["field"] == "cross_docking_per_unit" for change in row["changes"])
+    assert row["cross_docking_source_before"]["supplied_units_sku"] == 100
+    assert row["cross_docking_source_after"]["expense_total"] == "1400.00"
+    exported = exporter.export_plan_comparison({"comparison": comparison}, "json")
+    assert exported["error"] is False
+    document = json.loads(exported["file_content"].decode("utf-8"))
+    assert "cross_docking_source_before" in {column["key"] for column in document["columns"]}
+    assert document["rows"][0]["cross_docking_source_after"]["denominator_kind"] == "DELIVERED_CROSSDOCK_UNITS"
+
+    saved_export = exporter.export_saved_plan(first["document"], "json")
+    assert saved_export["error"] is False
+    saved = json.loads(saved_export["file_content"].decode("utf-8"))
+    assert saved["rows"][0]["cross_docking_source"]["method"] == "sku_accrual_cost_per_delivered_crossdock_unit"
 
 
 def test_expense_add_remove_rename_and_amount_changes_export_to_csv_and_json():

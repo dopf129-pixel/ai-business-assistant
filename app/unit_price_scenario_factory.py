@@ -18,6 +18,12 @@ def create_unit_price_scenario_runtime(core_components, unit_economics_query, ke
         "current_economics_source",
         None,
     )
+    finance_service = getattr(current_economics_source, "finance_service", None)
+    cross_docking_source = getattr(
+        current_economics_source,
+        "cross_docking_source",
+        None,
+    )
     cost_service = getattr(unit_economics_query, "cost_service", None)
     if not all((product_service, current_economics_source, cost_service)):
         return None
@@ -28,7 +34,8 @@ def create_unit_price_scenario_runtime(core_components, unit_economics_query, ke
     source = UnitPriceScenarioSource(
         product_service=product_service,
         current_economics_source=current_economics_source,
-        finance_service=PeriodProfitFinanceService(),
+        finance_service=finance_service or PeriodProfitFinanceService(),
+        cross_docking_source=cross_docking_source,
         cost_service=cost_service,
         tax_configuration_service=tax_configuration_service,
     )

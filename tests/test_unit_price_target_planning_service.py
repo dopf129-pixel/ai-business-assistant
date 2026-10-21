@@ -72,6 +72,18 @@ def test_solver_uses_real_forward_calculator_for_break_even_and_target_margin():
     _assert_goal(result["target"], "20")
 
 
+def test_target_and_break_even_prices_keep_historical_cross_docking_cost_fixed():
+    planner, _ = _planner()
+    values = _inputs(cross_docking_per_unit="12")
+
+    result = planner.solve(values, "20")
+
+    assert result["break_even"]["forward_result"]["calculated"]["cross_docking"] == 12.0
+    assert result["target"]["forward_result"]["calculated"]["cross_docking"] == 12.0
+    baseline = _planner()[0].solve(_inputs(), "20")
+    assert Decimal(result["target"]["price"]) > Decimal(baseline["target"]["price"])
+
+
 def test_exact_goal_does_not_use_displayed_rounded_margin():
     planner, _ = _planner()
     result = planner.compare_prices(

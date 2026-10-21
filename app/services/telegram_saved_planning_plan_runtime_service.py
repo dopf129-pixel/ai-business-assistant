@@ -13,6 +13,7 @@ from period_profit_plan_fact_comparison import PeriodProfitPlanFactComparisonSer
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_plan_readiness_service import PlanningPlanReadinessService
 from services.planning_plan_comparison_service import PlanningPlanComparisonService
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.scoped_transient_snapshot_store import ScopedTransientSnapshotStore
 from services.tenant_context import get_current_tenant_user_id
 
@@ -586,6 +587,19 @@ class TelegramSavedPlanningPlanRuntimeService:
                 f"• {item['label']}: расчёт {item['calculation_status']}; "
                 f"identity {item['identity_status']}; количество {item['quantity_status']}."
             )
+            if item.get("cross_docking_status") == "CONFIRMED":
+                evidence = item.get("cross_docking_source") or {}
+                is_sku = evidence.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
+                supplied = evidence.get("supplied_units_sku") if is_sku else evidence.get("supplied_units_store")
+                expense = evidence.get("expense_by_sku") if is_sku else evidence.get("expense_total")
+                lines.append(
+                    f"   Кросс-докинг: {evidence.get('amount_per_unit')} ₽/шт.; "
+                    f"{expense} ₽ / {supplied} фактически поставленных шт.; "
+                    f"{evidence.get('date_from')} — {evidence.get('date_to')}; "
+                    f"{evidence.get('days_complete')}/{evidence.get('days_expected')} дней."
+                )
+            elif item.get("cross_docking_status") == "UNAVAILABLE":
+                lines.append("   Ставка кросс-докинга в этом снимке не подтверждена.")
             field = item.get("editable_field")
             if can_edit and field:
                 buttons.append({
@@ -747,6 +761,20 @@ class TelegramSavedPlanningPlanRuntimeService:
                 lines.append("   Черновик; не заполнено: " + ", ".join(projection["missing_inputs"][:8]))
             else:
                 lines.append("   Расчёт сохранён как историческая проекция.")
+            if PlanningCrossDockingAdapter.is_current(payload):
+                evidence = ((item.get("sources") or {}).get("cross_docking") or {})
+                if evidence.get("rate_available") is True:
+                    is_sku = evidence.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
+                    method = "по SKU" if is_sku else "оценка по магазину"
+                    supplied = evidence.get("supplied_units_sku") if is_sku else evidence.get("supplied_units_store")
+                    expense = evidence.get("expense_by_sku") if is_sku else evidence.get("expense_total")
+                    lines.append(
+                        f"   Кросс-докинг: {evidence.get('amount_per_unit')} ₽/факт. шт. ({method}); "
+                        f"{expense} ₽ / {supplied} шт.; {evidence.get('date_from')} — {evidence.get('date_to')}; "
+                        f"покрытие {evidence.get('days_complete')}/{evidence.get('days_expected')} дней."
+                    )
+                else:
+                    lines.append("   Кросс-докинг не включён: " + str(evidence.get("reason") or "источник не подтверждён") + ".")
         lines.extend(["", "Сохранённый расчёт не переоценивается автоматически и не считается фактом магазина."])
         saved_mix = payload.get("sales_mix")
         if saved_mix is not None:
@@ -755,13 +783,14 @@ class TelegramSavedPlanningPlanRuntimeService:
                 "VERSION", None,
             )
             if (self.sales_mix_planning_service is None
-                    or payload.get("calculation_version") != current_calc_version):
+                    or not PlanningCrossDockingAdapter.supports(payload, current_calc_version)):
                 lines.extend(["", "План объёма продаж сохранён, но его текущая проекция недоступна."])
             else:
                 projection = self.sales_mix_planning_service.calculate(
-                    payload.get("items"), quantities=saved_mix.get("quantities"),
+                    PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=saved_mix.get("quantities"),
                     period_label=saved_mix.get("period_label"), expenses=saved_mix.get("expenses"),
                     expenses_confirmed=saved_mix.get("confirmed") is True,
+                    include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
                 )
                 lines.extend(["", "Экономика заданного объёма · сохранённые ручные допущения"])
                 if projection.get("error") is True:
@@ -772,6 +801,15 @@ class TelegramSavedPlanningPlanRuntimeService:
                         lines.append(f"Выручка {projection['components']['revenue']} ₽; прибыль {projection.get('profit') or 'не рассчитана'} ₽; маржа {projection.get('margin_percent') or 'не определена'}%.")
                     else:
                         lines.append("Показан подтверждённый subtotal; итоговая прибыль и маржа набора недоступны.")
+                    cross_docking_total = (projection.get("components") or {}).get("cross_docking")
+                    if projection.get("cross_docking_status"):
+                        if cross_docking_total is None:
+                            lines.append("Кросс-докинг не посчитан: нет ставки хотя бы для одной строки плана.")
+                        else:
+                            lines.append(
+                                f"Кросс-докинг по плановым продажам: {cross_docking_total} ₽. "
+                                "Историческое среднее рассчитано по физическим поставкам, затем умножено на плановые продажи."
+                            )
                     if projection.get("tax_status") == "MIXED_TAX_POLICIES":
                         lines.append("У строк различаются налоговые режимы; общий налог не рассчитан.")
                     lines.append("Это сохранённый план, не фактический результат магазина.")
@@ -1018,9 +1056,10 @@ class TelegramSavedPlanningPlanRuntimeService:
     def _save_sales_mix_preview(self, scope, previous, updated):
         payload = updated.get("payload") or {}
         result = self.sales_mix_planning_service.calculate(
-            payload.get("items"), quantities=updated.get("quantities"),
+            PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=updated.get("quantities"),
             period_label=updated.get("period_label"), expenses=updated.get("expenses"),
             expenses_confirmed=updated.get("expenses_confirmed") is True,
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
         )
         if result.get("error") is True:
             return self._sales_mix_prompt(scope, previous, "Не удалось проверить план: " + str(result.get("code")) + ". Данные не сохранены.")
@@ -1038,19 +1077,26 @@ class TelegramSavedPlanningPlanRuntimeService:
             "План экономики заданного объёма продаж",
             f"Период: {result.get('period')}",
             f"Успешные продажи: {result.get('total_quantity')} шт.; состав: {result.get('included_rows')}/{result.get('selected_rows')} строк.",
-            "Строка: Q × цена → выручка · себестоимость · комиссия · реклама · fees · вклад до налога (₽).",
+            (
+                "Строка: Q × цена → выручка · себестоимость · комиссия · реклама · fees · кросс-докинг · вклад до налога (₽)."
+                if result.get("cross_docking_status")
+                else "Строка: Q × цена → выручка · себестоимость · комиссия · реклама · fees · вклад до налога (₽)."
+            ),
         ]
         for row in result.get("rows", []):
             components = row.get("components") or {}
-            lines.append(
+            row_line = (
                 f"• {row.get('label')}: {row.get('quantity')} × "
                 f"{row.get('price_per_unit')} → выручка {components.get('revenue')} ₽; "
                 f"себест. {components.get('cost_of_goods')} ₽; "
                 f"комиссия {components.get('commission')} ₽; "
                 f"реклама {components.get('advertising')} ₽; "
                 f"fees {components.get('fees')} ₽; "
-                f"вклад {row.get('profit_before_tax_contribution')} ₽."
             )
+            if "cross_docking" in components:
+                row_line += f"кросс-докинг {components.get('cross_docking')} ₽; "
+            row_line += f"вклад {row.get('profit_before_tax_contribution')} ₽."
+            lines.append(row_line)
         components = result.get("components") or {}
         lines.extend([
             f"Выручка: {components.get('revenue')} ₽; баллы: {components.get('discount_points')} ₽.",
@@ -1058,6 +1104,15 @@ class TelegramSavedPlanningPlanRuntimeService:
             f"Дополнительные расходы за период: {result.get('fixed_expense_total')} ₽; подтверждение: {'да' if updated.get('expenses_confirmed') else 'нет'}.",
             f"Прибыль до налога после расходов: {result.get('profit_before_tax_after_fixed_expenses')} ₽.",
         ])
+        if result.get("cross_docking_status"):
+            cross_docking_total = components.get("cross_docking")
+            if cross_docking_total is None:
+                lines.append("Кросс-докинг не включён в итог по плановым продажам: минимум по одной строке нет подтверждённой ставки.")
+            else:
+                lines.append(
+                    f"Кросс-докинг для плановых продаж: {cross_docking_total} ₽; "
+                    "ставка рассчитана по физическим поставкам за сохранённый период."
+                )
         for expense in result.get("fixed_expenses", []):
             lines.append(f"Расход за период · {expense.get('name')}: {expense.get('amount')} ₽.")
         if result.get("coverage_complete") is True:
@@ -1148,9 +1203,10 @@ class TelegramSavedPlanningPlanRuntimeService:
             "confirmed": pending.get("expenses_confirmed") is True,
         }
         verified = self.sales_mix_planning_service.calculate(
-            payload.get("items"), quantities=sales_mix["quantities"],
+            PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=sales_mix["quantities"],
             period_label=sales_mix["period_label"], expenses=sales_mix["expenses"],
             expenses_confirmed=sales_mix["confirmed"],
+            include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
         )
         if verified.get("error") is True or verified != pending.get("preview"):
             with self._lock:
@@ -1206,7 +1262,7 @@ class TelegramSavedPlanningPlanRuntimeService:
         current_calculation_version = getattr(
             self.sales_mix_planning_service.scenario_service, "VERSION", None
         )
-        if payload.get("calculation_version") != current_calculation_version:
+        if not PlanningCrossDockingAdapter.supports(payload, current_calculation_version):
             return self._error("PLAN_FACT_CALCULATION_VERSION_INCOMPATIBLE")
         period = self.plan_fact_comparison_service._period(mix.get("period_label"))
         if period is None:
@@ -1470,6 +1526,28 @@ class TelegramSavedPlanningPlanRuntimeService:
                     f"{change.get('before', '—')} → {change.get('after', '—')} "
                     f"{change.get('unit', '')}"
                 )
+            source_before = product.get("cross_docking_source_before")
+            source_after = product.get("cross_docking_source_after")
+            if source_before != source_after and (
+                isinstance(source_before, dict) or isinstance(source_after, dict)
+            ):
+                def source_summary(value):
+                    value = value if isinstance(value, dict) else {}
+                    is_sku = value.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
+                    method = "SKU" if is_sku else "магазин"
+                    supplied = value.get("supplied_units_sku") if is_sku else value.get("supplied_units_store")
+                    expense = value.get("expense_by_sku") if is_sku else value.get("expense_total")
+                    return (
+                        f"{value.get('amount_per_unit') or 'нет ставки'} ₽/шт., {method}; "
+                        f"{expense or 'нет суммы'} ₽ / {supplied or 'нет количества'} шт.; "
+                        f"{value.get('date_from') or '—'} — {value.get('date_to') or '—'}; "
+                        f"{value.get('days_complete') or 0}/{value.get('days_expected') or 0} дней, "
+                        f"полнота {'да' if value.get('evidence_complete') is True else 'нет'}"
+                    )
+                input_changes.append(
+                    f"• {label} · источник кросс-докинга: "
+                    f"{source_summary(source_before)} → {source_summary(source_after)}"
+                )
         expense_changes = [
             f"• Расход «{str(change.get('name') or 'Без названия')[:60]}»: "
             f"{change.get('before', '0.00')} → {change.get('after', '0.00')} ₽ "
@@ -1572,12 +1650,15 @@ class TelegramSavedPlanningPlanRuntimeService:
             projection = None
             mix = payload.get("sales_mix")
             if isinstance(mix, dict) and self.sales_mix_planning_service is not None:
-                if payload.get("calculation_version") != getattr(self.sales_mix_planning_service.scenario_service, "VERSION", None):
+                if not PlanningCrossDockingAdapter.supports(
+                    payload, getattr(self.sales_mix_planning_service.scenario_service, "VERSION", None),
+                ):
                     return self._error("PLANNING_HISTORICAL_CALCULATION_INCOMPATIBLE")
                 projection = self.sales_mix_planning_service.calculate(
-                    payload.get("items"), quantities=mix.get("quantities"),
+                    PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=mix.get("quantities"),
                     period_label=mix.get("period_label"), expenses=mix.get("expenses"),
                     expenses_confirmed=mix.get("confirmed") is True,
+                    include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
                 )
                 if projection.get("error") is True:
                     projection = {"status": "UNAVAILABLE", "reason": projection.get("code")}
@@ -1588,12 +1669,15 @@ class TelegramSavedPlanningPlanRuntimeService:
             mix = payload.get("sales_mix")
             if not isinstance(mix, dict) or self.sales_mix_planning_service is None:
                 return self._error("SALES_MIX_PLANNING_UNAVAILABLE")
-            if payload.get("calculation_version") != getattr(self.sales_mix_planning_service.scenario_service, "VERSION", None):
+            if not PlanningCrossDockingAdapter.supports(
+                payload, getattr(self.sales_mix_planning_service.scenario_service, "VERSION", None),
+            ):
                 return self._error("PLANNING_HISTORICAL_CALCULATION_INCOMPATIBLE")
             projection = self.sales_mix_planning_service.calculate(
-                payload.get("items"), quantities=mix.get("quantities"),
+                PlanningCrossDockingAdapter.items_for_sales_mix(payload), quantities=mix.get("quantities"),
                 period_label=mix.get("period_label"), expenses=mix.get("expenses"),
                 expenses_confirmed=mix.get("confirmed") is True,
+                include_cross_docking=PlanningCrossDockingAdapter.is_current(payload),
             )
             return self.analytics_export_service.export_sales_mix(
                 document, projection, action["file_format"],
@@ -1601,7 +1685,9 @@ class TelegramSavedPlanningPlanRuntimeService:
         if kind == "export_advertising_cap":
             if self.advertising_cap_service is None:
                 return self._error("UNIT_PRICE_ADVERTISING_CAP_UNAVAILABLE")
-            if payload.get("calculation_version") != getattr(self.advertising_cap_service.scenario_service, "VERSION", None):
+            if not PlanningCrossDockingAdapter.supports(
+                payload, getattr(self.advertising_cap_service.scenario_service, "VERSION", None),
+            ):
                 return self._error("PLANNING_HISTORICAL_CALCULATION_INCOMPATIBLE")
             target = payload.get("target_margin_percent")
             caps = []
@@ -1623,6 +1709,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "target_rate": goal.get("advertising_rate") if target is not None else None,
                     "target_per_unit": goal.get("advertising_per_unit") if target is not None else None,
                     "inputs": item.get("inputs") or {},
+                    "cross_docking_source": (item.get("sources") or {}).get("cross_docking"),
                 })
             return self.analytics_export_service.export_advertising_cap(
                 document, caps, action["file_format"],
@@ -1700,8 +1787,9 @@ class TelegramSavedPlanningPlanRuntimeService:
             return self._error(result.get("code"))
         document = result.get("document") or {}
         payload = document.get("payload") or {}
-        if payload.get("calculation_version") != getattr(
-            getattr(self.advertising_cap_service, "scenario_service", None), "VERSION", None
+        if not PlanningCrossDockingAdapter.supports(
+            payload,
+            getattr(getattr(self.advertising_cap_service, "scenario_service", None), "VERSION", None),
         ):
             return self._result(
                 "PLANNING_HISTORICAL_CALCULATION_INCOMPATIBLE",

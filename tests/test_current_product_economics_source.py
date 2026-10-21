@@ -1,6 +1,10 @@
 from services.current_product_economics_source import (
     CurrentProductEconomicsSource
 )
+from services.tenant_context import (
+    reset_current_tenant_user_id,
+    set_current_tenant_user_id,
+)
 
 
 class FakeOzonClient:
@@ -85,6 +89,7 @@ def test_source_uses_current_seller_price_and_commission():
     assert result["logistics"] is None
     assert result["last_mile"] is None
     assert result["acquiring_average"] is None
+    assert result["cross_docking"]["reason"] == "CROSSDOCK_SOURCE_NOT_CONFIGURED"
     assert "logistics" in result["missing_data"]
     assert "last_mile" in result["missing_data"]
     assert "acquiring" in result["missing_data"]
@@ -173,6 +178,74 @@ def test_source_calculates_recent_finance_averages():
     assert result["finance_sample_sales"] == 5
     assert result["finance_sample_days"] == 2
     assert result["missing_data"] == []
+
+
+def test_source_includes_complete_cross_docking_rate_for_exact_finance_sku():
+    class CrossDockingSource:
+        def __init__(self):
+            self.calls = []
+
+        def get_rate(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "error": False,
+                "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+                "evidence_complete": True,
+                "applicable_to_sku": True,
+                "cross_docking_per_unit": "12.50",
+                "read_only": True,
+                "executed": False,
+            }
+
+    cross_docking = CrossDockingSource()
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(_price_response()),
+        cross_docking_source=cross_docking,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        result = source.get(
+            "hook-2", product_id="3921245627", finance_sku="3921245627"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["cross_docking_per_unit"] == "12.50"
+    assert result["cross_docking"]["evidence_complete"] is True
+    assert cross_docking.calls[0]["sku"] == "3921245627"
+    assert cross_docking.calls[0]["tenant_scope"] == "user-1::ozon::store-1"
+
+
+def test_source_does_not_apply_cross_docking_without_confirmed_tenant_or_sku():
+    class CrossDockingSource:
+        def get_rate(self, **_kwargs):
+            raise AssertionError("identity must be checked before source access")
+
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(_price_response()),
+        cross_docking_source=CrossDockingSource(),
+    )
+    result = source.get("hook-2", product_id="3921245627")
+
+    assert result["cross_docking_per_unit"] is None
+    assert result["cross_docking"]["reason"] == "CROSSDOCK_IDENTITY_REQUIRED"
+
+
+def test_price_commission_fast_path_skips_cross_docking_collection():
+    class CrossDockingSource:
+        def get_rate(self, **_kwargs):
+            raise AssertionError("scenario source loads X once through its own collector")
+
+    source = CurrentProductEconomicsSource(
+        ozon_client=FakeOzonClient(_price_response()),
+        cross_docking_source=CrossDockingSource(),
+    )
+    result = source.get_price_and_commission_facts(
+        "hook-2", product_id="3921245627", finance_sku="3921245627"
+    )
+
+    assert result["error"] is False
+    assert "cross_docking" not in result
 
 
 def test_source_calculates_buyout_rate_as_diagnostic_only():

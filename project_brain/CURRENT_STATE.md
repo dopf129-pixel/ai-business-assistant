@@ -1,3 +1,54 @@
+# 2026-10-21 — исправления R1–R3 повторного review PR #712
+
+- Ставка в v2 сохранённом плане валидируется через Decimal equality, поэтому production float `12.0`/`12.5` корректно совпадает с evidence `12.00`/`12.50`; исходное представление допущения сохраняется.
+- Adapter теперь повторно нормализует уже сохранённый allowlisted evidence без потери `rate_available` и `amount_per_unit`. Single- и batch-план могут быть открыты, снова захвачены и сохранены; строковая версия модели не теряется.
+- Force refresh общего кросс-докингового окна выполняется один раз на root operation trace. Остальные SKU в той же пакетной операции используют общий cache/checkpoint и могут продолжить bounded сбор.
+- Проверка без `tmp_path`: **29 passed** по adapter, unit-rate source и batch-plan service. Дополнительно напрямую выполнены пять временно изолированных repository/single/batch persistence regression cases. Широкий локальный pytest-профиль с SQLite fixtures упёрся в Windows ACL на `basetemp`; он не засчитывается как зелёный pytest. Exact-head Verify [39612452624](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39612452624) для PR head `0e1623391ec4c6bb2e87e49d37b717f85aef68f5` прошёл: Linux и Windows по **3 645 passed**, compile на обеих ОС, Docker build/runtime smoke успешны. Есть только предупреждения GitHub Actions об устаревании Node.js 20.
+- Merge, deploy, запуск бота и live Ozon API не выполнялись.
+
+# 2026-10-21 — X00–X06 кросс-докинг реализован, PR #712 перед повторным review
+
+- Автоматический источник считает signed начисления с корректировками за 56 завершённых дней и делит подтверждённую сумму на фактически принятые через cross-docking единицы; расходы SKU и магазина разделены. Неполнота и отсутствие пригодной ставки не превращаются в ноль.
+- Ставка подключена к текущей юнит-экономике, калькулятору и планам. В сохранённых v2 снимках остаются allowlisted evidence; v1 продолжают использовать прежний расчёт. План-факт v2 учитывает ставку только со стороны плановой прибыли, фактическая выручка/количество не меняются.
+- Exact code head `4f77cfef6e6725929a4b6539e376a258407e8305`, PR #712, base `7e6eabdeba34a822434e5ef417a135995628cc41`. Verify run [39591125957](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957): Windows/Linux по **3,640 passed**, compile на обеих ОС, Docker build/runtime smoke successful.
+- Bounded local X05 profile: 126 passed; v1/v2 plan-fact follow-up: 52 passed. Полный локальный pytest не запускался. Независимый review packet: `CROSS_DOCKING_INDEPENDENT_REVIEW_PACKET_2026-10-21.md`. Merge/deploy, live Ozon API и запуск бота не выполнялись.
+
+# 2026-10-21 — кросс-докинг в сохранённых и пакетных планах (X05)
+
+- Сохранённые планы версии 2 хранят замороженную ставку кросс-докинга и allowlisted source evidence; просмотры, сравнения и экспорты не обновляют данные с Ozon. Явное обновление создаёт capture для новой ревизии/копии и сохраняет историю неизменной.
+- Планы объёма считают расход кросс-докинга как ставка × планируемые успешные продажи по SKU; подтверждённый расход учитывается один раз до налога. Неизвестная ставка для строки делает прибыль/маржу набора неполными, а не нулевыми.
+- Версия 1 остаётся доступна через централизованный adapter без нового расхода или сегодняшних поставок. Сравнение план-факт принимает v1/v2; подтверждённый расход влияет только на сохранённый план, а фактическая выручка, количества и их мост не меняются.
+- Полнота исходного окна отделена от доступности ставки: полностью собранное окно без подходящих поставок сохраняется без числового значения; положительный плановый объём остаётся partial.
+- X05 bounded-профиль: **126 passed in 3.29s** на 8 связанных тестовых модулях, включая две ставки SKU, explicit refresh, старую ревизию, sales mix, unavailable rate, comparison и exports. Полный pytest, бот/live Ozon API, merge/deploy не запускались.
+- Последующий адресный профиль plan/fact + saved-plan/sales-mix/comparison после версии v2: **52 passed in 1.85s**. Первый PR CI выявил 5 legacy plan/fact regressions из-за строгой проверки версии; совместимость v1/v2 исправлена, тесты теперь подтверждают неизменность фактического моста и недоступную прибыль плана при отсутствующей ставке. Новый полный CI ожидается на следующем head.
+
+# 2026-10-21 — подключён кросс-докинг к юнит-экономике (X04)
+
+- Текущая экономика SKU и плановый калькулятор используют подтверждённую ставку за 56 завершённых дней: фактические signed начисления с корректировками / принятые cross-dock единицы. При доступной SKU-атрибуции применяется ставка SKU; при общих начислениях — оценка магазина, не суммируемая со SKU-частью.
+- Компонент вычитается из прибыли до существующего налогового расчёта. Для USN_INCOME налоговая база остаётся прежней; для USN_INCOME_MINUS_EXPENSES расход участвует в расчёте через существующий TaxService. Цены-цели, безубыточность, предел рекламы и sensitivity пользуются тем же ядром.
+- Неполная/неприменимая ставка не становится нулём и явно исключается. Текущая экономика не кэширует partial evidence; Telegram показывает период, метод, начисления/принятый объём и покрытие без ID/SKU источника.
+- X04 завершён; изолированный профиль: **256 passed in 5.54s** на Windows. Полный локальный pytest, live API и бот не запускались. Далее X05 — сохранённые и групповые планы и версия evidence.
+
+# 2026-10-20 — pure расчёт финансового среднего кросс-докинга (X02)
+
+- Общий classifier категорий Ozon вынесен в [`ozon_accrual_fee_classifier.py`](../app/services/ozon_accrual_fee_classifier.py) и повторно используется существующим отчётом и X02.
+- `CrossDockingFinancialEvidenceService` строит complete-only C56 из фактических signed leaf-начислений `/v1/finance/accrual/by-day`, не агрегирует родительские `total_amount`, различает SKU и shared costs и сводит все дни окна, включая дни без продаж.
+- Чистая ставка использует только X01 фактически принятые cross-dock units; sales count в контракте отсутствует. Есть SKU rate либо store estimate при общих расходах; observed zero, net refund, отсутствие поставок и любые пробелы остаются разными состояниями.
+- Связанный targeted profile: **102 passed in 1.70s**. Полный pytest, live Ozon API, бот, merge и deploy не запускались. X02 завершён; durable collection/cache/checkpoint и production wiring остаются X03–X04.
+
+# 2026-10-20 — реализован bounded read-only источник кросс-докинг-поставок
+
+- X00 закрыт в ограниченной области: две пользовательские сверки подтвердили построчный `fact_quantity` для полной/частичной приёмки и дату завершения одной nested supply по `state_updated_date`; `created_date`, planned dates, `approved_quantity` и summary totals не заменяют эти поля. Доменное правило пользователя: одна supply = один товар.
+- X01 добавляет нормализацию единиц по SKU и read-only сбор list/get/accepted act/product данных через уже существующие Seller API adapters. Single-supply completed cross-dock receipts проходят только при точном совпадении order/supply/act, одном SKU и согласованных количествах; все неоднозначности дают `INCOMPLETE` и `total_units=None`.
+- Сбор ограничен 64 запросами, 60 секундами и одним HTTP attempt на endpoint; полная cursor pagination, 50-ID detail batches, cutoff по отсортированному `state_updated_date`, timezone `Europe/Moscow`. При исчерпании лимита частный знаменатель не публикуется; durable resume/checkpoint и подключение к калькулятору остаются X03–X04.
+- Windows runtime не имел IANA timezone data; добавлен `tzdata` dependency. Новые тесты: **34 passed in 0.54s**; вместе с существующей диагностикой актов — **53 passed in 1.03s**. Syntax-only compile и `git diff --check` прошли. Live Seller API, бот и полный локальный pytest не запускались.
+
+# 2026-10-20 — закрыт X00 для фактического количества кросс-докинга
+
+- Официальные Seller API schemas list/get/act и два пользовательских примера (500/500 и 200/100) подтверждают read-only путь от completed order до одного SKU и фактически принятого `fact_quantity`. `approved_quantity` и summary-level quantity могут расходиться с построчной фактической величиной и не используются как denominator.
+- Для completed заявки с единственной вложенной completed cross-dock supply `state_updated_date` совпал с датой завершения в интерфейсе Ozon; `created_date` акта на проверенном частичном примере был на день раньше. Для multi-supply order individual completion date не доказана; такие данные X01 обязан пометить неполными и не включать в denominator.
+- Пользовательское правило: одна supply относится к одному товару/SKU. X01 начат. Юнит-экономика, storage и production integrations не изменены.
+
 # 2026-10-20 — исправлено разрешение ID поставки в ID заявки
 
 - В диагностике акта пользователь вводит `supply_id`, но `/v3/supply-order/get` и `/v1/supply-order/act/summary/get` требуют `order_id`. Добавлен bounded read-only поиск заявки по списку и точная сверка вложенного `supplies[].supply_id`; в оба метода передаётся только найденный `order_id`.
@@ -4655,3 +4706,7 @@ Completed:
 - Добавлены регрессии в `tests/test_planning_workspace_repository.py`, `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_sales_mix_planning_service.py` и `tests/test_planning_plan_comparison_service.py`. Связанный локальный H–O профиль: **259 passed**; `compileall -q app tests` и `git diff --check` прошли.
 - Полный локальный pytest не повторялся из-за ранее выявленных ACL/shared-storage проблем. SHA256 сохранённых локальных данных после целевых проверок: tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`, users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`; data и scratch paths не включаются в изменения.
 - Exact-head `d057031364e6d934f258fec2efa385a045f6e3bf` прошёл Verify `39221770481` и повторный Verify `39221764654`: Windows/Linux, compile, production Docker build и smoke успешны. После этой записи добавляется только документационный commit, поэтому latest exact-head Verify нужно подтвердить отдельно. Далее нужен независимый повторный architecture review. Слияние и развёртывание не выполнялись.
+# 2026-10-21 — X03 bounded cross-docking collection and wiring
+
+- X03 adds read-only 56-day finance and supply collection with process-local scoped checkpoint/resume, a bounded in-memory cache, in-flight deduplication, shared 64-attempt/60-second limits, reuse of the current request's 28-day finance cache, and lazy current/scenario factory wiring.
+- Complete rates are still evidence-only; X is not yet subtracted in unit-economics calculations and is not frozen into saved plans. Those are X04–X05.

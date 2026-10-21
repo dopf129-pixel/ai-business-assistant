@@ -613,7 +613,11 @@ class OzonClient:
     def get_accruals_by_day(
         self,
         accrual_date,
-        max_pages=200
+        max_pages=200,
+        timeout=30,
+        max_attempts=3,
+        total_timeout=None,
+        request_attempt_observer=None,
     ):
 
         all_accruals = []
@@ -625,18 +629,20 @@ class OzonClient:
             1,
             int(max_pages) + 1
         ):
-            response = self._post(
-                "/v1/finance/accrual/by-day",
-                {
-                    "date": str(
-                        accrual_date
-                    ),
-                    "last_id": str(
-                        last_id
-                    )
-                },
-                timeout=30,
-                max_attempts=3
+            page_options = {
+                "last_id": last_id,
+                "timeout": timeout,
+                "max_attempts": max_attempts,
+            }
+            if total_timeout is not None:
+                page_options["total_timeout"] = total_timeout
+            if callable(request_attempt_observer):
+                page_options["request_attempt_observer"] = (
+                    request_attempt_observer
+                )
+            response = self.get_accruals_by_day_page(
+                accrual_date,
+                **page_options,
             )
 
             if not isinstance(
@@ -734,6 +740,62 @@ class OzonClient:
                 "начисления Ozon за день"
             )
         }
+
+    def get_accruals_by_day_page(
+        self,
+        accrual_date,
+        *,
+        last_id="",
+        timeout=30,
+        max_attempts=3,
+        total_timeout=None,
+        request_attempt_observer=None,
+    ):
+        """Read exactly one cursor page of daily finance accruals."""
+        try:
+            day = str(accrual_date)
+            cursor = str(last_id or "")
+        except Exception:
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_ACCRUAL_REQUEST_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+        }
+        if total_timeout is not None:
+            options["total_timeout"] = total_timeout
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
+        response = self._post(
+            "/v1/finance/accrual/by-day",
+            {"date": day, "last_id": cursor},
+            **options,
+        )
+        if not isinstance(response, dict):
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_ACCRUAL_RESPONSE_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        if response.get("error") is True:
+            return response
+        if not isinstance(response.get("accruals"), list):
+            return {
+                "error": True,
+                "code": "OZON_FINANCE_ACCRUAL_RESPONSE_INVALID",
+                "read_only": True,
+                "executed": False,
+            }
+        result = dict(response)
+        result["error"] = False
+        result["read_only"] = True
+        result["executed"] = False
+        return result
 
     def get_finance_transactions(
         self,
@@ -880,13 +942,26 @@ class OzonClient:
             )
         return cls._finance_transactions_error(code)
 
-    def get_accrual_types(self):
+    def get_accrual_types(
+        self,
+        timeout=30,
+        max_attempts=3,
+        total_timeout=None,
+        request_attempt_observer=None,
+    ):
 
+        options = {
+            "timeout": timeout,
+            "max_attempts": max_attempts,
+        }
+        if total_timeout is not None:
+            options["total_timeout"] = total_timeout
+        if callable(request_attempt_observer):
+            options["request_attempt_observer"] = request_attempt_observer
         return self._post(
             "/v1/finance/accrual/types",
             {},
-            timeout=30,
-            max_attempts=3
+            **options,
         )
 
     def get_accruals_by_postings(self, posting_numbers):

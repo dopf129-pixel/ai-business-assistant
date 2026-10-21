@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — средний кросс-докинг на поставленную единицу
 
-Дата: 19.10.2026. Редакция 4. Статус: **IMPLEMENTATION IN PROGRESS; добавлена ограниченная read-only диагностика ответа акта, автоматический расчёт ещё не реализован**.
+Дата: 19.10.2026. Редакция 4. Статус: **X00–X06 завершены; PR #712 готов к независимому review, merge/deploy не выполнялись**.
 
 Эта редакция полностью заменяет редакции 1–2. Подтверждено пользователем: **автоматически собрать все начисления кросс-докинга за 56 завершённых дней, включая корректировки, и разделить расходы на количество товара, поставленного кросс-докингом. Ручного ввода суммы нет.**
 
@@ -233,6 +233,8 @@ Q_store = физические единицы всех таких кросс-д�
 
 **Готово:** production integration получает X из actual supply quantity, cold/batch paths ограничены; нет сетевых side effects при сборке приложения.
 
+**Статус выполнения (2026-10-21): COMPLETE.** Production collector/provider is wired lazily through the current and scenario factories. Checkpoints/cache are process-local and keyed to tenant/store + exact window + model version; each slice is capped at 64 HTTP attempts/60 seconds and respects the shared operation trace. Incomplete coverage has no numeric rate. The isolated Windows X03 profile passed **146 tests in 2.76s**. Full local pytest, live Ozon API, bot run, merge, and deploy were not performed. Details are in `project_brain/LUNA_CROSS_DOCKING_PROGRESS_2026-10-19.md`.
+
 ### X04 — текущая модель, калькуляторы и Telegram
 
 Зависит от X02–X03.
@@ -243,6 +245,8 @@ Q_store = физические единицы всех таких кросс-д�
 4. Отдельно пометить unavailable/stale/no-crossdock-supplies, не заставляя вводить сумму. Старый отчёт без X видим только с явным excluded scope.
 
 **Готово:** выбор SKU → автоматический X → цена/цель/refresh без ручных форм; количество продаж не является источником X.
+
+**Статус выполнения (2026-10-21): COMPLETE.** The current economics provider subtracts a validated rate once before the existing tax calculation. The single-price scenario carries an optional source-derived component, preserving legacy input/result shape when no X source is supplied; unavailable evidence is explicitly excluded instead of becoming zero. Target price, break-even, ad cap and sensitivity use the same canonical calculation. Both current and planning Telegram views explain the 56-day window, SKU/store method, expense divided by actually supplied units, completeness and the reason for exclusion. Raw source SKU/supply IDs are not rendered. The isolated Windows profile across 17 related modules passed **256 tests in 5.54s**. Full local pytest, live Ozon API, bot run, merge and deploy were not performed. X05 remains for frozen snapshots and saved/group-plan compatibility.
 
 ### X05 — сохранённые и групповые планы, версия, сравнение, exports
 
@@ -255,15 +259,17 @@ Q_store = физические единицы всех таких кросс-д�
 
 **Готово:** current→single/batch→save/restart→sales mix→compare/export согласованы, исходные historical revisions сохранены.
 
+**Статус выполнения (2026-10-21): COMPLETE.** В сохранённых планах v2 фиксируются allowlisted ставки/evidence по SKU; старые v1 открываются с прежней формулой без текущих поставок. Explicit refresh может попасть только в новую ревизию/копию с проверкой идентичности и CAS. Полнота сбора окна отделена от доступности ставки: завершённое окно без подходящего знаменателя сохраняется без числа; положительный planned Q не получает нулевой расход и оставляет итог неполным. Sales mix применяет historical rate к плановому Q. Сравнение и CSV/JSON используют frozen source; план-факт поддерживает v1/v2, но фактические количества, выручка и их арифметический мост не меняются. Финальный bounded Windows profile: **126 passed in 3.29s** across 8 related modules; follow-up plan-fact profile: **52 passed in 1.85s** across 4 modules. Exact-head Verify **39591125957** на `4f77cfef6e6725929a4b6539e376a258407e8305`: Windows и Linux по **3,640 passed**, compile на обеих ОС, production Docker build и runtime smoke успешны. PR #712 и пакет независимого review готовы; merge/deploy не выполнялись.
+
 ### X06 — регрессии, документация и review handoff
 
 Зависит от X00–X05.
 
-1. Выполнить meaningful targeted tests в отдельном storage, compileall и diff-check; не запускать full local pytest.
-2. Проверить test isolation, отсутствие user data/secrets/scratch в commits. Hashes сопоставить с учётом внешних записей работающего бота; не делать restore старых файлов.
-3. Обновить CHANGELOG, CURRENT_STATE, TEST_MAP, guide; в DECISIONS закрепить только реальное решение о C56/Q_crossdock_supplied56, scope, cache/version compatibility.
-4. Создать небольшие связанные PR; получить зелёный Windows/Linux/Docker CI на последних SHA.
-5. Handoff: HEAD/base/order, официальный source matrix, actual-vs-planned quantity, числа/coverage, requests/budgets/checkpoints, migrations/rollback, tests/CI links и ограничения.
+1. Выполнить meaningful targeted tests в отдельном storage, compileall и diff-check; не запускать full local pytest. **Готово:** bounded Windows profiles, syntax/diff hygiene выполнены.
+2. Проверить test isolation, отсутствие user data/secrets/scratch в commits. Hashes сопоставить с учётом внешних записей работающего бота; не делать restore старых файлов. **Готово:** коммиты проверены, пользовательские хранилища не включались.
+3. Обновить CHANGELOG, CURRENT_STATE, TEST_MAP, guide; в DECISIONS закрепить только реальное решение о C56/Q_crossdock_supplied56, scope, cache/version compatibility. **Готово:** пользовательский guide обновлён; Decision 054 уже фиксирует версионированное сохранение.
+4. Создать небольшие связанные PR; получить зелёный Windows/Linux/Docker CI на последних SHA. **Готово для code head `4f77cfef6e6725929a4b6539e376a258407e8305`:** Verify run [39591125957](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957), обе ОС по 3,640 тестов; compile и Linux Docker build/runtime smoke успешны.
+5. Handoff: HEAD/base/order, официальный source matrix, actual-vs-planned quantity, числа/coverage, requests/budgets/checkpoints, migrations/rollback, tests/CI links и ограничения. **Готово:** `project_brain/CROSS_DOCKING_INDEPENDENT_REVIEW_PACKET_2026-10-21.md`; PR #712 открыт против `main` на базе `7e6eabdeba34a822434e5ef417a135995628cc41`.
 
 **Готово:** обязательная автоматическая поставочная формула реализована и проверена; PR готовы для независимого review без merge/deploy.
 

@@ -24,16 +24,29 @@ class PeriodProfitOzonClient(OzonClient):
         "coinvestment",
     )
 
-    def _post(self, endpoint, data, timeout=20, max_attempts=3):
+    def _post(
+        self,
+        endpoint,
+        data,
+        timeout=20,
+        max_attempts=3,
+        total_timeout=None,
+        request_attempt_observer=None,
+    ):
         result = None
 
         for attempt in range(1, int(max_attempts) + 1):
-            result = super()._post(
-                endpoint,
-                data,
-                timeout=timeout,
-                max_attempts=max_attempts,
-            )
+            request_options = {
+                "timeout": timeout,
+                "max_attempts": max_attempts,
+            }
+            if total_timeout is not None:
+                request_options["total_timeout"] = total_timeout
+            if callable(request_attempt_observer):
+                request_options["request_attempt_observer"] = (
+                    request_attempt_observer
+                )
+            result = super()._post(endpoint, data, **request_options)
 
             if not isinstance(result, dict) or result.get("error") is not True:
                 return self._normalize_period_profit_canonical_finance(endpoint, result)

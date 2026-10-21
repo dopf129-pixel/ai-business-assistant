@@ -152,6 +152,63 @@ def test_current_response_shows_rubles_and_percentages():
     assert "Хранение" not in response
 
 
+def test_current_economics_includes_sku_cross_docking_cost_and_explains_basis():
+    facts = _facts(
+        cross_docking_per_unit=10.0,
+        cross_docking={
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+            "reason": None,
+            "evidence_complete": True,
+            "applicable_to_sku": True,
+            "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+            "date_from": "2026-08-24",
+            "date_to": "2026-10-18",
+            "expense_by_sku": "400.00",
+            "supplied_units_sku": 40,
+            "days_complete": 56,
+            "days_expected": 56,
+            "sku": "must-not-be-exposed",
+            "supply_id": "must-not-be-exposed",
+        },
+    )
+    service, _, _ = _service(facts)
+
+    result = service.query("hook-2")
+    response = service.format_response(result)
+
+    assert result["cross_docking_per_unit"] == 10.0
+    assert result["cross_docking_included"] is True
+    assert result["net_profit_per_unit"] == 23.45
+    assert "Кросс-докинг — на фактически поставленную единицу за 2026-08-24 — 2026-10-18" in response
+    assert "10.00 ₽ — 10.4%" in response
+    assert "начисления 400.00 ₽ / фактически принято 40 шт." in response
+    assert "покрытие 56/56 дней" in response
+    assert "must-not-be-exposed" not in response
+    assert "фактически поставленные единицы" in result["note"]
+
+
+def test_current_economics_leaves_profit_unchanged_and_labels_incomplete_cross_docking():
+    facts = _facts(
+        cross_docking_per_unit=None,
+        cross_docking={
+            "status": "UNAVAILABLE",
+            "reason": "CROSSDOCK_WINDOW_INCOMPLETE",
+            "evidence_complete": False,
+            "applicable_to_sku": False,
+        },
+    )
+    service, _, _ = _service(facts)
+
+    result = service.query("hook-2")
+    response = service.format_response(result)
+
+    assert result["net_profit_per_unit"] == 33.45
+    assert result["cross_docking_included"] is False
+    assert "Кросс-докинг — на фактически поставленную единицу:" in response
+    assert "не учтён: нет подтверждённой применимой ставки" in response
+    assert "без кросс-докинга: CROSSDOCK_WINDOW_INCOMPLETE" in result["note"]
+
+
 def test_current_unit_economics_subtracts_points_and_shows_effective_tax_percent():
     service, _, _ = _service(
         _facts(discount_points_per_unit=10.0)

@@ -5,7 +5,7 @@ from uuid import uuid4
 class UnitPriceScenarioService:
     """Pure calculator for one-unit seller-price planning scenarios."""
 
-    VERSION = 1
+    VERSION = 2
     MONEY_FIELDS = (
         "price",
         "cost",
@@ -37,6 +37,7 @@ class UnitPriceScenarioService:
         "logistics_per_unit": "RUB/unit",
         "last_mile_per_unit": "RUB/unit",
         "acquiring_per_unit": "RUB/unit",
+        "cross_docking_per_unit": "RUB/supplied_unit",
         "advertising_rate": "percent",
         "discount_points_rate": "percent",
         "tax_rate": "percent",
@@ -118,6 +119,8 @@ class UnitPriceScenarioService:
         }
         scenario_inputs = {}
         for field in self.UNITS:
+            if field == "cross_docking_per_unit" and field not in normalized:
+                continue
             value = normalized.get(field)
             scenario_inputs[field] = {
                 "value": float(value) if value is not None else None,
@@ -133,7 +136,7 @@ class UnitPriceScenarioService:
             "provenance": provenance.get("tax_mode", "store_policy"),
         }
 
-        return {
+        result = {
             "error": False,
             "available": available,
             "kind": "PRICE_PLANNING_SCENARIO",
@@ -163,6 +166,36 @@ class UnitPriceScenarioService:
             "read_only": True,
             "executed": False,
         }
+        if "cross_docking" in calculated:
+            cross_docking_included = calculated["cross_docking"] is not None
+            result["cross_docking_included"] = cross_docking_included
+            completeness = sources.get("completeness") or {}
+            cross_docking_completeness = (
+                completeness.get("cross_docking")
+                if isinstance(completeness, dict)
+                else {}
+            )
+            result["cross_docking_status"] = (
+                cross_docking_completeness.get("status")
+                if isinstance(cross_docking_completeness, dict)
+                else None
+            )
+            result["cross_docking_reason"] = (
+                cross_docking_completeness.get("reason")
+                if isinstance(cross_docking_completeness, dict)
+                else None
+            )
+            if cross_docking_included:
+                result["included_scope"].append(
+                    "56-day cross-docking expense per actually supplied unit"
+                )
+                result["excluded_scope"].remove("storage and cross-docking")
+                result["excluded_scope"].append("storage")
+            else:
+                result["excluded_scope"].append(
+                    "cross-docking not included because complete applicable evidence is unavailable"
+                )
+        return result
 
     def calculate_components_only(self, inputs):
         """Return rounded one-sale money components without invoking TaxService.
@@ -255,6 +288,20 @@ class UnitPriceScenarioService:
                 continue
             normalized[field] = value
 
+        # Cross-docking is an optional, source-derived component. Legacy
+        # scenarios that have no such field keep their original projection.
+        if "cross_docking_per_unit" in inputs:
+            raw_cross_docking = inputs.get("cross_docking_per_unit")
+            if raw_cross_docking in (None, ""):
+                normalized["cross_docking_per_unit"] = None
+            else:
+                cross_docking = self._decimal(raw_cross_docking)
+                if cross_docking is None or cross_docking < 0:
+                    normalized["cross_docking_per_unit"] = None
+                    invalid.append("cross_docking_per_unit")
+                else:
+                    normalized["cross_docking_per_unit"] = cross_docking
+
         for field in self.REQUIRED_FIELDS:
             if field not in inputs or inputs.get(field) is None or inputs.get(field) == "":
                 if field not in missing:
@@ -301,8 +348,13 @@ class UnitPriceScenarioService:
         if None not in (price, cost, commission, advertising, fees):
             profit_before_tax = self._money_decimal(
                 price - commission - fees - cost - advertising
+                - (
+                    values.get("cross_docking_per_unit")
+                    if values.get("cross_docking_per_unit") is not None
+                    else Decimal("0")
+                )
             )
-        return {
+        result = {
             "revenue": self._money_decimal(price) if price is not None else None,
             "discount_points": points,
             "taxable_revenue": taxable_revenue,
@@ -315,6 +367,13 @@ class UnitPriceScenarioService:
             "profit": None,
             "margin_percent": None,
         }
+        if "cross_docking_per_unit" in values:
+            cross_docking = values.get("cross_docking_per_unit")
+            result["cross_docking"] = (
+                self._money_decimal(cross_docking)
+                if cross_docking is not None else None
+            )
+        return result
 
     def _calculate_tax_and_profit(self, values, mode, components):
         profit_before_tax = components["profit_before_tax"]

@@ -11,6 +11,10 @@ from time import monotonic
 from uuid import uuid4
 
 from period_profit_request import build_period_profit_request
+from services.ozon_accrual_fee_classifier import (
+    FEE_LABEL_MATCHERS,
+    matches_fee_category,
+)
 from services.period_profit_cost_exclusion_context import (
     activate_cost_exclusion,
     reset_cost_exclusion,
@@ -63,45 +67,7 @@ class ExperimentalStoreEconomicsRuntimeService:
     SUPPLY_ACT_DIAGNOSTIC_MAX_SUMMARY_ACTS_SHOWN = 4
     SUPPLY_ORDER_DIAGNOSTIC_MAX_SUPPLIES_SHOWN = 4
     REPORT_CACHE_MAX_SCOPES = 64
-    FEE_LABEL_MATCHERS = {
-        "last_mile": (
-            "последняя миля",
-            "последней мили",
-            "доставка до места выдачи",
-            "доставка к месту выдачи",
-            "выдача товара",
-            "last mile",
-            "last-mile",
-            "lastmile",
-        ),
-        "cross_docking": (
-            "кросс-док",
-            "кросс док",
-            "cross-dock",
-            "cross dock",
-            "crossdock",
-        ),
-        "paid_storage": (
-            "платное хран",
-            "плата за хранение",
-            "платное размещение",
-            "плата за размещение",
-            "стоимость размещения",
-            "размещение на складе",
-            "вынужденное размещение",
-            "paid storage",
-            "paidstorage",
-            "storage fee",
-        ),
-        "reverse_logistics": (
-            "обратная логист",
-            "возвратная логист",
-            "логистика возврата",
-            "return flow logistic",
-            "returnflowlogistic",
-            "reverse logistics",
-        ),
-    }
+    FEE_LABEL_MATCHERS = FEE_LABEL_MATCHERS
     ADVERTISING_FEE_MATCHERS = (
         "реклам",
         "продвиж",
@@ -3084,21 +3050,7 @@ class ExperimentalStoreEconomicsRuntimeService:
 
     @classmethod
     def _matches_fee_category(cls, labels, category, matchers):
-        for label in labels:
-            normalized = cls._text(label).casefold()
-            if any(matcher in normalized for matcher in matchers):
-                return True
-            if category == "paid_storage":
-                # The accrual dictionary may use the compact type name
-                # "Размещение" while the Seller UI uses a longer label.
-                last_word = re.sub(
-                    r"[^a-zа-яё]+", " ", normalized
-                ).split()
-                if last_word and last_word[-1].startswith(
-                    ("размещ", "placement")
-                ):
-                    return True
-        return False
+        return matches_fee_category(labels, category, matchers)
 
     @classmethod
     def _fee_breakdown(cls, summary):
