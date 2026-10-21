@@ -5,7 +5,7 @@ from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 def _evidence():
     return {
-        "evidence_complete": True,
+        "evidence_complete": True, "rate_available": True,
         "status": "SKU_SUPPLY_PERIOD_AVERAGE", "reason": None,
         "method": "sku_accrual_cost_per_delivered_crossdock_unit",
         "amount_per_unit": "12.00", "applicable_to_sku": True,
@@ -43,9 +43,47 @@ def test_source_projection_keeps_safe_formula_evidence_and_drops_external_ids():
     result = PlanningCrossDockingAdapter.project_source(raw)
 
     assert result["amount_per_unit"] == "12.00"
+    assert result["rate_available"] is True
     assert result["supplied_units_sku"] == 100
     assert result["denominator_kind"] == "DELIVERED_CROSSDOCK_UNITS"
     assert not ({"sku", "supply_id", "raw_response"} & set(result))
+
+
+def test_complete_window_without_a_rate_is_distinct_and_keeps_no_numeric_cost():
+    result = PlanningCrossDockingAdapter.project_source({
+        "evidence_complete": True,
+        "status": "NO_CROSSDOCK_SUPPLIES",
+        "reason": "NO_CROSSDOCK_SUPPLIES",
+        "cross_docking_per_unit": None,
+        "method": None,
+        "applicable_to_sku": False,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "supplied_units_sku": 0,
+        "supplied_units_store": 0,
+        "days_complete": 56,
+        "days_expected": 56,
+    })
+
+    assert result["evidence_complete"] is True
+    assert result["rate_available"] is False
+    assert result["applicable_to_sku"] is False
+    assert result["amount_per_unit"] is None
+    assert PlanningCrossDockingAdapter.completeness_projection(result) == {
+        "complete": True,
+        "rate_available": False,
+        "status": "NO_CROSSDOCK_SUPPLIES",
+        "reason": "NO_CROSSDOCK_SUPPLIES",
+    }
+
+    item = {
+        "inputs": {"price": "500.00", "cross_docking_per_unit": None},
+        "sources": {"cross_docking": result},
+    }
+    payload = {"calculation_version": 2}
+    inputs, evidence = PlanningCrossDockingAdapter.restore_item(payload, item)
+    assert inputs["cross_docking_per_unit"] is None
+    assert evidence["evidence_complete"] is True
+    assert evidence["rate_available"] is False
 
 
 def test_legacy_plan_restore_discards_new_cross_docking_values_and_sources():

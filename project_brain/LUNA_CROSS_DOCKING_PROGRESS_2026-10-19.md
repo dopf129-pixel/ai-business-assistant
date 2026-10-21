@@ -21,7 +21,7 @@
 | X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
 | X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
 | X04 | COMPLETE | Автоматическая ставка подключена к текущей и плановой юнит-экономике; целевая цена, безубыточность, рекламный предел и sensitivity используют общий расчёт; Telegram показывает период, метод SKU/store, фактические начисления/поставленные единицы, coverage и явное исключение неполной ставки. Профиль: **256 passed in 5.54s**. |
-| X05 | COMPLETE | Saved v2 evidence, per-SKU batch rates, sales-mix application to planned quantity, frozen revision comparison/export, and explicit refresh/CAS. v1 compatibility remains unchanged and does not load current supplies. Final bounded Windows profile: **123 passed in 3.31s**. |
+| X05 | COMPLETE | Saved v2 evidence, per-SKU batch rates, sales-mix application to planned quantity, frozen revision comparison/export, and explicit refresh/CAS. v1 compatibility remains unchanged and does not load current supplies. Complete source window is distinct from a usable SKU rate. Final bounded Windows profile: **126 passed in 3.29s**. |
 | X06 | IN PROGRESS | Final bounded tests, compile/diff/secret-scratch review, docs and independent-review handoff. No merge/deploy/bot run. |
 
 ## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
@@ -50,7 +50,8 @@
 - Single and batch capture save the current evidence snapshot; open, readiness, compare and exports use that snapshot with no Ozon refresh. Explicit refresh provides a new capture; regression confirms a saved update stores the newer rate in revision 2 while revision 1 keeps its original rate and manual price/cost overrides.
 - Sales mix applies per-SKU historical rate to planned successful-sales Q, not to the historical delivered-unit denominator. It subtracts the component once before the existing tax calculation. If evidence is unavailable for a positive planned quantity, result is partial and final group profit/margin remain unavailable. Plan/fact code and factual component scope were not changed.
 - CSV/JSON saved-plan, sales-mix, advertising-cap and comparison exports include only frozen safe method, denominator, amounts/units, date-window and completeness metadata. Legacy export columns remain unchanged.
-- Verification: bounded Windows profile across adapter, repository, sales-mix, compare/export and Telegram saved-plan/batch flows: **123 passed in 3.31s**. Full local pytest was not run per ACL rule. No live Ozon request, bot run, merge or deployment.
+- A full window with zero eligible SKU supplied units can be saved with complete coverage and no rate; positive planned Q remains incomplete and receives no zero-valued expense. This distinct-state path has adapter, repository and sales-mix regression coverage.
+- Verification after this edge-case fix: bounded Windows profile across adapter, repository, sales-mix, compare/export and Telegram saved-plan/batch flows: **126 passed in 3.29s**. Full local pytest was not run per ACL rule. No live Ozon request, bot run, merge or deployment.
 - X05 complete. X06 remains active for source/diff hygiene, final syntax and diff checks, remote CI, PR packaging and review handoff.
 
 ## X02 — signed finance evidence and pure rate — 2026-10-20

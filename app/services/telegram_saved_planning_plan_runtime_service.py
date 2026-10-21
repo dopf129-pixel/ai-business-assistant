@@ -763,7 +763,7 @@ class TelegramSavedPlanningPlanRuntimeService:
                 lines.append("   Расчёт сохранён как историческая проекция.")
             if PlanningCrossDockingAdapter.is_current(payload):
                 evidence = ((item.get("sources") or {}).get("cross_docking") or {})
-                if evidence.get("evidence_complete") is True:
+                if evidence.get("rate_available") is True:
                     is_sku = evidence.get("method") == "sku_accrual_cost_per_delivered_crossdock_unit"
                     method = "по SKU" if is_sku else "оценка по магазину"
                     supplied = evidence.get("supplied_units_sku") if is_sku else evidence.get("supplied_units_store")

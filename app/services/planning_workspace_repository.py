@@ -523,13 +523,19 @@ class PlanningWorkspaceRepository:
                         or not isinstance(cross_docking, dict)
                         or "cross_docking" not in clean_sources.get("completeness", {})):
                     return None
+                cross_docking_completeness = clean_sources["completeness"]["cross_docking"]
+                if (cross_docking_completeness.get("complete") is not cross_docking.get("evidence_complete")
+                        or cross_docking_completeness.get("rate_available") is not cross_docking.get("rate_available")):
+                    return None
                 rate = clean_inputs.get("cross_docking_per_unit")
-                if cross_docking.get("evidence_complete") is True:
+                if cross_docking.get("rate_available") is True:
                     if (rate is None or rate != cross_docking.get("amount_per_unit")
+                            or cross_docking.get("evidence_complete") is not True
                             or cross_docking.get("applicable_to_sku") is not True
                             or cross_docking.get("denominator_kind") != "DELIVERED_CROSSDOCK_UNITS"):
                         return None
-                elif rate is not None:
+                elif (rate is not None or cross_docking.get("amount_per_unit") is not None
+                      or cross_docking.get("applicable_to_sku") is True):
                     return None
             row_id = self._short_text(item.get("row_id"), 64, optional=True)
             normalized_items.append({
@@ -633,7 +639,7 @@ class PlanningWorkspaceRepository:
                 continue
             if not isinstance(value, dict) or set(value) - {
                 "complete", "status", "reason", "days_loaded", "calendar_days",
-                "positive_sale_observations", "deduplicated_by",
+                "positive_sale_observations", "deduplicated_by", "rate_available",
             }:
                 return None
             if "complete" in value and type(value["complete"]) is not bool:
@@ -650,7 +656,7 @@ class PlanningWorkspaceRepository:
         if "cross_docking" in sources:
             evidence = sources.get("cross_docking")
             allowed = {
-                "evidence_complete", "status", "reason", "method", "amount_per_unit",
+                "evidence_complete", "rate_available", "status", "reason", "method", "amount_per_unit",
                 "applicable_to_sku", "denominator_kind", "expense_total", "expense_by_sku",
                 "supplied_units_sku", "supplied_units_store", "days_complete", "days_expected",
                 "date_from", "date_to", "as_of", "timezone", "financial_date_basis",
@@ -659,6 +665,7 @@ class PlanningWorkspaceRepository:
             if not isinstance(evidence, dict) or set(evidence) != allowed:
                 return None
             if (type(evidence.get("evidence_complete")) is not bool
+                    or type(evidence.get("rate_available")) is not bool
                     or type(evidence.get("applicable_to_sku")) is not bool):
                 return None
             method = evidence.get("method")
@@ -671,7 +678,7 @@ class PlanningWorkspaceRepository:
             if denominator is not None and denominator != "DELIVERED_CROSSDOCK_UNITS":
                 return None
             safe_evidence = {}
-            for key in ("evidence_complete", "applicable_to_sku"):
+            for key in ("evidence_complete", "rate_available", "applicable_to_sku"):
                 safe_evidence[key] = evidence[key]
             for key in ("status", "reason"):
                 value = evidence.get(key)

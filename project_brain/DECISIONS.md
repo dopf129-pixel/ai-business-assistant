@@ -16,6 +16,7 @@ Decision:
 - Existing version 1 documents continue through an explicit compatibility adapter; their inputs and exports do not acquire current cross-docking evidence retroactively.
 - An explicit source refresh may feed a new revision or copy after identity and CAS checks. It must not mutate an older revision.
 - Sales-mix planning applies the historical per-supplied-unit rate to planned successful sales Q. This planning deduction does not alter the factual side of plan/fact comparison.
+- Completeness of the collected 56-day window is separate from availability of a usable SKU rate. A complete window with no eligible supplied units may be saved as complete source evidence, but it has no numeric rate and cannot make a positive-Q sales mix complete.
 
 Reason:
 

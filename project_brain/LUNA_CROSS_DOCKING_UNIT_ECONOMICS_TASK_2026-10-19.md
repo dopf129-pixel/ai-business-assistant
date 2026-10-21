@@ -259,7 +259,7 @@ Q_store = физические единицы всех таких кросс-д�
 
 **Готово:** current→single/batch→save/restart→sales mix→compare/export согласованы, исходные historical revisions сохранены.
 
-**Статус выполнения (2026-10-21): COMPLETE.** В сохранённых планах v2 фиксируются allowlisted ставки/evidence по SKU; старые v1 открываются с прежней формулой без текущих поставок. Explicit refresh может попасть только в новую ревизию/копию с проверкой идентичности и CAS. Sales mix применяет historical rate к плановому Q и оставляет total profit/margin недоступными при неполной ставке. Сравнение и CSV/JSON используют frozen source; plan/fact factual leg не менялся. Финальный bounded Windows profile: **123 passed in 3.31s** across 8 related modules. X06 остаётся до CI и review handoff.
+**Статус выполнения (2026-10-21): COMPLETE.** В сохранённых планах v2 фиксируются allowlisted ставки/evidence по SKU; старые v1 открываются с прежней формулой без текущих поставок. Explicit refresh может попасть только в новую ревизию/копию с проверкой идентичности и CAS. Полнота сбора окна отделена от доступности ставки: завершённое окно без подходящего знаменателя сохраняется без числа; положительный planned Q не получает нулевой расход и оставляет итог неполным. Sales mix применяет historical rate к плановому Q. Сравнение и CSV/JSON используют frozen source; plan/fact factual leg не менялся. Финальный bounded Windows profile: **126 passed in 3.29s** across 8 related modules. X06 остаётся до CI и review handoff.
 
 ### X06 — регрессии, документация и review handoff
 

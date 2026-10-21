@@ -80,6 +80,7 @@ class PlanningPlanReadinessService:
                 rate = (source.get("inputs") or {}).get("cross_docking_per_unit")
                 verified = (
                     evidence.get("evidence_complete") is True
+                    and evidence.get("rate_available") is True
                     and evidence.get("applicable_to_sku") is True
                     and evidence.get("denominator_kind") == "DELIVERED_CROSSDOCK_UNITS"
                     and rate is not None
@@ -92,7 +93,7 @@ class PlanningPlanReadinessService:
                         "method", "denominator_kind", "amount_per_unit", "expense_total",
                         "expense_by_sku", "supplied_units_sku", "supplied_units_store",
                         "date_from", "date_to", "days_complete", "days_expected",
-                        "evidence_complete",
+                        "evidence_complete", "rate_available",
                     )
                 }
             item_rows.append(item_row)

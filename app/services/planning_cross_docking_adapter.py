@@ -67,13 +67,27 @@ class PlanningCrossDockingAdapter:
         denominator_kind = evidence.get("denominator_kind")
         if denominator_kind != cls.DENOMINATOR_KIND:
             denominator_kind = None
+        window_complete = evidence.get("evidence_complete") is True
+        applicable_to_sku = evidence.get("applicable_to_sku") is True
+        amount_per_unit = cls._amount(evidence.get("cross_docking_per_unit"))
+        rate_available = (
+            window_complete
+            and applicable_to_sku
+            and method is not None
+            and denominator_kind == cls.DENOMINATOR_KIND
+            and amount_per_unit is not None
+        )
         return {
-            "evidence_complete": evidence.get("evidence_complete") is True,
+            # This marks complete collection of the source window. A complete
+            # window can still have no usable SKU rate (for example, no
+            # cross-dock units); keep that state distinct from availability.
+            "evidence_complete": window_complete,
+            "rate_available": rate_available,
             "status": cls._code(evidence.get("status")),
             "reason": cls._code(evidence.get("reason")),
             "method": method,
-            "amount_per_unit": cls._amount(evidence.get("cross_docking_per_unit")),
-            "applicable_to_sku": evidence.get("applicable_to_sku") is True,
+            "amount_per_unit": amount_per_unit if rate_available else None,
+            "applicable_to_sku": applicable_to_sku,
             "denominator_kind": denominator_kind,
             "expense_total": cls._amount(evidence.get("expense_total"), allow_negative=True),
             "expense_by_sku": cls._amount(evidence.get("expense_by_sku"), allow_negative=True),
@@ -110,12 +124,14 @@ class PlanningCrossDockingAdapter:
         if not isinstance(evidence, dict):
             return None, None
         rate = cls._amount(inputs.get("cross_docking_per_unit"))
-        if evidence.get("evidence_complete") is True:
+        if evidence.get("rate_available") is True:
             if (rate is None or rate != evidence.get("amount_per_unit")
+                    or evidence.get("evidence_complete") is not True
                     or evidence.get("denominator_kind") != cls.DENOMINATOR_KIND
                     or evidence.get("applicable_to_sku") is not True):
                 return None, None
-        elif rate is not None:
+        elif (rate is not None or evidence.get("amount_per_unit") is not None
+              or evidence.get("applicable_to_sku") is True):
             return None, None
         return inputs, dict(evidence)
 
@@ -148,6 +164,7 @@ class PlanningCrossDockingAdapter:
         safe_evidence = safe_evidence if isinstance(safe_evidence, dict) else {}
         result = {
             "complete": safe_evidence.get("evidence_complete") is True,
+            "rate_available": safe_evidence.get("rate_available") is True,
         }
         for key in ("status", "reason"):
             value = cls._code(safe_evidence.get(key))

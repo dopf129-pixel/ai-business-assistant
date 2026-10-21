@@ -145,7 +145,8 @@ def test_v2_plan_comparison_and_exports_include_frozen_cross_docking_evidence():
 
     def evidence(rate, expense):
         return {
-            "evidence_complete": True, "status": "SKU_SUPPLY_PERIOD_AVERAGE", "reason": None,
+            "evidence_complete": True, "rate_available": True,
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE", "reason": None,
             "method": "sku_accrual_cost_per_delivered_crossdock_unit",
             "amount_per_unit": rate, "applicable_to_sku": True,
             "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",

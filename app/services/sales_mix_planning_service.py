@@ -100,6 +100,7 @@ class SalesMixPlanningService:
                 evidence = (item.get("sources") or {}).get("cross_docking")
                 if (isinstance(evidence, dict)
                         and evidence.get("evidence_complete") is True
+                        and evidence.get("rate_available") is True
                         and evidence.get("applicable_to_sku") is True
                         and unit.get("cross_docking") is not None):
                     amount = self._decimal(unit.get("cross_docking"))

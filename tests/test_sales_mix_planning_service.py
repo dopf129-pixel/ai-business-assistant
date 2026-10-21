@@ -84,6 +84,7 @@ def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
     item = _item("SKU-A", inputs)
     item["sources"] = {"cross_docking": {
         "evidence_complete": True,
+        "rate_available": True,
         "applicable_to_sku": True,
         "method": "sku_accrual_cost_per_delivered_crossdock_unit",
         "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
@@ -122,6 +123,31 @@ def test_v2_sales_mix_marks_unconfirmed_cross_docking_partial_instead_of_zero():
     )
 
     assert result["status"] == "PARTIAL"
+    assert result["components"]["cross_docking"] is None
+    assert result["profit"] is None
+    assert tax.calls == []
+
+
+def test_v2_complete_window_without_sku_rate_does_not_become_zero_expense():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(cross_docking_per_unit=None))
+    item["sources"] = {"cross_docking": {
+        "evidence_complete": True,
+        "rate_available": False,
+        "applicable_to_sku": False,
+        "method": None,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "amount_per_unit": None,
+    }}
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 10},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+        include_cross_docking=True,
+    )
+
+    assert result["coverage_complete"] is False
+    assert result["cross_docking_status"] == "PARTIAL_OR_UNAVAILABLE"
     assert result["components"]["cross_docking"] is None
     assert result["profit"] is None
     assert tax.calls == []
