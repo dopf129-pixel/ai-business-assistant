@@ -1029,6 +1029,51 @@ def test_batch_plan_save_and_continue_preserves_rows_without_refresh(tmp_path):
             for row in reopened["batch_plan"]["rows"]
         }
         assert reopened_rates == saved_rates
+        reopened_batch = reopened["batch_plan"]
+        recaptured = batch.get_saved_plan_capture(
+            reopened_batch["batch_id"],
+            reopened_batch["version"],
+            user_id="user-1",
+        )
+        assert recaptured["error"] is False
+        scope = plan_service.repository._scope("user-1", "store-a")
+        assert plan_service.repository._payload(recaptured["payload"], scope) is not None
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_single_saved_cross_docking_rate_survives_reopen_and_recapture(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    source.cross_docking = _confirmed_cross_docking_source("12.00", 100)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        saved_planning_plan_runtime_service=saved_runtime,
+        unit_price_calculator_runtime_service=single,
+    )
+    tenant = _activate()
+    try:
+        current = _select_single(single)
+        save_prompt = handler.handle(
+            _button(current, "💾 Сохранить план"), user_id="user-1",
+        )
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        saved = handler.handle_text("Cross docking rate", user_id="user-1")
+        assert saved["status"] == "PLANNING_DOCUMENT_SAVED"
+        payload = service.get_document(saved["document_id"])["document"]["payload"]
+
+        reopened = single.restore_saved_plan(payload, user_id="user-1")
+        assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
+        recaptured = single.get_saved_plan_capture(
+            reopened["scenario_id"],
+            reopened["scenario_version"],
+            user_id="user-1",
+        )
+        assert recaptured["error"] is False
+        scope = service.repository._scope("user-1", "store-a")
+        normalized = service.repository._payload(recaptured["payload"], scope)
+        assert normalized is not None
+        assert normalized["items"][0]["inputs"]["cross_docking_per_unit"] == "12.00"
+        assert normalized["items"][0]["sources"]["cross_docking"]["rate_available"] is True
     finally:
         reset_current_tenant_user_id(tenant)
 

@@ -1,5 +1,14 @@
 # Средний расход кросс-докинга — журнал выполнения
 
+## 2026-10-21 — исправления повторного архитектурного review PR #712 (R1–R3)
+
+- **R1:** persistence repository и saved-plan adapter сравнивают цену за единицу через Decimal value equality; формат `12.0` теперь совпадает с evidence `12.00`, не меняя сохранённое представление пользовательского ввода. Регрессия покрывает float `12.0`, `12.5`, `0.0`.
+- **R2:** adapter различает сырой provider evidence и уже allowlisted persisted evidence. Повторная проекция сохраняет `rate_available`, сумму и safe model version; проверены single- и batch-пути reopen → recapture → repository validation.
+- **R3:** добавлен `claim_once` на корневом `PeriodProfitOperationTrace`; force refresh общего cross-docking cache/checkpoint сбрасывает окно один раз на root operation. Последующие SKU продолжают общий bounded collection. Отдельный source regression использует один parent trace и два разных SKU; standalone force refresh без общего trace по-прежнему начинает новое окно.
+- Targeted pytest без временных SQLite fixtures: **29 passed** (`test_unit_price_batch_plan_service.py`, `test_planning_cross_docking_adapter.py`, `test_cross_docking_unit_rate_source.py`). Пять persistence regressions были вызваны напрямую с отдельными заранее созданными тестовыми каталогами: **5 passed** (Decimal-scale repository, сохранение evidence, unavailable-rate compatibility, single reopen/recapture, batch reopen/recapture).
+- Попытка широкого pytest-профиля с `tmp_path`/SQLite завершилась ошибками Windows ACL при создании и очистке `basetemp` (`WinError 5`); результаты этого прогона не считаются зелёными. Проектные `data/tasks.json`/`data/users.json` не изменялись. Полный локальный pytest не запускался согласно существующему ограничению. Требуется exact-head CI и повторный review.
+- Merge, deploy, запуск бота и live Ozon API не выполнялись.
+
 Дата начала: 19.10.2026  
 ТЗ: `LUNA_CROSS_DOCKING_UNIT_ECONOMICS_TASK_2026-10-19.md`, редакция 3.  
 База: `main` / `7e6eabdeba34a822434e5ef417a135995628cc41`.

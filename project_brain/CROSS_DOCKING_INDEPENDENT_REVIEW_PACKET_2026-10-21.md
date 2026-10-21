@@ -63,3 +63,13 @@ Architecture review is required: the PR changes the collection pipeline, calcula
 `0d9bc23f` supply evidence source → `3abab19c` signed expense and rate → `74c9ff7b` bounded production collector → `cf0dd2da` current and unit-economics integration → `4661cc3b` versioned saved plans → `cec03f41` complete-window/unavailable-rate fix and regression → `4f77cfef` v1/v2 plan-fact compatibility.
 
 No merge or deployment is authorized by this handoff.
+
+## Follow-up review findings R1–R3 — 2026-10-21
+
+The first independent review found three defects on the then-reviewed head `44ee75b7fb86b1e0420397b3db72926a4f8192f4`:
+
+1. Decimal values with different textual scales were rejected by saved-plan equality checks (for example production float `12.0` versus evidence string `12.00`). Repository and adapter validation now compare finite Decimal values; regression inputs include float rates `12.0`, `12.5`, and `0.0`.
+2. Reopened v2 evidence was passed through the raw-provider projection, which discarded `rate_available` and the amount. The adapter now safely reprojects persisted evidence, preserves the method/model version, and keeps the rate available through single and batch reopen/recapture flows.
+3. Batch refresh passed `force_refresh=True` for every SKU although the checkpoint is store/window scoped. The root `PeriodProfitOperationTrace` now supports a one-time operation claim; one refresh invalidates shared evidence once, and later SKU projections resume/reuse it. Standalone explicit refresh retains reset semantics.
+
+Post-fix bounded verification on Windows: **29 pytest tests passed** across batch planning, adapter and cross-docking unit-rate source with `tmp_path` disabled; five DB-backed repository/single/batch regression functions passed when invoked against isolated, pre-created test directories. A broader pytest invocation could not use the Windows ACL-restricted pytest `basetemp` (`WinError 5`), so that result is not green and full local pytest remains suspended. The exact-head GitHub CI and repeat review must be recorded here after the fix is pushed. Merge/deploy remain outside scope.

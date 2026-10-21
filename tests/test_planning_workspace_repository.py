@@ -2,6 +2,7 @@ import sqlite3
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from decimal import Decimal
 from threading import Barrier
 
 from services.ozon_account_repository import make_store_tenant_scope
@@ -532,6 +533,44 @@ def test_v2_cross_docking_evidence_is_frozen_and_identifier_allowlisted(tmp_path
         unsafe = _cross_docking_payload()
         unsafe["items"][0]["sources"]["cross_docking"]["supply_id"] = "private-id"
         assert _save(repo, "crossdock-save-0002", payload=unsafe)["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_v2_cross_docking_accepts_equal_decimal_values_with_different_scales(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "seller.sqlite")
+    token = _context()
+    try:
+        for index, rate in enumerate((12.0, 12.5, 0.0), start=1):
+            payload = _cross_docking_payload()
+            amount = f"{rate:.2f}"
+            item = payload["items"][0]
+            item["inputs"]["cross_docking_per_unit"] = rate
+            item["sources"]["cross_docking"]["amount_per_unit"] = amount
+            item["sources"]["cross_docking"]["model_version"] = (
+                "cross_docking_unit_cost_v1"
+            )
+            item["projection"]["cross_docking"] = amount
+            created = _save(
+                repo,
+                f"crossdock-scale-{index:02}",
+                payload=payload,
+            )
+            assert created["error"] is False
+            saved = repo.get_document(created["document_id"])["document"]["payload"]
+            assert Decimal(
+                saved["items"][0]["inputs"]["cross_docking_per_unit"]
+            ) == Decimal(amount)
+            assert saved["items"][0]["sources"]["cross_docking"]["model_version"] == (
+                "cross_docking_unit_cost_v1"
+            )
+        mismatch = _cross_docking_payload()
+        mismatch["items"][0]["inputs"]["cross_docking_per_unit"] = 12.5
+        assert _save(
+            repo,
+            "crossdock-scale-invalid",
+            payload=mismatch,
+        )["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
     finally:
         reset_current_tenant_user_id(token)
 

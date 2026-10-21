@@ -529,7 +529,8 @@ class PlanningWorkspaceRepository:
                     return None
                 rate = clean_inputs.get("cross_docking_per_unit")
                 if cross_docking.get("rate_available") is True:
-                    if (rate is None or rate != cross_docking.get("amount_per_unit")
+                    if (rate is None or not self._same_decimal_value(
+                            rate, cross_docking.get("amount_per_unit"))
                             or cross_docking.get("evidence_complete") is not True
                             or cross_docking.get("applicable_to_sku") is not True
                             or cross_docking.get("denominator_kind") != "DELIVERED_CROSSDOCK_UNITS"):
@@ -695,9 +696,15 @@ class PlanningWorkspaceRepository:
                 safe_evidence[key] = value
             for key in ("supplied_units_sku", "supplied_units_store", "days_complete", "days_expected", "model_version"):
                 value = evidence.get(key)
-                if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
-                    return None
-                safe_evidence[key] = value
+                if key == "model_version" and isinstance(value, str):
+                    clean_version = cls._short_text(value, 80)
+                    if clean_version is None:
+                        return None
+                    safe_evidence[key] = clean_version
+                else:
+                    if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
+                        return None
+                    safe_evidence[key] = value
             for key in ("date_from", "date_to", "as_of"):
                 value = evidence.get(key)
                 safe_evidence[key] = cls._timestamp_or_date(value) if value is not None else None
@@ -940,6 +947,16 @@ class PlanningWorkspaceRepository:
         if not number.is_finite() or abs(number.adjusted()) > 12 or len(number.as_tuple().digits) > 28:
             return False
         return format(number, "f")
+
+    @classmethod
+    def _same_decimal_value(cls, left, right):
+        left_value = cls._decimal_string(left)
+        right_value = cls._decimal_string(right)
+        return (
+            left_value is not False
+            and right_value is not False
+            and Decimal(left_value) == Decimal(right_value)
+        )
 
     @staticmethod
     def _utc_timestamp(value):

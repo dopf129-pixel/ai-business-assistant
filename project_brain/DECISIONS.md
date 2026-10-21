@@ -69,6 +69,7 @@ Decision:
 
 - Collect 56-day financial and supplied-unit evidence through the existing read-only Ozon client with a maximum of 64 HTTP attempts and 60 seconds per calculation slice; each endpoint operation is one attempt and shares the parent operation trace budget.
 - Keep raw checkpoints and complete projections in bounded process-local memory only, keyed by tenant/store, exact date window and model version. Incomplete evidence is resumable but never published as a numeric unit rate; complete evidence has a 10-minute TTL and force refresh clears the matching checkpoint.
+- Within one parent operation that refreshes multiple SKUs, invalidate the shared store/window evidence once; subsequent SKU projections in that operation reuse the completed result or continue its checkpoint instead of restarting the same collection.
 - Reuse complete daily accrual pages already held by the request-local `PeriodProfitFinanceService` cache for the overlapping 28-day window. Do not launch a second pagination for each SKU.
 - Keep Ozon reads lazy until an explicit calculation; application construction and imports perform no API calls. Do not persist raw API payloads or identifiers in diagnostics.
 
@@ -78,7 +79,7 @@ The 56-day source can exceed one request budget and the unit-cost denominator is
 
 Status:
 
-Bounded collection and calculator application are implemented and covered by X03–X04 regression profiles. Persistent scenario snapshots and historical-plan compatibility remain X05.
+Bounded collection, calculator application and operation-scoped refresh behavior are implemented and covered by X03–X04 plus the R1–R3 review regression profile. Persistent scenario snapshots and historical-plan compatibility are covered by X05 and its follow-up review fixes.
 
 ## Decision 051
 

@@ -4,6 +4,7 @@ from services.cross_docking_supply_evidence_service import (
     CrossDockingSupplyEvidenceService,
 )
 from services.cross_docking_unit_rate_source import CrossDockingUnitRateSource
+from services.period_profit_operation_diagnostics import PeriodProfitOperationTrace
 
 
 class _FakeOzonClient:
@@ -236,6 +237,48 @@ def test_tenant_scope_isolated_and_force_refresh_resets_window_checkpoint(monkey
     assert refreshed["http_attempts"] == 5
     assert refreshed["cross_docking_per_unit"] is None
     assert len(client.calls) == 15
+
+
+def test_force_refresh_resets_shared_window_once_per_parent_operation(monkeypatch):
+    monkeypatch.setattr(
+        "services.cross_docking_unit_rate_source.ZoneInfo",
+        lambda _name: timezone.utc,
+    )
+    monkeypatch.setattr(
+        CrossDockingSupplyEvidenceService,
+        "resolve_timezone",
+        classmethod(lambda cls: timezone.utc),
+    )
+    client = _FakeOzonClient()
+    source = _source(client, max_requests=5)
+    operation = PeriodProfitOperationTrace(
+        operation="unit_price_batch_plan",
+        time_budget_seconds=120,
+        ozon_request_budget=128,
+    )
+    client.trace = operation
+    first_row_trace = PeriodProfitOperationTrace(parent=operation)
+    second_row_trace = PeriodProfitOperationTrace(parent=operation)
+
+    first = source.get_rate(
+        sku="3921245627",
+        tenant_scope="user:store-a",
+        operation_trace=first_row_trace,
+        force_refresh=True,
+    )
+    first_window_calls = list(client.finance_cursor_calls)
+    second = source.get_rate(
+        sku="another-sku",
+        tenant_scope="user:store-a",
+        operation_trace=second_row_trace,
+        force_refresh=True,
+    )
+
+    assert first["finance_checkpointed"] is True
+    assert second["finance_checkpointed"] is True
+    assert operation.ozon_requests_reserved == 10
+    assert len(client.finance_cursor_calls) == 10
+    assert client.finance_cursor_calls[5] != first_window_calls[0]
 
 
 def test_source_creation_is_lazy_and_missing_identity_never_calls_ozon():

@@ -59,8 +59,11 @@ class PlanningCrossDockingAdapter:
 
     @classmethod
     def project_source(cls, evidence):
-        """Project an in-memory provider result to safe, durable evidence."""
+        """Project provider or saved evidence to the safe durable contract."""
         evidence = evidence if isinstance(evidence, dict) else {}
+        stored_evidence = (
+            "rate_available" in evidence or "amount_per_unit" in evidence
+        )
         method = evidence.get("method")
         if method not in cls.METHODS:
             method = None
@@ -69,9 +72,12 @@ class PlanningCrossDockingAdapter:
             denominator_kind = None
         window_complete = evidence.get("evidence_complete") is True
         applicable_to_sku = evidence.get("applicable_to_sku") is True
-        amount_per_unit = cls._amount(evidence.get("cross_docking_per_unit"))
+        amount_per_unit = cls._amount(evidence.get(
+            "amount_per_unit" if stored_evidence else "cross_docking_per_unit"
+        ))
         rate_available = (
-            window_complete
+            (not stored_evidence or evidence.get("rate_available") is True)
+            and window_complete
             and applicable_to_sku
             and method is not None
             and denominator_kind == cls.DENOMINATOR_KIND
@@ -101,7 +107,7 @@ class PlanningCrossDockingAdapter:
             "timezone": cls._label(evidence.get("timezone"), 40),
             "financial_date_basis": cls._label(evidence.get("financial_date_basis"), 48),
             "supply_date_basis": cls._label(evidence.get("supply_date_basis"), 64),
-            "model_version": cls._count(evidence.get("model_version")),
+            "model_version": cls._model_version(evidence.get("model_version")),
         }
 
     @classmethod
@@ -125,7 +131,8 @@ class PlanningCrossDockingAdapter:
             return None, None
         rate = cls._amount(inputs.get("cross_docking_per_unit"))
         if evidence.get("rate_available") is True:
-            if (rate is None or rate != evidence.get("amount_per_unit")
+            if (rate is None or not cls._same_amount(
+                    rate, evidence.get("amount_per_unit"))
                     or evidence.get("evidence_complete") is not True
                     or evidence.get("denominator_kind") != cls.DENOMINATOR_KIND
                     or evidence.get("applicable_to_sku") is not True):
@@ -154,10 +161,7 @@ class PlanningCrossDockingAdapter:
     @classmethod
     def display_source(cls, evidence):
         """Expose only the harmless fields needed for plan screens/exports."""
-        safe = cls.project_source(evidence)
-        if isinstance(evidence, dict) and "amount_per_unit" in evidence:
-            safe["amount_per_unit"] = cls._amount(evidence.get("amount_per_unit"))
-        return safe
+        return cls.project_source(evidence)
 
     @classmethod
     def completeness_projection(cls, safe_evidence):
@@ -190,6 +194,24 @@ class PlanningCrossDockingAdapter:
         if type(value) is not int or value < 0 or value > 1_000_000:
             return None
         return value
+
+    @classmethod
+    def _model_version(cls, value):
+        if type(value) is int:
+            return cls._count(value)
+        if isinstance(value, str):
+            return cls._label(value, 80)
+        return None
+
+    @classmethod
+    def _same_amount(cls, left, right):
+        left_amount = cls._amount(left)
+        right_amount = cls._amount(right)
+        return (
+            left_amount is not None
+            and right_amount is not None
+            and Decimal(left_amount) == Decimal(right_amount)
+        )
 
     @classmethod
     def _date(cls, value):

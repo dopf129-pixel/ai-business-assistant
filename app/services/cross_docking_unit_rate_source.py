@@ -124,8 +124,21 @@ class CrossDockingUnitRateSource:
                     leader = False
                 else:
                     if reset_requested:
-                        self._remove_locked(key)
-                        entry = None
+                        claim_once = getattr(operation_trace, "claim_once", None)
+                        if callable(claim_once):
+                            try:
+                                reset_requested = claim_once(
+                                    "cross_docking_force_refresh", key,
+                                )
+                            except Exception:
+                                return self._unavailable(
+                                    "CROSSDOCK_OPERATION_CONTEXT_INVALID",
+                                    date_from=date_from,
+                                    date_to=date_to,
+                                )
+                        if reset_requested:
+                            self._remove_locked(key)
+                            entry = None
                         reset_requested = False
                     if entry is not None and self._is_complete(entry):
                         self._touch_locked(key)

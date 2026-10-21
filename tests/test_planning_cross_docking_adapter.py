@@ -49,6 +49,45 @@ def test_source_projection_keeps_safe_formula_evidence_and_drops_external_ids():
     assert not ({"sku", "supply_id", "raw_response"} & set(result))
 
 
+def test_persisted_evidence_can_be_projected_again_without_losing_rate():
+    projected = PlanningCrossDockingAdapter.project_source({
+        **_evidence(),
+        "cross_docking_per_unit": "12.00",
+        "rate_available": True,
+    })
+    item = {
+        "inputs": {"cross_docking_per_unit": "12.0"},
+        "sources": {"cross_docking": projected},
+    }
+    inputs, restored = PlanningCrossDockingAdapter.restore_item(
+        {"calculation_version": 2}, item,
+    )
+
+    displayed = PlanningCrossDockingAdapter.display_source(restored)
+    recaptured = PlanningCrossDockingAdapter.project_source(displayed)
+
+    assert inputs["cross_docking_per_unit"] == "12.0"
+    assert displayed["rate_available"] is True
+    assert displayed["amount_per_unit"] == "12.00"
+    assert recaptured["rate_available"] is True
+    assert recaptured["amount_per_unit"] == "12.00"
+    assert recaptured["model_version"] == 1
+
+
+def test_runtime_model_version_is_preserved_as_safe_string():
+    result = PlanningCrossDockingAdapter.project_source({
+        "evidence_complete": True,
+        "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        "cross_docking_per_unit": "12.00",
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "applicable_to_sku": True,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "model_version": "cross_docking_unit_cost_v1",
+    })
+
+    assert result["model_version"] == "cross_docking_unit_cost_v1"
+
+
 def test_complete_window_without_a_rate_is_distinct_and_keeps_no_numeric_cost():
     result = PlanningCrossDockingAdapter.project_source({
         "evidence_complete": True,
