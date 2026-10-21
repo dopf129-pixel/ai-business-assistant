@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from services.analytics_export_serializer import AnalyticsExportSerializer
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 
 class AnalyticsExportService:
@@ -398,6 +399,9 @@ class AnalyticsExportService:
             self._column("projection", "Сохранённая проекция", "json"),
             self._column("sales_quantity", "Подтверждённое количество", "integer", "шт."),
         ]
+        cross_docking_enabled = PlanningCrossDockingAdapter.is_current(payload)
+        if cross_docking_enabled:
+            columns.append(self._column("cross_docking_source", "Источник кросс-докинга", "json"))
         mix = payload.get("sales_mix")
         quantities = mix.get("quantities") if isinstance(mix, dict) else {}
         rows = []
@@ -419,6 +423,10 @@ class AnalyticsExportService:
                 "projection": projection,
                 "sales_quantity": quantities.get(row_id) if isinstance(quantities, dict) else None,
             }
+            if cross_docking_enabled:
+                row["cross_docking_source"] = deepcopy(
+                    (item.get("sources") or {}).get("cross_docking")
+                )
             rows.append(row)
         metadata = {
             "document_kind": "saved_planning_plan",
@@ -443,6 +451,8 @@ class AnalyticsExportService:
     def export_advertising_cap(self, document, caps, file_format):
         if not isinstance(document, dict) or not isinstance(caps, list) or len(caps) > 10:
             return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        payload = document.get("payload") or {}
+        cross_docking_enabled = PlanningCrossDockingAdapter.is_current(payload)
         columns = [
             self._column("product_id", "ID товара", "text"),
             self._column("offer_id", "Артикул", "text"),
@@ -455,11 +465,13 @@ class AnalyticsExportService:
             self._column("target_per_unit", "Расход на рекламу для цели", "money", "RUB/шт."),
             self._column("inputs", "Сохранённые допущения", "json"),
         ]
+        if cross_docking_enabled:
+            columns.append(self._column("cross_docking_source", "Источник кросс-докинга", "json"))
         rows = []
         for item in caps:
             if not isinstance(item, dict):
                 return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
-            rows.append({
+            row = {
                 "product_id": item.get("product_id"), "offer_id": item.get("offer_id"),
                 "sku": item.get("sku"), "status": item.get("status"),
                 "target_margin_percent": item.get("target_margin_percent"),
@@ -468,7 +480,10 @@ class AnalyticsExportService:
                 "target_rate": item.get("target_rate"),
                 "target_per_unit": item.get("target_per_unit"),
                 "inputs": deepcopy(item.get("inputs") or {}),
-            })
+            }
+            if cross_docking_enabled:
+                row["cross_docking_source"] = deepcopy(item.get("cross_docking_source"))
+            rows.append(row)
         metadata = {
             "document_id": document.get("document_id"), "revision": document.get("revision"),
             "calculation_version": (document.get("payload") or {}).get("calculation_version"),
@@ -499,6 +514,9 @@ class AnalyticsExportService:
             self._column("components", "Компоненты строки", "json"),
             self._column("exclusion_reason", "Причина исключения", "status"),
         ]
+        cross_docking_enabled = PlanningCrossDockingAdapter.is_current(payload)
+        if cross_docking_enabled:
+            columns.append(self._column("cross_docking_source", "Источник кросс-докинга", "json"))
         rows = []
         for item in payload.get("items") or []:
             if not isinstance(item, dict) or not isinstance(item.get("identity"), dict):
@@ -507,7 +525,7 @@ class AnalyticsExportService:
             row_id = str(item.get("row_id") or identity.get("sku") or "")
             projected_row = projected.get(row_id)
             excluded_row = excluded.get(row_id)
-            rows.append({
+            row = {
                 "row_id": row_id, "product_id": identity.get("product_id"),
                 "offer_id": identity.get("offer_id"), "sku": identity.get("sku"),
                 "status": "INCLUDED" if projected_row else "EXCLUDED" if excluded_row else "UNKNOWN",
@@ -515,7 +533,12 @@ class AnalyticsExportService:
                 "price_per_unit": projected_row.get("price_per_unit") if projected_row else None,
                 "components": deepcopy(projected_row.get("components") or {}) if projected_row else None,
                 "exclusion_reason": excluded_row.get("reason") if excluded_row else None,
-            })
+            }
+            if cross_docking_enabled:
+                row["cross_docking_source"] = deepcopy(
+                    (item.get("sources") or {}).get("cross_docking")
+                )
+            rows.append(row)
         metadata = {
             "document_id": document.get("document_id"), "revision": document.get("revision"),
             "calculation_version": payload.get("calculation_version"),
@@ -547,6 +570,15 @@ class AnalyticsExportService:
             self._column("delta", "Изменение", "json"),
             self._column("unit", "Единица", "text"),
         ]
+        cross_docking_enabled = any(
+            isinstance(product, dict) and "cross_docking_source_before" in product
+            for product in comparison.get("input_changes") or []
+        )
+        if cross_docking_enabled:
+            columns.extend([
+                self._column("cross_docking_source_before", "Источник кросс-докинга · вариант 1", "json"),
+                self._column("cross_docking_source_after", "Источник кросс-докинга · вариант 2", "json"),
+            ])
         rows = []
         for product in comparison.get("input_changes") or []:
             identity = product.get("identity") or {}
@@ -567,7 +599,7 @@ class AnalyticsExportService:
                 continue
             changes = product.get("changes") or []
             if not changes:
-                rows.append({
+                unchanged_row = {
                     "product_id": identity.get("product_id"),
                     "offer_id": identity.get("offer_id"),
                     "sku": identity.get("sku"),
@@ -577,15 +609,23 @@ class AnalyticsExportService:
                     "after": "Без изменений",
                     "delta": None,
                     "unit": "status",
-                })
+                }
+                if cross_docking_enabled:
+                    unchanged_row["cross_docking_source_before"] = deepcopy(product.get("cross_docking_source_before"))
+                    unchanged_row["cross_docking_source_after"] = deepcopy(product.get("cross_docking_source_after"))
+                rows.append(unchanged_row)
             for change in changes:
-                rows.append({
+                change_row = {
                     "product_id": identity.get("product_id"), "offer_id": identity.get("offer_id"),
                     "sku": identity.get("sku"), "scope_status": "COMMON",
                     "field": change.get("label"),
                     "before": change.get("before"), "after": change.get("after"),
                     "delta": change.get("delta"), "unit": change.get("unit"),
-                })
+                }
+                if cross_docking_enabled:
+                    change_row["cross_docking_source_before"] = deepcopy(product.get("cross_docking_source_before"))
+                    change_row["cross_docking_source_after"] = deepcopy(product.get("cross_docking_source_after"))
+                rows.append(change_row)
         metadata = {
             "document_kind": "saved_plan_comparison",
             "comparison_version": comparison.get("comparison_version"),

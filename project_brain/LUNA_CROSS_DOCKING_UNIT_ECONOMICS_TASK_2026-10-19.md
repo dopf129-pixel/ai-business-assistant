@@ -1,6 +1,6 @@
 # ТЗ для GPT Luna — средний кросс-докинг на поставленную единицу
 
-Дата: 19.10.2026. Редакция 4. Статус: **IMPLEMENTATION IN PROGRESS; X00–X04 завершены, выполняются X05–X06**.
+Дата: 19.10.2026. Редакция 4. Статус: **X00–X05 завершены; X06 финальный review/CI handoff в работе**.
 
 Эта редакция полностью заменяет редакции 1–2. Подтверждено пользователем: **автоматически собрать все начисления кросс-докинга за 56 завершённых дней, включая корректировки, и разделить расходы на количество товара, поставленного кросс-докингом. Ручного ввода суммы нет.**
 
@@ -258,6 +258,8 @@ Q_store = физические единицы всех таких кросс-д�
 4. CSV/JSON/compare показывают method, denominator_kind, supplied_units, expense_total, даты и completeness. Plan/fact factual leg не получает нового удержания.
 
 **Готово:** current→single/batch→save/restart→sales mix→compare/export согласованы, исходные historical revisions сохранены.
+
+**Статус выполнения (2026-10-21): COMPLETE.** В сохранённых планах v2 фиксируются allowlisted ставки/evidence по SKU; старые v1 открываются с прежней формулой без текущих поставок. Explicit refresh может попасть только в новую ревизию/копию с проверкой идентичности и CAS. Sales mix применяет historical rate к плановому Q и оставляет total profit/margin недоступными при неполной ставке. Сравнение и CSV/JSON используют frozen source; plan/fact factual leg не менялся. Финальный bounded Windows profile: **123 passed in 3.31s** across 8 related modules. X06 остаётся до CI и review handoff.
 
 ### X06 — регрессии, документация и review handoff
 

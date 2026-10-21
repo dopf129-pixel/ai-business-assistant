@@ -5,7 +5,7 @@ from uuid import uuid4
 class UnitPriceScenarioService:
     """Pure calculator for one-unit seller-price planning scenarios."""
 
-    VERSION = 1
+    VERSION = 2
     MONEY_FIELDS = (
         "price",
         "cost",

@@ -42,6 +42,39 @@ def _payload(store_id="store-a", sku="sku-1", name="Крючок"):
     }
 
 
+def _cross_docking_payload():
+    payload = _payload()
+    payload["schema_version"] = 2
+    payload["calculation_version"] = 2
+    item = payload["items"][0]
+    item["inputs"]["cross_docking_per_unit"] = "12.00"
+    item["provenance"]["cross_docking_per_unit"] = "ozon_cross_docking_sku_average"
+    item["sources"]["periods"]["cross_docking"] = {
+        "from": "2026-08-24", "to": "2026-10-18", "calendar_days": 56,
+        "timezone": "Europe/Moscow",
+    }
+    item["sources"]["completeness"]["cross_docking"] = {
+        "complete": True, "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+    }
+    item["sources"]["cross_docking"] = {
+        "evidence_complete": True,
+        "status": "SKU_SUPPLY_PERIOD_AVERAGE", "reason": None,
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "amount_per_unit": "12.00", "applicable_to_sku": True,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "expense_total": "1200.00", "expense_by_sku": "1200.00",
+        "supplied_units_sku": 100, "supplied_units_store": 100,
+        "days_complete": 56, "days_expected": 56,
+        "date_from": "2026-08-24", "date_to": "2026-10-18",
+        "as_of": "2026-10-19T12:00:00Z", "timezone": "Europe/Moscow",
+        "financial_date_basis": "ACCRUAL_DATE",
+        "supply_date_basis": "COMPLETED_SINGLE_CROSSDOCK_ORDER_STATE_UPDATED_DATE",
+        "model_version": 1,
+    }
+    item["projection"]["cross_docking"] = "12.00"
+    return payload
+
+
 def _context(owner="user-1", store="store-a"):
     return set_current_tenant_user_id(make_store_tenant_scope(owner, store))
 
@@ -451,5 +484,37 @@ def test_sales_mix_persists_explicit_unknown_quantity_and_rejects_bad_scope(tmp_
             "expenses": [{"name": "Скидка", "amount": "-1"}],
         }
         assert _save(repo, "sales-mix-invalid-02", payload=negative)["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_v2_cross_docking_evidence_is_frozen_and_identifier_allowlisted(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "seller.sqlite")
+    token = _context()
+    try:
+        created = _save(repo, "crossdock-save-0001", payload=_cross_docking_payload())
+        assert created["error"] is False
+        saved = repo.get_document(created["document_id"])["document"]["payload"]
+        item = saved["items"][0]
+        assert saved["calculation_version"] == 2
+        assert item["inputs"]["cross_docking_per_unit"] == "12.00"
+        assert item["sources"]["cross_docking"]["supplied_units_sku"] == 100
+        assert "sku" not in item["sources"]["cross_docking"]
+        assert "supply_id" not in item["sources"]["cross_docking"]
+
+        unsafe = _cross_docking_payload()
+        unsafe["items"][0]["sources"]["cross_docking"]["supply_id"] = "private-id"
+        assert _save(repo, "crossdock-save-0002", payload=unsafe)["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_v1_plan_cannot_persist_automatic_cross_docking(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "seller.sqlite")
+    token = _context()
+    try:
+        legacy = _payload()
+        legacy["items"][0]["inputs"]["cross_docking_per_unit"] = "12.00"
+        assert _save(repo, "crossdock-save-0003", payload=legacy)["code"] == "PLANNING_DOCUMENT_INPUT_INVALID"
     finally:
         reset_current_tenant_user_id(token)

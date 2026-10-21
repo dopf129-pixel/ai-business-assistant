@@ -21,8 +21,8 @@
 | X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
 | X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
 | X04 | COMPLETE | Автоматическая ставка подключена к текущей и плановой юнит-экономике; целевая цена, безубыточность, рекламный предел и sensitivity используют общий расчёт; Telegram показывает период, метод SKU/store, фактические начисления/поставленные единицы, coverage и явное исключение неполной ставки. Профиль: **256 passed in 5.54s**. |
-| X05 | NEXT | Сохранённые и групповые планы должны фиксировать evidence/version и сохранять legacy behavior без подстановки сегодняшних данных в историю. |
-| X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
+| X05 | COMPLETE | Saved v2 evidence, per-SKU batch rates, sales-mix application to planned quantity, frozen revision comparison/export, and explicit refresh/CAS. v1 compatibility remains unchanged and does not load current supplies. Final bounded Windows profile: **123 passed in 3.31s**. |
+| X06 | IN PROGRESS | Final bounded tests, compile/diff/secret-scratch review, docs and independent-review handoff. No merge/deploy/bot run. |
 
 ## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
 
@@ -42,6 +42,16 @@
 - Current and planning UI показывают фактический период 56 дней, SKU-rate/store estimate, signed expense total / actual supplied units, data coverage и безопасную причину, если ставка не включена. В Telegram выводе нет source SKU или supply ID. Unknown/incomplete current result не кэшируется как complete, следующий явный запрос может продолжить checkpoint.
 - Регрессии по 17 связанным модулям (cross-dock collectors, current/scenario sources/providers, cache, runtime, target solver, ad-cap, sensitivity и factory wiring): **256 passed in 5.54s** на Windows. Использованы отдельные test-storage и pytest basetemp с отключённой plugin autoload. `git diff --check` прошёл до документационного обновления; полный local pytest запрещён из-за известного ACL/shared-storage инцидента. Live Ozon API, bot, merge и deploy не запускались.
 - X04 complete. Next: X05 frozen component evidence/version through saved, batch and historical plan paths.
+
+## X05 — saved plans, batch scenarios, comparison and exports — 2026-10-21
+
+- Added `PlanningCrossDockingAdapter` as the sole boundary for saved-plan v1/v2 compatibility. A legacy payload without explicit version fields follows the repository's v1 default; invalid/mismatched versions fail closed. Opening v1 strips cross-docking input/evidence, and never reads today's supply source.
+- Version 2 persists per-SKU rate and an exact allowlist of safe evidence fields in each immutable revision. Raw API payloads, SKU and supply IDs from cross-docking source diagnostics are not copied into the cross-docking evidence object. Repository validation pairs rate, denominator and applicability with the frozen source.
+- Single and batch capture save the current evidence snapshot; open, readiness, compare and exports use that snapshot with no Ozon refresh. Explicit refresh provides a new capture; regression confirms a saved update stores the newer rate in revision 2 while revision 1 keeps its original rate and manual price/cost overrides.
+- Sales mix applies per-SKU historical rate to planned successful-sales Q, not to the historical delivered-unit denominator. It subtracts the component once before the existing tax calculation. If evidence is unavailable for a positive planned quantity, result is partial and final group profit/margin remain unavailable. Plan/fact code and factual component scope were not changed.
+- CSV/JSON saved-plan, sales-mix, advertising-cap and comparison exports include only frozen safe method, denominator, amounts/units, date-window and completeness metadata. Legacy export columns remain unchanged.
+- Verification: bounded Windows profile across adapter, repository, sales-mix, compare/export and Telegram saved-plan/batch flows: **123 passed in 3.31s**. Full local pytest was not run per ACL rule. No live Ozon request, bot run, merge or deployment.
+- X05 complete. X06 remains active for source/diff hygiene, final syntax and diff checks, remote CI, PR packaging and review handoff.
 
 ## X02 — signed finance evidence and pure rate — 2026-10-20
 

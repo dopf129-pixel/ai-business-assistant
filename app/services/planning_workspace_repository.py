@@ -21,7 +21,7 @@ from services.tenant_storage import ensure_storage_parent, tenant_storage_path
 
 
 class PlanningWorkspaceRepository:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     DATABASE_SCHEMA_VERSION = 2
     MAX_DOCUMENTS_PER_STORE = 200
     MAX_REVISIONS_PER_DOCUMENT = 20
@@ -37,6 +37,7 @@ class PlanningWorkspaceRepository:
         "price", "cost", "commission_rate", "advertising_rate",
         "discount_points_rate", "logistics_per_unit", "last_mile_per_unit",
         "acquiring_per_unit", "tax_mode", "tax_rate", "minimum_tax_rate",
+        "cross_docking_per_unit",
     })
     _IDENTITY_FIELDS = frozenset({
         "product_id", "offer_id", "sku", "product_name", "store_id", "scheme",
@@ -45,9 +46,11 @@ class PlanningWorkspaceRepository:
         "status", "available", "missing_inputs", "invalid_inputs", "revenue",
         "discount_points", "taxable_revenue", "commission", "advertising",
         "fees", "profit_before_tax", "tax", "effective_tax_rate", "profit",
-        "margin_percent",
+        "margin_percent", "cross_docking",
     })
-    _SOURCE_FIELDS = frozenset({"periods", "as_of", "loaded_at", "completeness"})
+    _SOURCE_FIELDS = frozenset({
+        "periods", "as_of", "loaded_at", "completeness", "cross_docking",
+    })
 
     def __init__(self, db_path=None, clock=None):
         self._db_path = Path(db_path) if db_path is not None else None
@@ -431,9 +434,11 @@ class PlanningWorkspaceRepository:
         items = payload.get("items")
         if kind not in {"single", "batch"} or not isinstance(items, list) or not 1 <= len(items) <= 10:
             return None
-        schema = payload.get("schema_version", self.SCHEMA_VERSION)
         calc = payload.get("calculation_version", 1)
-        if type(schema) is not int or schema != self.SCHEMA_VERSION or type(calc) is not int or calc < 1:
+        schema = payload.get("schema_version", calc)
+        if (type(schema) is not int or schema not in {1, 2}
+                or type(calc) is not int or calc not in {1, 2}
+                or schema != calc):
             return None
         normalized_items = []
         seen = set()
@@ -503,6 +508,29 @@ class PlanningWorkspaceRepository:
             clean_sources = self._clean_sources(sources)
             if clean_sources is None:
                 return None
+            if calc == 1 and (
+                "cross_docking_per_unit" in clean_inputs
+                or "cross_docking_per_unit" in clean_provenance
+                or "cross_docking" in clean_sources
+                or "cross_docking" in clean_sources.get("completeness", {})
+                or "cross_docking" in clean_projection
+            ):
+                return None
+            if calc == 2:
+                cross_docking = clean_sources.get("cross_docking")
+                if ("cross_docking_per_unit" not in clean_inputs
+                        or "cross_docking_per_unit" not in clean_provenance
+                        or not isinstance(cross_docking, dict)
+                        or "cross_docking" not in clean_sources.get("completeness", {})):
+                    return None
+                rate = clean_inputs.get("cross_docking_per_unit")
+                if cross_docking.get("evidence_complete") is True:
+                    if (rate is None or rate != cross_docking.get("amount_per_unit")
+                            or cross_docking.get("applicable_to_sku") is not True
+                            or cross_docking.get("denominator_kind") != "DELIVERED_CROSSDOCK_UNITS"):
+                        return None
+                elif rate is not None:
+                    return None
             row_id = self._short_text(item.get("row_id"), 64, optional=True)
             normalized_items.append({
                 "row_id": row_id,
@@ -546,12 +574,30 @@ class PlanningWorkspaceRepository:
         periods = sources.get("periods", {})
         if not isinstance(periods, dict) or set(periods) - {
             "seller_price_as_of", "commission_rate_as_of", "tax_policy_as_of",
-            "cost_as_of", "discount_points",
+            "cost_as_of", "discount_points", "cross_docking",
         }:
             return None
         period_copy = {}
         for key, value in periods.items():
-            if key == "discount_points":
+            if key == "cross_docking":
+                if not isinstance(value, dict) or set(value) - {"from", "to", "calendar_days", "timezone"}:
+                    return None
+                cleaned_period = {
+                    "from": cls._short_text(value.get("from"), 32, optional=True),
+                    "to": cls._short_text(value.get("to"), 32, optional=True),
+                    "calendar_days": value.get("calendar_days"),
+                    "timezone": cls._short_text(value.get("timezone"), 40, optional=True),
+                }
+                if ((cleaned_period["calendar_days"] is not None
+                     and (type(cleaned_period["calendar_days"]) is not int
+                          or not 1 <= cleaned_period["calendar_days"] <= 366))
+                        or any(value is not None and cleaned_period[key] is None
+                               for key, value in (("from", value.get("from")),
+                                                  ("to", value.get("to")),
+                                                  ("timezone", value.get("timezone"))))):
+                    return None
+                period_copy[key] = cleaned_period
+            elif key == "discount_points":
                 if not isinstance(value, dict) or set(value) - {"from", "to", "calendar_days"}:
                     return None
                 period_copy[key] = {
@@ -575,7 +621,7 @@ class PlanningWorkspaceRepository:
         if not isinstance(completeness, dict) or set(completeness) - {
             "catalog_identity", "seller_price", "cost", "commission_rate",
             "advertising", "discount_points", "fixed_fees", "tax_policy",
-            "price", "commission", "fees", "tax", "scheme",
+            "price", "commission", "fees", "tax", "scheme", "cross_docking",
         }:
             return None
         clean_completeness = {}
@@ -601,6 +647,61 @@ class PlanningWorkspaceRepository:
             if any(v is None for v in clean_completeness[key].values()):
                 return None
         cleaned["completeness"] = clean_completeness
+        if "cross_docking" in sources:
+            evidence = sources.get("cross_docking")
+            allowed = {
+                "evidence_complete", "status", "reason", "method", "amount_per_unit",
+                "applicable_to_sku", "denominator_kind", "expense_total", "expense_by_sku",
+                "supplied_units_sku", "supplied_units_store", "days_complete", "days_expected",
+                "date_from", "date_to", "as_of", "timezone", "financial_date_basis",
+                "supply_date_basis", "model_version",
+            }
+            if not isinstance(evidence, dict) or set(evidence) != allowed:
+                return None
+            if (type(evidence.get("evidence_complete")) is not bool
+                    or type(evidence.get("applicable_to_sku")) is not bool):
+                return None
+            method = evidence.get("method")
+            if method is not None and method not in {
+                "sku_accrual_cost_per_delivered_crossdock_unit",
+                "store_accrual_cost_per_delivered_crossdock_unit",
+            }:
+                return None
+            denominator = evidence.get("denominator_kind")
+            if denominator is not None and denominator != "DELIVERED_CROSSDOCK_UNITS":
+                return None
+            safe_evidence = {}
+            for key in ("evidence_complete", "applicable_to_sku"):
+                safe_evidence[key] = evidence[key]
+            for key in ("status", "reason"):
+                value = evidence.get(key)
+                safe_evidence[key] = cls._short_text(value, 80, optional=True)
+                if value is not None and safe_evidence[key] is None:
+                    return None
+            for key in ("method", "denominator_kind"):
+                safe_evidence[key] = evidence.get(key)
+            for key in ("amount_per_unit", "expense_total", "expense_by_sku"):
+                value = cls._decimal_string(evidence.get(key), nullable=True)
+                if value is False or (key == "amount_per_unit" and value is not None
+                                      and Decimal(value) < 0):
+                    return None
+                safe_evidence[key] = value
+            for key in ("supplied_units_sku", "supplied_units_store", "days_complete", "days_expected", "model_version"):
+                value = evidence.get(key)
+                if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
+                    return None
+                safe_evidence[key] = value
+            for key in ("date_from", "date_to", "as_of"):
+                value = evidence.get(key)
+                safe_evidence[key] = cls._timestamp_or_date(value) if value is not None else None
+                if value is not None and safe_evidence[key] is None:
+                    return None
+            for key, limit in (("timezone", 40), ("financial_date_basis", 48), ("supply_date_basis", 64)):
+                value = evidence.get(key)
+                safe_evidence[key] = cls._short_text(value, limit, optional=True)
+                if value is not None and safe_evidence[key] is None:
+                    return None
+            cleaned["cross_docking"] = safe_evidence
         return cleaned
 
     @staticmethod

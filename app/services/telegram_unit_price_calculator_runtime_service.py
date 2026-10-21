@@ -7,6 +7,7 @@ from time import monotonic
 from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -171,11 +172,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
         ):
             return self._stale_result()
         sources = self._scenario_sources(session)
+        cross_docking = PlanningCrossDockingAdapter.project_source(
+            snapshot.get("cross_docking")
+        )
+        inputs = deepcopy(session.get("inputs") or {})
+        inputs.setdefault("cross_docking_per_unit", None)
+        provenance = deepcopy(session.get("provenance") or {})
+        provenance.setdefault("cross_docking_per_unit", "unknown")
+        completeness = deepcopy(snapshot.get("source_completeness") or {})
+        completeness["cross_docking"] = PlanningCrossDockingAdapter.completeness_projection(
+            cross_docking
+        )
         calculated = self.scenario_service.calculate(
-            session.get("inputs") or {},
+            inputs,
             identity=self._scenario_identity(session),
-            provenance=session.get("provenance") or {},
-            sources=sources,
+            provenance=provenance,
+            sources={**sources, "completeness": completeness},
         )
         values = calculated.get("calculated") or {}
         allowed_projection = (
@@ -190,10 +202,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
         }
         projection.update({key: values.get(key) for key in allowed_projection})
+        projection["cross_docking"] = values.get("cross_docking")
         captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         payload = {
             "plan_kind": "single",
-            "schema_version": 1,
+            "schema_version": PlanningCrossDockingAdapter.CURRENT_VERSION,
             "calculation_version": self.scenario_service.VERSION,
             "target_margin_percent": self._target_margin_assumption(session),
             "items": [{
@@ -205,13 +218,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     "store_id": str(identity.get("store_id") or ""),
                     "scheme": str(product.get("scheme") or "FBO")[:24],
                 },
-                "inputs": deepcopy(session.get("inputs") or {}),
-                "provenance": deepcopy(session.get("provenance") or {}),
+                "inputs": inputs,
+                "provenance": provenance,
                 "sources": {
                     "periods": deepcopy(snapshot.get("source_periods") or {}),
                     "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
                     "loaded_at": captured_at,
-                    "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+                    "completeness": completeness,
+                    "cross_docking": cross_docking,
                 },
                 "projection": projection,
             }],
@@ -240,7 +254,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._stale_result()
         item = payload["items"][0]
         identity = item.get("identity") if isinstance(item, dict) else None
-        inputs = item.get("inputs") if isinstance(item, dict) else None
+        inputs, cross_docking = PlanningCrossDockingAdapter.restore_item(payload, item)
         provenance = item.get("provenance") if isinstance(item, dict) else None
         sources = item.get("sources") if isinstance(item, dict) else None
         target_margin = payload.get("target_margin_percent")
@@ -254,6 +268,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if (
             not isinstance(identity, dict)
             or not isinstance(inputs, dict)
+            or cross_docking is None
             or not isinstance(provenance, dict)
             or not isinstance(sources, dict)
             or not str(identity.get("sku") or "").strip()
@@ -281,6 +296,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "input_provenance": deepcopy(provenance),
             "source_periods": periods,
             "source_completeness": deepcopy(sources.get("completeness") or {}),
+            "cross_docking": PlanningCrossDockingAdapter.display_source(cross_docking),
         }
         scenario_id = uuid4().hex[:10]
         now = self.clock()

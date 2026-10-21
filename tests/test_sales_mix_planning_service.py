@@ -78,6 +78,55 @@ def test_task_15_2_aggregates_rounded_unit_components_and_calls_tax_once():
     assert len(tax.calls) == 1
 
 
+def test_v2_cross_docking_uses_planned_quantity_after_historical_supply_rate():
+    service, tax = _service()
+    inputs = _sample_inputs(cross_docking_per_unit="12.00")
+    item = _item("SKU-A", inputs)
+    item["sources"] = {"cross_docking": {
+        "evidence_complete": True,
+        "applicable_to_sku": True,
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "amount_per_unit": "12.00",
+        "expense_total": "1200.00",
+        "expense_by_sku": "1200.00",
+        "supplied_units_sku": 100,
+        "supplied_units_store": 100,
+        "date_from": "2026-08-24", "date_to": "2026-10-18",
+        "days_complete": 56, "days_expected": 56,
+    }}
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 100},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+        include_cross_docking=True,
+    )
+
+    assert result["coverage_complete"] is True
+    assert result["components"]["cross_docking"] == "1200.00"
+    assert result["components"]["profit_before_tax"] == "15300.00"
+    assert result["rows"][0]["components"]["cross_docking"] == "1200.00"
+    assert result["profit"] == "12900.00"
+    assert tax.calls[0]["gross_profit"] == 15300.0
+
+
+def test_v2_sales_mix_marks_unconfirmed_cross_docking_partial_instead_of_zero():
+    service, tax = _service()
+    item = _item("SKU-A", _sample_inputs(cross_docking_per_unit=None))
+    item["sources"] = {"cross_docking": {"evidence_complete": False}}
+
+    result = service.calculate(
+        [item], quantities={"SKU-A": 10},
+        period_label="2026-08-01 - 2026-08-31", expenses=[], expenses_confirmed=True,
+        include_cross_docking=True,
+    )
+
+    assert result["status"] == "PARTIAL"
+    assert result["components"]["cross_docking"] is None
+    assert result["profit"] is None
+    assert tax.calls == []
+
+
 def test_aggregate_minimum_tax_does_not_sum_standalone_taxes():
     service, tax = _service()
     first = _item("A", _sample_inputs(

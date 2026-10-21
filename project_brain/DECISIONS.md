@@ -1,5 +1,32 @@
 # Architecture Decisions
 
+## Decision 054
+
+Date:
+
+2026-10-21
+
+Topic:
+
+Cross-docking evidence in immutable saved plans
+
+Decision:
+
+- New saved-plan calculation version 2 stores the rate and allowlisted source evidence in the exact revision. Viewing, comparing, readiness and exporting use that frozen evidence and never query Ozon.
+- Existing version 1 documents continue through an explicit compatibility adapter; their inputs and exports do not acquire current cross-docking evidence retroactively.
+- An explicit source refresh may feed a new revision or copy after identity and CAS checks. It must not mutate an older revision.
+- Sales-mix planning applies the historical per-supplied-unit rate to planned successful sales Q. This planning deduction does not alter the factual side of plan/fact comparison.
+
+Reason:
+
+The calculation's source evidence must remain reproducible across restarts and source refreshes. Separating v1 and v2 prevents historical plans from changing silently, and keeping planned Q out of the actual comparison avoids mixing assumptions with recorded results.
+
+Status:
+
+Implemented and covered by X05 saved-plan, batch, sales-mix, comparison and export regressions.
+
+---
+
 ## Decision 052
 
 Date:

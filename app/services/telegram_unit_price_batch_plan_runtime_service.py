@@ -10,6 +10,7 @@ from time import monotonic
 from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.period_profit_operation_diagnostics import current_period_profit_trace
 from services.tenant_context import get_current_tenant_user_id
 
@@ -587,12 +588,22 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 return self._stale()
             product = snapshot.get("product") or {}
             inputs = deepcopy(row.get("inputs") or {})
+            inputs.setdefault("cross_docking_per_unit", None)
             provenance = deepcopy(row.get("provenance") or {})
+            cross_docking = PlanningCrossDockingAdapter.project_source(
+                snapshot.get("cross_docking")
+            )
+            provenance.setdefault("cross_docking_per_unit", "unknown")
+            completeness = deepcopy(snapshot.get("source_completeness") or {})
+            completeness["cross_docking"] = PlanningCrossDockingAdapter.completeness_projection(
+                cross_docking
+            )
             sources = {
                 "periods": deepcopy(snapshot.get("source_periods") or {}),
                 "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
                 "loaded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+                "completeness": completeness,
+                "cross_docking": cross_docking,
             }
             identity_for_calc = {
                 "user_id": scope["owner_id"], "store_id": scope["store_id"],
@@ -614,7 +625,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             for field in (
                 "revenue", "discount_points", "taxable_revenue", "commission",
                 "advertising", "fees", "profit_before_tax", "tax",
-                "effective_tax_rate", "profit", "margin_percent",
+                "effective_tax_rate", "profit", "margin_percent", "cross_docking",
             ):
                 projection[field] = calculated.get(field)
             rows.append({
@@ -634,7 +645,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             "version": batch["version"],
             "tenant_scope": scope["tenant_scope"],
             "payload": {
-                "plan_kind": "batch", "schema_version": 1,
+                "plan_kind": "batch", "schema_version": PlanningCrossDockingAdapter.CURRENT_VERSION,
                 "calculation_version": self.batch_plan_service.scenario_service.VERSION,
                 "target_margin_percent": batch.get("target_margin_percent"),
                 "items": rows,
@@ -660,7 +671,9 @@ class TelegramUnitPriceBatchPlanRuntimeService:
             if not isinstance(item, dict):
                 return self._stale()
             identity = item.get("identity") or {}
-            inputs = deepcopy(item.get("inputs") or {})
+            inputs, cross_docking = PlanningCrossDockingAdapter.restore_item(payload, item)
+            if inputs is None or cross_docking is None:
+                return self._stale()
             provenance = deepcopy(item.get("provenance") or {})
             sources = item.get("sources") or {}
             periods = deepcopy(sources.get("periods") or {})
@@ -685,6 +698,7 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "input_provenance": deepcopy(provenance),
                 "source_periods": periods,
                 "source_completeness": deepcopy(sources.get("completeness") or {}),
+                "cross_docking": PlanningCrossDockingAdapter.display_source(cross_docking),
             }
             row_id = str(item.get("row_id") or identity.get("sku") or f"saved_{index}")[:64]
             if any(existing.get("row_id") == row_id for existing in rows):

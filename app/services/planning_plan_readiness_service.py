@@ -24,6 +24,9 @@ class PlanningPlanReadinessService:
             return self._error("PLANNING_READINESS_ITEMS_INVALID")
 
         mix = payload.get("sales_mix")
+        cross_docking_enabled = (
+            isinstance(payload, dict) and payload.get("calculation_version") == 2
+        )
         quantities = mix.get("quantities") if isinstance(mix, dict) else None
         if not isinstance(quantities, dict):
             quantities = {}
@@ -55,7 +58,7 @@ class PlanningPlanReadinessService:
             quantity_confirmed = type(quantity) is int and 0 <= quantity <= 1_000_000
             if quantity_confirmed:
                 quantity_ready += 1
-            item_rows.append({
+            item_row = {
                 "row_id": row_id,
                 "label": self._label(identity, index),
                 "identity_status": "CONFIRMED" if exact_identity else "IDENTITY_UNRESOLVED",
@@ -69,7 +72,30 @@ class PlanningPlanReadinessService:
                     "discount_points_rate", "logistics_per_unit", "last_mile_per_unit",
                     "acquiring_per_unit",
                 }), None),
-            })
+            }
+            if cross_docking_enabled:
+                sources = source.get("sources") if isinstance(source.get("sources"), dict) else {}
+                evidence = sources.get("cross_docking")
+                evidence = evidence if isinstance(evidence, dict) else {}
+                rate = (source.get("inputs") or {}).get("cross_docking_per_unit")
+                verified = (
+                    evidence.get("evidence_complete") is True
+                    and evidence.get("applicable_to_sku") is True
+                    and evidence.get("denominator_kind") == "DELIVERED_CROSSDOCK_UNITS"
+                    and rate is not None
+                    and str(rate) == str(evidence.get("amount_per_unit"))
+                )
+                item_row["cross_docking_status"] = "CONFIRMED" if verified else "UNAVAILABLE"
+                item_row["cross_docking_reason"] = evidence.get("reason")
+                item_row["cross_docking_source"] = {
+                    key: evidence.get(key) for key in (
+                        "method", "denominator_kind", "amount_per_unit", "expense_total",
+                        "expense_by_sku", "supplied_units_sku", "supplied_units_store",
+                        "date_from", "date_to", "days_complete", "days_expected",
+                        "evidence_complete",
+                    )
+                }
+            item_rows.append(item_row)
 
         mix_status = "NOT_STARTED" if not isinstance(mix, dict) else (
             "READY" if quantity_ready == len(source_items)
