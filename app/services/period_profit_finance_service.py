@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar, copy_context
+from copy import deepcopy
 from datetime import date, timedelta
 from threading import local
 
@@ -235,6 +236,40 @@ class PeriodProfitFinanceService(FinanceService):
             enriched["fee_components_included"] = True
             enriched["ancillary_incomplete_count"] = 0
         return enriched
+
+    def get_cached_daily_accruals(self, date_from, date_to):
+        """Copy only fully paged raw daily responses from this read context.
+
+        The cross-docking reader uses this to reuse the existing 28-day
+        discount-points overlap. It never triggers an API request and never
+        exposes the mutable request-local cache itself.
+        """
+        try:
+            start = date.fromisoformat(str(date_from))
+            end = date.fromisoformat(str(date_to))
+        except (TypeError, ValueError):
+            return {}
+        if start > end:
+            return {}
+
+        cached = self._daily_accrual_cache
+        responses = {}
+        current = start
+        while current <= end:
+            key = current.isoformat()
+            response = cached.get(key)
+            if (
+                isinstance(response, dict)
+                and response.get("error") is not True
+                and isinstance(response.get("accruals"), list)
+                and response.get("last_id") in (None, "")
+                and isinstance(response.get("pages_loaded"), int)
+                and not isinstance(response.get("pages_loaded"), bool)
+                and response.get("pages_loaded") >= 1
+            ):
+                responses[key] = deepcopy(response)
+            current += timedelta(days=1)
+        return responses
 
     def get_sale_posting_quantity_evidence(self, posting_numbers):
         """Load direct READ-ONLY Ozon quantity evidence for exact sale postings.

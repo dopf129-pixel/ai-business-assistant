@@ -233,6 +233,8 @@ Q_store = физические единицы всех таких кросс-д�
 
 **Готово:** production integration получает X из actual supply quantity, cold/batch paths ограничены; нет сетевых side effects при сборке приложения.
 
+**Статус выполнения (2026-10-21): COMPLETE.** Production collector/provider is wired lazily through the current and scenario factories. Checkpoints/cache are process-local and keyed to tenant/store + exact window + model version; each slice is capped at 64 HTTP attempts/60 seconds and respects the shared operation trace. Incomplete coverage has no numeric rate. The isolated Windows X03 profile passed **146 tests in 2.76s**. Full local pytest, live Ozon API, bot run, merge, and deploy were not performed. Details are in `project_brain/LUNA_CROSS_DOCKING_PROGRESS_2026-10-19.md`.
+
 ### X04 — текущая модель, калькуляторы и Telegram
 
 Зависит от X02–X03.

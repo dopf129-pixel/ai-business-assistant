@@ -204,7 +204,14 @@ class _SnapshotFinance:
         })
 
 
-def _source(finance, products=None, current=None, cost=None, tax=None):
+def _source(
+    finance,
+    products=None,
+    current=None,
+    cost=None,
+    tax=None,
+    cross_docking_source=None,
+):
     return UnitPriceScenarioSource(
         product_service=_ProductService(products or [{
             "product_id": "p1",
@@ -217,6 +224,7 @@ def _source(finance, products=None, current=None, cost=None, tax=None):
         cost_service=cost or _CostService(),
         tax_configuration_service=tax or _TaxConfiguration(),
         clock=lambda: datetime(2026, 10, 14, 12),
+        cross_docking_source=cross_docking_source,
     )
 
 
@@ -519,3 +527,49 @@ def test_snapshot_cache_isolated_by_tenant_and_returns_deep_copies():
     assert again["cache"]["status"] == "hit"
     assert second["cache"]["status"] == "miss"
     assert len(current.calls) == 2
+
+
+def test_incomplete_cross_docking_snapshot_is_not_cached_so_next_request_resumes():
+    class _ResumableCrossDockingSource:
+        def __init__(self):
+            self.calls = []
+
+        def get_rate(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return {
+                    "error": False,
+                    "status": "UNAVAILABLE",
+                    "cross_docking_per_unit": None,
+                    "reason": "REQUEST_BUDGET_EXHAUSTED",
+                    "evidence_complete": False,
+                    "read_only": True,
+                    "executed": False,
+                }
+            return {
+                "error": False,
+                "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+                "cross_docking_per_unit": "10.00",
+                "reason": None,
+                "evidence_complete": True,
+                "read_only": True,
+                "executed": False,
+            }
+
+    cross_docking = _ResumableCrossDockingSource()
+    source = _source(
+        _SnapshotFinance({}),
+        cross_docking_source=cross_docking,
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-1")
+    try:
+        first = source.load_snapshot("sku-1", user_id="user-1")
+        assert source._cache == {}
+        second = source.load_snapshot("sku-1", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert first["cross_docking"]["evidence_complete"] is False
+    assert second["cross_docking"]["cross_docking_per_unit"] == "10.00"
+    assert second["cache"]["status"] == "miss"
+    assert len(cross_docking.calls) == 2

@@ -46,12 +46,14 @@ class UnitPriceScenarioSource:
         cache_clock=None,
         cache_ttl_seconds=CACHE_TTL_SECONDS,
         max_cache_entries=MAX_CACHE_ENTRIES,
+        cross_docking_source=None,
     ):
         self.product_service = product_service
         self.current_economics_source = current_economics_source
         self.finance_service = finance_service
         self.cost_service = cost_service
         self.tax_configuration_service = tax_configuration_service
+        self.cross_docking_source = cross_docking_source
         self.clock = clock or (lambda: datetime.now().astimezone())
         self.cache_clock = cache_clock or monotonic
         self.cache_ttl_seconds = max(0, int(cache_ttl_seconds))
@@ -164,11 +166,12 @@ class UnitPriceScenarioSource:
                 tenant_scope,
                 parent_trace=operation_trace,
                 catalog_product=normalized_catalog_product,
+                force_refresh=force_refresh,
             )
             operation_error = self._operation_error(operation_trace)
             if operation_error is not None:
                 return self._error(operation_error)
-            if result.get("error") is not True:
+            if self._snapshot_is_cacheable(result):
                 with self._lock:
                     self._cache[key] = {
                         "stored_at": self.cache_clock(),
@@ -189,6 +192,17 @@ class UnitPriceScenarioSource:
                 if event is not None:
                     event.set()
 
+    def _snapshot_is_cacheable(self, result):
+        if not isinstance(result, dict) or result.get("error") is True:
+            return False
+        if self.cross_docking_source is None:
+            return True
+        cross_docking = result.get("cross_docking")
+        return (
+            isinstance(cross_docking, dict)
+            and cross_docking.get("evidence_complete") is True
+        )
+
     def _load_snapshot(
         self,
         sku,
@@ -197,6 +211,7 @@ class UnitPriceScenarioSource:
         tenant_scope,
         parent_trace=None,
         catalog_product=None,
+        force_refresh=False,
     ):
         trace = PeriodProfitOperationTrace(
             operation="unit_price_scenario_source",
@@ -246,6 +261,13 @@ class UnitPriceScenarioSource:
                 start_date,
                 end_date,
                 operation_trace=trace,
+            )
+            self._ensure_operation_active(trace)
+            cross_docking = self._load_cross_docking_rate(
+                product=product,
+                tenant_scope=tenant_scope,
+                operation_trace=trace,
+                force_refresh=force_refresh,
             )
             self._ensure_operation_active(trace)
 
@@ -303,6 +325,12 @@ class UnitPriceScenarioSource:
                         "to": end_date,
                         "calendar_days": self.DISCOUNT_POINTS_DAYS,
                     },
+                    "cross_docking": {
+                        "from": cross_docking.get("date_from"),
+                        "to": cross_docking.get("date_to"),
+                        "calendar_days": cross_docking.get("days_expected"),
+                        "timezone": cross_docking.get("timezone"),
+                    },
                     "cost_as_of": cost_updated_at,
                     "seller_price_as_of": as_of,
                     "commission_rate_as_of": as_of,
@@ -315,6 +343,14 @@ class UnitPriceScenarioSource:
                     "cost": {"complete": cost is not None},
                     "tax_policy": {"complete": policy.get("mode") is not None},
                     "discount_points": points["completeness"],
+                    "cross_docking": {
+                        "complete": cross_docking.get("evidence_complete") is True,
+                        "status": cross_docking.get("status"),
+                        "reason": cross_docking.get("reason"),
+                        "date_from": cross_docking.get("date_from"),
+                        "date_to": cross_docking.get("date_to"),
+                        "denominator_kind": cross_docking.get("denominator_kind"),
+                    },
                     "fixed_fees": {"complete": False, "reason": "MANUAL_PER_UNIT_INPUT_REQUIRED"},
                     "advertising": {"complete": False, "reason": "MANUAL_RATE_INPUT_REQUIRED"},
                 },
@@ -324,7 +360,19 @@ class UnitPriceScenarioSource:
                     "http_attempts_reserved": trace.ozon_requests_reserved,
                     "http_attempt_limit": self.HTTP_ATTEMPT_BUDGET,
                     "time_budget_seconds": self.TIME_BUDGET_SECONDS,
+                    "cross_docking": {
+                        "status": cross_docking.get("status"),
+                        "reason": cross_docking.get("reason"),
+                        "http_attempts": cross_docking.get("http_attempts", 0),
+                        "finance_checkpointed": cross_docking.get(
+                            "finance_checkpointed", False
+                        ),
+                        "supply_checkpointed": cross_docking.get(
+                            "supply_checkpointed", False
+                        ),
+                    },
                 },
+                "cross_docking": cross_docking,
                 "missing_inputs": missing,
                 "read_only": True,
                 "executed": False,
@@ -335,6 +383,47 @@ class UnitPriceScenarioSource:
             return self._error("UNIT_PRICE_SCENARIO_SOURCE_UNAVAILABLE")
         finally:
             reset_period_profit_trace(trace_token)
+
+    def _load_cross_docking_rate(
+        self,
+        *,
+        product,
+        tenant_scope,
+        operation_trace,
+        force_refresh,
+    ):
+        if self.cross_docking_source is None:
+            return {
+                "error": False,
+                "status": "UNAVAILABLE",
+                "cross_docking_per_unit": None,
+                "reason": "CROSSDOCK_SOURCE_NOT_CONFIGURED",
+                "applicable_to_sku": False,
+                "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+                "read_only": True,
+                "executed": False,
+            }
+        try:
+            result = self.cross_docking_source.get_rate(
+                sku=str(product["sku"]),
+                tenant_scope=tenant_scope,
+                operation_trace=operation_trace,
+                force_refresh=force_refresh,
+            )
+        except Exception:
+            result = None
+        if not isinstance(result, dict) or result.get("error") is not False:
+            return {
+                "error": False,
+                "status": "UNAVAILABLE",
+                "cross_docking_per_unit": None,
+                "reason": "CROSSDOCK_SOURCE_UNAVAILABLE",
+                "applicable_to_sku": False,
+                "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+                "read_only": True,
+                "executed": False,
+            }
+        return result
 
     def _load_current_facts(self, product):
         try:

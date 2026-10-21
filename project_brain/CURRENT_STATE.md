@@ -4675,3 +4675,8 @@ Completed:
 - Добавлены регрессии в `tests/test_planning_workspace_repository.py`, `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_sales_mix_planning_service.py` и `tests/test_planning_plan_comparison_service.py`. Связанный локальный H–O профиль: **259 passed**; `compileall -q app tests` и `git diff --check` прошли.
 - Полный локальный pytest не повторялся из-за ранее выявленных ACL/shared-storage проблем. SHA256 сохранённых локальных данных после целевых проверок: tasks `8F7FFF206A4748DE6EFB3E5DCABABD07E3341188A7326383A21D966B73710698`, users `0B12986702D5C62B8A410EE4B3B3228923FF72BA897F18FF62FEF556CDA88409`; data и scratch paths не включаются в изменения.
 - Exact-head `d057031364e6d934f258fec2efa385a045f6e3bf` прошёл Verify `39221770481` и повторный Verify `39221764654`: Windows/Linux, compile, production Docker build и smoke успешны. После этой записи добавляется только документационный commit, поэтому latest exact-head Verify нужно подтвердить отдельно. Далее нужен независимый повторный architecture review. Слияние и развёртывание не выполнялись.
+# 2026-10-21 — X03 bounded cross-docking collection and wiring
+
+- X03 adds read-only 56-day finance and supply collection with process-local scoped checkpoint/resume, a bounded in-memory cache, in-flight deduplication, shared 64-attempt/60-second limits, reuse of the current request's 28-day finance cache, and lazy current/scenario factory wiring.
+- Complete rates are still evidence-only; X is not yet subtracted in unit-economics calculations and is not frozen into saved plans. Those are X04–X05.
+- Isolated focused profile: **146 passed in 2.76s** on Windows. Full local pytest was not run due the recorded ACL/shared-storage restriction. No live API, bot run, merge or deployment.

@@ -24,7 +24,32 @@ The Ozon daily accrual endpoint mixes leaf service amounts with parent financial
 
 Status:
 
-Implemented as X02 pure evidence and rate services. Production collection, checkpointing and calculator integration remain X03–X04.
+Implemented through X03 bounded process-local collection/checkpoint/cache and lazy factory wiring. X04 calculator math/UI and X05 immutable saved-scenario compatibility remain.
+
+## Decision 053
+
+Date:
+
+2026-10-21
+
+Topic:
+
+Cross-docking evidence collection budgets and cache scope
+
+Decision:
+
+- Collect 56-day financial and supplied-unit evidence through the existing read-only Ozon client with a maximum of 64 HTTP attempts and 60 seconds per calculation slice; each endpoint operation is one attempt and shares the parent operation trace budget.
+- Keep raw checkpoints and complete projections in bounded process-local memory only, keyed by tenant/store, exact date window and model version. Incomplete evidence is resumable but never published as a numeric unit rate; complete evidence has a 10-minute TTL and force refresh clears the matching checkpoint.
+- Reuse complete daily accrual pages already held by the request-local `PeriodProfitFinanceService` cache for the overlapping 28-day window. Do not launch a second pagination for each SKU.
+- Keep Ozon reads lazy until an explicit calculation; application construction and imports perform no API calls. Do not persist raw API payloads or identifiers in diagnostics.
+
+Reason:
+
+The 56-day source can exceed one request budget and the unit-cost denominator is only valid when both financial and actual supplied-unit coverage are complete. Scoped continuation preserves bounded operation behavior without exposing partial averages or adding another persistence/job subsystem.
+
+Status:
+
+Implemented and covered by the X03 bounded regression profile. Persistent scenario snapshots and calculator application remain X04–X05.
 
 ## Decision 051
 

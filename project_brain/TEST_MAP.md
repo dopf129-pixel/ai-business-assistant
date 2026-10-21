@@ -5413,3 +5413,13 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_planning_plan_comparison_service.py`: add/remove/rename/change expense values with CSV/JSON, plus exact added/common/removed SKU identity visibility in screen and full-scope exports.
 - `tests/test_sales_mix_planning_service.py`: common UI/service/persistence limits, period/quantity/expense boundaries, aggregate money guard before float-based tax calculation.
 - H–O linked regression profile after R1–R10: **259 passed**; documentation drift/manager tests: **3 passed**. Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Windows/Linux exact-head Verify `39221770481` and repeat `39221764654`, including compile and production Docker build/runtime smoke. A subsequent docs-only commit requires its own current-head Verify.
+# Cross-docking bounded production collection and wiring (X03)
+
+The X03 isolated profile passed **146 tests in 2.76s** across:
+
+- `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.
+- `tests/test_cross_docking_unit_rate_source.py`: cold-window continuation, exact 56-day scope, force refresh, per-store isolation, in-flight/cache behavior, shared parent budget, bounded accrual-type dictionary lookup, cache reuse for the existing 28-day overlap and no numeric rate before both sources complete.
+- `tests/test_cross_docking_supply_source.py`: bounded resumable order/detail/act/product collection, page/detail progress checkpoint, scope mismatch, invalid/oversized state and incomplete coverage behavior.
+- `tests/test_unit_price_scenario_source.py` and `tests/test_current_unit_economics_production_wiring.py`: lazy dependency sharing and sanitized evidence projection in the current scenario path.
+- Existing finance pagination/accrual breakdown and experimental store-economics regressions were run in the same isolated profile.
+All API tests use fakes; no live Seller API or bot was run. `AI_ASSISTANT_STORAGE_ROOT` and pytest `--basetemp` used separate temporary paths. Do not run the full local suite because the workspace's documented ACL/shared-storage restriction remains active.

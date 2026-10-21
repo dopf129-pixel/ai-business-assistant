@@ -1418,3 +1418,9 @@ Summary Report теперь включает:
 - Локальный профиль J: 63 теста прошли; полный CI по точному SHA ожидает завершения программы.
 
 
+# 2026-10-21 — X03 bounded cross-docking evidence source
+
+- Added capped, resumable read-only collection of 56 days of signed finance accruals and actual cross-docking supply quantities, with store/window/model-scoped process-local checkpoints and complete-evidence caching.
+- Reused the existing request-local 28-day finance cache and operation trace; incomplete coverage cannot produce a numeric rate. Wired the lazy provider into current and unit-price scenario factories as evidence only. Calculator arithmetic and saved-plan integration remain later stages.
+- Verification: isolated targeted Windows profile, **146 passed in 2.76s**; no live Ozon API, bot run, merge or deployment.
+

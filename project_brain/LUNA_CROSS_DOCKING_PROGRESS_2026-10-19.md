@@ -19,10 +19,20 @@
 | X00 | COMPLETE WITH BOUNDED SCOPE | Официальные list/detail/act контракты и два пользовательских live-примера подтверждают источник фактического количества по SKU и дату завершения для заявки с одной вложенной cross-dock поставкой. Неоднозначные multi-supply заявки и строки без ровно одного SKU далее fail closed. |
 | X01 | COMPLETE WITH BOUNDED COVERAGE | Добавлен read-only collection source: cursor list → детали заявок пакетами до 50 → exact accepted act/product lookup. Нормализация использует line `fact_quantity` по SKU и дату только для completed order с одной nested crossdock supply. Multi-supply/unknown/incomplete — `INCOMPLETE`, без denominator. Лимит 64 HTTP попытки/60 секунд; continuation checkpoint остаётся X03. |
 | X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
-| X03 | NEXT | Собрать 56-дневные дневные финансы и X01 supplies с checkpoint/cache/resume, сохранить request budgets, затем подготовить production read-only adapter. |
-| X04 | BLOCKED BY X03 | Нельзя добавлять ставку в текущую модель/Telegram до bounded complete source и проверенной публикации X. |
-| X05 | BLOCKED BY X04 | Нет production snapshot и версии компонента X. |
+| X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
+| X04 | NEXT | Подключить automatic rate to canonical current/unit-price scenarios, target price/break-even/ad-cap/sensitivity calculations and Telegram presentation; preserve old result scope and tax rules. |
+| X05 | BLOCKED BY X04 | Нет замороженного component snapshot/version в сохранённых сценариях. |
 | X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
+
+## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
+
+- Added `OzonCrossDockingFinanceSource` to read all inclusive daily accrual pages with bounded cursor advancement; partial-day rows remain private to a checkpoint and cannot enter the 56-day financial projection.
+- Added `CrossDockingUnitRateSource`, which composes the signed X02 financial projection with the X01 supply evidence. It limits collection to 64 actual HTTP attempts and 60 seconds, accounts attempts in the existing operation trace, shares a 28-day request-local finance cache, and resumes only the same tenant/store/date-window/model scope.
+- Checkpoints and completed evidence remain process-local, size-bounded and TTL-bound. Completed evidence is cached; an incomplete result carries no numeric rate. Force refresh resets the matching checkpoint. Raw daily finance rows are discarded after the complete pure projection.
+- Reused one `PeriodProfitFinanceService` in the current economics and unit-price scenario factories. The current source exposes the read-only provider; the scenario source adds an evidence projection only and still does not subtract it from price/profit (that is X04).
+- A fresh cold request consumes the bounded budget and resumes in the next explicit calculation; tests verify no partial rate, no cross-store reuse, one dictionary lookup per resumed window, overlap reuse, lazy initialization and shared trace limits.
+- Verification on Windows: isolated targeted pytest profile (10 related test files): **146 passed in 2.76s**. Full local pytest was not run because of the recorded ACL/shared-storage restriction. No live Ozon call, bot run, merge or deploy.
+- Scope: X03 complete. Next: X04 mathematical integration and user-facing labels, followed by X05 persistence/version compatibility.
 
 ## X02 — signed finance evidence and pure rate — 2026-10-20
 

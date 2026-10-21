@@ -238,6 +238,67 @@ def test_source_request_budget_exhaustion_never_publishes_partial_total():
     assert result.evidence.total_units is None
 
 
+def test_source_checkpoint_resumes_at_next_act_without_refetching_orders():
+    order, summary, products = _fake_data()
+    client = _FakeOzonSupplyClient(
+        pages=[{"error": False, "order_ids": [1001], "last_id": None}],
+        orders={1001: order},
+        summaries={1001: summary},
+        products={2001: products},
+    )
+    source = OzonCrossDockingSupplySource(client)
+
+    first = source.collect_window(
+        date_from=date(2026, 9, 1),
+        date_to=date(2026, 9, 30),
+        max_requests=2,
+    )
+    second = source.collect_window(
+        date_from=date(2026, 9, 1),
+        date_to=date(2026, 9, 30),
+        checkpoint=first.checkpoint,
+        max_requests=2,
+    )
+
+    assert first.evidence.status == "INCOMPLETE"
+    assert first.evidence.total_units is None
+    assert first.checkpoint is not None
+    assert second.evidence.status == "COMPLETE"
+    assert second.evidence.total_units == 100
+    assert [call[0] for call in client.calls] == [
+        "list",
+        "details",
+        "summary",
+        "products",
+    ]
+
+
+def test_checkpoint_scope_mismatch_does_not_reuse_or_query_other_window():
+    order, _, _ = _fake_data()
+    client = _FakeOzonSupplyClient(
+        pages=[{"error": False, "order_ids": [1001], "last_id": None}],
+        orders={1001: order},
+        summaries={},
+        products={},
+    )
+    source = OzonCrossDockingSupplySource(client)
+    initial = source.collect_window(
+        date_from=date(2026, 9, 1),
+        date_to=date(2026, 9, 30),
+        max_requests=1,
+    )
+
+    mismatch = source.collect_window(
+        date_from=date(2026, 8, 1),
+        date_to=date(2026, 8, 31),
+        checkpoint=initial.checkpoint,
+    )
+
+    assert mismatch.evidence.issue_codes == ("CHECKPOINT_SCOPE_MISMATCH",)
+    assert mismatch.evidence.total_units is None
+    assert len(client.calls) == 1
+
+
 def test_source_invalid_window_does_not_call_api():
     client = _FakeOzonSupplyClient(pages=[], orders={}, summaries={}, products={})
 
@@ -286,7 +347,7 @@ def test_source_invalid_cursor_fails_closed():
     assert result.evidence.status == "INCOMPLETE"
     assert result.evidence.total_units is None
     assert result.stopped_reason == "SUPPLY_LIST_CURSOR_INVALID"
-    assert len(client.calls) == 2
+    assert len(client.calls) == 1
 
 
 def test_source_api_error_does_not_expose_error_body():

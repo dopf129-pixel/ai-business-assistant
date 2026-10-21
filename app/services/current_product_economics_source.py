@@ -10,9 +10,15 @@ class CurrentProductEconomicsSource:
         "Выдача товара"
     )
 
-    def __init__(self, ozon_client, finance_service=None):
+    def __init__(
+        self,
+        ozon_client,
+        finance_service=None,
+        cross_docking_source=None,
+    ):
         self.ozon_client = ozon_client
         self.finance_service = finance_service
+        self.cross_docking_source = cross_docking_source
 
     def get(
         self,
