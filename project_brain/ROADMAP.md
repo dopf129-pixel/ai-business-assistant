@@ -2,7 +2,7 @@
 
 ## Ежедневная готовность — 25.10.2026
 
-- Исполнение `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md` идёт отдельным stacked PR процессом от проверенного PR #712 head `698c9f8`. PR #713–#716 закрывают A, B/C, backup/restore и updater/status; #713 exact-head CI зелёный, остальные runs проверяются. Финальный E PR ожидает пакета E01–E03.
+- Исполнение `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md` идёт отдельным stacked PR процессом от проверенного PR #712 head `698c9f8`. PR #713–#717 закрывают A, B/C, backup/restore, updater/status и E acceptance. Первые #714–#716 runs нашли три регрессии, исправленных в #714 (`7ec47ef6`); #715 (`40c99b69`) и #716 (`e578779c`) перебазированы. Исправленные exact-head Verify #713–#716 зелёные; финальный #717 ещё проверяется после обновления handoff.
 - D06 acceptance: `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; E00 linked acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; review handoff: `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; runbook: `docs/daily-use-recovery-runbook.md`; 24–72h owner log: `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` (`USER_VALIDATION_PENDING`). Current bot JSON и полный 56-day cross-docking snapshot ждут владельческой проверки после обновления; точный August accrual workbook дал complete `177282.17 ₽`. Слияние/развёртывание/real bot не выполнялись.
 - Актуальный журнал, stage matrix и фактические проверки: `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
 

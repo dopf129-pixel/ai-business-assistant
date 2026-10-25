@@ -1,6 +1,6 @@
 # Daily-use readiness — independent review handoff
 
-Date: 2026-10-25. Status: `REVIEW_READY_PENDING_STACK_CI`.
+Date: 2026-10-25. Status: `REVIEW_READY_PENDING_RERUN_CI`.
 
 ## Scope and PR order
 
@@ -10,12 +10,12 @@ This is a dependent stack based on the already reviewed, unmerged cross-docking 
 |---:|---|---|---|---|---|
 | 0 | [#712](https://github.com/dopf129-pixel/ai-business-assistant/pull/712) | `main` | `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea` | Cross-docking source/evidence prerequisite | `40168559070`, success on Windows/Linux |
 | 1 | [#713](https://github.com/dopf129-pixel/ai-business-assistant/pull/713) | `codex/cross-docking-x00-x01` | `e014f2781172d97dc26f9c8d02bb3143e34c738f` | A: offline XLSX/source reconciliation foundation | `40181639324`, success |
-| 2 | [#714](https://github.com/dopf129-pixel/ai-business-assistant/pull/714) | `codex/daily-readiness-a-foundation` | `21826e59330dce708388092fedb44ce241d4e8ca` | B/C: completeness, report UX, navigation and source work bounds | `40181793806`, pending at handoff preparation |
-| 3 | [#715](https://github.com/dopf129-pixel/ai-business-assistant/pull/715) | `codex/daily-readiness-bc` | `0ee67ced202a82ea0622cf36dfd3bf723fb8d3dd` | D01/D02: verified backup and restore into a new root | `40181869351`, pending at handoff preparation |
-| 4 | [#716](https://github.com/dopf129-pixel/ai-business-assistant/pull/716) | `codex/daily-readiness-backup` | `24a9d8c2fad09b8c4543c5f33bfe23c578ade183` | D03–D05: update preflight, updater, lifecycle and diagnostics | `40181908157`, pending at handoff preparation |
-| 5 | Final acceptance PR | `codex/daily-readiness-operations` | not created yet | D06/E00 soak and linked acceptance, journals and final docs | pending |
+| 2 | [#714](https://github.com/dopf129-pixel/ai-business-assistant/pull/714) | `codex/daily-readiness-a-foundation` | `7ec47ef604bf286cb1e5faf0d4fad98f5fcef8fc` | B/C plus exact-head CI regressions | `40182473893`, success (Windows/Linux full tests and compile; Docker build/smoke) |
+| 3 | [#715](https://github.com/dopf129-pixel/ai-business-assistant/pull/715) | `codex/daily-readiness-bc` | `40c99b695048dc56963a4a73b64adb9a4e5931e3` | D01/D02: verified backup and restore into a new root | `40182505098`, success (Windows/Linux full tests and compile; Docker build/smoke) |
+| 4 | [#716](https://github.com/dopf129-pixel/ai-business-assistant/pull/716) | `codex/daily-readiness-backup` | `e578779c7bf15e72ae82c764d8c1ed72b72aa16c` | D03–D05: update preflight, updater, lifecycle and diagnostics | `40182519871`, success (Windows/Linux full tests and compile; Docker build/smoke) |
+| 5 | [#717](https://github.com/dopf129-pixel/ai-business-assistant/pull/717) | `codex/daily-readiness-operations` | Current head is published with this handoff update; read exact SHA from PR metadata | D06/E00 soak and linked acceptance, journals and final docs | Verify starts on the updated head after push |
 
-All readiness PRs are drafts while their exact-head checks run. Check this handoff's final revision and GitHub before review; the status table must be updated to each final head/run conclusion.
+All readiness PRs are drafts while their exact-head checks run. The first B/C CI pass exposed two missing identity-projection calls and a stale formatting assertion; the correction is in PR #714 and was propagated by rebasing each child onto its updated base. Details: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Failed runs on superseded heads are not accepted. Corrected PRs #714–#716 now pass full Windows/Linux suites, compile, and Docker build/runtime smoke. Verify #717 on its current exact head after this handoff update before review.
 
 ## Architecture and changed contracts
 
@@ -46,6 +46,7 @@ Threat coverage in tests includes double counting, mismatched date/source basis,
 - A second matched period, current exact-revision bot JSON, and a complete 56-day cross-docking signed-accrual / accepted-unit snapshot are still missing. A single acceptance act does not prove the 56-day denominator. No source limitation is represented as zero.
 - Local bounded soak: 64 repeated calculations and exports, 12 plan revisions, two tenant storage scopes, and eight synthetic lifecycle cycles; maximum cycle **0.297 s**, thread delta **0**, handle delta **+2**, plan DB **61,440 bytes**, tenant storage **114,688 bytes**. These measurements are short synthetic checks, not multi-day production evidence.
 - End-to-end isolated profile: **350 passed in 22.70 s**, covering offline reconciliation, completeness, report and expense flow, planning/export, cross-docking, backup/restore, updater and lifecycle. The initial run had 1 stale fixture expectation; after the intended metadata expectation was updated, the full profile passed.
+- CI regression correction: seller cost rows are projected to identity fields only for historical SKU identity; the removed current-cost-to-historical-COGS fallback remains removed. Compact-money tests now expect two decimals. A local focused pytest attempt stalled without output and was interrupted; it is explicitly not counted. Fresh GitHub CI is required for these corrected heads.
 - The exact-head full CI is the release verification. Do not treat earlier/base SHA checks as checks for a changed head.
 
 ## Owner validation after separate merge/update

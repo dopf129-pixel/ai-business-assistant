@@ -9,7 +9,7 @@
 - Следующий этап: **E01** — завершить exact-head CI всего PR stack; затем финализировать E02/E03. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
 - Снимок подготовки: локальный main `7e6eabdeba34a822434e5ef417a135995628cc41`; PR #712 открыт, проверенный head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`. Не считать эти refs неизменными на момент исполнения.
 - Ветка реализации: `codex/daily-readiness-a-foundation`, база PR #712 head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`; отдельный managed worktree.
-- Создан зависимый PR stack: #713 A/foundation (`e014f278`), #714 B/C (`21826e59`), #715 backup/restore (`0ee67ced`), #716 updater/status (`24a9d8c2`). Exact-head Verify #713 зелёный; #714–#716 выполняются. Все четыре PR пока draft; final acceptance PR создаётся после подготовки E02/E03. A02 добавил локальный read-only service/CLI, профильные tests и документы; production финансовые формулы не менялись.
+- Создан зависимый PR stack: #713 A/foundation (`e014f278`), #714 B/C (`7ec47ef6`), #715 backup/restore (`40c99b69`), #716 updater/status (`e578779c`), #717 acceptance (CI after final handoff update pending). #713–#716 exact-head Verify успешны. Первые CI #714–#716 выявили три регрессии (две identity projection и один устаревший форматтер-тест); они исправлены в #714, а downstream refs перебазированы. Все PR остаются draft. A02 добавил локальный read-only service/CLI; production финансовые формулы не менялись.
 - Содержимое отчётов частично проверено на этапе A01: только метаданные, схема, даты и агрегированные признаки; исходные строки не копируются.
 - Документальные проверки подготовки: 30 уникальных stage IDs, 30 строк матрицы, 36 существующих путей, markdown/UTF-8/whitespace и diff-check успешны; это не выполнение S00.
 - Исходники продавца, `.env`, SQLite/JSON данные, существующие lock/temp/review files сохранить. Документы подготовки можно выборочно перенести в новую ветку, не добавляя остальной dirty diff.
@@ -45,8 +45,8 @@
 | D05 | Статус процесса/диагностика | VERIFIED_OFFLINE | `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`; 87 related tests passed |
 | D06 | Fault/soak проверки и runbook | VERIFIED_OFFLINE | `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; 11 passed, max lifecycle cycle 0.297 s |
 | E00 | Общая регрессия | VERIFIED_LOCAL_ISOLATED | `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; 350 passed in 22.70s |
-| E01 | PR и полный актуальный CI | IN_PROGRESS | #713–#716 опубликованы; #713 green, #714–#716 pending; final E PR ожидает подготовки |
-| E02 | Независимый review handoff | PREPARED | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; уточнить финальные SHA и CI после последнего E коммита |
+| E01 | PR и полный актуальный CI | IN_PROGRESS | #713–#716 green on exact heads; #717 fresh exact-head CI pending after handoff update |
+| E02 | Независимый review handoff | PREPARED | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; corrected exact heads and #714–#716 run IDs recorded |
 | E03 | Пакет внешней приёмки владельца | PREPARED / USER_VALIDATION_PENDING | `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` |
 
 ## Независимые состояния готовности
@@ -303,14 +303,14 @@
 
 ### E01 — reviewable PR stack и exact-head CI (25.10.2026)
 
-- Опубликованы draft PR: #713 (`e014f278`, base #712 head `698c9f8`), #714 (`21826e59`, base #713), #715 (`0ee67ced`, base #714), #716 (`24a9d8c2`, base #715). Каждый child PR содержит только следующую часть стека.
-- Verify run #713 **40181639324** завершён `success`. На момент записи runs #714 **40181793806**, #715 **40181869351**, #716 **40181908157** выполнялись. Final E PR не создан до завершения пакета E02/E03.
-- Все refs проверить заново перед завершением: после любого изменения коммита нужен новый CI на exact head. Слияние, развёртывание и настоящий запуск запрещены рамками task.
+- Опубликованы draft PR: #713 (`e014f278`, base #712 head `698c9f8`), #714 corrected (`7ec47ef6`, base #713), #715 rebased (`40c99b69`, base #714), #716 rebased (`e578779c`, base #715), #717 E acceptance (base #716; head обновляется с handoff). Run #713 **40181639324** завершён `success`.
+- Первые runs #714 **40181793806**, #715 **40181869351**, #716 **40181908157** завершились `failure`: 3 теста, остальные прошли. Исправлено: B04 удалил helper, который downstream использовал только для SKU identity; добавлен identity-only projection без возврата cost. Compact-money assertions обновлены до двух знаков. Подробности `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`.
+- Свежие corrected-head runs #714 **40182473893**, #715 **40182505098**, #716 **40182519871** завершились `success`: Windows/Linux full tests and compile, Linux Docker build/runtime smoke. На послеобновлённом head #717 требуется его собственный свежий Verify. Старые failures не учитываются. Слияние, развёртывание и настоящий запуск запрещены рамками task.
 
 ### E02 — пакет независимого review (25.10.2026)
 
 - Подготовлен `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`: порядок зависимостей PR, base/head, architecture map, compatibility boundaries, риски и тестовые evidence.
-- Классификация: **Architecture Review Required** из-за новых backup/restore и updater/lifecycle границ. Финальный handoff дополнить итоговым CI и final PR SHA после E01.
+- Классификация: **Architecture Review Required** из-за новых backup/restore и updater/lifecycle границ. Handoff содержит exact #713–#716 heads and CI. E PR SHA and run will be available in current PR metadata after publication; final Verify must pass.
 
 ### E03 — пакет внешней приёмки владельца (25.10.2026)
 
