@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "kind": "synthetic_test_fixture",
+    "note": "All store, SKU, operation and event identifiers are invented. Values are synthetic and do not reproduce any seller report row."
+  },
+  "currency": "RUB",
+  "stores": [
+    {
+      "store_ref": "fixture-store-alpha",
+      "period": {"start": "2026-08-01", "end": "2026-08-31", "timezone": "Europe/Moscow", "basis": "accrual_date"},
+      "summary": {
+        "gross_revenue": "1000.00", "discount_points": "100.00", "taxable_revenue": "900.00",
+        "net_accruals": "731.00", "tax": "54.00", "profit_before_cogs": "677.00",
+        "ordered_units": 12, "realized_units": 10, "cancelled_units": null, "returned_units": 1
+      },
+      "financial_lines": [
+        {"operation_ref": "fixture-sale-fee-exception", "kind": "sale_commission", "seller_price": "90.00", "rate_percent": "14.00", "actual_amount": "-16.53"},
+        {"operation_ref": "fixture-commission-return", "kind": "commission_refund", "actual_amount": "2.00"},
+        {"operation_ref": "fixture-placement-1", "kind": "placement", "actual_amount": "-0.58"},
+        {"operation_ref": "fixture-placement-2", "kind": "placement", "actual_amount": "-0.58"},
+        {"operation_ref": "fixture-placement-3", "kind": "placement", "actual_amount": "-0.58"},
+        {"operation_ref": "fixture-crossdock-1", "kind": "cross_docking", "actual_amount": "-12.00"},
+        {"operation_ref": "fixture-crossdock-adjustment", "kind": "cross_docking_adjustment", "actual_amount": "2.00"},
+        {"operation_ref": "fixture-reverse-logistics", "kind": "reverse_logistics", "actual_amount": "-4.00"}
+      ],
+      "skus": [
+        {"sku_ref": "fixture-alpha-a", "ordered_units": 7, "realized_units": 6, "seller_cost_per_unit": "100.00", "seller_cost_effective_date": "2026-08-01", "sku_advertising": "12.00", "crossdock_accepted_units": 10},
+        {"sku_ref": "fixture-alpha-b", "ordered_units": 4, "realized_units": 3, "seller_cost_per_unit": "75.00", "seller_cost_effective_date": "2026-08-01", "sku_advertising": "20.00", "crossdock_accepted_units": 0},
+        {"sku_ref": "fixture-alpha-c", "ordered_units": 1, "realized_units": 1, "seller_cost_per_unit": null, "seller_cost_effective_date": null, "sku_advertising": "0.00", "crossdock_accepted_units": null}
+      ],
+      "returns": [{"event_ref": "fixture-return-1", "kind": "ClientReturn", "status": "ReturnedToOzon", "quantity": 1, "cogs_restored": false}]
+    },
+    {
+      "store_ref": "fixture-store-beta",
+      "period": {"start": "2026-08-01", "end": "2026-08-31", "timezone": "Europe/Moscow", "basis": "accrual_date"},
+      "summary": {
+        "gross_revenue": "500.00", "discount_points": "50.00", "taxable_revenue": "450.00",
+        "net_accruals": "300.00", "tax": "27.00", "profit_before_cogs": "273.00",
+        "ordered_units": 4, "realized_units": 3, "cancelled_units": 0, "returned_units": 0
+      },
+      "financial_lines": [
+        {"operation_ref": "fixture-beta-sale-fee", "kind": "sale_commission", "seller_price": "200.00", "rate_percent": "30.00", "actual_amount": "-60.00"},
+        {"operation_ref": "fixture-beta-ad", "kind": "advertising", "actual_amount": "-20.00"}
+      ],
+      "skus": [
+        {"sku_ref": "fixture-beta-a", "ordered_units": 4, "realized_units": 3, "seller_cost_per_unit": "50.00", "seller_cost_effective_date": "2026-08-01", "sku_advertising": "20.00", "crossdock_accepted_units": null}
+      ],
+      "returns": []
+    }
+  ],
+  "known_boundaries": {
+    "commission_actual_amount_is_authoritative": true,
+    "commission_percent_estimate_is_not_actual_amount": true,
+    "rows_are_not_units": true,
+    "unknown_is_not_zero": true,
+    "return_status_does_not_restore_cogs": true,
+    "store_scopes_must_not_mix": true,
+    "crossdock_signed_adjustment_is_included_once": true
+  }
+}
