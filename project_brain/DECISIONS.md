@@ -1,5 +1,14 @@
 # Architecture Decisions
 
+## Decision 059 — Bot startup and backup snapshot exclusion
+
+Date: 2026-10-25
+Topic: shared token-scoped startup/snapshot guard.
+
+Canonical startup and backup use one transient operating-system guard. Backup holds it from lifecycle inspection through verified archive publication; startup holds it while obtaining the long-lived instance lock and publishing `STARTING`. Both fail closed when the other owns the guard. The guard does not change lifecycle metadata or stop an existing process. Details: `DECISIONS_059.md`.
+
+---
+
 ## Decision 058
 
 Date:

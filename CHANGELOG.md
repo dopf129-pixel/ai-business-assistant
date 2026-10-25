@@ -1,3 +1,8 @@
+# 2026-10-25 — устранены дефекты review резервного копирования D01 (R1–R3)
+
+- Бэкап принимает реальные list-based хранилища; общий token-scoped startup guard исключает запуск бота на время snapshot; custom mapping registry в одобренных корнях проходит verify, dry-run и restore по одному контракту.
+- Добавлены регрессии storage writers, конкурентного запуска и project/nested/separate storage путей. Адресный профиль: **32 passed in 1.93s**; compileall и diff-check прошли.
+
 # 2026-10-25 — E01–E03: PR stack и review/owner handoff
 
 - Подготовлен draft PR stack #713–#717: reconciliation, completeness/report UX, backup/restore, updater/status и final acceptance. #713–#716 exact-head Verify зелёные. Первые #714–#716 checks нашли три тестовые регрессии; исправления внесены в #714 и перебазированы в дочерние ветки. #717 получит fresh Verify после обновления review handoff.

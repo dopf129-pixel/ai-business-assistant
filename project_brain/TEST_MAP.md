@@ -1,3 +1,7 @@
+# Daily-use backup review regressions (R1–R3)
+
+`tests/test_bot_backup_service.py` covers actual list-based storage writers, backup/start exclusion through snapshot, and custom mapping-registry verification/dry-run/restore under project, nested storage, and separate approved storage roots. `tests/test_bot_instance_lifecycle_service.py` covers refusal during a snapshot and startup after release. Focused Windows result: **32 passed in 1.93s**; compileall and diff-check passed. Exact-head CI is required after stack updates.
+
 # Daily-use readiness E00 linked acceptance
 
 - `tests/test_daily_use_end_to_end_restore.py`: canonical unit calculation, saved tenant-scoped plan, seller cost and external expense, verified backup, no-write restore dry-run, restore to a new root, read-after-restart and second-store isolation. Source storage remains intact.

@@ -1,3 +1,9 @@
+# 2026-10-25 — исправлены R1–R3 review по D01 backup
+
+- Исправлено распознавание list-based `actions.json`, `conversation_history.json`, `store_reports.json`; тип JSON одинаково валидируется при создании и проверке архива.
+- Bot startup и backup snapshot сериализуются общим token-scoped OS guard. Mapping registry override в одобренном корне записывается относительным путём и одинаково проходит verify, dry-run и restore.
+- Адресный Windows-профиль backup/lifecycle: **32 passed in 1.93s**; compileall и diff-check прошли. Полный exact-head CI по обновлённым PR ожидается. Подробности: `DAILY_USE_BACKUP_REVIEW_FIXES_R1_R3_2026-10-25.md`.
+
 # 2026-10-25 — E01: PR stack, CI и независимый review handoff
 
 - Открыт стек draft PR #713–#717 от проверенной базы PR #712. #713 (`e014f278`) exact-head Verify `40181639324` прошёл. Первые heads #714–#716 нашли три регрессии; исправление вошло в #714 (`7ec47ef6`), затем #715 (`40c99b69`) и #716 (`e578779c`) перебазированы. Corrected exact-head Verify #714 `40182473893`, #715 `40182505098`, #716 `40182519871` все успешны на Windows/Linux; compile и Docker build/runtime smoke также успешны. PR #717 проходит свежий Verify после публикации обновлённого handoff.
