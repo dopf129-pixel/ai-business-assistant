@@ -5,7 +5,7 @@
 - **Finding:** экран готовности сравнивал сохранённую ставку и evidence как строки. Для валидной ставки `12.0` против evidence `12.00` он сообщал `UNAVAILABLE`, хотя repository и adapter уже принимали равные числовые значения.
 - **Исправление:** `PlanningPlanReadinessService` сравнивает конечные неотрицательные значения через `Decimal`; неподходящие типы, bool, отрицательные числа, NaN, infinity и разные суммы не подтверждаются.
 - **Регрессии:** `tests/test_planning_plan_readiness_service.py` проверяет `12.0`/`12.00`, `12.5`/`12.50`, `0.0`/`0.00`, несовпадение и malformed/non-finite значения. Сначала новые тесты воспроизвели проблему (**2 failed**), после исправления readiness-модуль прошёл **6 passed**.
-- Связанный профиль: **94 passed in 3.08s** на 8 X00–X06/readiness/batch модулях; syntax compilation для сервиса и теста и `git diff --check` прошли. Полный локальный pytest не запускался из-за задокументированного Windows ACL/shared-storage ограничения. Exact-head PR CI ожидается после публикации исправления.
+- Связанный профиль: **94 passed in 3.08s** на 8 X00–X06/readiness/batch модулях; syntax compilation для сервиса и теста и `git diff --check` прошли. Exact-code-head Verify [40168401653](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40168401653) для `88ab62fb9f4cf376ba982c7cef99243e6f567ef4` прошёл: Windows/Linux по **3 647 passed**, compilation на обеих ОС и Linux Docker build/runtime smoke успешны. Полный локальный pytest не запускался из-за задокументированного Windows ACL/shared-storage ограничения.
 
 ## 2026-10-21 — исправления повторного архитектурного review PR #712 (R1–R3)
 

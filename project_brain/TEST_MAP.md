@@ -1,6 +1,6 @@
 # Saved-plan readiness numeric cross-docking evidence
 
-`tests/test_planning_plan_readiness_service.py` verifies that saved rate strings with different decimal scales (`12.0`/`12.00`, `12.5`/`12.50`) and explicit zero compare numerically, while mismatches, negatives, booleans, NaN and infinity remain unavailable. Bounded Windows profile across the X00–X06 collection, adapter, readiness and batch-plan modules: **94 passed in 3.08s**. Full local pytest remains suspended due to the documented Windows ACL/shared-storage incident; exact-head PR CI is required.
+`tests/test_planning_plan_readiness_service.py` verifies that saved rate strings with different decimal scales (`12.0`/`12.00`, `12.5`/`12.50`) and explicit zero compare numerically, while mismatches, negatives, booleans, NaN and infinity remain unavailable. Bounded Windows profile across the X00–X06 collection, adapter, readiness and batch-plan modules: **94 passed in 3.08s**. Exact-code-head Verify [40168401653](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40168401653) for `88ab62fb9f4cf376ba982c7cef99243e6f567ef4` passed with **3,647 tests on Windows and Linux**, compilation on both, and Linux Docker build/runtime smoke. Full local pytest remains suspended due to the documented Windows ACL/shared-storage incident.
 
 # 2026-10-21 — exact-head verification X00–X06
 
