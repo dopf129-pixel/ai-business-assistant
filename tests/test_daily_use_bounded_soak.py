@@ -276,7 +276,13 @@ def test_fake_polling_lifecycle_repeated_start_status_stop_has_bounded_resources
             gc.collect()
 
     state_files = list(state_root.iterdir())
-    assert len(state_files) == 2
+    # The lifecycle uses persistent kernel-lock files for both the instance
+    # lease and the startup/snapshot gate. Keep the count bounded across all
+    # cycles; unlinking either lock could let concurrent processes lock
+    # different inodes for the same token namespace.
+    assert len(state_files) == 3
+    assert sum(path.name.startswith("instance-") for path in state_files) == 2
+    assert sum(path.name.startswith("startup-") for path in state_files) == 1
     assert all(path.stat().st_size <= 16 * 1024 for path in state_files)
     assert len(cycle_durations) == cycle_count
     assert max(cycle_durations) < 14

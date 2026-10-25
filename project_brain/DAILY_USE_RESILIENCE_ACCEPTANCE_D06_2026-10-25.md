@@ -22,7 +22,7 @@ Measured on Windows/Python 3.12:
 | Tenant storage | 2 files, 114,688 bytes |
 | Isolated lifecycle cycles | 8 |
 | Maximum start/status/stop cycle | 0.297 s |
-| Lifecycle state files after all cycles | 2 files, 364 bytes |
+| Lifecycle state files after all cycles | 3 files: instance metadata, instance lease lock, persistent startup/snapshot lock; byte total awaits fresh CI measurement |
 | Thread-count change | 0 |
 | Process-handle change | +2 |
 

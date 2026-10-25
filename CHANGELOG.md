@@ -2,6 +2,7 @@
 
 - Бэкап принимает реальные list-based хранилища; общий token-scoped startup guard исключает запуск бота на время snapshot; custom mapping registry в одобренных корнях проходит verify, dry-run и restore по одному контракту.
 - Добавлены регрессии storage writers, конкурентного запуска и project/nested/separate storage путей. Адресный профиль: **32 passed in 1.93s**; compileall и diff-check прошли.
+- Bounded lifecycle soak теперь учитывает постоянный startup/snapshot lock и проверяет фиксированный набор из трёх файлов вместо устаревшего лимита двух; причина и текущие CI результаты зафиксированы в backup review report.
 
 # 2026-10-25 — E01–E03: PR stack и review/owner handoff
 

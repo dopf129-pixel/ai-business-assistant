@@ -14,6 +14,7 @@ SQLite files are snapshotted through SQLite's backup API in read-only mode and c
 - Backup takes a token-scoped startup guard before checking lifecycle state and holds it through verified publication. `BotInstanceLease` takes the same guard while acquiring the long-lived instance lock, so startup cannot overlap the snapshot and a running/starting bot still causes a fail-closed result.
 - An explicitly configured mapping registry inside an approved root is recorded in the manifest as a root-relative path. When project and storage roots overlap, the most specific root is selected. Archive verification validates restore support before dry-run reports success; actual restore uses the same descriptor. External mapping paths remain unsupported.
 - Regression coverage uses the three production storage classes, synthetic interleaving, and project/nested/separate storage roots. Focused Windows result: **32 passed in 1.93s**; `compileall -q app tests` and `git diff --check` passed. Compile emitted one existing SyntaxWarning in an unchanged test. Updated exact-head CI is pending.
+- The bounded lifecycle soak counts the startup/snapshot kernel-lock file as one of three persistent files (instance metadata, instance lease lock, startup/snapshot lock). Lock files are retained across cycles to prevent concurrent processes from locking separate inodes for the same token namespace.
 
 ## Verification
 

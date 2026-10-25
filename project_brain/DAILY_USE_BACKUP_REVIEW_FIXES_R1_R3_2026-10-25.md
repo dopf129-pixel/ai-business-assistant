@@ -24,6 +24,12 @@ Regression coverage checks project, nested storage, and separate approved storag
 - The first pytest invocation stopped during collection because the application directory was not on `PYTHONPATH`; after correcting invocation, the test suite passed.
 - Exact-head CI for PR #715 and descendants is required after forwarding this fix through the stack. No merge, deployment, real bot start, Telegram/Ozon API call, or user-data access was performed.
 
+## Exact-head CI follow-up — soak resource assertion
+
+- Verify run `40186094904` on PR #717 head `8b0fb09eca3e93cf4219936d4e225da7639d4e88` ran all **3,728 tests** on both Linux and Windows; each platform had the same single failure in `test_fake_polling_lifecycle_repeated_start_status_stop_has_bounded_resources`: the test expected two lifecycle files but observed three.
+- The third file is the new token-scoped startup/snapshot kernel-lock file. It must persist between acquisitions: unlinking a lock path while another process has the old inode open can split future contenders across different inodes. The soak now asserts a fixed set of three files (two `instance-*` artifacts and one `startup-*` lock), retaining the 16 KiB per-file bound.
+- Local execution of this subprocess soak hit the known Windows ACL/subprocess stall after pytest marked the case as an error; it was interrupted. This is not counted as a pass. Fresh exact-head Windows/Linux CI is required for the corrected test.
+
 ## Review classification
 
 Architecture review required: the existing lifecycle lock contract now includes a short-lived startup/snapshot guard shared by startup and backup. No new external dependency or persistence store was added.

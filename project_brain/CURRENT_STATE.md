@@ -19,7 +19,7 @@
 
 # 2026-10-25 — ежедневная готовность, этап D06
 
-- Добавлен bounded synthetic soak для повторных расчётов/экспорта, сохранённых планов, себестоимости/расходов и восьми отдельных fake polling циклов. После прогона: 0 новых потоков, +2 process handles, два lifecycle state-файла; максимальный цикл 0,297 с.
+- Добавлен bounded synthetic soak для повторных расчётов/экспорта, сохранённых планов, себестоимости/расходов и восьми отдельных fake polling циклов. После добавления startup/snapshot guard lifecycle оставляет фиксированные три файла: instance metadata, instance lease lock и persistent startup/snapshot lock. Исторический локальный результат до guard: 0 новых потоков, +2 process handles; максимальный цикл 0,297 с.
 - Проверены cache TTL/eviction, timeouts, interrupted backup и staged restore, checkpoint resume, повторное открытие планов/стоимостей/расходов и два изолированных tenant scope. **11 passed in 3.74s** на Windows/Python 3.12.
 - Добавлены `docs/daily-use-recovery-runbook.md` и форма владельческого наблюдения `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md`. Это не заменяет 24–72 часа фактической эксплуатации; owner validation остаётся pending.
 - Следующий этап — E00 сквозная регрессия; затем exact-head PR CI, independent review package и внешний пакет приёмки.

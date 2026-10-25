@@ -1,6 +1,6 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **IN_PROGRESS**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном локальном scope. E01 обновлён после исправления R1–R3; exact-head CI #715–#717 ожидается.
+Статус: **IN_PROGRESS**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном локальном scope. E01 обновлён после исправления R1–R3 и подтверждённого CI mismatch в soak assertion; повторный exact-head CI #717 ожидается.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
@@ -14,6 +14,8 @@
 - R3: mapping registry override внутри approved project/storage root записывается в manifest как `(root, relative path)`; выбор nested storage использует самый специфичный root, verify/dry-run/restore согласованы; внешний путь остаётся запрещённым.
 - Адресный Windows профиль: **32 passed in 1.93s**; `compileall -q app tests` и `git diff --check` прошли. Один существующий `SyntaxWarning` остаётся в неизменённом test module.
 - Commit #715 `509fedba`; forward merge #716 `5bd3699c`; forward merge #717 `8559832f`. Исходные ветки не переписывались, main не менялся. Fresh exact-head CI для трёх PR — следующий обязательный шаг.
+- Verify #717 `40186094904` обнаружил на Windows и Linux одну одинаковую регрессию в bounded lifecycle soak: после восьми циклов остаётся ровно три ограниченных файла, поскольку startup/snapshot lock безопасно сохраняется вместе с instance metadata и instance lock. Проверка обновлена с подсчёта «2 файла» на точные префиксы `instance-*` (2) и `startup-*` (1); повторная проверка вынесена в новый exact-head CI.
+- Локальный повтор именно subprocess soak пометил тест как ошибку и завис при очистке на Windows ACL; запуск остановлен и не учитывается как успешная проверка. Полная свежая проверка ожидается в Windows/Linux CI.
 
 - Снимок подготовки: локальный main `7e6eabdeba34a822434e5ef417a135995628cc41`; PR #712 открыт, проверенный head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`. Не считать эти refs неизменными на момент исполнения.
 - Ветка реализации: `codex/daily-readiness-a-foundation`, база PR #712 head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`; отдельный managed worktree.
