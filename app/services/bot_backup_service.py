@@ -48,6 +48,9 @@ class BotBackupService:
         "product_decision_user_action_completion.json",
     )
     LIST_JSON_FILES = {
+        "actions.json",
+        "conversation_history.json",
+        "store_reports.json",
         "product_decision_history.json",
         "product_action_task_drafts.json",
         "product_decision_user_action_completion.json",
@@ -60,6 +63,8 @@ class BotBackupService:
         backup_directory=None,
         lifecycle_token=None,
         lifecycle_inspector=None,
+        lifecycle_state_root=None,
+        startup_guard_factory=None,
         revision_reader=None,
         now_provider=None,
     ):
@@ -80,17 +85,31 @@ class BotBackupService:
         if not self.backup_directory.is_absolute():
             self.backup_directory = self.project_root / self.backup_directory
         self.lifecycle_token = str(lifecycle_token or "").strip()
+        self.lifecycle_state_root = lifecycle_state_root
         if lifecycle_inspector is None:
             from services.bot_instance_lifecycle_service import inspect_bot_instance
 
-            lifecycle_inspector = inspect_bot_instance
+            lifecycle_inspector = lambda token: inspect_bot_instance(
+                token, state_root=self.lifecycle_state_root
+            )
         self.lifecycle_inspector = lifecycle_inspector
+        if startup_guard_factory is None:
+            from services.bot_instance_lifecycle_service import BotStartupMaintenanceGuard
+
+            startup_guard_factory = lambda token: BotStartupMaintenanceGuard(
+                token, state_root=self.lifecycle_state_root
+            )
+        self.startup_guard_factory = startup_guard_factory
         self.revision_reader = revision_reader or self._read_revision
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
     def backup(self):
-        """Write a verified archive only when the token-bound bot is stopped."""
+        """Write a verified archive while excluding concurrent bot startup."""
+        startup_guard = None
         try:
+            startup_guard = self.startup_guard_factory(self.lifecycle_token)
+            if not startup_guard.acquire():
+                return self._error("BOT_BACKUP_STARTUP_BUSY")
             lifecycle = self._lifecycle_status()
             if lifecycle.get("state") != "STOPPED":
                 return self._error("BOT_BACKUP_BOT_NOT_STOPPED")
@@ -101,6 +120,9 @@ class BotBackupService:
                 return self._error("BOT_BACKUP_NO_SUPPORTED_DATA")
             if len(candidates) > self.MAX_FILES:
                 return self._error("BOT_BACKUP_FILE_COUNT_LIMIT")
+            mapping_registry_override = self._mapping_registry_override_entry(
+                roots, candidates
+            )
 
             backup_directory = self._validate_backup_directory(roots, candidates)
             backup_directory.mkdir(parents=True, exist_ok=True)
@@ -150,6 +172,8 @@ class BotBackupService:
                     "total_size_bytes": total_bytes,
                     "entries": manifest_entries,
                 }
+                if mapping_registry_override is not None:
+                    manifest["mapping_registry_override"] = mapping_registry_override
                 manifest_bytes = self._canonical_json(manifest)
                 if len(manifest_bytes) > self.MAX_MANIFEST_BYTES:
                     raise _BackupFailure("BOT_BACKUP_MANIFEST_SIZE_LIMIT")
@@ -191,9 +215,19 @@ class BotBackupService:
         except _BackupFailure as error:
             self._remove_partial(locals().get("partial_path"))
             return self._error(error.code)
-        except Exception:
+        except Exception as error:
             self._remove_partial(locals().get("partial_path"))
+            if getattr(error, "code", None) == "TELEGRAM_BOT_TOKEN_MISSING":
+                return self._error("BOT_BACKUP_LIFECYCLE_UNAVAILABLE")
+            if getattr(error, "code", None) == "BOT_INSTANCE_LOCK_FAILED":
+                return self._error("BOT_BACKUP_STARTUP_GUARD_UNAVAILABLE")
             return self._error("BOT_BACKUP_FAILED")
+        finally:
+            if startup_guard is not None:
+                try:
+                    startup_guard.close()
+                except Exception:
+                    pass
 
     def verify_archive(self, archive_path):
         """Verify a completed archive without extracting or writing its contents."""
@@ -245,10 +279,13 @@ class BotBackupService:
                 if manifest_digest != verified["manifest_sha256"]:
                     raise _BackupFailure("BOT_RESTORE_ARCHIVE_CHANGED")
                 manifest = json.loads(manifest_bytes.decode("utf-8"))
+                mapping_registry_override = manifest.get("mapping_registry_override")
                 for entry in manifest["entries"]:
                     root_name = entry["root"]
                     relative_path = Path(*entry["path"].split("/"))
-                    if not self._restore_path_allowed(root_name, relative_path):
+                    if not self._restore_path_allowed(
+                        root_name, relative_path, mapping_registry_override
+                    ):
                         raise _BackupFailure("BOT_RESTORE_PATH_UNSUPPORTED")
                     archive_name = "files/" + root_name + "/" + entry["path"]
                     payload = archive.read(archive_name)
@@ -316,10 +353,19 @@ class BotBackupService:
             raise _BackupFailure("BOT_RESTORE_PARENT_UNAVAILABLE") from error
         return parent / raw_target.name
 
-    def _restore_path_allowed(self, root_name, relative_path):
+    def _restore_path_allowed(
+        self, root_name, relative_path, mapping_registry_override=None
+    ):
         parts = relative_path.parts
         if root_name not in {"project", "storage"} or relative_path.is_absolute() or ".." in parts or not parts:
             return False
+        if (
+            isinstance(mapping_registry_override, dict)
+            and mapping_registry_override.get("root") == root_name
+            and mapping_registry_override.get("path") == relative_path.as_posix()
+            and relative_path.suffix.lower() == ".json"
+        ):
+            return True
         if len(parts) == 1:
             return parts[0] == self.SQLITE_NAME or parts[0] in self.ROOT_JSON_FILES
         if len(parts) == 2 and parts[0] == "data":
@@ -424,6 +470,25 @@ class BotBackupService:
         for root_name, root_path, relative, path in normalized:
             self._validate_source_path(root_path, relative, path)
         return normalized
+
+    def _mapping_registry_override_entry(self, roots, candidates):
+        configured_path = os.getenv("PERIOD_PROFIT_MAPPING_REGISTRY_PATH")
+        if not configured_path:
+            return None
+        path = Path(configured_path)
+        if not path.is_absolute():
+            path = self.project_root / path
+        path = path.resolve(strict=False)
+        target = self._path_in_roots(path, roots)
+        if target is None or path.suffix.lower() != ".json":
+            raise _BackupFailure("BOT_BACKUP_EXTERNAL_STATE_UNSUPPORTED")
+        root_name, relative_path = target
+        if not any(
+            candidate_root == root_name and candidate_relative == relative_path
+            for candidate_root, _root_path, candidate_relative, _source_path in candidates
+        ):
+            return None
+        return {"root": root_name, "path": relative_path.as_posix()}
 
     def _discover_tenant_files(self, root_name, root_path):
         tenant_root = root_path / "data" / "tenants"
@@ -536,7 +601,7 @@ class BotBackupService:
                 raise
             except Exception as error:
                 raise _BackupFailure("BOT_BACKUP_JSON_INVALID") from error
-            expected_type = list if path.name in self.LIST_JSON_FILES else dict
+            expected_type = list if path.name.casefold() in self.LIST_JSON_FILES else dict
             if not isinstance(parsed, expected_type):
                 raise _BackupFailure("BOT_BACKUP_JSON_CONTRACT_INVALID")
             metadata = {"format": "json", "metadata": {"root_type": "list" if isinstance(parsed, list) else "object"}}
@@ -684,6 +749,36 @@ class BotBackupService:
                     content_error = self._validate_archive_payload(entry, payload)
                     if content_error:
                         return self._error(content_error)
+                mapping_registry_override = manifest.get("mapping_registry_override")
+                if mapping_registry_override is not None:
+                    if (
+                        not isinstance(mapping_registry_override, dict)
+                        or set(mapping_registry_override) != {"root", "path"}
+                        or mapping_registry_override.get("root") not in {"project", "storage"}
+                        or not isinstance(mapping_registry_override.get("path"), str)
+                        or not self._valid_archive_name(mapping_registry_override["path"])
+                        or mapping_registry_override["path"].startswith("files/")
+                        or ":" in mapping_registry_override["path"]
+                        or any(
+                            part in {"", ".", ".."}
+                            for part in mapping_registry_override["path"].split("/")
+                        )
+                        or not mapping_registry_override["path"].lower().endswith(".json")
+                        or not any(
+                            entry.get("root") == mapping_registry_override["root"]
+                            and entry.get("path") == mapping_registry_override["path"]
+                            and entry.get("format") == "json"
+                            for entry in manifest["entries"]
+                        )
+                    ):
+                        return self._error("BOT_BACKUP_MANIFEST_INVALID")
+                for entry in manifest["entries"]:
+                    if not self._restore_path_allowed(
+                        entry["root"],
+                        Path(*entry["path"].split("/")),
+                        mapping_registry_override,
+                    ):
+                        return self._error("BOT_RESTORE_PATH_UNSUPPORTED")
                 if total != manifest.get("total_size_bytes") or len(manifest["entries"]) != manifest.get("file_count"):
                     return self._error("BOT_BACKUP_MANIFEST_TOTALS_INVALID")
                 if set(names) != expected_names:
@@ -730,7 +825,11 @@ class BotBackupService:
                 )
             except Exception:
                 return "BOT_BACKUP_JSON_INVALID"
-            expected_type = list if Path(entry.get("path", "")).name in self.LIST_JSON_FILES else dict
+            expected_type = (
+                list
+                if Path(entry.get("path", "")).name.casefold() in self.LIST_JSON_FILES
+                else dict
+            )
             return None if isinstance(value, expected_type) else "BOT_BACKUP_JSON_CONTRACT_INVALID"
         if entry.get("format") == "sqlite":
             temporary_path = None
@@ -761,12 +860,17 @@ class BotBackupService:
         return "BOT_BACKUP_UNSUPPORTED_FILE_TYPE"
 
     def _path_in_roots(self, path, roots):
+        matches = []
         for root_name, root_path in roots:
             try:
-                return root_name, path.relative_to(root_path)
+                relative_path = path.relative_to(root_path)
             except ValueError:
                 continue
-        return None
+            matches.append((len(root_path.parts), root_name, relative_path))
+        if not matches:
+            return None
+        _depth, root_name, relative_path = max(matches, key=lambda item: item[0])
+        return root_name, relative_path
 
     def _safe_revision(self):
         try:

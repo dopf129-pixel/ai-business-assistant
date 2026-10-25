@@ -13,6 +13,8 @@ import pytest
 from services.bot_instance_lifecycle_service import (
     BotInstanceAlreadyRunning,
     BotInstanceLease,
+    BotLifecycleError,
+    BotStartupMaintenanceGuard,
     inspect_bot_instance,
     request_graceful_stop,
 )
@@ -57,6 +59,27 @@ def test_distinct_bot_tokens_can_hold_independent_locks(tmp_path):
     finally:
         second.close()
         first.close()
+
+
+def test_instance_startup_is_excluded_while_backup_holds_maintenance_guard(tmp_path):
+    token = "synthetic-backup-maintenance-token"
+    guard = BotStartupMaintenanceGuard(token, state_root=tmp_path)
+    assert guard.acquire() is True
+    lease = BotInstanceLease(token, state_root=tmp_path)
+
+    try:
+        with pytest.raises(BotLifecycleError) as error:
+            lease.acquire()
+        assert error.value.code == "BOT_INSTANCE_MAINTENANCE_ACTIVE"
+        assert inspect_bot_instance(token, state_root=tmp_path)["state"] == "STOPPED"
+    finally:
+        guard.close()
+
+    lease.acquire()
+    try:
+        assert inspect_bot_instance(token, state_root=tmp_path)["state"] == "STARTING"
+    finally:
+        lease.close()
 
 
 def test_failed_start_releases_lock_and_stale_pid_marker_never_targets_process(tmp_path, monkeypatch):

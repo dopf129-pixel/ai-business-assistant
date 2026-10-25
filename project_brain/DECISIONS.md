@@ -1,5 +1,31 @@
 # Architecture Decisions
 
+## Decision 059
+
+Date:
+
+2026-10-25
+
+Topic:
+
+Bot startup and backup snapshot exclusion
+
+Decision:
+
+- Canonical bot startup and backup snapshot creation share a token-scoped operating-system guard in the lifecycle state root.
+- Backup holds the guard from the stopped-state check through verified publication; startup holds it while acquiring the long-lived instance lock and publishing `STARTING`.
+- Both operations fail closed if the other owns the guard. The guard is transient and does not alter lifecycle metadata or stop a running process.
+
+Reason:
+
+A stopped-state check alone cannot prevent startup during a multi-file snapshot. Shared exclusion closes the race without persisting a new lock service or changing the backup data layout. Details and regressions: `DECISIONS_059.md` and `DAILY_USE_BACKUP_REVIEW_FIXES_R1_R3_2026-10-25.md`.
+
+Status:
+
+Implemented with synthetic startup/snapshot interleaving and busy-lock regressions; exact-head CI is pending.
+
+---
+
 ## Decision 054
 
 Date:
