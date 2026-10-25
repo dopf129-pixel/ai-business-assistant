@@ -1,6 +1,6 @@
 # Daily-use readiness — independent review handoff
 
-Date: 2026-10-25. Status: `REVIEW_READY_PENDING_RERUN_CI`.
+Date: 2026-10-25. Status: `REVIEW_READY`; exact-head checks are linked from each PR.
 
 ## Scope and PR order
 
@@ -13,9 +13,9 @@ This is a dependent stack based on the already reviewed, unmerged cross-docking 
 | 2 | [#714](https://github.com/dopf129-pixel/ai-business-assistant/pull/714) | `codex/daily-readiness-a-foundation` | `7ec47ef604bf286cb1e5faf0d4fad98f5fcef8fc` | B/C plus exact-head CI regressions | `40182473893`, success (Windows/Linux full tests and compile; Docker build/smoke) |
 | 3 | [#715](https://github.com/dopf129-pixel/ai-business-assistant/pull/715) | `codex/daily-readiness-bc` | `40c99b695048dc56963a4a73b64adb9a4e5931e3` | D01/D02: verified backup and restore into a new root | `40182505098`, success (Windows/Linux full tests and compile; Docker build/smoke) |
 | 4 | [#716](https://github.com/dopf129-pixel/ai-business-assistant/pull/716) | `codex/daily-readiness-backup` | `e578779c7bf15e72ae82c764d8c1ed72b72aa16c` | D03–D05: update preflight, updater, lifecycle and diagnostics | `40182519871`, success (Windows/Linux full tests and compile; Docker build/smoke) |
-| 5 | [#717](https://github.com/dopf129-pixel/ai-business-assistant/pull/717) | `codex/daily-readiness-operations` | Current head is published with this handoff update; read exact SHA from PR metadata | D06/E00 soak and linked acceptance, journals and final docs | Verify starts on the updated head after push |
+| 5 | [#717](https://github.com/dopf129-pixel/ai-business-assistant/pull/717) | `codex/daily-readiness-operations` | Read the exact head from PR metadata; the final Verify run is linked in the PR body | D06/E00 soak and linked acceptance, journals and final docs | The final exact-head Verify run after this documentation update is linked in the PR body |
 
-All readiness PRs are drafts while their exact-head checks run. The first B/C CI pass exposed two missing identity-projection calls and a stale formatting assertion; the correction is in PR #714 and was propagated by rebasing each child onto its updated base. Details: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Failed runs on superseded heads are not accepted. Corrected PRs #714–#716 now pass full Windows/Linux suites, compile, and Docker build/runtime smoke. Verify #717 on its current exact head after this handoff update before review.
+All five readiness PRs are ready for review. The first B/C CI pass exposed two missing identity-projection calls and a stale formatting assertion; the correction is in PR #714 and was propagated by rebasing each child onto its updated base. Details: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Failed runs on superseded heads are not accepted. Exact-head runs for #713–#716 pass full Windows/Linux suites and compile; Linux also passes Docker build/runtime smoke. PR #717 exact-head Verify result is linked in its description. Review the exact current heads and checks before merge.
 
 ## Architecture and changed contracts
 
