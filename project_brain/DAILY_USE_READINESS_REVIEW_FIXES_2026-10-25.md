@@ -1,6 +1,6 @@
 # Daily-use readiness — confirmed review fixes
 
-Date: 2026-10-25. Status: `IMPLEMENTED_AWAITING_EXACT_HEAD_CI_AND_REPEAT_REVIEW`.
+Date: 2026-10-25. Status: `IMPLEMENTED_CI_GREEN_REPEAT_REVIEW_CLEAR; OWNER_VALIDATION_PENDING`.
 
 ## Confirmed findings and changes
 
@@ -19,10 +19,10 @@ Date: 2026-10-25. Status: `IMPLEMENTED_AWAITING_EXACT_HEAD_CI_AND_REPEAT_REVIEW`
 
 - Windows/Python 3.12 focused profile for preflight, updater, lifecycle and backup: **70 passed in 14.99s**.
 - Windows/Python 3.12 linked bounded-soak, end-to-end restore and bot-control profile: **8 passed in 3.58s**.
-- Full local `pytest` was not rerun because the project journal records that it can mutate shared root JSON and fail against Windows temporary-directory ACLs. The sandboxed attempt could not collect temporary-path tests; the isolated elevated focused profiles above passed. Exact-head GitHub CI is required for the full suite.
-- In-memory Python compilation of the 4 services, worker and 4 test modules passed; `git diff --check` passed. Exact-head CI and repeat review are pending commit/push.
+- Full local `pytest` was not rerun because the project journal records that it can mutate shared root JSON and fail against Windows temporary-directory ACLs. The isolated focused profiles above passed, and full exact-head GitHub CI passed on both platforms.
+- In-memory Python compilation of the 4 services, worker and 4 test modules passed; `git diff --check` passed. Commit `39d1a12bcb699ef504abbbb1c484a5a7745f23a7` passed Verify run `40222900262`: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile, production Docker build and runtime smoke all passed.
 - No merge, deployment, production bot start/stop, network request, user-data backup or user-data restore was performed.
 
 ## Review status
 
-Class: **Architecture Review Required**. Changes extend the lifecycle lock boundary and add a bounded subprocess for SQLite snapshotting. Repeat review should check guard release on every path, Windows process termination, ignored path matching, generation scope and exact-head Windows/Linux CI.
+Class: **Architecture Review Required**. Changes extend the lifecycle lock boundary and add a bounded subprocess for SQLite snapshotting. Repeat technical review of these four fixes found no further actionable defect. The PR still needs its normal independent approval; owner-side operational validation remains pending. No merge, deployment, production bot start/stop, network request, user-data backup or user-data restore was performed.

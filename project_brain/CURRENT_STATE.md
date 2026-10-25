@@ -1,7 +1,7 @@
 # 2026-10-25 — новые исправления независимого review
 
 - Исправлены четыре подтверждённых дефекта: ignored-файл, совпадающий с входящим Git-путём, теперь блокирует обновление; общий startup lock удерживается во всём окне обновления; stop привязан к исходному поколению процесса; SQLite backup получает жёсткий timeout и прерываемый subprocess.
-- Добавлены regressions. Адресный Windows/Python 3.12 профиль: **70 passed in 14.99s**, связанный soak/restore/control профиль: **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Exact-head CI и повторный review ожидаются.
+- Добавлены regressions. Адресный Windows/Python 3.12 профиль: **70 passed in 14.99s**, связанный soak/restore/control профиль: **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7` прошёл exact-head Verify `40222900262`: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile и production Docker build/runtime smoke успешны. Повторное technical review не выявило новых actionable дефектов.
 - Merge/deploy/live bot не выполнялись; изменения находятся в изолированной ветке `codex/daily-readiness-acceptance-rebase`. Подробности: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`.
 
 # 2026-10-25 — исправлены R1–R3 review по D01 backup

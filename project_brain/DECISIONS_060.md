@@ -15,4 +15,4 @@ The checked updater previously released the startup/snapshot guard after the bac
 
 ## Status
 
-Implemented with synthetic regressions; exact-head CI and repeat review are pending. No real bot, credentials or user database was used.
+Implemented with synthetic regressions. Exact-head Verify `40222900262` passed on Windows and Linux at code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7` (3,736 tests per platform, compile, Linux Docker build/runtime smoke). Repeat technical review found no additional actionable defect. No real bot, credentials or user database was used.

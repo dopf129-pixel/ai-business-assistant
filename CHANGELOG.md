@@ -2,7 +2,7 @@
 
 - Preflight блокирует fast-forward, если входящая версия затрагивает существующий игнорируемый локальный файл; updater держит общий startup/maintenance lock через backup, merge, установку зависимостей и offline-проверки.
 - Graceful stop повторно сверяет поколение и checkout до отправки команды и во время ожидания; SQLite snapshot выполняется в ограниченном по времени процессе, который завершается вместе с таймаутом.
-- Добавлены синтетические регрессии на четыре найденных сценария. Адресные Windows профили: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Точный CI после нового коммита ожидается; production bot не запускался.
+- Добавлены синтетические регрессии на четыре найденных сценария. Адресные Windows профили: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7` прошёл exact-head Verify `40222900262`: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile и production Docker build/runtime smoke успешны. Повторное technical review не выявило новых actionable дефектов; production bot не запускался.
 
 # 2026-10-25 — устранены дефекты review резервного копирования D01 (R1–R3)
 

@@ -4,7 +4,7 @@
 - `tests/test_bot_update_runtime_service.py` and `tests/test_bot_backup_service.py`: updater and backup share one held maintenance guard; a real synthetic `BotInstanceLease` cannot start during merge and can acquire after release/start handoff. Guard contention stops before fetch.
 - `tests/test_bot_instance_lifecycle_service.py`: lifecycle exposes process generation only to the internal stop path; a replacement generation/checkout during `STARTING` wait is rejected before any control socket is contacted.
 - `tests/test_bot_backup_service.py` plus `app/sqlite_backup_worker.py`: a real exclusive SQLite lock hits the configured subprocess deadline, returns `BOT_BACKUP_SQLITE_TIMEOUT`, and valid SQLite data still snapshots with integrity metadata.
-- Addressed Windows/Python 3.12 profiles: **70 passed in 14.99s** for preflight/update/lifecycle/backup and **8 passed in 3.58s** for bounded soak/end-to-end restore/control CLI. Full suite and exact-head CI are pending; no real bot/network/data was used.
+- Addressed Windows/Python 3.12 profiles: **70 passed in 14.99s** for preflight/update/lifecycle/backup and **8 passed in 3.58s** for bounded soak/end-to-end restore/control CLI. Exact-head Verify `40222900262` at code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile and Linux production Docker build/runtime smoke passed. No real bot/network/data was used.
 
 # Daily-use backup review regressions (R1–R3)
 

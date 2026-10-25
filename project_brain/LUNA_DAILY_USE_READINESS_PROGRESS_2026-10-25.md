@@ -1,12 +1,12 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **REVIEW_FIXES_IMPLEMENTED_AWAITING_EXACT_HEAD_CI_AND_REPEAT_REVIEW; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. После повторного review найдены четыре подтверждённых дефекта; исправления в текущей рабочей ветке и ожидают CI точного нового коммита.
+Статус: **REVIEW_FIXES_CI_GREEN_REPEAT_REVIEW_CLEAR; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. Четыре подтверждённых дефекта исправлены в code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`; exact-head CI и повторное техническое review завершены успешно. Внешнее owner evidence остаётся pending.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
 ## Точка продолжения
 
-- Следующий шаг: завершить diff/compile checks, записать новый exact head, отправить изменения в текущую ветку PR #717, дождаться Windows/Linux CI и повторить review. После этого вернуться к owner evidence E03 и эксплуатационному наблюдению. Полный suite не заявлять зелёным до exact-head CI. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+- Следующий шаг: независимый reviewer/владелец интегрирует PR stack в dependency order после проверки актуальных heads. Затем выполнить owner evidence E03 и эксплуатационное наблюдение; production readiness не заявлять до этого. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
 
 ### E01 — исправления четырёх подтверждённых review findings
 
@@ -14,7 +14,7 @@
 - Updater удерживает token-scoped startup/maintenance guard от начала update workflow до окончания backup, merge и local checks; backup повторно использует уже удерживаемую блокировку. Gate проверен живым synthetic `BotInstanceLease` в merge boundary и на handoff перед штатным стартом.
 - Graceful stop сохраняет исходное поколение, повторно проверяет его и checkout при ожидании `STARTING`, перед control request и во время stop wait. Замена поколением другого checkout закрывается без отправки stop.
 - SQLite backup перенесён в ограниченный subprocess; hard timeout завершает зависший helper и удаляет временный снимок. Валидация проверила занятую synthetic DB и нормальную integrity snapshot.
-- Связанные Windows/Python 3.12 проверки: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Полный локальный pytest не повторялся из-за ранее записанного воздействия на shared root JSON и ACL `%TEMP%`; точный full CI и repeat review ожидаются. Подробнее: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`, решение: `DECISIONS_060.md`.
+- Связанные Windows/Python 3.12 проверки: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Verify `40222900262` для точного code head прошёл: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile и Linux production Docker build/runtime smoke успешны. Повторное technical review не выявило дополнительных actionable findings. Подробнее: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`, решение: `DECISIONS_060.md`.
 ### E01 — исправления независимого review backup (R1–R3)
 
 - R1: добавлены реальные list-based `actions.json`, `conversation_history.json`, `store_reports.json` в единый JSON root-type контракт creation/verify.
@@ -63,8 +63,8 @@
 | D05 | Статус процесса/диагностика | VERIFIED_OFFLINE | `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`; 87 related tests passed |
 | D06 | Fault/soak проверки и runbook | VERIFIED_OFFLINE | `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; 11 passed, max lifecycle cycle 0.297 s |
 | E00 | Общая регрессия | VERIFIED_LOCAL_ISOLATED | `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; 350 passed in 22.70s |
-| E01 | PR и полный актуальный CI | VERIFIED | #715 `40185833721`, #716 `40185869091`, #717 `40186507007` green on exact heads |
-| E02 | Независимый review handoff | READY_FOR_INDEPENDENT_REVIEW | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; exact #713–#717 heads and CI runs recorded |
+| E01 | PR и полный актуальный CI | VERIFIED | #715 `40185833721`, #716 `40185869091`; final #717 code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`, Verify `40222900262` green (3,736 tests per OS, compile, Linux Docker build/runtime smoke) |
+| E02 | Независимый review handoff | READY_FOR_INDEPENDENT_REVIEW | Четыре дополнительных исправления повторно технически проверены без новых findings; `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md` содержит актуальный #717 head и CI. Formal GitHub approval не зарегистрирован |
 | E03 | Пакет внешней приёмки владельца | PREPARED / USER_VALIDATION_PENDING | `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` |
 
 ## Независимые состояния готовности
