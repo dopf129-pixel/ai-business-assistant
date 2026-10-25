@@ -22,7 +22,7 @@ Measured on Windows/Python 3.12:
 | Tenant storage | 2 files, 114,688 bytes |
 | Isolated lifecycle cycles | 8 |
 | Maximum start/status/stop cycle | 0.297 s |
-| Lifecycle state files after all cycles | 3 files: instance metadata, instance lease lock, persistent startup/snapshot lock; byte total awaits fresh CI measurement |
+| Lifecycle state files after all cycles | Three-file structure and ≤16 KiB/file assertions passed in exact-head CI; byte total was not emitted by the CI log |
 | Thread-count change | 0 |
 | Process-handle change | +2 |
 
@@ -36,4 +36,4 @@ The D06 targeted profile also covers analytics snapshot TTL and atomic bounded c
 
 ## Limits and result
 
-The measured cycles are short synthetic checks, not evidence of multi-day production stability or Ozon source availability. No new architecture or persistent runtime contract was introduced. D06 is complete; E00 linked regression and exact-head CI are next.
+The measured cycles are short synthetic checks, not evidence of multi-day production stability or Ozon source availability. No new architecture or persistent runtime contract was introduced. D06 is complete; E00 linked regression and integrated exact-head CI are verified. Owner operational observation remains pending in E03.

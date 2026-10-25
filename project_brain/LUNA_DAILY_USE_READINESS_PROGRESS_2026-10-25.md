@@ -1,21 +1,21 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **IN_PROGRESS**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном локальном scope. E01 обновлён после исправления R1–R3 и подтверждённого CI mismatch в soak assertion; повторный exact-head CI #717 ожидается.
+Статус: **READY_FOR_INDEPENDENT_REVIEW; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. E01 завершён на зелёных exact-head CI; owner evidence E03 остаётся открытым.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
 ## Точка продолжения
 
-- Следующий этап: **E01** — получить свежие exact-head CI для обновлённых #715–#717, затем финализировать E02. E03 остаётся `USER_VALIDATION_PENDING`. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+- Следующий шаг: независимый review текущей PR stack #713–#717, затем owner evidence E03 и эксплуатационное наблюдение. Не считать зелёный synthetic CI заменой реальным данным. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
 ### E01 — исправления независимого review backup (R1–R3)
 
 - R1: добавлены реальные list-based `actions.json`, `conversation_history.json`, `store_reports.json` в единый JSON root-type контракт creation/verify.
 - R2: `BotStartupMaintenanceGuard` сериализует canonical `BotInstanceLease` startup и полный backup snapshot. Запуск во время snapshot и backup во время startup завершаются fail-closed без публикации смешанного архива.
 - R3: mapping registry override внутри approved project/storage root записывается в manifest как `(root, relative path)`; выбор nested storage использует самый специфичный root, verify/dry-run/restore согласованы; внешний путь остаётся запрещённым.
 - Адресный Windows профиль: **32 passed in 1.93s**; `compileall -q app tests` и `git diff --check` прошли. Один существующий `SyntaxWarning` остаётся в неизменённом test module.
-- Commit #715 `509fedba`; forward merge #716 `5bd3699c`; forward merge #717 `8559832f`. Исходные ветки не переписывались, main не менялся. Fresh exact-head CI для трёх PR — следующий обязательный шаг.
+- Commit #715 `509fedba`; forward merge #716 `5bd3699c`; forward merge #717 includes `8559832f`; soak assertion correction `37d6bb43`. Исходные ветки не переписывались, main не менялся. Exact-head Verify: #715 `40185833721` success; #716 `40185869091` success; #717 `40186507007` success on Windows/Linux, 3,728 tests per platform plus Linux Docker build/smoke.
 - Verify #717 `40186094904` обнаружил на Windows и Linux одну одинаковую регрессию в bounded lifecycle soak: после восьми циклов остаётся ровно три ограниченных файла, поскольку startup/snapshot lock безопасно сохраняется вместе с instance metadata и instance lock. Проверка обновлена с подсчёта «2 файла» на точные префиксы `instance-*` (2) и `startup-*` (1); повторная проверка вынесена в новый exact-head CI.
-- Локальный повтор именно subprocess soak пометил тест как ошибку и завис при очистке на Windows ACL; запуск остановлен и не учитывается как успешная проверка. Полная свежая проверка ожидается в Windows/Linux CI.
+- Локальный повтор именно subprocess soak пометил тест как ошибку и завис при очистке на Windows ACL; запуск остановлен и не учитывается как успешная проверка. Исправленный test прошёл как часть полного Windows/Linux CI (`3728 passed` на каждой платформе).
 
 - Снимок подготовки: локальный main `7e6eabdeba34a822434e5ef417a135995628cc41`; PR #712 открыт, проверенный head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`. Не считать эти refs неизменными на момент исполнения.
 - Ветка реализации: `codex/daily-readiness-a-foundation`, база PR #712 head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`; отдельный managed worktree.
@@ -55,16 +55,16 @@
 | D05 | Статус процесса/диагностика | VERIFIED_OFFLINE | `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`; 87 related tests passed |
 | D06 | Fault/soak проверки и runbook | VERIFIED_OFFLINE | `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; 11 passed, max lifecycle cycle 0.297 s |
 | E00 | Общая регрессия | VERIFIED_LOCAL_ISOLATED | `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; 350 passed in 22.70s |
-| E01 | PR и полный актуальный CI | IN_PROGRESS | #713/#714 green on current heads; #715–#717 fresh exact-head CI pending after R1–R3 fixes |
-| E02 | Независимый review handoff | UPDATE_PENDING_CI | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; exact #715–#717 heads recorded; fresh run IDs pending |
+| E01 | PR и полный актуальный CI | VERIFIED | #715 `40185833721`, #716 `40185869091`, #717 `40186507007` green on exact heads |
+| E02 | Независимый review handoff | READY_FOR_INDEPENDENT_REVIEW | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; exact #713–#717 heads and CI runs recorded |
 | E03 | Пакет внешней приёмки владельца | PREPARED / USER_VALIDATION_PENDING | `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` |
 
 ## Независимые состояния готовности
 
 | Контур | Текущее состояние |
 |---|---|
-| Новая реализация и регрессии | A02 comparator реализован; B/C/D завершены в локальном verification scope; A04 owner evidence pending; E00–E03 впереди |
-| Новый Windows/Linux/Docker CI | NOT_STARTED |
+| Новая реализация и регрессии | A02 comparator реализован; B/C/D/E00 завершены в offline/synthetic scope; owner evidence остаётся pending в E03 |
+| Новый Windows/Linux/Docker CI | VERIFIED on exact PR heads #715–#717; #717 run `40186507007`: Windows/Linux 3,728 tests each, Linux Docker build/runtime smoke |
 | Сверка содержимого реальных отчётов | Предварительно: net accrual августовского XLSX `177282.17`, complete; current bot JSON export не предоставлен; финальная сверка A04 после C |
 | Backup/restore drill на synthetic data | Offline verification done in D01/D02; D06 fault cases passed; no owner production restore performed |
 | Текущее live-окружение и приёмка владельца | Не проверено; подготовить USER_VALIDATION_PENDING в E03 |
@@ -315,7 +315,7 @@
 
 - Опубликованы draft PR: #713 (`e014f278`, base #712 head `698c9f8`), #714 corrected (`7ec47ef6`, base #713), #715 rebased (`40c99b69`, base #714), #716 rebased (`e578779c`, base #715), #717 E acceptance (base #716; head обновляется с handoff). Run #713 **40181639324** завершён `success`.
 - Первые runs #714 **40181793806**, #715 **40181869351**, #716 **40181908157** завершились `failure`: 3 теста, остальные прошли. Исправлено: B04 удалил helper, который downstream использовал только для SKU identity; добавлен identity-only projection без возврата cost. Compact-money assertions обновлены до двух знаков. Подробности `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`.
-- Свежие corrected-head runs #714 **40182473893**, #715 **40182505098**, #716 **40182519871** завершились `success`: Windows/Linux full tests and compile, Linux Docker build/runtime smoke. На послеобновлённом head #717 требуется его собственный свежий Verify. Старые failures не учитываются. Слияние, развёртывание и настоящий запуск запрещены рамками task.
+- Свежие corrected-head runs #714 **40182473893**, #715 **40182505098**, #716 **40182519871** завершились `success`: Windows/Linux full tests and compile, Linux Docker build/runtime smoke. Позже R1–R3 были внесены в #715 и forwarded; новые exact runs #715 `40185833721`, #716 `40185869091`, #717 `40186507007` также прошли. На #717 проверено 3,728 tests per platform и Linux Docker build/runtime smoke. Старые failures superseded. Слияние, развёртывание и настоящий запуск запрещены рамками task.
 
 ### E02 — пакет независимого review (25.10.2026)
 
