@@ -44,6 +44,10 @@ class Finance:
 
 
 class RecoverableCostStorage(CostStorage):
+    def __init__(self):
+        super().__init__()
+        self.current_cost_reads = 0
+
     def get_historical_cost_evidence(self, at_date, **kwargs):
         return {
             "error": False,
@@ -52,6 +56,7 @@ class RecoverableCostStorage(CostStorage):
         }
 
     def get_all_costs(self):
+        self.current_cost_reads += 1
         return [
             (
                 "finance-sku:3398133813",
@@ -121,7 +126,7 @@ def test_v1424_unavailable_cost_storage_fails_closed():
     assert "недоступно" in result["message"]
 
 
-def test_v1425_local_sku_cost_is_recoverable_for_period_profit():
+def test_v1425_current_local_sku_cost_does_not_rewrite_an_earlier_period():
     storage = RecoverableCostStorage()
     summary = Summary(storage)
     service = PeriodProfitFinanceSkuScopeService(summary, Finance())
@@ -132,17 +137,10 @@ def test_v1425_local_sku_cost_is_recoverable_for_period_profit():
         [("1", "current", "OTHER")],
     )
 
-    assert result["error"] is False
-    assert summary.products == [
-        {
-            "product_id": "finance-sku:3398133813",
-            "sku": "3398133813",
-            "offer_id": "3398133813",
-            "cost_price": 450.0,
-            "historical_cost_evidence": False,
-        }
-    ]
-    assert result["historical_sku_recovery_count"] == 1
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+    assert summary.products is None
+    assert storage.current_cost_reads == 0
 
 
 def test_v1426_help_documents_costsku_command():

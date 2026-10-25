@@ -40,6 +40,20 @@ class AssistantPeriodProfitRuntimeService:
     REPORT_VIEW_CACHE_MAX = 64
     REPORT_VIEW_TTL_SECONDS = 600
     ANALYTICS_IDENTIFIER_MAX_CHARS = 80
+    COMPLETENESS_REASON_PRIORITY = (
+        "IDENTITY_CONFLICT",
+        "SOURCE_STALE",
+        "FINANCIAL_BASE_UNCONFIRMED",
+        "SKU_QUANTITY_UNCONFIRMED",
+        "COST_MISSING",
+        "RETURN_COST_UNCONFIRMED",
+        "TAX_POLICY_UNCONFIRMED",
+        "EXTERNAL_EXPENSES_UNCONFIRMED",
+        "RETURN_EVIDENCE_UNCONFIRMED",
+        "ADVERTISING_EVIDENCE_UNCONFIRMED",
+        "IDENTITY_NOT_CONFIRMED",
+        "PARTIAL_COVERAGE",
+    )
 
     def __init__(
         self,
@@ -365,6 +379,8 @@ class AssistantPeriodProfitRuntimeService:
             "period_profit_completeness": "completeness",
             "period_profit_diagnostics": "diagnostics",
             "period_profit_report": "report",
+            "period_profit_refresh": "refresh",
+            "period_profit_details": "details",
             "period_profit_analytics": "analytics",
             "period_profit_comparison": "comparison",
             "period_profit_bridge": "bridge",
@@ -397,13 +413,56 @@ class AssistantPeriodProfitRuntimeService:
             self._report_views.move_to_end(key)
             cached = deepcopy(cached)
         view_type = view_prefixes[parts[0]]
+        if view_type == "refresh":
+            period = cached.get("refresh_period")
+            if not isinstance(period, dict):
+                return self._cached_view_expired()
+            request = build_period_profit_request(
+                date_from=period.get("date_from"),
+                date_to=period.get("date_to"),
+            )
+            if (
+                request.get("error") is True
+                or request.get("date_from") != period.get("date_from")
+                or request.get("date_to") != period.get("date_to")
+            ):
+                return self._cached_view_expired()
+            date_from = request["date_from"]
+            date_to = request["date_to"]
+            return self._run_custom_period_once(
+                self._user_key(user_id),
+                "period_profit_refresh",
+                (date_from, date_to),
+                lambda: self._present_report(
+                    self._query_with_optional_comparison(
+                        date_from=date_from,
+                        date_to=date_to,
+                    ),
+                    user_id=user_id,
+                ),
+            )
         if view_type == "report":
-            keyboard = self._build_report_keyboard(view_id)
+            keyboard = self._build_report_keyboard(
+                view_id, has_details=bool(cached.get("details_text"))
+            )
             return {
                 "error": False,
                 "status": "PERIOD_PROFIT_CACHED_REPORT_READY",
                 "text": cached["report_text"],
                 "keyboard": keyboard,
+                "report_view_id": view_id,
+                "read_only": True,
+                "executed": False,
+            }
+        if view_type == "details":
+            details_text = cached.get("details_text")
+            if not isinstance(details_text, str) or not details_text.strip():
+                return self._cached_view_expired()
+            return {
+                "error": False,
+                "status": "PERIOD_PROFIT_DETAILS_READY",
+                "text": details_text,
+                "keyboard": self._build_details_keyboard(view_id),
                 "report_view_id": view_id,
                 "read_only": True,
                 "executed": False,
@@ -418,6 +477,10 @@ class AssistantPeriodProfitRuntimeService:
                 "text": cached["completeness_text"],
                 "keyboard": keyboard,
                 "report_view_id": view_id,
+                "source_completeness": deepcopy(
+                    cached.get("source_completeness") or {}
+                ),
+                "reason_codes": list(cached.get("reason_codes") or []),
                 "read_only": True,
                 "executed": False,
             }
@@ -436,6 +499,10 @@ class AssistantPeriodProfitRuntimeService:
                     view_id, diagnostic.get("actions") or []
                 ),
                 "report_view_id": view_id,
+                "source_completeness": deepcopy(
+                    diagnostic.get("source_completeness") or {}
+                ),
+                "reason_codes": list(diagnostic.get("reason_codes") or []),
                 "read_only": True,
                 "executed": False,
             }
@@ -490,6 +557,54 @@ class AssistantPeriodProfitRuntimeService:
             "error": False,
             "status": "PERIOD_PROFIT_EXPORT_SNAPSHOT_READY",
             "snapshot": snapshot,
+            "read_only": True,
+            "executed": False,
+        }
+
+    def get_external_expense_action_context(self, view_id, user_id=None):
+        """Resolve the exact report period for its scoped external-expense action."""
+        token = str(view_id or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{12}", token):
+            return self._cached_view_expired()
+        key = self._report_view_key(user_id, token)
+        now = self._monotonic_now()
+        if key is None or now is None:
+            return self._cached_view_expired()
+        with self._custom_period_lock:
+            cached = self._report_views.get(key)
+            if not isinstance(cached, dict):
+                return self._cached_view_expired()
+            expires_at = cached.get("expires_at")
+            if (
+                isinstance(expires_at, bool)
+                or not isinstance(expires_at, (int, float))
+                or now >= expires_at
+            ):
+                self._report_views.pop(key, None)
+                return self._cached_view_expired()
+            if "external_expenses" not in (cached.get("actions") or []):
+                return self._cached_view_expired()
+            period = deepcopy(cached.get("refresh_period"))
+            self._report_views.move_to_end(key)
+        if not isinstance(period, dict):
+            return self._cached_view_expired()
+        request = build_period_profit_request(
+            date_from=period.get("date_from"),
+            date_to=period.get("date_to"),
+        )
+        if (
+            request.get("error") is True
+            or request.get("date_from") != period.get("date_from")
+            or request.get("date_to") != period.get("date_to")
+        ):
+            return self._cached_view_expired()
+        return {
+            "error": False,
+            "status": "PERIOD_PROFIT_EXTERNAL_EXPENSE_CONTEXT_READY",
+            "date_from": request["date_from"],
+            "date_to": request["date_to"],
+            "report_view_id": token,
+            "return_callback": "period_profit_report:" + token,
             "read_only": True,
             "executed": False,
         }
@@ -866,6 +981,24 @@ class AssistantPeriodProfitRuntimeService:
             view,
             operation_summary,
         )
+        reason_notice = self._full_completeness_reason_notice(diagnostic_view)
+        if reason_notice:
+            view["message"] = view["message"].rstrip() + "\n\n" + reason_notice
+        if isinstance(snapshot, dict) and isinstance(diagnostic_view, dict):
+            snapshot["completeness"] = {
+                "date_from": view.get("date_from"),
+                "date_to": view.get("date_to"),
+                "status": (
+                    "PARTIAL"
+                    if diagnostic_view.get("reason_codes")
+                    else "CONFIRMED"
+                ),
+                "source_completeness": deepcopy(
+                    diagnostic_view.get("source_completeness") or {}
+                ),
+                "reason_codes": list(diagnostic_view.get("reason_codes") or []),
+            }
+            self._append_completeness_notice(compact_result, diagnostic_view)
         support_context = (
             trace._support_export_context()
             if trace is not None
@@ -884,7 +1017,21 @@ class AssistantPeriodProfitRuntimeService:
             self._expire_report_views_locked(created_at)
             self._report_views[key] = {
                 "report_text": str(compact_result["text"]),
+                "refresh_period": {
+                    "date_from": view.get("date_from"),
+                    "date_to": view.get("date_to"),
+                },
+                "details_text": (
+                    str(compact_result.get("details_text"))
+                    if isinstance(compact_result.get("details_text"), str)
+                    and compact_result.get("details_text").strip()
+                    else None
+                ),
                 "completeness_text": str(view["message"]),
+                "source_completeness": deepcopy(
+                    diagnostic_view.get("source_completeness") or {}
+                ),
+                "reason_codes": list(diagnostic_view.get("reason_codes") or []),
                 "actions": list(view.get("actions") or []),
                 "diagnostic_view": diagnostic_view,
                 "support_diagnostic_snapshot": support_snapshot,
@@ -896,8 +1043,77 @@ class AssistantPeriodProfitRuntimeService:
             while len(self._report_views) > self.REPORT_VIEW_CACHE_MAX:
                 self._report_views.popitem(last=False)
         compact_result["report_view_id"] = view_id
-        compact_result["keyboard"] = self._build_report_keyboard(view_id)
+        compact_result["keyboard"] = self._build_report_keyboard(
+            view_id,
+            has_details=bool(compact_result.get("details_text")),
+        )
         return view_id
+
+    @staticmethod
+    def _append_completeness_notice(compact_result, diagnostic_view):
+        """Show the same bounded reason set that is stored in detail and exports."""
+        if not isinstance(compact_result, dict):
+            return
+        reason_notice = AssistantPeriodProfitRuntimeService._completeness_reason_notice(
+            diagnostic_view
+        )
+        if not reason_notice:
+            return
+        text = compact_result.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        compact_result["text"] = text.rstrip() + "\n\n" + reason_notice
+
+    @staticmethod
+    def _completeness_reason_notice(diagnostic_view):
+        if not isinstance(diagnostic_view, dict):
+            return None
+        reason_codes = diagnostic_view.get("reason_codes")
+        if not isinstance(reason_codes, list) or not reason_codes:
+            return None
+        from services.period_profit_diagnostic_view_service import (
+            PeriodProfitDiagnosticViewService,
+        )
+
+        labels = PeriodProfitDiagnosticViewService.REASON_LABELS
+        visible_codes = [code for code in reason_codes if code in labels]
+        if not visible_codes:
+            return None
+        primary_code = next(
+            (
+                code
+                for code in AssistantPeriodProfitRuntimeService.COMPLETENESS_REASON_PRIORITY
+                if code in visible_codes
+            ),
+            visible_codes[0],
+        )
+        extra_count = len(visible_codes) - 1
+        extra_text = f" Ещё причин: {extra_count}." if extra_count else ""
+        return (
+            "⚠️ Полнота данных: "
+            + labels[primary_code]
+            + "."
+            + extra_text
+            + " Подробности — «Полнота данных»."
+        )
+
+    @staticmethod
+    def _full_completeness_reason_notice(diagnostic_view):
+        """Keep the complete canonical reason list on the detailed completeness view."""
+        if not isinstance(diagnostic_view, dict):
+            return None
+        reason_codes = diagnostic_view.get("reason_codes")
+        if not isinstance(reason_codes, list) or not reason_codes:
+            return None
+        from services.period_profit_diagnostic_view_service import (
+            PeriodProfitDiagnosticViewService,
+        )
+
+        labels = PeriodProfitDiagnosticViewService.REASON_LABELS
+        reasons = [labels[code] for code in reason_codes if code in labels]
+        if not reasons:
+            return None
+        return "Подтверждённые причины: " + "; ".join(reasons) + "."
 
     def _report_view_scope(self, user_id):
         user_key = self._user_key(user_id)
@@ -912,14 +1128,20 @@ class AssistantPeriodProfitRuntimeService:
             return None
         return (*scope, view_id)
 
-    def _build_report_keyboard(self, view_id):
+    def _build_report_keyboard(self, view_id, has_details=False):
         builder = getattr(self.keyboard_service, "build_period_profit_result_keyboard", None)
         if callable(builder):
-            return builder(view_id)
-        return {"error": False, "type": "inline_keyboard", "buttons": [{
+            return builder(view_id, has_details=has_details)
+        buttons = [{
             "text": "📊 Аналитика периода",
             "callback": "period_profit_analytics:" + view_id,
-        }, {
+        }]
+        if has_details:
+            buttons.insert(0, {
+                "text": "📋 Подробности",
+                "callback": "period_profit_details:" + view_id,
+            })
+        buttons.extend([{
             "text": "⬇️ CSV",
             "callback": "period_profit_export:csv:" + view_id,
         }, {
@@ -928,7 +1150,17 @@ class AssistantPeriodProfitRuntimeService:
         }, {
             "text": "🔎 Полнота данных",
             "callback": "period_profit_completeness:" + view_id,
-        }]}
+        }])
+        return {"error": False, "type": "inline_keyboard", "buttons": buttons}
+
+    def _build_details_keyboard(self, view_id):
+        builder = getattr(self.keyboard_service, "build_period_profit_details_keyboard", None)
+        if callable(builder):
+            return builder(view_id)
+        return {"error": False, "type": "inline_keyboard", "buttons": [
+            {"text": "🔎 Полнота данных", "callback": "period_profit_completeness:" + view_id},
+            {"text": "↩️ К расчёту", "callback": "period_profit_report:" + view_id},
+        ]}
 
     def _build_analytics_keyboard(self, view_id):
         builder = getattr(self.keyboard_service, "build_period_profit_analytics_keyboard", None)

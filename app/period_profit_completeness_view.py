@@ -133,6 +133,56 @@ class PeriodProfitCompletenessViewService:
             lines.append(
                 "Return COGS не добавляется к прибыли без полного подтверждения всей цепочки."
             )
+        components = self._component_evidence(
+            summary,
+            result,
+            start,
+            end,
+            {
+                "financial_base": finance_status,
+                "sku_quantity": quantity_status,
+                "cost": cost_status,
+                "historical_return_cost": historical_status,
+                "tax": tax_status,
+                "external_expenses": external_status,
+                "advertising": advertising_status,
+                "returns": return_status,
+            },
+            {
+                "financial_base": finance_reason,
+                "sku_quantity": quantity_reason,
+                "cost": cost_reason,
+                "historical_return_cost": historical_reason,
+                "tax": tax_reason,
+                "external_expenses": external_reason,
+                "advertising": advertising_reason,
+                "returns": return_reason,
+            },
+        )
+        lines.extend(["", "Суммы и источники за период:"])
+        for item in components:
+            amount = item["amount"]
+            if amount is None:
+                amount_text = "неизвестно"
+            elif item["unit"] == "RUB":
+                amount_text = self._money(amount)
+            else:
+                amount_text = str(int(amount)) + " " + item["unit"]
+            lines.append(
+                "• "
+                + item["label"]
+                + ": "
+                + amount_text
+                + "; "
+                + item["source"]
+                + "; "
+                + item["date_basis"]
+                + "; "
+                + item["status_label"]
+                + " — "
+                + item["reason"]
+                + "."
+            )
         diagnostic_statuses = {
             "financial_base": self._diagnostic_status(finance_status),
             "sku_quantity": self._diagnostic_status(quantity_status),
@@ -174,12 +224,230 @@ class PeriodProfitCompletenessViewService:
             "date_from": start.isoformat(),
             "date_to": end.isoformat(),
             "message": "\n".join(lines),
+            "component_evidence": components,
             "actions": list(dict.fromkeys(actions)),
             "diagnostic_statuses": diagnostic_statuses,
             "diagnostic_reason_codes": diagnostic_reason_codes,
             "read_only": True,
             "executed": False,
         }
+
+    @classmethod
+    def _component_evidence(
+        cls,
+        summary,
+        result,
+        start,
+        end,
+        statuses,
+        reasons,
+    ):
+        period = {
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+        }
+        account_scope = summary.get("account_level_ozon_accruals_included") is True
+        finance_source = (
+            "Финансы Ozon, уровень магазина"
+            if account_scope
+            else "Финансы Ozon по выбранным SKU; итог магазина не подтверждён"
+        )
+        source_by_key = {
+            "revenue": (finance_source, "дата начисления"),
+            "discount_points": (finance_source, "дата начисления"),
+            "tax_base": ("расчётная налоговая база", "период отчёта"),
+            "net_accrual": (finance_source, "дата начисления"),
+            "commission": (finance_source, "дата начисления"),
+            "logistics": (finance_source, "дата начисления"),
+            "acquiring": (finance_source, "дата начисления"),
+            "other_fees": (finance_source, "дата начисления"),
+            "tax": ("настройка налоговой политики и TaxService", "период отчёта"),
+            "profit": ("существующий расчёт Period Profit", "период отчёта"),
+            "units_sold": ("финансовые продажи по SKU", "дата продажи в источнике"),
+            "product_cost": ("себестоимость продавца по дате действия", "дата продажи"),
+            "external_expenses": ("журнал внешних расходов продавца", "дата расхода"),
+            "advertising": ("явные типы рекламных начислений Ozon", "дата начисления"),
+            "returns": ("Seller API: выборка возвратов", "период/статус согласно evidence источника"),
+            "historical_return_cost": ("история себестоимости продавца и подтверждённые возвраты", "дата исходной продажи и дата действия себестоимости"),
+        }
+        labels = {
+            "revenue": ("Выручка", "RUB"),
+            "discount_points": ("Баллы за скидки", "RUB"),
+            "tax_base": ("Налоговая база", "RUB"),
+            "net_accrual": ("Нетто-начисления", "RUB"),
+            "commission": ("Комиссия", "RUB"),
+            "logistics": ("Логистика", "RUB"),
+            "acquiring": ("Эквайринг", "RUB"),
+            "other_fees": ("Прочие начисления", "RUB"),
+            "tax": ("Налог", "RUB"),
+            "profit": ("Прибыль до внешних расходов", "RUB"),
+            "units_sold": ("Проданные единицы", "шт."),
+            "product_cost": ("Себестоимость", "RUB"),
+            "external_expenses": ("Внешние расходы", "RUB"),
+            "advertising": ("Реклама, отдельная сверка", "RUB"),
+            "returns": ("Возвраты", "записей"),
+            "historical_return_cost": ("Историческая себестоимость возвратов", "RUB"),
+        }
+        raw_statuses = {
+            "financial_base": statuses.get("financial_base"),
+            "sku_quantity": statuses.get("sku_quantity"),
+            "cost": statuses.get("cost"),
+            "tax": statuses.get("tax"),
+            "external_expenses": statuses.get("external_expenses"),
+            "advertising": statuses.get("advertising"),
+            "returns": statuses.get("returns"),
+            "historical_return_cost": statuses.get("historical_return_cost"),
+        }
+        raw_reasons = {
+            "financial_base": reasons.get("financial_base"),
+            "sku_quantity": reasons.get("sku_quantity"),
+            "cost": reasons.get("cost"),
+            "tax": reasons.get("tax"),
+            "external_expenses": reasons.get("external_expenses"),
+            "advertising": reasons.get("advertising"),
+            "returns": reasons.get("returns"),
+            "historical_return_cost": reasons.get("historical_return_cost"),
+        }
+
+        amount_map = {
+            "revenue": summary.get("revenue"),
+            "discount_points": summary.get("discount_points"),
+            "tax_base": summary.get("tax_base") if statuses.get("tax") == "ПОДТВЕРЖДЕНО" else None,
+            "net_accrual": summary.get("net_accrual"),
+            "commission": summary.get("commission"),
+            "logistics": summary.get("logistics"),
+            "acquiring": summary.get("acquiring"),
+            "other_fees": summary.get("other_fees"),
+            "tax": summary.get("tax") if statuses.get("tax") == "ПОДТВЕРЖДЕНО" else None,
+            "profit": (
+                summary.get("profit")
+                if all(
+                    statuses.get(key) == "ПОДТВЕРЖДЕНО"
+                    for key in ("financial_base", "cost", "tax")
+                )
+                else None
+            ),
+            "units_sold": summary.get("units_sold"),
+            "product_cost": summary.get("product_cost") if statuses.get("cost") == "ПОДТВЕРЖДЕНО" else None,
+        }
+        recovery = result.get("return_cogs_recovery_evidence")
+        if (
+            isinstance(recovery, dict)
+            and recovery.get("historical_cost_basis_confirmed") is True
+        ):
+            amount_map["historical_return_cost"] = recovery.get(
+                "candidate_value_at_historical_cost"
+            )
+        else:
+            amount_map["historical_return_cost"] = None
+        external = result.get("external_expense_evidence")
+        if (
+            isinstance(external, dict)
+            and external.get("error") is False
+            and external.get("date_from") == start.isoformat()
+            and external.get("date_to") == end.isoformat()
+        ):
+            amount_map["external_expenses"] = external.get("observed_expense_total")
+        else:
+            amount_map["external_expenses"] = None
+        advertising = result.get("advertising_financial_evidence")
+        if (
+            isinstance(advertising, dict)
+            and advertising.get("error") is False
+            and advertising.get("policy_configured") is True
+        ):
+            amount_map["advertising"] = advertising.get("matched_amount")
+        else:
+            amount_map["advertising"] = None
+        return_evidence = result.get("return_evidence")
+        if (
+            isinstance(return_evidence, dict)
+            and return_evidence.get("error") is False
+            and statuses.get("returns") in {"ПОДТВЕРЖДЕНО", "ЧАСТИЧНО"}
+            and return_evidence.get("return_record_count_exact") is True
+            and isinstance(return_evidence.get("records"), list)
+            and cls._integer(return_evidence.get("return_record_count"))
+            == len(return_evidence["records"])
+        ):
+            amount_map["returns"] = len(return_evidence["records"])
+        else:
+            amount_map["returns"] = None
+
+        rows = []
+        key_to_status = {
+            "revenue": "financial_base",
+            "discount_points": "financial_base",
+            "tax_base": "financial_base",
+            "net_accrual": "financial_base",
+            "commission": "financial_base",
+            "logistics": "financial_base",
+            "acquiring": "financial_base",
+            "other_fees": "financial_base",
+            "tax": "tax",
+            "profit": "financial_base",
+            "units_sold": "sku_quantity",
+            "product_cost": "cost",
+            "external_expenses": "external_expenses",
+            "advertising": "advertising",
+            "returns": "returns",
+            "historical_return_cost": "historical_return_cost",
+        }
+        for key, (label, unit) in labels.items():
+            raw = amount_map.get(key)
+            amount = cls._number(raw)
+            if unit == "шт." or unit == "записей":
+                integer = cls._integer(raw)
+                amount = float(integer) if integer is not None else None
+            status_key = key_to_status[key]
+            status = cls._diagnostic_status(raw_statuses.get(status_key))
+            source, date_basis = source_by_key[key]
+            reason = str(raw_reasons.get(status_key) or "значение подтверждено источником")
+            if key == "profit":
+                component_statuses = [
+                    cls._diagnostic_status(statuses.get(name))
+                    for name in ("financial_base", "cost", "tax")
+                ]
+                severity = {"CONFIRMED": 0, "PARTIAL": 1, "UNKNOWN": 2, "ERROR": 3}
+                status = max(component_statuses, key=lambda value: severity[value])
+                if status != "CONFIRMED":
+                    reason = "итог наследует неполноту финансовой базы, себестоимости или налоговой политики"
+            elif key == "tax_base":
+                status = cls._diagnostic_status(statuses.get("tax"))
+                reason = str(raw_reasons.get("tax") or "налоговая политика не подтверждена")
+            if key == "tax_base":
+                reason = "база согласно применённой налоговой политике; не налоговое заключение"
+            elif key == "profit":
+                reason = "расчёт включает налог и себестоимость; внешние расходы отражаются отдельно"
+            elif key == "advertising":
+                reason += "; сумма уже входит в нетто-начисления и повторно не вычитается"
+            elif key == "external_expenses":
+                if status != "CONFIRMED":
+                    reason += "; показана только наблюдаемая сумма, полнота периода не подтверждена"
+                else:
+                    reason += "; внешняя корректировка применяется только при полном покрытии"
+            elif key == "returns":
+                reason += "; количество записей не равно числу единиц и не меняет прибыль автоматически"
+            elif key == "historical_return_cost":
+                reason = "историческая стоимость подтверждается только при полном совпадении даты продажи и себестоимости"
+            rows.append({
+                "key": key,
+                "label": label,
+                "amount": round(amount, 2) if amount is not None and unit == "RUB" else amount,
+                "unit": unit,
+                "source": source,
+                "date_basis": date_basis,
+                "period": dict(period),
+                "status": status,
+                "coverage": status,
+                "status_label": {
+                    "CONFIRMED": "подтверждено",
+                    "PARTIAL": "частично",
+                    "UNKNOWN": "неизвестно",
+                    "ERROR": "ошибка сверки/источника",
+                }.get(status, "неизвестно"),
+                "reason": reason,
+            })
+        return rows
 
     def _return_status(self, result, start, end):
         raw = result.get("return_evidence")

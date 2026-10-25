@@ -174,6 +174,78 @@ def test_batch_loads_catalog_once_and_preserves_row_order_and_stable_ids():
     assert first["read_only"] is True and first["executed"] is False
 
 
+def test_three_sku_batch_performance_profile_counts_catalog_pages_and_http_attempts():
+    class _ProfileClock:
+        def __init__(self):
+            self.value = 0.0
+
+        def __call__(self):
+            return self.value
+
+    class _ProfileSource(_Source):
+        def __init__(self, products, clock):
+            super().__init__(products, complete=True)
+            self.clock = clock
+            self.finance_pages = 0
+
+        def load_snapshot(
+            self, sku, user_id, operation_trace=None,
+            catalog_product=None, force_refresh=False,
+        ):
+            # Model one current-facts request and one complete finance page per SKU.
+            for endpoint in ("current-facts", "finance-page"):
+                reservation = operation_trace.reserve_ozon_request(endpoint)
+                if reservation.get("error"):
+                    return {"error": True, "code": reservation["code"]}
+                self.clock.value += 0.01
+                if endpoint == "finance-page":
+                    self.finance_pages += 1
+            self.calls.append((sku, user_id, dict(catalog_product or {}), force_refresh))
+            product = catalog_product or {}
+            return {
+                "error": False,
+                "identity": {
+                    "product_id": str(product.get("product_id")),
+                    "offer_id": str(product.get("offer_id")),
+                    "sku": str(product.get("sku")),
+                    "tenant_scope": "user-1::ozon::store-a",
+                },
+                "product": {"scheme": "FBO"},
+                "suggested_inputs": {
+                    "price": "500", "cost": "100", "commission_rate": "15",
+                    "logistics_per_unit": "40", "last_mile_per_unit": "10",
+                    "acquiring_per_unit": "5", "advertising_rate": "8",
+                    "discount_points_rate": "20", "tax_mode": "USN_INCOME",
+                    "tax_rate": "6", "minimum_tax_rate": "1",
+                },
+                "input_provenance": {"cost": "confirmed_store_cost"},
+                "source_periods": {"seller_price_as_of": "2026-10-17T00:00:00Z"},
+                "source_completeness": {"catalog_identity": {"complete": True}},
+                "cache": {"status": "miss", "age_seconds": 0, "ttl_seconds": 600},
+            }
+
+    products = [_catalog_item(index) for index in range(3)]
+    fake_clock = _ProfileClock()
+    source = _ProfileSource(products, fake_clock)
+    service = UnitPriceBatchPlanService(
+        source, _Scenario(), _Planner(), clock=fake_clock,
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        result = service.build(_selection(*products), "user-1", "20")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert result["status"] == "COMPLETED"
+    assert [row["status"] for row in result["rows"]] == ["READY"] * 3
+    assert source.product_service.calls == 1
+    assert len(source.calls) == 3
+    assert source.finance_pages == 3
+    assert result["operation_diagnostics"]["http_attempts"] == 6
+    assert abs(fake_clock() - 0.06) < 1e-9
+
+
 def test_completed_assumptions_remove_old_missing_and_invalid_diagnostics():
     products = [_catalog_item(1), _catalog_item(2)]
 

@@ -60,6 +60,24 @@ def test_telegram_period_profit_exposes_only_safe_finance_diagnostic_code():
     assert result["executed"] is False
 
 
+def test_telegram_period_profit_reports_rate_limit_as_unavailable_not_ready():
+    runtime = AssistantPeriodProfitRuntimeService(_Query({
+        "error": True,
+        "status": "PERIOD_PROFIT_SUMMARY_UNAVAILABLE",
+        "code": "PERIOD_PROFIT_FINANCE_PREFETCH_HTTP_429",
+    }))
+
+    result = runtime.handle_callback("period_profit:28D")
+
+    assert result["error"] is True
+    assert result["status"] == "PERIOD_PROFIT_SUMMARY_UNAVAILABLE"
+    assert "Финансовые данные Ozon недоступны" in result["message"]
+    assert "HTTP_429" in result["message"]
+    assert "обновлён" not in result["message"].lower()
+    assert result["read_only"] is True
+    assert result["executed"] is False
+
+
 def test_telegram_period_profit_explains_cooperative_operation_budget():
     runtime = AssistantPeriodProfitRuntimeService(_Query({
         "error": True,

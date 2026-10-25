@@ -20,7 +20,20 @@ class TelegramBotService:
         if text is None:
             text = user_id
             user_id = None
-        return self._with_tenant(user_id, lambda: self._on_message_in_tenant(user_id, text))
+        tenant_scope = self._resolve_tenant_scope(user_id) if user_id else None
+        result = self._with_tenant(
+            user_id,
+            lambda: self._on_message_in_tenant(user_id, text),
+            tenant_scope=tenant_scope,
+        )
+        if (
+            user_id
+            and isinstance(result, dict)
+            and result.get("read_only") is True
+            and self._resolve_tenant_scope(user_id) != tenant_scope
+        ):
+            return self._calculation_store_changed()
+        return result
 
     def _on_message_in_tenant(self, user_id, text):
         if self.command_service:
@@ -55,11 +68,14 @@ class TelegramBotService:
                     }
                 _INFLIGHT_CALCULATION_KEYS.add(key)
             try:
-                return self._with_tenant(
+                result = self._with_tenant(
                     user_id,
                     lambda: self._on_callback_in_tenant(user_id, callback),
                     tenant_scope=tenant_scope,
                 )
+                if self._resolve_tenant_scope(user_id) != tenant_scope:
+                    return self._calculation_store_changed()
+                return result
             finally:
                 with _INFLIGHT_CALCULATION_LOCK:
                     _INFLIGHT_CALCULATION_KEYS.discard(key)
@@ -83,12 +99,27 @@ class TelegramBotService:
         if parts[0] in {
             "period_profit",
             "period_profit_pre_cogs",
+                "period_profit_refresh",
             "experimental_store_economics",
         }:
             return parts[1].strip().lower() != "custom"
         if parts[0] == "period_profit_sku" and len(parts) >= 3:
             return parts[2].strip().lower() != "custom"
         return False
+
+    @staticmethod
+    def _calculation_store_changed():
+        return {
+            "error": False,
+            "status": "TELEGRAM_CALCULATION_STORE_CHANGED",
+            "message": (
+                "Активный магазин изменился во время расчёта. "
+                "Результат старого магазина не показан; запустите расчёт "
+                "ещё раз в текущем магазине."
+            ),
+            "read_only": True,
+            "executed": False,
+        }
 
     @staticmethod
     def _resolve_tenant_scope(user_id):

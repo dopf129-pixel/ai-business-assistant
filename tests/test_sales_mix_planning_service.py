@@ -223,6 +223,41 @@ def test_explicit_zero_contributes_zero_without_demanding_unit_cost_or_fees():
     assert len(tax.calls) == 1
 
 
+def test_three_sku_mix_keeps_cost_commission_and_ads_separate_with_zero_and_missing_cost():
+    service, tax = _service()
+    first = _item("SKU-A", _sample_inputs(
+        price="500", cost="100", commission_rate="10", advertising_rate="2",
+    ))
+    zero_sales = _item("SKU-B", _sample_inputs(
+        price="1200", cost="300", commission_rate="30", advertising_rate="15",
+    ))
+    missing_cost = _item("SKU-C", _sample_inputs(
+        price="250", cost=None, commission_rate="12", advertising_rate="5",
+    ))
+
+    result = service.calculate(
+        [first, zero_sales, missing_cost],
+        quantities={"SKU-A": 2, "SKU-B": 0, "SKU-C": 1},
+        period_label="2026-08-01 - 2026-08-31",
+        expenses=[], expenses_confirmed=True,
+    )
+
+    assert result["status"] == "PARTIAL"
+    assert result["total_quantity"] == 2
+    assert result["components"]["cost_of_goods"] == "200.00"
+    assert result["components"]["commission"] == "100.00"
+    assert result["components"]["advertising"] == "20.00"
+    rows = {row["row_id"]: row for row in result["rows"]}
+    assert rows["SKU-A"]["components"]["cost_of_goods"] == "200.00"
+    assert rows["SKU-A"]["components"]["commission"] == "100.00"
+    assert rows["SKU-A"]["components"]["advertising"] == "20.00"
+    assert rows["SKU-B"]["quantity"] == 0
+    assert rows["SKU-B"]["components"]["cost_of_goods"] == "0.00"
+    assert {row["row_id"] for row in result["excluded_rows"]} == {"SKU-C"}
+    assert result["profit"] is None and result["tax"] is None
+    assert tax.calls == []
+
+
 def test_mixed_tax_policy_and_unconfirmed_empty_expenses_fail_closed():
     service, tax = _service()
     first = _item("A", _sample_inputs())

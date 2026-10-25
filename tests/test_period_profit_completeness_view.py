@@ -156,6 +156,65 @@ def test_completeness_view_separates_candidate_records_from_units_and_first_inve
     assert "Реклама (отдельная сверка): НЕИЗВЕСТНО" in view["message"]
 
 
+def test_component_evidence_shows_period_source_unknown_and_partial_observed_zero():
+    view = PeriodProfitCompletenessViewService().build(_result())
+    components = {row["key"]: row for row in view["component_evidence"]}
+
+    assert components["revenue"]["amount"] == 1000.0
+    assert components["revenue"]["source"] == "Финансы Ozon, уровень магазина"
+    assert components["revenue"]["date_basis"] == "дата начисления"
+    assert components["revenue"]["period"] == {
+        "date_from": START,
+        "date_to": END,
+    }
+    assert components["external_expenses"]["amount"] == 0.0
+    assert components["external_expenses"]["status"] == "PARTIAL"
+    assert components["external_expenses"]["coverage"] == "PARTIAL"
+    assert "только наблюдаемая сумма" in components["external_expenses"]["reason"]
+    assert components["advertising"]["amount"] is None
+    assert components["advertising"]["status"] == "UNKNOWN"
+    assert "Внешние расходы: 0.00 ₽" in view["message"]
+    assert "Реклама, отдельная сверка: неизвестно" in view["message"]
+    assert "12345" not in repr(view["component_evidence"])
+
+
+def test_confirmed_zero_expenses_and_advertising_are_not_reported_as_unknown():
+    result = _result()
+    result["external_expense_evidence"].update({
+        "status": "PERIOD_PROFIT_EXTERNAL_EXPENSE_EVIDENCE_READY",
+        "coverage_complete": True,
+        "coverage_gaps": [],
+        "complete_expense_total": 0.0,
+    })
+    result["advertising_financial_evidence"].update({
+        "policy_configured": True,
+        "matched_operation_count": 0,
+        "matched_amount": 0.0,
+    })
+    view = PeriodProfitCompletenessViewService().build(result)
+    components = {row["key"]: row for row in view["component_evidence"]}
+
+    assert components["external_expenses"]["amount"] == 0.0
+    assert components["external_expenses"]["status"] == "CONFIRMED"
+    assert components["advertising"]["amount"] == 0.0
+    assert components["advertising"]["status"] == "CONFIRMED"
+    assert "Внешние расходы: 0.00 ₽" in view["message"]
+    assert "Реклама, отдельная сверка: 0.00 ₽" in view["message"]
+
+
+def test_unconfirmed_tax_policy_does_not_publish_exact_tax_base_or_profit_component():
+    result = _result()
+    result["summary"]["tax_policy_applied"] = False
+    view = PeriodProfitCompletenessViewService().build(result)
+    components = {row["key"]: row for row in view["component_evidence"]}
+
+    assert components["tax"]["amount"] is None
+    assert components["tax_base"]["amount"] is None
+    assert components["profit"]["amount"] is None
+    assert components["profit"]["status"] == "UNKNOWN"
+    assert "Прибыль до внешних расходов: неизвестно" in view["message"]
+
+
 def test_non_saleable_inventory_moves_to_accounting_attribution_blocker():
     candidate = _candidate(
         inventory_recovery_state="NON_SALEABLE",

@@ -57,18 +57,18 @@ def test_compact_report_matches_approved_management_format():
     assert result["text"] == (
         "💰 Прибыль за период 09.08–05.09\n"
         "\n"
-        "Выручка: 454 035 ₽\n"
-        "Баллы за скидки: 0 ₽\n"
-        "Выручка для расчёта налога: 454 035 ₽\n"
+        "Выручка: 454 034.93 ₽ (100,00% от общей выручки)\n"
+        "Баллы за скидки: 0.00 ₽ (0,00% от общей выручки)\n"
+        "Выручка для расчёта налога: 454 034.93 ₽ (100,00% от общей выручки)\n"
         "Продано SKU: 64 шт.\n"
-        "Начисления Ozon: 175 005 ₽\n"
-        "Себестоимость: 121 212 ₽\n"
-        "Налог: 27 242 ₽\n"
+        "Начисления Ozon: 175 004.50 ₽ (38,54% от общей выручки)\n"
+        "Себестоимость: 121 212.00 ₽ (26,70% от общей выручки)\n"
+        "Налог: 27 242.10 ₽ (6,00% от общей выручки)\n"
         "\n"
-        "Прибыль: 26 550 ₽\n"
+        "Прибыль после себестоимости: 26 550.40 ₽ (5,85% от общей выручки)\n"
         "Маржа: 5,85%\n"
         "\n"
-        "📈 К прошлому периоду до внешних расходов: +56 148 ₽\n"
+        "📈 К прошлому периоду до внешних расходов: +56 147.79 ₽\n"
         "\n"
         "⚠️ Внешние расходы учтены не полностью.\n"
         "Есть 2 возврата Returns API со сменой статуса в периоде; "
@@ -76,6 +76,7 @@ def test_compact_report_matches_approved_management_format():
         "Это не число финансовых «Возврат выручки»."
     )
     assert result["presentation"] == "compact"
+    assert len(result["text"].encode("utf-16-le")) // 2 <= 2500
     assert result["read_only"] is True
     assert result["executed"] is False
 
@@ -88,6 +89,27 @@ def test_missing_units_sold_remains_unknown_not_zero():
 
     assert "Продано SKU: —" in result["text"]
     assert "Продано SKU: 0 шт." not in result["text"]
+
+
+def test_compact_report_preserves_negative_signs_and_handles_zero_revenue():
+    source = _result()
+    source["summary"].update({
+        "revenue": 0,
+        "revenue_tax_base": 0,
+        "discount_points": 0,
+        "net_accrual": -1234.56,
+        "product_cost": 0,
+        "tax": 0,
+        "profit": -1234.56,
+        "margin_percent": -1.25,
+    })
+
+    result = compact_period_profit_result(source)
+
+    assert "Выручка: 0.00 ₽ (доля не определена: выручка ≤ 0)" in result["text"]
+    assert "Начисления Ozon: -1 234.56 ₽ (доля не определена: выручка ≤ 0)" in result["text"]
+    assert "Прибыль после себестоимости: -1 234.56 ₽ (доля не определена: выручка ≤ 0)" in result["text"]
+    assert len(result["text"].encode("utf-16-le")) // 2 <= 2500
 
 
 def test_verbose_report_is_preserved_as_details_not_main_text():
@@ -121,8 +143,8 @@ def test_complete_external_expenses_use_adjusted_profit_and_margin():
 
     result = compact_period_profit_result(source)
 
-    assert "Внешние расходы: 1 550 ₽" in result["text"]
-    assert "Прибыль: 25 000 ₽" in result["text"]
+    assert "Внешние расходы: 1 550.40 ₽ (0,34% от общей выручки)" in result["text"]
+    assert "Прибыль после себестоимости и внешних расходов: 25 000.00 ₽ (5,51% от общей выручки)" in result["text"]
     assert "Маржа: 5,51%" in result["text"]
     assert "⚠️" not in result["text"]
 
@@ -152,8 +174,8 @@ def test_adjusted_profit_is_not_labeled_with_base_profit_delta_as_same_basis():
 
     result = compact_period_profit_result(source)
 
-    assert "Прибыль: 340 ₽" in result["text"]
-    assert "К прошлому периоду до внешних расходов: +40 ₽" in result["text"]
+    assert "Прибыль после себестоимости и внешних расходов: 340.00 ₽ (0,07% от общей выручки)" in result["text"]
+    assert "К прошлому периоду до внешних расходов: +40.00 ₽" in result["text"]
 
 
 def test_external_source_failure_remains_unknown_not_zero():

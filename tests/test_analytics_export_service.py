@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 
 from services.analytics_export_service import AnalyticsExportService
@@ -53,6 +55,68 @@ def test_period_export_preserves_comparison_bridge_and_top_k_coverage_semantics(
     assert any(row["name"] == "B.rounding_adjustment" and row["semantic"] == "rounding_adjustment" for row in rows)
     assert any(row["name"] == "B.net_accrual_detail.commission" and row["semantic"] == "reconciliation_component" for row in rows)
     assert any(row["sku"] == "SKU-1" and row["semantic"] == "top_k_reference_not_additive" for row in rows)
+
+
+def test_period_export_carries_only_allowlisted_cached_completeness_reasons():
+    snapshot = {
+        "schema_version": 1,
+        "periods": {"current": {"from": "2026-08-01", "to": "2026-08-31"}},
+        "completeness": {
+            "date_from": "2026-08-01",
+            "date_to": "2026-08-31",
+            "status": "PARTIAL",
+            "source_completeness": {
+                "cost": "PARTIAL",
+                "tax": "UNKNOWN",
+                "secret": "SECRET",
+            },
+            "reason_codes": ["COST_MISSING", "TAX_POLICY_UNCONFIRMED", "SECRET_TOKEN"],
+            "amount": "must-not-export",
+        },
+    }
+
+    json_document = _json(
+        AnalyticsExportService().export_period_profit(snapshot, "json")
+    )
+    csv_result = AnalyticsExportService().export_period_profit(snapshot, "csv")
+    csv_rows = list(csv.reader(
+        io.StringIO(csv_result["file_content"].decode("utf-8-sig")),
+        delimiter=";",
+    ))
+    csv_metadata = json.loads(csv_rows[3][1])
+    expected = {
+        "date_from": "2026-08-01",
+        "date_to": "2026-08-31",
+        "status": "PARTIAL",
+        "source_completeness": {"cost": "PARTIAL", "tax": "UNKNOWN"},
+        "reason_codes": ["COST_MISSING", "TAX_POLICY_UNCONFIRMED"],
+    }
+
+    assert json_document["metadata"]["completeness"] == expected
+    assert csv_metadata["completeness"] == expected
+    assert "SECRET_TOKEN" not in csv_result["file_content"].decode("utf-8-sig")
+    assert "must-not-export" not in json.dumps(json_document, ensure_ascii=False)
+
+    malformed = {
+        **snapshot,
+        "completeness": {
+            "date_from": "2026-02-31",
+            "date_to": "2026-03-01",
+            "status": [],
+            "source_completeness": {"cost": []},
+            "reason_codes": ["SECRET_TOKEN"],
+        },
+    }
+    malformed_document = _json(
+        AnalyticsExportService().export_period_profit(malformed, "json")
+    )
+    assert malformed_document["metadata"]["completeness"] == {
+        "date_from": None,
+        "date_to": None,
+        "status": "UNKNOWN",
+        "source_completeness": {},
+        "reason_codes": [],
+    }
 
 
 def test_product_overview_exports_all_filtered_snapshot_rows_with_active_scope_metadata():

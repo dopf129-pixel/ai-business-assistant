@@ -499,10 +499,13 @@ class AssistantButtonHandlerService:
                 "period_profit_diagnostics:",
                 "period_profit_support_export:",
                 "period_profit_report:",
+                "period_profit_refresh:",
+                "period_profit_details:",
                 "period_profit_analytics:",
                 "period_profit_comparison:",
                 "period_profit_bridge:",
                 "period_profit_sku_contribution:",
+                "period_profit_external_expenses:",
                 "period_profit_pre_cogs:",
                 "period_profit_sku:",
                 "experimental_store_economics:",
@@ -1329,10 +1332,56 @@ class AssistantButtonHandlerService:
                 return {"error": True, "message": "Ввод периода недоступен", "executed": False}
             return starter(user_id)
 
+        if isinstance(button_id, str) and button_id.startswith(
+            "period_profit_external_expenses:"
+        ):
+            parts = button_id.split(":")
+            if len(parts) != 2:
+                return self._product_overview_stale(
+                    "TELEGRAM_EXTERNAL_EXPENSE_ACTION_STALE"
+                )
+            context_reader = getattr(
+                self.period_profit_runtime_service,
+                "get_external_expense_action_context",
+                None,
+            )
+            if not callable(context_reader):
+                return self._product_overview_stale(
+                    "TELEGRAM_EXTERNAL_EXPENSE_UNAVAILABLE"
+                )
+            context = context_reader(parts[1], user_id=user_id)
+            if (
+                not isinstance(context, dict)
+                or context.get("error") is True
+                or context.get("status")
+                != "PERIOD_PROFIT_EXTERNAL_EXPENSE_CONTEXT_READY"
+            ):
+                return context
+            opener = getattr(
+                self.external_expense_runtime_service, "open_period", None
+            )
+            if not callable(opener):
+                return self._product_overview_stale(
+                    "TELEGRAM_EXTERNAL_EXPENSE_UNAVAILABLE"
+                )
+            try:
+                return opener(
+                    context.get("date_from"),
+                    context.get("date_to"),
+                    user_id=user_id,
+                    return_callback=context.get("return_callback"),
+                )
+            except Exception:
+                return self._product_overview_stale(
+                    "TELEGRAM_EXTERNAL_EXPENSE_CALLBACK_FAILED"
+                )
+
         if button_id.startswith((
             "period_profit_completeness:",
             "period_profit_diagnostics:",
             "period_profit_report:",
+            "period_profit_refresh:",
+            "period_profit_details:",
             "period_profit_analytics:",
             "period_profit_comparison:",
             "period_profit_bridge:",

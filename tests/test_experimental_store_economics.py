@@ -17,6 +17,7 @@ from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from telegram_app_layer.telegram_progress_feedback import split_telegram_text
 
 
 class _Summary:
@@ -304,6 +305,10 @@ def _report_text(result):
     )
 
 
+def _utf16_units(value):
+    return len(str(value or "").encode("utf-16-le")) // 2
+
+
 def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_values():
     query = _Query()
     ads = _Advertising()
@@ -340,6 +345,11 @@ def test_store_economics_uses_existing_pre_cogs_profit_and_adds_only_confirmed_v
         "commission_matches": 0,
         "storage_matches": 2,
     }
+    assert _utf16_units(result["text"]) <= 2500
+    assert all(
+        _utf16_units(chunk) <= 3800
+        for chunk in split_telegram_text(result["details_text"])
+    )
     assert "Начисления по отправлениям недоступны (OZON_FINANCE_POSTING_CLIENT_UNAVAILABLE)." in result["details_text"]
     assert "Справочник типов начислений: 10 типов, явные совпадения комиссии 0, размещения 2." in result["details_text"]
     assert "9001" not in result["details_text"]

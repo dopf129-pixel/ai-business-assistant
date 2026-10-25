@@ -28,6 +28,9 @@ class _BlockingAdapter:
             "executed": False,
         }
 
+    def handle_text(self, text, user_id=None):
+        return self.handle_button("text:" + str(text), user_id)
+
 
 def test_identical_calculation_callback_is_rejected_while_first_is_running(monkeypatch):
     monkeypatch.setattr(
@@ -72,8 +75,52 @@ def test_same_callback_for_another_store_is_not_coalesced(monkeypatch):
         assert adapter.started.wait(timeout=1)
         assert len(adapter.calls) == 2
         adapter.release.set()
-        assert first.result(timeout=1)["message"] == "calculated"
+        assert first.result(timeout=1)["status"] == "TELEGRAM_CALCULATION_STORE_CHANGED"
         assert second.result(timeout=1)["message"] == "calculated"
+
+
+def test_late_calculation_result_is_suppressed_after_active_store_changes(monkeypatch):
+    active_store = {"value": "store-a"}
+    monkeypatch.setattr(
+        TelegramBotService,
+        "_resolve_tenant_scope",
+        staticmethod(lambda user_id: f"{user_id}::{active_store['value']}"),
+    )
+    adapter = _BlockingAdapter()
+    bot = TelegramBotService(adapter)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(bot.on_callback, "seller-a", "period_profit:28D")
+        assert adapter.started.wait(timeout=1)
+        active_store["value"] = "store-b"
+        adapter.release.set()
+        result = pending.result(timeout=1)
+
+    assert result["status"] == "TELEGRAM_CALCULATION_STORE_CHANGED"
+    assert "старого магазина не показан" in result["message"]
+    assert adapter.calls == [("seller-a", "period_profit:28D")]
+
+
+def test_late_read_only_text_result_is_suppressed_after_active_store_changes(monkeypatch):
+    active_store = {"value": "store-a"}
+    monkeypatch.setattr(
+        TelegramBotService,
+        "_resolve_tenant_scope",
+        staticmethod(lambda user_id: f"{user_id}::{active_store['value']}"),
+    )
+    adapter = _BlockingAdapter()
+    bot = TelegramBotService(adapter)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(bot.on_message, "seller-a", "прибыль за период")
+        assert adapter.started.wait(timeout=1)
+        active_store["value"] = "store-b"
+        adapter.release.set()
+        result = pending.result(timeout=1)
+
+    assert result["status"] == "TELEGRAM_CALCULATION_STORE_CHANGED"
+    assert "старого магазина не показан" in result["message"]
+    assert adapter.calls == [("seller-a", "text:прибыль за период")]
 
 
 def test_different_period_callbacks_for_same_store_run_independently(monkeypatch):
@@ -129,6 +176,9 @@ def test_calculation_callback_detection_excludes_custom_period_setup():
     )
     assert TelegramBotService._is_calculation_callback(
         "experimental_store_economics:28D"
+    )
+    assert TelegramBotService._is_calculation_callback(
+        "period_profit_refresh:0123456789ab"
     )
     assert not TelegramBotService._is_calculation_callback("period_profit:custom")
     assert not TelegramBotService._is_calculation_callback(
