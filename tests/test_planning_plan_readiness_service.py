@@ -87,3 +87,55 @@ def test_source_status_is_not_misreported_as_ready_math():
     assert result["calculation_status"] == "INCOMPLETE_INPUTS"
     assert result["items"][0]["calculation_status"] == "SOURCE_STALE"
     assert result["assumption_status"] == "HISTORICAL_ASSUMPTIONS"
+
+
+def _cross_docking_document(rate, evidence_rate):
+    result = deepcopy(_document(quantity=1))
+    payload = result["document"]["payload"]
+    payload["calculation_version"] = 2
+    item = payload["items"][0]
+    item["inputs"] = {"cross_docking_per_unit": rate}
+    item["sources"] = {"cross_docking": {
+        "evidence_complete": True,
+        "rate_available": True,
+        "applicable_to_sku": True,
+        "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+        "amount_per_unit": evidence_rate,
+    }}
+    return result
+
+
+def test_cross_docking_readiness_compares_saved_rates_by_decimal_value():
+    service = PlanningPlanReadinessService()
+
+    for rate, evidence_rate in (
+        ("12.0", "12.00"),
+        ("12.5", "12.50"),
+        ("0.0", "0.00"),
+    ):
+        result = service.project(
+            _cross_docking_document(rate, evidence_rate),
+            active_owner="owner-1", active_store="store-a",
+        )
+
+        assert result["error"] is False
+        assert result["items"][0]["cross_docking_status"] == "CONFIRMED"
+
+
+def test_cross_docking_readiness_rejects_mismatched_or_invalid_rates():
+    service = PlanningPlanReadinessService()
+
+    for rate, evidence_rate in (
+        ("12.0", "12.01"),
+        ("NaN", "NaN"),
+        ("Infinity", "Infinity"),
+        ("-1", "-1"),
+        (True, True),
+    ):
+        result = service.project(
+            _cross_docking_document(rate, evidence_rate),
+            active_owner="owner-1", active_store="store-a",
+        )
+
+        assert result["error"] is False
+        assert result["items"][0]["cross_docking_status"] == "UNAVAILABLE"

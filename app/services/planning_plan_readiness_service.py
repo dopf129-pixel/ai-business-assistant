@@ -1,5 +1,8 @@
 """Read-only readiness projection for saved seller planning documents."""
 
+from decimal import Decimal, InvalidOperation
+
+
 class PlanningPlanReadinessService:
     """Keep calculation, assumption freshness, and fact status independent."""
 
@@ -83,8 +86,9 @@ class PlanningPlanReadinessService:
                     and evidence.get("rate_available") is True
                     and evidence.get("applicable_to_sku") is True
                     and evidence.get("denominator_kind") == "DELIVERED_CROSSDOCK_UNITS"
-                    and rate is not None
-                    and str(rate) == str(evidence.get("amount_per_unit"))
+                    and self._same_nonnegative_decimal_value(
+                        rate, evidence.get("amount_per_unit"),
+                    )
                 )
                 item_row["cross_docking_status"] = "CONFIRMED" if verified else "UNAVAILABLE"
                 item_row["cross_docking_reason"] = evidence.get("reason")
@@ -143,6 +147,23 @@ class PlanningPlanReadinessService:
             "UNSUPPORTED_SCHEME", "TARGET_NOT_CONFIRMED", "BUDGET_EXHAUSTED",
         }
         return value if value in allowed else "UNAVAILABLE"
+
+    @staticmethod
+    def _same_nonnegative_decimal_value(left, right):
+        if left is None or right is None or isinstance(left, bool) or isinstance(right, bool):
+            return False
+        try:
+            left_value = Decimal(str(left))
+            right_value = Decimal(str(right))
+        except (InvalidOperation, TypeError, ValueError):
+            return False
+        return (
+            left_value.is_finite()
+            and right_value.is_finite()
+            and left_value >= 0
+            and right_value >= 0
+            and left_value == right_value
+        )
 
     @staticmethod
     def _label(identity, index):
