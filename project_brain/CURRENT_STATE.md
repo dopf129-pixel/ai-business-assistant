@@ -1,3 +1,93 @@
+# 2026-10-25 — E01: PR stack, CI и независимый review handoff
+
+- Открыт стек draft PR #713–#716 от проверенной базы PR #712. #713 (`e014f278`) exact-head Verify run `40181639324` прошёл; #714 (`21826e59`), #715 (`0ee67ced`) и #716 (`24a9d8c2`) имеют отдельные exact-head Verify runs в процессе. Финальный E PR и его CI ещё предстоит добавить и проверить.
+- E02 пакет: `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`. Классификация — Architecture Review Required из-за новых backup/restore и update/lifecycle boundaries.
+- E03: `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md`; текущий exact-revision JSON, полный 56-дневный cross-docking snapshot и 24–72h наблюдения ожидаются от владельца. Не заявлять production acceptance.
+- Полный журнал, точные base/head и ограничения: `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`. Merge, deploy и live start не выполнялись.
+
+# 2026-10-25 — ежедневная готовность, этап E00
+
+- E00 связал пользовательский report flow и synthetic restore path: прибыль → полнота/расходы → refresh/export; расчёт → сохранённый план/себестоимость/расход → backup → dry-run → новый root → чтение с сохранением tenant isolation.
+- Связанный изолированный Windows/Python 3.12 profile: **350 passed in 22.70s**. Полный pytest и exact-head CI ещё не выполнены.
+- A04 доступен только в документально подтверждённом scope: начисления августа `177282.17 ₽` сходятся; точный текущий bot JSON и полный 56-дневный cross-docking snapshot ждут владельческой проверки. Следующий этап E01.
+
+# 2026-10-25 — ежедневная готовность, этап D06
+
+- Добавлен bounded synthetic soak для повторных расчётов/экспорта, сохранённых планов, себестоимости/расходов и восьми отдельных fake polling циклов. После прогона: 0 новых потоков, +2 process handles, два lifecycle state-файла; максимальный цикл 0,297 с.
+- Проверены cache TTL/eviction, timeouts, interrupted backup и staged restore, checkpoint resume, повторное открытие планов/стоимостей/расходов и два изолированных tenant scope. **11 passed in 3.74s** на Windows/Python 3.12.
+- Добавлены `docs/daily-use-recovery-runbook.md` и форма владельческого наблюдения `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md`. Это не заменяет 24–72 часа фактической эксплуатации; owner validation остаётся pending.
+- Следующий этап — E00 сквозная регрессия; затем exact-head PR CI, independent review package и внешний пакет приёмки.
+
+# 2026-10-25 — ежедневная готовность, этап D05
+
+- `status_bot.ps1` и CLI отдельно показывают фактическую polling readiness и offline-состояние локальных настроек; показываются revision/mode, checkout-match и только allowlisted last-failure code.
+- `stop_bot.ps1` scoped к checkout. Lifecycle сохраняет только безопасный код startup/polling failure; raw exception/path/token не печатаются. Support diagnostic JSON проверенно включает режим сборки.
+- D04/D05 + backup/preflight/lifecycle profile: **87 passed**; Python compile и PowerShell parser прошли. Следующий D06.
+
+# 2026-10-25 — ежедневная готовность, этап D04
+
+- `update_bot.ps1` реализует проверенное обновление `main` из canonical `origin/main`: fetch, immutable SHA preflight, checkout-bound graceful stop, verified backup, fast-forward, зависимости и локальные checks; обычный режим подтверждает точную polling readiness, `-NoStart` оставляет процесс остановленным.
+- Ошибка после stop показывает verified backup (если создан) и safe recovery check. No automatic rollback/restore, force-kill, stash/reset/clean. Updater сериализован OS lock в private Git directory.
+- D03/D04 offline regression profile: **54 passed**. Python compile, PowerShell parse и diff-check прошли. Ни одна реальная установка не выполнялась.
+
+# 2026-10-25 — ежедневная готовность, этап C04
+
+- Профиль подтверждает 0 дополнительных query-service вызовов для аналитики, деталей, полноты, диагностики и exports; явный refresh даёт один новый запрос по тому же периоду.
+- Synthetic batch profile на 3 SKU подтверждает один catalog read, 3 snapshots, 3 полные fake finance pages, 6 fake HTTP attempts и 0,06 fake seconds. Это orchestration test, не оценка live latency.
+- Подтверждённой лишней production работы не найдено, код расчётов не менялся. Тест: `test_three_sku_batch_performance_profile_counts_catalog_pages_and_http_attempts`; acceptance: `DAILY_USE_PERFORMANCE_ACCEPTANCE_C04_2026-10-25.md`.
+
+# 2026-10-25 — ежедневная готовность, этап C03
+
+- C01: compact report и scoped details; C02: exact-period refresh со scope checks; C03: поздний read-only результат скрывается после смены магазина.
+- Duplicate callbacks, explicit refresh, HTTP 429/timeout, transient retry и time/request limits покрыты. C03 profile **44 passed, 1 ACL-bound `tmp_path` test deselected**; in-memory compile и diff-check прошли.
+- C00–C03 evidence указан в `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`; C03 acceptance — `DAILY_USE_RELIABILITY_ACCEPTANCE_C03_2026-10-25.md`. Далее C04; exact-head CI ещё не запущен. A04 остаётся открыт до C05.
+
+# 2026-10-25 — ежедневная готовность, этап B05
+
+- B05 закрыл рассогласование полноты между отчётом, деталями и экспортами: одна allowlisted status/reason projection из сохранённого снимка теперь доступна в коротком ответе, completeness/diagnostic callbacks, support JSON и CSV/JSON metadata. Detail/export callbacks не выполняют новые запросы к Ozon.
+- Приёмка: **41 passed, 1 test deselected** из-за локального Windows ACL на `tmp_path`; exact-head CI ещё требуется. Support JSON по-прежнему не включает суммы или raw payload.
+- Матрица и ограничения: `DAILY_USE_COMPLETENESS_ACCEPTANCE_B05_2026-10-25.md`; следующий этап — C00; финальную A04 сверку выполнить после C00–C05 согласно зависимостям.
+
+# 2026-10-25 — ежедневная готовность, этап B04
+
+- Исправлен подтверждённый риск: текущая себестоимость без effective-date больше не восстанавливает исторический finance SKU. При отсутствии исторической записи прибыль с COGS блокируется как incomplete; неизвестная себестоимость не подменяется нулём или будущей стоимостью.
+- Подтверждённая историческая cost evidence и раздельное подтверждение «вся история» сохранены. Return COGS по-прежнему требует inventory → attribution → recognition → authorization → commit → final application.
+- B04 regression profile: **154 passed in 5.28s**. Отчёт: `DAILY_USE_COGS_EFFECTIVE_DATE_AUDIT_2026-10-25.md`; далее B05 — согласовать полноту проекций и экспортов.
+
+# 2026-10-25 — ежедневная готовность, этап B03
+
+- Повторно проверены источники комиссии и классификация расходов. Полный месяц использует фактические суммы продажи/возврата; логистические подкатегории, Performance CPC и альтернативная сумма хранения не добавляются повторно.
+- Core finance/store/cross-docking регрессии: **94 passed in 2.54s**; 5 чистых external-expense evidence tests прошли. 8 SQLite/Telegram setup cases локально заблокированы ACL на `tmp_path`, exact-head CI остаётся обязательным.
+- Подтверждённого дефекта B03 нет; production-код не менялся. Отчёт: `DAILY_USE_EXPENSE_CATEGORY_AUDIT_2026-10-25.md`; дальше B04 — себестоимость и Return COGS.
+
+# 2026-10-25 — ежедневная готовность, этап B02
+
+- B02 сверил Analytics и return diagnostics: ordered units **6 117** за 31 день; cancellations/returns Analytics отсутствуют, не ноль. Seller API полностью прочитан: FBO 270 `Cancellation` и 2 `ClientReturn` единицы, FBS пустой.
+- Существующие fallback contracts сохраняют разные date bases, типы и количество; доли к несовместимой когорте скрыты. Профиль: **73 passed in 2.48s**. Новой production ошибки нет; следующая задача B03 — проверить классификацию расходов и одинарное включение.
+
+# 2026-10-25 — ежедневная готовность, этап B01
+
+- B01 добавил в существующую completeness projection сумму либо unknown, источник, период/date basis, coverage и причину по каждому материальному компоненту. Observed zero отделён от unknown; проверка рекламы не вычитается повторно.
+- Целевой профиль полноты/диагностики/export/Return COGS: **43 passed in 1.58s**. Следом B02 — границы Analytics/Seller API для заказанных, отменённых и возвращённых единиц.
+
+# 2026-10-25 — ежедневная готовность, этап B00
+
+- B00 завершён: действующие completeness projection, диагностика, scoped snapshots/export и Return COGS blocker resolver проверены; **40 targeted tests passed**, новых подтверждённых дефектов нет.
+- Gap-реестр: `DAILY_USE_COMPLETENESS_GAP_AUDIT_2026-10-25.md`. B01 продолжает покомпонентное provenance/coverage в существующем view; отмены/возвраты остаются ограничением источника до подтверждения полного API-контракта.
+
+# 2026-10-25 — ежедневная готовность, этап A03
+
+- A03 закрыт: известные финансовые категории и source fallbacks повторно проверены; новая трёх-SKU regression подтвердила разделение затрат и fail-closed при отсутствии COGS. Найденных производственных ошибок нет.
+- Два изолированных профиля прошли: **94 passed** для экспериментального отчёта/начислений/cross-docking evidence; **90 passed** для юнит-экономики, продажи, план-факт, v1/v2 adapters и нового multi-SKU случая.
+- Полный local pytest не запускался. Несколько temp/SQLite тяжёлых тестов упёрлись в ранее зафиксированное ACL ограничение и не засчитываются в зелёный результат; общий exact-head CI будет обязателен до PR.
+- Далее B00 — аудит текущей полноты источников и UI, затем ветки B/C/D по графу зависимостей.
+
+# 2026-10-25 — ежедневная готовность, этап A02
+
+- S00/A00/A01/A02 выполнены в отдельной ветке `codex/daily-readiness-a-foundation`, основанной на проверенном PR #712 head `698c9f8`. PR #712 и основной `main` не менялись.
+- Реализованы explicit XLSX profile `ozon_accruals_xlsx_v1`, read-only CLI и сверка signed суммы периода с сохранённым `net_accrual` snapshot Period Profit. Августовский источник прочитан: 38 864 строки, все даты валидны; финансовые суммы не сохранены в Git.
+- Новые тесты: **10 passed**. Полный локальный pytest не запускался из-за зарегистрированного риска Windows ACL/shared storage. Далее A03.
+
 # 2026-10-25 — исправлено сравнение ставки в готовности сохранённого плана
 
 - Readiness v2 сравнивает сохранённую ставку кросс-докинга и подтверждённое evidence численно через `Decimal`. Разный формат десятичной части больше не скрывает валидное подтверждение; отрицательные, нечисловые, бесконечные и несовпадающие значения fail closed.
@@ -4715,3 +4805,27 @@ Completed:
 
 - X03 adds read-only 56-day finance and supply collection with process-local scoped checkpoint/resume, a bounded in-memory cache, in-flight deduplication, shared 64-attempt/60-second limits, reuse of the current request's 28-day finance cache, and lazy current/scenario factory wiring.
 - Complete rates are still evidence-only; X is not yet subtracted in unit-economics calculations and is not frozen into saved plans. Those are X04–X05.
+# 2026-10-25 — ежедневная готовность, этап C05
+
+- C05 закрыт локально: external-expense action сохраняет точные даты, возвращает к scoped report и принимает только валидный сохранённый контекст; stale owner/store callbacks отклоняются.
+- Связанный сценарий `report → details → completeness → expenses → confirm → return → explicit refresh → CSV` прошёл. Профиль: **81 passed, 3 temp-backed tests deselected** из-за локального Windows ACL; exact-head CI обязателен.
+- Acceptance и limitations: `DAILY_USE_END_TO_END_ACCEPTANCE_C05_2026-10-25.md`; далее A04 final/A05, затем D00.
+
+# 2026-10-25 — ежедневная готовность, этап D00
+
+- Инвентаризация кода выявила credential DB в configured storage root, tenant DB/JSON в hashed dirs, а также оставшиеся legacy project-relative DB и JSON; проверка настоящих данных не выполнялась.
+- Зафиксирован backup/restore manifest v1 и согласованная архитектурная граница: только local data, backup после подтверждённой остановки, новые пустые destination для restore, ключ шифрования хранится отдельно.
+- D00 acceptance: `DAILY_USE_STORAGE_INVENTORY_D00_2026-10-25.md`; дальше D01. Решение 056.
+
+# 2026-10-25 — ежедневная готовность, этап D01
+
+- Добавлена проверяемая offline-команда локальной резервной копии с SQLite backup API, JSON контрактной проверкой, SHA-256 manifest, завершённым marker и атомарной публикацией; работает только при подтверждённо остановленном боте.
+- Синтетическая регрессия D01: **7 passed**; реальный storage, `.env`, ключи и процесс бота не читались. См. `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`.
+# 2026-10-25 — ежедневная готовность, этап D02
+
+- Реализовано dry-run и staged restore D01 архивов только в новую отсутствующую папку; проверяются manifest/checksums, размер, типы/пути и исходная tenant isolation. Restore не меняет `.env`, текущий storage и работающий процесс.
+- Синтетический restore прошёл через существующий `ExpenseRepository` для двух tenant scopes; **13 backup/restore tests passed**. Эксплуатационный запуск не проводился; см. `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`.
+# 2026-10-25 — ежедневная готовность, этап D03
+
+- Добавлен локальный `update_bot.ps1 -CheckOnly`: он показывает текущую ревизию, кэшированный target SHA, безопасные data conflicts, зависимости, lifecycle и необходимость backup. Fetch/update/stop/start не выполняет.
+- Synthetic Git preflight: **9 passed**; Git ref, worktree и fake process state не изменились. Exact-head CI предстоит; см. `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`.

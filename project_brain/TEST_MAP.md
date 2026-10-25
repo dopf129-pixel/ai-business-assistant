@@ -1,3 +1,114 @@
+# Daily-use readiness E00 linked acceptance
+
+- `tests/test_daily_use_end_to_end_restore.py`: canonical unit calculation, saved tenant-scoped plan, seller cost and external expense, verified backup, no-write restore dry-run, restore to a new root, read-after-restart and second-store isolation. Source storage remains intact.
+- `tests/test_period_profit_analytics_runtime.py::test_public_report_flow_opens_exact_period_expenses_returns_refreshes_and_exports`: report → completeness/details → exact period expenses and confirmation → return → explicit same-period refresh → CSV export; source query count remains bounded.
+- The linked A–D Windows/Python 3.12 profile completed **350 passed in 22.70s** with fresh isolated storage and pytest basetemp. It is targeted local evidence, not full pytest or exact-head CI.
+- Acceptance and outstanding external evidence: `project_brain/DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md` and `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+
+# Daily-use readiness D06 bounded resilience and recovery
+
+- `tests/test_daily_use_bounded_soak.py`: 64 canonical calculation/export repetitions; 12 revision persistence/reopen checks; two-tenant cost/expense persistence isolation; eight isolated subprocess polling start/status/graceful-stop cycles. Bounds: export ≤64 KiB, plan DB ≤2 MiB, tenant DBs ≤2 MiB total, lifecycle state ≤16 KiB/file and exactly two state files. Records elapsed time, threads, handles and storage bytes without external credentials.
+- Related deterministic fault cases: period snapshot TTL and bounded cache eviction (`tests/test_period_profit_analytics_runtime.py`), invalid plan clock (`tests/test_planning_workspace_repository.py`), stop timeout (`tests/test_bot_instance_lifecycle_service.py`), interrupted backup and failed restore (`tests/test_bot_backup_service.py`), financial/supply checkpoint resume (`tests/test_cross_docking_finance_source.py`, `tests/test_cross_docking_supply_source.py`).
+- Isolated Windows/Python 3.12 profile: **11 passed in 3.74s**. No real bot or network calls. Runbook and pending owner observation form: `docs/daily-use-recovery-runbook.md`, `project_brain/DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md`.
+- Acceptance: `project_brain/DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; exact-head CI remains required.
+
+# Daily-use readiness D05 process status and safe diagnostics
+
+- `tests/test_telegram_bot_control_cli.py`: local readiness and environment status are independent; status and stop are checkout-scoped, no full path/fingerprint/token output. `tests/test_bot_instance_lifecycle_service.py`: failure persistence accepts only safe enum codes; legacy metadata remains readable. `tests/test_telegram_runtime_health_shutdown_contract.py`: startup/polling failures hide raw exception text. Build metadata and support JSON tests cover normalized runtime mode and secret redaction.
+- Related D04/D05 + backup/preflight/lifecycle profile: **87 passed on Windows Python 3.12**. Parser API: 0 errors across update/start/status/stop scripts. Exact-head CI remains required.
+- Acceptance: `project_brain/DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`.
+
+# Daily-use readiness D04 checked update orchestration
+
+- `tests/test_bot_update_runtime_service.py`: injected Git/process/backup/command boundaries verify immutable target pinning, no-op current revision, requirements change installation, graceful-stop/backup/merge/check/start failure handling, revision races, no-start and exact polling readiness. Kernel lock contention uses a synthetic local Git repository. CLI verifies `-NoStart` and token redaction.
+- Combined D01–D04 offline profile: `tests/test_bot_update_runtime_service.py tests/test_bot_update_preflight_service.py tests/test_bot_backup_service.py tests/test_bot_instance_lifecycle_service.py` — **54 passed on Windows Python 3.12**. No real network, owner data, backup or bot process was used.
+- `update_bot.ps1`: `-CheckOnly` is read-only, default runs checked update and start, `-NoStart` leaves the updated bot stopped. PowerShell parser API reports 0 errors for update/start scripts. Acceptance: `project_brain/DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`.
+
+# Daily-use readiness D03 read-only update preflight
+
+- `tests/test_bot_update_preflight_service.py`: cached `origin/main` planning only; validates exact root/branch/tracking/remote, local ahead/dirty/untracked conflicts, exact `data/tasks.json` and `data/users.json` preservation, protected incoming changes, requirements detection, lifecycle state and redaction. It asserts zero fetch/mutating Git calls and unchanged worktree/process state. **10 tests are included in the combined profile; D03 + lifecycle verification: 24 passed on Windows Python 3.12**.
+- Lifecycle metadata includes a one-way checkout fingerprint; stop refuses an active instance with a foreign or missing fingerprint. Acceptance: `project_brain/DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`.
+
+# Daily-use readiness D02 restore verification
+
+- `tests/test_bot_backup_service.py`: restore CLI dry-run is read-only; validated archive restores only to an absent sibling target; restored expenses are read through the existing `ExpenseRepository` for two isolated synthetic tenants; original source remains unchanged; failures leave no target/staging directory. Archive traversal, ZIP symlink/reparse, case-insensitive duplicate names, unsupported entries, and expansion limits fail closed. Combined D01/D02 profile: **13 passed on Windows Python 3.12**.
+- Commands and owner-side staging/rollback notes: `project_brain/DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`.
+
+# Daily-use readiness D01 verified backup
+
+- `tests/test_bot_backup_service.py`: lifecycle fail-closed, supported legacy/tenant JSON and SQLite, secret exclusion, source immutability, malformed inputs, scoped external mapping path, interrupted atomic publication, prior-archive preservation, and strict ZIP member/manifest verification. **7 passed on Windows Python 3.12**; exact-head CI must repeat.
+- Acceptance/limits and owner command: `project_brain/DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`.
+
+# Daily-use readiness C04 performance profile
+
+- `tests/test_unit_price_batch_plan_service.py::test_three_sku_batch_performance_profile_counts_catalog_pages_and_http_attempts`: exact synthetic 3-SKU contract — one catalog read, three snapshots, three finance pages, six HTTP reservations and deterministic fake-clock elapsed; no wall-clock threshold.
+- `tests/test_period_profit_analytics_runtime.py::test_period_comparison_and_owner_exports_reuse_finalized_query_snapshot` and `::test_diagnostic_refresh_reuses_exact_period_and_owner_store_scope`: cached details/analysis/completeness/diagnostics/CSV/JSON/support export do not requery; explicit refresh creates one new query for the same period.
+- Related tests cover one catalog read per batch, root request budget, explicit source refresh and local batch edits/exports without source reads. Evidence and limitations: `DAILY_USE_PERFORMANCE_ACCEPTANCE_C04_2026-10-25.md`.
+
+# Daily-use readiness C03 waiting, retries and tenant-safe late results
+
+- `tests/test_telegram_calculation_inflight_dedup.py`: duplicate callback, per-store/per-user keying, inflight cleanup after failure, exact refresh callback detection, and suppression of late read-only callback/text results after active tenant scope changes.
+- `tests/test_period_profit_operation_diagnostics.py`, `tests/test_period_profit_finance_safe_diagnostics.py`, and `tests/test_period_profit_finance_retry_v1441_v1450.py`: shared request/time budgets, HTTP 429 and timeout codes, safe user-facing unavailable state, bounded transient retries, and no false ready/zero result. One worker-snapshot `tmp_path` test deselected due Windows ACL.
+- `tests/test_telegram_loading_feedback_v1451_v1460.py`: progress state, replacement on errors, split Telegram messages and keyboard on final chunk.
+- C03 linked profile: **44 passed, 1 deselected**; acceptance: `project_brain/DAILY_USE_RELIABILITY_ACCEPTANCE_C03_2026-10-25.md`.
+
+# Daily-use readiness C02 scoped navigation and exact-period refresh
+
+- `tests/test_period_profit_analytics_runtime.py::test_diagnostic_refresh_reuses_exact_period_and_owner_store_scope`: diagnostic callback preserves the cached ISO date range, uses the original owner/store scope, rejects foreign owner/store without a query, and creates a new report view after refresh.
+- `tests/test_period_profit_completeness_view.py`, `tests/test_telegram_custom_period_date_input_v1171_v1180.py`, and `app/tests/test_seller_cost_confirmation_flow.py`: action projection, custom-period reset/store binding, stale seller-cost callback and seller-cost confirmation scopes.
+- `tests/test_telegram_external_expenses_flow.py`: explicit write/coverage confirmation, stale view/store isolation, invalid inputs and duplicate confirmation. Eight tests requiring local `tmp_path` were excluded due Windows ACL; exact-head CI is required.
+- C02 linked profile: **105 passed, 9 ACL-bound tests deselected** (8 external-expense temp-path tests and 1 production-factory temp-path test). Exact result: `project_brain/DAILY_USE_NAVIGATION_ACCEPTANCE_C02_2026-10-25.md`.
+
+# Daily-use readiness C01 compact report and scoped details
+
+- `tests/test_period_profit_compact_report_v1431_v1440.py`: денежные значения с 2 знаками, пробелы тысяч, доля от выручки, знак отрицательных сумм, нулевая выручка и бюджет короткого сообщения ≤2,500 UTF-16 units.
+- `tests/test_period_profit_analytics_runtime.py`: подробности открываются из того же owner/store scoped cache, сохраняют длинный текст через Telegram splitter (≤3,800 UTF-16 units на chunk), не вызывают Ozon повторно; короткий отчёт показывает главную причину, экран полноты и диагностика — полный canonical список.
+- `tests/test_experimental_store_economics.py`: отчёт магазина ≤2,500 UTF-16 units, детали передаются chunks ≤3,800 units.
+- Связанный профиль `test_period_profit_compact_report_v1431_v1440.py`, `test_period_profit_analytics_runtime.py`, `test_experimental_store_economics.py`, `test_telegram_loading_feedback_v1451_v1460.py`, `test_period_profit_response.py`: **74 passed, 1 deselected**; исключён storage-backed `tmp_path` кейс из-за локального Windows ACL. Полный pytest локально не запускался; exact-head CI требуется.
+- Приёмка: `project_brain/DAILY_USE_SCREEN_ACCEPTANCE_C01_2026-10-25.md`.
+
+# Daily-use readiness C00 screen inventory
+
+- Audit-only stage; no production change or new regression required. Current contracts reviewed: `tests/test_period_profit_compact_report_v1431_v1440.py`, `tests/test_period_profit_analytics_runtime.py`, `tests/test_experimental_store_economics.py`, `tests/test_product_unit_economics_telegram_ui.py`, `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_telegram_external_expenses_flow.py`.
+- Representative compact report was measured from the existing formatter fixture: 470 chars / 472 UTF-16 units, with the warning profile 1,065 / 1,067. Transport split of 2,000 emoji produced chunks no larger than 3,800 UTF-16 units. See `project_brain/DAILY_USE_SCREEN_INVENTORY_C00_2026-10-25.md`.
+- Related executable screen profile: 31 passed, 1 storage-backed test deselected locally due Windows ACL (`tmp_path`); command/environment and exact-head CI requirement are recorded in the progress journal.
+
+# Daily-use readiness B05 completeness across report and exports
+
+- `tests/test_period_profit_analytics_runtime.py`: one cached report snapshot drives the compact answer, completeness screen, diagnostics, support JSON and owner CSV/JSON. Verifies identical reason codes and one query-service call after all callbacks; **41 passed, 1 storage-backed factory test excluded locally due Windows ACL on `tmp_path`** across the B05 profile.
+- `tests/test_analytics_export_service.py`: CSV/JSON metadata includes only allowlisted completeness statuses/reason codes; malformed date/status and secret fields fail closed.
+- `tests/test_period_profit_support_diagnostic_export_service.py`: confirmed/partial/unavailable matrix and unchanged strict safe support schema. Audit: `project_brain/DAILY_USE_COMPLETENESS_ACCEPTANCE_B05_2026-10-25.md`.
+
+# Daily-use readiness A02/A03
+
+- `tests/test_daily_use_reconciliation_service.py`, `tests/test_daily_use_reconcile_cli.py`: profile validation, Decimal accrual totals, signed correction rows, scope/coverage mismatches, safe canonical snapshot comparison and no-overwrite CLI behavior; **10 passed**.
+- `tests/test_sales_mix_planning_service.py::test_three_sku_mix_keeps_cost_commission_and_ads_separate_with_zero_and_missing_cost`: three SKU inputs, explicit zero-sales SKU and fail-closed profit when sold SKU COGS is missing.
+- Related existing finance/store/cross-docking profile: **94 passed**; product/unit/planning profile: **90 passed**. Commands and environment are recorded in `project_brain/LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
+
+# Daily-use readiness B04 cost effective dates and Return COGS
+
+- `tests/test_period_profit_historical_sku_cost_v1411_v1420.py` and `tests/test_period_profit_historical_sku_cost_input_v1421_v1430.py`: confirmed dated historical cost stays usable; a current cost with no effective date or recorded after the requested period cannot fill historical COGS. `/costsku` storage is not read as historical evidence.
+- `app/tests/test_period_profit_return_cogs_blocker_stage_service.py`, `app/tests/test_seller_cost_confirmation_flow.py`, Return COGS eligibility/recognition/final-application tests, historical identity tests, and completeness view tests: recovery, stale/partial evidence, explicit whole-history confirmation, accounting recognition, authorization, commit and final application remain gated. **154 passed in 5.28s** across the B04 profile.
+- Storage-backed Return COGS suites needing pytest `tmp_path` remain subject to the Windows ACL limit and must run in exact-head CI. Full audit: `project_brain/DAILY_USE_COGS_EFFECTIVE_DATE_AUDIT_2026-10-25.md`.
+
+# Daily-use readiness B03 expense categories and no-double-count
+
+- `tests/test_experimental_store_economics.py`, `tests/test_finance_service_accrual_fee_breakdown.py`, `tests/test_cross_docking_financial_evidence_service.py`, and `tests/test_cross_docking_supply_evidence_service.py`: **94 passed in 2.54s**. Coverage includes actual monthly sale/refund commission, invalid/incomplete source fallback, paid storage labels and cross-source reference, explicit advertising types, reverse logistics, last-mile nesting, cross-docking, and balance preservation without additive CPC or duplicate fees.
+- `tests/test_external_operating_expense_coverage_v1261_v1270.py`: five pure evidence/adjustment tests passed. Seven SQLite coverage tests and eight Telegram flow tests could not set up locally because Windows ACL denied pytest `tmp_path` traversal; no assertions were reported as failures. Exact-head CI must execute the storage-backed coverage and flow regressions.
+- Evidence and source-basis notes: `project_brain/DAILY_USE_EXPENSE_CATEGORY_AUDIT_2026-10-25.md`.
+
+# Daily-use readiness B02 unit and return source boundaries
+
+- Existing Analytics/Seller API regressions in `tests/test_experimental_store_economics.py`, `tests/test_returns_buyout_facts_source.py`, `tests/test_period_profit_returns_timestamp_v1191_v1200.py`, and `tests/test_period_profit_return_evidence_service.py` cover missing vs zero, FBO/FBS, `ClientReturn` vs `Cancellation`, quantity, duplicate IDs, pagination and exact timestamp filter: **73 passed in 2.48s**. August owner diagnostic and source limitations: `project_brain/DAILY_USE_EVENT_SOURCE_AUDIT_2026-10-25.md`.
+
+# Daily-use readiness B01 component evidence
+
+- `tests/test_period_profit_completeness_view.py` verifies per-component amount/unknown, source/date basis/exact period/coverage/reason; observed zero remains distinct from unknown/partial; unconfirmed tax policy does not publish exact tax base/profit; identifiers are absent from the new evidence projection. Related completeness/diagnostic/support-export/Return COGS profile: **43 passed in 1.58s**.
+
+# Daily-use readiness B00 completeness audit
+
+- Existing `tests/test_period_profit_completeness_view.py`, `tests/test_period_profit_diagnostic_view_service.py`, `tests/test_period_profit_support_diagnostic_export_service.py`, and `app/tests/test_period_profit_return_cogs_blocker_stage_service.py` validate period/source gating, completeness states, safe diagnostics/export, and fail-closed Return COGS stages: **40 passed in 1.64s**. No production defect was confirmed; gap classification is in `project_brain/DAILY_USE_COMPLETENESS_GAP_AUDIT_2026-10-25.md`.
+
 # Saved-plan readiness numeric cross-docking evidence
 
 `tests/test_planning_plan_readiness_service.py` verifies that saved rate strings with different decimal scales (`12.0`/`12.00`, `12.5`/`12.50`) and explicit zero compare numerically, while mismatches, negatives, booleans, NaN and infinity remain unavailable. Bounded Windows profile across the X00–X06 collection, adapter, readiness and batch-plan modules: **94 passed in 3.08s**. Exact-code-head Verify [40168401653](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40168401653) for `88ab62fb9f4cf376ba982c7cef99243e6f567ef4` passed with **3,647 tests on Windows and Linux**, compilation on both, and Linux Docker build/runtime smoke. Full local pytest remains suspended due to the documented Windows ACL/shared-storage incident.
@@ -5440,3 +5551,7 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_cross_docking_supply_source.py`: bounded resumable order/detail/act/product collection, page/detail progress checkpoint, scope mismatch, invalid/oversized state and incomplete coverage behavior.
 - `tests/test_unit_price_scenario_source.py` and `tests/test_current_unit_economics_production_wiring.py`: lazy dependency sharing and sanitized evidence projection in the current scenario path.
 - Existing finance pagination/accrual breakdown and experimental store-economics regressions were run in the same isolated profile.
+# Daily-use readiness C05 end-to-end public flow
+
+- `tests/test_period_profit_analytics_runtime.py::test_public_report_flow_opens_exact_period_expenses_returns_refreshes_and_exports`: public callbacks cover report → details → completeness → exact-period expenses → coverage confirmation → return → explicit refresh → CSV; owner/store stale actions are rejected. Synthetic repository only; source calls: 1 initial + 1 explicit refresh, with zero calls for details/navigation/export. The C00–C05 related profile completed **81 passed, 3 ACL/temp tests deselected**; exact-head CI must run the temp-backed cases.
+- `project_brain/DAILY_USE_END_TO_END_ACCEPTANCE_C05_2026-10-25.md` records the confirmed stale-context issue, test evidence, and limits.

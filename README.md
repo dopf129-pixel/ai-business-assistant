@@ -62,6 +62,7 @@ $env:PYTHONPATH = Join-Path $PWD 'app'
 - [Архитектура проекта](ARCHITECTURE.md)
 - [План развития](project_brain/ROADMAP.md)
 - [Руководство Telegram-бота](docs/telegram-user-guide.md)
+- [Памятка по ежедневной эксплуатации и восстановлению](docs/daily-use-recovery-runbook.md)
 - [Аудит и ТЗ на 12.10.2026](project_brain/PROJECT_AUDIT_2026-10-12.md)
 - [Очередь заданий для GPT Luna](project_brain/LUNA_DEVELOPMENT_TASK_2026-10-12.md)
 
