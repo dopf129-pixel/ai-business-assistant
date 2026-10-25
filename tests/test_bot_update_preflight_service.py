@@ -176,6 +176,58 @@ def test_local_data_conflict_is_blocked_when_target_updates_protected_file(tmp_p
     )
 
 
+def test_ignored_local_runtime_file_blocks_incoming_tracked_overwrite(tmp_path):
+    root = tmp_path / "project"
+    _repository(root)
+    _write(root, ".gitignore", "*.db\n")
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore local runtime databases")
+    base = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", base)
+
+    _write(root, "ozon_assistant.db", "incoming synthetic database\n")
+    _git(root, "add", "-f", "ozon_assistant.db")
+    _git(root, "commit", "-m", "track runtime database in incoming revision")
+    target = _git(root, "rev-parse", "HEAD")
+    _git(root, "reset", "--hard", base)
+    _git(root, "update-ref", "refs/remotes/origin/main", target)
+    local_data = "owner local database\n"
+    _write(root, "ozon_assistant.db", local_data)
+    service, _ = _service(root)
+
+    result = service.inspect()
+
+    assert result["target_revision"] == target
+    assert result["error"] is True
+    assert any(
+        blocker.get("code") == "BOT_UPDATE_IGNORED_OVERWRITE_CONFLICT"
+        and blocker.get("paths") == ["ozon_assistant.db"]
+        for blocker in result["blockers"]
+    )
+    assert (root / "ozon_assistant.db").read_text(encoding="utf-8") == local_data
+
+
+def test_non_overlapping_ignored_runtime_file_does_not_block_update(tmp_path):
+    root = tmp_path / "project"
+    base = _repository(root)
+    _write(root, ".gitignore", "*.db\n")
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore local runtime databases")
+    base = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", base)
+    target = _publish_remote_commit(root, base, edits={"app.py": "value = 'updated'\n"})
+    _write(root, "ozon_assistant.db", "owner local database\n")
+    service, _ = _service(root)
+
+    result = service.inspect()
+
+    assert result["target_revision"] == target
+    assert result["error"] is False
+    assert (root / "ozon_assistant.db").read_text(encoding="utf-8") == (
+        "owner local database\n"
+    )
+
+
 def test_dirty_code_and_untracked_target_overwrite_are_blocked(tmp_path):
     root = tmp_path / "project"
     base = _repository(root)

@@ -1,3 +1,11 @@
+# Daily-use readiness review fixes — ignored data, update gate, stop generation and SQLite timeout
+
+- `tests/test_bot_update_preflight_service.py`: actual synthetic Git tree where the incoming target tracks a path ignored by `.gitignore`; the local file is preserved and update preflight blocks. A non-overlapping ignored database remains allowed.
+- `tests/test_bot_update_runtime_service.py` and `tests/test_bot_backup_service.py`: updater and backup share one held maintenance guard; a real synthetic `BotInstanceLease` cannot start during merge and can acquire after release/start handoff. Guard contention stops before fetch.
+- `tests/test_bot_instance_lifecycle_service.py`: lifecycle exposes process generation only to the internal stop path; a replacement generation/checkout during `STARTING` wait is rejected before any control socket is contacted.
+- `tests/test_bot_backup_service.py` plus `app/sqlite_backup_worker.py`: a real exclusive SQLite lock hits the configured subprocess deadline, returns `BOT_BACKUP_SQLITE_TIMEOUT`, and valid SQLite data still snapshots with integrity metadata.
+- Addressed Windows/Python 3.12 profiles: **70 passed in 14.99s** for preflight/update/lifecycle/backup and **8 passed in 3.58s** for bounded soak/end-to-end restore/control CLI. Full suite and exact-head CI are pending; no real bot/network/data was used.
+
 # Daily-use backup review regressions (R1–R3)
 
 `tests/test_bot_backup_service.py` covers actual list-based storage writers, backup/start exclusion through snapshot, and custom mapping-registry verification/dry-run/restore under project, nested storage, and separate approved storage roots. `tests/test_bot_instance_lifecycle_service.py` covers refusal during a snapshot and startup after release. Focused Windows result: **32 passed in 1.93s**; compileall and diff-check passed. Exact-head CI is required after stack updates.

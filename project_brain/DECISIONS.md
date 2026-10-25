@@ -1,5 +1,14 @@
 # Architecture Decisions
 
+## Decision 060 — updater maintenance gate and bounded SQLite snapshot
+
+Date: 2026-10-25
+Topic: prevent startup/update overlap and bound backup waits.
+
+The local updater holds the token-scoped startup/maintenance OS guard through stop verification, backup, fast-forward, dependency checks and offline health checks. The backup service can reuse that already-held guard without releasing it; the updater releases it only at the normal startup handoff or when the operation exits. SQLite online backup runs in a separate standard-library-only process with a hard parent deadline, so a locked database can be terminated and partial snapshots removed. Details: `DECISIONS_060.md`.
+
+---
+
 ## Decision 059 — Bot startup and backup snapshot exclusion
 
 Date: 2026-10-25

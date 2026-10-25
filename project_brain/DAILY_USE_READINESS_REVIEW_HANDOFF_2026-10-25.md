@@ -1,6 +1,6 @@
 # Daily-use readiness — independent review handoff
 
-Date: 2026-10-25. Status: `READY_FOR_INDEPENDENT_REVIEW`; R1–R3 and the downstream bounded-soak assertion are fixed, and the latest exact heads have green Windows/Linux CI. Operational owner evidence remains pending.
+Date: 2026-10-25. Status: `REVIEW_FIXES_IMPLEMENTED_AWAITING_EXACT_HEAD_CI_AND_REPEAT_REVIEW`; the prior R1–R3 and downstream bounded-soak assertion remain fixed. Four further confirmed findings have been repaired locally; new exact-head CI and repeat review are required. Operational owner evidence remains pending.
 
 ## Scope and PR order
 
@@ -44,6 +44,12 @@ Review especially:
 - R3: the configured mapping override is represented by an exact approved-root-relative descriptor, validated against a JSON manifest entry before restore, and passed through the same allowlist for dry-run and actual restore. Project, nested storage, separate storage, and external-path cases are covered.
 - The downstream soak now asserts exactly two `instance-*` lifecycle artifacts and one persistent `startup-*` lock after eight cycles, while retaining the per-file size bound. Corrected code passed the full exact-head Windows/Linux suite and Linux Docker smoke.
 - Repeat review of the confirmed fixes and the new assertion found no additional actionable defect. This remains **Architecture Review Required** because backup/restore and lifecycle locking cross security and process boundaries.
+
+## Follow-up review after four additional confirmed findings
+
+- The next review found ignored-file overwrite, startup during update, checkout/generation retarget during stop, and unbounded SQLite backup wait. All four now have code and regression coverage; details are in `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`.
+- Local Windows/Python 3.12 evidence on the final code: **70 passed in 14.99s** for preflight/update/lifecycle/backup, plus **8 passed in 3.58s** for bounded soak/end-to-end restore/control. In-memory compile of 9 Python files and `git diff --check` also passed.
+- The current branch is `codex/daily-readiness-acceptance-rebase` on the local `f872a683` base. After focused re-run, commit/push the changes to the existing PR #717 branch, record the exact new head and fresh Windows/Linux Verify, then repeat review. No merge, deployment or real bot operation is authorized by this work item.
 
 Threat coverage in tests includes double counting, mismatched date/source basis, unknown vs observed zero, tenant isolation, stale callbacks, cache eviction during concurrent reads, backup corruption/path traversal, interrupted backup/restore, update revision races, lock contention, failed readiness and secret redaction.
 

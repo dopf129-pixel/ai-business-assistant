@@ -1,12 +1,20 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **READY_FOR_INDEPENDENT_REVIEW; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. E01 завершён на зелёных exact-head CI; owner evidence E03 остаётся открытым.
+Статус: **REVIEW_FIXES_IMPLEMENTED_AWAITING_EXACT_HEAD_CI_AND_REPEAT_REVIEW; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. После повторного review найдены четыре подтверждённых дефекта; исправления в текущей рабочей ветке и ожидают CI точного нового коммита.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
 ## Точка продолжения
 
-- Следующий шаг: независимый review текущей PR stack #713–#717, затем owner evidence E03 и эксплуатационное наблюдение. Не считать зелёный synthetic CI заменой реальным данным. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+- Следующий шаг: завершить diff/compile checks, записать новый exact head, отправить изменения в текущую ветку PR #717, дождаться Windows/Linux CI и повторить review. После этого вернуться к owner evidence E03 и эксплуатационному наблюдению. Полный suite не заявлять зелёным до exact-head CI. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+
+### E01 — исправления четырёх подтверждённых review findings
+
+- Preflight блокирует incoming Git path, если он перекрывает существующий ignored local file. Регрессия проверяет tracked ignored DB collision и сохранность локального содержимого.
+- Updater удерживает token-scoped startup/maintenance guard от начала update workflow до окончания backup, merge и local checks; backup повторно использует уже удерживаемую блокировку. Gate проверен живым synthetic `BotInstanceLease` в merge boundary и на handoff перед штатным стартом.
+- Graceful stop сохраняет исходное поколение, повторно проверяет его и checkout при ожидании `STARTING`, перед control request и во время stop wait. Замена поколением другого checkout закрывается без отправки stop.
+- SQLite backup перенесён в ограниченный subprocess; hard timeout завершает зависший helper и удаляет временный снимок. Валидация проверила занятую synthetic DB и нормальную integrity snapshot.
+- Связанные Windows/Python 3.12 проверки: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Полный локальный pytest не повторялся из-за ранее записанного воздействия на shared root JSON и ACL `%TEMP%`; точный full CI и repeat review ожидаются. Подробнее: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`, решение: `DECISIONS_060.md`.
 ### E01 — исправления независимого review backup (R1–R3)
 
 - R1: добавлены реальные list-based `actions.json`, `conversation_history.json`, `store_reports.json` в единый JSON root-type контракт creation/verify.
