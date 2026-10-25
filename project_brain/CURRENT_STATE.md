@@ -6,7 +6,7 @@
 
 # 2026-10-25 — E01: PR stack, CI и независимый review handoff
 
-- Открыт стек draft PR #713–#717 от проверенной базы PR #712. #713 (`e014f278`) exact-head Verify `40181639324` прошёл. Первые heads #714–#716 нашли три регрессии; исправление вошло в #714 (`7ec47ef6`), затем #715 (`40c99b69`) и #716 (`e578779c`) перебазированы. Corrected exact-head Verify #714 `40182473893`, #715 `40182505098`, #716 `40182519871` все успешны на Windows/Linux; compile и Docker build/runtime smoke также успешны. PR #717 проходит свежий Verify после публикации обновлённого handoff.
+- Открыт стек draft PR #713–#717 от проверенной базы PR #712. #713 (`e014f278`) и #714 (`7ec47ef6`) остаются зелёными на текущих heads. Исправления review R1–R3 внесены в #715 (`509fedba0246b87bbc1d407fdadcf990b2daaee0`) и перенесены merge-коммитами в #716 (`5bd3699cf70a3e459ca0bfd21776799a42c37da1`) и #717 (`8559832f802054b564823798c05e0cbf1bccead8`). Exact-head CI для новых #715–#717 ожидается; результаты старых heads больше не считаются актуальными.
 - E02 пакет: `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`. Классификация — Architecture Review Required из-за новых backup/restore и update/lifecycle boundaries.
 - E03: `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md`; текущий exact-revision JSON, полный 56-дневный cross-docking snapshot и 24–72h наблюдения ожидаются от владельца. Не заявлять production acceptance.
 - Ошибки, исправления и limits локальной pytest попытки: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Полный журнал, точные base/head и ограничения: `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`. Merge, deploy и live start не выполнялись.

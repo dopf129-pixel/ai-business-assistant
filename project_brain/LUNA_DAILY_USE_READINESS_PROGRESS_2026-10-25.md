@@ -1,15 +1,23 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **IN_PROGRESS**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном локальном scope; E01 выполняется, E02/E03 подготовлены.
+Статус: **IN_PROGRESS**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном локальном scope. E01 обновлён после исправления R1–R3; exact-head CI #715–#717 ожидается.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
 ## Точка продолжения
 
-- Следующий этап: **E01** — завершить exact-head CI всего PR stack; затем финализировать E02/E03. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+- Следующий этап: **E01** — получить свежие exact-head CI для обновлённых #715–#717, затем финализировать E02. E03 остаётся `USER_VALIDATION_PENDING`. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+### E01 — исправления независимого review backup (R1–R3)
+
+- R1: добавлены реальные list-based `actions.json`, `conversation_history.json`, `store_reports.json` в единый JSON root-type контракт creation/verify.
+- R2: `BotStartupMaintenanceGuard` сериализует canonical `BotInstanceLease` startup и полный backup snapshot. Запуск во время snapshot и backup во время startup завершаются fail-closed без публикации смешанного архива.
+- R3: mapping registry override внутри approved project/storage root записывается в manifest как `(root, relative path)`; выбор nested storage использует самый специфичный root, verify/dry-run/restore согласованы; внешний путь остаётся запрещённым.
+- Адресный Windows профиль: **32 passed in 1.93s**; `compileall -q app tests` и `git diff --check` прошли. Один существующий `SyntaxWarning` остаётся в неизменённом test module.
+- Commit #715 `509fedba`; forward merge #716 `5bd3699c`; forward merge #717 `8559832f`. Исходные ветки не переписывались, main не менялся. Fresh exact-head CI для трёх PR — следующий обязательный шаг.
+
 - Снимок подготовки: локальный main `7e6eabdeba34a822434e5ef417a135995628cc41`; PR #712 открыт, проверенный head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`. Не считать эти refs неизменными на момент исполнения.
 - Ветка реализации: `codex/daily-readiness-a-foundation`, база PR #712 head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`; отдельный managed worktree.
-- Создан зависимый PR stack: #713 A/foundation (`e014f278`), #714 B/C (`7ec47ef6`), #715 backup/restore (`40c99b69`), #716 updater/status (`e578779c`), #717 acceptance (CI after final handoff update pending). #713–#716 exact-head Verify успешны. Первые CI #714–#716 выявили три регрессии (две identity projection и один устаревший форматтер-тест); они исправлены в #714, а downstream refs перебазированы. Все PR остаются draft. A02 добавил локальный read-only service/CLI; production финансовые формулы не менялись.
+- Создан зависимый PR stack: #713 A/foundation (`e014f278`), #714 B/C (`7ec47ef6`), #715 backup/restore (`509fedba0246b87bbc1d407fdadcf990b2daaee0`), #716 updater/status (`5bd3699cf70a3e459ca0bfd21776799a42c37da1`), #717 acceptance (`8559832f802054b564823798c05e0cbf1bccead8`). Исправления из review #715 перенесены в #716/#717 обычными merge commits; prior exact-head CI для #715–#717 superseded, свежие проверки ожидаются. #713/#714 checks остаются актуальны. Все PR остаются draft. A02 добавил локальный read-only service/CLI; production финансовые формулы не менялись.
 - Содержимое отчётов частично проверено на этапе A01: только метаданные, схема, даты и агрегированные признаки; исходные строки не копируются.
 - Документальные проверки подготовки: 30 уникальных stage IDs, 30 строк матрицы, 36 существующих путей, markdown/UTF-8/whitespace и diff-check успешны; это не выполнение S00.
 - Исходники продавца, `.env`, SQLite/JSON данные, существующие lock/temp/review files сохранить. Документы подготовки можно выборочно перенести в новую ветку, не добавляя остальной dirty diff.
@@ -38,15 +46,15 @@
 | C04 | Профиль запросов/производительности | DONE_LOCAL | `DAILY_USE_PERFORMANCE_ACCEPTANCE_C04_2026-10-25.md`; 44 passed, 1 ACL-deselected; exact-count batch profile |
 | C05 | Сквозная пользовательская приёмка | DONE_LOCAL | `DAILY_USE_END_TO_END_ACCEPTANCE_C05_2026-10-25.md`; 81 passed, 3 ACL/temp tests deselected |
 | D00 | Storage inventory и snapshot contract | DONE | `DAILY_USE_STORAGE_INVENTORY_D00_2026-10-25.md`; DECISION 056; actual DB/data untouched |
-| D01 | Проверяемая резервная копия | VERIFIED_OFFLINE | `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`; 7 focused tests passed |
+| D01 | Проверяемая резервная копия | VERIFIED_OFFLINE + REVIEW_FIXES | `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`; R1–R3 regressions: 32 focused tests passed |
 | D02 | Восстановление в новый root | VERIFIED_OFFLINE | `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`; 13 focused tests passed |
 | D03 | Update preflight | VERIFIED_OFFLINE | `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`; 24 synthetic Git/lifecycle tests passed |
 | D04 | Обновление и readiness одной командой | VERIFIED_OFFLINE | `DAILY_USE_UPDATE_ACCEPTANCE_D04_2026-10-25.md`; 54 updater/backup/lifecycle tests passed |
 | D05 | Статус процесса/диагностика | VERIFIED_OFFLINE | `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`; 87 related tests passed |
 | D06 | Fault/soak проверки и runbook | VERIFIED_OFFLINE | `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; 11 passed, max lifecycle cycle 0.297 s |
 | E00 | Общая регрессия | VERIFIED_LOCAL_ISOLATED | `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; 350 passed in 22.70s |
-| E01 | PR и полный актуальный CI | IN_PROGRESS | #713–#716 green on exact heads; #717 fresh exact-head CI pending after handoff update |
-| E02 | Независимый review handoff | PREPARED | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; corrected exact heads and #714–#716 run IDs recorded |
+| E01 | PR и полный актуальный CI | IN_PROGRESS | #713/#714 green on current heads; #715–#717 fresh exact-head CI pending after R1–R3 fixes |
+| E02 | Независимый review handoff | UPDATE_PENDING_CI | `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; exact #715–#717 heads recorded; fresh run IDs pending |
 | E03 | Пакет внешней приёмки владельца | PREPARED / USER_VALIDATION_PENDING | `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`, `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` |
 
 ## Независимые состояния готовности

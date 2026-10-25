@@ -5,7 +5,7 @@
 
 # 2026-10-25 — E01–E03: PR stack и review/owner handoff
 
-- Подготовлен draft PR stack #713–#717: reconciliation, completeness/report UX, backup/restore, updater/status и final acceptance. #713–#716 exact-head Verify зелёные. Первые #714–#716 checks нашли три тестовые регрессии; исправления внесены в #714 и перебазированы в дочерние ветки. #717 получит fresh Verify после обновления review handoff.
+- Подготовлен draft PR stack #713–#717: reconciliation, completeness/report UX, backup/restore, updater/status и final acceptance. #713/#714 остаются зелёными на текущих heads. Первые #714–#716 checks нашли три тестовые регрессии, исправленные в #714. Дополнительный review backup #715 выявил R1–R3; они исправлены и перенесены вперёд. Exact-head Verify для новых heads #715–#717 ожидается.
 - Добавлены independent review package и owner validation steps. Реальный bot JSON, полный 56-дневный cross-docking snapshot и 24–72h эксплуатационные наблюдения остаются `USER_VALIDATION_PENDING`.
 - Слияние, развёртывание и production запуск не выполнялись. Разбор регрессий: `project_brain/DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Полный статус и base/head/CI: `project_brain/DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`.
 

@@ -1,6 +1,6 @@
 # Daily-use readiness — independent review handoff
 
-Date: 2026-10-25. Status: `REVIEW_READY`; exact-head checks are linked from each PR.
+Date: 2026-10-25. Status: `REVIEW_UPDATE_PENDING_CI`; R1–R3 from the backup review are fixed and propagated through the stack, but fresh exact-head checks are not complete yet.
 
 ## Scope and PR order
 
@@ -11,11 +11,11 @@ This is a dependent stack based on the already reviewed, unmerged cross-docking 
 | 0 | [#712](https://github.com/dopf129-pixel/ai-business-assistant/pull/712) | `main` | `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea` | Cross-docking source/evidence prerequisite | `40168559070`, success on Windows/Linux |
 | 1 | [#713](https://github.com/dopf129-pixel/ai-business-assistant/pull/713) | `codex/cross-docking-x00-x01` | `e014f2781172d97dc26f9c8d02bb3143e34c738f` | A: offline XLSX/source reconciliation foundation | `40181639324`, success |
 | 2 | [#714](https://github.com/dopf129-pixel/ai-business-assistant/pull/714) | `codex/daily-readiness-a-foundation` | `7ec47ef604bf286cb1e5faf0d4fad98f5fcef8fc` | B/C plus exact-head CI regressions | `40182473893`, success (Windows/Linux full tests and compile; Docker build/smoke) |
-| 3 | [#715](https://github.com/dopf129-pixel/ai-business-assistant/pull/715) | `codex/daily-readiness-bc` | `40c99b695048dc56963a4a73b64adb9a4e5931e3` | D01/D02: verified backup and restore into a new root | `40182505098`, success (Windows/Linux full tests and compile; Docker build/smoke) |
-| 4 | [#716](https://github.com/dopf129-pixel/ai-business-assistant/pull/716) | `codex/daily-readiness-backup` | `e578779c7bf15e72ae82c764d8c1ed72b72aa16c` | D03–D05: update preflight, updater, lifecycle and diagnostics | `40182519871`, success (Windows/Linux full tests and compile; Docker build/smoke) |
-| 5 | [#717](https://github.com/dopf129-pixel/ai-business-assistant/pull/717) | `codex/daily-readiness-operations` | Read the exact head from PR metadata; the final Verify run is linked in the PR body | D06/E00 soak and linked acceptance, journals and final docs | The final exact-head Verify run after this documentation update is linked in the PR body |
+| 3 | [#715](https://github.com/dopf129-pixel/ai-business-assistant/pull/715) | `codex/daily-readiness-bc` | `509fedba0246b87bbc1d407fdadcf990b2daaee0` | D01/D02 plus fixes R1–R3: backup list formats, startup exclusion, mapping restore | Fresh exact-head Verify pending |
+| 4 | [#716](https://github.com/dopf129-pixel/ai-business-assistant/pull/716) | `codex/daily-readiness-backup` | `5bd3699cf70a3e459ca0bfd21776799a42c37da1` | D03–D05: update preflight, updater, lifecycle and diagnostics; includes #715 fixes | Fresh exact-head Verify pending |
+| 5 | [#717](https://github.com/dopf129-pixel/ai-business-assistant/pull/717) | `codex/daily-readiness-operations` | `8559832f802054b564823798c05e0cbf1bccead8` | D06/E00 soak and linked acceptance, journals and final docs; includes R1–R3 | Fresh exact-head Verify pending |
 
-All five readiness PRs are ready for review. The first B/C CI pass exposed two missing identity-projection calls and a stale formatting assertion; the correction is in PR #714 and was propagated by rebasing each child onto its updated base. Details: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Failed runs on superseded heads are not accepted. Exact-head runs for #713–#716 pass full Windows/Linux suites and compile; Linux also passes Docker build/runtime smoke. PR #717 exact-head Verify result is linked in its description. Review the exact current heads and checks before merge.
+The first B/C CI pass exposed two missing identity-projection calls and a stale formatting assertion; the correction is in PR #714 and was propagated to its children. Details: `DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. The later backup review found R1–R3 in PR #715; they are fixed in `509fedba0246b87bbc1d407fdadcf990b2daaee0` and merged forward into #716/#717 without rewriting prior commits. Prior successful CI runs for old #715/#716/#717 heads are superseded. #713/#714 checks remain valid; fresh exact-head CI for #715–#717 is required before review readiness.
 
 ## Architecture and changed contracts
 
@@ -32,7 +32,7 @@ Review especially:
 
 1. **Finance/source semantics:** `app/services/daily_use_reconciliation_service.py`, completeness projection, event evidence and category breakdown. Confirm net accrual remains authoritative; return operations, ad reconciliation and SKU-level metrics are never double-counted or silently converted to zero.
 2. **Period and tenant boundaries:** snapshot scopes, date-effective COGS, saved plan v1/v2, CAS and stale Telegram callbacks. Confirm old period evidence cannot borrow a current cost or a different store's state.
-3. **Backup consistency/security:** `app/services/bot_backup_service.py`; archive path traversal, symlink behavior, manifest/checksum validation, interrupted publication, source stability and restore only to a verified empty root.
+3. **Backup consistency/security:** `app/services/bot_backup_service.py` and `BotStartupMaintenanceGuard`; archive path traversal, symlink behavior, manifest/checksum validation, startup exclusion during snapshots, custom mapping-registry round-trip, interrupted publication, source stability and restore only to a verified empty root.
 4. **Update/lifecycle safety:** `app/services/bot_update_preflight_service.py`, `bot_update_runtime_service.py`, `bot_instance_lifecycle_service.py` and PowerShell wrappers. Confirm exact SHA/branch/remote checks, checkout-bound stop, update lock, no restart when already current, failure visibility, secret-safe output and the documented no-auto-rollback boundary.
 5. **Resource bounds:** cache/TTL, Telegram message splitting, pagination/request budgets, bounded soak, lock wait and subprocess lifecycle.
 6. **Compatibility:** old lifecycle records and saved plans; production entrypoints and existing canonical finance contracts.
