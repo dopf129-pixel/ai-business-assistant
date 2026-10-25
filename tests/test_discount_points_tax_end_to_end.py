@@ -97,9 +97,9 @@ def test_all_products_finance_to_telegram_uses_discount_adjusted_tax():
     assert "Баллы за скидки: 100.00 ₽" in response["text"]
     assert "Выручка для расчёта налога: 900.00 ₽ (90.00%)" in response["text"]
     assert "Налог: 54.00 ₽ (5.40%)" in response["text"]
-    assert "Баллы за скидки: 100 ₽" in compact["text"]
-    assert "Выручка для расчёта налога: 900 ₽" in compact["text"]
-    assert "Налог: 54 ₽" in compact["text"]
+    assert "Баллы за скидки: 100.00 ₽" in compact["text"]
+    assert "Выручка для расчёта налога: 900.00 ₽" in compact["text"]
+    assert "Налог: 54.00 ₽" in compact["text"]
 
 
 def test_selected_products_finance_keeps_points_without_account_fallback():

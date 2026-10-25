@@ -1322,7 +1322,7 @@ class PeriodProfitFinancePostingIdentityScopeService(
                 return "UNAVAILABLE", None
             for related_sku in related_skus:
                 for row in rows:
-                    candidate = self._product_from_current_cost_row(
+                    candidate = self._seller_cost_identity_from_row(
                         row,
                         related_sku,
                     )
@@ -1379,6 +1379,30 @@ class PeriodProfitFinancePostingIdentityScopeService(
             "historical_sku_identity_source": (
                 "OZON_RELATED_SKU_TO_SELLER_COST_IDENTITY"
             ),
+        }
+
+    @classmethod
+    def _seller_cost_identity_from_row(cls, row, sku):
+        """Read identity fields from a legacy cost row without returning cost."""
+        if not isinstance(row, (tuple, list)) or len(row) < 5:
+            return None
+
+        product_id = cls._text(row[0])
+        row_sku = cls._text(row[1])
+        offer_id = cls._text(row[2])
+        cost = cls._cost(row[3])
+        currency = cls._text(row[4]).upper()
+        if (
+            not product_id
+            or row_sku != sku
+            or cost is None
+            or currency != "RUB"
+        ):
+            return None
+
+        return {
+            "product_id": product_id,
+            "offer_id": offer_id or sku,
         }
 
     def _record_sku_recovery_diagnostic(self, stage):
