@@ -187,6 +187,71 @@ def test_running_status_waits_until_updater_and_application_are_running():
     assert marks == ["ready"]
 
 
+def test_startup_exception_records_safe_code_without_printing_exception(monkeypatch, capsys):
+    calls = []
+
+    class _Lease:
+        def __init__(self, token):
+            assert token == "synthetic-startup-token"
+
+        def acquire(self):
+            calls.append("acquire")
+
+        def record_failure(self, code):
+            calls.append(code)
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(telegram_api_bot, "_resolve_token", lambda: "synthetic-startup-token")
+    monkeypatch.setattr(telegram_api_bot, "BotInstanceLease", _Lease)
+    monkeypatch.setattr(
+        telegram_api_bot,
+        "build_application",
+        lambda token=None: (_ for _ in ()).throw(RuntimeError("private-token-and-traceback")),
+    )
+
+    assert telegram_api_bot.main() == 5
+    output = capsys.readouterr().out
+    assert calls == ["acquire", "TELEGRAM_STARTUP_FAILED", "close"]
+    assert "TELEGRAM_STARTUP_FAILED" in output
+    assert "private-token-and-traceback" not in output
+
+
+def test_polling_exception_records_safe_code_and_closes_lease(monkeypatch, capsys):
+    calls = []
+
+    class _Lease:
+        def __init__(self, token):
+            pass
+
+        def acquire(self):
+            calls.append("acquire")
+
+        def record_failure(self, code):
+            calls.append(code)
+
+        def close(self):
+            calls.append("close")
+
+    class _Application:
+        bot_data = {}
+        updater = object()
+
+        def run_polling(self, **_kwargs):
+            raise RuntimeError("private polling exception")
+
+    monkeypatch.setattr(telegram_api_bot, "_resolve_token", lambda: "synthetic-polling-token")
+    monkeypatch.setattr(telegram_api_bot, "BotInstanceLease", _Lease)
+    monkeypatch.setattr(telegram_api_bot, "build_application", lambda token=None: _Application())
+
+    assert telegram_api_bot.main() == 5
+    output = capsys.readouterr().out
+    assert calls == ["acquire", "TELEGRAM_POLLING_FAILED", "close"]
+    assert "TELEGRAM_POLLING_FAILED" in output
+    assert "private polling exception" not in output
+
+
 def test_dockerfile_declares_healthcheck_and_sigterm_stop_contract():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 

@@ -14,6 +14,7 @@ from services.bot_instance_lifecycle_service import (
     BotInstanceAlreadyRunning,
     BotInstanceLease,
     inspect_bot_instance,
+    project_root_fingerprint,
     request_graceful_stop,
 )
 
@@ -141,6 +142,65 @@ def test_status_reports_revision_captured_at_process_start(tmp_path, monkeypatch
         assert status["revision"] == "abcdef0123456789"
     finally:
         lease.close()
+
+
+def test_status_reports_only_one_way_project_root_fingerprint(tmp_path, monkeypatch):
+    token = "synthetic-project-root-fingerprint"
+    project_root = tmp_path / "private project path"
+    monkeypatch.setenv("APP_BUILD_PROJECT_ROOT", str(project_root))
+    lease = BotInstanceLease(token, state_root=tmp_path / "state")
+    lease.acquire()
+    try:
+        status = inspect_bot_instance(token, state_root=tmp_path / "state")
+        assert status["project_root_fingerprint"] == project_root_fingerprint(project_root)
+        assert str(project_root) not in repr(status)
+        assert len(status["project_root_fingerprint"]) == 64
+    finally:
+        lease.close()
+
+
+def test_graceful_stop_can_refuse_a_different_checkout_before_control_request(
+    tmp_path, monkeypatch
+):
+    token = "synthetic-stop-checkout-scope"
+    other_root = tmp_path / "other checkout"
+    current_root = tmp_path / "current checkout"
+    monkeypatch.setenv("APP_BUILD_PROJECT_ROOT", str(other_root))
+    lease = BotInstanceLease(token, state_root=tmp_path / "state")
+    lease.acquire()
+    try:
+        result = request_graceful_stop(
+            token,
+            state_root=tmp_path / "state",
+            expected_project_root_fingerprint=project_root_fingerprint(current_root),
+            timeout_seconds=0.1,
+        )
+        assert result["stopped"] is False
+        assert result["code"] == "BOT_INSTANCE_CHECKOUT_MISMATCH"
+        assert inspect_bot_instance(token, state_root=tmp_path / "state")["state"] == "STARTING"
+    finally:
+        lease.close()
+
+
+def test_status_persists_only_allowlisted_failure_code_and_checkout_fingerprint(tmp_path):
+    token = "synthetic-safe-failure-code"
+    lease = BotInstanceLease(token, state_root=tmp_path)
+    lease.acquire()
+    try:
+        assert lease.record_failure("TELEGRAM_POLLING_FAILED") is True
+        assert lease.record_failure("secret traceback must not be saved") is False
+        assert lease.record_failure({"secret": "value"}) is False
+        status = inspect_bot_instance(token, state_root=tmp_path)
+        assert status["state"] == "STARTING"
+        assert status["last_failure_code"] == "TELEGRAM_POLLING_FAILED"
+        serialized = lease.metadata_path.read_text(encoding="utf-8")
+        assert "secret traceback" not in serialized
+        assert "private checkout path" not in serialized
+    finally:
+        lease.close()
+    stopped = inspect_bot_instance(token, state_root=tmp_path)
+    assert stopped["state"] == "STOPPED"
+    assert stopped["last_failure_code"] == "TELEGRAM_POLLING_FAILED"
 
 
 def test_malformed_live_metadata_fails_closed(tmp_path):

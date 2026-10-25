@@ -64,6 +64,7 @@ if ($Git) {
     }
 }
 $env:APP_BUILD_REVISION = $DetectedRevision
+$env:APP_BUILD_PROJECT_ROOT = $PSScriptRoot
 $env:APP_BUILD_STARTED_AT_UTC = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
 $env:PYTHONPATH = Join-Path $PSScriptRoot "app"

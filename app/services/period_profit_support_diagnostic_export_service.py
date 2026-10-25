@@ -109,6 +109,7 @@ class PeriodProfitSupportDiagnosticExportService:
                 "application": {
                     "revision": "UNAVAILABLE",
                     "started_at_utc": None,
+                    "mode": "UNAVAILABLE",
                 },
                 "operation": {
                     "id": operation["id"],
@@ -156,6 +157,7 @@ class PeriodProfitSupportDiagnosticExportService:
         normalized["application"] = {
             "revision": revision or "UNAVAILABLE",
             "started_at_utc": started_at,
+            "mode": self._mode(metadata.get("mode")) or "UNAVAILABLE",
         }
         try:
             payload = json.dumps(
@@ -242,7 +244,11 @@ class PeriodProfitSupportDiagnosticExportService:
         return {
             "schema": "period_profit_support_diagnostic",
             "schema_version": self.SCHEMA_VERSION,
-            "application": {"revision": "UNAVAILABLE", "started_at_utc": None},
+            "application": {
+                "revision": "UNAVAILABLE",
+                "started_at_utc": None,
+                "mode": "UNAVAILABLE",
+            },
             "operation": {
                 "id": self._operation_id(operation.get("id")) or uuid4().hex,
                 "type": "PERIOD_PROFIT",
@@ -389,6 +395,13 @@ class PeriodProfitSupportDiagnosticExportService:
         if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{7,40}", value):
             return None
         return value.lower()
+
+    @staticmethod
+    def _mode(value):
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        return normalized if normalized in {"foreground", "background"} else None
 
     @staticmethod
     def _error(code):

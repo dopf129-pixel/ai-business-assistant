@@ -1,13 +1,19 @@
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
 
-$VenvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path $VenvPython)) {
+$ProjectRoot = $PSScriptRoot
+$VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $VenvPython -PathType Leaf)) {
     throw "Virtual environment not found. Run .\start_bot.ps1 once to set up the local environment."
 }
 
-$env:PYTHONPATH = Join-Path $PSScriptRoot "app"
-& $VenvPython -m telegram_bot_control stop
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+$PreviousPythonPath = $env:PYTHONPATH
+try {
+    $env:PYTHONPATH = Join-Path $ProjectRoot "app"
+    & $VenvPython -m telegram_bot_control stop --project-root $ProjectRoot
+    $CommandExitCode = $LASTEXITCODE
 }
+finally {
+    $env:PYTHONPATH = $PreviousPythonPath
+}
+
+exit $CommandExitCode
