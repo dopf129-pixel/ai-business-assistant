@@ -5,8 +5,18 @@ import sqlite3
 import stat
 import zipfile
 
+import pytest
+
 from services.expense_repository import ExpenseRepository
+from services.action_storage_service import ActionStorageService
+from services.conversation_history_storage_service import ConversationHistoryStorageService
+from services.store_report_storage_service import StoreReportStorageService
 from services.bot_backup_service import BotBackupService
+from services.bot_instance_lifecycle_service import (
+    BotInstanceLease,
+    BotLifecycleError,
+    BotStartupMaintenanceGuard,
+)
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 from bot_backup import main as backup_cli_main
 
@@ -28,15 +38,164 @@ def _write_database(path, table_name):
 
 
 def _service(project, storage, **kwargs):
+    lifecycle_state_root = kwargs.pop(
+        "lifecycle_state_root", project / ".synthetic-lifecycle"
+    )
     return BotBackupService(
         project_root=project,
         storage_root=storage or project,
         backup_directory=project / ".local-backups",
         lifecycle_token="synthetic-token",
         lifecycle_inspector=lambda _token: {"state": "STOPPED"},
+        lifecycle_state_root=lifecycle_state_root,
         revision_reader=lambda _root: "abc1234",
         **kwargs,
     )
+
+
+def test_backup_accepts_list_json_written_by_supported_app_storages(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    sample_values = {
+        "actions.json": [{"id": "synthetic-action"}],
+        "conversation_history.json": [{"role": "user", "content": "synthetic"}],
+        "store_reports.json": [{"period": "2026-10", "total": 12}],
+    }
+    ActionStorageService(project / "actions.json").save(sample_values["actions.json"])
+    ConversationHistoryStorageService(project / "conversation_history.json").save(
+        sample_values["conversation_history.json"]
+    )
+    StoreReportStorageService(project / "store_reports.json").save(
+        sample_values["store_reports.json"]
+    )
+    service = _service(project, None)
+
+    result = service.backup()
+
+    assert result["error"] is False, result
+    assert service.verify_archive(result["backup_path"])["status"] == (
+        "BOT_BACKUP_ARCHIVE_VERIFIED"
+    )
+    target = tmp_path / "restored-lists"
+    plan = service.restore_archive(result["backup_path"], target, dry_run=True)
+    assert plan["status"] == "BOT_RESTORE_PLAN_READY", plan
+    restored = service.restore_archive(result["backup_path"], target)
+    assert restored["status"] == "BOT_RESTORE_COMPLETE", restored
+    for filename, expected in sample_values.items():
+        actual = json.loads(
+            (target / "project" / filename).read_text(encoding="utf-8")
+        )
+        assert actual == expected
+
+
+def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    first = project / "assistant_memory.json"
+    second = project / "assistant_session.json"
+    _write_json(first, {"generation": 0})
+    _write_json(second, {"generation": 0})
+    lifecycle_state_root = tmp_path / "lifecycle"
+    service = _service(
+        project, None, lifecycle_state_root=lifecycle_state_root
+    )
+    original_read = service._read_candidate
+    startup_codes = []
+
+    def try_start_during_snapshot(path):
+        result = original_read(path)
+        if path == first:
+            lease = BotInstanceLease(
+                "synthetic-token", state_root=lifecycle_state_root
+            )
+            try:
+                lease.acquire()
+            except BotLifecycleError as error:
+                startup_codes.append(error.code)
+            else:
+                lease.close()
+                pytest.fail("bot startup escaped the backup guard")
+        return result
+
+    monkeypatch.setattr(service, "_read_candidate", try_start_during_snapshot)
+
+    result = service.backup()
+
+    assert result["error"] is False, result
+    assert startup_codes == ["BOT_INSTANCE_MAINTENANCE_ACTIVE"]
+    with zipfile.ZipFile(result["backup_path"]) as archive:
+        assert json.loads(archive.read("files/project/assistant_memory.json")) == {
+            "generation": 0
+        }
+        assert json.loads(archive.read("files/project/assistant_session.json")) == {
+            "generation": 0
+        }
+
+
+def test_backup_refuses_to_start_while_bot_startup_owns_guard(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_json(project / "assistant_memory.json", {"safe": True})
+    state_root = tmp_path / "lifecycle"
+    guard = BotStartupMaintenanceGuard("synthetic-token", state_root=state_root)
+    assert guard.acquire() is True
+    service = _service(project, None, lifecycle_state_root=state_root)
+
+    try:
+        result = service.backup()
+    finally:
+        guard.close()
+
+    assert result["code"] == "BOT_BACKUP_STARTUP_BUSY"
+    assert not (project / ".local-backups").exists()
+
+
+@pytest.mark.parametrize("storage_layout", ["project", "nested-storage", "separate-storage"])
+def test_custom_mapping_override_backup_dry_run_and_restore_are_consistent(
+    monkeypatch, tmp_path, storage_layout
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    if storage_layout == "project":
+        storage = project
+        mapping = project / "data" / "custom_mapping.json"
+        expected_root = "project"
+    elif storage_layout == "nested-storage":
+        storage = project / ".runtime-data"
+        storage.mkdir()
+        mapping = storage / "nested" / "custom_mapping.json"
+        expected_root = "storage"
+    else:
+        storage = tmp_path / "approved-storage"
+        storage.mkdir()
+        mapping = storage / "data" / "custom_mapping.json"
+        expected_root = "storage"
+    _write_json(mapping, {"mapping": "synthetic"})
+    monkeypatch.setenv("PERIOD_PROFIT_MAPPING_REGISTRY_PATH", str(mapping))
+    service = _service(project, storage)
+
+    backup = service.backup()
+
+    assert backup["error"] is False, backup
+    with zipfile.ZipFile(backup["backup_path"]) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    override = manifest["mapping_registry_override"]
+    assert override == {
+        "root": expected_root,
+        "path": mapping.relative_to(storage if expected_root == "storage" else project).as_posix(),
+    }
+    assert service.verify_archive(backup["backup_path"])["status"] == (
+        "BOT_BACKUP_ARCHIVE_VERIFIED"
+    )
+    target = tmp_path / f"restored-{storage_layout}"
+    plan = service.restore_archive(backup["backup_path"], target, dry_run=True)
+    assert plan["status"] == "BOT_RESTORE_PLAN_READY", plan
+    restored = service.restore_archive(backup["backup_path"], target)
+    assert restored["status"] == "BOT_RESTORE_COMPLETE", restored
+    restored_file = target / expected_root / Path(*override["path"].split("/"))
+    assert json.loads(restored_file.read_text(encoding="utf-8")) == {
+        "mapping": "synthetic"
+    }
 
 
 def test_backup_archives_supported_roots_and_verifies_without_including_secrets(tmp_path):
