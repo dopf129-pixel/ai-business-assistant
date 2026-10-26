@@ -11,8 +11,14 @@ def _evidence():
         "amount_per_unit": "12.00", "applicable_to_sku": True,
         "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
         "expense_total": "1200.00", "expense_by_sku": "1200.00",
+        "signed_accrual_total": "-1200.00",
+        "signed_accrual_by_sku": "-1200.00",
         "supplied_units_sku": 100, "supplied_units_store": 100,
         "days_complete": 56, "days_expected": 56,
+        "financial_status": "COMPLETE", "financial_complete": True,
+        "financial_days_complete": 56, "financial_days_expected": 56,
+        "supply_status": "COMPLETE", "supply_complete": True,
+        "supply_orders_scanned": 3, "crossdock_supplies_seen": 3,
         "date_from": "2026-08-24", "date_to": "2026-10-18",
         "as_of": "2026-10-19T12:00:00Z", "timezone": "Europe/Moscow",
         "financial_date_basis": "ACCRUAL_DATE",
@@ -30,8 +36,14 @@ def test_source_projection_keeps_safe_formula_evidence_and_drops_external_ids():
         "applicable_to_sku": True,
         "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
         "expense_total": "1200.00", "expense_by_sku": "1200.00",
+        "signed_accrual_total": "-1200.00",
+        "signed_accrual_by_sku": "-1200.00",
         "supplied_units_sku": 100, "supplied_units_store": 100,
         "days_complete": 56, "days_expected": 56,
+        "financial_status": "COMPLETE", "financial_complete": True,
+        "financial_days_complete": 56, "financial_days_expected": 56,
+        "supply_status": "COMPLETE", "supply_complete": True,
+        "supply_orders_scanned": 3, "crossdock_supplies_seen": 3,
         "date_from": "2026-08-24", "date_to": "2026-10-18",
         "as_of": "2026-10-19T12:00:00Z", "timezone": "Europe/Moscow",
         "financial_date_basis": "ACCRUAL_DATE",
@@ -46,6 +58,12 @@ def test_source_projection_keeps_safe_formula_evidence_and_drops_external_ids():
     assert result["rate_available"] is True
     assert result["supplied_units_sku"] == 100
     assert result["denominator_kind"] == "DELIVERED_CROSSDOCK_UNITS"
+    assert result["signed_accrual_total"] == "-1200.00"
+    assert result["signed_accrual_by_sku"] == "-1200.00"
+    assert result["financial_complete"] is True
+    assert result["financial_days_complete"] == 56
+    assert result["supply_complete"] is True
+    assert result["supply_orders_scanned"] == 3
     assert not ({"sku", "supply_id", "raw_response"} & set(result))
 
 

@@ -1,3 +1,17 @@
+# Исполнение ТЗ по существующим функциям (26.10.2026)
+
+## Дополнительные регрессии независимого review PR #718
+
+- `tests/test_windows_local_handoff_readiness.py`: документированные команды первого fast-forward извлекаются из runbook и выполняются в synthetic Git checkout с локальным ignored-файлом. Входящий tracked-путь не перезаписывает локальные данные и fast-forward не двигает `main`.
+- `tests/test_cross_docking_unit_rate_source.py`: complete финансовое evidence сохраняет подписанное начисление по SKU при `NO_CROSSDOCK_SUPPLIES`; ставка за единицу остаётся `None` без знаменателя.
+- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Verify #40346807627 прошёл на SHA `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`; Verify #40347424289 прошёл на последнем проверенном PR SHA `5eff674cbdc4d63bcc7ca602bdfa07ae0705bb98`: Windows/Python 3.12, Linux/Python 3.11, Docker build/runtime smoke.
+
+- Реестр маршрутов, источников и уже имеющихся тестов: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
+- Этапы и фактические результаты: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md.
+- На этапах Z00–Z02 код и тестовые контракты не менялись. Z03 financial profile: 62 passed; локальный XLSX comparator обработал строки read-only, без финансовых значений в Git. Z04 cost/expense profile: 53 passed; tenant cost storage reopen: 1 passed. Z05 Analytics/returns cohort profile: 103 passed; missing metrics, partial pagination и несовместимые когорты остаются явно неполными. Z06 snapshot/projection/export profile: 104 passed; cached view/export do not re-read Ozon and explicit refresh creates a new snapshot. Z20 настроил `.z20-isolated-env`, synthetic storage/temp/profile и отключил dotenv/live credentials. Базовый профиль `tests/test_unit_price_target_planning_service.py`: 37 passed; пять tracked data JSON hashes совпали до и после. Перед file-backed тестами использовать те же ограничения. Старые CI результаты привязаны к своим SHA и не считаются проверкой будущего кода.
+
+---
+
 # Дополнительные review regressions PR #717 (2026-10-26)
 
 - `tests/test_bot_update_preflight_service.py`: ignored локальный файл, заменяемый входящей папкой, и ignored локальная папка с данными, заменяемая входящим файлом; оба случая блокируются до обновления. Соседние не пересекающиеся ignored файлы остаются разрешены.
@@ -5564,6 +5578,84 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - H–O linked regression profile after R1–R10: **259 passed**; documentation drift/manager tests: **3 passed**. Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Windows/Linux exact-head Verify `39221770481` and repeat `39221764654`, including compile and production Docker build/runtime smoke. A subsequent docs-only commit requires its own current-head Verify.
 # Cross-docking bounded production collection and wiring (X03)
 
+## Z07 — full cross-docking evidence path and saved-plan compatibility
+
+- `tests/test_cross_docking_unit_rate_source.py`: one stable `as_of` timestamp across cache hits; signed net accrual, finance completeness/day coverage, and supply status/completeness on the complete 56-day result.
+- `tests/test_planning_cross_docking_adapter.py`: sanitized signed evidence and separate source coverage survive projection; unsafe external identifiers remain dropped.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public result and assumptions show the per-SKU signed expenses including corrections, 56/56 coverage, supply status, and fixed snapshot time without exposing IDs.
+- `tests/test_saved_planning_plan_telegram_flow.py`: save → reopen → capture preserves signed totals and independent finance/supply coverage; old version-2 schema remains accepted because additive fields are optional.
+- Isolated linked profile: **194 passed in 4.15s**; see `LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md` for environment fencing and first compatibility failure/fix.
+
+## Z08 — SKU attribution, corrections, and supply ambiguity
+
+- `tests/test_cross_docking_financial_evidence_service.py`: signed item/shared expense leaves, weighted SKU denominator, finance-day corrections, exact duplicate dedupe versus conflicting IDs, missing/malformed/overflow data, net-refund and no-supply behavior.
+- `tests/test_cross_docking_supply_evidence_service.py`: partial receipt uses accepted fact quantity, correct SKU mapping, duplicate order/supply behavior, expected-order pagination, exact act agreement/identity, unknown SKU/quantity, multi-SKU ambiguity, nested-supply status, and Moscow-local window boundaries.
+- `tests/test_cross_docking_supply_source.py`: bounded pagination/checkpoint, detail/act page completeness, invalid cursor and no partial publish.
+- `tests/test_cross_docking_unit_rate_source.py`: tenant/window isolation, source TTL, budgets and no rate before both finance and supply evidence complete.
+- Isolated focused profile: **64 passed in 1.15s**. No live Ozon call or owner multi-SKU record was used.
+
+## Z09 — one-time use, frozen evidence, and plan/fact separation
+
+- `tests/test_product_unit_economics.py`, `tests/test_current_unit_economics_integration.py`, and `tests/test_unit_price_scenario_service.py`: one-time charge, existing income tax base, deductible-expense mode, missing versus zero and legacy behavior.
+- `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_advertising_cap_service.py`: forward calculations keep the same fixed historical cross-docking rate.
+- `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, and `tests/test_sales_mix_planning_service.py`: per-SKU/Q planning, frozen rate, planned quantity scaling, missing evidence and partial-result semantics.
+- `tests/test_planning_plan_readiness_service.py`, `tests/test_period_profit_plan_fact_comparison.py`, `tests/test_planning_plan_comparison_service.py`: source status, exact plan/fact scope and no planned fee transfer to actual facts.
+- `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`, and `tests/test_analytics_export_serializer.py`: reopen, explicit revision refresh, no source read on view and frozen JSON/CSV data.
+- Isolated linked profile: **238 passed in 5.52s**; no live API calls.
+
+## Z10 — cross-docking disclosure across price-planning screens
+
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public flows verify matching cross-docking disclosure on the direct result/assumptions, target-margin result, multi-price comparison and advertising-cap result; missing evidence and restored legacy v1 plans state that the rate is not included. Assertions pair visible text with the numeric forward calculation.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: public sensitivity flow verifies the fixed per-unit rate is disclosed and used by every available price scenario.
+- Isolated Windows/Python 3.12 profile: **48 passed in 1.31s**. No calculation formula changed and no live API/bot was used.
+
+## Z11 — target price, margin, advertising cap, and tax boundaries
+
+- `tests/test_unit_price_target_planning_service.py`: direct forward verification, cent-grid rounding, target parser/price-list boundaries, not-found semantics, bounded evaluation count, unknown inputs, price provenance, and fixed cross-docking.
+- `tests/test_unit_price_advertising_cap_service.py`: 0.01-percentage-point grid, verified next tick, 100% bound, unreachable/non-monotonic cases, fixed cross-docking and canonical tax calculation.
+- `tests/test_unit_price_scenario_service.py`, `tests/test_discount_points_tax_end_to_end.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: supported tax modes/minimum tax and manual-input preservation for same-scope source refresh; planned price application remains local to the scenario.
+- Linked isolated Windows/Python 3.12 profile: **110 passed in 2.31s**. Existing calculations/policy were confirmed; no code change.
+
+## Z12 — saved-plan persistence, revisions, and public lifecycle
+
+- `tests/test_planning_workspace_repository.py`: owner/store scope, idempotency, immutable revision history, stale revision/state rejection, concurrent compare-and-swap, legacy migration/reopen, schema and payload validation, and SQLite connection initialization races.
+- `tests/test_saved_planning_plan_telegram_flow.py`: create/list/open/local continue/preview/save/copy/reopen, stale callbacks, optimistic revision update, saved assumption/model/snapshot preservation, refresh identity guard, archive/restore/delete confirmation, restart with a fresh runtime, and other-store isolation.
+- Isolated Windows/Python 3.12 profile: **44 passed in 1.89s**. No live source/storage or bot process was used; existing code was verified.
+
+## Z13 — batch/mix/readiness/plan-fact/export integration
+
+- `tests/test_unit_price_batch_plan_service.py` and `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: exact catalog identities, bounded batch inputs, local edits, refresh and stale-action protection, row-specific target planning/ad cap, and full batch export.
+- `tests/test_sales_mix_planning_service.py`: three-SKU mix, explicit zero vs unknown Q/cost/fees, missing cross-docking and external expense evidence, rounded unit components, one aggregate tax calculation, quantity/expense limits.
+- `tests/test_planning_plan_readiness_service.py`, `tests/test_period_profit_plan_fact_comparison.py`, and `tests/test_planning_plan_comparison_service.py`: actionable missing input, exact period/store/SKU compatibility, plan/fact scope limits, frozen historical comparison and added/removed SKU coverage.
+- `tests/test_analytics_export_serializer.py`, `tests/test_analytics_export_service.py`, `tests/test_analytics_export_runtime.py`, and `tests/test_saved_planning_plan_telegram_flow.py`: all rows/cells exported, model/assumptions/completeness preserved, null vs zero, safety/size limits, cached snapshot without source reads.
+- Isolated Windows/Python 3.12 linked profile: **108 passed in 3.58s**. Existing code and policy were confirmed.
+
+## Z14 — reachability of existing user actions
+
+- Offline public-route profile covered `tests/test_telegram_guided_onboarding.py`, `tests/test_multi_tenant_ozon_onboarding.py`, `tests/test_telegram_help_discovery.py`, command/adapter/legacy route tests, period profit + SKU reports, expenses/cost, experimental economics/supply act, unit economics, product decisions/learning, seller attention, product overview and returns.
+- It also exercised empty/unconnected/read-only states and exception containment through the matched route-specific suites; no user-visible function was removed or hidden.
+- Isolated Windows/Python 3.12 profile across 42 test files: **416 passed in 13.13s**. No live bot/API or user data was used; no code change.
+
+## Z15 — tenant scope, concurrency, deduplication, and shared budgets
+
+- `tests/test_telegram_calculation_inflight_dedup.py`, `tests/test_period_profit_analytics_runtime.py`, `tests/test_product_business_decision_query_service.py`, and `tests/test_product_decision_metrics_source_tenant_cache.py`: duplicate work, atomic concurrent cache read/eviction, TTL/bounds and tenant-scoped cache state.
+- `tests/test_period_profit_selected_scope_concurrency.py`, `tests/test_period_profit_selected_scope_end_to_end.py`, `app/tests/test_period_profit_parallel_finance_reads.py`, and `app/tests/test_ozon_returns_diagnostic_request_attempt_count.py`: stale scope / late responses and bounded requests for concurrent source reads.
+- `tests/test_period_profit_operation_diagnostics.py`, `tests/test_ozon_performance_historical_reports.py`, `tests/test_ozon_performance_client.py`, `tests/test_cross_docking_unit_rate_source.py`, and `app/tests/test_period_profit_identity_ozon_client.py`: parent deadline/request reservations shared by Performance/auth retries, finance, returns and child operations.
+- Isolated Windows/Python 3.12 profile: **160 passed in 4.10s**. No live Ozon calls or user storage were used; existing code was confirmed.
+
+## Z16 — user-facing amounts, long-message delivery, and diagnostics
+
+- `tests/test_telegram_response_formatter.py` and `tests/test_telegram_loading_feedback_v1451_v1460.py`: UTF-16-aware Telegram split, full-text preservation, keyboard only on final chunk, progress edit fallback, and send failure semantics.
+- `tests/test_period_profit_response.py`, `tests/test_period_profit_compact_report_v1431_v1440.py`, `tests/test_experimental_store_economics.py`, `tests/test_current_unit_economics_integration.py`, and `tests/test_seller_attention_summary_service.py`: percent/quantity denominator, rounding and explanation for unknown/incompatible/zero bases; concise/details consistency.
+- `tests/test_period_profit_diagnostic_view_service.py`, `tests/test_period_profit_support_diagnostic_export_service.py`, and `tests/test_analytics_export_serializer.py`: allowlisted diagnostics remain redacted while the separate owner export preserves its intended financial scope.
+- Isolated Windows/Python 3.12 profile: **171 passed in 4.49s**. No live Telegram message was sent; existing delivery/formatting code was confirmed.
+
+## Z17 — first update from a legacy checkout
+
+- `tests/test_windows_local_handoff_readiness.py`: the recovery runbook documents the case where `update_bot.ps1` is absent, branch/status checks, fast-forward only on clean `main`, tracked diff and untracked inventory preservation outside the checkout, and handoff to current `-CheckOnly` only after the updater exists. It rejects destructive commands as runnable code blocks while allowing warnings about them.
+- `tests/test_bot_update_preflight_service.py`: existing dirty/untracked/preflight boundaries remain green.
+- Isolated Windows/Python 3.12 profile: **24 passed in 15.67s**. No scripts or bot process were run.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.
@@ -5575,3 +5667,25 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_period_profit_analytics_runtime.py::test_public_report_flow_opens_exact_period_expenses_returns_refreshes_and_exports`: public callbacks cover report → details → completeness → exact-period expenses → coverage confirmation → return → explicit refresh → CSV; owner/store stale actions are rejected. Synthetic repository only; source calls: 1 initial + 1 explicit refresh, with zero calls for details/navigation/export. The C00–C05 related profile completed **81 passed, 3 ACL/temp tests deselected**; exact-head CI must run the temp-backed cases.
 - `project_brain/DAILY_USE_END_TO_END_ACCEPTANCE_C05_2026-10-25.md` records the confirmed stale-context issue, test evidence, and limits.
+
+## Z18 — synthetic backup/restore and persisted-data reopening
+
+- tests/test_bot_backup_service.py: supported JSON list/object and SQLite layouts, mapping-registry override, archive checksums, dry-run/target guards, path traversal/symlink rejection, and failure atomicity.
+- tests/test_daily_use_end_to_end_restore.py: added an end-to-end synthetic Ozon credential archive test. The linked scenario also verifies saved plan revision, tenant/store isolation, dated cost evidence, expense coverage, and active mapping repository after reopening the restored root.
+- tests/test_ozon_credential_production_persistence.py: same-key decryption plus explicit missing/wrong-key safe statuses; restored archive test also ensures API key, Telegram token and master key are absent from archive bytes while ciphertext and Client ID remain.
+- tests/test_period_profit_mapping_registry_batch_v99_v103.py: authorized mapping lifecycle remains readable after serialization.
+- Isolated Windows/Python 3.12 profile: **33 passed in 3.26s**. All data and encryption keys were synthetic and temporary; source storage stayed unchanged.
+## Z19 — instance lifecycle, update boundaries, and controlled failures
+
+- tests/test_bot_instance_lifecycle_service.py: token/checkout/generation ownership, stale PID, graceful stop timeout, startup lease, cross-process stop, and failure metadata.
+- tests/test_bot_update_runtime_service.py: immutable target revision, exact-checkout readiness, maintenance guard, failure at fetch/preflight/stop/backup/fast-forward/dependency/check/healthcheck/readiness, foreign checkout and concurrency lock.
+- tests/test_bot_update_preflight_service.py: canonical branch/remote/upstream, dirty/untracked/ignored path shape collisions and fail-closed process identity.
+- tests/test_bot_backup_service.py: backup under shared guard and failure atomicity; tests/test_windows_local_handoff_readiness.py: Windows entrypoint/runbook boundaries.
+- Isolated Windows/Python 3.12 profile: **82 passed in 19.34s**. Synthetic Git roots/processes only; no live bot was started or stopped.
+## Z21 — full technical acceptance on exact development tree
+
+- Linked synthetic profile covered daily-use report/snapshot/refresh/export, saved planning lifecycle, batch/mix/readiness, cross-docking finance/supply evidence, backup/restore and process update boundaries: **198 passed in 7.73s**.
+- All 22 tracked paths changed from the selected base were SHA-256 compared between development and verification worktrees before the final run.
+- Full Windows/Python 3.12 profile on the exact copied tree: **3745 passed in 42.92s**. Dotenv and live credentials were disabled; AI_ASSISTANT_STORAGE_ROOT was unset because two tests assert the legacy no-variable default.
+- python -m compileall -q app tests: exit 0. Existing non-blocking SyntaxWarning in tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177.
+- Exact-head Linux/Python 3.11 and Docker build/runtime remain CI evidence after PR publication.

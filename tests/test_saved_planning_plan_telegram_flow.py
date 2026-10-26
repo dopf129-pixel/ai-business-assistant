@@ -86,10 +86,20 @@ def _confirmed_cross_docking_source(rate="12.00", supplied_units=100):
         "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
         "expense_total": amount,
         "expense_by_sku": amount,
+        "signed_accrual_total": f"-{amount}",
+        "signed_accrual_by_sku": f"-{amount}",
         "supplied_units_sku": supplied_units,
         "supplied_units_store": supplied_units,
         "days_complete": 56,
         "days_expected": 56,
+        "financial_status": "COMPLETE",
+        "financial_complete": True,
+        "financial_days_complete": 56,
+        "financial_days_expected": 56,
+        "supply_status": "COMPLETE",
+        "supply_complete": True,
+        "supply_orders_scanned": 1,
+        "crossdock_supplies_seen": 1,
         "date_from": "2026-08-24",
         "date_to": "2026-10-18",
         "as_of": "2026-10-19T12:00:00Z",
@@ -1073,7 +1083,14 @@ def test_single_saved_cross_docking_rate_survives_reopen_and_recapture(tmp_path)
         normalized = service.repository._payload(recaptured["payload"], scope)
         assert normalized is not None
         assert normalized["items"][0]["inputs"]["cross_docking_per_unit"] == "12.00"
-        assert normalized["items"][0]["sources"]["cross_docking"]["rate_available"] is True
+        evidence = normalized["items"][0]["sources"]["cross_docking"]
+        assert evidence["rate_available"] is True
+        assert evidence["signed_accrual_total"] == "-1200.00"
+        assert evidence["signed_accrual_by_sku"] == "-1200.00"
+        assert evidence["financial_complete"] is True
+        assert evidence["financial_days_complete"] == 56
+        assert evidence["supply_complete"] is True
+        assert evidence["crossdock_supplies_seen"] == 1
     finally:
         reset_current_tenant_user_id(tenant)
 

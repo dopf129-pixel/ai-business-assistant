@@ -83,7 +83,7 @@ class PlanningCrossDockingAdapter:
             and denominator_kind == cls.DENOMINATOR_KIND
             and amount_per_unit is not None
         )
-        return {
+        projected = {
             # This marks complete collection of the source window. A complete
             # window can still have no usable SKU rate (for example, no
             # cross-dock units); keep that state distinct from availability.
@@ -109,6 +109,34 @@ class PlanningCrossDockingAdapter:
             "supply_date_basis": cls._label(evidence.get("supply_date_basis"), 64),
             "model_version": cls._model_version(evidence.get("model_version")),
         }
+        optional_projections = {
+            "financial_status": cls._code(evidence.get("financial_status")),
+            "financial_complete": evidence.get("financial_complete") is True,
+            "financial_days_complete": cls._count(
+                evidence.get("financial_days_complete")
+            ),
+            "financial_days_expected": cls._count(
+                evidence.get("financial_days_expected")
+            ),
+            "supply_status": cls._code(evidence.get("supply_status")),
+            "supply_complete": evidence.get("supply_complete") is True,
+            "supply_orders_scanned": cls._count(
+                evidence.get("supply_orders_scanned")
+            ),
+            "crossdock_supplies_seen": cls._count(
+                evidence.get("crossdock_supplies_seen")
+            ),
+            "signed_accrual_total": cls._amount(
+                evidence.get("signed_accrual_total"), allow_negative=True
+            ),
+            "signed_accrual_by_sku": cls._amount(
+                evidence.get("signed_accrual_by_sku"), allow_negative=True
+            ),
+        }
+        for key, value in optional_projections.items():
+            if key in evidence:
+                projected[key] = value
+        return projected
 
     @classmethod
     def restore_item(cls, payload, item):

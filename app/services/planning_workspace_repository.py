@@ -662,8 +662,20 @@ class PlanningWorkspaceRepository:
                 "supplied_units_sku", "supplied_units_store", "days_complete", "days_expected",
                 "date_from", "date_to", "as_of", "timezone", "financial_date_basis",
                 "supply_date_basis", "model_version",
+                "financial_status", "financial_complete", "financial_days_complete",
+                "financial_days_expected", "supply_status", "supply_complete",
+                "supply_orders_scanned", "crossdock_supplies_seen",
+                "signed_accrual_total", "signed_accrual_by_sku",
             }
-            if not isinstance(evidence, dict) or set(evidence) != allowed:
+            optional = {
+                "financial_status", "financial_complete", "financial_days_complete",
+                "financial_days_expected", "supply_status", "supply_complete",
+                "supply_orders_scanned", "crossdock_supplies_seen",
+                "signed_accrual_total", "signed_accrual_by_sku",
+            }
+            required = allowed - optional
+            if (not isinstance(evidence, dict) or set(evidence) - allowed
+                    or required - set(evidence)):
                 return None
             if (type(evidence.get("evidence_complete")) is not bool
                     or type(evidence.get("rate_available")) is not bool
@@ -694,6 +706,13 @@ class PlanningWorkspaceRepository:
                                       and Decimal(value) < 0):
                     return None
                 safe_evidence[key] = value
+            for key in ("signed_accrual_total", "signed_accrual_by_sku"):
+                if key not in evidence:
+                    continue
+                value = cls._decimal_string(evidence.get(key), nullable=True)
+                if value is False:
+                    return None
+                safe_evidence[key] = value
             for key in ("supplied_units_sku", "supplied_units_store", "days_complete", "days_expected", "model_version"):
                 value = evidence.get(key)
                 if key == "model_version" and isinstance(value, str):
@@ -715,6 +734,32 @@ class PlanningWorkspaceRepository:
                 safe_evidence[key] = cls._short_text(value, limit, optional=True)
                 if value is not None and safe_evidence[key] is None:
                     return None
+            for key in ("financial_status", "supply_status"):
+                if key not in evidence:
+                    continue
+                value = cls._short_text(evidence.get(key), 80, optional=True)
+                if evidence.get(key) is not None and value is None:
+                    return None
+                safe_evidence[key] = value
+            for key in ("financial_complete", "supply_complete"):
+                if key not in evidence:
+                    continue
+                value = evidence.get(key)
+                if type(value) is not bool:
+                    return None
+                safe_evidence[key] = value
+            for key in (
+                "financial_days_complete", "financial_days_expected",
+                "supply_orders_scanned", "crossdock_supplies_seen",
+            ):
+                if key not in evidence:
+                    continue
+                value = evidence.get(key)
+                if value is not None and (
+                    type(value) is not int or not 0 <= value <= 1_000_000
+                ):
+                    return None
+                safe_evidence[key] = value
             cleaned["cross_docking"] = safe_evidence
         return cleaned
 

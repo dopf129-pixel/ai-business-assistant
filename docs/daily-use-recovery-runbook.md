@@ -62,6 +62,48 @@ Backup не содержит `.env`, токен Telegram, ключ шифров�
 
 ## Обновить
 
+### Первый переход со старого checkout
+
+В старой копии `update_bot.ps1` может ещё отсутствовать. До получения этой версии не запускайте `-CheckOnly` или `-NoStart`: старый checkout не умеет их обработать. Сначала проверьте ветку:
+
+```powershell
+git branch --show-current
+```
+
+Затем проверьте незакоммиченные и untracked файлы:
+
+```powershell
+git status --short
+```
+
+Если ветка — `main`, список изменений пуст и бот остановлен штатным для этой версии способом, получите fast-forward обновление, которое добавит актуальный updater:
+
+```powershell
+git fetch --no-tags origin main
+git merge --ff-only --no-edit --no-overwrite-ignore FETCH_HEAD
+```
+
+Fast-forward объединение использует защиту Git от перезаписи ignored-файлов. Если локальный ignored-файл или каталог конфликтует с новым или изменённым путём обновления, Git остановится до сдвига `main` и сохранит локальные данные. Не повторяйте команду через обычный `git pull`: сначала разберите конфликтующий путь, затем продолжите штатным updater ниже.
+
+После успешного обновления продолжайте с `.\update_bot.ps1 -CheckOnly` ниже. Этот шаг не запускает бота.
+
+Если ветка отличается от `main` или `git status --short` показывает файлы, не выполняйте pull и не пытайтесь освободить checkout командами очистки. Сначала сохраните tracked diff и список untracked файлов в соседнюю папку вне проекта:
+
+```powershell
+$preserveRoot = Join-Path (Split-Path -Parent (Get-Location)) ("Ai ассистент-local-backup-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+New-Item -ItemType Directory -Path $preserveRoot
+$patchPath = Join-Path $preserveRoot 'tracked.patch'
+git diff --binary HEAD "--output=$patchPath"
+$untrackedPath = Join-Path $preserveRoot 'untracked-list.txt'
+git ls-files --others --exclude-standard | Set-Content -LiteralPath $untrackedPath -Encoding utf8
+```
+
+В patch могут быть приватные данные: храните его локально, не прикладывайте к задаче и не отправляйте в GitHub. Просмотрите список untracked и вручную скопируйте только нужные файлы в соседнюю папку, сохраняя относительные пути. Не переносите `.env`, runtime storage, JSON/SQLite данные или логи в Git. Остановитесь и разберите сохранённые изменения отдельно; не удаляйте и не перезаписывайте их автоматически.
+
+Если fast-forward уже был прерван из-за локального конфликта, Git оставляет текущий checkout без слияния. Проверьте `git status --short`, сохраните необходимые локальные файлы вне конфликтующих путей и продолжайте только после их разбора. Не повторяйте pull до разрешения конфликта.
+
+### Обычное обновление через штатный updater
+
 Сначала запустите проверку без изменений:
 
 ```powershell

@@ -168,6 +168,28 @@ def _select_catalog_product(runtime, reference="hook-2"):
     return runtime.handle_callback(callback, user_id="user-1")
 
 
+def _add_cross_docking_evidence(source, cross_docking):
+    original_load = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["cross_docking"] = deepcopy(cross_docking)
+        snapshot["suggested_inputs"]["cross_docking_per_unit"] = 12.0
+        snapshot["input_provenance"]["cross_docking_per_unit"] = "ozon_cross_docking_sku_average"
+        snapshot["source_completeness"]["cross_docking"] = {
+            "complete": True,
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        }
+        snapshot["source_periods"]["cross_docking"] = {
+            "from": "2026-08-24",
+            "to": "2026-10-18",
+            "calendar_days": 56,
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+
+
 def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertising():
     runtime, source = _runtime()
     token = _activate()
@@ -194,33 +216,18 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
         "method": "sku_accrual_cost_per_delivered_crossdock_unit",
         "cross_docking_per_unit": "12.00",
         "expense_by_sku": "1200.00",
+        "signed_accrual_by_sku": "-1200.00",
         "supplied_units_sku": 100,
         "days_complete": 56,
         "days_expected": 56,
         "date_from": "2026-08-24",
         "date_to": "2026-10-18",
+        "as_of": "2026-10-19T12:00:00+00:00",
+        "supply_status": "COMPLETE",
         "sku": "must-not-be-exposed",
         "supply_id": "must-not-be-exposed",
     }
-    original_load = source.load_snapshot
-
-    def load_snapshot(*args, **kwargs):
-        snapshot = original_load(*args, **kwargs)
-        snapshot["cross_docking"] = deepcopy(cross_docking)
-        snapshot["suggested_inputs"]["cross_docking_per_unit"] = 12.0
-        snapshot["input_provenance"]["cross_docking_per_unit"] = "ozon_cross_docking_sku_average"
-        snapshot["source_completeness"]["cross_docking"] = {
-            "complete": True,
-            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
-        }
-        snapshot["source_periods"]["cross_docking"] = {
-            "from": "2026-08-24",
-            "to": "2026-10-18",
-            "calendar_days": 56,
-        }
-        return snapshot
-
-    source.load_snapshot = load_snapshot
+    _add_cross_docking_evidence(source, cross_docking)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)
@@ -231,6 +238,28 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
         assumptions = runtime.handle_callback(
             _find_button(ready, "Допущения и источники")['callback'], user_id="user-1"
         )
+        target_prompt = runtime.handle_callback(
+            _find_button(ready, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        target = runtime.handle_text("20", user_id="user-1")
+        compare_prompt = runtime.handle_callback(
+            _find_button(target, "Сравнить другие цены")["callback"],
+            user_id="user-1",
+        )
+        comparison = runtime.handle_text("499,90; 549,90", user_id="user-1")
+        cap_runtime, cap_source = _runtime()
+        _add_cross_docking_evidence(cap_source, cross_docking)
+        cap_scenario = _select_catalog_product(cap_runtime)
+        cap_ready = cap_runtime.handle_callback(
+            f"upc:z:{cap_scenario['price_scenario']['scenario_id']}:1",
+            user_id="user-1",
+        )
+        cap_prompt = cap_runtime.handle_callback(
+            _find_button(cap_ready, "Сколько можно тратить на рекламу?")["callback"],
+            user_id="user-1",
+        )
+        cap = cap_runtime.handle_text("25", user_id="user-1")
     finally:
         reset_current_tenant_user_id(token)
 
@@ -238,9 +267,91 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
     assert ready["price_scenario"]["calculated"]["profit"] == 214.0
     assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in ready["message"]
     assert "начисления 1 200,00 ₽ / принято 100 шт." in ready["message"]
+    assert "начисления Ozon с корректировками -1 200,00 ₽" in ready["message"]
     assert "покрытие 56/56 дней" in ready["message"]
+    assert "поставки: COMPLETE" in ready["message"]
+    assert "снимок: 2026-10-19T12:00:00Z" in ready["message"]
     assert "must-not-be-exposed" not in ready["message"]
     assert "Кросс-докинг: 12,00 ₽" in assumptions["message"]
+    assert target_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert "Кросс-докинг учтён: 12,00 ₽ на одну плановую успешную продажу." in target["message"]
+    assert compare_prompt["stage"] == "price_options"
+    assert "Кросс-докинг учтён: 12,00 ₽ на одну плановую успешную продажу." in comparison["message"]
+    assert cap_prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу" in cap["message"]
+
+
+def test_target_price_result_labels_missing_cross_docking_evidence_instead_of_excluding_it_generically():
+    runtime, source = _runtime()
+    original_load = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["suggested_inputs"]["cross_docking_per_unit"] = None
+        snapshot["input_provenance"]["cross_docking_per_unit"] = "unknown"
+        snapshot["source_completeness"]["cross_docking"] = {
+            "complete": False,
+            "status": "WINDOW_INCOMPLETE",
+            "reason": "FINANCE_WINDOW_INCOMPLETE",
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    tenant = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert prompt["stage"] == "target_margin"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert "Кросс-докинг не включён: подтверждённой ставки для SKU нет (FINANCE_WINDOW_INCOMPLETE)." in result["message"]
+
+
+def test_legacy_saved_v1_target_result_says_cross_docking_is_not_included():
+    runtime, _source = _runtime()
+    tenant = _activate()
+    try:
+        current = _select_catalog_product(runtime)
+        identity = current["price_scenario"]["identity"]
+        capture = runtime.get_saved_plan_capture(
+            current["price_scenario"]["scenario_id"],
+            identity["scenario_version"],
+            user_id="user-1",
+        )
+        payload = capture["payload"]
+        payload["schema_version"] = 1
+        payload["calculation_version"] = 1
+        item = payload["items"][0]
+        item["inputs"].pop("cross_docking_per_unit", None)
+        item["provenance"].pop("cross_docking_per_unit", None)
+        item["sources"].pop("cross_docking", None)
+        item["sources"].get("completeness", {}).pop("cross_docking", None)
+        item["projection"].pop("cross_docking", None)
+        restored = runtime.restore_saved_plan(payload, user_id="user-1")
+        restored = runtime.handle_callback(
+            _find_button(restored, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(restored, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert identity["sku"] == "3921245627"
+    assert prompt["stage"] == "target_margin"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert "Сохранённый план v1: кросс-докинг не учтён; исходная версия не содержит ставки." in result["message"]
 
 
 def test_price_edit_accepts_comma_decimal_and_stale_buttons_fail_closed():
