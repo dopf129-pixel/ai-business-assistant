@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 local VERIFIED, exact-head CI pending; далее Z22).
+Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 локально VERIFIED, CI exact-head pending; Z22 review package подготовлен, PR pending).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; branch publication and exact-head CI are pending.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -39,7 +39,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z19 | Synthetic lifecycle/update | VERIFIED_EXISTING | Owned generation/checkout, exact SHA readiness, maintenance guard and controlled update failures; 82 passed | Only synthetic process/Git repos |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
 | Z21 | Сквозная приёмка и CI | LOCAL_VERIFIED_CI_PENDING | Integrated flows 198 passed; full Windows pytest 3745 passed; compileall passed | Linux/Python 3.11 and Docker CI pending |
-| Z22 | PR и независимый review handoff | NOT_STARTED | — | Independent review выполняется отдельно |
+| Z22 | PR и независимый review handoff | REVIEW_PACKAGE_READY_PR_PENDING | EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md | Независимый reviewer ещё не назначен/не подтвердил; PR и exact-head CI pending |
 | Z23 | Пакет владельца и итог | NOT_STARTED | — | OWNER_EVIDENCE_PENDING |
 
 ## Реестр findings
