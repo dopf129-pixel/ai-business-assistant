@@ -7,7 +7,7 @@
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; branch publication and exact-head CI are pending.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; current main SHA 89eb9224 merged into task branch (15141441); PR publication and exact-head CI are pending.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
