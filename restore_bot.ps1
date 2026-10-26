@@ -1,0 +1,32 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ArchivePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TargetDirectory,
+
+    [switch]$CheckOnly
+)
+
+$ErrorActionPreference = "Stop"
+Set-Location -LiteralPath $PSScriptRoot
+
+$VenvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $VenvPython -PathType Leaf)) {
+    throw "Virtual environment not found. Run .\start_bot.ps1 once to set up the local environment."
+}
+
+$env:PYTHONPATH = Join-Path $PSScriptRoot "app"
+$Arguments = @(
+    "-m", "bot_backup", "restore", $ArchivePath,
+    "--target-directory", $TargetDirectory,
+    "--project-root", $PSScriptRoot
+)
+if ($CheckOnly) {
+    $Arguments += "--dry-run"
+}
+
+& $VenvPython @Arguments
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}

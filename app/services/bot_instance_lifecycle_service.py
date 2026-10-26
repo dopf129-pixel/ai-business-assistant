@@ -55,6 +55,80 @@ class BotInstanceAlreadyRunning(BotLifecycleError):
         )
 
 
+class BotStartupMaintenanceGuard:
+    """Serialize bot startup with a stopped-instance data snapshot."""
+
+    def __init__(self, token: str, *, state_root: str | Path | None = None):
+        normalized = (token or "").strip()
+        if not normalized:
+            raise BotLifecycleError(
+                "TELEGRAM_BOT_TOKEN_MISSING",
+                "TELEGRAM_BOT_TOKEN is not configured.",
+            )
+        fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        self.state_root = Path(state_root) if state_root is not None else _default_state_root()
+        self.lock_path = self.state_root / f"startup-{fingerprint}.lock"
+        self._lock_file = None
+
+    @classmethod
+    def for_fingerprint(cls, fingerprint: str, *, state_root: str | Path):
+        """Build the guard from an existing one-way token fingerprint."""
+        instance = cls.__new__(cls)
+        instance.state_root = Path(state_root)
+        instance.lock_path = instance.state_root / f"startup-{fingerprint}.lock"
+        instance._lock_file = None
+        return instance
+
+    def acquire(self) -> bool:
+        """Acquire the short-lived startup/snapshot gate without waiting."""
+        try:
+            self.state_root.mkdir(parents=True, exist_ok=True)
+            if os.name != "nt":
+                os.chmod(self.state_root, 0o700)
+            self._lock_file = self.lock_path.open("a+b")
+            self._lock_file.seek(0, os.SEEK_END)
+            if self._lock_file.tell() == 0:
+                self._lock_file.write(b"\0")
+                self._lock_file.flush()
+            if not _try_kernel_lock(self._lock_file):
+                self._lock_file.close()
+                self._lock_file = None
+                return False
+            return True
+        except BotLifecycleError:
+            self.close()
+            raise
+        except OSError as error:
+            self.close()
+            raise BotLifecycleError(
+                "BOT_INSTANCE_LOCK_FAILED",
+                "Could not safely acquire the bot startup guard.",
+            ) from error
+
+    def close(self) -> None:
+        if self._lock_file is None:
+            return
+        try:
+            _unlock(self._lock_file)
+        except OSError:
+            pass
+        try:
+            self._lock_file.close()
+        finally:
+            self._lock_file = None
+
+    def __enter__(self):
+        if not self.acquire():
+            raise BotLifecycleError(
+                "BOT_INSTANCE_MAINTENANCE_ACTIVE",
+                "Bot startup is temporarily blocked by a data snapshot.",
+            )
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        self.close()
+
+
 def _default_state_root() -> Path:
     if os.name == "nt":
         base = os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
@@ -226,20 +300,31 @@ class BotInstanceLease:
         return payload
 
     def acquire(self) -> None:
+        startup_guard = BotStartupMaintenanceGuard.for_fingerprint(
+            self.token_fingerprint, state_root=self.state_root
+        )
         try:
-            self.state_root.mkdir(parents=True, exist_ok=True)
-            if os.name != "nt":
-                os.chmod(self.state_root, 0o700)
-            self._lock_file = self.lock_path.open("a+b")
-            self._lock_file.seek(0, os.SEEK_END)
-            if self._lock_file.tell() == 0:
-                self._lock_file.write(b"\0")
-                self._lock_file.flush()
-            if not _try_kernel_lock(self._lock_file):
-                self._lock_file.close()
-                self._lock_file = None
-                raise BotInstanceAlreadyRunning()
-            self._write_state("STARTING")
+            if not startup_guard.acquire():
+                raise BotLifecycleError(
+                    "BOT_INSTANCE_MAINTENANCE_ACTIVE",
+                    "Bot startup is temporarily blocked by a data snapshot.",
+                )
+            try:
+                self.state_root.mkdir(parents=True, exist_ok=True)
+                if os.name != "nt":
+                    os.chmod(self.state_root, 0o700)
+                self._lock_file = self.lock_path.open("a+b")
+                self._lock_file.seek(0, os.SEEK_END)
+                if self._lock_file.tell() == 0:
+                    self._lock_file.write(b"\0")
+                    self._lock_file.flush()
+                if not _try_kernel_lock(self._lock_file):
+                    self._lock_file.close()
+                    self._lock_file = None
+                    raise BotInstanceAlreadyRunning()
+                self._write_state("STARTING")
+            finally:
+                startup_guard.close()
         except BotLifecycleError:
             self._release_lock()
             raise
