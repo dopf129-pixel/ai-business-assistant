@@ -296,6 +296,26 @@ class TelegramUnitPriceSensitivityRuntimeService:
         lines.append(f"Сценариев: {result.get('available_cell_count', 0)} из {result.get('cell_count', len(cells))} рассчитано.")
         if result.get("target_margin_percent") is not None:
             lines.append(f"Точная цель маржи после налога: {result['target_margin_percent']}%.")
+        inputs = context.get("inputs") or {}
+        if "cross_docking_per_unit" in inputs:
+            cross_docking = inputs.get("cross_docking_per_unit")
+            if cross_docking is not None:
+                lines.append(
+                    "Кросс-докинг включён в каждый сценарий: "
+                    + self._number(cross_docking)
+                    + " ₽ на плановую успешную единицу."
+                )
+            else:
+                completeness = (context.get("sources") or {}).get("completeness") or {}
+                cross_docking_evidence = completeness.get("cross_docking") or {}
+                reason = cross_docking_evidence.get("reason") or cross_docking_evidence.get("status")
+                lines.append(
+                    "Кросс-докинг не включён: ставка не подтверждена"
+                    + (f" ({str(reason)[:64]})" if reason else "")
+                    + "."
+                )
+        else:
+            lines.append("Кросс-докинг не включён: в исходной версии плана нет ставки.")
         if notice:
             lines.append(notice)
         if not is_fresh:

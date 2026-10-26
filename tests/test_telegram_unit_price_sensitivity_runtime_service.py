@@ -115,6 +115,45 @@ def test_single_sensitivity_runs_locally_pages_and_applies_only_explicit_fresh_c
     assert source.calls == 1
 
 
+def test_sensitivity_result_discloses_fixed_cross_docking_input_for_each_scenario():
+    single, sensitivity, source = _runtime()
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["suggested_inputs"]["cross_docking_per_unit"] = "12.00"
+        snapshot["source_completeness"]["cross_docking"] = {
+            "complete": True,
+            "rate_available": True,
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        scenario = _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1",
+        )
+        values = sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1",
+        )
+        report = sensitivity.handle_text("500;550;600", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    assert scenario["price_scenario"]["calculated"]["cross_docking"] == 12.0
+    assert report["status"] == "UNIT_PRICE_SENSITIVITY_READY"
+    assert "Кросс-докинг включён в каждый сценарий: 12,00 ₽ на плановую успешную единицу." in report["message"]
+    assert all(
+        cell["scenario"]["calculated"]["cross_docking"] == 12.0
+        for cell in report["sensitivity_result"]["cells"]
+        if cell["status"] == "AVAILABLE"
+    )
+
+
 def test_single_result_keyboard_routes_into_sensitivity_through_button_handler():
     single, sensitivity, _source = _runtime()
     handler = AssistantButtonHandlerService(

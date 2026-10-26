@@ -5597,6 +5597,12 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`, and `tests/test_analytics_export_serializer.py`: reopen, explicit revision refresh, no source read on view and frozen JSON/CSV data.
 - Isolated linked profile: **238 passed in 5.52s**; no live API calls.
 
+## Z10 — cross-docking disclosure across price-planning screens
+
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public flows verify matching cross-docking disclosure on the direct result/assumptions, target-margin result, multi-price comparison and advertising-cap result; missing evidence and restored legacy v1 plans state that the rate is not included. Assertions pair visible text with the numeric forward calculation.
+- `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: public sensitivity flow verifies the fixed per-unit rate is disclosed and used by every available price scenario.
+- Isolated Windows/Python 3.12 profile: **48 passed in 1.31s**. No calculation formula changed and no live API/bot was used.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

@@ -1284,7 +1284,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         lines.extend([
             "Цена основного сценария не изменена.",
             "Оценка одной успешной продажи FBO. Комиссия Ozon может измениться при новой цене; FBS не поддержан.",
-            "Общие расходы, хранение, кросс-докинг и возвраты не включены.",
+            self._price_planning_cross_docking_note(session, result),
+            "Постоянные расходы, платное хранение и эффекты возвратов не входят в расчёт.",
         ])
         keyboard_builder = getattr(
             self.keyboard_service,
@@ -1317,6 +1318,75 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "read_only": True,
             "executed": False,
         }
+
+    def _price_planning_cross_docking_note(self, session, result):
+        forward_results = []
+        for key in ("break_even", "target"):
+            outcome = result.get(key)
+            if isinstance(outcome, dict):
+                forward_results.append(outcome.get("forward_result"))
+        for row in result.get("rows") or []:
+            if isinstance(row, dict):
+                forward_results.append(row.get("forward_result"))
+
+        observed = []
+        for forward in forward_results:
+            if not isinstance(forward, dict):
+                continue
+            calculated = forward.get("calculated")
+            if not isinstance(calculated, dict) or "cross_docking" not in calculated:
+                continue
+            included = (
+                forward.get("cross_docking_included") is True
+                and calculated.get("cross_docking") is not None
+            )
+            observed.append((included, calculated.get("cross_docking"), forward))
+
+        states = {item[0] for item in observed}
+        if states == {True}:
+            amounts = {str(item[1]) for item in observed}
+            if len(amounts) == 1:
+                return (
+                    "Кросс-докинг учтён: "
+                    + self._money(next(iter(amounts)))
+                    + " на одну плановую успешную продажу."
+                )
+            return "Кросс-докинг учтён, но варианты используют разные ставки."
+        if states == {False}:
+            codes = {
+                str(item[2].get("cross_docking_reason")
+                    or item[2].get("cross_docking_status") or "")[:64]
+                for item in observed
+            }
+            code = next(iter(codes)) if len(codes) == 1 else ""
+            return (
+                "Кросс-докинг не включён: подтверждённой ставки для SKU нет"
+                + (f" ({code})" if code else "")
+                + "."
+            )
+        if states:
+            return "Кросс-докинг не учтён: forward-проверки дали разные статусы компонента."
+
+        inputs = session.get("inputs") or {}
+        if (session.get("restored_from_saved_plan") is True
+                and "cross_docking_per_unit" not in inputs):
+            return (
+                "Сохранённый план v1: кросс-докинг не учтён; "
+                "исходная версия не содержит ставки."
+            )
+        if "cross_docking_per_unit" not in inputs:
+            return "Кросс-докинг не учтён: исходный снимок не содержит подтверждённой ставки."
+        if inputs.get("cross_docking_per_unit") is not None:
+            return "Кросс-докинг не подтверждён в целевом расчёте и не вычтен из результата."
+
+        completeness = (self._scenario_sources(session).get("completeness") or {})
+        evidence = completeness.get("cross_docking") or {}
+        code = evidence.get("reason") or evidence.get("status")
+        return (
+            "Кросс-докинг не включён: подтверждённой ставки для SKU нет"
+            + (f" ({str(code)[:64]})" if code else "")
+            + "."
+        )
 
     def _apply_price_planning_result(self, session, selector, user, scope, expected_version):
         key = (user, scope)
@@ -1603,11 +1673,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
             provenance=session.get("provenance"), sources=self._scenario_sources(session),
         )
         price = ((direct.get("inputs") or {}).get("price") or {}).get("value")
+        snapshot = session.get("snapshot") or {}
+        cross_docking_line = self._cross_docking_assumption(
+            snapshot.get("cross_docking"),
+            (direct.get("calculated") or {}).get("cross_docking"),
+        )
         lines = [
             "Допустимые расходы на рекламу · один успешный заказ",
             f"Цена продавца: {price if price is not None else 'не задана'} ₽/шт.",
             f"Целевая маржа: {result.get('target_margin_percent', stored.get('target', '—'))}%",
             f"Текущая доля: {result.get('current_advertising_rate', '—')}% · {result.get('current_advertising_per_unit', '—')} ₽/шт.",
+            cross_docking_line,
             self._format_advertising_cap_line("Безубыточность", result.get("break_even")),
             self._format_advertising_cap_line("Целевая маржа", result.get("target")),
             f"Исходные тарифы: {'актуальны' if freshness.get('status') == 'FRESH' else 'устарели; предел нельзя подставить'}.",

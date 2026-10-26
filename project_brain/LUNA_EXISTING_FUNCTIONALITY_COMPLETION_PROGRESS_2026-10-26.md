@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z09 и Z20 VERIFIED; далее Z10).
+Статус исполнения: IN_PROGRESS (Z00–Z10 и Z20 VERIFIED; далее Z11).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z09 завершены для заявленного технического объёма; следующий этап — Z10.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z10 завершены для заявленного технического объёма; следующий этап — Z11.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -27,7 +27,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z07 | Прозрачное 56-дневное evidence | VERIFIED | Синтетический сквозной профиль: 194 passed; signed accrual, отдельная полнота finance/supply и snapshot прошли source → runtime → saved plan → reopen/capture | Полный владельческий 56-дневный снимок всё ещё ожидается |
 | Z08 | Multi-SKU, корректировки и поставки | VERIFIED_EXISTING | 64 адресные проверки начислений/акт-данных/поставок passed; duplicate/conflict, signed corrections, SKU mapping, partial receipts and conservative date basis covered | Реальная multi-SKU приёмка отдельно |
 | Z09 | Однократное включение и версия | VERIFIED_EXISTING | 238 адресных проверок расчёта, v1/v2, замороженных планов, целей, batch/mix, readiness, plan/fact, сравнения и экспорта passed | Только synthetic data; live source не вызывался |
-| Z10 | Числа и текст калькулятора | NOT_STARTED | — | Найдена кодовая несогласованность подписи |
+| Z10 | Числа и текст калькулятора | VERIFIED | Public-flow regressions target/comparison/ad-cap/sensitivity: 48 passed | — |
 | Z11 | Цели цены/маржи/рекламы | NOT_STARTED | — | — |
 | Z12 | Сохранённый план и revisions | NOT_STARTED | — | — |
 | Z13 | Batch/mix/readiness/plan-fact/export | NOT_STARTED | — | — |
@@ -46,7 +46,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 
 | ID | Класс | Наблюдение | Этап | Статус |
 |---|---|---|---|---|
-| F-01 | CONFIRMED_DEFECT | Target/price comparison screen безусловно сообщает, что кросс-докинг исключён; solver передаёт его в forward calculation | Z10 | Статически установлено; воспроизвести public flow |
+| F-01 | CONFIRMED_DEFECT | Target/price comparison screen безусловно сообщает, что кросс-докинг исключён; solver передаёт его в forward calculation | Z10 | RESOLVED; public flow проверен, формулы не менялись |
 | F-02 | WORKFLOW_GAP | Старые roadmap/current pointers называли #712–#717 открытыми; обновлены current pointers, исторические детали сохранены | Z02 | RESOLVED |
 | F-03 | DOCUMENTATION_GAP | Краткое руководство пропускало девять главных menu actions; добавлено описание всех 16 | Z02 | RESOLVED |
 | E-01 | OWNER_EVIDENCE_PENDING | Нет текущего JSON работающего обновлённого бота для августовской сверки | Z23 | Не подменять историческим сообщением |
@@ -179,4 +179,14 @@ Signed общая сумма берётся из финансового evidence
 
 Изолированный linked profile в verification worktree: current/product economics, scenario source/service/runtime, target planning, ad cap, batch planning/runtime, sales mix, readiness, plan/fact comparison, saved-plan lifecycle, plan comparison, analytics export/service serializer — **238 passed in 5.52s**, 0 failed/deselected; `git diff --check` чистый. Подтверждённого нарушения однократности или версии не обнаружено, код не менялся, Ozon/Telegram live requests не выполнялись.
 
-Следующий этап: Z10 — исправить подтверждённо противоречивую подпись на public target/comparison result, сохраняя расчёты без изменений.
+Результат Z10 и фактическая проверка зафиксированы далее.
+
+### Z10 — числовая и текстовая согласованность калькулятора
+
+Статус: VERIFIED. Через публичные Telegram runtime flows подтверждено, что начальный результат и экран допущений показывают кросс-докинг по ставке SKU, а целевой расчёт, сравнение нескольких цен, рекламный лимит и sensitivity используют и раскрывают тот же компонент. Устранено безусловное старое предупреждение, утверждавшее, что кросс-докинг исключён, хотя solver включал его в forward calculation.
+
+Добавлены conservative подписи для отсутствующей/неподтверждённой ставки, неодинакового статуса forward-вариантов и сохранённого legacy v1 плана без этого поля. Публичные регрессии подтверждают соответствие сообщения фактическому `forward_result`; сумма, налоговая база и прибыльные формулы не менялись. Saved plan view продолжает показывать замороженное evidence существующим контрактом.
+
+Изолированный профиль `tests/test_unit_price_scenario_telegram_runtime.py tests/test_telegram_unit_price_sensitivity_runtime_service.py`: **48 passed in 1.31s**, 0 failed/deselected. Первый прогон выявил устаревший callback в новом тестовом сценарии после смены версии; тест разделён на независимые актуальные сессии, повторный прогон прошёл. Реальный API, бот и пользовательские данные не использовались.
+
+Следующий этап: Z11 — проверить границы target/price/ad-cap и совместимость налоговых режимов, не меняя бизнес-политику без подтверждённой ошибки.
