@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z05 и Z20 VERIFIED; далее Z06).
+Статус исполнения: IN_PROGRESS (Z00–Z06 и Z20 VERIFIED; далее Z07).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z05 завершены для заявленного технического объёма; следующий этап — Z06.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z06 завершены для заявленного технического объёма; следующий этап — Z07.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -23,7 +23,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z03 | Суммы и категории начислений | VERIFIED | Официальный августовский XLSX сверён локально через offline comparator: 38 864 строк; категории и общий агрегат совпали с исторической сводкой; 62 relevant tests passed | Coverage UNVERIFIED без owner assertion; текущий runtime JSON не получен |
 | Z04 | Себестоимость и внешние расходы | VERIFIED | Cost confirmation/timeline/storage, external expense UI/coverage and multi-store stale callbacks: 54 passed | Только synthetic storage; production records/process не использовались |
 | Z05 | Заказы, отмены и возвраты | VERIFIED | 103 адресные regressions passed; missing Analytics metrics не восстанавливаются, ClientReturn отделён от Cancellation, несовпадающие когорты не получают долю | API diagnostic подтверждает FBO/FBS структуру; историческая причина события не выводится из текущего статуса |
-| Z06 | Финансовые снимки и проекции | NOT_STARTED | — | Текущий runtime export может потребоваться |
+| Z06 | Финансовые снимки и проекции | VERIFIED | Cached snapshot screen/details/completeness/comparison/bridge/SKU/export profiles: 104 passed; view reads do not query Ozon, explicit refresh creates a new query | Current live snapshot/export remains owner evidence |
 | Z07 | Прозрачное 56-дневное evidence | NOT_STARTED | — | Полное владельческое окно не получено |
 | Z08 | Multi-SKU, корректировки и поставки | NOT_STARTED | — | Реальная multi-SKU приёмка отдельно |
 | Z09 | Однократное включение и версия | NOT_STARTED | — | — |
@@ -143,3 +143,10 @@ Managed worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundati
 Fallback отмен Seller API фильтрует отправления по окну даты создания и текущему статусу `cancelled`; он не является когортой исторических отмен. Поэтому знаменатель/процент отмен не показывается. Возвраты `ClientReturn` фильтруются по изменению статуса в периоде, но источник и заказанная база не имеют подтверждённой одинаковой когорты; их доля также скрыта. Текущий status не описывается как точная дата события отмены.
 Адресный regression-профиль experimental economics, Analytics runtime, return evidence response/timestamp/service, quantity authority/diagnostics, Seller API attempts и FBO-v3 economics — **103 passed in 2.71s**, 0 failed/deselected. Реальный API повторно не вызывался; применены ранее полученные обезличенные API summaries. Не найдено подтверждённого дефекта для исправления.
 Следующий этап: Z06 — проверить совместимость финансового снимка и его проекций.
+
+### Z06 — единый финансовый снимок и его проекции
+
+Статус: VERIFIED на уровне существующих runtime/test контрактов; код не менялся. Один scoped report view сохраняет immutable analytics snapshot, основные и detail/completeness/diagnostics/comparison/bridge/SKU экраны читают его из tenant-scoped TTL cache. Просмотр и JSON/CSV export используют cached snapshot и не запускают повторный Ozon read; явная кнопка refresh запускает query для тех же дат и строит новую view/snapshot.
+В snapshot отображаются scope, current/previous periods, generation time, comparison basis/status, units/status каждого показателя, completeness/reasons, bridge и SKU contribution с необъяснённым остатком. Несовместимая прибыль не объявляется comparable, отсутствующие значения не становятся нулём, расходы не распределяются по SKU без доказательной базы. Experimental report остаётся отдельным и не переносится в основной расчёт.
+Адресный regression-профиль по serializer/service/runtime exports, completeness, comparison contracts/metrics/bridge, SKU contribution, period query и support diagnostics — **104 passed in 3.18s**, 0 failed/deselected; повторный профиль runtime/export после исправления `PYTHONPATH=app` — все тесты прошли. Первый запуск не собрал тесты из-за отсутствующего пути импорта; дефектом приложения это не являлось. Не найдено подтверждённой рассогласованности; live API и внешний JSON не использовались.
+Следующий этап: Z07 — проверить путь 56-дневного cross-docking evidence до пользовательского результата.
