@@ -5676,3 +5676,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - tests/test_bot_update_preflight_service.py: canonical branch/remote/upstream, dirty/untracked/ignored path shape collisions and fail-closed process identity.
 - tests/test_bot_backup_service.py: backup under shared guard and failure atomicity; tests/test_windows_local_handoff_readiness.py: Windows entrypoint/runbook boundaries.
 - Isolated Windows/Python 3.12 profile: **82 passed in 19.34s**. Synthetic Git roots/processes only; no live bot was started or stopped.
+## Z21 — full technical acceptance on exact development tree
+
+- Linked synthetic profile covered daily-use report/snapshot/refresh/export, saved planning lifecycle, batch/mix/readiness, cross-docking finance/supply evidence, backup/restore and process update boundaries: **198 passed in 7.73s**.
+- All 22 tracked paths changed from the selected base were SHA-256 compared between development and verification worktrees before the final run.
+- Full Windows/Python 3.12 profile on the exact copied tree: **3745 passed in 42.92s**. Dotenv and live credentials were disabled; AI_ASSISTANT_STORAGE_ROOT was unset because two tests assert the legacy no-variable default.
+- python -m compileall -q app tests: exit 0. Existing non-blocking SyntaxWarning in tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177.
+- Exact-head Linux/Python 3.11 and Docker build/runtime remain CI evidence after PR publication.

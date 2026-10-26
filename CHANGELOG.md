@@ -1,3 +1,7 @@
+# 2026-10-26 — пройдена локальная сквозная приёмка
+
+- Связанные основные пользовательские цепочки: **198 passed**. Полный pytest точного дерева ветки в Windows/Python 3.12: **3745 passed**; compileall завершился с кодом 0.
+- Linux/Python 3.11 и Docker ещё должны быть подтверждены CI опубликованного PR. Один существующий SyntaxWarning в тесте не прервал compileall.
 # 2026-10-26 — принята изоляция и отказные сценарии обновления
 
 - Проверены привязка остановки к checkout/generation, exact-SHA readiness, общий startup/maintenance guard, защита dirty/ignored данных и контролируемые сбои stop/backup/fetch/merge/dependency/healthcheck/readiness.

@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; далее Z21).
+Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 local VERIFIED, exact-head CI pending; далее Z22).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены для заявленного технического объёма; следующий этап — Z21.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -38,7 +38,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z18 | Synthetic backup/restore | VERIFIED | Backup/verify/dry-run/new-root/read-after-reopen incl. plan revisions, dated cost, expenses/coverage, mapping registry and encrypted credentials; 33 passed | Только synthetic key/data |
 | Z19 | Synthetic lifecycle/update | VERIFIED_EXISTING | Owned generation/checkout, exact SHA readiness, maintenance guard and controlled update failures; 82 passed | Only synthetic process/Git repos |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
-| Z21 | Сквозная приёмка и CI | NOT_STARTED | — | Не заменяет owner acceptance |
+| Z21 | Сквозная приёмка и CI | LOCAL_VERIFIED_CI_PENDING | Integrated flows 198 passed; full Windows pytest 3745 passed; compileall passed | Linux/Python 3.11 and Docker CI pending |
 | Z22 | PR и независимый review handoff | NOT_STARTED | — | Independent review выполняется отдельно |
 | Z23 | Пакет владельца и итог | NOT_STARTED | — | OWNER_EVIDENCE_PENDING |
 
@@ -277,3 +277,12 @@ Updater под synthetic Git roots требует canonical repo/branch, фик�
 Изолированный Windows/Python 3.12 профиль tests/test_bot_instance_lifecycle_service.py tests/test_bot_update_runtime_service.py tests/test_bot_update_preflight_service.py tests/test_bot_backup_service.py tests/test_windows_local_handoff_readiness.py: **82 passed in 19.34s**, 0 failed/deselected. Реальный процесс, рабочий checkout, удалённый сервер и live credentials не использовались; код не менялся.
 
 Следующий этап: Z21 — сквозная техническая приёмка и полный локальный pytest в изолированной среде.
+### Z21 — сквозная техническая приёмка
+
+Статус: LOCAL_VERIFIED; exact-head Linux/Python 3.11 и Linux Docker build/runtime CI ожидают публикации PR. Связанный профиль всех обязательных цепочек (period report/snapshot/refresh/export, saved price plans, multi-SKU batch/mix/readiness, cross-docking evidence and synthetic backup/lifecycle) — **198 passed in 7.73s**.
+
+Все 22 изменённых tracked-файла ветки сверены SHA-256 с отдельной проверочной копией. Полный Windows/Python 3.12 профиль на точных app/docs/tests ветки: **3745 passed in 42.92s**, 0 failed/deselected. Повторный полный прогон сначала обнаружил, что глобальный AI_ASSISTANT_STORAGE_ROOT мешает двум тестам, проверяющим legacy behavior при отсутствии этой переменной. Повтор выполнен с отключённой переменной и изолированным TEMP; все тесты прошли. Рабочий checkout и user storage не использовались.
+
+python -m compileall -q app tests завершился с exit code 0. Показан один существующий SyntaxWarning в tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177 (identity comparison с float literal); он не относится к изменённым файлам и компиляцию не остановил. Требования задачи о Linux/Python 3.11 и Docker будут подтверждены актуальным CI PR; до этого этап Z21 открыт.
+
+Следующий этап: Z22 — подготовить небольшой PR, independent review map и дождаться точных CI checks.
