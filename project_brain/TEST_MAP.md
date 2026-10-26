@@ -1,6 +1,6 @@
 # План проверок помощника выбора цены (26.10.2026)
 
-- Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, начальный журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q35 ещё не выполнялись; тесты будущей реализации не заявляются как прошедшие.
+- Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q02: audit завершён, связанный Windows/Python 3.12.10 baseline **247 passed** в isolated storage; новые acceptance regressions ожидают реализации. Audit: `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`.
 - N01–N13 описывают содержательные проверки: рекламная компенсация и ROUND_HALF_UP; разные пороги равенства/роста; скачки тарифа и неизвестные диапазоны; ручной профиль/CAS; совместимость v1/v2; взвешенные единицы/ДРР; полнота наблюдений; цель ₽/шт.; налог/no-double-count; budgets/privacy; synthetic restore.
 - Существующие calculator/target/ad-cap/sensitivity, saved plans, SKU finance/Performance, tenant, Telegram и backup suites переиспользуются. Конкретные новые тестовые файлы и фактические результаты Luna добавляет при реализации этапов.
 - При подготовке меняется только документация. Полный pytest для этой правки не запускался; проверки структуры/путей/числовых примеров фиксируются отдельно в журнале, а не выдаются за проверку будущего runtime.

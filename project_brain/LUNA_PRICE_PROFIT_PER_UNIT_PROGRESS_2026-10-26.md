@@ -20,8 +20,8 @@
 | Этап | Статус | Результат / проверки |
 |---|---|---|
 | Q00 | DONE | PR #719 открыт, exact-head Verify #40363801273 успешен; main/spec SHA совпадают с исходной точкой, выделена реализационная ветка; рабочий tree чистый; локальные ignored runtime/cache каталоги сохранены нетронутыми. Подробности ниже. |
-| Q01 | NOT_STARTED | — |
-| Q02 | NOT_STARTED | — |
+| Q01 | DONE | Предметный аудит завершён: существующая формула, source scope, Telegram route, saved-plan schema/CAS и отсутствие price-observation workflow подтверждены в `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`. Runtime не менялся; Q02 baseline впереди. |
+| Q02 | DONE | Изолированный baseline Windows/Python 3.12: 247 passed; Python dotenv/live credentials отключены, storage/basetemp вынесены в новую temp-папку, hashes всех 5 tracked `data/*.json` совпали до/после. Первый фактический запуск найденного runner с исправленным `PYTHONPATH=app` прошёл. |
 | Q03 | NOT_STARTED | — |
 | Q04 | NOT_STARTED | — |
 | Q05 | NOT_STARTED | — |
@@ -70,10 +70,9 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q01: сопоставить существующие обработчики, сервисы, хранилище и источники с контракциями ТЗ.
-2. Выполнить независимые Q02: определить полностью изолированный профиль тестов, снять baseline.
-3. Перейти к Q03 и двигаться по dependency table.
-4. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
+1. Выполнить Q03: записать единые contracts result/evidence/tariff/snapshot и архитектурное решение additive planning persistence.
+2. После Q03 начать Q04/Q15 независимыми последовательными этапами по dependency table.
+3. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
 
 ## Записи исполнения
 
@@ -85,4 +84,23 @@
 - Защищённые owner-data пути: отслеживаемые `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`; локальный ignored `.runtime-data` в выделенной копии не открывался и не меняется. В Desktop checkout и соседних worktree не вносятся изменения. Реальный бот, `.env`, Telegram/Ozon API и сетевые данные не используются.
 - Команды проверки: `git status --short --branch`, `git rev-parse HEAD`, `git fetch --no-tags origin main`, `git rev-parse FETCH_HEAD`, GitHub `get_pr_info(#719)`, `fetch_commit_workflow_runs(7c554a1411717cfe1d5dab0722fe025affbf32f6)`.
 - Фактический результат: перед созданием ветки tree clean; PR head соответствует текущему main + документальный commit; ветка исполнения выделена. Q00 — PASS. Pytest не запускался: этап только фиксирует базу, среду изолированных проверок определит Q02.
-- Следующий этап: Q01 — предметный аудит маршрутов и существующих контрактов.
+- Q00 следующий этап после commit: Q01 — предметный аудит маршрутов и существующих контрактов.
+
+### Q01 — предметный аудит (2026-10-27)
+
+- Добавлен read-only audit `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md` со ссылками на реализацию, тесты, наблюдаемые parser/search/storage limits, подтверждённые существующие контракты и отсутствующие функции.
+- Подтверждено: canonical forward/TaxService VERSION=2 и ROUND_HALF_UP уже существуют; current FBO fee — только точечный тариф; input source маркирует fixed fees/ad manual-required; сравнение цен — 2–5 вариантов с единой переданной ставкой; ad cap не является порогом сохранения ₽/шт.; Planning SQLite имеет tenant scope, revisions/CAS, schema v2 и allowlist, но нет tariff/observation entities; отдельного price-observation handler/repository нет.
+- Публичные consumer paths подтверждены по `assistant_button_handler_service.py`, `assistant_keyboard_service.py`, `telegram_unit_price_calculator_runtime_service.py`, `telegram_assistant_factory.py`; existing regression suites указаны в audit.
+- Проверки: `rg` по tracked services/adapters/tests и точечное чтение существующих сервисов/схемы — PASS; runtime и storage не изменялись, pytest не нужен на audit-only этапе.
+- Архитектурный вывод оставлен к Q03: расширить существующую tenant planning SQLite additive tariff/observation entities, переиспользовать canonical engine и UI route; DECISIONS пока не менялся.
+- Q01 — PASS. Следующее: Q02 — полностью изолированный baseline.
+
+### Q02 — изолированный базовый профиль (2026-10-27)
+
+- Runner: существующий Python 3.12.10 venv `.z20-isolated-env` из предыдущего verification worktree; в него не ставились/не обновлялись пакеты. Запускался только как interpreter/pytest, тестовый код и результаты принадлежат реализации worktree.
+- Для каждого pytest запуска создавались отдельные случайные `%TEMP%/codex-q02-price-profit-*` roots: `AI_ASSISTANT_STORAGE_ROOT=.../storage`, `--basetemp=.../pytest-temp`, `PYTHONDONTWRITEBYTECODE=1`, `PYTHON_DOTENV_DISABLED=1`, `PYTEST_ADDOPTS=''`, `PYTHONPATH=<implementation-worktree>/app`; credentials keys из процесса удалены без чтения/логирования значений. pytest cache plugin выключен.
+- Команда успешного baseline: `python -m pytest -q -p no:cacheprovider --basetemp <fresh-temp> <16 related test files>`; файлы: `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_current_product_economics_source.py`, `test_current_unit_economics_production_wiring.py`, `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py`, `test_unit_price_target_planning_service.py`, `test_unit_price_advertising_cap_service.py`, `test_unit_price_sensitivity_service.py`, `test_telegram_unit_price_sensitivity_runtime_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_planning_workspace_repository.py`, `test_saved_planning_plan_telegram_flow.py`, `test_period_profit_plan_fact_comparison.py`, `test_analytics_export_service.py`, `test_analytics_export_serializer.py`.
+- Результат Windows/Python 3.12.10: **247 passed in 7.60s**.
+- SHA-256 всех пяти tracked files `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json` совпали до/после. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми; существующие `.runtime-data`, кеш и user checkouts не открывались и не изменялись.
+- До успешного запуска были две безвредные подготовительные ошибки команды (один несуществующий test filename и отсутствующий `PYTHONPATH=app`): pytest не собрал тесты в первой попытке, второй запуск остановился на collection import errors; обе попытки завершились hash check без изменений owner data. Исправленный запуск — PASS.
+- Q02 — PASS; baseline зафиксирован для будущих регрессий. Следующее: Q03 — formalize shared contracts/decision.
