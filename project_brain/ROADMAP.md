@@ -1,6 +1,13 @@
 # Project Roadmap
 
-## Текущая программа — завершение существующих функций (26.10.2026)
+## Следующая программа — помощник выбора цены (26.10.2026)
+
+- Задание `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`; реализация Q00–Q35 не начата. База — main `07a84b5d` после PR #718.
+- A: безопасная база/контракты; B: тарифные диапазоны и ручной резерв; C: сравнение по ₽/шт. и рекламная компенсация; D: журнал наблюдений; E: выбор по качеству данных; F: Telegram/export/persistence; G: сквозная приёмка; H: exact-head CI/review handoff.
+- Цель владельца — максимальная прибыль с единицы после учтённых расходов. Изменение ДРР вслед за ценой проверяется как гипотеза. Автоматическая комиссия требует доказанной применимости; пользователь может сохранить ручные ставки по диапазонам.
+- Развивать готовый калькулятор и planning workspace. Не добавлять Ozon mutations, новый финансовый движок, платную обязательную аналитику или фоновый scheduler. Инженерное завершение не ждёт реального периода наблюдения.
+
+## Историческая программа — завершение существующих функций (26.10.2026, PR #718 слит)
 
 - Исполняемое ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md; журнал: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md; реестр: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
 - База — e879e6d7, чьё дерево совпадает с main merge 89eb9224. Z00–Z06 и Z20 verified; Z20 baseline 37 passed; Z03 finance profile 62 passed, локальная сверка категорий/aggregate совпала с исторической сводкой (coverage UNVERIFIED; значения XLSX не записывались в Git); Z04 cost/expense profile 54 passed; Z05 cohort profile 103 passed; Z06 snapshot/projection profile 104 passed. Далее Z07.
