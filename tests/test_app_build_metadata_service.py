@@ -7,6 +7,7 @@ def test_build_metadata_is_validated_normalized_and_captured_once():
     environment = {
         "APP_BUILD_REVISION": "ABCDEF1234567890",
         "APP_BUILD_STARTED_AT_UTC": "2026-10-17T09:30:00+03:00",
+        "APP_BUILD_MODE": "background",
     }
     service = AppBuildMetadataService(environ=environment)
 
@@ -16,10 +17,11 @@ def test_build_metadata_is_validated_normalized_and_captured_once():
     assert service.public_metadata() == {
         "revision": "abcdef1234567890",
         "started_at_utc": "2026-10-17T06:30:00Z",
+        "mode": "background",
     }
     assert service.user_message() == (
         "ℹ️ О боте\nВерсия сборки: abcdef1234567890\n"
-        "Процесс запущен (UTC): 2026-10-17T06:30:00Z"
+        "Режим запуска: фоновый\nПроцесс запущен (UTC): 2026-10-17T06:30:00Z"
     )
 
 
@@ -35,9 +37,11 @@ def test_missing_or_invalid_revision_is_reported_as_local_build():
     assert service.public_metadata() == {
         "revision": "UNAVAILABLE",
         "started_at_utc": "2026-10-17T12:00:00Z",
+        "mode": "UNAVAILABLE",
     }
     message = service.user_message()
     assert "локальная, версия не задана" in message
+    assert "Режим запуска: не определён" in message
     assert "2026-10-17T12:00:00Z" in message
 
 

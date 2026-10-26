@@ -577,6 +577,7 @@ def test_support_diagnostic_export_uses_cached_owner_store_snapshot_and_safe_doc
         assert document["application"] == {
             "revision": "abcdef1234567",
             "started_at_utc": "2026-10-17T12:00:00Z",
+            "mode": "UNAVAILABLE",
         }
         assert "raw-sku-123" not in payload
         assert "raw-posting-456" not in payload

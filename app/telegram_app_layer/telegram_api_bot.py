@@ -450,17 +450,27 @@ def main():
         return 4
 
     try:
-        application = build_application(token)
-        bot_data = getattr(application, "bot_data", None)
-        if isinstance(bot_data, dict):
-            bot_data["bot_instance_lease"] = instance_lease
-        if getattr(application, "updater", None) is None:
-            raise BotLifecycleError(
-                "BOT_INSTANCE_UPDATER_UNAVAILABLE",
-                "Telegram polling updater is unavailable.",
-            )
+        try:
+            application = build_application(token)
+            bot_data = getattr(application, "bot_data", None)
+            if isinstance(bot_data, dict):
+                bot_data["bot_instance_lease"] = instance_lease
+            if getattr(application, "updater", None) is None:
+                instance_lease.record_failure("BOT_INSTANCE_UPDATER_UNAVAILABLE")
+                print("Telegram polling unavailable (BOT_INSTANCE_UPDATER_UNAVAILABLE).")
+                return 4
+        except Exception:
+            instance_lease.record_failure("TELEGRAM_STARTUP_FAILED")
+            print("Telegram bot stopped during startup (TELEGRAM_STARTUP_FAILED).")
+            return 5
+
         print("Telegram API bot starting")
-        application.run_polling(stop_signals=_polling_stop_signals())
+        try:
+            application.run_polling(stop_signals=_polling_stop_signals())
+        except Exception:
+            instance_lease.record_failure("TELEGRAM_POLLING_FAILED")
+            print("Telegram bot stopped during polling (TELEGRAM_POLLING_FAILED).")
+            return 5
         return 0
     finally:
         instance_lease.close()

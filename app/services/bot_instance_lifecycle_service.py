@@ -35,6 +35,11 @@ except ImportError:  # pragma: no cover - POSIX runtime
 
 _SCHEMA_VERSION = 1
 _VALID_STATES = {"STARTING", "RUNNING", "STOPPING", "STOPPED"}
+_SAFE_FAILURE_CODES = frozenset({
+    "TELEGRAM_STARTUP_FAILED",
+    "TELEGRAM_POLLING_FAILED",
+    "BOT_INSTANCE_UPDATER_UNAVAILABLE",
+})
 _REVISION_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 _MAX_CONTROL_MESSAGE = 1024
 
@@ -145,6 +150,16 @@ def _utc_now() -> str:
     )
 
 
+def project_root_fingerprint(project_root=None) -> str:
+    """Return a stable, one-way identifier for this checkout path."""
+    source = project_root or os.getenv("APP_BUILD_PROJECT_ROOT") or os.getcwd()
+    try:
+        normalized = os.path.normcase(str(Path(source).resolve(strict=False)))
+    except (OSError, RuntimeError):
+        normalized = os.path.normcase(os.path.abspath(os.fspath(source)))
+    return hashlib.sha256(normalized.encode("utf-8", errors="replace")).hexdigest()
+
+
 def _lock_backend():
     if os.name == "nt":
         return "msvcrt" if msvcrt is not None else None
@@ -246,6 +261,17 @@ def _read_metadata(path: Path, expected_fingerprint: str) -> dict | None:
         r"[0-9a-f]{32}", payload["generation"]
     ):
         return None
+    checkout_fingerprint = payload.get("project_root_fingerprint")
+    if checkout_fingerprint is not None and (
+        not isinstance(checkout_fingerprint, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", checkout_fingerprint)
+    ):
+        return None
+    failure_code = payload.get("last_failure_code")
+    if failure_code is not None and (
+        not isinstance(failure_code, str) or failure_code not in _SAFE_FAILURE_CODES
+    ):
+        return None
     if "control_port" in payload or "control_secret" in payload:
         if type(payload.get("control_port")) is not int or not 1 <= payload[
             "control_port"
@@ -282,6 +308,9 @@ class BotInstanceLease:
         if self.mode not in {"foreground", "background"}:
             self.mode = "foreground"
         self.started_at_utc = _utc_now()
+        self.project_root_fingerprint = project_root_fingerprint()
+        self._last_failure_code = None
+        self._state = "STARTING"
 
     def _metadata(self, state: str) -> dict:
         payload = {
@@ -293,7 +322,10 @@ class BotInstanceLease:
             "started_at_utc": self.started_at_utc,
             "revision": self.revision,
             "mode": self.mode,
+            "project_root_fingerprint": self.project_root_fingerprint,
         }
+        if self._last_failure_code is not None:
+            payload["last_failure_code"] = self._last_failure_code
         if state != "STOPPED" and self.control_port:
             payload["control_port"] = self.control_port
             payload["control_secret"] = self.control_secret
@@ -337,6 +369,24 @@ class BotInstanceLease:
 
     def _write_state(self, state: str) -> None:
         _write_private_json(self.metadata_path, self._metadata(state))
+        self._state = state
+
+    def record_failure(self, code: str) -> bool:
+        """Persist one allowlisted startup/runtime failure code, never its text."""
+        if (
+            self._lock_file is None
+            or self._closed
+            or not isinstance(code, str)
+            or code not in _SAFE_FAILURE_CODES
+        ):
+            return False
+        self._last_failure_code = code
+        try:
+            self._write_state(self._state)
+        except OSError:
+            self._last_failure_code = None
+            return False
+        return True
 
     async def start_control_server(self, application) -> None:
         if self._lock_file is None or self._closed:
@@ -450,11 +500,19 @@ def inspect_bot_instance(token: str, *, state_root: str | Path | None = None) ->
     lock_path = root / f"instance-{fingerprint}.lock"
     metadata_path = root / f"instance-{fingerprint}.json"
     if not token or not lock_path.exists():
-        return {"state": "STOPPED", "revision": None, "started_at_utc": None, "mode": None}
+        return {
+            "state": "STOPPED", "revision": None, "started_at_utc": None,
+            "mode": None, "project_root_fingerprint": None,
+            "last_failure_code": None,
+        }
     try:
         lock_file = lock_path.open("r+b")
     except OSError:
-        return {"state": "UNKNOWN", "revision": None, "started_at_utc": None, "mode": None}
+        return {
+            "state": "UNKNOWN", "revision": None, "started_at_utc": None,
+            "mode": None, "project_root_fingerprint": None,
+            "last_failure_code": None,
+        }
     try:
         if _try_kernel_lock(lock_file):
             _unlock(lock_file)
@@ -464,18 +522,30 @@ def inspect_bot_instance(token: str, *, state_root: str | Path | None = None) ->
                 "revision": metadata.get("revision"),
                 "started_at_utc": metadata.get("started_at_utc"),
                 "mode": metadata.get("mode"),
+                "project_root_fingerprint": metadata.get("project_root_fingerprint"),
+                "last_failure_code": metadata.get("last_failure_code"),
             }
         metadata = _read_metadata(metadata_path, fingerprint)
         if metadata is None:
-            return {"state": "UNKNOWN", "revision": None, "started_at_utc": None, "mode": None}
+            return {
+                "state": "UNKNOWN", "revision": None, "started_at_utc": None,
+                "mode": None, "project_root_fingerprint": None,
+                "last_failure_code": None,
+            }
         return {
             "state": metadata["state"],
             "revision": metadata.get("revision"),
             "started_at_utc": metadata.get("started_at_utc"),
             "mode": metadata.get("mode"),
+            "project_root_fingerprint": metadata.get("project_root_fingerprint"),
+            "last_failure_code": metadata.get("last_failure_code"),
         }
     except (BotLifecycleError, OSError):
-        return {"state": "UNKNOWN", "revision": None, "started_at_utc": None, "mode": None}
+        return {
+            "state": "UNKNOWN", "revision": None, "started_at_utc": None,
+            "mode": None, "project_root_fingerprint": None,
+            "last_failure_code": None,
+        }
     finally:
         lock_file.close()
 
@@ -485,6 +555,7 @@ def request_graceful_stop(
     *,
     state_root: str | Path | None = None,
     timeout_seconds: float = 15.0,
+    expected_project_root_fingerprint: str | None = None,
 ) -> dict:
     """Ask the authenticated owner to stop, then confirm lock release."""
     deadline = time.monotonic() + max(0.0, min(float(timeout_seconds), 15.0))
@@ -494,6 +565,15 @@ def request_graceful_stop(
     root = Path(state_root) if state_root is not None else _default_state_root()
     fingerprint = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
     payload = _read_metadata(root / f"instance-{fingerprint}.json", fingerprint)
+    if expected_project_root_fingerprint is not None and (
+        payload is None
+        or payload.get("project_root_fingerprint") != expected_project_root_fingerprint
+    ):
+        return {
+            "stopped": False,
+            "state": status["state"],
+            "code": "BOT_INSTANCE_CHECKOUT_MISMATCH",
+        }
     while status["state"] == "STARTING" and (
         payload is None or "control_port" not in payload
     ) and time.monotonic() < deadline:

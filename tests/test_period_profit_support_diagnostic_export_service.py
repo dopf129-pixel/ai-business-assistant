@@ -99,7 +99,9 @@ def test_support_diagnostic_export_is_allowlisted_and_masks_repeated_identifiers
         "identifier_references", "field_types",
     }
 
-    exported = service.export(snapshot, {"revision": "1a2b3c4", "started_at_utc": "invalid"})
+    exported = service.export(snapshot, {
+        "revision": "1a2b3c4", "started_at_utc": "invalid", "mode": "background"
+    })
     assert exported["error"] is False
     assert exported["document_kind"] == "support_diagnostic"
     assert exported["filename"] == "period_profit_support_diagnostic.json"
@@ -108,6 +110,7 @@ def test_support_diagnostic_export_is_allowlisted_and_masks_repeated_identifiers
     assert document["application"] == {
         "revision": "1a2b3c4",
         "started_at_utc": None,
+        "mode": "background",
     }
     for secret in (
         "private-sku-1", "private-product", "505204945", "store-secret",
@@ -165,7 +168,10 @@ def test_export_reconstructs_strict_shape_and_drops_unknown_nested_payloads():
     }
     snapshot["counts"]["unknown"] = "secret-count"
     snapshot["operation"]["endpoint"] = "https://secret-endpoint"
-    result = service.export(snapshot, {"revision": "not-a-git-sha", "nested": {"secret": "x"}})
+    result = service.export(snapshot, {
+        "revision": "not-a-git-sha", "mode": "secret-mode",
+        "nested": {"secret": "x"},
+    })
 
     assert result["error"] is False
     payload = result["file_content"].decode("utf-8")
@@ -175,4 +181,56 @@ def test_export_reconstructs_strict_shape_and_drops_unknown_nested_payloads():
     assert "Authorization" not in payload
     assert "secret-endpoint" not in payload
     assert parsed["application"]["revision"] == "UNAVAILABLE"
+    assert parsed["application"]["mode"] == "UNAVAILABLE"
     assert "unknown" not in parsed["counts"]
+
+
+def test_support_diagnostic_matrix_keeps_confirmed_partial_and_unavailable_distinct():
+    service = PeriodProfitSupportDiagnosticExportService(
+        utc_clock=lambda: datetime(2026, 9, 1, tzinfo=timezone.utc)
+    )
+    from services.period_profit_diagnostic_view_service import (
+        PeriodProfitDiagnosticViewService,
+    )
+
+    diagnostic_service = PeriodProfitDiagnosticViewService()
+    confirmed = diagnostic_service.build(
+        "2026-08-01",
+        "2026-08-31",
+        {
+            "error": False,
+            "diagnostic_statuses": {key: "CONFIRMED" for key in diagnostic_service.STATUS_KEYS},
+            "diagnostic_reason_codes": [],
+            "actions": [],
+        },
+    )
+    partial = diagnostic_service.build(
+        "2026-08-01",
+        "2026-08-31",
+        {
+            "error": False,
+            "diagnostic_statuses": {"cost": "PARTIAL"},
+            "diagnostic_reason_codes": ["COST_MISSING"],
+            "actions": ["cost"],
+        },
+    )
+    unavailable = diagnostic_service.build(
+        "bad-date",
+        "2026-08-31",
+        {"error": False},
+    )
+
+    confirmed_snapshot = service.build_snapshot(confirmed)["snapshot"]
+    partial_snapshot = service.build_snapshot(partial)["snapshot"]
+    unavailable_snapshot = service.build_snapshot(unavailable)
+
+    assert confirmed["reason_codes"] == []
+    assert confirmed_snapshot["reason_codes"] == []
+    assert confirmed_snapshot["source_completeness"] == {
+        key: "CONFIRMED" for key in diagnostic_service.STATUS_KEYS
+    }
+    assert partial["reason_codes"] == ["COST_MISSING", "PARTIAL_COVERAGE"]
+    assert partial_snapshot["reason_codes"] == partial["reason_codes"]
+    assert partial_snapshot["source_completeness"] == {"cost": "PARTIAL"}
+    assert unavailable["status"] == "PERIOD_PROFIT_DIAGNOSTICS_UNAVAILABLE"
+    assert unavailable_snapshot["error"] is True
