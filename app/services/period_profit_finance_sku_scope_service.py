@@ -208,39 +208,10 @@ class PeriodProfitFinanceSkuScopeService:
             if candidate is not None:
                 return candidate
 
-        current_getter = getattr(
-            cost_service,
-            "get_all_costs",
-            None,
-        )
-        if not callable(current_getter):
-            return None
-
-        try:
-            rows = current_getter()
-        except Exception:
-            return None
-
-        if not isinstance(rows, (list, tuple)):
-            return None
-
-        matches = []
-        for row in rows:
-            candidate = self._product_from_current_cost_row(
-                row,
-                sku,
-            )
-            if candidate is not None:
-                matches.append(candidate)
-
-        product_ids = {
-            item["product_id"]
-            for item in matches
-        }
-        if len(product_ids) != 1:
-            return None
-
-        return matches[0]
+        # Current-cost rows have no effective-date evidence. Applying one to a
+        # historical finance SKU can silently rewrite earlier periods, so only
+        # the date-scoped history record above may recover historical COGS.
+        return None
 
     @classmethod
     def _product_from_cost_evidence(
@@ -272,33 +243,6 @@ class PeriodProfitFinanceSkuScopeService:
             "offer_id": cls._text(evidence.get("offer_id")) or sku,
             "cost_price": cost,
             "historical_cost_evidence": bool(require_historical),
-        }
-
-    @classmethod
-    def _product_from_current_cost_row(cls, row, sku):
-        if not isinstance(row, (tuple, list)) or len(row) < 5:
-            return None
-
-        product_id = cls._text(row[0])
-        row_sku = cls._text(row[1])
-        offer_id = cls._text(row[2])
-        cost = cls._cost(row[3])
-        currency = cls._text(row[4]).upper()
-
-        if (
-            not product_id
-            or row_sku != sku
-            or cost is None
-            or currency != "RUB"
-        ):
-            return None
-
-        return {
-            "product_id": product_id,
-            "sku": sku,
-            "offer_id": offer_id or sku,
-            "cost_price": cost,
-            "historical_cost_evidence": False,
         }
 
     def _load_period_skus(self, date_from, date_to):

@@ -56,6 +56,39 @@ class TelegramExternalExpenseRuntimeService:
             status="TELEGRAM_EXTERNAL_EXPENSE_PERIOD_MENU",
         )
 
+    def open_period(
+        self, date_from, date_to, user_id=None, return_callback=None
+    ):
+        """Open an exact period from a scoped report and retain a safe return action."""
+        key = self._key(user_id)
+        start = self._parse_date(date_from)
+        end = self._parse_date(date_to)
+        callback = str(return_callback or "").strip()
+        if (
+            key is None
+            or start is None
+            or end is None
+            or start > end
+            or (
+                callback
+                and not re.fullmatch(
+                    r"period_profit_report:[0-9a-f]{12}", callback
+                )
+            )
+        ):
+            return self._stale()
+        with self._lock:
+            self._invalidate_other_scopes(key)
+            self._cancel_active_draft(key)
+            self._sessions[key] = {
+                "stage": None,
+                "period": (start, end),
+                "view_id": None,
+                "draft_id": None,
+                "return_callback": callback or None,
+            }
+        return self._show_period(key, (start, end))
+
     def handle_text(self, text, user_id=None):
         key = self._key(user_id)
         if key is None:
@@ -291,12 +324,15 @@ class TelegramExternalExpenseRuntimeService:
 
         view_id = uuid4().hex[:10]
         with self._lock:
+            previous_session = self._sessions.get(key) or {}
+            return_callback = previous_session.get("return_callback")
             self._cancel_active_draft(key)
             self._sessions[key] = {
                 "stage": None,
                 "period": period,
                 "view_id": view_id,
                 "draft_id": None,
+                "return_callback": return_callback,
             }
 
         lines = [
@@ -355,7 +391,8 @@ class TelegramExternalExpenseRuntimeService:
         return self._result(
             "\n".join(lines),
             keyboard=self.keyboard_service.build_external_expenses_period_view_keyboard(
-                view_id
+                view_id,
+                return_callback=return_callback,
             ),
             status="TELEGRAM_EXTERNAL_EXPENSE_PERIOD_READY",
             period=[date_from, date_to],

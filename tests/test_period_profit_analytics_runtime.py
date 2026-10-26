@@ -1,6 +1,8 @@
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
+import csv
+import io
 import json
 
 from services.analytics_export_service import AnalyticsExportService
@@ -9,10 +11,17 @@ from services.assistant_keyboard_service import AssistantKeyboardService
 from services.assistant_period_profit_runtime_service import (
     AssistantPeriodProfitRuntimeService,
 )
+from services.period_profit_external_expense_evidence_service import (
+    PeriodProfitExternalExpenseEvidenceService,
+)
+from services.telegram_external_expense_runtime_service import (
+    TelegramExternalExpenseRuntimeService,
+)
 from services.tenant_context import (
     reset_current_tenant_user_id,
     set_current_tenant_user_id,
 )
+from telegram_app_layer.telegram_progress_feedback import split_telegram_text
 
 
 class _Clock:
@@ -27,9 +36,11 @@ class _Query:
     def __init__(self, result):
         self.result = result
         self.calls = 0
+        self.arguments = []
 
-    def query(self, **_kwargs):
+    def query(self, **kwargs):
         self.calls += 1
+        self.arguments.append(deepcopy(kwargs))
         return deepcopy(self.result)
 
 
@@ -171,6 +182,36 @@ def _utf16_units(text):
     return len(text.encode("utf-16-le")) // 2
 
 
+class _InMemoryExternalExpenseRepository:
+    def __init__(self):
+        self.coverage = []
+        self.expenses = []
+
+    def get_expenses_by_period(self, date_from, date_to):
+        return [
+            dict(row)
+            for row in self.expenses
+            if date_from <= row["expense_date"] <= date_to
+        ]
+
+    def get_coverage_by_period(self, date_from, date_to):
+        return [
+            dict(row)
+            for row in self.coverage
+            if row["date_from"] <= date_to and row["date_to"] >= date_from
+        ]
+
+    def confirm_coverage(self, date_from, date_to, note=""):
+        row = {
+            "id": len(self.coverage) + 1,
+            "date_from": date_from,
+            "date_to": date_to,
+            "note": note,
+        }
+        self.coverage.append(row)
+        return {"error": False, **row}
+
+
 def test_period_profit_analytics_views_are_cached_scoped_and_make_no_new_query():
     query = _Query(_result())
     clock = _Clock()
@@ -230,6 +271,90 @@ def test_period_profit_analytics_views_are_cached_scoped_and_make_no_new_query()
         reset_current_tenant_user_id(tenant_token)
 
 
+def test_details_callback_reads_same_scoped_snapshot_and_preserves_long_text():
+    source = _result()
+    source["text"] = ("Строка детализации 💰\n" * 350)
+    query = _Query(source)
+    keyboard = AssistantKeyboardService()
+    runtime = AssistantPeriodProfitRuntimeService(query, keyboard_service=keyboard)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+    )
+    tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        report = runtime.handle_text(
+            "прибыль за 28 дней", user_id="owner-1", today="2026-08-31"
+        )
+        details_button = _callback(report["keyboard"], "📋 Подробности")
+        assert details_button.startswith("period_profit_details:")
+        assert len(details_button.encode("utf-8")) <= 64
+
+        details = handler.handle(details_button, user_id="owner-1")
+        assert details["status"] == "PERIOD_PROFIT_DETAILS_READY"
+        assert details["report_view_id"] == report["report_view_id"]
+        assert details["text"] == source["text"]
+        chunks = split_telegram_text(details["text"])
+        assert len(chunks) > 1
+        assert all(_utf16_units(chunk) <= 3800 for chunk in chunks)
+        assert query.calls == 1
+
+        foreign = handler.handle(details_button, user_id="owner-2")
+        assert foreign["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_diagnostic_refresh_reuses_exact_period_and_owner_store_scope():
+    query = _Query(_result())
+    keyboard = AssistantKeyboardService()
+    runtime = AssistantPeriodProfitRuntimeService(query, keyboard_service=keyboard)
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=runtime,
+    )
+    tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        report = runtime.handle_text(
+            "прибыль 01.08.2026-31.08.2026", user_id="owner-1"
+        )
+        report_view_id = report["report_view_id"]
+        diagnostic = handler.handle(
+            "period_profit_diagnostics:" + report_view_id,
+            user_id="owner-1",
+        )
+        refresh_callback = _callback(
+            diagnostic["keyboard"], "🔄 Обновить расчёт"
+        )
+        assert refresh_callback == "period_profit_refresh:" + report_view_id
+        assert query.calls == 1
+
+        wrong_owner = handler.handle(refresh_callback, user_id="owner-2")
+        assert wrong_owner["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+
+        reset_current_tenant_user_id(tenant_token)
+        tenant_token = set_current_tenant_user_id("owner-1::ozon::store-2")
+        wrong_store = handler.handle(refresh_callback, user_id="owner-1")
+        assert wrong_store["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        assert query.calls == 1
+
+        reset_current_tenant_user_id(tenant_token)
+        tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+        refreshed = handler.handle(refresh_callback, user_id="owner-1")
+        assert refreshed["status"] == "PERIOD_PROFIT_QUERY_READY"
+        assert refreshed["report_view_id"] != report_view_id
+        assert query.calls == 2
+        assert query.arguments[-1]["date_from"] == "2026-08-01"
+        assert query.arguments[-1]["date_to"] == "2026-08-31"
+        assert query.arguments[-1]["compare_previous"] is True
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
 def test_period_comparison_and_owner_exports_reuse_finalized_query_snapshot():
     query = _Query(_result())
     clock = _Clock()
@@ -264,6 +389,10 @@ def test_period_comparison_and_owner_exports_reuse_finalized_query_snapshot():
             "period_profit_diagnostics:" + report["report_view_id"],
             user_id="owner-1",
         )
+        completeness = handler.handle(
+            "period_profit_completeness:" + report["report_view_id"],
+            user_id="owner-1",
+        )
         support_export = handler.handle(
             _callback(diagnostics["keyboard"], "📦 Сохранить диагностику"),
             user_id="owner-1",
@@ -271,16 +400,149 @@ def test_period_comparison_and_owner_exports_reuse_finalized_query_snapshot():
 
         exported_period = json.loads(json_export["file_content"].decode("utf-8"))
         exported_support = json.loads(support_export["file_content"].decode("utf-8"))
+        csv_rows = list(csv.reader(
+            io.StringIO(csv_export["file_content"].decode("utf-8-sig")),
+            delimiter=";",
+        ))
+        csv_metadata = json.loads(csv_rows[3][1])
         assert comparison["status"] == "PERIOD_PROFIT_COMPARISON_VIEW_READY"
         assert "01.07.2026 — 31.07.2026" in comparison["text"]
         assert csv_export["mime_type"] == "text/csv"
         assert exported_period["export_kind"] == "period_profit"
         assert support_export["document_kind"] == "support_diagnostic"
         assert exported_support["schema"] == "period_profit_support_diagnostic"
+        reason_codes = diagnostics["reason_codes"]
+        assert reason_codes
+        assert exported_support["reason_codes"] == reason_codes
+        assert exported_period["metadata"]["completeness"]["reason_codes"] == reason_codes
+        assert csv_metadata["completeness"]["reason_codes"] == reason_codes
+        primary_code = next(
+            code
+            for code in runtime.COMPLETENESS_REASON_PRIORITY
+            if code in reason_codes
+        )
+        assert runtime.diagnostic_view_service.REASON_LABELS[primary_code] in report["text"]
+        if len(reason_codes) > 1:
+            assert f"Ещё причин: {len(reason_codes) - 1}." in report["text"]
+        for code in reason_codes:
+            label = runtime.diagnostic_view_service.REASON_LABELS[code]
+            assert label in completeness["text"]
+            assert label in diagnostics["text"]
         assert query.calls == 1
         for result in (csv_export, json_export, support_export):
             assert result["read_only"] is True
             assert result["executed"] is False
+    finally:
+        reset_current_tenant_user_id(tenant_token)
+
+
+def test_public_report_flow_opens_exact_period_expenses_returns_refreshes_and_exports():
+    repository = _InMemoryExternalExpenseRepository()
+    evidence_service = PeriodProfitExternalExpenseEvidenceService(repository)
+
+    class Query(_Query):
+        def query(self, **kwargs):
+            result = super().query(**kwargs)
+            result["external_expense_evidence"] = evidence_service.load(
+                kwargs["date_from"], kwargs["date_to"]
+            )
+            return result
+
+    source = _result()
+    source["text"] = "Детальный расчёт за выбранный период."
+    query = Query(source)
+    keyboard = AssistantKeyboardService()
+    period_runtime = AssistantPeriodProfitRuntimeService(
+        query, keyboard_service=keyboard, clock=_Clock()
+    )
+    expense_runtime = TelegramExternalExpenseRuntimeService(
+        repository=repository,
+        keyboard_service=keyboard,
+        evidence_service=evidence_service,
+    )
+    handler = AssistantButtonHandlerService(
+        assistant=None,
+        keyboard_service=keyboard,
+        period_profit_runtime_service=period_runtime,
+        external_expense_runtime_service=expense_runtime,
+        analytics_export_service=AnalyticsExportService(),
+    )
+    tenant_token = set_current_tenant_user_id("owner-1::ozon::store-1")
+    try:
+        report = period_runtime.handle_text(
+            "прибыль 01.08.2026-31.08.2026", user_id="owner-1"
+        )
+        details = handler.handle(
+            _callback(report["keyboard"], "📋 Подробности"), user_id="owner-1"
+        )
+        completeness = handler.handle(
+            "period_profit_completeness:" + report["report_view_id"],
+            user_id="owner-1",
+        )
+        expense_action = _callback(completeness["keyboard"], "💸 Внешние расходы")
+        expense_view = handler.handle(expense_action, user_id="owner-1")
+
+        assert details["status"] == "PERIOD_PROFIT_DETAILS_READY"
+        assert expense_view["status"] == "TELEGRAM_EXTERNAL_EXPENSE_PERIOD_READY"
+        assert expense_view["period"] == ["2026-08-01", "2026-08-31"]
+        assert _callback(expense_view["keyboard"], "↩️ К расчёту") == (
+            "period_profit_report:" + report["report_view_id"]
+        )
+        assert query.calls == 1
+
+        coverage_preview = handler.handle(
+            _callback(expense_view["keyboard"], "✅ Подтвердить полноту периода"),
+            user_id="owner-1",
+        )
+        assert coverage_preview["status"] == "TELEGRAM_EXTERNAL_EXPENSE_COVERAGE_PREVIEW"
+        coverage_result = handler.handle(
+            _callback(coverage_preview["keyboard"], "✅ Подтвердить полноту"),
+            user_id="owner-1",
+        )
+        assert coverage_result["status"] == "TELEGRAM_EXTERNAL_EXPENSE_COVERAGE_CONFIRMED"
+        assert _callback(coverage_result["keyboard"], "↩️ К расчёту") == (
+            "period_profit_report:" + report["report_view_id"]
+        )
+
+        return_to_report = handler.handle(
+            _callback(coverage_result["keyboard"], "↩️ К расчёту"),
+            user_id="owner-1",
+        )
+        assert return_to_report["report_view_id"] == report["report_view_id"]
+        assert query.calls == 1
+
+        diagnostics = handler.handle(
+            "period_profit_diagnostics:" + report["report_view_id"],
+            user_id="owner-1",
+        )
+        refreshed = handler.handle(
+            _callback(diagnostics["keyboard"], "🔄 Обновить расчёт"),
+            user_id="owner-1",
+        )
+        refreshed_completeness = handler.handle(
+            "period_profit_completeness:" + refreshed["report_view_id"],
+            user_id="owner-1",
+        )
+        export = handler.handle(
+            _callback(refreshed["keyboard"], "⬇️ CSV"), user_id="owner-1"
+        )
+
+        assert refreshed["report_view_id"] != report["report_view_id"]
+        assert refreshed["status"] == "PERIOD_PROFIT_QUERY_READY"
+        assert not any(
+            button["text"] == "💸 Внешние расходы"
+            for button in refreshed_completeness["keyboard"]["buttons"]
+        )
+        assert "ПОДТВЕРЖДЕНО" in refreshed_completeness["text"]
+        assert export["mime_type"] == "text/csv"
+        assert query.calls == 2
+
+        wrong_owner = handler.handle(expense_action, user_id="owner-2")
+        assert wrong_owner["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
+        reset_current_tenant_user_id(tenant_token)
+        tenant_token = set_current_tenant_user_id("owner-1::ozon::store-2")
+        wrong_store = handler.handle(expense_action, user_id="owner-1")
+        assert wrong_store["status"] == "PERIOD_PROFIT_CACHED_VIEW_EXPIRED"
     finally:
         reset_current_tenant_user_id(tenant_token)
 

@@ -1,3 +1,6 @@
+import re
+
+
 class AssistantKeyboardService:
 
 
@@ -154,29 +157,38 @@ class AssistantKeyboardService:
             ],
         }
 
-    def build_external_expenses_period_view_keyboard(self, view_id):
+    def build_external_expenses_period_view_keyboard(
+        self, view_id, return_callback=None
+    ):
         token = str(view_id or "")
+        buttons = [
+            {
+                "text": "➕ Добавить расход",
+                "callback": "external_expenses:add:" + token,
+            },
+            {
+                "text": "✅ Подтвердить полноту периода",
+                "callback": "external_expenses:coverage:" + token,
+            },
+            {
+                "text": "📅 Выбрать другой период",
+                "callback": "external_expenses",
+            },
+            {
+                "text": "↩️ Главное меню",
+                "callback": "main_menu",
+            },
+        ]
+        callback = str(return_callback or "").strip()
+        if re.fullmatch(r"period_profit_report:[0-9a-f]{12}", callback):
+            buttons.insert(
+                0,
+                {"text": "↩️ К расчёту", "callback": callback},
+            )
         return {
             "error": False,
             "type": "inline_keyboard",
-            "buttons": [
-                {
-                    "text": "➕ Добавить расход",
-                    "callback": "external_expenses:add:" + token,
-                },
-                {
-                    "text": "✅ Подтвердить полноту периода",
-                    "callback": "external_expenses:coverage:" + token,
-                },
-                {
-                    "text": "📅 Выбрать другой период",
-                    "callback": "external_expenses",
-                },
-                {
-                    "text": "↩️ Главное меню",
-                    "callback": "main_menu",
-                },
-            ],
+            "buttons": buttons,
         }
 
     def build_external_expense_input_keyboard(
@@ -338,7 +350,41 @@ class AssistantKeyboardService:
             "buttons": normalized
         }
 
-    def build_period_profit_result_keyboard(self, report_view_id):
+    def build_period_profit_result_keyboard(self, report_view_id, has_details=False):
+        token = str(report_view_id or "").strip()
+        if not token:
+            return {"error": True, "type": "inline_keyboard", "buttons": []}
+        buttons = []
+        if has_details:
+            buttons.append({
+                "text": "📋 Подробности",
+                "callback": "period_profit_details:" + token,
+            })
+        buttons.extend([
+            {
+                "text": "📊 Аналитика периода",
+                "callback": "period_profit_analytics:" + token,
+            },
+            {
+                "text": "⬇️ CSV",
+                "callback": "period_profit_export:csv:" + token,
+            },
+            {
+                "text": "⬇️ JSON",
+                "callback": "period_profit_export:json:" + token,
+            },
+            {
+                "text": "🔎 Полнота данных",
+                "callback": "period_profit_completeness:" + token,
+            },
+        ])
+        return {
+            "error": False,
+            "type": "inline_keyboard",
+            "buttons": buttons,
+        }
+
+    def build_period_profit_details_keyboard(self, report_view_id):
         token = str(report_view_id or "").strip()
         if not token:
             return {"error": True, "type": "inline_keyboard", "buttons": []}
@@ -347,21 +393,14 @@ class AssistantKeyboardService:
             "type": "inline_keyboard",
             "buttons": [
                 {
-                    "text": "📊 Аналитика периода",
-                    "callback": "period_profit_analytics:" + token,
-                },
-                {
-                    "text": "⬇️ CSV",
-                    "callback": "period_profit_export:csv:" + token,
-                },
-                {
-                    "text": "⬇️ JSON",
-                    "callback": "period_profit_export:json:" + token,
-                },
-                {
                     "text": "🔎 Полнота данных",
                     "callback": "period_profit_completeness:" + token,
                 },
+                {
+                    "text": "↩️ К расчёту",
+                    "callback": "period_profit_report:" + token,
+                },
+                {"text": "Главное меню", "callback": "main_menu"},
             ],
         }
 
@@ -419,7 +458,10 @@ class AssistantKeyboardService:
             "cost": ("💰 Себестоимость", "seller_cost"),
             "sku": ("🔎 Проверить SKU", "period_profit_sku"),
             "return_inventory": ("↩️ Состояние возврата", "return_inventory"),
-            "external_expenses": ("💸 Внешние расходы", "external_expenses"),
+            "external_expenses": (
+                "💸 Внешние расходы",
+                "period_profit_external_expenses:" + token,
+            ),
         }
         buttons = []
         for action in actions or []:
@@ -449,8 +491,14 @@ class AssistantKeyboardService:
             "cost": ("💰 Исправить себестоимость", "seller_cost"),
             "sku": ("🔎 Проверить SKU", "period_profit_sku"),
             "return_inventory": ("↩️ Проверить возврат", "return_inventory"),
-            "external_expenses": ("💸 Внешние расходы", "external_expenses"),
-            "refresh": ("🔄 Обновить расчёт", "period_profit"),
+            "external_expenses": (
+                "💸 Внешние расходы",
+                "period_profit_external_expenses:" + token,
+            ),
+            "refresh": (
+                "🔄 Обновить расчёт",
+                "period_profit_refresh:" + token,
+            ),
         }
         buttons = []
         for action in actions or []:

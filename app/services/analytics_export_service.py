@@ -1,8 +1,12 @@
 """Map finalized owner-visible snapshots into explicit export schemas."""
 
 from copy import deepcopy
+from datetime import date
 
 from services.analytics_export_serializer import AnalyticsExportSerializer
+from services.period_profit_diagnostic_view_service import (
+    PeriodProfitDiagnosticViewService,
+)
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 
@@ -112,6 +116,9 @@ class AnalyticsExportService:
             "comparison_reason_code": snapshot.get("comparison_reason_code"),
             "coverage_status": snapshot.get("coverage_status"),
             "snapshot_generated_at": snapshot.get("generated_at"),
+            "completeness": self._period_completeness_metadata(
+                snapshot.get("completeness")
+            ),
             "profit_bridge_semantics": {
                 "authoritative_delta": "total",
                 "contributions": "additive_components_with_rounding_adjustment",
@@ -135,6 +142,59 @@ class AnalyticsExportService:
             "row_count": len(rows),
         }
         return self.serializer.serialize("period_profit", file_format, columns, rows, metadata)
+
+    @staticmethod
+    def _period_completeness_metadata(value):
+        if not isinstance(value, dict):
+            return None
+        allowed_statuses = PeriodProfitDiagnosticViewService.ALLOWED_STATUS_CODES
+        allowed_keys = PeriodProfitDiagnosticViewService.STATUS_KEYS
+        raw_statuses = value.get("source_completeness")
+        statuses = {}
+        if isinstance(raw_statuses, dict):
+            statuses = {
+                key: status
+                for key, status in raw_statuses.items()
+                if key in allowed_keys
+                and isinstance(status, str)
+                and status in allowed_statuses
+            }
+        raw_reasons = value.get("reason_codes")
+        reasons = list(dict.fromkeys(
+            code for code in raw_reasons
+            if isinstance(code, str)
+            and code in PeriodProfitDiagnosticViewService.REASON_LABELS
+        )) if isinstance(raw_reasons, (list, tuple)) else []
+        date_from = value.get("date_from")
+        date_to = value.get("date_to")
+        if not (
+            AnalyticsExportService._is_iso_date(date_from)
+            and AnalyticsExportService._is_iso_date(date_to)
+            and date_from <= date_to
+        ):
+            date_from = None
+            date_to = None
+        status = value.get("status")
+        if not isinstance(status, str) or status not in {
+            "CONFIRMED", "PARTIAL", "UNKNOWN", "UNAVAILABLE"
+        }:
+            status = "UNKNOWN"
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "status": status,
+            "source_completeness": statuses,
+            "reason_codes": reasons,
+        }
+
+    @staticmethod
+    def _is_iso_date(value):
+        if not isinstance(value, str) or len(value) != 10:
+            return False
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
 
     def export_product_overview(self, snapshot_result, file_format):
         if not isinstance(snapshot_result, dict) or snapshot_result.get("error") is True:

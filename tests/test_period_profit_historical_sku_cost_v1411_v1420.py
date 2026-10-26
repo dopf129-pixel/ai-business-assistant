@@ -94,15 +94,16 @@ def test_v1411_missing_current_catalog_sku_uses_historical_cost_evidence():
     ]
 
 
-def test_v1412_missing_current_catalog_sku_can_use_unique_existing_cost_record():
+def test_v1412_current_cost_without_effective_date_is_not_applied_to_history():
     summary = Summary(CurrentCostsOnly())
     service = PeriodProfitFinanceSkuScopeService(summary, Finance())
 
     result = service.calculate("2026-08-31", "2026-08-31", _catalog_without_target())
 
-    assert result["error"] is False
-    assert summary.received[0]["product_id"] == "old-product-2"
-    assert summary.received[0]["cost_price"] == 77.0
+    assert result["error"] is True
+    assert result["code"] == "PERIOD_PROFIT_FINANCE_SKU_COST_COVERAGE_INCOMPLETE"
+    assert "3398133813" in result["message"]
+    assert summary.received is None
 
 
 def test_v1413_ambiguous_cost_records_fail_closed():

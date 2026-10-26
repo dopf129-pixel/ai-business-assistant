@@ -42,6 +42,7 @@ def compact_period_profit_result(result):
     displayed_profit = summary.get("profit")
     displayed_margin = summary.get("margin_percent")
     external_line = None
+    external_profit_included = False
     external_evidence = output.get("external_expense_evidence")
     external_adjustment = output.get("external_expense_adjustment")
 
@@ -53,6 +54,7 @@ def compact_period_profit_result(result):
         and external_adjustment.get("complete_profit_after_external_expenses") is not None
         and external_adjustment.get("complete_margin_percent") is not None
     ):
+        external_profit_included = True
         displayed_profit = external_adjustment.get(
             "complete_profit_after_external_expenses"
         )
@@ -61,21 +63,39 @@ def compact_period_profit_result(result):
         )
         external_total = external_evidence.get("observed_expense_total")
         if _finite_number(external_total) is not None:
-            external_line = "Внешние расходы: " + _money(external_total)
+            external_line = "Внешние расходы: " + _money_with_revenue_share(
+                external_total, summary.get("revenue")
+            )
+
+    profit_label = (
+        "Прибыль после себестоимости и внешних расходов"
+        if external_profit_included
+        else "Прибыль после себестоимости"
+    )
 
     lines = [
         "💰 Прибыль за период "
         + _period(summary.get("date_from"), summary.get("date_to")),
         "",
-        "Выручка: " + _money(summary.get("revenue")),
-        "Баллы за скидки: " + _money(summary.get("discount_points")),
-        "Выручка для расчёта налога: " + _money(
-            summary.get("revenue_tax_base")
+        "Выручка: " + _money_with_revenue_share(
+            summary.get("revenue"), summary.get("revenue")
+        ),
+        "Баллы за скидки: " + _money_with_revenue_share(
+            summary.get("discount_points"), summary.get("revenue")
+        ),
+        "Выручка для расчёта налога: " + _money_with_revenue_share(
+            summary.get("revenue_tax_base"), summary.get("revenue")
         ),
         "Продано SKU: " + _units(summary.get("units_sold")),
-        "Начисления Ozon: " + _money(summary.get("net_accrual")),
-        "Себестоимость: " + _money(summary.get("product_cost")),
-        "Налог: " + _money(summary.get("tax")),
+        "Начисления Ozon: " + _money_with_revenue_share(
+            summary.get("net_accrual"), summary.get("revenue")
+        ),
+        "Себестоимость: " + _money_with_revenue_share(
+            summary.get("product_cost"), summary.get("revenue")
+        ),
+        "Налог: " + _money_with_revenue_share(
+            summary.get("tax"), summary.get("revenue")
+        ),
     ]
 
     if external_line is not None:
@@ -83,7 +103,9 @@ def compact_period_profit_result(result):
 
     lines.extend([
         "",
-        "Прибыль: " + _money(displayed_profit),
+        profit_label + ": " + _money_with_revenue_share(
+            displayed_profit, summary.get("revenue")
+        ),
         "Маржа: " + _percent(displayed_margin),
     ])
 
@@ -701,13 +723,28 @@ def _money(value):
         return "—"
     try:
         rounded = Decimal(str(number)).quantize(
-            Decimal("1"),
+            Decimal("0.01"),
             rounding=ROUND_HALF_UP,
         )
     except (InvalidOperation, ValueError):
         return "—"
-    integer = int(rounded)
-    return f"{integer:,}".replace(",", " ") + " ₽"
+    return f"{rounded:,.2f}".replace(",", " ") + " ₽"
+
+
+def _money_with_revenue_share(value, revenue):
+    amount = _finite_number(value)
+    if amount is None:
+        return "—"
+    denominator = _finite_number(revenue)
+    money = _money(amount)
+    if denominator is None or denominator <= 0:
+        return money + " (доля не определена: выручка ≤ 0)"
+    share = amount / denominator * 100
+    if share != 0 and abs(share) < 0.005:
+        sign = "−" if share < 0 else ""
+        return money + f" ({sign}<0,01% от общей выручки)"
+    percent = f"{share:.2f}".replace(".", ",")
+    return money + f" ({percent}% от общей выручки)"
 
 
 def _units(value):
