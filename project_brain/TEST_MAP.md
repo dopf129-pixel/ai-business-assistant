@@ -5603,6 +5603,13 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: public sensitivity flow verifies the fixed per-unit rate is disclosed and used by every available price scenario.
 - Isolated Windows/Python 3.12 profile: **48 passed in 1.31s**. No calculation formula changed and no live API/bot was used.
 
+## Z11 — target price, margin, advertising cap, and tax boundaries
+
+- `tests/test_unit_price_target_planning_service.py`: direct forward verification, cent-grid rounding, target parser/price-list boundaries, not-found semantics, bounded evaluation count, unknown inputs, price provenance, and fixed cross-docking.
+- `tests/test_unit_price_advertising_cap_service.py`: 0.01-percentage-point grid, verified next tick, 100% bound, unreachable/non-monotonic cases, fixed cross-docking and canonical tax calculation.
+- `tests/test_unit_price_scenario_service.py`, `tests/test_discount_points_tax_end_to_end.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: supported tax modes/minimum tax and manual-input preservation for same-scope source refresh; planned price application remains local to the scenario.
+- Linked isolated Windows/Python 3.12 profile: **110 passed in 2.31s**. Existing calculations/policy were confirmed; no code change.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

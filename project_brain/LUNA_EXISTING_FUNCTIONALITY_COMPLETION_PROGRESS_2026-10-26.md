@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z10 и Z20 VERIFIED; далее Z11).
+Статус исполнения: IN_PROGRESS (Z00–Z11 и Z20 VERIFIED; далее Z12).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z10 завершены для заявленного технического объёма; следующий этап — Z11.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z11 завершены для заявленного технического объёма; следующий этап — Z12.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -28,7 +28,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z08 | Multi-SKU, корректировки и поставки | VERIFIED_EXISTING | 64 адресные проверки начислений/акт-данных/поставок passed; duplicate/conflict, signed corrections, SKU mapping, partial receipts and conservative date basis covered | Реальная multi-SKU приёмка отдельно |
 | Z09 | Однократное включение и версия | VERIFIED_EXISTING | 238 адресных проверок расчёта, v1/v2, замороженных планов, целей, batch/mix, readiness, plan/fact, сравнения и экспорта passed | Только synthetic data; live source не вызывался |
 | Z10 | Числа и текст калькулятора | VERIFIED | Public-flow regressions target/comparison/ad-cap/sensitivity: 48 passed | — |
-| Z11 | Цели цены/маржи/рекламы | NOT_STARTED | — | — |
+| Z11 | Цели цены/маржи/рекламы | VERIFIED_EXISTING | Связанный profile: 110 passed; forward, границы, налог, ad-cap и refresh | — |
 | Z12 | Сохранённый план и revisions | NOT_STARTED | — | — |
 | Z13 | Batch/mix/readiness/plan-fact/export | NOT_STARTED | — | — |
 | Z14 | Навигация и существующие действия | NOT_STARTED | — | — |
@@ -190,3 +190,13 @@ Signed общая сумма берётся из финансового evidence
 Изолированный профиль `tests/test_unit_price_scenario_telegram_runtime.py tests/test_telegram_unit_price_sensitivity_runtime_service.py`: **48 passed in 1.31s**, 0 failed/deselected. Первый прогон выявил устаревший callback в новом тестовом сценарии после смены версии; тест разделён на независимые актуальные сессии, повторный прогон прошёл. Реальный API, бот и пользовательские данные не использовались.
 
 Следующий этап: Z11 — проверить границы target/price/ad-cap и совместимость налоговых режимов, не меняя бизнес-политику без подтверждённой ошибки.
+
+### Z11 — целевая маржа, цены и допустимая реклама
+
+Статус: VERIFIED_EXISTING; подтверждённой ошибки или причины менять политику не найдено. Target/break-even используют существующий forward calculator, завершают поиск независимой прямой проверкой и не меняют цену продавца в источнике. Цена проверяется в копейках; target parser отвергает неоднозначные/неконечные/вне диапазона значения; сравнение сохраняет порядок введённых цен и весь перебор ограничен фиксированным бюджетом.
+
+Рекламный предел работает по сетке 0,01 процентного пункта; предельная точка и следующий шаг проверяются повторным прямым расчётом. Недостижимая цель, верхняя граница, неполный вход и немонотонная forward-функция имеют разные fail-closed результаты. Проверены NONE, USN income, income-minus-expenses и переключение минимального налога. Кросс-докинг не меняется в сценариях цены; обновление источника сохраняет ручные допущения лишь для той же identity. FBS/будущий тариф и будущие скидки не объявляются известными.
+
+Связанный изолированный profile: target planning, advertising cap, forward scenario service, налоговые сценарии, Telegram calculator public flows и sensitivity — **110 passed in 2.31s**, 0 failed/deselected. Тесты временно не использовали dotenv, credentials или внешние API; файлы данных остались в synthetic storage.
+
+Следующий этап: Z12 — lifecycle сохранённого плана и конкурентные revisions.
