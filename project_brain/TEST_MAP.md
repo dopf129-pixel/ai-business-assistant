@@ -5624,6 +5624,12 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_analytics_export_serializer.py`, `tests/test_analytics_export_service.py`, `tests/test_analytics_export_runtime.py`, and `tests/test_saved_planning_plan_telegram_flow.py`: all rows/cells exported, model/assumptions/completeness preserved, null vs zero, safety/size limits, cached snapshot without source reads.
 - Isolated Windows/Python 3.12 linked profile: **108 passed in 3.58s**. Existing code and policy were confirmed.
 
+## Z14 — reachability of existing user actions
+
+- Offline public-route profile covered `tests/test_telegram_guided_onboarding.py`, `tests/test_multi_tenant_ozon_onboarding.py`, `tests/test_telegram_help_discovery.py`, command/adapter/legacy route tests, period profit + SKU reports, expenses/cost, experimental economics/supply act, unit economics, product decisions/learning, seller attention, product overview and returns.
+- It also exercised empty/unconnected/read-only states and exception containment through the matched route-specific suites; no user-visible function was removed or hidden.
+- Isolated Windows/Python 3.12 profile across 42 test files: **416 passed in 13.13s**. No live bot/API or user data was used; no code change.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

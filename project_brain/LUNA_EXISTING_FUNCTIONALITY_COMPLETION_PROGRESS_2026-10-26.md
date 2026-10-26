@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z13 и Z20 VERIFIED; далее Z14).
+Статус исполнения: IN_PROGRESS (Z00–Z14 и Z20 VERIFIED; далее Z15).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z13 завершены для заявленного технического объёма; следующий этап — Z14.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z14 завершены для заявленного технического объёма; следующий этап — Z15.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -31,7 +31,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z11 | Цели цены/маржи/рекламы | VERIFIED_EXISTING | Связанный profile: 110 passed; forward, границы, налог, ad-cap и refresh | — |
 | Z12 | Сохранённый план и revisions | VERIFIED_EXISTING | SQLite repository + Telegram lifecycle: 44 passed | — |
 | Z13 | Batch/mix/readiness/plan-fact/export | VERIFIED_EXISTING | Связанный synthetic profile: 108 passed; three-SKU mix, readiness, compatible comparisons and full exports | — |
-| Z14 | Навигация и существующие действия | NOT_STARTED | — | — |
+| Z14 | Навигация и существующие действия | VERIFIED_EXISTING | Offline public-route profile: 416 passed across menu, onboarding, reports, costs, experiments, memory and decisions | — |
 | Z15 | Scope, concurrency и budgets | NOT_STARTED | — | — |
 | Z16 | Отчёты и доставка | NOT_STARTED | — | — |
 | Z17 | Обновление и инструкции | NOT_STARTED | — | Рабочую установку не трогать |
@@ -219,4 +219,12 @@ Readiness указывает конкретный недостающий вво�
 
 Изолированный связанный profile batch service/runtime, sales mix, readiness, plan/fact, plan comparison, export serializers/services/runtime и saved plan integration — **108 passed in 3.58s**, 0 failed/deselected. Внешние источники не вызывались для исторического чтения/сравнения; код не менялся.
 
-Следующий этап: Z14 — пройти все существующие пользовательские действия и их возвратные переходы.
+Результат Z14 и фактическая проверка зафиксированы далее.
+
+### Z14 — достижимость всех существующих действий
+
+Статус: VERIFIED_EXISTING по текущим маршрутам и синтетическим публичным сценариям; подтверждённого UX/handler дефекта не найдено. Проверены 16 callbacks главного меню и сопоставленные handlers (карта маршрутов Z01), `/start`, `/menu`, `/help`, onboarding и выбор магазина, legacy analysis/plan/history/memory, экономика за период и SKU, внешние расходы, экспериментальный отчёт/диагностика акта, cost flow, unit economics, product decisions/learning, seller attention, product overview, returns/return impact и saved-plan entrypoints. Пустые/неподключённые состояния и возврат к доступному контексту покрыты профильными тестами.
+
+Связанный offline profile из 42 test files: **416 passed in 13.13s**, 0 failed/deselected. Включены меню/adapter/commands, onboarding, legacy analysis/history/memory, периодная прибыль/SKU, external expenses, experimental economics/supply act, cost, product decisions/learning, overview, returns и безопасное исключение runtime ошибок. Первая команда с двумя несуществующими предположенными именами тестовых файлов завершилась до collection (0 tests); после сверки реального реестра запущен валидный профиль, он прошёл полностью. Никаких функций не скрывалось и код не менялся.
+
+Следующий этап: Z15 — проверить смену контекста, повторы, cache/concurrency и общие внешние budgets.
