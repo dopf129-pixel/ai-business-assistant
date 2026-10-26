@@ -5580,6 +5580,14 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_saved_planning_plan_telegram_flow.py`: save → reopen → capture preserves signed totals and independent finance/supply coverage; old version-2 schema remains accepted because additive fields are optional.
 - Isolated linked profile: **194 passed in 4.15s**; see `LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md` for environment fencing and first compatibility failure/fix.
 
+## Z08 — SKU attribution, corrections, and supply ambiguity
+
+- `tests/test_cross_docking_financial_evidence_service.py`: signed item/shared expense leaves, weighted SKU denominator, finance-day corrections, exact duplicate dedupe versus conflicting IDs, missing/malformed/overflow data, net-refund and no-supply behavior.
+- `tests/test_cross_docking_supply_evidence_service.py`: partial receipt uses accepted fact quantity, correct SKU mapping, duplicate order/supply behavior, expected-order pagination, exact act agreement/identity, unknown SKU/quantity, multi-SKU ambiguity, nested-supply status, and Moscow-local window boundaries.
+- `tests/test_cross_docking_supply_source.py`: bounded pagination/checkpoint, detail/act page completeness, invalid cursor and no partial publish.
+- `tests/test_cross_docking_unit_rate_source.py`: tenant/window isolation, source TTL, budgets and no rate before both finance and supply evidence complete.
+- Isolated focused profile: **64 passed in 1.15s**. No live Ozon call or owner multi-SKU record was used.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

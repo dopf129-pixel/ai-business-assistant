@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z07 и Z20 VERIFIED; далее Z08).
+Статус исполнения: IN_PROGRESS (Z00–Z08 и Z20 VERIFIED; далее Z09).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z07 завершены для заявленного технического объёма; следующий этап — Z08.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z08 завершены для заявленного технического объёма; следующий этап — Z09.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -25,7 +25,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z05 | Заказы, отмены и возвраты | VERIFIED | 103 адресные regressions passed; missing Analytics metrics не восстанавливаются, ClientReturn отделён от Cancellation, несовпадающие когорты не получают долю | API diagnostic подтверждает FBO/FBS структуру; историческая причина события не выводится из текущего статуса |
 | Z06 | Финансовые снимки и проекции | VERIFIED | Cached snapshot screen/details/completeness/comparison/bridge/SKU/export profiles: 104 passed; view reads do not query Ozon, explicit refresh creates a new query | Current live snapshot/export remains owner evidence |
 | Z07 | Прозрачное 56-дневное evidence | VERIFIED | Синтетический сквозной профиль: 194 passed; signed accrual, отдельная полнота finance/supply и snapshot прошли source → runtime → saved plan → reopen/capture | Полный владельческий 56-дневный снимок всё ещё ожидается |
-| Z08 | Multi-SKU, корректировки и поставки | NOT_STARTED | — | Реальная multi-SKU приёмка отдельно |
+| Z08 | Multi-SKU, корректировки и поставки | VERIFIED_EXISTING | 64 адресные проверки начислений/акт-данных/поставок passed; duplicate/conflict, signed corrections, SKU mapping, partial receipts and conservative date basis covered | Реальная multi-SKU приёмка отдельно |
 | Z09 | Однократное включение и версия | NOT_STARTED | — | — |
 | Z10 | Числа и текст калькулятора | NOT_STARTED | — | Найдена кодовая несогласованность подписи |
 | Z11 | Цели цены/маржи/рекламы | NOT_STARTED | — | — |
@@ -160,3 +160,13 @@ Signed общая сумма берётся из финансового evidence
 Профиль в чистом `existing-functionality-verify` с отключёнными credentials/dotenv и отдельными storage/temp: cross-docking finance/rate/evidence/supply, текущая unit economics source/runtime, adapter, target planning, saved-plan flow и analytics export — **194 passed in 4.15s**, 0 failed/deselected; `git diff --check` чистый. Перед этим профиль выявил реальную несовместимость: строгий allowlist отклонял новые поля saved-plan payload (23 ошибки в первой расширенной попытке). Схема расширена с optional полями, существующая v2-схема осталась допустимой; после исправления сохранённый сценарий подтвердил reopen/recapture новых данных. Код в пользовательский checkout и production не запускался.
 
 Следующий этап: Z08 — проверить multi-SKU, signed корректировки и консервативный знаменатель поставок на пограничных/конфликтных synthetic случаях.
+
+### Z08 — multi-SKU, корректировки и частичные поставки
+
+Статус: VERIFIED_EXISTING для поддерживаемой и fail-closed семантики; код не менялся. Финансовые начисления объединяют повтор exact row только один раз, конфликтующий ID/строка не публикует сумму; положительные signed корректировки вычитаются из накопленного расхода. SKU-attributed начисления дают индивидуальную SKU-ставку, а unattributed сумма переходит в явно помеченную store estimate с общим знаменателем. Заказы/акты дедуплицируются, конфликтные копии блокируют totals; фактический `fact_quantity` сверяется с принятым summary и не подменяется `declared` или `approved`. Отмена direct FBO исключена; unknown crossdock flag, неполная страница/деталь, неидентифицированный товар, несогласованный акт, multi-SKU акт и неоднозначная дата нескольких вложенных поставок fail-closed.
+
+Устаревшая `arrival_date` и `created_date` акта не используются как дата приёмки. Сохраняется текущая консервативная дата завершённого parent order с одной подходящей nested supply; несколько вложенных поставок с общей родительской датой в окне не распределяются произвольно. Финансовые corrections берутся по дате начисления и не меняют supply denominator. Реальная проверка отдельной многотоварной/разделённой поставки владельцем остаётся полезным evidence, но не блокирует synthetic техническую приёмку.
+
+Профиль в изолированной verification-копии: `tests/test_cross_docking_financial_evidence_service.py`, `tests/test_cross_docking_supply_evidence_service.py`, `tests/test_cross_docking_supply_source.py`, `tests/test_cross_docking_unit_rate_source.py` — **64 passed in 1.15s**, 0 failed/deselected; реальный API не вызывался. Existing fixtures cover SKU A/B, same-SKU line aggregation, unknown/multi-SKU acts, partial received quantities, duplicated/conflicting accrual and supply records, positive corrections/net refunds, no relevant supplies, and completed/incomplete window boundaries.
+
+Следующий этап: Z09 — проверить единичное включение ставки и замороженное evidence по путям калькулятора и сохранённого плана.
