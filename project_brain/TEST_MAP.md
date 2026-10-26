@@ -4,7 +4,7 @@
 
 - `tests/test_windows_local_handoff_readiness.py`: документированные команды первого fast-forward извлекаются из runbook и выполняются в synthetic Git checkout с локальным ignored-файлом. Входящий tracked-путь не перезаписывает локальные данные и fast-forward не двигает `main`.
 - `tests/test_cross_docking_unit_rate_source.py`: complete финансовое evidence сохраняет подписанное начисление по SKU при `NO_CROSSDOCK_SUPPLIES`; ставка за единицу остаётся `None` без знаменателя.
-- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Verify #40346807627 прошёл на SHA `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`: Windows/Python 3.12, Linux/Python 3.11, Docker build/runtime smoke.
+- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Verify #40346807627 прошёл на SHA `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`; Verify #40347424289 прошёл на последнем проверенном PR SHA `5eff674cbdc4d63bcc7ca602bdfa07ae0705bb98`: Windows/Python 3.12, Linux/Python 3.11, Docker build/runtime smoke.
 
 - Реестр маршрутов, источников и уже имеющихся тестов: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
 - Этапы и фактические результаты: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md.

@@ -58,7 +58,7 @@ PR #718 открыт; GitHub Verify workflow #40337702406 завершился �
 
 Signed начисление кросс-докинга по SKU теперь проецируется из complete финансового evidence отдельно от расчёта ставки. При отсутствии подтверждённых поставок сумма остаётся видимой, а ставка за единицу остаётся неизвестной до появления знаменателя. Добавлена регрессия `NO_CROSSDOCK_SUPPLIES`.
 
-Адресный профиль после исправлений: **35 passed in 15.43s**; полный Windows/Python 3.12 `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Verify #40346807627 прошёл на code head `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`: Windows/Python 3.12, Linux/Python 3.11, production Docker build и runtime smoke. Этот CI включает все исправления, но предшествует следующему commit, который фиксирует его результат в журнале. Независимый reviewer должен повторно проверить обновлённый diff.
+Адресный профиль после исправлений: **35 passed in 15.43s**; полный Windows/Python 3.12 `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Verify #40346807627 прошёл на code head `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`, Verify #40347424289 прошёл на последнем опубликованном SHA `5eff674cbdc4d63bcc7ca602bdfa07ae0705bb98`; Windows/Python 3.12, Linux/Python 3.11, production Docker build и runtime smoke успешны. Независимый reviewer должен повторно проверить обновлённый diff.
 
 ## Внешние проверки владельца остаются отдельно
 

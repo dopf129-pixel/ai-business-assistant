@@ -2,7 +2,7 @@
 
 - Первый переход со старого checkout теперь выполняет fetch и fast-forward с защитой `--no-overwrite-ignore`, чтобы игнорируемые локальные данные не перезаписывались при совпадении пути; добавлена synthetic Git-регрессия по командам из runbook.
 - Signed начисление кросс-докинга по SKU теперь читается из полного финансового evidence независимо от наличия поставок. Ставка за единицу остаётся неизвестной без подтверждённого знаменателя.
-- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; `compileall` и `git diff --check` завершились успешно. Verify #40346807627 прошёл на SHA `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88` (Windows, Linux/Python 3.11, Docker build/runtime). Повторный review ещё ожидается; merge/deploy не выполнялись.
+- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; `compileall` и `git diff --check` завершились успешно. Verify #40346807627 прошёл на fix SHA `a2f203daa4ac3dcfd4573f93ddd6f9d2b53a8b88`; Verify #40347424289 прошёл на последнем проверенном PR SHA `5eff674cbdc4d63bcc7ca602bdfa07ae0705bb98` (Windows, Linux/Python 3.11, Docker build/runtime). Повторный review ещё ожидается; merge/deploy не выполнялись.
 
 # 2026-10-26 — подготовлен пакет независимого review для завершения существующих функций
 
