@@ -5630,6 +5630,13 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - It also exercised empty/unconnected/read-only states and exception containment through the matched route-specific suites; no user-visible function was removed or hidden.
 - Isolated Windows/Python 3.12 profile across 42 test files: **416 passed in 13.13s**. No live bot/API or user data was used; no code change.
 
+## Z15 — tenant scope, concurrency, deduplication, and shared budgets
+
+- `tests/test_telegram_calculation_inflight_dedup.py`, `tests/test_period_profit_analytics_runtime.py`, `tests/test_product_business_decision_query_service.py`, and `tests/test_product_decision_metrics_source_tenant_cache.py`: duplicate work, atomic concurrent cache read/eviction, TTL/bounds and tenant-scoped cache state.
+- `tests/test_period_profit_selected_scope_concurrency.py`, `tests/test_period_profit_selected_scope_end_to_end.py`, `app/tests/test_period_profit_parallel_finance_reads.py`, and `app/tests/test_ozon_returns_diagnostic_request_attempt_count.py`: stale scope / late responses and bounded requests for concurrent source reads.
+- `tests/test_period_profit_operation_diagnostics.py`, `tests/test_ozon_performance_historical_reports.py`, `tests/test_ozon_performance_client.py`, `tests/test_cross_docking_unit_rate_source.py`, and `app/tests/test_period_profit_identity_ozon_client.py`: parent deadline/request reservations shared by Performance/auth retries, finance, returns and child operations.
+- Isolated Windows/Python 3.12 profile: **160 passed in 4.10s**. No live Ozon calls or user storage were used; existing code was confirmed.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

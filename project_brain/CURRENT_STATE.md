@@ -8,6 +8,7 @@
 - Z12 подтверждён как VERIFIED_EXISTING: saved plans проходят create/open/local continue/preview/revision/copy/reopen; версии защищены CAS, старые кнопки не применяют устаревшее действие, scope магазина и идентичность SKU сохраняются. Связанный storage/Telegram профиль — 44 passed; код не менялся.
 - Z13 подтверждён как VERIFIED_EXISTING: three-SKU batch/mix, readiness, plan/fact и export связаны и сохраняют unknown/zero/completeness semantics; общий налог считается один раз, сравнение требует совместимые scope/period/SKU. Изолированный профиль — 108 passed; код не менялся.
 - Z14 подтверждён как VERIFIED_EXISTING: 416 offline public-route тестов прошли для меню, onboarding, справки, legacy разделов, отчётов, себестоимости, экспериментальных сценариев, product decisions, товаров и возвратов. Подтверждённого недостижимого handler не найдено; код не менялся.
+- Z15 подтверждён как VERIFIED_EXISTING: 160 изолированных проверок прошли на stale scope/callbacks, deduplication, atomic cache eviction/concurrent reads и общем Ozon Performance attempt/time budget. Источник не вызывается на cache read; код не менялся.
 
 - Исполнение LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md начато в отдельной ветке codex/existing-functionality-completion, база e879e6d7881a097f040e56d9962223525840917c. GitHub подтвердил, что main после PR #717 имеет merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0; выбранное дерево совпадает.
 - PR #702–#704 закрывают продуктовый аудит A–G; прежние stacked #698–#701 закрыты без отдельного merge и их рассмотренная работа вошла в #702. PR #705–#708 закрывают H–O, #712 — X00–X06, #713–#717 — daily readiness/reconciliation. Они не являются открытой очередью этой программы. PR #709–#711 добавили read-only диагностику поставки/акта.
@@ -18,7 +19,7 @@
 - Z04: себестоимость и external expense flows прошли 54 synthetic regressions; effective date, stale callback и coverage behavior подтверждены, правила учёта не менялись.
 - Z05: 103 адресные регрессии прошли; Analytics missing metrics не восстанавливаются, Cancellation и ClientReturn различаются, проценты не показываются при несовпадении когорт. Источник текущего статуса отмены не выдаётся за событие отмены в периоде.
 - Z06: 104 адресные регрессии прошли. Основной и подробные экраны, полнота, сравнение, bridge, SKU contribution и экспорт читают один scoped cached snapshot; Ozon-запрос выполняется только при явном обновлении.
-- Следующий этап — Z15: проверить смену tenant/store/SKU между началом запроса и ответом, stale callbacks, дедупликацию, cache/concurrency и общие budgets внешних запросов. Полный 56-дневный снимок и рабочее наблюдение остаются owner evidence и не блокируют эту работу.
+- Следующий этап — Z16: проверить русский вывод, точность процентов/чисел, длинные Telegram сообщения и безопасную диагностику на выбранных пользовательских экранах. Полный 56-дневный снимок и рабочее наблюдение остаются owner evidence и не блокируют эту работу.
 
 ---
 # 2026-10-26 — дополнительные исправления review PR #717

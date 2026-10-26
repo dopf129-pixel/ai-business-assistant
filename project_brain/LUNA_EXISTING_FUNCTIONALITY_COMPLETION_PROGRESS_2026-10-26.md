@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z14 и Z20 VERIFIED; далее Z15).
+Статус исполнения: IN_PROGRESS (Z00–Z15 и Z20 VERIFIED; далее Z16).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z14 завершены для заявленного технического объёма; следующий этап — Z15.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z15 завершены для заявленного технического объёма; следующий этап — Z16.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -32,7 +32,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z12 | Сохранённый план и revisions | VERIFIED_EXISTING | SQLite repository + Telegram lifecycle: 44 passed | — |
 | Z13 | Batch/mix/readiness/plan-fact/export | VERIFIED_EXISTING | Связанный synthetic profile: 108 passed; three-SKU mix, readiness, compatible comparisons and full exports | — |
 | Z14 | Навигация и существующие действия | VERIFIED_EXISTING | Offline public-route profile: 416 passed across menu, onboarding, reports, costs, experiments, memory and decisions | — |
-| Z15 | Scope, concurrency и budgets | NOT_STARTED | — | — |
+| Z15 | Scope, concurrency и budgets | VERIFIED_EXISTING | Stale actions/dedup/cache eviction/Performance shared budgets profile: 160 passed | — |
 | Z16 | Отчёты и доставка | NOT_STARTED | — | — |
 | Z17 | Обновление и инструкции | NOT_STARTED | — | Рабочую установку не трогать |
 | Z18 | Synthetic backup/restore | NOT_STARTED | — | Пользовательские данные не использовать |
@@ -227,4 +227,14 @@ Readiness указывает конкретный недостающий вво�
 
 Связанный offline profile из 42 test files: **416 passed in 13.13s**, 0 failed/deselected. Включены меню/adapter/commands, onboarding, legacy analysis/history/memory, периодная прибыль/SKU, external expenses, experimental economics/supply act, cost, product decisions/learning, overview, returns и безопасное исключение runtime ошибок. Первая команда с двумя несуществующими предположенными именами тестовых файлов завершилась до collection (0 tests); после сверки реального реестра запущен валидный профиль, он прошёл полностью. Никаких функций не скрывалось и код не менялся.
 
-Следующий этап: Z15 — проверить смену контекста, повторы, cache/concurrency и общие внешние budgets.
+Результат Z15 и фактическая проверка зафиксированы далее.
+
+### Z15 — старые кнопки, параллельные операции и источники
+
+Статус: VERIFIED_EXISTING; подтверждённых ошибок в покрытых путях не найдено. Owner/store/SKU scope проверен между началом действия и завершением ответа; stale callbacks, reset и late source results не восстанавливают старое состояние поверх нового. In-flight deduplication, повторный submit, TTL/eviction и одновременное чтение кэша завершаются контролируемо без повторных side effects/`KeyError`. Cache remains tenant scoped and bounded.
+
+Seller/Performance и cross-docking collection проверены с дочерними traces, которые делят физический HTTP attempt budget и deadline; индивидуальные retry/auth refresh/download calls резервируют общий лимит. Бюджетное исчерпание остаётся явным status, новый explicit запрос может начаться после очистки in-flight state, cached read не вызывает источник.
+
+Изолированный profile `tests/test_telegram_calculation_inflight_dedup.py tests/test_period_profit_analytics_runtime.py tests/test_product_business_decision_query_service.py tests/test_product_decision_metrics_source_tenant_cache.py tests/test_period_profit_selected_scope_concurrency.py tests/test_period_profit_selected_scope_end_to_end.py tests/test_period_profit_operation_diagnostics.py tests/test_ozon_performance_historical_reports.py tests/test_ozon_performance_client.py tests/test_cross_docking_unit_rate_source.py app/tests/test_period_profit_parallel_finance_reads.py app/tests/test_ozon_returns_diagnostic_request_attempt_count.py app/tests/test_period_profit_identity_ozon_client.py`: **160 passed in 4.10s**, 0 failed/deselected. Два предварительных запуска профиля не собрали тесты из-за несуществующего предположенного имени файла; по фактическому дереву восстановлено правильное имя `test_product_business_decision_query_service.py`, полный профиль прошёл. Все тесты synthetic/offline.
+
+Следующий этап: Z16 — пользовательская длина, точность форматирования, разбиение Telegram сообщений и diagnostics redaction.
