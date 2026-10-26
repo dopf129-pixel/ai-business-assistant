@@ -1,3 +1,7 @@
+# 2026-10-26 — завершена проверка себестоимости и внешних расходов Z04
+
+- 54 адресных synthetic проверки прошли: effective cost/effective date, stale confirmations, multi-store scope, external expense preview/coverage/idempotency/storage reopen. Политика распределения расходов не менялась, production bot не запускался.
+
 # 2026-10-26 — финансовая сверка начислений Z03
 
 - Официальный XLSX за август сверён локальным offline comparator: 38 864 строки, категории и общий агрегат совпали с исторической сводкой; 62 финансовых regression tests passed. Coverage в comparator оставлена UNVERIFIED; денежные суммы из файла не записывались в Git, формула прибыли не менялась.

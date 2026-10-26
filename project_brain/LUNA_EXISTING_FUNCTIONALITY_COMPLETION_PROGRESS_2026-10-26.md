@@ -21,7 +21,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z01 | Реестр доступных функций | VERIFIED | EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md; 16 callbacks; 84 test paths verified | — |
 | Z02 | Конечная очередь и текущие документы | VERIFIED | CURRENT_STATE, ROADMAP, CHANGELOG, TEST_MAP, telegram-user-guide; F-01–F-03 finite backlog | — |
 | Z03 | Суммы и категории начислений | VERIFIED | Официальный августовский XLSX сверён локально через offline comparator: 38 864 строк; категории и общий агрегат совпали с исторической сводкой; 62 relevant tests passed | Coverage UNVERIFIED без owner assertion; текущий runtime JSON не получен |
-| Z04 | Себестоимость и внешние расходы | NOT_STARTED | — | — |
+| Z04 | Себестоимость и внешние расходы | VERIFIED | Cost confirmation/timeline/storage, external expense UI/coverage and multi-store stale callbacks: 54 passed | Только synthetic storage; production records/process не использовались |
 | Z05 | Заказы, отмены и возвраты | NOT_STARTED | — | Ограничения источников проверять отдельно |
 | Z06 | Финансовые снимки и проекции | NOT_STARTED | — | Текущий runtime export может потребоваться |
 | Z07 | Прозрачное 56-дневное evidence | NOT_STARTED | — | Полное владельческое окно не получено |
@@ -128,3 +128,10 @@ Managed worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundati
 Комиссия полного месяца берётся из месячного отчёта реализации; код и тесты показывают число строк отчёта отдельно и явно предупреждают, что это не число продаж/единиц. Адресный regression-профиль в изолированном clean worktree: `tests/test_experimental_store_economics.py`, factory, accrual breakdown, period summary и postings client — **62 passed in 4.12s**, 0 failed/deselected.
 Ошибки: sandbox-only tempfile failure при первой попытке Z20 был повторён с разрешённой записью внутри изолированного worktree; financial profile ошибок не дал. Подтверждённых ошибок разнесения в проверенных категориях не осталось; текущий runtime export/полнота его данных не проверены.
 Следующий этап: Z04 — себестоимость и внешние расходы.
+
+### Z04 — себестоимость и внешние расходы
+
+Статус: VERIFIED в synthetic сценариях; бизнес-политика аллокации не менялась. Cost confirmation flow проверяет предложение effective date, отдельное подтверждение применения ко всей истории, старые кнопки после нового draft/смены товара и магазина, повтор callback, отмену и запись ровно один раз. Effective-cost timeline fail-closed до/после подтверждённого интервала и не переносит новую текущую стоимость на прошлые даты. Storage regression проверен отдельно: `app/tests/test_tenant_seller_cost_switch_storage.py` — 1 passed.
+Внешние расходы прошли preview → confirm → explicit coverage → возврат к прибыли → explicit refresh и multi-store callback scope. Описание от пользователя доходит до preview; повторная/конкурентная отправка, старый view callback и uncertain write не дублируют запись. Неполное покрытие имеет явные gaps и не превращается в нулевой расход. Текущие правила подтверждения покрытия и учёта наблюдаемой прибыли сохранены без изменения.
+Общий адресный профиль: cost confirmation flow, effective timeline, confirmation runtime, coverage, historical-cost input и Telegram expenses — **53 passed in 1.49s**; отдельный storage reopen profile — **1 passed in 0.21s**. Итого **54 passed**, 0 failed/deselected. Git tracked data в verification worktree не изменились; код не менялся.
+Не выполнялись реальные Telegram/API обращения или перезапуск реального бота. Следующий этап: Z05.
