@@ -5588,6 +5588,15 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_cross_docking_unit_rate_source.py`: tenant/window isolation, source TTL, budgets and no rate before both finance and supply evidence complete.
 - Isolated focused profile: **64 passed in 1.15s**. No live Ozon call or owner multi-SKU record was used.
 
+## Z09 — one-time use, frozen evidence, and plan/fact separation
+
+- `tests/test_product_unit_economics.py`, `tests/test_current_unit_economics_integration.py`, and `tests/test_unit_price_scenario_service.py`: one-time charge, existing income tax base, deductible-expense mode, missing versus zero and legacy behavior.
+- `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_advertising_cap_service.py`: forward calculations keep the same fixed historical cross-docking rate.
+- `tests/test_unit_price_batch_plan_service.py`, `tests/test_telegram_unit_price_batch_plan_runtime_service.py`, and `tests/test_sales_mix_planning_service.py`: per-SKU/Q planning, frozen rate, planned quantity scaling, missing evidence and partial-result semantics.
+- `tests/test_planning_plan_readiness_service.py`, `tests/test_period_profit_plan_fact_comparison.py`, `tests/test_planning_plan_comparison_service.py`: source status, exact plan/fact scope and no planned fee transfer to actual facts.
+- `tests/test_saved_planning_plan_telegram_flow.py`, `tests/test_analytics_export_service.py`, and `tests/test_analytics_export_serializer.py`: reopen, explicit revision refresh, no source read on view and frozen JSON/CSV data.
+- Isolated linked profile: **238 passed in 5.52s**; no live API calls.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

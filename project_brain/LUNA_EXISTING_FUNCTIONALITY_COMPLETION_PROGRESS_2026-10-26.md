@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z08 и Z20 VERIFIED; далее Z09).
+Статус исполнения: IN_PROGRESS (Z00–Z09 и Z20 VERIFIED; далее Z10).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z08 завершены для заявленного технического объёма; следующий этап — Z09.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z09 завершены для заявленного технического объёма; следующий этап — Z10.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -26,7 +26,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z06 | Финансовые снимки и проекции | VERIFIED | Cached snapshot screen/details/completeness/comparison/bridge/SKU/export profiles: 104 passed; view reads do not query Ozon, explicit refresh creates a new query | Current live snapshot/export remains owner evidence |
 | Z07 | Прозрачное 56-дневное evidence | VERIFIED | Синтетический сквозной профиль: 194 passed; signed accrual, отдельная полнота finance/supply и snapshot прошли source → runtime → saved plan → reopen/capture | Полный владельческий 56-дневный снимок всё ещё ожидается |
 | Z08 | Multi-SKU, корректировки и поставки | VERIFIED_EXISTING | 64 адресные проверки начислений/акт-данных/поставок passed; duplicate/conflict, signed corrections, SKU mapping, partial receipts and conservative date basis covered | Реальная multi-SKU приёмка отдельно |
-| Z09 | Однократное включение и версия | NOT_STARTED | — | — |
+| Z09 | Однократное включение и версия | VERIFIED_EXISTING | 238 адресных проверок расчёта, v1/v2, замороженных планов, целей, batch/mix, readiness, plan/fact, сравнения и экспорта passed | Только synthetic data; live source не вызывался |
 | Z10 | Числа и текст калькулятора | NOT_STARTED | — | Найдена кодовая несогласованность подписи |
 | Z11 | Цели цены/маржи/рекламы | NOT_STARTED | — | — |
 | Z12 | Сохранённый план и revisions | NOT_STARTED | — | — |
@@ -170,3 +170,13 @@ Signed общая сумма берётся из финансового evidence
 Профиль в изолированной verification-копии: `tests/test_cross_docking_financial_evidence_service.py`, `tests/test_cross_docking_supply_evidence_service.py`, `tests/test_cross_docking_supply_source.py`, `tests/test_cross_docking_unit_rate_source.py` — **64 passed in 1.15s**, 0 failed/deselected; реальный API не вызывался. Existing fixtures cover SKU A/B, same-SKU line aggregation, unknown/multi-SKU acts, partial received quantities, duplicated/conflicting accrual and supply records, positive corrections/net refunds, no relevant supplies, and completed/incomplete window boundaries.
 
 Следующий этап: Z09 — проверить единичное включение ставки и замороженное evidence по путям калькулятора и сохранённого плана.
+
+### Z09 — однократное включение и сохранённая версия
+
+Статус: VERIFIED_EXISTING для существующих формул и путей. Кросс-докинг вычитается один раз в single/current unit economics и target/ad-cap forward result; налоговая база USN income остаётся прежней, а USN income-minus-expenses учитывает расход по действующей политике. В batch/mix ставка умножается на указанный успешный Q; для отсутствующего подтверждённого источника положительный Q делает mix итог неполным, а не нулевым. Плановая сторона использует замороженную ставку/evidence; plan/fact не переносит её на фактическую прибыль.
+
+Сохранённый v1 сохраняет старую формулу без автоматического cross-docking deduction. v2 сохраняет evidence, открытие использует snapshot без Ozon read; отдельное explicit refresh создаёт новую revision и сохраняет старую. Полное окно без units и неполная выборка различаются; отсутствие ставки не переименовывается в нулевой тариф. Export/comparison/readiness используют frozen evidence и видимые scope/period.
+
+Изолированный linked profile в verification worktree: current/product economics, scenario source/service/runtime, target planning, ad cap, batch planning/runtime, sales mix, readiness, plan/fact comparison, saved-plan lifecycle, plan comparison, analytics export/service serializer — **238 passed in 5.52s**, 0 failed/deselected; `git diff --check` чистый. Подтверждённого нарушения однократности или версии не обнаружено, код не менялся, Ozon/Telegram live requests не выполнялись.
+
+Следующий этап: Z10 — исправить подтверждённо противоречивую подпись на public target/comparison result, сохраняя расчёты без изменений.
