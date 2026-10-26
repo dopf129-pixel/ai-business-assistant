@@ -13,7 +13,14 @@
 Безопасно проверить локальные настройки запуска можно отдельно:
 
 ```powershell
-.\.venv\Scripts\python.exe -m runtime_healthcheck
+$previousPythonPath = $env:PYTHONPATH
+try {
+    $env:PYTHONPATH = Join-Path (Get-Location) 'app'
+    & .\.venv\Scripts\python.exe -m runtime_healthcheck
+}
+finally {
+    $env:PYTHONPATH = $previousPythonPath
+}
 ```
 
 Эта проверка не делает сетевые запросы, не читает продавецкую базу и не меняет данные.
@@ -31,10 +38,17 @@
 Проверить архив по пути, который напечатала команда backup:
 
 ```powershell
-.\.venv\Scripts\python.exe -m bot_backup verify ".\<путь-к-архиву>.zip"
+$previousPythonPath = $env:PYTHONPATH
+try {
+    $env:PYTHONPATH = Join-Path (Get-Location) 'app'
+    & .\.venv\Scripts\python.exe -m bot_backup verify ".\<путь-к-архиву>.zip"
+}
+finally {
+    $env:PYTHONPATH = $previousPythonPath
+}
 ```
 
-Backup не содержит `.env`, ключи, Telegram/Ozon credentials, логи и Git checkout. Храните `OZON_CREDENTIAL_MASTER_KEY` отдельно от backup.
+Backup не содержит `.env`, токен Telegram, ключ шифрования `OZON_CREDENTIAL_MASTER_KEY`, открытые API-ключи Ozon, логи и Git checkout. SQLite-копия включает Client ID Ozon и зашифрованные записи API-ключей. Для восстановления доступа к Ozon понадобится исходный `OZON_CREDENTIAL_MASTER_KEY`; храните его отдельно от backup. Считайте архив конфиденциальными данными.
 
 ## Проверить восстановление без записи
 
