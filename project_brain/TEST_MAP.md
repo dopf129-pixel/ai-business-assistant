@@ -5610,6 +5610,12 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_unit_price_scenario_service.py`, `tests/test_discount_points_tax_end_to_end.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, and `tests/test_telegram_unit_price_sensitivity_runtime_service.py`: supported tax modes/minimum tax and manual-input preservation for same-scope source refresh; planned price application remains local to the scenario.
 - Linked isolated Windows/Python 3.12 profile: **110 passed in 2.31s**. Existing calculations/policy were confirmed; no code change.
 
+## Z12 — saved-plan persistence, revisions, and public lifecycle
+
+- `tests/test_planning_workspace_repository.py`: owner/store scope, idempotency, immutable revision history, stale revision/state rejection, concurrent compare-and-swap, legacy migration/reopen, schema and payload validation, and SQLite connection initialization races.
+- `tests/test_saved_planning_plan_telegram_flow.py`: create/list/open/local continue/preview/save/copy/reopen, stale callbacks, optimistic revision update, saved assumption/model/snapshot preservation, refresh identity guard, archive/restore/delete confirmation, restart with a fresh runtime, and other-store isolation.
+- Isolated Windows/Python 3.12 profile: **44 passed in 1.89s**. No live source/storage or bot process was used; existing code was verified.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

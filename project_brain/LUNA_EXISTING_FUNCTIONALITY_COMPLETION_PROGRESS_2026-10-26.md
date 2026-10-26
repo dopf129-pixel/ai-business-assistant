@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z11 и Z20 VERIFIED; далее Z12).
+Статус исполнения: IN_PROGRESS (Z00–Z12 и Z20 VERIFIED; далее Z13).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z11 завершены для заявленного технического объёма; следующий этап — Z12.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z12 завершены для заявленного технического объёма; следующий этап — Z13.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -29,7 +29,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z09 | Однократное включение и версия | VERIFIED_EXISTING | 238 адресных проверок расчёта, v1/v2, замороженных планов, целей, batch/mix, readiness, plan/fact, сравнения и экспорта passed | Только synthetic data; live source не вызывался |
 | Z10 | Числа и текст калькулятора | VERIFIED | Public-flow regressions target/comparison/ad-cap/sensitivity: 48 passed | — |
 | Z11 | Цели цены/маржи/рекламы | VERIFIED_EXISTING | Связанный profile: 110 passed; forward, границы, налог, ad-cap и refresh | — |
-| Z12 | Сохранённый план и revisions | NOT_STARTED | — | — |
+| Z12 | Сохранённый план и revisions | VERIFIED_EXISTING | SQLite repository + Telegram lifecycle: 44 passed | — |
 | Z13 | Batch/mix/readiness/plan-fact/export | NOT_STARTED | — | — |
 | Z14 | Навигация и существующие действия | NOT_STARTED | — | — |
 | Z15 | Scope, concurrency и budgets | NOT_STARTED | — | — |
@@ -189,7 +189,7 @@ Signed общая сумма берётся из финансового evidence
 
 Изолированный профиль `tests/test_unit_price_scenario_telegram_runtime.py tests/test_telegram_unit_price_sensitivity_runtime_service.py`: **48 passed in 1.31s**, 0 failed/deselected. Первый прогон выявил устаревший callback в новом тестовом сценарии после смены версии; тест разделён на независимые актуальные сессии, повторный прогон прошёл. Реальный API, бот и пользовательские данные не использовались.
 
-Следующий этап: Z11 — проверить границы target/price/ad-cap и совместимость налоговых режимов, не меняя бизнес-политику без подтверждённой ошибки.
+Результат Z11 и фактическая проверка зафиксированы далее.
 
 ### Z11 — целевая маржа, цены и допустимая реклама
 
@@ -199,4 +199,14 @@ Signed общая сумма берётся из финансового evidence
 
 Связанный изолированный profile: target planning, advertising cap, forward scenario service, налоговые сценарии, Telegram calculator public flows и sensitivity — **110 passed in 2.31s**, 0 failed/deselected. Тесты временно не использовали dotenv, credentials или внешние API; файлы данных остались в synthetic storage.
 
-Следующий этап: Z12 — lifecycle сохранённого плана и конкурентные revisions.
+Результат Z12 и фактическая проверка зафиксированы далее.
+
+### Z12 — жизненный цикл сохранённого плана
+
+Статус: VERIFIED_EXISTING; подтверждённых дефектов не обнаружено. Публичный путь create → list/open → локальное продолжение → preview → save revision/copy → reopen сохраняет идентичность, assumptions, версию модели и frozen snapshot; открытие и продолжение не делают source/Ozon refresh. Старые схемы продолжают читаться без автоматического пересчёта или миграции чисел.
+
+Репозиторный слой проверен на owner/store isolation, revision history, idempotency, stale revision/state conflict, параллельный compare-and-swap (один победитель), legacy schema reopen, неизвестные/некорректные схемы и атомарное открытие нескольких подключений. Telegram flow покрывает устаревший save callback, два открытых состояния/версии, update preview и подтверждение, explicit copy/archive/restore/delete, повторный запуск runtime, changed product/offer/SKU/store identity и неизменность исходной revision.
+
+Изолированный profile `tests/test_planning_workspace_repository.py tests/test_saved_planning_plan_telegram_flow.py`: **44 passed in 1.89s**, 0 failed/deselected. Тестовые SQLite-файлы размещались в pytest temporary area; real storage, Ozon, Telegram и бот-процесс не использовались. Код не менялся.
+
+Следующий этап: Z13 — связанный batch/mix/readiness/plan-fact/export сценарий.
