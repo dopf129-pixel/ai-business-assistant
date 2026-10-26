@@ -2,7 +2,7 @@
 
 - Реестр маршрутов, источников и уже имеющихся тестов: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
 - Этапы и фактические результаты: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md.
-- На этапах Z00–Z02 код и тестовые контракты не менялись, новых тестов/сервисов нет, приложение и pytest не запускались. Перед первым file-based тестом требуется Z20: отдельная temp/storage конфигурация и синтетические credentials. Старые результаты CI остаются привязаны к указанным ревизиям и не считаются проверкой будущего кода.
+- На этапах Z00–Z02 код и тестовые контракты не менялись. Z20 настроил `.z20-isolated-env`, synthetic storage/temp/profile и отключил dotenv/live credentials. Базовый профиль `tests/test_unit_price_target_planning_service.py`: 37 passed; пять tracked data JSON hashes совпали до и после. Перед file-backed тестами использовать те же ограничения. Старые CI результаты привязаны к своим SHA и не считаются проверкой будущего кода.
 
 ---
 

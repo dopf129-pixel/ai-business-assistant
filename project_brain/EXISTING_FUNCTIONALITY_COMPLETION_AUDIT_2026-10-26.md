@@ -74,3 +74,8 @@ Z01 завершён со статусом VERIFIED. Реестр включае
 Z02 завершён со статусом VERIFIED. GitHub metadata подтвердили, что программы A–G, H–O, cross-docking X00–X06, supply-act diagnostics и daily readiness A–E уже представлены в merged PR #702–#717. Отдельные #698–#701 закрыты без собственного merge, но reviewed product-workbench изменения вошли в #702; это superseded stack, не новая очередь.
 Текущие указатели CURRENT_STATE, ROADMAP, CHANGELOG и TEST_MAP обновлены без удаления исторических записей. docs/telegram-user-guide.md теперь включает описание всех 16 кнопок главного меню. F-02 и F-03 закрыты документально; F-01 остаётся единственной подтверждённой runtime/UI проблемой для Z10. Owner evidence E-01–E-03 остаётся pending, но не блокирует разработку.
 Код, пользовательские данные и тесты не менялись; tests не запускались до обязательной изоляции Z20. Дальнейший порядок: сначала Z20, затем зависимые финансовые этапы.
+
+
+## Исполнение: результат Z20
+
+Создана отдельная чистая проверочная копия на `ee1df3c2`, не использующая прежний worktree с ignored/runtime-файлами. Python 3.12.10 и pytest 8.4.2 установлены в `.z20-isolated-env` этой проверочной копии из `requirements-dev.txt`; synthetic storage/temp/profile отделены, dotenv отключён, live Telegram/Ozon credentials пусты, `.env` отсутствует. Smoke-профиль `tests/test_unit_price_target_planning_service.py` завершился **37 passed in 0.42s**, без deselected. SHA-256 пяти tracked JSON baseline-файлов до и после совпали. Обычный ограниченный запуск остановился на tempfile до тестов; повтор с разрешённой записью только в изолированный worktree прошёл. Полный набор и CI остаются Z21.
