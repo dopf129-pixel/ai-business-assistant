@@ -5644,6 +5644,12 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_period_profit_diagnostic_view_service.py`, `tests/test_period_profit_support_diagnostic_export_service.py`, and `tests/test_analytics_export_serializer.py`: allowlisted diagnostics remain redacted while the separate owner export preserves its intended financial scope.
 - Isolated Windows/Python 3.12 profile: **171 passed in 4.49s**. No live Telegram message was sent; existing delivery/formatting code was confirmed.
 
+## Z17 — first update from a legacy checkout
+
+- `tests/test_windows_local_handoff_readiness.py`: the recovery runbook documents the case where `update_bot.ps1` is absent, branch/status checks, fast-forward only on clean `main`, tracked diff and untracked inventory preservation outside the checkout, and handoff to current `-CheckOnly` only after the updater exists. It rejects destructive commands as runnable code blocks while allowing warnings about them.
+- `tests/test_bot_update_preflight_service.py`: existing dirty/untracked/preflight boundaries remain green.
+- Isolated Windows/Python 3.12 profile: **24 passed in 15.67s**. No scripts or bot process were run.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

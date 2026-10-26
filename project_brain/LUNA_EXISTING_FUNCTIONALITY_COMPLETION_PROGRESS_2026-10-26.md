@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z16 и Z20 VERIFIED; далее Z17).
+Статус исполнения: IN_PROGRESS (Z00–Z17 и Z20 VERIFIED; далее Z18).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z16 завершены для заявленного технического объёма; следующий этап — Z17.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z17 завершены для заявленного технического объёма; следующий этап — Z18.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -34,7 +34,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z14 | Навигация и существующие действия | VERIFIED_EXISTING | Offline public-route profile: 416 passed across menu, onboarding, reports, costs, experiments, memory and decisions | — |
 | Z15 | Scope, concurrency и budgets | VERIFIED_EXISTING | Stale actions/dedup/cache eviction/Performance shared budgets profile: 160 passed | — |
 | Z16 | Отчёты и доставка | VERIFIED_EXISTING | Report formatting, redaction, UTF-16 splitting and keyboard delivery profile: 171 passed | — |
-| Z17 | Обновление и инструкции | NOT_STARTED | — | Рабочую установку не трогать |
+| Z17 | Обновление и инструкции | VERIFIED | Added legacy-checkout first-update path, local patch/untracked preservation guidance; runbook/preflight: 24 passed | Рабочую установку не трогали |
 | Z18 | Synthetic backup/restore | NOT_STARTED | — | Пользовательские данные не использовать |
 | Z19 | Synthetic lifecycle/update | NOT_STARTED | — | Рабочий процесс не трогать |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
@@ -247,4 +247,14 @@ Seller/Performance и cross-docking collection проверены с дочер�
 
 Изолированный profile formatter/loading, period main/compact, experimental economy, support diagnostics/export, current unit economics, seller attention, plan comparison result and command/financial integrity — **171 passed in 4.49s**, 0 failed/deselected. Реальные сообщения Telegram и пользовательские финансы не использовались; код не менялся.
 
-Следующий этап: Z17 — проверить команды обновления и документацию установки без запуска/остановки рабочей установки.
+Результат Z17 и фактическая проверка зафиксированы далее.
+
+### Z17 — обновление существующей установки и инструкции
+
+Статус: VERIFIED. До появления `update_bot.ps1` старая установка должна проверить ветку и `git status --short`. Только чистая ветка `main` и остановленный процесс допускают `git pull --ff-only origin main`, который получает код и updater, но не запускает бота. При dirty/untracked конфликте инструкция останавливает пользователя; сохраняет полный tracked diff через `git diff --binary HEAD --output=...` и список untracked в соседний каталог, предлагает копировать только просмотренные нужные файлы вручную и не отправлять patch. Она не предлагает `restore/reset/clean`, массовое удаление или stash. После получения updater следующий шаг — актуальный read-only `-CheckOnly`, затем штатный режим по намерению владельца.
+
+Команды оформлены отдельными копируемыми блоками с настоящими PowerShell строками. Памятка различает старую и новую версии entrypoint и не запускает сценарии/бота при проверке документа. Новая регрессия фиксирует безопасный first-update маршрут и отсутствие destructive команд как исполняемого блока.
+
+Изолированный профиль `tests/test_windows_local_handoff_readiness.py tests/test_bot_update_preflight_service.py`: **24 passed in 15.67s**, 0 failed/deselected. Первый вызов теста использовал неверный cwd и не стартовал; первый корректный запуск поймал только ошибочное слишком широкое условие в новой doc-test (оно запрещало упоминание опасных команд в тексте-предупреждении); assertion уточнён до PowerShell code blocks и повторный профиль прошёл. Рабочий бот, scripts и данные не запускались/не изменялись.
+
+Следующий этап: Z18 — synthetic backup/restore со всеми форматами поддерживаемого хранилища.

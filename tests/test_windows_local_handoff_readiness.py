@@ -60,6 +60,23 @@ def test_env_example_contains_only_placeholders():
     assert "OZON_API_KEY=" not in example
 
 
+def test_recovery_runbook_documents_safe_first_fast_forward_from_legacy_checkout():
+    runbook = (ROOT / "docs" / "daily-use-recovery-runbook.md").read_text(encoding="utf-8")
+
+    assert "### Первый переход со старого checkout" in runbook
+    assert "update_bot.ps1` может ещё отсутствовать" in runbook
+    assert "git branch --show-current" in runbook
+    assert "git status --short" in runbook
+    assert "git pull --ff-only origin main" in runbook
+    assert "git diff --binary HEAD" in runbook
+    assert "git ls-files --others --exclude-standard" in runbook
+    assert "не выполняйте pull" in runbook
+    assert "не прикладывайте к задаче и не отправляйте в GitHub" in runbook
+    assert "-CheckOnly" in runbook and "-NoStart" in runbook
+    for prohibited in ("git restore --", "git reset --hard", "git clean -fd"):
+        assert f"```powershell\n{prohibited}" not in runbook
+
+
 def test_canonical_entrypoint_loads_dotenv_before_runtime_import():
     entrypoint = (ROOT / "app" / "telegram_api_bot.py").read_text(encoding="utf-8")
     load_index = entrypoint.index("load_dotenv()")
