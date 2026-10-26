@@ -1,12 +1,21 @@
 # Project Roadmap
 
-## Ежедневная готовность — 25.10.2026
+## Текущая программа — завершение существующих функций (26.10.2026)
+
+- Исполняемое ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md; журнал: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md; реестр: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
+- База — e879e6d7, чьё дерево совпадает с main merge 89eb9224. Z00–Z02 verified; перед file-based тестами выполнить Z20.
+- Конечная очередь — только подтверждённые findings F-01–F-03 и этапы Z03–Z23 по зависимостям. F-02/F-03 закрыты обновлением документации; F-01 проверить на публичном UI-потоке Z10. Внешние acceptance evidence остаются pending.
+- Завершённые программы не переоткрываются: A–G были объединены в #702–#704 (отдельные stacked #698–#701 закрыты без merge); H–O — #705–#708; supply-act diagnostics — #709–#711; X00–X06 — #712; daily readiness A–E — #713–#717. Все перечисленные целевые PR merged. Текущие старые descriptions ниже — исторические записи.
+- Merge, deploy, production bot start/stop/update и live Ozon requests этой программой не выполняются.
+
+
+## Исторический этап ежедневной готовности — 25.10.2026 (слит в main 26.10.2026)
 
 - Исполнение `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md` идёт отдельным stacked PR процессом от проверенного PR #712 head `698c9f8`. PR #713–#717 закрывают A, B/C, backup/restore, updater/status и E acceptance. Первые #714–#716 runs нашли три регрессии, исправленных в #714 (`7ec47ef6`); #715 (`40c99b69`) и #716 (`e578779c`) перебазированы. Исправленные exact-head Verify #713–#716 зелёные; финальный #717 ещё проверяется после обновления handoff.
 - D06 acceptance: `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; E00 linked acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; review handoff: `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; runbook: `docs/daily-use-recovery-runbook.md`; 24–72h owner log: `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` (`USER_VALIDATION_PENDING`). Current bot JSON и полный 56-day cross-docking snapshot ждут владельческой проверки после обновления; точный August accrual workbook дал complete `177282.17 ₽`. Слияние/развёртывание/real bot не выполнялись.
 - Актуальный журнал, stage matrix и фактические проверки: `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
 
-## Активная программа planning workspace — 19.10.2026
+## Исторический этап planning workspace — 19.10.2026 (PR #705–#708 слиты)
 
 - A–G и предыдущая периодная аналитика находятся в merged `main` `722f368526c278b701cbfd69f3dbb9a474d52386` через PR #702; main Verify `39165543772` successful. Старые статусы PR ниже — исторические checkpoint, не текущая очередь слияния.
 - Исполняемое ТЗ: `LUNA_PLANNING_WORKSPACE_TASK_2026-10-19.md`, реализация H–N и O00 завершена на `codex/planning-workspace-20261019`; O00 targeted acceptance — **249 passed**. PR #705–#708 опубликованы стеком. Их Verify runs прошли Windows/Linux full suites (3,443 / 3,454 / 3,466 / 3,497 tests на соответствующих code heads) и Docker smoke. Review packet включён в PR #708; актуальный exact-head Verify и дальнейший независимый review отслеживаются там. Full local pytest не повторять после документированного ACL/shared-storage инцидента; merge/deploy/live bot не выполнялись.
@@ -14,21 +23,21 @@
 - 36 этапов, зависимости, conservative defaults, числовые примеры, isolation/CAS/tax/budget contracts и журнал `LUNA_PLANNING_WORKSPACE_PROGRESS_2026-10-19.md`. Основание: `PLANNING_WORKSPACE_AUDIT_2026-10-19.md`.
 - H добавляет локальное управление единственным polling экземпляром по token fingerprint и штатную остановку; `build_application()` и Ozon read-only не меняются. I добавляет tenant-scoped saved plans; J — проверяемый рекламный предел; K — economics mix с одним общим налогом. L сверяет выбранный план с canonical фактом и маркирует несовместимую прибыль; M добавляет readiness projection и точечное исправление; N сравнивает revisions и использует общий export sender. Локальные проверки не заменяют exact-head CI. Слияние, развёртывание и запуск реального бота запрещены.
 
-## Активная программа разработки — 17.10.2026
+## Исторический этап разработки — 17.10.2026 (A–G вошли в main через #702–#704)
 
 - Владелец запустил A–G из `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`. Текущий checkpoint и результаты: `LUNA_LONG_RUN_PROGRESS_2026-10-17.md`.
 - A00–A04 and B00–B04 VERIFIED. Exact PR #698 foundation SHA `be76a4f8e4c7d78160e0d1047515651993062d54` passed Windows/full-verification CI run `39059951770`; exact B-head CI is tracked by PR #698. C00–C05 VERIFIED on code SHA `07b9d595df32b11b736aaa2dc13c822df7f52ec4`; Verify runs `39063730904` and `39063717597` passed Windows and full-verification, including full pytest and Docker smoke. Acceptance docs head `292c4cb83d4499045ae200862c2b3132905e409e` passed Windows/full-verification runs `39064061444` and `39064066060`. PR #699 is ready for review and stacked on #698.
 - PR #697 остаётся открытым основанием; новые PR будут явно stacked. Merge/deploy не выполняются.
 - B00 добавил bounded public read-only query выбранных товаров. B01 добавил stable row projections, source evidence, scoped snapshots, coverage и page reads; B02 добавил snapshot-only filters/sorting. B03/B04 добавили Telegram overview, explicit catalog groups, stale-safe callbacks, guarded transition к калькулятору цены и приёмку границ. 93 целевых tests passed; расширенный товарный regression — 1 018 passed, 12 локально ACL-deselected.
 
-## Подготовлено следующее большое ТЗ — 17.10.2026
+## Историческая запись подготовки большого ТЗ — 17.10.2026
 
 - `LUNA_LONG_RUN_PRODUCT_TASK_2026-10-17.md`: обязательные модули A–G, 32 этапа. A–E exact-head acceptance recorded; PR #701 code SHA `47cfa2527b2f963d2604511c76d1a41b6e6201f0` passed Windows/Linux 3 389 tests and Docker build/runtime smoke (Verify `39066587245`); docs head `f598d300164916434de27a5180bb033d8a9f4293` passed Verify `39066774774`. F00–F03 and G00 verified locally; G00 profile **54 passed, 1 ACL-bound `tmp_path` test deselected**. Exact-head CI for F–G is next. PR #700/#701 remain open for review.
 - A: проверка базы, общий budget и scoped transient snapshots. B: bounded обзор выбранных товаров с filters/coverage. C: пакетный план цен разных SKU. D: чувствительность и матрица. E: CSV/JSON из точных снимков. F: обезличенная диагностика и версия процесса. G00: сквозные пользовательские пути локально VERIFIED; G01: full CI/Docker; G02: независимый review handoff.
 - Основание — `LONG_RUN_PRODUCT_AUDIT_2026-10-17.md`; переиспользовать решения/forward calculator/TaxService и реализованную аналитику периодов. Новые данные Ozon, прогноз спроса, persistent saved scenarios, merge/deploy в пакет не входят.
 - PR #697 при подготовке открыт и не слит. Разрешены явно зависимые ветки от проверенного head; перед стартом revalidate фактический main/PR. Сохранять локальные данные и не добавлять весь предыдущий diff повторно в новые PR.
 
-## Ближайший продуктовый пакет — 15.10.2026
+## Исторический продуктовый пакет — 15.10.2026
 
 - Завершено: P00–P08 в PR #694, SKU-калькулятор в PR #695 и целевая маржа/варианты цены в PR #696. Последний PR слит в main `c55434327f50134324a5ca58e2f084854b809832`; его дерево совпадает с reviewed head `fc15b9c`. Исторические очереди ниже не открывают заново завершённые пакеты.
 - Владелец выбрал следующий пакет по результатам аудита. Основание — `NEXT_DEVELOPMENT_AUDIT_2026-10-15.md`: три воспроизведённые проблемы сравнения и конкретные пробелы объяснения фактической прибыли.

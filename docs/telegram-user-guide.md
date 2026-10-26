@@ -6,14 +6,22 @@ Send `/start` to resume required setup or open the main menu. Use
 
 ## Main actions
 
-- `💵 Прибыль за период` — account Period Profit and profit for a selected SKU;
-- `💰 Себестоимость` — guided current seller-cost update;
-- `💰 Юнит-экономика товаров` — per-product economics;
-- `🎯 Решения по товарам` — read-only product recommendations;
-- `↩️ Расходы на возвраты` — return finance impact;
-- `🧠 Память` — seller facts explicitly saved for the assistant;
-- `❓ Помощь и команды` — complete command memo and valid phrase examples;
-- `ℹ️ О боте / версия` — revision captured by the running process and its UTC start time.
+- 🏪 Выбрать магазин — connect or select the active Ozon cabinet; accounts and calculations stay store-scoped;
+- 📊 Анализ — ask the assistant to review sales using available store context;
+- 📋 План действий — get an advisory action plan; suggestions do not execute changes in Ozon;
+- 📜 История — review recent assistant actions;
+- 🧠 Память — review facts explicitly saved for the assistant;
+- 💵 Прибыль за период — account Period Profit and profit for a selected SKU;
+- 💸 Внешние расходы — record expenses outside Ozon accruals and explicitly confirm period coverage;
+- 🧪 Экспериментальные расчёты — open trial calculations that do not replace the main reports;
+- 💰 Себестоимость — guided current or effective-dated seller-cost update;
+- 💰 Юнит-экономика товаров — per-product economics and price-planning scenarios;
+- 🎯 Решения по товарам — read-only product recommendations;
+- 🔎 На что обратить внимание — store-level priorities and missing-data signals;
+- 🧭 Обзор товаров — browse the current product snapshot, filters and batch-plan entry;
+- ↩️ Расходы на возвраты — inspect attributed return-related finance impact;
+- ❓ Помощь и команды — complete command memo and valid phrase examples;
+- ℹ️ О боте / версия — revision captured by the running process and its UTC start time.
 
 If no validated build revision is available, the bot labels itself as a local build
 with no version set. The version display is read-only and reflects the running

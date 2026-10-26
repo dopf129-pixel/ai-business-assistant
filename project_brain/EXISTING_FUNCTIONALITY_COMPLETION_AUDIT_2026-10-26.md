@@ -1,0 +1,76 @@
+# Основание ТЗ на завершение существующих функций
+
+Дата: 26.10.2026.
+Статус: аудит постановки задания, без реализации и нового полного architecture review.
+
+## Запрос владельца
+
+Подготовить для другой модели GPT Luna чёткое поэтапное ТЗ, которое завершает существующие функции бота. Новые возможные функции обсудить с владельцем отдельно.
+
+## Проверенная база
+
+- GitHub подтвердил PR #717 merged в main, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0.
+- Ранее слиты зависимые #712–#716. В новом задании этот стек не считать открытой очередью интеграции.
+- Compare e879e6d7881a097f040e56d9962223525840917c → main показывает 6 merge-коммитов, без diff файлов.
+- Код прочитан в чистом worktree C:/Users/gelashvilee/.codex/worktrees/daily-readiness-foundation/Ai ассистент на e879e6d7.
+- Основной checkout C:/Users/gelashvilee/Desktop/Ai ассистент остаётся на 7e6eabde и имеет ранее изменённые документы, data/tasks.json, data/users.json, untracked documents/locks/temp и ACL-ограниченные каталоги.
+- Эти локальные изменения не являются результатом подготовки этого ТЗ; они сохраняются.
+
+Старые CI результаты рассматриваются как evidence указанных ревизий. Тестовый набор приложения в рамках подготовки нового markdown-задания не запускался.
+
+## Прочитанные документы и контракты
+
+AGENTS.md; актуальные части CURRENT_STATE.md, DECISIONS.md, TEST_MAP.md, ROADMAP.md; README; docs/telegram-user-guide.md; прежние task/progress planning workspace, cross-docking и daily readiness; readiness audit, A04 financial source recheck, B00/B02 audits, C05/E00 acceptance, owner evidence request, observation log и review handoff.
+
+Проверены главные кнопки/handlers, структура калькулятора и target solver, cross-docking source/projector и saved-plan adapter, financial/owner export points, существующие test paths и .github/workflows/verify.yml.
+
+## Выводы
+
+| Наблюдение | Доказательство | Решение для нового ТЗ |
+|---|---|---|
+| Основные модули уже реализованы и проверялись CI | Merged #712–#717, код/evidence предыдущих программ | Не поручать заново написать калькулятор, pipeline, backup или updater |
+| Текст target/price comparison не соответствует включённому компоненту | _price_planning_result_screen в telegram_unit_price_calculator_runtime_service.py содержит безусловное исключение кросс-докинга; UnitPriceTargetPlanningService передаёт inputs в forward calculator; test_target_and_break_even_prices_keep_historical_cross_docking_cost_fixed проверяет вычет | Конкретный этап Z10: public-flow воспроизведение и согласованная подпись |
+| Owner evidence request говорит о 56-дневной диагностике, а главная экспериментальная клавиатура показывает диагностику одного акта | assistant_keyboard_service.py и DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md | Z07 должен найти реальный достижимый экспорт/подробности; не обещать несуществующую кнопку; при необходимости минимально дополнить существующий путь |
+| Safe planning projection уже содержит числитель/знаменатель и coverage | PlanningCrossDockingAdapter.project_source: expense_total/by_sku, supplied_units_sku/store, dates, days_complete/expected, method/rate | Переиспользовать готовое evidence, не вводить второй коллектор |
+| Историческая финансовая сверка не подтверждает нынешний работающий процесс | A04 recheck: reference 177282.17 ₽; current runtime JSON отсутствует | Отделить offline reference от owner acceptance и не hardcode итог |
+| Analytics cancellation/returns отсутствуют в полученном ответе | DAILY_USE_EVENT_SOURCE_AUDIT: totals/дневные значения не содержат метрик | Ограничение источника, не ошибка, которую разрешено закрыть нулём |
+| Финансовые строки, строки реализации, единицы и статусы возвратов имеют разное зерно | A04/B02: 1293 строки, 5356 realized units, 6117 ordered units; ClientReturn отдельно от Cancellation | Приёмка сравнивает только совместимые величины |
+| Верхние указатели документации отстают от GitHub | CURRENT_STATE/ROADMAP продолжают описывать PR stack как открытый | Небольшая актуальная запись и ссылки; историю не удалять |
+| Все главные меню, включая legacy действия, должны попасть в конечный scope | build_main_keyboard и handlers analyze/plan/history/memory | Реестр Z01 охватывает весь доступный интерфейс, а не только новые планы |
+| Локальная папка непригодна для слепого pull или полного pytest | Dirty/untracked inventory, documented ACL/storage incidents | Отдельный worktree; изолированное окружение до файловых тестов; без очистки пользовательских данных |
+
+Кодовое несоответствие подписи обнаружено чтением и сопоставлением существующих контрактов; новый runtime тест здесь не запускался. Его воспроизведение поручено Z10. Другие возможные дефекты нельзя объявлять подтверждёнными только по заголовку старого документа.
+
+## Принципы структуры
+
+ТЗ состоит из 24 этапов Z00–Z23 в семи модулях. Последовательность отделяет инвентаризацию от исправлений, а техническую приёмку — от внешнего evidence.
+
+Каждый этап имеет конкретный сценарий и критерий готовности. Проверенный существующий код можно принять как VERIFIED_EXISTING. Отсутствующие данные владельца регистрируются отдельно и не заставляют Luna простаивать или придумывать функционал.
+
+Конец программы — небольшие PR, зелёный CI текущих heads, review map и один пакет владельческой проверки. Новые направления, merge, deployment, реальный bot start/stop и live Ozon requests в исполнение не включены.
+
+## Отчёт подготовки по AGENTS.md
+
+1. Change Summary: подготовлено документационное ТЗ на локальной ветке main 7e6eabde; нового implementation commit нет.
+2. Files Changed: добавлены только task, progress и этот audit от 26.10.2026. Код/данные/существующие документы не изменялись.
+3. Architecture Impact: No architectural impact для подготовки. Будущие изменения контрактов требуют соответствующей классификации review.
+4. Preserved Components: финансовый pipeline, налоговая политика, Return COGS gates, stored plans, Ozon clients, реальные процессы/хранилища и весь прежний dirty diff.
+5. Testing: проверки приложения не запускались, поскольку implementation не менялась. Структурная проверка прошла: 24 уникальных этапа Z00–Z23, совпадающая матрица журнала, зависимости без циклов, 41 существующий code/document path, корректные UTF-8/markdown fences и отсутствие trailing whitespace. Ошибочный путь CLI при подготовке исправлен на корневой daily_use_reconcile.py; повторная проверка успешна.
+6. Documentation Updates: новые task/progress/audit. CHANGELOG/CURRENT_STATE/ROADMAP уже изменены ранее; подготовка их не перезаписывает. TEST_MAP/DECISIONS не требуют новых записей без tests/architecture implementation.
+7. Review Classification: Normal Change — подготовка задания. Область будущего review зависит от фактических исправлений.
+8. Next Recommended Step: передать Luna команду из последнего раздела task; выполнение начинается с Z00, не автоматически при создании документа.
+
+## Исполнение: результат Z00
+
+26.10.2026 Z00 выполнен со статусом VERIFIED. Новая ветка codex/existing-functionality-completion создана от e879e6d7881a097f040e56d9962223525840917c в чистом managed worktree. GitHub подтвердил, что PR #712–#717 слиты; compare выбранной базы с актуальным main показывает main ahead на 6 merge-коммитов, behind 0, file diff отсутствует. Основной локальный checkout остаётся на старом 7e6eabde с теми же пятью tracked изменениями и прежними untracked/ACL путями. Их не переносили и не меняли. Ветка уже содержит только три ранее подготовленных task/progress/audit документа сверх исходного дерева; производственный код, данные, credentials и рабочий процесс бота не затрагивались. До этапа Z20 тесты не запускались; секреты и содержимое пользовательских хранилищ не читались. Подробный журнал проверки и точные границы — в LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md.
+
+## Исполнение: результат Z01 и F-03
+
+Z01 завершён со статусом VERIFIED. Реестр включает все 16 callbacks главного меню и основные дочерние сценарии: onboarding/stores, legacy assistant actions, финансовые отчёты, experiment, расходы/себестоимость/возвраты, калькулятор/сохранённые и batch планы, product decision/overview/attention, help/version и local lifecycle/backup/update commands. Каждый путь связан с существующими handler/service, источником или storage, тестовыми файлами и дальнейшим acceptance этапом. Код не менялся, tests не запускались, поскольку Z01 — статическая инвентаризация и тестовая среда будет изолирована на Z20.
+Добавлен F-03: docs/telegram-user-guide.md перечисляет лишь часть кнопок главного меню. Наличие карточек/обработчиков сверено по исходному коду, поэтому это подтверждённая неполнота руководства, а не недоступность runtime. Исправление документации включено в Z02. Полный реестр: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
+
+## Исполнение: результат Z02
+
+Z02 завершён со статусом VERIFIED. GitHub metadata подтвердили, что программы A–G, H–O, cross-docking X00–X06, supply-act diagnostics и daily readiness A–E уже представлены в merged PR #702–#717. Отдельные #698–#701 закрыты без собственного merge, но reviewed product-workbench изменения вошли в #702; это superseded stack, не новая очередь.
+Текущие указатели CURRENT_STATE, ROADMAP, CHANGELOG и TEST_MAP обновлены без удаления исторических записей. docs/telegram-user-guide.md теперь включает описание всех 16 кнопок главного меню. F-02 и F-03 закрыты документально; F-01 остаётся единственной подтверждённой runtime/UI проблемой для Z10. Owner evidence E-01–E-03 остаётся pending, но не блокирует разработку.
+Код, пользовательские данные и тесты не менялись; tests не запускались до обязательной изоляции Z20. Дальнейший порядок: сначала Z20, затем зависимые финансовые этапы.
