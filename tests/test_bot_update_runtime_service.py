@@ -210,7 +210,9 @@ def test_update_no_start_pins_sha_verifies_backup_and_runs_local_checks(tmp_path
         "fast_forward", "dependencies", "local_checks",
     ]
     assert harness.git_calls[0][0] == "fetch"
-    assert harness.git_calls[1] == ("merge", "--ff-only", "--no-edit", TARGET)
+    assert harness.git_calls[1] == (
+        "merge", "--ff-only", "--no-edit", "--no-overwrite-ignore", TARGET
+    )
     assert harness.backup.backup_calls == 1
     assert harness.backup.verify_calls == ["C:/synthetic/verified-backup.zip"]
     assert harness.stop_calls == []

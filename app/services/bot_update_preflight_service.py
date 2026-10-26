@@ -44,6 +44,16 @@ class BotUpdatePreflightService:
         """Return a plan based only on local checkout and cached refs."""
         blockers = []
         try:
+            ignored_local_paths = self._nul_paths(
+                self._git_text(
+                    "ls-files", "--others", "--ignored", "--exclude-standard",
+                    "--directory", "-z",
+                )
+            )
+        except _PreflightFailure:
+            return self._blocked("BOT_UPDATE_IGNORED_PATH_CHECK_FAILED")
+
+        try:
             actual_root = self._git_text("rev-parse", "--show-toplevel")
             current_revision = self._git_text("rev-parse", "--verify", "HEAD")
             current_branch = self._git_text("branch", "--show-current")
@@ -136,13 +146,7 @@ class BotUpdatePreflightService:
                 "paths": sorted(set(untracked_conflicts)),
             })
         for path in sorted(set(incoming_paths)):
-            if not self._local_path_exists(path):
-                continue
-            ignored = self._check_ignored_path(path)
-            if ignored is None:
-                blockers.append({"code": "BOT_UPDATE_IGNORED_PATH_CHECK_FAILED"})
-                break
-            if ignored:
+            if self._paths_intersect_any(path, ignored_local_paths):
                 ignored_overwrite_conflicts.append(path)
         if ignored_overwrite_conflicts:
             blockers.append({
@@ -275,38 +279,6 @@ class BotUpdatePreflightService:
             raise _PreflightFailure("BOT_UPDATE_GIT_COMMAND_FAILED")
         return stdout.strip("\r\n")
 
-    def _check_ignored_path(self, relative_path):
-        """Return whether an existing incoming path is ignored, or None on error."""
-        try:
-            result = self.git_runner(
-                self.project_root,
-                ["check-ignore", "-q", "--", relative_path],
-            )
-        except Exception:
-            return None
-        returncode = getattr(result, "returncode", None)
-        if returncode == 0:
-            return True
-        if returncode == 1:
-            return False
-        return None
-
-    def _local_path_exists(self, relative_path):
-        original = str(relative_path or "").replace("\\", "/")
-        parts = original.split("/")
-        if (
-            not original
-            or original.startswith("/")
-            or ":" in parts[0]
-            or any(part in {"", ".", ".."} for part in parts)
-        ):
-            return False
-        candidate = self.project_root.joinpath(*parts)
-        try:
-            return os.path.lexists(candidate)
-        except OSError:
-            return False
-
     @staticmethod
     def _run_git(project_root, arguments):
         return subprocess.run(
@@ -345,7 +317,10 @@ class BotUpdatePreflightService:
 
     @staticmethod
     def _normalize_path(path):
-        return str(path or "").replace("\\", "/").removeprefix("./").casefold()
+        return (
+            str(path or "").replace("\\", "/").removeprefix("./")
+            .rstrip("/").casefold()
+        )
 
     @classmethod
     def _paths_intersect_any(cls, path, candidates):

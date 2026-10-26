@@ -1,12 +1,18 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **REVIEW_FIXES_CI_GREEN_REPEAT_REVIEW_CLEAR; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. Четыре подтверждённых дефекта исправлены в code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`; exact-head CI и повторное техническое review завершены успешно. Внешнее owner evidence остаётся pending.
+Статус: **ADDITIONAL_REVIEW_FIXES_IMPLEMENTED; EXACT_HEAD_CI_PENDING; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. Первые четыре review-дефекта имеют зелёный exact-head CI на `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`; дополнительные исправления P1/P2 ожидают exact-head CI на новой ревизии. Внешнее owner evidence остаётся pending.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
 ## Точка продолжения
 
 - Следующий шаг: независимый reviewer/владелец интегрирует PR stack в dependency order после проверки актуальных heads. Затем выполнить owner evidence E03 и эксплуатационное наблюдение; production readiness не заявлять до этого. E00 acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`. D01–D06 acceptance: `DAILY_USE_BACKUP_ACCEPTANCE_D01_2026-10-25.md`, `DAILY_USE_RESTORE_ACCEPTANCE_D02_2026-10-25.md`, `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`, `DAILY_USE_STATUS_DIAGNOSTICS_ACCEPTANCE_D05_2026-10-25.md`, `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`. A04 завершён только в доступном документальном scope; owner evidence pending в `DAILY_USE_A05_OWNER_EVIDENCE_REQUEST_2026-10-25.md`.
+
+### E02 follow-up — исправление двух замечаний review PR #717 (26.10.2026)
+
+- P1: Git ignored-path preflight теперь проверяет пересечение путей в обе стороны с локальными ignored файлами/папками; merge дополнительно использует `--no-overwrite-ignore`. Добавлены synthetic проверки preflight и прямого Git отказа для обоих file↔directory переходов.
+- P2: recovery runbook строит нормализованный абсолютный sibling path для restore dry-run; regression выполняет CLI-план на новом тестовом пути и проверяет documented command.
+- Три адресных test files: **57 passed in 15.60s** на Windows/Python 3.12; exact-head CI ожидается. Merge/deploy/реальный bot не выполнялись.
 
 ### E01 — исправления четырёх подтверждённых review findings
 

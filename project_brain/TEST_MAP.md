@@ -1,3 +1,11 @@
+# Дополнительные review regressions PR #717 (2026-10-26)
+
+- `tests/test_bot_update_preflight_service.py`: ignored локальный файл, заменяемый входящей папкой, и ignored локальная папка с данными, заменяемая входящим файлом; оба случая блокируются до обновления. Соседние не пересекающиеся ignored файлы остаются разрешены.
+- Там же: реальный synthetic Git fast-forward с `--no-overwrite-ignore` прекращается без изменения HEAD и без потери локального содержимого при обоих изменениях формы пути.
+- `tests/test_bot_update_runtime_service.py`: проверяется, что updater всегда добавляет `--no-overwrite-ignore` к fast-forward.
+- `tests/test_bot_backup_service.py`: restore CLI принимает нормализованный абсолютный sibling target, используемый runbook dry-run; документационная команда проверяется вместе с синтетическим backup.
+- Связанный Windows/Python 3.12 профиль `test_bot_update_preflight_service.py`, `test_bot_update_runtime_service.py`, `test_bot_backup_service.py`: **57 passed in 15.60s**. Exact-head GitHub CI ожидается.
+
 # Daily-use readiness review fixes — ignored data, update gate, stop generation and SQLite timeout
 
 - `tests/test_bot_update_preflight_service.py`: actual synthetic Git tree where the incoming target tracks a path ignored by `.gitignore`; the local file is preserved and update preflight blocks. A non-overlapping ignored database remains allowed.

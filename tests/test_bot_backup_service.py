@@ -603,7 +603,18 @@ def test_restore_cli_check_only_verifies_and_does_not_create_target(monkeypatch,
     service = _service(project, None)
     backup_result = service.backup()
     assert backup_result["error"] is False, backup_result
-    target = tmp_path / "cli-target"
+    # The runbook normalizes its parent-relative sibling path before passing it
+    # to the restore CLI; raw '..' segments are intentionally rejected.
+    target = (project / ".." / "restore-drill").resolve()
+    runbook = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "daily-use-recovery-runbook.md"
+    ).read_text(encoding="utf-8")
+    assert (
+        "[System.IO.Path]::GetFullPath((Join-Path (Get-Location) '..\\restore-drill'))"
+        in runbook
+    )
 
     exit_code = backup_cli_main([
         "restore",

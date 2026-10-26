@@ -41,7 +41,7 @@ Backup не содержит `.env`, ключи, Telegram/Ozon credentials, ло
 Выберите новый путь, которого ещё нет, вне текущей папки проекта и хранилища:
 
 ```powershell
-.\restore_bot.ps1 -ArchivePath ".\.local-backups\<архив>.zip" -TargetDirectory "..\restore-drill" -CheckOnly
+.\restore_bot.ps1 -ArchivePath ".\.local-backups\<архив>.zip" -TargetDirectory ([System.IO.Path]::GetFullPath((Join-Path (Get-Location) '..\restore-drill'))) -CheckOnly
 ```
 
 Сама проверка ничего не распаковывает. Для создания отдельной копии данных повторите команду без `-CheckOnly`. Она не переключает checkout, не меняет `.env` и не запускает бота. Рабочие данные восстановленной копии следует проверять только в отдельном checkout с отдельным `AI_ASSISTANT_STORAGE_ROOT`.

@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from bot_update import main as update_cli_main
 from services.bot_update_preflight_service import BotUpdatePreflightService
 from services.bot_instance_lifecycle_service import project_root_fingerprint
@@ -45,12 +47,14 @@ def _repository(root):
     return base
 
 
-def _publish_remote_commit(root, base, *, edits, additions=()):
+def _publish_remote_commit(root, base, *, edits, additions=(), force_additions=()):
     for relative, content in edits.items():
         _write(root, relative, content)
     for relative, content in additions:
         _write(root, relative, content)
     _git(root, "add", "--all")
+    for relative in force_additions:
+        _git(root, "add", "-f", "--", relative)
     _git(root, "commit", "-m", "synthetic remote update")
     target = _git(root, "rev-parse", "HEAD")
     _git(root, "reset", "--hard", base)
@@ -205,6 +209,102 @@ def test_ignored_local_runtime_file_blocks_incoming_tracked_overwrite(tmp_path):
         for blocker in result["blockers"]
     )
     assert (root / "ozon_assistant.db").read_text(encoding="utf-8") == local_data
+
+
+@pytest.mark.parametrize(
+    ("ignore_rule", "remote_path", "local_path", "incoming_path"),
+    [
+        ("runtime.db\n", "runtime.db/marker.txt", "runtime.db", "runtime.db/marker.txt"),
+        ("storage/\n", "storage", "storage/ozon_assistant.db", "storage"),
+    ],
+)
+def test_ignored_path_ancestor_and_descendant_collisions_block_update(
+    tmp_path, ignore_rule, remote_path, local_path, incoming_path
+):
+    root = tmp_path / "project"
+    _repository(root)
+    _write(root, ".gitignore", ignore_rule)
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore local runtime data")
+    base = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", base)
+    target = _publish_remote_commit(
+        root,
+        base,
+        edits={},
+        additions=((remote_path, "incoming synthetic runtime path\n"),),
+        force_additions=(remote_path,),
+    )
+    local_data = "owner local data\n"
+    _write(root, local_path, local_data)
+    service, _ = _service(root)
+
+    result = service.inspect()
+
+    assert result["target_revision"] == target
+    assert result["error"] is True
+    assert any(
+        blocker.get("code") == "BOT_UPDATE_IGNORED_OVERWRITE_CONFLICT"
+        and incoming_path in blocker.get("paths", [])
+        for blocker in result["blockers"]
+    )
+    local_data_path = root / local_path
+    if local_data_path.is_file():
+        assert local_data_path.read_text(encoding="utf-8") == local_data
+    else:
+        assert (
+            (local_data_path / "ozon_assistant.db").read_text(encoding="utf-8")
+            == local_data
+        )
+
+
+@pytest.mark.parametrize(
+    ("ignore_rule", "remote_path", "local_path"),
+    [
+        ("runtime.db\n", "runtime.db/marker.txt", "runtime.db"),
+        ("storage/\n", "storage", "storage/ozon_assistant.db"),
+    ],
+)
+def test_git_fast_forward_guard_preserves_ignored_path_shape_collisions(
+    tmp_path, ignore_rule, remote_path, local_path
+):
+    root = tmp_path / "project"
+    _repository(root)
+    _write(root, ".gitignore", ignore_rule)
+    _git(root, "add", ".gitignore")
+    _git(root, "commit", "-m", "ignore local runtime data")
+    base = _git(root, "rev-parse", "HEAD")
+    _git(root, "update-ref", "refs/remotes/origin/main", base)
+    target = _publish_remote_commit(
+        root,
+        base,
+        edits={},
+        additions=((remote_path, "incoming synthetic runtime path\n"),),
+        force_additions=(remote_path,),
+    )
+    local_data = "owner local data\n"
+    local_data_path = _write(root, local_path, local_data)
+
+    result = subprocess.run(
+        [
+            "git", "-C", str(root), "merge", "--ff-only", "--no-edit",
+            "--no-overwrite-ignore", target,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert _git(root, "rev-parse", "HEAD") == base
+    if local_data_path.is_file():
+        assert local_data_path.read_text(encoding="utf-8") == local_data
+    else:
+        assert (
+            (local_data_path / "ozon_assistant.db").read_text(encoding="utf-8")
+            == local_data
+        )
 
 
 def test_non_overlapping_ignored_runtime_file_does_not_block_update(tmp_path):

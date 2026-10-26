@@ -289,7 +289,10 @@ class BotUpdateRuntimeService:
                 bot_stopped=bot_stopped,
             )
 
-        if not self._git("merge", "--ff-only", "--no-edit", target_revision):
+        if not self._git(
+            "merge", "--ff-only", "--no-edit", "--no-overwrite-ignore",
+            target_revision,
+        ):
             return self._failure(
                 "BOT_UPDATE_FAST_FORWARD_FAILED",
                 current_revision=self._read_head(),

@@ -1,5 +1,15 @@
 # Daily-use readiness — confirmed review fixes
 
+## Follow-up review corrections (2026-10-26)
+
+Повторный review двух дополнительных дефектов в PR #717 выявил, что exact-path проверка пропускала игнорируемый файл/папку при замене его Git-потомком или Git-предком, а пример restore dry-run передавал `..` в строгий валидатор target.
+
+- Preflight перечисляет ignored локальные пути с `git ls-files --others --ignored --exclude-standard --directory -z` и блокирует любой входящий изменённый путь, который пересекается с ними по точному совпадению либо границе предок/потомок. Перечисление схлопывает целые ignored directories, чтобы не обходить содержимое runtime-каталогов.
+- Git fast-forward дополнен `--no-overwrite-ignore` как последним предохранителем от path-shape collision, если локальное состояние изменится после preflight.
+- Runbook теперь нормализует sibling `restore-drill` через PowerShell `GetFullPath` до вызова restore service; service сохраняет строгое отклонение сырых `..` путей и безопасную проверку пустой новой папки.
+- Synthetic Windows/Python 3.12 профиль preflight/updater/backup: **57 passed in 15.60s**. Exact-head CI на новую ревизию ожидается.
+- Подробный diff, проверки, ограничения и CI будут добавлены в follow-up отчёт после exact-head проверки.
+
 Date: 2026-10-25. Status: `IMPLEMENTED_CI_GREEN_REPEAT_REVIEW_CLEAR; OWNER_VALIDATION_PENDING`.
 
 ## Confirmed findings and changes
