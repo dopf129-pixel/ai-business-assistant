@@ -2,7 +2,7 @@
 
 - Preflight теперь обнаруживает пересечения между входящими путями Git и ignored локальными файлами/папками в обе стороны; fast-forward дополнительно использует `--no-overwrite-ignore`, чтобы защитить данные при гонке после preflight.
 - В recovery runbook команда dry-run восстановления нормализует путь соседней папки до передачи в строгую проверку backup service.
-- Регрессии обновления и backup/restore: **57 passed** на Windows/Python 3.12. Exact-head CI после этого изменения ожидается; слияние, развёртывание и операции с реальным ботом не выполнялись.
+- Регрессии обновления и backup/restore: **57 passed** на Windows/Python 3.12. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл Verify `40292624411`: Windows/Linux по **3,740 passed**, compile и Linux production Docker build/runtime smoke успешны. Слияние, развёртывание и операции с реальным ботом не выполнялись.
 
 # 2026-10-25 — устранены четыре дефекта review обновления, lifecycle и backup
 

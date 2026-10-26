@@ -1,6 +1,6 @@
 # Журнал Luna: ежедневная эксплуатация — 25.10.2026
 
-Статус: **ADDITIONAL_REVIEW_FIXES_IMPLEMENTED; EXACT_HEAD_CI_PENDING; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. Первые четыре review-дефекта имеют зелёный exact-head CI на `39d1a12bcb699ef504abbbb1c484a5a7745f23a7`; дополнительные исправления P1/P2 ожидают exact-head CI на новой ревизии. Внешнее owner evidence остаётся pending.
+Статус: **ADDITIONAL_REVIEW_FIXES_CI_GREEN; USER_VALIDATION_PENDING**. S00, A00–A05, B00–B05, C00–C05, D00–D06 и E00 закрыты в указанном offline/synthetic scope. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл exact-head Verify `40292624411` (Windows/Linux по 3,740 passed, compile и Docker smoke успешны). Внешнее owner evidence остаётся pending.
 ТЗ: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`.
 Основание: `DAILY_USE_READINESS_AUDIT_2026-10-25.md`.
 
@@ -12,7 +12,7 @@
 
 - P1: Git ignored-path preflight теперь проверяет пересечение путей в обе стороны с локальными ignored файлами/папками; merge дополнительно использует `--no-overwrite-ignore`. Добавлены synthetic проверки preflight и прямого Git отказа для обоих file↔directory переходов.
 - P2: recovery runbook строит нормализованный абсолютный sibling path для restore dry-run; regression выполняет CLI-план на новом тестовом пути и проверяет documented command.
-- Три адресных test files: **57 passed in 15.60s** на Windows/Python 3.12; exact-head CI ожидается. Merge/deploy/реальный bot не выполнялись.
+- Три адресных test files: **57 passed in 15.60s** на Windows/Python 3.12. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл Verify `40292624411`: Windows/Linux по **3,740 passed**, compile и production Docker smoke успешны. Merge/deploy/реальный bot не выполнялись.
 
 ### E01 — исправления четырёх подтверждённых review findings
 

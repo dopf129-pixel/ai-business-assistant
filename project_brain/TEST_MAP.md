@@ -4,7 +4,7 @@
 - Там же: реальный synthetic Git fast-forward с `--no-overwrite-ignore` прекращается без изменения HEAD и без потери локального содержимого при обоих изменениях формы пути.
 - `tests/test_bot_update_runtime_service.py`: проверяется, что updater всегда добавляет `--no-overwrite-ignore` к fast-forward.
 - `tests/test_bot_backup_service.py`: restore CLI принимает нормализованный абсолютный sibling target, используемый runbook dry-run; документационная команда проверяется вместе с синтетическим backup.
-- Связанный Windows/Python 3.12 профиль `test_bot_update_preflight_service.py`, `test_bot_update_runtime_service.py`, `test_bot_backup_service.py`: **57 passed in 15.60s**. Exact-head GitHub CI ожидается.
+- Связанный Windows/Python 3.12 профиль `test_bot_update_preflight_service.py`, `test_bot_update_runtime_service.py`, `test_bot_backup_service.py`: **57 passed in 15.60s**. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл exact-head Verify `40292624411`: **3,740 passed** на Windows и Linux, compile и Linux production Docker build/runtime smoke прошли.
 
 # Daily-use readiness review fixes — ignored data, update gate, stop generation and SQLite timeout
 

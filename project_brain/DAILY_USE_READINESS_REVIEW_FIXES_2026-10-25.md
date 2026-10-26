@@ -7,8 +7,9 @@
 - Preflight перечисляет ignored локальные пути с `git ls-files --others --ignored --exclude-standard --directory -z` и блокирует любой входящий изменённый путь, который пересекается с ними по точному совпадению либо границе предок/потомок. Перечисление схлопывает целые ignored directories, чтобы не обходить содержимое runtime-каталогов.
 - Git fast-forward дополнен `--no-overwrite-ignore` как последним предохранителем от path-shape collision, если локальное состояние изменится после preflight.
 - Runbook теперь нормализует sibling `restore-drill` через PowerShell `GetFullPath` до вызова restore service; service сохраняет строгое отклонение сырых `..` путей и безопасную проверку пустой новой папки.
-- Synthetic Windows/Python 3.12 профиль preflight/updater/backup: **57 passed in 15.60s**. Exact-head CI на новую ревизию ожидается.
-- Подробный diff, проверки, ограничения и CI будут добавлены в follow-up отчёт после exact-head проверки.
+- Synthetic Windows/Python 3.12 профиль preflight/updater/backup: **57 passed in 15.60s**.
+- Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл exact-head Verify `40292624411`: Windows и Linux по **3,740 passed**, compile и Linux production Docker build/runtime smoke успешны. Повторная проверка двух исправлений не выявила новых actionable дефектов.
+- В PR добавлена запись этих результатов и связанная тестовая карта. No merge/deploy/live bot operation performed.
 
 Date: 2026-10-25. Status: `IMPLEMENTED_CI_GREEN_REPEAT_REVIEW_CLEAR; OWNER_VALIDATION_PENDING`.
 

@@ -2,7 +2,7 @@
 
 - Исправлен P1: read-only preflight сравнивает входящие Git-пути с локальными ignored файлами и папками по совпадению и предкам/потомкам. Fast-forward защищён опцией `--no-overwrite-ignore` на случай изменений между проверкой и слиянием.
 - Исправлен P2 в recovery runbook: путь `restore-drill` вычисляется как абсолютный нормализованный путь, который проходит строгую проверку восстановителя.
-- Адресные Windows/Python 3.12 проверки: **57 passed in 15.60s**. Exact-head GitHub CI после фиксов ожидается. Подробности: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md` и follow-up отчёт от 2026-10-26.
+- Адресные Windows/Python 3.12 проверки: **57 passed in 15.60s**. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл exact-head Verify `40292624411`: Windows/Linux по **3,740 passed**, compile и Linux production Docker build/runtime smoke успешны. Подробности: `DAILY_USE_READINESS_REVIEW_FIXES_2026-10-25.md`.
 
 # 2026-10-25 — новые исправления независимого review
 
