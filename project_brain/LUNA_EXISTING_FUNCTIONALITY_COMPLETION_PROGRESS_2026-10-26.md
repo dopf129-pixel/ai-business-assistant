@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z15 и Z20 VERIFIED; далее Z16).
+Статус исполнения: IN_PROGRESS (Z00–Z16 и Z20 VERIFIED; далее Z17).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z15 завершены для заявленного технического объёма; следующий этап — Z16.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z16 завершены для заявленного технического объёма; следующий этап — Z17.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -33,7 +33,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z13 | Batch/mix/readiness/plan-fact/export | VERIFIED_EXISTING | Связанный synthetic profile: 108 passed; three-SKU mix, readiness, compatible comparisons and full exports | — |
 | Z14 | Навигация и существующие действия | VERIFIED_EXISTING | Offline public-route profile: 416 passed across menu, onboarding, reports, costs, experiments, memory and decisions | — |
 | Z15 | Scope, concurrency и budgets | VERIFIED_EXISTING | Stale actions/dedup/cache eviction/Performance shared budgets profile: 160 passed | — |
-| Z16 | Отчёты и доставка | NOT_STARTED | — | — |
+| Z16 | Отчёты и доставка | VERIFIED_EXISTING | Report formatting, redaction, UTF-16 splitting and keyboard delivery profile: 171 passed | — |
 | Z17 | Обновление и инструкции | NOT_STARTED | — | Рабочую установку не трогать |
 | Z18 | Synthetic backup/restore | NOT_STARTED | — | Пользовательские данные не использовать |
 | Z19 | Synthetic lifecycle/update | NOT_STARTED | — | Рабочий процесс не трогать |
@@ -237,4 +237,14 @@ Seller/Performance и cross-docking collection проверены с дочер�
 
 Изолированный profile `tests/test_telegram_calculation_inflight_dedup.py tests/test_period_profit_analytics_runtime.py tests/test_product_business_decision_query_service.py tests/test_product_decision_metrics_source_tenant_cache.py tests/test_period_profit_selected_scope_concurrency.py tests/test_period_profit_selected_scope_end_to_end.py tests/test_period_profit_operation_diagnostics.py tests/test_ozon_performance_historical_reports.py tests/test_ozon_performance_client.py tests/test_cross_docking_unit_rate_source.py app/tests/test_period_profit_parallel_finance_reads.py app/tests/test_ozon_returns_diagnostic_request_attempt_count.py app/tests/test_period_profit_identity_ozon_client.py`: **160 passed in 4.10s**, 0 failed/deselected. Два предварительных запуска профиля не собрали тесты из-за несуществующего предположенного имени файла; по фактическому дереву восстановлено правильное имя `test_product_business_decision_query_service.py`, полный профиль прошёл. Все тесты synthetic/offline.
 
-Следующий этап: Z16 — пользовательская длина, точность форматирования, разбиение Telegram сообщений и diagnostics redaction.
+Результат Z16 и фактическая проверка зафиксированы далее.
+
+### Z16 — понятные отчёты и доставка сообщений
+
+Статус: VERIFIED_EXISTING по проверенным основным, экспериментальным и плановым экранам; подтверждённой ошибки доставки/форматирования не найдено. Валютные доли рассчитываются только относительно допустимой денежной базы, количества — относительно совместимой базы штук; при нулевой/несовместимой базе выводится объяснение вместо вычисленного процента. Короткие отчёты показывают основной смысл, источники/ограничения доступны в деталях; предупреждения об unknown/coverage и включённых затратах согласованы с отображаемыми числами.
+
+Длинные сообщения и emoji разбиваются с учётом UTF-16 лимита; concat частей восстанавливает весь текст, клавиатура прикрепляется к последней части. Проверен fallback, когда Telegram не может отредактировать исходное progress message. Ошибка отправки не превращается в успешный расчёт/сохранение. Support diagnostic остаётся allowlisted/redacted; финансовый owner export — самостоятельный формат и не ослабляет поддержку.
+
+Изолированный profile formatter/loading, period main/compact, experimental economy, support diagnostics/export, current unit economics, seller attention, plan comparison result and command/financial integrity — **171 passed in 4.49s**, 0 failed/deselected. Реальные сообщения Telegram и пользовательские финансы не использовались; код не менялся.
+
+Следующий этап: Z17 — проверить команды обновления и документацию установки без запуска/остановки рабочей установки.

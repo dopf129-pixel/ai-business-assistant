@@ -5637,6 +5637,13 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_period_profit_operation_diagnostics.py`, `tests/test_ozon_performance_historical_reports.py`, `tests/test_ozon_performance_client.py`, `tests/test_cross_docking_unit_rate_source.py`, and `app/tests/test_period_profit_identity_ozon_client.py`: parent deadline/request reservations shared by Performance/auth retries, finance, returns and child operations.
 - Isolated Windows/Python 3.12 profile: **160 passed in 4.10s**. No live Ozon calls or user storage were used; existing code was confirmed.
 
+## Z16 — user-facing amounts, long-message delivery, and diagnostics
+
+- `tests/test_telegram_response_formatter.py` and `tests/test_telegram_loading_feedback_v1451_v1460.py`: UTF-16-aware Telegram split, full-text preservation, keyboard only on final chunk, progress edit fallback, and send failure semantics.
+- `tests/test_period_profit_response.py`, `tests/test_period_profit_compact_report_v1431_v1440.py`, `tests/test_experimental_store_economics.py`, `tests/test_current_unit_economics_integration.py`, and `tests/test_seller_attention_summary_service.py`: percent/quantity denominator, rounding and explanation for unknown/incompatible/zero bases; concise/details consistency.
+- `tests/test_period_profit_diagnostic_view_service.py`, `tests/test_period_profit_support_diagnostic_export_service.py`, and `tests/test_analytics_export_serializer.py`: allowlisted diagnostics remain redacted while the separate owner export preserves its intended financial scope.
+- Isolated Windows/Python 3.12 profile: **171 passed in 4.49s**. No live Telegram message was sent; existing delivery/formatting code was confirmed.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.
