@@ -18,4 +18,4 @@ This feature persists seller-owned commission assumptions and historical price e
 
 ## Status
 
-Contract adopted for this implementation by the user's task. Q06/Q15/Q26 and Q35 must provide migration, scope, restore and exact-head CI evidence; this decision is not yet implemented or externally validated.
+Contract adopted for this implementation by the user's task. Q04 implements and tests the pure bounded resolver; Q06/Q15/Q26 and Q35 must still provide durable migration, scope, observation, restore and exact-head CI evidence. The overall feature is not production-wired or externally validated.

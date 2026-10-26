@@ -2,7 +2,7 @@
 
 - PR #718 слит в main: `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`; reviewed head `8c1408d55d31e111761bdee708a2792ab1dafa33`, Verify #40348020402 успешен на Windows/Linux и Docker. Записи ниже о незавершённом merge относятся к предыдущим checkpoint.
 - По решению владельца подготовлено `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`: 8 модулей A–H, этапы Q00–Q35. Цель — прибыль в рублях с одной проданной единицы, с тарифными диапазонами, ручными комиссиями, рекламными сценариями и проверкой по наблюдениям.
-- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q03 пройдены 27.10.2026: зафиксированы exact base/CI, isolated Windows/Python 3.12.10 baseline (**247 passed**, 5 tracked data JSON hashes unchanged), предметный audit и contracts/Decision 061. Runtime implementation ещё не изменялась. Текущие ставки конкретного SKU не подтверждены, старые 14%/20% не являются defaults. Прогноз ДРР и неполный CPC/SKU-факт не выдаются за полную подтверждённую прибыль.
+- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q04 пройдены 27.10.2026: isolated baseline **247 passed**, пять tracked data JSON hashes unchanged; Decision 061/contracts завершены; pure tariff resolver добавлен с **34 регрессиями passed**. Он пока не подключён к Telegram/storage. Текущие ставки конкретного SKU не подтверждены, старые 14%/20% не являются defaults. Прогноз ДРР и неполный CPC/SKU-факт не выдаются за полную подтверждённую прибыль.
 - ТЗ требует расширять существующие calculator/TaxService/planning/finance adapters, сохранять старые планы и данные, закончить на PR с зелёным exact-head CI и независимым review package. Merge/deploy/real bot запуск в новую программу не входят.
 
 # 2026-10-26 — историческая программа: завершение существующего функционала

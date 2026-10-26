@@ -23,7 +23,7 @@
 | Q01 | DONE | Предметный аудит завершён: существующая формула, source scope, Telegram route, saved-plan schema/CAS и отсутствие price-observation workflow подтверждены в `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`. Runtime не менялся; Q02 baseline впереди. |
 | Q02 | DONE | Изолированный baseline Windows/Python 3.12: 247 passed; Python dotenv/live credentials отключены, storage/basetemp вынесены в новую temp-папку, hashes всех 5 tracked `data/*.json` совпали до/после. Первый фактический запуск найденного runner с исправленным `PYTHONPATH=app` прошёл. |
 | Q03 | DONE | Зафиксированы outcome/tariff/ad/snapshot/observation contracts, layer boundary, limits и additive planning persistence в `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`; Decision 061. Runtime поведение пока не заявляется. |
-| Q04 | NOT_STARTED | — |
+| Q04 | DONE | Добавлен pure `UnitPriceTariffResolver`; точные inclusive cents ranges, gaps, overlap/conflict, exact profile selection, current-price point, scope/date/scheme checks и numeric limits. Новый изолированный профиль: **34 passed in 0.44s**; подробности ниже. |
 | Q05 | NOT_STARTED | — |
 | Q06 | NOT_STARTED | — |
 | Q07 | NOT_STARTED | — |
@@ -70,8 +70,8 @@
 
 ## Следующее действие / resume
 
-1. Начать Q04: реализовать pure tariff range resolver с N03/N04 regressions.
-2. После Q04 перейти к Q05/Q06; Q15 выполнять по dependency table.
+1. Выполнить Q05: проверить официальный тарифный источник и зафиксировать подтверждённость/ограничение current-price point.
+2. Выполнить Q06: additive tenant persistence/CAS/idempotency/quota для ручных профилей; Q15 может идти после Q03.
 3. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
 
 ## Записи исполнения
@@ -112,3 +112,12 @@
 - Ownership: existing tenant SQLite + `PlanningWorkspaceRepository` единственные владельцы схемы/миграций/транзакций новых tariff/observation entities; application services — тонкая orchestration; pure resolver/compare — без I/O. Saved plans сохраняют frozen profile revision; observations append-only с idempotency/CAS; текущий backup/restore boundary сохраняется.
 - Проверки: сверены секции 2, 4–11, 13 ТЗ, DECISIONS 036–050/059–060, текущие planning schema и baseline suites. Q03 — contract-only; pytest новых runtime функций не запускался.
 - Q03 — PASS, runtime implementation ещё не заявлена. Следующее: Q04 — pure tariff resolver.
+
+### Q04 — pure tariff range resolver (2026-10-27)
+
+- Добавлены `app/services/unit_price_tariff_resolver.py` и `tests/test_unit_price_tariff_resolver.py`. Resolver не обращается к Telegram/Ozon/SQLite; принимает bounded normalized profiles и exact seller price cents, identity, FBO schema и date.
+- Resolver реализует inclusive integer-cent bounds, explicit current-price point, manual/confirmed origins, exact profile/revision selection, explicit conflict, gaps as UNKNOWN, expiration, FBO-only support, owner/store/product/offer/SKU/date scope checks, 20-profile/20-band limits и существующий forward price ceiling. Ставки принимаются только как Decimal/string/int (без bool/float), `[0,100]`, non-finite отклоняются, 0% сохраняется. Об overlap включённой границы отказ; ссылка источника проходит allowlist до projection.
+- N03 boundary cross-check передаёт тариф resolver → canonical `UnitPriceScenarioService`: комиссии 11.00 ₽ для 100.00, 22.00 ₽ для 100.01 и 22.22 ₽ для 101.00.
+- N04 regressions проверяют дырку, inclusive overlap, конкурирующие профили и явный выбор revision, stale state revision, current point vs neighboring prices, foreign scopes/date, FBS, zero/invalid/NaN/Infinity/bool/float, истёкший профиль, скрытие небезопасного source ref и limits.
+- Изолированный Windows/Python 3.12.10 профиль: `tests/test_unit_price_tariff_resolver.py` — **34 passed in 0.44s**. Использовались новый temp/storage, dotenv disabled, credentials удалены из process env, pytest cache disabled. Никаких live запросов или owner-data изменений.
+- Q04 — PASS. По Q05 автоматический источник рассматривается отдельно; resolver не придумывает тарифы и не подставляет устаревшие defaults.
