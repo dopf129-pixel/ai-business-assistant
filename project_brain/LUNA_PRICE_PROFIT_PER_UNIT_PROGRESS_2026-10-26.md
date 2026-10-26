@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: SPEC_PREPARED; реализация Q00–Q35 не начата.
+Статус: IN_PROGRESS; Q00 завершён, Q01–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -19,7 +19,7 @@
 
 | Этап | Статус | Результат / проверки |
 |---|---|---|
-| Q00 | NOT_STARTED | — |
+| Q00 | DONE | PR #719 открыт, exact-head Verify #40363801273 успешен; main/spec SHA совпадают с исходной точкой, выделена реализационная ветка; рабочий tree чистый; локальные ignored runtime/cache каталоги сохранены нетронутыми. Подробности ниже. |
 | Q01 | NOT_STARTED | — |
 | Q02 | NOT_STARTED | — |
 | Q03 | NOT_STARTED | — |
@@ -70,11 +70,19 @@
 
 ## Следующее действие / resume
 
-1. Прочитать ТЗ, AGENTS и актуальные project-brain contracts.
-2. Начать Q00: проверить фактический main/HEAD, выбрать безопасный implementation worktree/ветку и записать базу.
-3. Перейти к Q01/Q02, затем двигаться по dependency table.
+1. Выполнить Q01: сопоставить существующие обработчики, сервисы, хранилище и источники с контракциями ТЗ.
+2. Выполнить независимые Q02: определить полностью изолированный профиль тестов, снять baseline.
+3. Перейти к Q03 и двигаться по dependency table.
 4. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
 
 ## Записи исполнения
 
-Пока отсутствуют.
+### Q00 — зафиксирована база реализации (2026-10-27)
+
+- PR #719: открыт, mergeable, ветка задания `codex/price-profit-per-unit-spec-20261026`, HEAD `7c554a1411717cfe1d5dab0722fe025affbf32f6`; основание PR и фактический `origin/main` — `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`. Задание выполняется stacked branch/PR поверх PR #719, чтобы не дублировать его документацию и не ждать слияния.
+- Проверка точного HEAD PR #719: Verify run `40363801273`, conclusion `success` (Windows/Python 3.12, Linux/Python 3.11, production Docker build/runtime smoke; доказательство относится только к документальной базе).
+- Выделенная рабочая копия `daily-readiness-foundation` была clean до переключения; реализационная ветка создана без копирования/изменения чужого diff: `codex/price-profit-per-unit-implementation-20261027` на SHA `7c554a1411717cfe1d5dab0722fe025affbf32f6`.
+- Защищённые owner-data пути: отслеживаемые `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`; локальный ignored `.runtime-data` в выделенной копии не открывался и не меняется. В Desktop checkout и соседних worktree не вносятся изменения. Реальный бот, `.env`, Telegram/Ozon API и сетевые данные не используются.
+- Команды проверки: `git status --short --branch`, `git rev-parse HEAD`, `git fetch --no-tags origin main`, `git rev-parse FETCH_HEAD`, GitHub `get_pr_info(#719)`, `fetch_commit_workflow_runs(7c554a1411717cfe1d5dab0722fe025affbf32f6)`.
+- Фактический результат: перед созданием ветки tree clean; PR head соответствует текущему main + документальный commit; ветка исполнения выделена. Q00 — PASS. Pytest не запускался: этап только фиксирует базу, среду изолированных проверок определит Q02.
+- Следующий этап: Q01 — предметный аудит маршрутов и существующих контрактов.
