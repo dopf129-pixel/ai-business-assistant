@@ -227,6 +227,15 @@ class ProductUnitEconomicsQueryService:
         if isinstance(impact, dict) and impact.get("error"):
             return False
 
+        cross_docking = result.get("cross_docking")
+        if (
+            result.get("source") == "current"
+            and isinstance(cross_docking, dict)
+            and cross_docking.get("evidence_complete") is not True
+        ):
+            # Let the next explicit query resume the bounded source checkpoint.
+            return False
+
         return True
 
     def _with_cache_metadata(
@@ -560,6 +569,34 @@ class ProductUnitEconomicsQueryService:
             ),
         ]
 
+        cross_docking = result.get("cross_docking")
+        if isinstance(cross_docking, dict):
+            amount = result.get("cross_docking_per_unit")
+            if amount is not None:
+                period = " — ".join(
+                    value for value in (
+                        str(cross_docking.get("date_from") or ""),
+                        str(cross_docking.get("date_to") or ""),
+                    ) if value
+                )
+                label = "Кросс-докинг — на фактически поставленную единицу"
+                if period:
+                    label += " за " + period
+                lines.extend([
+                    "",
+                    label + ":",
+                    self._format_money_with_share(amount, price),
+                ])
+                basis = self._cross_docking_basis(cross_docking)
+                if basis:
+                    lines.append(basis)
+            else:
+                lines.extend([
+                    "",
+                    "Кросс-докинг — на фактически поставленную единицу:",
+                    "не учтён: нет подтверждённой применимой ставки",
+                ])
+
         if isinstance(
             result.get("returns_finance_impact"),
             dict
@@ -598,6 +635,38 @@ class ProductUnitEconomicsQueryService:
             )
 
         return "\n".join(lines)
+
+    def _cross_docking_basis(self, evidence):
+        method = evidence.get("method")
+        is_sku_rate = (
+            method == "sku_accrual_cost_per_delivered_crossdock_unit"
+        )
+        label = "оценка по SKU" if is_sku_rate else "оценка по магазину"
+        cost = evidence.get("expense_by_sku") if is_sku_rate else evidence.get("expense_total")
+        units = (
+            evidence.get("supplied_units_sku")
+            if is_sku_rate
+            else evidence.get("supplied_units_store")
+        )
+        parts = [label]
+        try:
+            unit_count = int(units)
+            if unit_count > 0 and cost is not None:
+                amount = float(cost)
+                if amount >= 0 and amount < float("inf"):
+                    parts.append(
+                        "начисления " + self._format_money(amount)
+                        + " / фактически принято " + str(unit_count) + " шт."
+                    )
+        except (TypeError, ValueError, OverflowError):
+            pass
+        days_complete = evidence.get("days_complete")
+        days_expected = evidence.get("days_expected")
+        if days_complete is not None and days_expected is not None:
+            parts.append(
+                "покрытие " + str(days_complete) + "/" + str(days_expected) + " дней"
+            )
+        return "; ".join(parts)
 
     def _attach_returns_impact(
         self,
@@ -1220,20 +1289,35 @@ class ProductUnitEconomicsQueryService:
     def _build_current_note(self, result):
         missing = result.get("missing_fields") or []
         if missing:
-            return (
+            note = (
                 "Прибыль не рассчитана, пока не получены "
                 "все обязательные данные."
             )
+        else:
+            sales = result.get("finance_sample_sales")
+            days = result.get("finance_sample_days")
+            if sales and days:
+                note = (
+                    "Основано на последних финансовых начислениях "
+                    f"Ozon: {sales} продаж за {days} дн."
+                )
+            else:
+                note = "Расчёт по актуальной цене продавца."
 
-        sales = result.get("finance_sample_sales")
-        days = result.get("finance_sample_days")
-        if sales and days:
-            return (
-                "Основано на последних финансовых начислениях "
-                f"Ozon: {sales} продаж за {days} дн."
-            )
-
-        return "Расчёт по актуальной цене продавца."
+        cross_docking = result.get("cross_docking")
+        if isinstance(cross_docking, dict):
+            if result.get("cross_docking_included") is True:
+                note += (
+                    " Учтено среднее начислений кросс-докинга за 56 завершённых дней; "
+                    "знаменатель — фактически поставленные единицы."
+                )
+            else:
+                note += (
+                    " Расчёт показан без кросс-докинга: "
+                    + str(cross_docking.get("reason") or "нет подтверждённой ставки")
+                    + "."
+                )
+        return note
 
     def _format_as_of(self, value):
         if not value:

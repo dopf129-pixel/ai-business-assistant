@@ -111,6 +111,32 @@ def test_one_axis_sweep_matches_direct_forward_calculator_and_preserves_base():
     assert result["best_worst_basis"] == "among_checked_scenarios_only"
 
 
+def test_sensitivity_keeps_cross_docking_rate_fixed_across_price_scenarios():
+    service = _service()
+    context = _context({
+        **_context()["inputs"],
+        "cross_docking_per_unit": "12",
+    })
+
+    result = service.build_sweep(
+        context,
+        {"price": ["450", "500", "550"]},
+    )
+
+    assert result["error"] is False
+    assert all(
+        cell["scenario"]["calculated"]["cross_docking"] == 12.0
+        for cell in result["cells"]
+    )
+    assert all(
+        cell["scenario"]["calculated"]["profit"]
+        < UnitPriceScenarioService(TaxService()).calculate(
+            {key: value for key, value in cell["inputs"].items() if key != "cross_docking_per_unit"}
+        )["calculated"]["profit"]
+        for cell in result["cells"]
+    )
+
+
 def test_each_axis_value_is_an_absolute_assumption_and_cost_zero_is_known():
     service = _service()
     result = service.build_sweep(

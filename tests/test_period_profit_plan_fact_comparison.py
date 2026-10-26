@@ -18,7 +18,8 @@ def _inputs(**updates):
     return values
 
 
-def _document(*, quantity=10, period="2026-08-01 — 2026-08-31"):
+def _document(*, quantity=10, period="2026-08-01 — 2026-08-31", calculation_version=1,
+              cross_docking_per_unit=None):
     item = {
         "row_id": "row-1",
         "identity": {
@@ -27,11 +28,25 @@ def _document(*, quantity=10, period="2026-08-01 — 2026-08-31"):
         },
         "inputs": _inputs(),
     }
+    if calculation_version == 2:
+        item["inputs"]["cross_docking_per_unit"] = cross_docking_per_unit
+        item["sources"] = {"cross_docking": {
+            "evidence_complete": True,
+            "rate_available": cross_docking_per_unit is not None,
+            "applicable_to_sku": cross_docking_per_unit is not None,
+            "method": (
+                "sku_accrual_cost_per_delivered_crossdock_unit"
+                if cross_docking_per_unit is not None else None
+            ),
+            "denominator_kind": "DELIVERED_CROSSDOCK_UNITS",
+            "amount_per_unit": cross_docking_per_unit,
+        }}
     return {"document": {
         "document_id": "doc-1", "owner_id": "user-1", "store_id": "store-a",
         "revision": 3, "current_revision": 3, "title": "Plan",
         "payload": {
-            "plan_kind": "single", "calculation_version": 1,
+            "plan_kind": "single", "calculation_version": calculation_version,
+            **({"schema_version": 2} if calculation_version == 2 else {}),
             "items": [item],
             "sales_mix": {
                 "period_label": period, "quantities": {"row-1": quantity},
@@ -150,3 +165,37 @@ def test_scope_and_identity_mismatch_do_not_compare_other_store_or_sku():
         _document(), other, tenant_scope="user-1::ozon::store-a",
         generated_at_utc="2026-10-19T14:00:00Z",
     )["code"] == "PLAN_FACT_ACTUAL_SCOPE_MISMATCH"
+
+
+def test_v2_plan_fact_keeps_actual_bridge_unchanged_and_uses_only_planned_rate():
+    legacy = _service().compare(
+        _document(), _actual(), tenant_scope="user-1::ozon::store-a",
+        generated_at_utc="2026-10-19T14:00:00Z",
+    )
+    current = _service().compare(
+        _document(calculation_version=2, cross_docking_per_unit="12.00"), _actual(),
+        tenant_scope="user-1::ozon::store-a",
+        generated_at_utc="2026-10-19T14:00:00Z",
+    )
+
+    assert current["error"] is False
+    assert current["plan"]["quantity"] == legacy["plan"]["quantity"]
+    assert current["plan"]["revenue"] == legacy["plan"]["revenue"]
+    assert current["plan"]["profit"] == "1290.00"
+    assert current["plan"]["profit"] == f"{float(legacy['plan']['profit']) - 120:.2f}"
+    assert current["actual"] == legacy["actual"]
+    assert current["revenue_comparison"] == legacy["revenue_comparison"]
+
+
+def test_v2_plan_fact_does_not_claim_complete_plan_profit_without_rate():
+    result = _service().compare(
+        _document(calculation_version=2), _actual(),
+        tenant_scope="user-1::ozon::store-a",
+        generated_at_utc="2026-10-19T14:00:00Z",
+    )
+
+    assert result["error"] is False
+    assert result["plan"]["profit"] is None
+    assert result["plan"]["revenue"] == "5000.00"
+    assert result["actual"]["revenue"] == "4160.00"
+    assert result["revenue_comparison"]["delta"] == "-840.00"

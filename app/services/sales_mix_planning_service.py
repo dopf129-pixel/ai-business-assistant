@@ -22,7 +22,8 @@ class SalesMixPlanningService:
         self.scenario_service = scenario_service
         self.tax_service = tax_service or getattr(scenario_service, "tax_service", None)
 
-    def calculate(self, items, *, quantities, period_label, expenses, expenses_confirmed):
+    def calculate(self, items, *, quantities, period_label, expenses, expenses_confirmed,
+                  include_cross_docking=False):
         error = self._validate_scope(items, quantities, period_label, expenses, expenses_confirmed)
         if error:
             return self._error(error)
@@ -31,6 +32,8 @@ class SalesMixPlanningService:
         canonical_rows = []
         excluded = []
         totals = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+        cross_docking_total = Decimal("0.00")
+        cross_docking_complete = True
         quantity_known = True
         policy_set = set()
         policy_missing = False
@@ -44,6 +47,8 @@ class SalesMixPlanningService:
             if quantity is None:
                 quantity_known = False
                 complete = False
+                if include_cross_docking:
+                    cross_docking_complete = False
                 excluded.append({"row_id": row_id, "label": label, "reason": "QUANTITY_UNKNOWN"})
                 continue
 
@@ -56,6 +61,8 @@ class SalesMixPlanningService:
 
             if quantity == 0:
                 row_components = {field: Decimal("0.00") for field in self.MONEY_COMPONENTS}
+                if include_cross_docking:
+                    row_components["cross_docking"] = Decimal("0.00")
                 unit_price = self._decimal(inputs.get("price"))
                 canonical_rows.append(self._row_result(
                     row_id, label, quantity, row_components,
@@ -66,6 +73,8 @@ class SalesMixPlanningService:
             projected = self.scenario_service.calculate_components_only(inputs)
             if projected.get("available") is not True:
                 complete = False
+                if include_cross_docking:
+                    cross_docking_complete = False
                 excluded.append({
                     "row_id": row_id,
                     "label": label,
@@ -87,7 +96,29 @@ class SalesMixPlanningService:
                 totals[field] += row_components[field]
                 if abs(totals[field]) > self.MAX_AGGREGATE_AMOUNT:
                     return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
-            if len(row_components) != len(self.MONEY_COMPONENTS):
+            if include_cross_docking:
+                evidence = (item.get("sources") or {}).get("cross_docking")
+                if (isinstance(evidence, dict)
+                        and evidence.get("evidence_complete") is True
+                        and evidence.get("rate_available") is True
+                        and evidence.get("applicable_to_sku") is True
+                        and unit.get("cross_docking") is not None):
+                    amount = self._decimal(unit.get("cross_docking"))
+                    if amount is None or amount < 0:
+                        cross_docking_complete = False
+                        complete = False
+                        row_components["cross_docking"] = None
+                    else:
+                        row_amount = (amount * quantity).quantize(Decimal("0.01"))
+                        cross_docking_total += row_amount
+                        if cross_docking_total > self.MAX_AGGREGATE_AMOUNT:
+                            return self._error("AGGREGATE_AMOUNT_LIMIT_EXCEEDED")
+                        row_components["cross_docking"] = row_amount
+                else:
+                    cross_docking_complete = False
+                    complete = False
+                    row_components["cross_docking"] = None
+            if not set(self.MONEY_COMPONENTS).issubset(row_components):
                 excluded.append({"row_id": row_id, "label": label, "reason": "UNIT_COMPONENT_UNKNOWN"})
                 continue
             canonical_rows.append(self._row_result(
@@ -139,6 +170,11 @@ class SalesMixPlanningService:
                 else:
                     tax_status = "TAX_CALCULATION_UNAVAILABLE"
 
+        components = {field: self._money(value) for field, value in totals.items()}
+        if include_cross_docking:
+            components["cross_docking"] = (
+                self._money(cross_docking_total) if cross_docking_complete else None
+            )
         return {
             "error": False,
             "kind": "SALES_MIX_ECONOMICS",
@@ -150,7 +186,9 @@ class SalesMixPlanningService:
             "coverage_complete": all_rows_known,
             "total_quantity": sum(row["quantity"] for row in canonical_rows),
             "rows": canonical_rows,
-            "components": {field: self._money(value) for field, value in totals.items()},
+            "components": components,
+            **({"cross_docking_status": "CONFIRMED" if cross_docking_complete else "PARTIAL_OR_UNAVAILABLE"}
+               if include_cross_docking else {}),
             "fixed_expenses": [
                 {"name": name, "amount": self._money(amount)}
                 for name, amount in fixed_expenses
@@ -262,7 +300,10 @@ class SalesMixPlanningService:
             "label": label,
             "quantity": quantity,
             "price_per_unit": SalesMixPlanningService._money(unit_price) if unit_price is not None else None,
-            "components": {key: SalesMixPlanningService._money(value) for key, value in components.items()},
+            "components": {
+                key: SalesMixPlanningService._money(value) if value is not None else None
+                for key, value in components.items()
+            },
             "profit_before_tax_contribution": SalesMixPlanningService._money(components["profit_before_tax"]),
         }
 

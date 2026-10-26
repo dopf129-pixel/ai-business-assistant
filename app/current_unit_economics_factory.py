@@ -4,10 +4,11 @@ from product_returns_finance_impact_factory import (
 )
 
 from services.cost_service import ProductCostService
+from services.cross_docking_unit_rate_source import CrossDockingUnitRateSource
 from services.current_product_economics_source import (
     CurrentProductEconomicsSource
 )
-from services.finance_service import FinanceService
+from services.period_profit_finance_service import PeriodProfitFinanceService
 from services.product_unit_economics_query_service import (
     ProductUnitEconomicsQueryService
 )
@@ -21,10 +22,16 @@ def create_current_unit_economics_query(
     ]
 
     ozon_client = OzonClient()
+    finance_service = PeriodProfitFinanceService()
+    cross_docking_source = CrossDockingUnitRateSource(
+        ozon_client=ozon_client,
+        finance_service=finance_service,
+    )
 
     current_source = CurrentProductEconomicsSource(
         ozon_client=ozon_client,
-        finance_service=FinanceService()
+        finance_service=finance_service,
+        cross_docking_source=cross_docking_source,
     )
 
     returns_finance_impact_query = (

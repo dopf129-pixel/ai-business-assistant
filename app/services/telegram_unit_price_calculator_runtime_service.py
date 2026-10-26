@@ -7,6 +7,7 @@ from time import monotonic
 from uuid import uuid4
 
 from services.ozon_account_repository import split_store_tenant_scope
+from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
 
 
@@ -171,11 +172,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
         ):
             return self._stale_result()
         sources = self._scenario_sources(session)
+        cross_docking = PlanningCrossDockingAdapter.project_source(
+            snapshot.get("cross_docking")
+        )
+        inputs = deepcopy(session.get("inputs") or {})
+        inputs.setdefault("cross_docking_per_unit", None)
+        provenance = deepcopy(session.get("provenance") or {})
+        provenance.setdefault("cross_docking_per_unit", "unknown")
+        completeness = deepcopy(snapshot.get("source_completeness") or {})
+        completeness["cross_docking"] = PlanningCrossDockingAdapter.completeness_projection(
+            cross_docking
+        )
         calculated = self.scenario_service.calculate(
-            session.get("inputs") or {},
+            inputs,
             identity=self._scenario_identity(session),
-            provenance=session.get("provenance") or {},
-            sources=sources,
+            provenance=provenance,
+            sources={**sources, "completeness": completeness},
         )
         values = calculated.get("calculated") or {}
         allowed_projection = (
@@ -190,10 +202,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "invalid_inputs": list(calculated.get("invalid_inputs") or [])[:20],
         }
         projection.update({key: values.get(key) for key in allowed_projection})
+        projection["cross_docking"] = values.get("cross_docking")
         captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         payload = {
             "plan_kind": "single",
-            "schema_version": 1,
+            "schema_version": PlanningCrossDockingAdapter.CURRENT_VERSION,
             "calculation_version": self.scenario_service.VERSION,
             "target_margin_percent": self._target_margin_assumption(session),
             "items": [{
@@ -205,13 +218,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     "store_id": str(identity.get("store_id") or ""),
                     "scheme": str(product.get("scheme") or "FBO")[:24],
                 },
-                "inputs": deepcopy(session.get("inputs") or {}),
-                "provenance": deepcopy(session.get("provenance") or {}),
+                "inputs": inputs,
+                "provenance": provenance,
                 "sources": {
                     "periods": deepcopy(snapshot.get("source_periods") or {}),
                     "as_of": (snapshot.get("source_periods") or {}).get("seller_price_as_of"),
                     "loaded_at": captured_at,
-                    "completeness": deepcopy(snapshot.get("source_completeness") or {}),
+                    "completeness": completeness,
+                    "cross_docking": cross_docking,
                 },
                 "projection": projection,
             }],
@@ -240,7 +254,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._stale_result()
         item = payload["items"][0]
         identity = item.get("identity") if isinstance(item, dict) else None
-        inputs = item.get("inputs") if isinstance(item, dict) else None
+        inputs, cross_docking = PlanningCrossDockingAdapter.restore_item(payload, item)
         provenance = item.get("provenance") if isinstance(item, dict) else None
         sources = item.get("sources") if isinstance(item, dict) else None
         target_margin = payload.get("target_margin_percent")
@@ -254,6 +268,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if (
             not isinstance(identity, dict)
             or not isinstance(inputs, dict)
+            or cross_docking is None
             or not isinstance(provenance, dict)
             or not isinstance(sources, dict)
             or not str(identity.get("sku") or "").strip()
@@ -281,6 +296,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "input_provenance": deepcopy(provenance),
             "source_periods": periods,
             "source_completeness": deepcopy(sources.get("completeness") or {}),
+            "cross_docking": PlanningCrossDockingAdapter.display_source(cross_docking),
         }
         scenario_id = uuid4().hex[:10]
         now = self.clock()
@@ -1953,6 +1969,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         else:
             point_line = "Баллы: автоматическая выборка неполная; используйте ручное значение."
         provenance = session.get("provenance") or {}
+        cross_docking = snapshot.get("cross_docking") or {}
+        cross_docking_line = self._cross_docking_assumption(
+            cross_docking,
+            snapshot.get("suggested_inputs", {}).get("cross_docking_per_unit"),
+        )
         lines = [
             "Допущения планового сценария",
             source_line,
@@ -1961,8 +1982,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
             point_line,
             "Себестоимость: " + self._source_label(provenance.get("cost")) + ".",
             "Логистика, последняя миля, эквайринг и реклама: ручные значения сценария.",
+            cross_docking_line,
             "Налоговый режим и ставки: политика активного магазина.",
-            "Не включены постоянные расходы, хранение, кросс-докинг, возвраты и отмены.",
+            "Не включены постоянные расходы, хранение, возвраты и отмены.",
         ]
         return {
             "error": False,
@@ -2048,6 +2070,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
         )
         inputs = session["inputs"]
         values = result.get("calculated") or {}
+        cross_docking = snapshot.get("cross_docking") or {}
+        cross_docking_line = self._cross_docking_assumption(
+            cross_docking,
+            values.get("cross_docking"),
+        )
         sku = session["sku"]
         lines = [
             "🧮 Плановая юнит-экономика",
@@ -2065,6 +2092,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             ),
             "Реклама " + self._percent(inputs.get("advertising_rate")) + ": " + self._money(values.get("advertising")),
             "Баллы, оценка " + self._percent(inputs.get("discount_points_rate")) + ": " + self._money(values.get("discount_points")),
+            cross_docking_line,
             "Выручка для налога: " + self._money(values.get("taxable_revenue")),
             "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
             "",
@@ -2108,6 +2136,62 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Хранение, общие расходы магазина и возвраты не включены.",
         ])
         return "\n".join(lines)
+
+    def _cross_docking_assumption(self, evidence, amount):
+        evidence = evidence if isinstance(evidence, dict) else {}
+        if amount is None:
+            reason = str(evidence.get("reason") or "нет подтверждённой ставки")
+            labels = {
+                "CROSSDOCK_SOURCE_NOT_CONFIGURED": "источник не подключён",
+                "CROSSDOCK_IDENTITY_REQUIRED": "не удалось подтвердить магазин или SKU",
+                "CROSSDOCK_SOURCE_UNAVAILABLE": "источник временно недоступен",
+                "NO_CROSSDOCK_SUPPLIES": "нет подтверждённых кросс-докинговых поставок за период",
+                "SKU_NOT_IN_CROSSDOCK_WINDOW": "нет поставок этого SKU за период",
+                "CROSSDOCK_WINDOW_INCOMPLETE": "сбор данных за период не завершён",
+                "SUPPLY_EVIDENCE_INCOMPLETE": "данные поставок за период неполные",
+                "FINANCE_EVIDENCE_INCOMPLETE": "данные начислений за период неполные",
+                "FINANCE_WINDOW_INCOMPLETE": "сбор начислений за 56 дней не завершён",
+                "SUPPLY_WINDOW_INCOMPLETE": "сбор поставок за 56 дней не завершён",
+                "REQUEST_BUDGET_EXHAUSTED": "порционную загрузку нужно продолжить следующим запросом",
+                "CROSSDOCK_HTTP_BUDGET_EXHAUSTED": "лимит запросов исчерпан; загрузка продолжится позже",
+                "CROSSDOCK_TIME_BUDGET_EXHAUSTED": "истекло время текущей загрузки; повторите запрос позже",
+                "NET_REFUND_PERIOD": "за период чистая корректировка расходов отрицательная",
+            }
+            reason = labels.get(reason, reason.replace("_", " ").lower())
+            return "Кросс-докинг не включён: " + reason + "."
+
+        method = evidence.get("method")
+        is_sku_rate = (
+            method == "sku_accrual_cost_per_delivered_crossdock_unit"
+        )
+        source = "по расходам этого SKU" if is_sku_rate else "оценка по расходам магазина"
+        period = " — ".join(
+            str(value) for value in (
+                evidence.get("date_from"), evidence.get("date_to")
+            ) if value
+        )
+        expense = evidence.get("expense_by_sku") if is_sku_rate else evidence.get("expense_total")
+        supplied = evidence.get("supplied_units_sku") if is_sku_rate else evidence.get("supplied_units_store")
+        details = (
+            "Кросс-докинг: " + self._money(amount)
+            + " на фактически поставленную единицу (" + source + ")"
+        )
+        if period:
+            details += "; период " + period
+        try:
+            count = int(supplied)
+            if count > 0 and expense is not None:
+                details += (
+                    "; начисления " + self._money(expense)
+                    + " / принято " + str(count) + " шт."
+                )
+        except (TypeError, ValueError, OverflowError):
+            pass
+        days_complete = evidence.get("days_complete")
+        days_expected = evidence.get("days_expected")
+        if days_complete is not None and days_expected is not None:
+            details += "; покрытие " + str(days_complete) + "/" + str(days_expected) + " дней"
+        return details + "."
 
     def _edit_prompt(self, session, field, notice=None):
         label, unit, positive = self.EDITABLE_FIELDS[field]

@@ -180,7 +180,67 @@ def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertis
     assert result["status"] == "UNIT_PRICE_SCENARIO_INPUT_REQUIRED"
     assert result["price_scenario"]["missing_inputs"] == ["advertising_rate"]
     assert "Реклама" in result["message"]
+    assert "Кросс-докинг не включён" in result["message"]
     assert all(len(button["callback"].encode("utf-8")) <= 64 for button in result["keyboard"]["buttons"])
+
+
+def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
+    runtime, source = _runtime()
+    cross_docking = {
+        "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        "reason": None,
+        "evidence_complete": True,
+        "applicable_to_sku": True,
+        "method": "sku_accrual_cost_per_delivered_crossdock_unit",
+        "cross_docking_per_unit": "12.00",
+        "expense_by_sku": "1200.00",
+        "supplied_units_sku": 100,
+        "days_complete": 56,
+        "days_expected": 56,
+        "date_from": "2026-08-24",
+        "date_to": "2026-10-18",
+        "sku": "must-not-be-exposed",
+        "supply_id": "must-not-be-exposed",
+    }
+    original_load = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["cross_docking"] = deepcopy(cross_docking)
+        snapshot["suggested_inputs"]["cross_docking_per_unit"] = 12.0
+        snapshot["input_provenance"]["cross_docking_per_unit"] = "ozon_cross_docking_sku_average"
+        snapshot["source_completeness"]["cross_docking"] = {
+            "complete": True,
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+        }
+        snapshot["source_periods"]["cross_docking"] = {
+            "from": "2026-08-24",
+            "to": "2026-10-18",
+            "calendar_days": 56,
+        }
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ready = runtime.handle_callback(
+            f"upc:z:{scenario['price_scenario']['scenario_id']}:1",
+            user_id="user-1",
+        )
+        assumptions = runtime.handle_callback(
+            _find_button(ready, "Допущения и источники")['callback'], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert ready["price_scenario"]["calculated"]["cross_docking"] == 12.0
+    assert ready["price_scenario"]["calculated"]["profit"] == 214.0
+    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in ready["message"]
+    assert "начисления 1 200,00 ₽ / принято 100 шт." in ready["message"]
+    assert "покрытие 56/56 дней" in ready["message"]
+    assert "must-not-be-exposed" not in ready["message"]
+    assert "Кросс-докинг: 12,00 ₽" in assumptions["message"]
 
 
 def test_price_edit_accepts_comma_decimal_and_stale_buttons_fail_closed():

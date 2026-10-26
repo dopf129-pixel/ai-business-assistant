@@ -58,7 +58,7 @@ class FakeReturnsImpactQuery:
 class FakeProvider:
     def build_current(self, facts, cost):
         price = facts.get("seller_price")
-        return {
+        result = {
             "product_id": facts.get("product_id"),
             "sku": facts.get("sku"),
             "unit_price": price,
@@ -73,6 +73,10 @@ class FakeProvider:
             "margin_percent": 50.0,
             "missing_fields": [],
         }
+        if isinstance(facts.get("cross_docking"), dict):
+            result["cross_docking"] = dict(facts["cross_docking"])
+            result["cross_docking_per_unit"] = facts.get("cross_docking_per_unit")
+        return result
 
 
 class FakeCostService:
@@ -293,3 +297,36 @@ def test_nested_returns_error_is_not_cached_as_fresh_data():
         result["cache"]["refresh_error"]
         == "RETURNS_UNAVAILABLE"
     )
+
+
+def test_incomplete_cross_docking_rate_is_retried_before_current_result_is_cached():
+    clock = FakeClock()
+    service, source = _service([
+        {
+            **_success(),
+            "cross_docking_per_unit": None,
+            "cross_docking": {
+                "evidence_complete": False,
+                "reason": "REQUEST_BUDGET_EXHAUSTED",
+            },
+        },
+        {
+            **_success(),
+            "cross_docking_per_unit": 12.0,
+            "cross_docking": {
+                "evidence_complete": True,
+                "reason": None,
+            },
+        },
+    ], clock)
+
+    first = service.query("hook-2")
+    second = service.query("hook-2")
+    third = service.query("hook-2")
+
+    assert source.calls == 2
+    assert first["cache"]["status"] == "miss"
+    assert first["cross_docking"]["evidence_complete"] is False
+    assert second["cache"]["status"] == "miss"
+    assert second["cross_docking_per_unit"] == 12.0
+    assert third["cache"]["status"] == "hit"

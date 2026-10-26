@@ -83,6 +83,89 @@ def test_product_unit_economics_subtracts_points_and_reports_actual_tax_percent(
     assert result["net_profit"] == 246.0
 
 
+def test_current_economics_subtracts_cross_docking_without_changing_income_tax_base():
+    provider = ProductUnitEconomicsProvider(
+        tax_service=TaxService(),
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+    )
+    facts = {
+        "product_id": "p1",
+        "sku": "sku-1",
+        "seller_price": 1000,
+        "discount_points_per_unit": 100,
+        "commission_amount": 100,
+        "logistics": 0,
+        "last_mile": 0,
+        "acquiring_average": 0,
+        "cross_docking_per_unit": 12,
+        "cross_docking": {
+            "status": "SKU_SUPPLY_PERIOD_AVERAGE",
+            "reason": None,
+        },
+    }
+
+    result = provider.build_current(facts, product_cost=300)
+
+    assert result["cross_docking_per_unit"] == 12.0
+    assert result["cross_docking_included"] is True
+    assert result["marketplace_fees"] == 100.0
+    assert result["tax_base"] == 900.0
+    assert result["tax"] == 54.0
+    assert result["net_profit_per_unit"] == 534.0
+
+
+def test_current_economics_excludes_unconfirmed_cross_docking_without_zeroing_result():
+    provider = ProductUnitEconomicsProvider(
+        tax_service=TaxService(),
+        tax_mode="USN_INCOME",
+        tax_rate=6,
+    )
+    facts = {
+        "seller_price": 100,
+        "commission_amount": 10,
+        "logistics": 10,
+        "last_mile": 1,
+        "acquiring_average": 1,
+        "cross_docking_per_unit": None,
+        "cross_docking": {
+            "status": "UNAVAILABLE",
+            "reason": "CROSSDOCK_WINDOW_INCOMPLETE",
+        },
+    }
+
+    result = provider.build_current(facts, product_cost=20)
+
+    assert result["net_profit_per_unit"] == 52.0
+    assert result["cross_docking_included"] is False
+    assert result["cross_docking_status"] == "UNAVAILABLE"
+
+
+def test_cross_docking_is_deductible_expense_for_income_minus_expenses_mode():
+    provider = ProductUnitEconomicsProvider(
+        tax_service=TaxService(),
+        tax_mode="USN_INCOME_MINUS_EXPENSES",
+        tax_rate=15,
+        minimum_tax_rate=1,
+    )
+    facts = {
+        "seller_price": 1000,
+        "discount_points_per_unit": 100,
+        "commission_amount": 100,
+        "logistics": 0,
+        "last_mile": 0,
+        "acquiring_average": 0,
+        "cross_docking_per_unit": 100,
+        "cross_docking": {"evidence_complete": True},
+    }
+
+    result = provider.build_current(facts, product_cost=300)
+
+    assert result["tax_base"] == 400.0
+    assert result["tax"] == 60.0
+    assert result["net_profit_per_unit"] == 440.0
+
+
 def test_product_unit_economics_without_tax_data_is_explicitly_incomplete():
     result = ProductUnitEconomicsProvider().build([
         _profit_record()

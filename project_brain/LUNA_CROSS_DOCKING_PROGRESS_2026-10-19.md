@@ -1,9 +1,25 @@
 # Средний расход кросс-докинга — журнал выполнения
 
+## 2026-10-25 — исправлен остаточный дефект readiness PR #712
+
+- **Finding:** экран готовности сравнивал сохранённую ставку и evidence как строки. Для валидной ставки `12.0` против evidence `12.00` он сообщал `UNAVAILABLE`, хотя repository и adapter уже принимали равные числовые значения.
+- **Исправление:** `PlanningPlanReadinessService` сравнивает конечные неотрицательные значения через `Decimal`; неподходящие типы, bool, отрицательные числа, NaN, infinity и разные суммы не подтверждаются.
+- **Регрессии:** `tests/test_planning_plan_readiness_service.py` проверяет `12.0`/`12.00`, `12.5`/`12.50`, `0.0`/`0.00`, несовпадение и malformed/non-finite значения. Сначала новые тесты воспроизвели проблему (**2 failed**), после исправления readiness-модуль прошёл **6 passed**.
+- Связанный профиль: **94 passed in 3.08s** на 8 X00–X06/readiness/batch модулях; syntax compilation для сервиса и теста и `git diff --check` прошли. Exact-code-head Verify [40168401653](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40168401653) для `88ab62fb9f4cf376ba982c7cef99243e6f567ef4` прошёл: Windows/Linux по **3 647 passed**, compilation на обеих ОС и Linux Docker build/runtime smoke успешны. Полный локальный pytest не запускался из-за задокументированного Windows ACL/shared-storage ограничения.
+
+## 2026-10-21 — исправления повторного архитектурного review PR #712 (R1–R3)
+
+- **R1:** persistence repository и saved-plan adapter сравнивают цену за единицу через Decimal value equality; формат `12.0` теперь совпадает с evidence `12.00`, не меняя сохранённое представление пользовательского ввода. Регрессия покрывает float `12.0`, `12.5`, `0.0`.
+- **R2:** adapter различает сырой provider evidence и уже allowlisted persisted evidence. Повторная проекция сохраняет `rate_available`, сумму и safe model version; проверены single- и batch-пути reopen → recapture → repository validation.
+- **R3:** добавлен `claim_once` на корневом `PeriodProfitOperationTrace`; force refresh общего cross-docking cache/checkpoint сбрасывает окно один раз на root operation. Последующие SKU продолжают общий bounded collection. Отдельный source regression использует один parent trace и два разных SKU; standalone force refresh без общего trace по-прежнему начинает новое окно.
+- Targeted pytest без временных SQLite fixtures: **29 passed** (`test_unit_price_batch_plan_service.py`, `test_planning_cross_docking_adapter.py`, `test_cross_docking_unit_rate_source.py`). Пять persistence regressions были вызваны напрямую с отдельными заранее созданными тестовыми каталогами: **5 passed** (Decimal-scale repository, сохранение evidence, unavailable-rate compatibility, single reopen/recapture, batch reopen/recapture).
+- Попытка широкого pytest-профиля с `tmp_path`/SQLite завершилась ошибками Windows ACL при создании и очистке `basetemp` (`WinError 5`); результаты этого прогона не считаются зелёными. Проектные `data/tasks.json`/`data/users.json` не изменялись. Полный локальный pytest не запускался согласно существующему ограничению. Exact-head Verify [39612452624](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39612452624) для PR head `0e1623391ec4c6bb2e87e49d37b717f85aef68f5` завершился успешно: Linux **3 645 passed**, Windows **3 645 passed**, compile на обеих ОС, Docker build/runtime smoke successful. Отмечены только предупреждения о переходе GitHub Actions с Node.js 20. Слияние не выполнялось; PR возвращён на повторный review.
+- Merge, deploy, запуск бота и live Ozon API не выполнялись.
+
 Дата начала: 19.10.2026  
 ТЗ: `LUNA_CROSS_DOCKING_UNIT_ECONOMICS_TASK_2026-10-19.md`, редакция 3.  
-База: `main` / `6496f0d5e277df9a3f9690dfa0f1abc8c7c4b832`.  
-Ветка: `codex/cross-docking-unit-economics` (изолированный managed worktree).
+База: `main` / `7e6eabdeba34a822434e5ef417a135995628cc41`.
+Ветка: `codex/cross-docking-x00-x01` (свежий managed worktree; старый dirty worktree сохранён отдельно без изменений).
 
 ## Правила сохранности
 
@@ -16,13 +32,54 @@
 
 | Этап | Статус | Результат |
 |---|---|---|
-| X00 | PARTIAL / BLOCKED — list/detail contract и cross-dock flag подтверждены официальной схемой; фактическая дата приёмки и quantity mapping ещё требуют live evidence | Официальная документация подтверждает `/v3/supply-order/list` cursor `last_id` и `/v3/supply-order/get` с `state`, `state_updated_date`, вложенными `supplies[]`, `is_crossdock`, `supply_id`, `state`. По одному принятому акту ранее `fact_quantity=500` совпал с кабинетом, а `approved_quantity=0` не совпал. Семантика completion time и применимость `fact_quantity` к split/partial supplies не подтверждены. |
-| X01 | BLOCKED BY X00 | Без подтверждённых actual quantity/status/date нельзя безопасно считать denominator. |
-| X02 | BLOCKED BY X01 | Pure calculation не включён в production path до определения DTO/coverage контракта. |
-| X03 | BLOCKED BY X00–X02 | Не проектировать checkpoint/cache до подтверждения completion date и actual-quantity mapping. |
-| X04 | BLOCKED BY X03 | Нельзя добавлять непроверенную ставку в текущую модель/Telegram. |
-| X05 | BLOCKED BY X04 | Нет подтверждённого snapshot и версии компонента X. |
-| X06 | PENDING | Регрессии, документация, CI и review handoff после X00–X05. |
+| X00 | COMPLETE WITH BOUNDED SCOPE | Официальные list/detail/act контракты и два пользовательских live-примера подтверждают источник фактического количества по SKU и дату завершения для заявки с одной вложенной cross-dock поставкой. Неоднозначные multi-supply заявки и строки без ровно одного SKU далее fail closed. |
+| X01 | COMPLETE WITH BOUNDED COVERAGE | Добавлен read-only collection source: cursor list → детали заявок пакетами до 50 → exact accepted act/product lookup. Нормализация использует line `fact_quantity` по SKU и дату только для completed order с одной nested crossdock supply. Multi-supply/unknown/incomplete — `INCOMPLETE`, без denominator. Лимит 64 HTTP попытки/60 секунд; continuation checkpoint остаётся X03. |
+| X02 | COMPLETE | Общий классификатор начислений и pure complete-window signed leaf evidence; ставка SKU или магазина на X01 фактически поставленные единицы. Production path пока не подключён. |
+| X03 | COMPLETE | Добавлен capped production collector: daily finance pages, type dictionary, supply list/details/acts/products, process-local scoped checkpoints, tenant/window/model cache, in-flight dedup, shared request/time budgets, 28-day finance-cache reuse, and lazy current/scenario factory wiring. Complete evidence only; no calculator arithmetic/UI change yet. Targeted profile: 146 passed. |
+| X04 | COMPLETE | Автоматическая ставка подключена к текущей и плановой юнит-экономике; целевая цена, безубыточность, рекламный предел и sensitivity используют общий расчёт; Telegram показывает период, метод SKU/store, фактические начисления/поставленные единицы, coverage и явное исключение неполной ставки. Профиль: **256 passed in 5.54s**. |
+| X05 | COMPLETE | Saved v2 evidence, per-SKU batch rates, sales-mix application to planned quantity, frozen revision comparison/export, and explicit refresh/CAS. v1 compatibility remains unchanged and does not load current supplies. Complete source window is distinct from a usable SKU rate. Final bounded Windows profile: **126 passed in 3.29s**. |
+| X06 | COMPLETE | Final bounded profiles, exact-head full CI, documentation/source hygiene, PR #712 and independent-review packet completed. No merge/deploy/bot run. |
+
+## X03 — bounded collection, checkpoint, cache and production wiring — 2026-10-21
+
+- Added `OzonCrossDockingFinanceSource` to read all inclusive daily accrual pages with bounded cursor advancement; partial-day rows remain private to a checkpoint and cannot enter the 56-day financial projection.
+- Added `CrossDockingUnitRateSource`, which composes the signed X02 financial projection with the X01 supply evidence. It limits collection to 64 actual HTTP attempts and 60 seconds, accounts attempts in the existing operation trace, shares a 28-day request-local finance cache, and resumes only the same tenant/store/date-window/model scope.
+- Checkpoints and completed evidence remain process-local, size-bounded and TTL-bound. Completed evidence is cached; an incomplete result carries no numeric rate. Force refresh resets the matching checkpoint. Raw daily finance rows are discarded after the complete pure projection.
+- Reused one `PeriodProfitFinanceService` in the current economics and unit-price scenario factories. The current source exposes the read-only provider; the scenario source adds an evidence projection only and still does not subtract it from price/profit (that is X04).
+- A fresh cold request consumes the bounded budget and resumes in the next explicit calculation; tests verify no partial rate, no cross-store reuse, one dictionary lookup per resumed window, overlap reuse, lazy initialization and shared trace limits.
+- Verification on Windows: isolated targeted pytest profile (10 related test files): **146 passed in 2.76s**. Full local pytest was not run because of the recorded ACL/shared-storage restriction. No live Ozon call, bot run, merge or deploy.
+- Scope: X03 complete. Next: X04 mathematical integration and user-facing labels, followed by X05 persistence/version compatibility.
+
+## X04 — калькулятор, текущая экономика и Telegram — 2026-10-21
+
+- `CurrentProductEconomicsSource` получает ставку только для подтверждённых tenant/SKU; сценарный источник использует отдельный быстрый price/commission path, чтобы не запускать один и тот же 56-дневный сбор дважды. При отсутствии конфигурации/identity/полного окна возвращается явное unavailable evidence; числовая ставка не заполняется нулём.
+- Текущая модель вычитает кросс-докинг один раз из прибыли до налога; исходный marketplace fee subtotal остаётся прежним. USN_INCOME сохраняет выручечную налоговую базу; USN_INCOME_MINUS_EXPENSES пропускает расход через существующий TaxService.
+- Единый `UnitPriceScenarioService` переносит optional rate в пересчёт цены. Старый input/result contract остаётся прежним, когда X-ключ отсутствует; когда источник неполон, сценарий считает без X и явно добавляет исключённую область. Target price, break-even, advertising cap, price comparison и sensitivity используют этот же forward calculator.
+- Current and planning UI показывают фактический период 56 дней, SKU-rate/store estimate, signed expense total / actual supplied units, data coverage и безопасную причину, если ставка не включена. В Telegram выводе нет source SKU или supply ID. Unknown/incomplete current result не кэшируется как complete, следующий явный запрос может продолжить checkpoint.
+- Регрессии по 17 связанным модулям (cross-dock collectors, current/scenario sources/providers, cache, runtime, target solver, ad-cap, sensitivity и factory wiring): **256 passed in 5.54s** на Windows. Использованы отдельные test-storage и pytest basetemp с отключённой plugin autoload. `git diff --check` прошёл до документационного обновления; полный local pytest запрещён из-за известного ACL/shared-storage инцидента. Live Ozon API, bot, merge и deploy не запускались.
+- X04 complete. Next: X05 frozen component evidence/version through saved, batch and historical plan paths.
+
+## X05 — saved plans, batch scenarios, comparison and exports — 2026-10-21
+
+- Added `PlanningCrossDockingAdapter` as the sole boundary for saved-plan v1/v2 compatibility. A legacy payload without explicit version fields follows the repository's v1 default; invalid/mismatched versions fail closed. Opening v1 strips cross-docking input/evidence, and never reads today's supply source.
+- Version 2 persists per-SKU rate and an exact allowlist of safe evidence fields in each immutable revision. Raw API payloads, SKU and supply IDs from cross-docking source diagnostics are not copied into the cross-docking evidence object. Repository validation pairs rate, denominator and applicability with the frozen source.
+- Single and batch capture save the current evidence snapshot; open, readiness, compare and exports use that snapshot with no Ozon refresh. Explicit refresh provides a new capture; regression confirms a saved update stores the newer rate in revision 2 while revision 1 keeps its original rate and manual price/cost overrides.
+- Sales mix applies per-SKU historical rate to planned successful-sales Q, not to the historical delivered-unit denominator. It subtracts the component once before the existing tax calculation. If evidence is unavailable for a positive planned quantity, result is partial and final group profit/margin remain unavailable. Plan/fact supports v1/v2: the rate affects only v2 planned profit, while factual quantity/revenue and their arithmetic bridge remain unchanged.
+- CSV/JSON saved-plan, sales-mix, advertising-cap and comparison exports include only frozen safe method, denominator, amounts/units, date-window and completeness metadata. Legacy export columns remain unchanged.
+- A full window with zero eligible SKU supplied units can be saved with complete coverage and no rate; positive planned Q remains incomplete and receives no zero-valued expense. This distinct-state path has adapter, repository and sales-mix regression coverage.
+- Verification after this edge-case fix: bounded Windows profile across adapter, repository, sales-mix, compare/export and Telegram saved-plan/batch flows: **126 passed in 3.29s**. Full local pytest was not run per ACL rule. No live Ozon request, bot run, merge or deployment.
+- First PR CI on `cec03f41` ran 3,638 Linux tests and exposed five plan/fact failures caused by strict calculation-version equality after the v2 bump; all other Linux tests passed. `PeriodProfitPlanFactComparisonService` now uses the version adapter, applies v2 cross-docking only to the plan projection, and keeps actual rows/bridge independent. Follow-up bounded Windows profile: **52 passed in 1.85s** across plan-fact, saved-plan, sales-mix and plan-comparison modules.
+- Final exact-code-head Verify run **39591125957** (run #3161) passed on `4f77cfef6e6725929a4b6539e376a258407e8305`: Linux **3,640 passed**, Windows **3,640 passed**, compile succeeded on both, and Linux production Docker build plus runtime smoke succeeded. Workflow: https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/39591125957 .
+- X06 complete: source/diff hygiene checked, docs and user guide updated, PR #712 is open against `main` at base `7e6eabdeba34a822434e5ef417a135995628cc41`, and the independent-review packet is `project_brain/CROSS_DOCKING_INDEPENDENT_REVIEW_PACKET_2026-10-21.md`. Merge, deploy, live Ozon calls and bot run were not performed.
+
+## X02 — signed finance evidence and pure rate — 2026-10-20
+
+- Extracted the fee category aliases and matching rules into `app/services/ozon_accrual_fee_classifier.py`; `ExperimentalStoreEconomicsRuntimeService` delegates to this shared helper so the existing report and new unit-cost logic cannot drift to separate cross-docking labels.
+- Added `CrossDockingFinancialEvidenceService`. It consumes an inclusive date-to-raw-response map from `/v1/finance/accrual/by-day`, validates every day, fee type, leaf amount and `accrual_id`, deduplicates exact repeats within the same accrual day and fails closed on conflicting identity. It traverses the existing FinanceService leaf scopes (posting delivery services, item fees, non-item fees and container fees), classifies from the existing Ozon accrual type dictionary, sums actual signed leaf amounts and never includes aggregate parent `total_amount`.
+- SKU leaf amounts remain SKU-specific; non-item/container amounts remain shared. Positive signed rows reduce the net expense total and are included by their finance date; the service does not need the original supply ID, so a correction to an older supply does not add historical Q again.
+- `calculate_rate` accepts only complete X01 supply evidence and a requested SKU. It uses SKU C/Q when expense attribution is complete, store C/Q when shared amounts exist, and keeps no-supply, target-SKU-not-participating, incomplete evidence, zero denominator, observed zero and net refund distinct. The input contract has no sales metric. Decimal arithmetic uses HALF_UP cents and exposes raw ratio and rounding residual.
+- Added 19 pure tests; combined with X01 supply normalization/source and existing experimental report/finance breakdown regressions: **102 passed in 1.70s**. The first run exposed that the old report depends on a class-level matcher alias; it was restored with identical semantics before the successful rerun. Separate temporary `AI_ASSISTANT_STORAGE_ROOT` and pytest basetemp were used. Full local pytest/live API/bot not run.
+- Static AST compilation and `git diff --check` are recorded in the final verification section below; no code is integrated into the calculators yet.
 
 ## Follow-up — ID заявки для актов Ozon — 2026-10-20
 
@@ -46,6 +103,23 @@
 - Follow-up code SHA `770839eb28edaf9d4f3fce207f89449f55684059`, PR #710: Verify run **39400776436** succeeded; Windows/Linux each **3,530 passed**, compile and production Docker build/runtime smoke succeeded. This confirms the diagnostic follow-up; the full 56-day calculation remains blocked on source contract evidence.
 - Публичный официальный канал ранее подтвердил наличие `/v3/supply-order/list` и `/v3/supply-order/get` ([анонс 17.09.2025](https://t.me/s/OzonSellerAPI?before=561), [анонс переноса 30.10.2025](https://t.me/s/OzonSellerAPI?after=564)). На тот момент полную схему получить не удалось; пользователь позже предоставил её текст из официальной документации. Схема подтверждает cursor pagination и `supplies[].is_crossdock`, но сама по себе не определяет per-supply completion timestamp и accepted-quantity semantics.
 - В текущей ветке код только read-only и не использует diagnostic values в юнит-экономике. Прогнозные, planned и прямые FBO количества запрещены как fallback. X01 остаётся заблокирован только по неразрешённым вопросам фактической даты и quantity mapping, а не по отсутствию list/detail схемы.
+
+## X00 closure — user-confirmed one-product supplies — 2026-10-20
+
+- Пользователь предоставил фактическую API-диагностику для частично принятой поставки: заявлено `200`, `fact_quantity=100`, строковое `approved_quantity=100`, при этом summary-level `approved_quantity=0` и `fact_quantity=100`. В кабинете поставка завершена 29.09.2026; `/v3/supply-order/get` вернул `state=COMPLETED` и `state_updated_date=2026-09-29T09:22:15Z`; акт создан 28.09.2026. Тем самым `created_date` не является датой завершения, а `state_updated_date` совпал с датой завершения UI для проверенной заявки с одной вложенной поставкой.
+- Ранее проверенный полный акт: 500 заявлено/принято, построчный `fact_quantity=500`, `approved_quantity=0`; дата акта и состояние согласуются с завершённой cross-dock поставкой. Два наблюдения показывают, что для завершённой single-supply заявки построчный `fact_quantity` отражает фактическое принятое количество, включая частичный приём, тогда как `approved_quantity` и summary totals нельзя брать как знаменатель.
+- Пользователь уточнил доменное правило: **1 поставка = 1 товар**. Поэтому подтверждённую привязку API `supply_id → items[].sku_info.sku → fact_quantity` можно агрегировать по SKU. В коде требуется fail closed при нескольких разных SKU в одной поставке, нескольких неразрешённых/непринятых acceptance acts, отсутствующем SKU/количестве или другой неоднозначности.
+- Дата завершения в X01 берётся по `orders[].state_updated_date` только у `COMPLETED` заявки с единственной вложенной supply, которая сама `COMPLETED` и `is_crossdock=true`. Это доказано на проверенном UI/API примере с точностью до календарной даты `Europe/Moscow`; `created_date`, плановая дата и устаревший `arrival_date` не используются. Заявки с несколькими nested supplies пока обозначаются неполным покрытием и не попадают в знаменатель: одна проверка не доказывает individual completion date для split/multi-supply заявок.
+- X00 закрыт только в указанной границе. Универсальная семантика для нескольких supplies в одном order не утверждается; ограничение будет отражено в DTO/coverage и журнале. Зависимый X01 начат.
+
+## X01 — read-only supply evidence collection — 2026-10-20
+
+- Added `app/services/cross_docking_supply_evidence_service.py`, a pure normalizer returning immutable per-SKU records and a total only for fully covered input. It accepts product-row `fact_quantity`, requires an exact accepted `ACCEPTANCE` act and agreement completion, requires matching act summary total plus `unidentified_quantity == 0`, and rejects multiple SKUs per supply. Order and supply IDs are reduced to a SHA-256 identity fingerprint in output; raw response payloads are not persisted.
+- Added `app/services/cross_docking_supply_source.py` over existing `OzonClient` read-only adapters. It follows `/v3/supply-order/list` cursor pages (`COMPLETED`, `ORDER_STATE_UPDATED_AT DESC`), reads `/v3/supply-order/get` in 50-ID batches, then exact act summary and product endpoints for in-window single supplies. It validates list/detail coverage, cursor progress, duplicate/conflicting orders and Moscow local date boundaries. No write/accept endpoints are called.
+- Source caps each collection slice at 64 HTTP attempts and 60 seconds; each endpoint call has one attempt and is constrained by the remaining source deadline. The underlying Ozon client still enforces inherited request-trace budgets. If pagination, detail, act, product or budget coverage is incomplete, normalized `total_units` is `None`; no partial denominator is offered. Durable continuation/checkpoint is explicitly X03.
+- Added `tzdata>=2025.1,<2027` because the local Windows Python lacked IANA timezone data; the named project timezone is `Europe/Moscow` per the task. Tests inject the configured +03 offset for deterministic local boundaries; deployment uses IANA data from the dependency.
+- New focused tests: `tests/test_cross_docking_supply_evidence_service.py` and `tests/test_cross_docking_supply_source.py`: **34 passed in 0.54s**, Python 3.12, isolated basetemp, pytest plugin autoload disabled/cache provider disabled. Combined with `tests/test_experimental_supply_act_diagnostic.py`: **53 passed in 1.03s**. Syntax-only compile and `git diff --check` passed. Full local pytest not run (known ACL/shared-storage incident); no live Ozon API calls or bot launch.
+- X01 complete as the source/projection stage. Known boundary: a multi-supply order has no proven per-supply date and keeps total unavailable. The no-cache source can complete small windows in one slice; cold windows that exceed limits stay incomplete until X03 resume support.
 
 ## X00 implementation update — 2026-10-20
 
@@ -72,7 +146,7 @@
 
 ### Что обязательно подтвердить перед X01
 
-Для X01 нужен обезличенный read-only ответ `/v3/supply-order/get` для заявки с известным принятым кросс-докингом, сверенный с кабинетом. Для проверки даты сопоставить `state_updated_date` и дату акта из `/v1/supply-order/act/summary/get`; для quantity проверить `fact_quantity` по каждому `supply_id` в `/v1/supply-order/act/product/get`, включая частичную или split-поставку, если такая уже есть. Оставить имена полей, типы, enum-статусы, shape и формат дат; скрыть идентификаторы, SKU и названия. Не присылать Client ID, API key, заголовки авторизации, `.env` или полную карточку товара. Схемы list/get уже получены и повторно не нужны.
+Требуемые для single-supply формы evidence получены. Для X01 использовать per-SKU `fact_quantity` только после точного сопоставления принятого acceptance act с `supply_id`; использовать `state_updated_date` лишь для completed order с одной completed cross-dock supply. Multi-supply order остаётся неполной частью выборки до отдельного подтверждения индивидуальных дат. Не использовать даты создания/планирования или summary-level quantity как fallback.
 
 ## Проверки
 

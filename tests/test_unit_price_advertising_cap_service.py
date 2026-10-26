@@ -70,6 +70,16 @@ def test_tax_minimum_switch_is_evaluated_through_canonical_forward_calculator():
     assert result["evaluation_count"] <= 128
 
 
+def test_advertising_cap_accounts_for_fixed_cross_docking_per_supplied_unit():
+    service = _service()
+
+    result = service.solve(_inputs(cross_docking_per_unit="12"), "25")
+    baseline = service.solve(_inputs(), "25")
+
+    assert result["error"] is False
+    assert result["target"]["advertising_rate"] < baseline["target"]["advertising_rate"]
+
+
 def test_negative_profit_without_advertising_reports_unreachable_limits():
     result = _service().solve(_inputs(cost="1000"), "0")
 

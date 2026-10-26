@@ -1,5 +1,103 @@
 # Architecture Decisions
 
+## Decision 054
+
+Date:
+
+2026-10-21
+
+Topic:
+
+Cross-docking evidence in immutable saved plans
+
+Decision:
+
+- New saved-plan calculation version 2 stores the rate and allowlisted source evidence in the exact revision. Viewing, comparing, readiness and exporting use that frozen evidence and never query Ozon.
+- Existing version 1 documents continue through an explicit compatibility adapter; their inputs and exports do not acquire current cross-docking evidence retroactively.
+- An explicit source refresh may feed a new revision or copy after identity and CAS checks. It must not mutate an older revision.
+- Sales-mix planning applies the historical per-supplied-unit rate to planned successful sales Q. This planning deduction does not alter the factual side of plan/fact comparison.
+- Completeness of the collected 56-day window is separate from availability of a usable SKU rate. A complete window with no eligible supplied units may be saved as complete source evidence, but it has no numeric rate and cannot make a positive-Q sales mix complete.
+- Plan/fact accepts legacy v1 and current v2 saved plans. For v2, the frozen rate can affect the plan-only profit projection; the factual quantity/revenue inputs and arithmetic bridge remain unchanged, and an unavailable positive-Q rate keeps planned profit unavailable.
+
+Reason:
+
+The calculation's source evidence must remain reproducible across restarts and source refreshes. Separating v1 and v2 prevents historical plans from changing silently, and keeping planned Q out of the actual comparison avoids mixing assumptions with recorded results.
+
+Status:
+
+Implemented and covered by X05 saved-plan, batch, sales-mix, comparison and export regressions.
+
+---
+
+## Decision 052
+
+Date:
+
+2026-10-20
+
+Topic:
+
+Cross-docking expense evidence and shared accrual classification
+
+Decision:
+
+- Keep Ozon accrual fee-category aliases in one shared classifier used by the experimental store report and cross-docking unit-cost evidence.
+- Build the 56-day expense numerator from signed, classified leaf amounts on their finance accrual dates. Never reconstruct it from parent `total_amount`, tariffs, payout totals, or sales.
+- Preserve direct SKU attribution for item-level fee leaves; treat seller/container leaves without a SKU as shared and use a store estimate only when complete cross-docking supply coverage exists.
+- Any incomplete day, unknown fee type, malformed leaf, or conflicting accrual identity prevents publication of numeric evidence. Positive amounts reduce the signed expense total; do not apply `abs()` per operation.
+- Keep this component pure and disconnected from current/scenario production calculators until the later bounded source/cache integration stages.
+
+Reason:
+
+The Ozon daily accrual endpoint mixes leaf service amounts with parent financial totals and exposes both SKU-linked and seller-level fee nodes. A shared classifier and signed leaf projection prevent category drift and double counting while preserving the distinction between exact SKU costs and shared store costs.
+
+Status:
+
+Implemented through X04 bounded collection, canonical current/scenario math and Telegram presentation. X05 immutable saved-scenario compatibility remains.
+
+## Decision 053
+
+Date:
+
+2026-10-21
+
+Topic:
+
+Cross-docking evidence collection budgets and cache scope
+
+Decision:
+
+- Collect 56-day financial and supplied-unit evidence through the existing read-only Ozon client with a maximum of 64 HTTP attempts and 60 seconds per calculation slice; each endpoint operation is one attempt and shares the parent operation trace budget.
+- Keep raw checkpoints and complete projections in bounded process-local memory only, keyed by tenant/store, exact date window and model version. Incomplete evidence is resumable but never published as a numeric unit rate; complete evidence has a 10-minute TTL and force refresh clears the matching checkpoint.
+- Within one parent operation that refreshes multiple SKUs, invalidate the shared store/window evidence once; subsequent SKU projections in that operation reuse the completed result or continue its checkpoint instead of restarting the same collection.
+- Reuse complete daily accrual pages already held by the request-local `PeriodProfitFinanceService` cache for the overlapping 28-day window. Do not launch a second pagination for each SKU.
+- Keep Ozon reads lazy until an explicit calculation; application construction and imports perform no API calls. Do not persist raw API payloads or identifiers in diagnostics.
+
+Reason:
+
+The 56-day source can exceed one request budget and the unit-cost denominator is only valid when both financial and actual supplied-unit coverage are complete. Scoped continuation preserves bounded operation behavior without exposing partial averages or adding another persistence/job subsystem.
+
+Status:
+
+Bounded collection, calculator application and operation-scoped refresh behavior are implemented and covered by X03–X04 plus the R1–R3 review regression profile. Persistent scenario snapshots and historical-plan compatibility are covered by X05 and its follow-up review fixes.
+
+## Decision 051
+
+Date: 2026-10-20
+
+Topic: Cross-docking supplied-unit identity and accepted quantity
+
+Decision:
+
+- Each cross-docking supply identifies one product/SKU, per the user's business rule.
+- The supplied-unit denominator uses product-row `fact_quantity` from the matching accepted acceptance act, not planned/declared quantity, `approved_quantity`, summary totals, sales or order counts.
+- Eligibility requires a completed order and completed nested cross-dock supply. For the verified single-supply order shape, use the order's `state_updated_date` as the completion day in `Europe/Moscow`; do not use act `created_date`, planned dates or deprecated `arrival_date`.
+- A multi-supply order has no verified per-supply completion timestamp; its supplies must produce incomplete coverage and must not enter a supposedly complete window until their date is proven.
+
+Reason:
+
+Two user-provided read-only diagnostics include a full receipt (500 declared/fact) and a partial receipt (200 declared, 100 fact). The latter's single-supply order completion date matches the Ozon UI and the order's `state_updated_date`, while the act creation date is one day earlier. Summary quantities diverge from the product line. This evidence supports a narrowly scoped rule and explicit fail-closed behavior, not extrapolation to multiple nested supplies.
+
 ## Decision 019
 
 Date: 2026-09-19
