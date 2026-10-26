@@ -21,7 +21,7 @@
 - Z04: себестоимость и external expense flows прошли 54 synthetic regressions; effective date, stale callback и coverage behavior подтверждены, правила учёта не менялись.
 - Z05: 103 адресные регрессии прошли; Analytics missing metrics не восстанавливаются, Cancellation и ClientReturn различаются, проценты не показываются при несовпадении когорт. Источник текущего статуса отмены не выдаётся за событие отмены в периоде.
 - Z06: 104 адресные регрессии прошли. Основной и подробные экраны, полнота, сравнение, bridge, SKU contribution и экспорт читают один scoped cached snapshot; Ozon-запрос выполняется только при явном обновлении.
-- Следующий этап — Z18: пройти backup/verify/dry-run/restore/read-after-reopen на синтетических данных и отдельном root; user data и production credentials не использовать. Полный 56-дневный снимок и рабочее наблюдение остаются owner evidence.
+- Z18 закрыт synthetic-профилем: backup/verify/dry-run/restore/new-root/read-after-reopen сохранили saved plan/revision, cost effective dates, external expenses/coverage, активный mapping и зашифрованные credentials. С отсутствующим/неверным ключом статус остаётся явной ошибкой; профиль — 33 passed. Следующий этап Z19: проверить lifecycle/update отказные сценарии только на synthetic процессе. Полный 56-дневный снимок и рабочее наблюдение остаются owner evidence.
 
 ---
 # 2026-10-26 — дополнительные исправления review PR #717

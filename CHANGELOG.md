@@ -1,3 +1,7 @@
+# 2026-10-26 — проверено восстановление состояния магазина из архива
+
+- Расширен synthetic end-to-end restore профиль: saved plan/revision, cost history по датам, expense coverage, активный mapping и encrypted Ozon credentials проверяются после reopen в новом root.
+- Ciphertext сохраняется, plaintext API key/Telegram token/master key исключены; неверный/отсутствующий ключ не выдаёт подключённый аккаунт. Профиль backup/restore/mapping/credentials: **33 passed in 3.26s**. Пользовательские данные и рабочий бот не использовались.
 # 2026-10-26 — добавлена памятка первого безопасного обновления
 
 - Recovery runbook теперь покрывает старую копию без `update_bot.ps1`: проверка ветки и локальных изменений, fast-forward только из чистого `main`, сохранение tracked diff и untracked списка вне checkout, затем переход к штатному updater.

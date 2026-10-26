@@ -5661,3 +5661,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_period_profit_analytics_runtime.py::test_public_report_flow_opens_exact_period_expenses_returns_refreshes_and_exports`: public callbacks cover report → details → completeness → exact-period expenses → coverage confirmation → return → explicit refresh → CSV; owner/store stale actions are rejected. Synthetic repository only; source calls: 1 initial + 1 explicit refresh, with zero calls for details/navigation/export. The C00–C05 related profile completed **81 passed, 3 ACL/temp tests deselected**; exact-head CI must run the temp-backed cases.
 - `project_brain/DAILY_USE_END_TO_END_ACCEPTANCE_C05_2026-10-25.md` records the confirmed stale-context issue, test evidence, and limits.
+
+## Z18 — synthetic backup/restore and persisted-data reopening
+
+- tests/test_bot_backup_service.py: supported JSON list/object and SQLite layouts, mapping-registry override, archive checksums, dry-run/target guards, path traversal/symlink rejection, and failure atomicity.
+- tests/test_daily_use_end_to_end_restore.py: added an end-to-end synthetic Ozon credential archive test. The linked scenario also verifies saved plan revision, tenant/store isolation, dated cost evidence, expense coverage, and active mapping repository after reopening the restored root.
+- tests/test_ozon_credential_production_persistence.py: same-key decryption plus explicit missing/wrong-key safe statuses; restored archive test also ensures API key, Telegram token and master key are absent from archive bytes while ciphertext and Client ID remain.
+- tests/test_period_profit_mapping_registry_batch_v99_v103.py: authorized mapping lifecycle remains readable after serialization.
+- Isolated Windows/Python 3.12 profile: **33 passed in 3.26s**. All data and encryption keys were synthetic and temporary; source storage stayed unchanged.
