@@ -4,7 +4,7 @@
 Целевая ветка: main.
 Актуальная база сравнения PR: main SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Историческая исходная точка Z00 — e879e6d7881a097f040e56d9962223525840917c; текущая база main включена в ветку merge-коммитом 15141441c6468018f9553405a7f31b6dd2da86a4.
 Рабочая ветка: codex/existing-functionality-completion.
-Точный head SHA и ссылки на checks указываются в PR после публикации.
+PR #718: https://github.com/dopf129-pixel/ai-business-assistant/pull/718. Текущий head SHA и ссылки на проверки следует сверять непосредственно в PR, поскольку docs/status commits обновляют ветку.
 
 ## Объём и архитектурная оценка
 
@@ -50,7 +50,7 @@
 
 ## CI и независимое решение
 
-До принятия PR нужны точные CI результаты head SHA: Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime workflow согласно репозиторию. Локальный полный тест не заменяет CI. Самопроверка этого пакета не является независимым reviewer approval.
+PR #718 открыт; до принятия нужны точные CI результаты текущего head SHA: Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime workflow согласно репозиторию. Локальный полный тест не заменяет CI. Самопроверка этого пакета не является независимым reviewer approval.
 
 ## Внешние проверки владельца остаются отдельно
 

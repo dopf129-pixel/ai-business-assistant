@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 локально VERIFIED, CI exact-head pending; Z22 review package подготовлен, PR pending).
+Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 локально VERIFIED, exact-head CI pending; Z22 PR #718 открыт, exact-head CI pending; Z23 owner evidence pending).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; current main SHA 89eb9224 merged into task branch (15141441); PR publication and exact-head CI are pending.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; current main SHA 89eb9224 merged into task branch (15141441); PR #718 is open. Exact-head CI is pending.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -39,7 +39,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z19 | Synthetic lifecycle/update | VERIFIED_EXISTING | Owned generation/checkout, exact SHA readiness, maintenance guard and controlled update failures; 82 passed | Only synthetic process/Git repos |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
 | Z21 | Сквозная приёмка и CI | LOCAL_VERIFIED_CI_PENDING | Integrated flows 198 passed; full Windows pytest 3745 passed; compileall passed | Linux/Python 3.11 and Docker CI pending |
-| Z22 | PR и независимый review handoff | REVIEW_PACKAGE_READY_PR_PENDING | EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md | Независимый reviewer ещё не назначен/не подтвердил; PR и exact-head CI pending |
+| Z22 | PR и независимый review handoff | PR_OPEN_CI_PENDING | PR #718; EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md | Exact-head CI pending; independent review decision separate |
 | Z23 | Пакет владельца и итог | NOT_STARTED | — | OWNER_EVIDENCE_PENDING |
 
 ## Реестр findings
@@ -286,3 +286,8 @@ Updater под synthetic Git roots требует canonical repo/branch, фик�
 python -m compileall -q app tests завершился с exit code 0. Показан один существующий SyntaxWarning в tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177 (identity comparison с float literal); он не относится к изменённым файлам и компиляцию не остановил. Требования задачи о Linux/Python 3.11 и Docker будут подтверждены актуальным CI PR; до этого этап Z21 открыт.
 
 Следующий этап: Z22 — подготовить небольшой PR, independent review map и дождаться точных CI checks.
+### Z22 — PR и пакет независимого review
+
+Статус: PR #718 открыт на актуальный main; review-пакет приложен в `project_brain/EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md`. Перед открытием сравнение GitHub подтвердило `ahead_by=23`, `behind_by=0`; ветка содержит main SHA `89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0`. Локальные полные проверки: Windows/Python 3.12 pytest — 3745 passed, связанный профиль — 198 passed, compileall exit 0. Эти локальные результаты не заменяют CI точного PR head. Merge, deployment и production bot start не выполнялись.
+
+Следующий этап: дождаться и оценить CI точного head PR #718, затем завершить пакет владельца Z23 с явной фиксацией ожидающих внешних evidence.
