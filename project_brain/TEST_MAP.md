@@ -5616,6 +5616,14 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - `tests/test_saved_planning_plan_telegram_flow.py`: create/list/open/local continue/preview/save/copy/reopen, stale callbacks, optimistic revision update, saved assumption/model/snapshot preservation, refresh identity guard, archive/restore/delete confirmation, restart with a fresh runtime, and other-store isolation.
 - Isolated Windows/Python 3.12 profile: **44 passed in 1.89s**. No live source/storage or bot process was used; existing code was verified.
 
+## Z13 — batch/mix/readiness/plan-fact/export integration
+
+- `tests/test_unit_price_batch_plan_service.py` and `tests/test_telegram_unit_price_batch_plan_runtime_service.py`: exact catalog identities, bounded batch inputs, local edits, refresh and stale-action protection, row-specific target planning/ad cap, and full batch export.
+- `tests/test_sales_mix_planning_service.py`: three-SKU mix, explicit zero vs unknown Q/cost/fees, missing cross-docking and external expense evidence, rounded unit components, one aggregate tax calculation, quantity/expense limits.
+- `tests/test_planning_plan_readiness_service.py`, `tests/test_period_profit_plan_fact_comparison.py`, and `tests/test_planning_plan_comparison_service.py`: actionable missing input, exact period/store/SKU compatibility, plan/fact scope limits, frozen historical comparison and added/removed SKU coverage.
+- `tests/test_analytics_export_serializer.py`, `tests/test_analytics_export_service.py`, `tests/test_analytics_export_runtime.py`, and `tests/test_saved_planning_plan_telegram_flow.py`: all rows/cells exported, model/assumptions/completeness preserved, null vs zero, safety/size limits, cached snapshot without source reads.
+- Isolated Windows/Python 3.12 linked profile: **108 passed in 3.58s**. Existing code and policy were confirmed.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.
