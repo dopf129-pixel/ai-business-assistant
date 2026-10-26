@@ -1,3 +1,7 @@
+# 2026-10-26 — принята изоляция и отказные сценарии обновления
+
+- Проверены привязка остановки к checkout/generation, exact-SHA readiness, общий startup/maintenance guard, защита dirty/ignored данных и контролируемые сбои stop/backup/fetch/merge/dependency/healthcheck/readiness.
+- Isolated lifecycle/update/preflight/backup profile: **82 passed in 19.34s**. Только synthetic процессы и Git roots; runtime реализация не менялась.
 # 2026-10-26 — проверено восстановление состояния магазина из архива
 
 - Расширен synthetic end-to-end restore профиль: saved plan/revision, cost history по датам, expense coverage, активный mapping и encrypted Ozon credentials проверяются после reopen в новом root.

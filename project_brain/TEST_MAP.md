@@ -5669,3 +5669,10 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - tests/test_ozon_credential_production_persistence.py: same-key decryption plus explicit missing/wrong-key safe statuses; restored archive test also ensures API key, Telegram token and master key are absent from archive bytes while ciphertext and Client ID remain.
 - tests/test_period_profit_mapping_registry_batch_v99_v103.py: authorized mapping lifecycle remains readable after serialization.
 - Isolated Windows/Python 3.12 profile: **33 passed in 3.26s**. All data and encryption keys were synthetic and temporary; source storage stayed unchanged.
+## Z19 — instance lifecycle, update boundaries, and controlled failures
+
+- tests/test_bot_instance_lifecycle_service.py: token/checkout/generation ownership, stale PID, graceful stop timeout, startup lease, cross-process stop, and failure metadata.
+- tests/test_bot_update_runtime_service.py: immutable target revision, exact-checkout readiness, maintenance guard, failure at fetch/preflight/stop/backup/fast-forward/dependency/check/healthcheck/readiness, foreign checkout and concurrency lock.
+- tests/test_bot_update_preflight_service.py: canonical branch/remote/upstream, dirty/untracked/ignored path shape collisions and fail-closed process identity.
+- tests/test_bot_backup_service.py: backup under shared guard and failure atomicity; tests/test_windows_local_handoff_readiness.py: Windows entrypoint/runbook boundaries.
+- Isolated Windows/Python 3.12 profile: **82 passed in 19.34s**. Synthetic Git roots/processes only; no live bot was started or stopped.

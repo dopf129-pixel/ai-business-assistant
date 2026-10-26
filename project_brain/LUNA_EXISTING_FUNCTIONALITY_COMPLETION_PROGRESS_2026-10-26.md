@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z18 и Z20 VERIFIED; далее Z19).
+Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; далее Z21).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z18 завершены для заявленного технического объёма; следующий этап — Z19.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены для заявленного технического объёма; следующий этап — Z21.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -36,7 +36,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z16 | Отчёты и доставка | VERIFIED_EXISTING | Report formatting, redaction, UTF-16 splitting and keyboard delivery profile: 171 passed | — |
 | Z17 | Обновление и инструкции | VERIFIED | Added legacy-checkout first-update path, local patch/untracked preservation guidance; runbook/preflight: 24 passed | Рабочую установку не трогали |
 | Z18 | Synthetic backup/restore | VERIFIED | Backup/verify/dry-run/new-root/read-after-reopen incl. plan revisions, dated cost, expenses/coverage, mapping registry and encrypted credentials; 33 passed | Только synthetic key/data |
-| Z19 | Synthetic lifecycle/update | NOT_STARTED | — | Рабочий процесс не трогать |
+| Z19 | Synthetic lifecycle/update | VERIFIED_EXISTING | Owned generation/checkout, exact SHA readiness, maintenance guard and controlled update failures; 82 passed | Only synthetic process/Git repos |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
 | Z21 | Сквозная приёмка и CI | NOT_STARTED | — | Не заменяет owner acceptance |
 | Z22 | PR и независимый review handoff | NOT_STARTED | — | Independent review выполняется отдельно |
@@ -267,4 +267,13 @@ Seller/Performance и cross-docking collection проверены с дочер�
 
 Изолированный Windows/Python 3.12 профиль tests/test_bot_backup_service.py tests/test_daily_use_end_to_end_restore.py tests/test_ozon_credential_production_persistence.py tests/test_period_profit_mapping_registry_batch_v99_v103.py: **33 passed in 3.26s**, 0 failed/deselected. Во время расширения end-to-end проверки сначала прошёл базовый профиль в 29 tests; финальный расширенный profile passed. Тестовые данные/keys временные; пользовательские данные, credentials и рабочий бот не использовались.
 
-Следующий этап: Z19 — lifecycle и контролируемые сбои обновления в synthetic процессе.
+Результат Z19 и фактическая проверка зафиксированы далее.
+### Z19 — synthetic lifecycle и сбои обновления
+
+Статус: VERIFIED_EXISTING. Существующие lifecycle/update contracts подтверждены изолированными тестами: stop привязан к token scope, project fingerprint и process generation; stale PID не является основанием завершить чужой/replacement process. Stop timeout оставляет явное STOPPING/RUNNING, не использует force kill. Readiness сверяется по running состоянию, нужной ревизии и checkout, отдельно от PID.
+
+Updater под synthetic Git roots требует canonical repo/branch, фиксирует целевой SHA, не действует при dirty/untracked/ignored collision, не обходит fetch/preflight, и останавливается при ошибке graceful stop или backup. Общий startup/maintenance guard удерживается на merge и backup, start не проходит в это окно; конкурирующие updater сериализуются. Ошибки зависимости, локальной проверки, healthcheck и readiness не запускают бота скрытно; failed fast-forward сообщает проверенный backup и оставляет экземпляр остановленным. Already-current и foreign checkout не вызывают stop/backup/restart. Проверки startup, backup и update связаны только с отдельными временными lock/Git/storage файлами.
+
+Изолированный Windows/Python 3.12 профиль tests/test_bot_instance_lifecycle_service.py tests/test_bot_update_runtime_service.py tests/test_bot_update_preflight_service.py tests/test_bot_backup_service.py tests/test_windows_local_handoff_readiness.py: **82 passed in 19.34s**, 0 failed/deselected. Реальный процесс, рабочий checkout, удалённый сервер и live credentials не использовались; код не менялся.
+
+Следующий этап: Z21 — сквозная техническая приёмка и полный локальный pytest в изолированной среде.
