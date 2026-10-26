@@ -20,7 +20,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z00 | Исходная точка и сохранность | VERIFIED | Ветка codex/existing-functionality-completion, база e879e6d7; GitHub подтвердил main merge 89eb9224 | — |
 | Z01 | Реестр доступных функций | VERIFIED | EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md; 16 callbacks; 84 test paths verified | — |
 | Z02 | Конечная очередь и текущие документы | VERIFIED | CURRENT_STATE, ROADMAP, CHANGELOG, TEST_MAP, telegram-user-guide; F-01–F-03 finite backlog | — |
-| Z03 | Суммы и категории начислений | NOT_STARTED | — | Текущий runtime export может потребоваться |
+| Z03 | Суммы и категории начислений | VERIFIED | Официальный августовский XLSX сверён локально через offline comparator: 38 864 строк; категории и общий агрегат совпали с исторической сводкой; 62 relevant tests passed | Coverage UNVERIFIED без owner assertion; текущий runtime JSON не получен |
 | Z04 | Себестоимость и внешние расходы | NOT_STARTED | — | — |
 | Z05 | Заказы, отмены и возвраты | NOT_STARTED | — | Ограничения источников проверять отдельно |
 | Z06 | Финансовые снимки и проекции | NOT_STARTED | — | Текущий runtime export может потребоваться |
@@ -120,3 +120,11 @@ Managed worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundati
 Команда: `python -m pytest -q tests/test_unit_price_target_planning_service.py` из окружения `.z20-isolated-env` — **37 passed in 0.42s**, 0 failed, 0 deselected. На первой попытке стандартное sandbox исполнение не смогло открыть временный файл до старта коллекции; тот же тестовый профиль повторён с разрешённой записью, ограниченной чистой проверочной копией. Это была ошибка прав доступа среды, не pytest regression.
 До и после теста сравнивались SHA-256 пяти tracked JSON-файлов в проверочной копии: `history.json`, `profiles.json`, `tasks.json`, `tax_configuration.json`, `users.json`; все значения совпали. Проверочный каталог хранения был направлен в `.z20-storage`; основной пользовательский checkout не открывался для теста и не менялся. Код/приложение/реальный бот/внешние API не запускались.
 Следующий доступный этап: Z03; перед каждым новым file-backed профилем сохранять то же отключение dotenv/credentials и явное synthetic storage/temp.
+
+### Z03 — суммы и классификация начислений
+
+Статус: VERIFIED для исторического периода 2026-08-01—2026-08-31; код и финансовая формула не менялись. Приложенный официальный файл прочитан только для анализа. Существующий `daily_use_reconcile.py reference` в clean verification worktree обработал 38 864 строки с валидной датой в диапазоне; invalid dates 0. Coverage осталось `UNVERIFIED`, поскольку в offline comparator не передавалось явное подтверждение полноты периода. Файл не копировался в репозиторий/хранилище; денежные суммы и значения ячеек не записывались в Git.
+Типы XLSX сверены по знаку, категории и итогу: комиссия продажи/возврата, размещение, эквайринг, кросс-докинг, CPC/CPO, основная логистика и доставка до места выдачи. Категории и их нетто-сумма совпадают с предоставленной исторической сводкой; доставка до места выдачи является подкатегорией общей логистики и не учитывается повторно. Детальные типы не меняют net total.
+Комиссия полного месяца берётся из месячного отчёта реализации; код и тесты показывают число строк отчёта отдельно и явно предупреждают, что это не число продаж/единиц. Адресный regression-профиль в изолированном clean worktree: `tests/test_experimental_store_economics.py`, factory, accrual breakdown, period summary и postings client — **62 passed in 4.12s**, 0 failed/deselected.
+Ошибки: sandbox-only tempfile failure при первой попытке Z20 был повторён с разрешённой записью внутри изолированного worktree; financial profile ошибок не дал. Подтверждённых ошибок разнесения в проверенных категориях не осталось; текущий runtime export/полнота его данных не проверены.
+Следующий этап: Z04 — себестоимость и внешние расходы.
