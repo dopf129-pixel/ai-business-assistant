@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z20 VERIFIED; Z21 локально VERIFIED, exact-head CI pending; Z22 PR #718 открыт, exact-head CI pending; Z23 owner evidence pending).
+Статус исполнения: ENGINEERING_READY_OWNER_PENDING (Z00–Z22 VERIFIED; PR #718 открыт, CI зелёный; owner evidence E-01–E-03 ожидается).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: Windows/Python 3.12 local pytest and compile passed; exact-head Linux/Python 3.11 and Docker checks await PR CI. Z22: independent-review package prepared; current main SHA 89eb9224 merged into task branch (15141441); PR #718 is open. Exact-head CI is pending.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z20 завершены. Z21: локально Windows/Python 3.12 pytest — 3745 passed, интеграционный профиль — 198 passed, compileall — exit 0. На опубликованном code head df6b506e workflow Verify #40337702406 успешно завершил Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime smoke. Z22: review package подготовлен; main SHA 89eb9224 включён в ветку; PR #718 открыт. Z23: передана инструкция владельческой проверки; E-01–E-03 остаются внешним evidence.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -38,9 +38,9 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z18 | Synthetic backup/restore | VERIFIED | Backup/verify/dry-run/new-root/read-after-reopen incl. plan revisions, dated cost, expenses/coverage, mapping registry and encrypted credentials; 33 passed | Только synthetic key/data |
 | Z19 | Synthetic lifecycle/update | VERIFIED_EXISTING | Owned generation/checkout, exact SHA readiness, maintenance guard and controlled update failures; 82 passed | Only synthetic process/Git repos |
 | Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
-| Z21 | Сквозная приёмка и CI | LOCAL_VERIFIED_CI_PENDING | Integrated flows 198 passed; full Windows pytest 3745 passed; compileall passed | Linux/Python 3.11 and Docker CI pending |
-| Z22 | PR и независимый review handoff | PR_OPEN_CI_PENDING | PR #718; EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md | Exact-head CI pending; independent review decision separate |
-| Z23 | Пакет владельца и итог | NOT_STARTED | — | OWNER_EVIDENCE_PENDING |
+| Z21 | Сквозная приёмка и CI | VERIFIED | Local Windows/Python 3.12: 3745 passed; integrated: 198 passed; workflow Verify #40337702406 on code head df6b506e: Windows and Linux full verification, Docker build/runtime smoke all success | Только offline/synthetic; production bot не запускался |
+| Z22 | PR и независимый review handoff | PR_OPEN_CI_GREEN | https://github.com/dopf129-pixel/ai-business-assistant/pull/718; EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md; Verify #40337702406 | CI green; независимое решение reviewer ещё отдельно |
+| Z23 | Пакет владельца и итог | HANDED_OFF_OWNER_EVIDENCE_PENDING | Инструкция ниже; технический итог ENGINEERING_READY_OWNER_PENDING | Ожидаются актуальный JSON, полный multi-SKU 56-дневный снимок и 24–72h observation |
 
 ## Реестр findings
 
@@ -291,3 +291,25 @@ python -m compileall -q app tests завершился с exit code 0. Пока�
 Статус: PR #718 открыт на актуальный main; review-пакет приложен в `project_brain/EXISTING_FUNCTIONALITY_COMPLETION_REVIEW_2026-10-26.md`. Перед открытием сравнение GitHub подтвердило `ahead_by=23`, `behind_by=0`; ветка содержит main SHA `89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0`. Локальные полные проверки: Windows/Python 3.12 pytest — 3745 passed, связанный профиль — 198 passed, compileall exit 0. Эти локальные результаты не заменяют CI точного PR head. Merge, deployment и production bot start не выполнялись.
 
 Следующий этап: дождаться и оценить CI точного head PR #718, затем завершить пакет владельца Z23 с явной фиксацией ожидающих внешних evidence.
+
+### Z21 — exact-head CI принят
+
+Статус: VERIFIED. GitHub workflow Verify #40337702406 завершился с conclusion `success` на опубликованном code head `df6b506e6febdf56915ec2eb4ca36f3e6ca57e20`. Windows/Python 3.12 job и full-verification job прошли; full-verification включал Linux/Python 3.11 tests, production Docker build и runtime smoke. CI artifact `verification-0ec162a151f131c4cdaedd730e0aed94f758567e` привязан к тому же head SHA. Локально: 3745 passed полный Windows pytest, 198 passed integrated profile, compileall exit 0. Реальный бот и seller API не запускались.
+
+### Z23 — пакет владельческой проверки и итог
+
+Статус: инженерная часть готова; `ENGINEERING_READY_OWNER_PENDING`, не `OWNER_ACCEPTED`. Существующие действия для последующей сверки:
+
+1. В боте откройте `ℹ️ О боте / версия` и сохраните revision/время старта процесса. Это показывает версию именно запущенного процесса.
+2. Откройте `💵 Прибыль за период`, выберите полностью закрытый период `01.08.2026–31.08.2026`, затем кнопку `⬇️ JSON`. Это финансовый owner export со значениями. Не заменяйте его кнопкой `📦 Сохранить диагностику`: она создаёт отдельный обезличенный support JSON без сумм. Перед отправкой локально замените SKU/store/supply identifiers на стабильные псевдонимы; оставьте суммы, период и статусы.
+3. Для фактической cross-docking ставки откройте `💰 Юнит-экономика товаров`, выберите товар и на его расчёте нажмите `Допущения и источники`. Сохраните для каждой SKU-псевдонима окно дат, число покрытых/ожидаемых финансовых дней, signed accrual total/by-SKU с корректировками, статус/полноту поставок, фактически принятый знаменатель, ставку на единицу и `as_of`. Одна поставка с одним SKU не доказывает multi-SKU атрибуцию; при нескольких товарах нужны их отдельные псевдонимы и quantities.
+4. Для периода финансовой сверки сопоставьте только одинаковые даты, магазин scope и basis начисления. Старые сообщения о результатах бота считать историей, не доказательством текущего процесса.
+5. Наблюдение 24–72 часа проводится владельцем только после отдельного слияния/развёртывания и штатного обновления. Сохраните начальную и конечную версию, периоды доступности/ошибок и обезличенный итог; не отправляйте raw logs.
+
+| Evidence | Нужно для OWNER_ACCEPTED | Статус |
+|---|---|---|
+| E-01 | Актуальные revision и финансовый JSON за сопоставленный закрытый период | OWNER_EVIDENCE_PENDING |
+| E-02 | Полное 56-дневное cross-docking evidence, включая несколько SKU при их наличии | OWNER_EVIDENCE_PENDING |
+| E-03 | Наблюдение финальной опубликованной версии в течение 24–72 часов | OWNER_EVIDENCE_PENDING |
+
+Не отправлять API keys, Client ID, master key, `.env`, полную базу, исходные ID или необезличенные логи. Не подменять отсутствующие owner evidence синтетическими тестами. Техническая передача завершена PR #718; merge и deployment не выполнялись.

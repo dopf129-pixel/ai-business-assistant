@@ -50,9 +50,11 @@ PR #718: https://github.com/dopf129-pixel/ai-business-assistant/pull/718. Тек
 
 ## CI и независимое решение
 
-PR #718 открыт; до принятия нужны точные CI результаты текущего head SHA: Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime workflow согласно репозиторию. Локальный полный тест не заменяет CI. Самопроверка этого пакета не является независимым reviewer approval.
+PR #718 открыт; GitHub Verify workflow #40337702406 завершился успешно на code head df6b506e6febdf56915ec2eb4ca36f3e6ca57e20. Успешны Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime smoke; SHA-bound artifact: verification-0ec162a151f131c4cdaedd730e0aed94f758567e. Локальный полный pytest: 3745 passed; integrated profile: 198 passed; compileall exit 0. Самопроверка этого пакета не является независимым reviewer approval; независимое решение остаётся отдельным.
 
 ## Внешние проверки владельца остаются отдельно
+
+Пошаговая безопасная инструкция и реестр E-01–E-03 приведены в разделе Z23 журнала `LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md`.
 
 ENGINEERING_READY не означает OWNER_ACCEPTED. Для завершения фактической проверки всё ещё нужны полный реальный 56-дневный источник cross-docking и рабочее наблюдение 24–72 часа. Полученные owner diagnostics и акт по одной позиции не доказывают реальный multi-SKU знаменатель. Не запрашивать API keys, .env, полную SQLite БД или несмаскированные логи.
 
