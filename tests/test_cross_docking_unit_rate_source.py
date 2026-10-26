@@ -173,7 +173,8 @@ def test_cold_window_over_64_attempts_resumes_before_publishing_rate(monkeypatch
         classmethod(lambda cls: timezone.utc),
     )
     client = _FakeOzonClient()
-    source = _source(client)
+    now = [datetime(2026, 10, 19, 12, tzinfo=timezone.utc)]
+    source = _source(client, clock=lambda: now[0])
 
     first = source.get_rate(sku="3921245627", tenant_scope="user:store-a")
 
@@ -193,11 +194,19 @@ def test_cold_window_over_64_attempts_resumes_before_publishing_rate(monkeypatch
     assert second["days_complete"] == 56
     assert second["date_from"] == "2026-08-24"
     assert second["date_to"] == "2026-10-18"
+    assert second["signed_accrual_total"] == "-1000.00"
+    assert second["financial_complete"] is True
+    assert second["financial_days_complete"] == 56
+    assert second["supply_complete"] is True
+    assert second["supply_status"] == "COMPLETE"
     assert len(client.calls) == 116
 
+    evidence_snapshot_at = second["as_of"]
+    now[0] += timedelta(hours=1)
     before_cache_hit = len(client.calls)
     cached = source.get_rate(sku="3921245627", tenant_scope="user:store-a")
     assert cached["cross_docking_per_unit"] == "10.00"
+    assert cached["as_of"] == evidence_snapshot_at
     assert len(client.calls) == before_cache_hit
     other_sku = source.get_rate(sku="archived-sku", tenant_scope="user:store-a")
     assert other_sku["status"] == "UNAVAILABLE"

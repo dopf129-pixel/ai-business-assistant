@@ -2187,10 +2187,28 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
         except (TypeError, ValueError, OverflowError):
             pass
+        signed_accrual = evidence.get(
+            "signed_accrual_by_sku"
+            if is_sku_rate
+            else "signed_accrual_total"
+        )
+        if signed_accrual is not None:
+            details += "; начисления Ozon с корректировками " + self._money(
+                signed_accrual
+            )
         days_complete = evidence.get("days_complete")
         days_expected = evidence.get("days_expected")
         if days_complete is not None and days_expected is not None:
             details += "; покрытие " + str(days_complete) + "/" + str(days_expected) + " дней"
+        supply_status = evidence.get("supply_status")
+        if isinstance(supply_status, str) and supply_status.strip():
+            details += "; поставки: " + supply_status[:40]
+        snapshot_at = evidence.get("as_of")
+        if isinstance(snapshot_at, str) and snapshot_at.strip():
+            snapshot_at = snapshot_at.strip()
+            if snapshot_at.endswith("+00:00"):
+                snapshot_at = snapshot_at[:-6] + "Z"
+            details += "; снимок: " + snapshot_at[:25]
         return details + "."
 
     def _edit_prompt(self, session, field, notice=None):

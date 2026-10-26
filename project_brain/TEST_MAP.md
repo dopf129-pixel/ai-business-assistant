@@ -5572,6 +5572,14 @@ G00 focused profile: **54 passed, 1 existing `tmp_path` factory test deselected*
 - H–O linked regression profile after R1–R10: **259 passed**; documentation drift/manager tests: **3 passed**. Code head `d057031364e6d934f258fec2efa385a045f6e3bf` passed Windows/Linux exact-head Verify `39221770481` and repeat `39221764654`, including compile and production Docker build/runtime smoke. A subsequent docs-only commit requires its own current-head Verify.
 # Cross-docking bounded production collection and wiring (X03)
 
+## Z07 — full cross-docking evidence path and saved-plan compatibility
+
+- `tests/test_cross_docking_unit_rate_source.py`: one stable `as_of` timestamp across cache hits; signed net accrual, finance completeness/day coverage, and supply status/completeness on the complete 56-day result.
+- `tests/test_planning_cross_docking_adapter.py`: sanitized signed evidence and separate source coverage survive projection; unsafe external identifiers remain dropped.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public result and assumptions show the per-SKU signed expenses including corrections, 56/56 coverage, supply status, and fixed snapshot time without exposing IDs.
+- `tests/test_saved_planning_plan_telegram_flow.py`: save → reopen → capture preserves signed totals and independent finance/supply coverage; old version-2 schema remains accepted because additive fields are optional.
+- Isolated linked profile: **194 passed in 4.15s**; see `LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md` for environment fencing and first compatibility failure/fix.
+
 The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_cross_docking_finance_source.py`: inclusive daily pagination, cached complete days, partial cursor checkpoints, no partial-day publication, invalid/non-advancing cursors, response validation and bounded request/time behavior.

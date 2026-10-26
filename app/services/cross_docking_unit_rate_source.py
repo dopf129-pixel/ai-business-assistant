@@ -284,6 +284,8 @@ class CrossDockingUnitRateSource:
                     or (supply_result.evidence.issue_codes or ("SUPPLY_WINDOW_INCOMPLETE",))[0]
                 )
 
+        if self._is_complete(state) and not isinstance(state.get("snapshot_at"), str):
+            state["snapshot_at"] = self._now().isoformat()
         state["stored_at"] = self.cache_clock()
         with self._lock:
             if not self._store_locked(key, state):
@@ -306,6 +308,8 @@ class CrossDockingUnitRateSource:
             date_to=date_to,
             finance_checkpointed=state.get("finance_checkpoint") is not None,
             supply_checkpointed=state.get("supply_checkpoint") is not None,
+            financial_complete=state.get("financial_evidence") is not None,
+            supply_complete=state.get("supply_evidence") is not None,
             http_attempts=used_attempts,
             elapsed_seconds=max(0.0, self.monotonic_clock() - started),
         )
@@ -396,6 +400,11 @@ class CrossDockingUnitRateSource:
             supplies=supplies,
             sku=sku,
         )
+        signed_sku_accrual = (
+            -rate.expense_by_sku
+            if rate.expense_by_sku is not None
+            else None
+        )
         return {
             "error": False,
             "status": rate.status,
@@ -419,17 +428,26 @@ class CrossDockingUnitRateSource:
             "expense_total": self._decimal_string(rate.expense_total),
             "expense_by_sku": self._decimal_string(rate.expense_by_sku),
             "shared_expense_total": self._decimal_string(rate.shared_expense_total),
+            "signed_accrual_total": self._decimal_string(
+                financial.signed_accrual_total
+            ),
+            "signed_accrual_by_sku": self._decimal_string(signed_sku_accrual),
             "raw_rate": self._decimal_string(rate.raw_rate),
             "rounding_residual": self._decimal_string(rate.rounding_residual),
             "days_expected": rate.days_expected,
             "days_complete": rate.days_complete,
+            "financial_status": financial.status,
+            "financial_complete": financial.complete,
+            "financial_days_expected": financial.days_expected,
+            "financial_days_complete": financial.days_complete,
             "matched_leaf_count": rate.matched_leaf_count,
             "positive_accrual_count": rate.positive_accrual_count,
             "supply_status": supplies.status,
+            "supply_complete": supplies.complete,
             "evidence_complete": True,
             "supply_orders_scanned": supplies.orders_scanned,
             "crossdock_supplies_seen": supplies.crossdock_supplies_seen,
-            "as_of": self._now().isoformat(),
+            "as_of": entry.get("snapshot_at") or self._now().isoformat(),
             "model_version": self.MODEL_VERSION,
             "read_only": True,
             "executed": False,
@@ -556,6 +574,8 @@ class CrossDockingUnitRateSource:
         supply_checkpointed=False,
         http_attempts=0,
         elapsed_seconds=0.0,
+        financial_complete=False,
+        supply_complete=False,
     ):
         return {
             "error": False,
@@ -573,6 +593,8 @@ class CrossDockingUnitRateSource:
             "days_complete": 0,
             "finance_checkpointed": bool(finance_checkpointed),
             "supply_checkpointed": bool(supply_checkpointed),
+            "financial_complete": financial_complete is True,
+            "supply_complete": supply_complete is True,
             "http_attempts": max(0, int(http_attempts)),
             "elapsed_seconds": round(max(0.0, float(elapsed_seconds)), 3),
             "model_version": self.MODEL_VERSION,

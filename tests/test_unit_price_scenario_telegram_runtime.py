@@ -194,11 +194,14 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
         "method": "sku_accrual_cost_per_delivered_crossdock_unit",
         "cross_docking_per_unit": "12.00",
         "expense_by_sku": "1200.00",
+        "signed_accrual_by_sku": "-1200.00",
         "supplied_units_sku": 100,
         "days_complete": 56,
         "days_expected": 56,
         "date_from": "2026-08-24",
         "date_to": "2026-10-18",
+        "as_of": "2026-10-19T12:00:00+00:00",
+        "supply_status": "COMPLETE",
         "sku": "must-not-be-exposed",
         "supply_id": "must-not-be-exposed",
     }
@@ -238,7 +241,10 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
     assert ready["price_scenario"]["calculated"]["profit"] == 214.0
     assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in ready["message"]
     assert "начисления 1 200,00 ₽ / принято 100 шт." in ready["message"]
+    assert "начисления Ozon с корректировками -1 200,00 ₽" in ready["message"]
     assert "покрытие 56/56 дней" in ready["message"]
+    assert "поставки: COMPLETE" in ready["message"]
+    assert "снимок: 2026-10-19T12:00:00Z" in ready["message"]
     assert "must-not-be-exposed" not in ready["message"]
     assert "Кросс-докинг: 12,00 ₽" in assumptions["message"]
 

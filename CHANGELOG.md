@@ -1616,3 +1616,7 @@ Summary Report теперь включает:
 # 2026-10-25 — D03 read-only update preflight
 
 - Добавлены локальная проверка target SHA из cached `origin/main`, проверка точного Git root/main/origin и fail-closed защита dirty/untracked paths и legacy users/tasks data. `update_bot.ps1 -CheckOnly` не выполняет сеть, Git changes, lifecycle actions или установку; 9 synthetic Git tests passed.
+
+# 2026-10-26 — прозрачное cross-docking evidence в калькуляторе (Z07)
+
+- Показываются signed расходы Ozon с корректировками, отдельная полнота финансового/поставочного окон и время фиксации снимка; дополнительные поля сохраняются в новых планах и обратно совместимы с ранее сохранённой схемой v2.

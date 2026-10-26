@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS (Z00–Z06 и Z20 VERIFIED; далее Z07).
+Статус исполнения: IN_PROGRESS (Z00–Z07 и Z20 VERIFIED; далее Z08).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z06 завершены для заявленного технического объёма; следующий этап — Z07.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z07 завершены для заявленного технического объёма; следующий этап — Z08.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -24,7 +24,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z04 | Себестоимость и внешние расходы | VERIFIED | Cost confirmation/timeline/storage, external expense UI/coverage and multi-store stale callbacks: 54 passed | Только synthetic storage; production records/process не использовались |
 | Z05 | Заказы, отмены и возвраты | VERIFIED | 103 адресные regressions passed; missing Analytics metrics не восстанавливаются, ClientReturn отделён от Cancellation, несовпадающие когорты не получают долю | API diagnostic подтверждает FBO/FBS структуру; историческая причина события не выводится из текущего статуса |
 | Z06 | Финансовые снимки и проекции | VERIFIED | Cached snapshot screen/details/completeness/comparison/bridge/SKU/export profiles: 104 passed; view reads do not query Ozon, explicit refresh creates a new query | Current live snapshot/export remains owner evidence |
-| Z07 | Прозрачное 56-дневное evidence | NOT_STARTED | — | Полное владельческое окно не получено |
+| Z07 | Прозрачное 56-дневное evidence | VERIFIED | Синтетический сквозной профиль: 194 passed; signed accrual, отдельная полнота finance/supply и snapshot прошли source → runtime → saved plan → reopen/capture | Полный владельческий 56-дневный снимок всё ещё ожидается |
 | Z08 | Multi-SKU, корректировки и поставки | NOT_STARTED | — | Реальная multi-SKU приёмка отдельно |
 | Z09 | Однократное включение и версия | NOT_STARTED | — | — |
 | Z10 | Числа и текст калькулятора | NOT_STARTED | — | Найдена кодовая несогласованность подписи |
@@ -150,3 +150,13 @@ Fallback отмен Seller API фильтрует отправления по о
 В snapshot отображаются scope, current/previous periods, generation time, comparison basis/status, units/status каждого показателя, completeness/reasons, bridge и SKU contribution с необъяснённым остатком. Несовместимая прибыль не объявляется comparable, отсутствующие значения не становятся нулём, расходы не распределяются по SKU без доказательной базы. Experimental report остаётся отдельным и не переносится в основной расчёт.
 Адресный regression-профиль по serializer/service/runtime exports, completeness, comparison contracts/metrics/bridge, SKU contribution, period query и support diagnostics — **104 passed in 3.18s**, 0 failed/deselected; повторный профиль runtime/export после исправления `PYTHONPATH=app` — все тесты прошли. Первый запуск не собрал тесты из-за отсутствующего пути импорта; дефектом приложения это не являлось. Не найдено подтверждённой рассогласованности; live API и внешний JSON не использовались.
 Следующий этап: Z07 — проверить путь 56-дневного cross-docking evidence до пользовательского результата.
+
+### Z07 — проверяемое 56-дневное cross-docking evidence
+
+Статус: VERIFIED в synthetic источнике и пользовательских путях; реальный полный 56-дневный снимок остаётся owner evidence (E-02). Источник публикует один снимок только после завершения финансового и поставочного окон; даты, timezone Europe/Moscow, метод, SKU/store знаменатель, signed начисления с корректировками и покрытие выводятся вместе. `as_of` фиксируется при завершении сбора и не обновляется на cache hit. При неполном сборе показываются отдельные признаки завершённости финансов и поставок, без числовой ставки.
+
+Signed общая сумма берётся из финансового evidence; SKU-сумма выводится со знаком из уже неттированных SKU расходов, поэтому корректировки учитываются один раз. Telegram экран допущений показывает signed начисления, поставочный статус и timestamp снимка; сохранённый owner plan сохраняет эти сведения при записи, повторном открытии и повторном захвате. Optional additive поля не меняют обязательную схему прежних v2 документов; идентификаторы/сырые ответы не добавляются.
+
+Профиль в чистом `existing-functionality-verify` с отключёнными credentials/dotenv и отдельными storage/temp: cross-docking finance/rate/evidence/supply, текущая unit economics source/runtime, adapter, target planning, saved-plan flow и analytics export — **194 passed in 4.15s**, 0 failed/deselected; `git diff --check` чистый. Перед этим профиль выявил реальную несовместимость: строгий allowlist отклонял новые поля saved-plan payload (23 ошибки в первой расширенной попытке). Схема расширена с optional полями, существующая v2-схема осталась допустимой; после исправления сохранённый сценарий подтвердил reopen/recapture новых данных. Код в пользовательский checkout и production не запускался.
+
+Следующий этап: Z08 — проверить multi-SKU, signed корректировки и консервативный знаменатель поставок на пограничных/конфликтных synthetic случаях.
