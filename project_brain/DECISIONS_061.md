@@ -1,6 +1,6 @@
 # Decision 061 — unit price tariff and observation persistence
 
-Date: 2026-10-27  
+Date: 2026-10-27
 Topic: durable tenant-scoped tariff assumptions and price observations for unit price planning.
 
 ## Decision
