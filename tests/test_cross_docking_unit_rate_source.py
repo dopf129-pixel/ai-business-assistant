@@ -1,7 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from services.cross_docking_supply_evidence_service import (
+    CrossDockingSupplyEvidence,
     CrossDockingSupplyEvidenceService,
+)
+from services.cross_docking_financial_evidence_service import (
+    CrossDockingFinancialEvidence,
 )
 from services.cross_docking_unit_rate_source import CrossDockingUnitRateSource
 from services.period_profit_operation_diagnostics import PeriodProfitOperationTrace
@@ -321,6 +326,55 @@ def test_source_reserves_only_remaining_parent_http_attempts(monkeypatch):
     assert result["http_attempts"] == 2
     assert trace.ozon_requests_reserved == 64
     assert client.calls == ["finance", "finance"]
+
+
+def test_signed_sku_accrual_is_available_without_crossdock_receipts():
+    client = _FakeOzonClient()
+    source = _source(client)
+    date_from = date(2026, 8, 24)
+    date_to = date(2026, 10, 18)
+    financial = CrossDockingFinancialEvidence(
+        status="COMPLETE",
+        date_from=date_from,
+        date_to=date_to,
+        days_expected=56,
+        days_complete=56,
+        expense_total=Decimal("100.00"),
+        expense_by_sku=(("3921245627", Decimal("100.00")),),
+        shared_expense_total=Decimal("0.00"),
+        has_unattributed_expense=False,
+        signed_accrual_total=Decimal("-100.00"),
+        matched_leaf_count=1,
+        positive_accrual_count=0,
+        issue_codes=(),
+    )
+    supplies = CrossDockingSupplyEvidence(
+        status="NO_CROSSDOCK_SUPPLIES",
+        supplies=(),
+        total_units=0,
+        units_by_sku=(),
+        issue_codes=(),
+        orders_scanned=0,
+        crossdock_supplies_seen=0,
+        excluded_direct_supplies=0,
+        excluded_outside_window=0,
+    )
+
+    result = source._project(
+        {
+            "financial_evidence": financial,
+            "supply_evidence": supplies,
+            "snapshot_at": "2026-10-19T12:00:00+00:00",
+        },
+        "3921245627",
+        date_from,
+        date_to,
+    )
+
+    assert result["financial_complete"] is True
+    assert result["supply_status"] == "NO_CROSSDOCK_SUPPLIES"
+    assert result["signed_accrual_by_sku"] == "-100.00"
+    assert result["cross_docking_per_unit"] is None
 
 
 def test_accrual_type_dictionary_load_is_bounded_and_cached_for_resume(monkeypatch):

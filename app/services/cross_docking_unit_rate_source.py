@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 import json
 from threading import Event, RLock
 from time import monotonic
@@ -400,11 +401,11 @@ class CrossDockingUnitRateSource:
             supplies=supplies,
             sku=sku,
         )
-        signed_sku_accrual = (
-            -rate.expense_by_sku
-            if rate.expense_by_sku is not None
-            else None
-        )
+        signed_sku_accrual = None
+        if financial.expense_by_sku is not None:
+            signed_sku_accrual = -dict(financial.expense_by_sku).get(
+                rate.sku, Decimal("0")
+            )
         return {
             "error": False,
             "status": rate.status,

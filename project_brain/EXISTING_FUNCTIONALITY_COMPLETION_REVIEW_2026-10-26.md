@@ -52,6 +52,14 @@ PR #718: https://github.com/dopf129-pixel/ai-business-assistant/pull/718. Тек
 
 PR #718 открыт; GitHub Verify workflow #40337702406 завершился успешно на code head df6b506e6febdf56915ec2eb4ca36f3e6ca57e20. Успешны Windows/Python 3.12, Linux/Python 3.11 и Docker build/runtime smoke; SHA-bound artifact: verification-0ec162a151f131c4cdaedd730e0aed94f758567e. Локальный полный pytest: 3745 passed; integrated profile: 198 passed; compileall exit 0. Самопроверка этого пакета не является независимым reviewer approval; независимое решение остаётся отдельным.
 
+## Дополнительные замечания текущего review PR #718
+
+Первый переход со старого checkout теперь использует `git fetch --no-tags origin main`, затем `git merge --ff-only --no-edit --no-overwrite-ignore FETCH_HEAD`. Synthetic regression исполняет команды из самого runbook и подтверждает, что конфликт с ignored локальными данными сохраняет файл и не двигает `main`.
+
+Signed начисление кросс-докинга по SKU теперь проецируется из complete финансового evidence отдельно от расчёта ставки. При отсутствии подтверждённых поставок сумма остаётся видимой, а ставка за единицу остаётся неизвестной до появления знаменателя. Добавлена регрессия `NO_CROSSDOCK_SUPPLIES`.
+
+Адресный профиль после исправлений: **35 passed in 15.43s**; полный Windows/Python 3.12 `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Эти локальные проверки выполнены до публикации обновлённого SHA. Предыдущие CI и review handoff относятся к старому SHA и не подтверждают новый head; после push обязателен exact-head CI, затем независимый reviewer должен повторно проверить обновлённый diff.
+
 ## Внешние проверки владельца остаются отдельно
 
 Пошаговая безопасная инструкция и реестр E-01–E-03 приведены в разделе Z23 журнала `LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md`.

@@ -1,5 +1,11 @@
 # Исполнение ТЗ по существующим функциям (26.10.2026)
 
+## Дополнительные регрессии независимого review PR #718
+
+- `tests/test_windows_local_handoff_readiness.py`: документированные команды первого fast-forward извлекаются из runbook и выполняются в synthetic Git checkout с локальным ignored-файлом. Входящий tracked-путь не перезаписывает локальные данные и fast-forward не двигает `main`.
+- `tests/test_cross_docking_unit_rate_source.py`: complete финансовое evidence сохраняет подписанное начисление по SKU при `NO_CROSSDOCK_SUPPLIES`; ставка за единицу остаётся `None` без знаменателя.
+- Адресный Windows/Python 3.12 профиль: **35 passed in 15.43s**; полный `pytest`: **3747 passed in 42.67s**; compileall и diff-check успешны. Exact-head CI для нового SHA ожидается.
+
 - Реестр маршрутов, источников и уже имеющихся тестов: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
 - Этапы и фактические результаты: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md.
 - На этапах Z00–Z02 код и тестовые контракты не менялись. Z03 financial profile: 62 passed; локальный XLSX comparator обработал строки read-only, без финансовых значений в Git. Z04 cost/expense profile: 53 passed; tenant cost storage reopen: 1 passed. Z05 Analytics/returns cohort profile: 103 passed; missing metrics, partial pagination и несовместимые когорты остаются явно неполными. Z06 snapshot/projection/export profile: 104 passed; cached view/export do not re-read Ozon and explicit refresh creates a new snapshot. Z20 настроил `.z20-isolated-env`, synthetic storage/temp/profile и отключил dotenv/live credentials. Базовый профиль `tests/test_unit_price_target_planning_service.py`: 37 passed; пять tracked data JSON hashes совпали до и после. Перед file-backed тестами использовать те же ограничения. Старые CI результаты привязаны к своим SHA и не считаются проверкой будущего кода.

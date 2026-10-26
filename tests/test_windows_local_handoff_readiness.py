@@ -1,9 +1,20 @@
+import subprocess
 from pathlib import Path
 
 from telegram_app_layer import telegram_api_bot
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _git(root, *arguments, check=True):
+    return subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=check,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
 
 
 def test_windows_polling_disables_unsupported_signal_handlers():
@@ -67,7 +78,10 @@ def test_recovery_runbook_documents_safe_first_fast_forward_from_legacy_checkout
     assert "update_bot.ps1` может ещё отсутствовать" in runbook
     assert "git branch --show-current" in runbook
     assert "git status --short" in runbook
-    assert "git pull --ff-only origin main" in runbook
+    assert "git fetch --no-tags origin main" in runbook
+    assert "git merge --ff-only --no-edit --no-overwrite-ignore FETCH_HEAD" in runbook
+    assert "git pull --ff-only origin main" not in runbook
+    assert "Git остановится до сдвига `main` и сохранит локальные данные" in runbook
     assert "git diff --binary HEAD" in runbook
     assert "git ls-files --others --exclude-standard" in runbook
     assert "не выполняйте pull" in runbook
@@ -75,6 +89,61 @@ def test_recovery_runbook_documents_safe_first_fast_forward_from_legacy_checkout
     assert "-CheckOnly" in runbook and "-NoStart" in runbook
     for prohibited in ("git restore --", "git reset --hard", "git clean -fd"):
         assert f"```powershell\n{prohibited}" not in runbook
+
+
+def test_first_update_commands_preserve_ignored_local_data_on_collision(tmp_path):
+    runbook = (ROOT / "docs" / "daily-use-recovery-runbook.md").read_text(
+        encoding="utf-8"
+    )
+    first_update_section = runbook.split("получите fast-forward обновление", 1)[1]
+    command_block = first_update_section.split("```powershell", 1)[1].split("```", 1)[0]
+    commands = [line.strip() for line in command_block.splitlines() if line.strip()]
+    assert commands == [
+        "git fetch --no-tags origin main",
+        "git merge --ff-only --no-edit --no-overwrite-ignore FETCH_HEAD",
+    ]
+
+    remote = tmp_path / "remote.git"
+    local = tmp_path / "local"
+    incoming = tmp_path / "incoming"
+    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(remote))
+    local.mkdir()
+    _git(local, "init", "--initial-branch=main")
+    _git(local, "config", "user.name", "Synthetic Test")
+    _git(local, "config", "user.email", "synthetic@example.invalid")
+    (local / ".gitignore").write_text("runtime.db\n", encoding="utf-8")
+    (local / "app.py").write_text("version = 'base'\n", encoding="utf-8")
+    _git(local, "add", ".gitignore", "app.py")
+    _git(local, "commit", "-m", "base")
+    base = _git(local, "rev-parse", "HEAD").stdout.strip()
+    _git(local, "remote", "add", "origin", str(remote))
+    _git(local, "push", "-u", "origin", "main")
+
+    _git(tmp_path, "clone", str(remote), str(incoming))
+    _git(incoming, "config", "user.name", "Synthetic Test")
+    _git(incoming, "config", "user.email", "synthetic@example.invalid")
+    (incoming / "runtime.db").write_text("incoming tracked data\n", encoding="utf-8")
+    _git(incoming, "add", "-f", "runtime.db")
+    _git(incoming, "commit", "-m", "incoming runtime path")
+    _git(incoming, "push", "origin", "main")
+
+    local_data_path = local / "runtime.db"
+    local_data_path.write_text("keep owner data\n", encoding="utf-8")
+    assert _git(local, "status", "--short").stdout.strip() == ""
+    _git(local, "fetch", "--no-tags", "origin", "main")
+    merge = _git(
+        local,
+        "merge",
+        "--ff-only",
+        "--no-edit",
+        "--no-overwrite-ignore",
+        "FETCH_HEAD",
+        check=False,
+    )
+
+    assert merge.returncode != 0
+    assert _git(local, "rev-parse", "HEAD").stdout.strip() == base
+    assert local_data_path.read_text(encoding="utf-8") == "keep owner data\n"
 
 
 def test_canonical_entrypoint_loads_dotenv_before_runtime_import():

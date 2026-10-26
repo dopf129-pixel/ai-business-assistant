@@ -313,3 +313,11 @@ python -m compileall -q app tests завершился с exit code 0. Пока�
 | E-03 | Наблюдение финальной опубликованной версии в течение 24–72 часов | OWNER_EVIDENCE_PENDING |
 
 Не отправлять API keys, Client ID, master key, `.env`, полную базу, исходные ID или необезличенные логи. Не подменять отсутствующие owner evidence синтетическими тестами. Техническая передача завершена PR #718; merge и deployment не выполнялись.
+
+### Review follow-up — устранены P1/P2 в PR #718
+
+Статус: IMPLEMENTED; адресные регрессии пройдены. В legacy runbook заменён plain `git pull` на `git fetch --no-tags origin main` и `git merge --ff-only --no-edit --no-overwrite-ignore FETCH_HEAD`. Добавлена проверка, которая извлекает именно документированные команды, выполняет их в synthetic Git checkout с локальным ignored-файлом и подтверждает, что команда останавливается без изменения HEAD и содержимого файла.
+
+В projection кросс-докинга signed начисление по SKU берётся из complete финансового evidence напрямую, независимо от наличия подтверждённых поставок; ставка за единицу по-прежнему не рассчитывается без знаменателя. Регрессия покрывает `NO_CROSSDOCK_SUPPLIES` при известном расходе SKU.
+
+Windows/Python 3.12: `tests/test_windows_local_handoff_readiness.py`, `tests/test_cross_docking_unit_rate_source.py`, `tests/test_bot_update_preflight_service.py` — **35 passed in 15.43s**; полный `pytest` — **3747 passed in 42.67s**; `compileall -q app tests` и `git diff --check` успешны. Полный прогон изменил tracked `data/tasks.json` и создал пустой lock-файл: так как оба отсутствовали в исходном diff, tracked файл возвращён к исходной версии до запуска, пустой тестовый lock удалён, пользовательские данные не переносились и не терялись. Опубликованный exact-head CI и повторный независимый review остаются следующими проверками. Merge/deploy/real bot start не выполнялись.
