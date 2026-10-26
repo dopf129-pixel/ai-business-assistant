@@ -1,3 +1,7 @@
+# 2026-10-26 — завершена сверка когорт заказов/отмен/возвратов Z05
+
+- 103 адресные регрессии прошли; отсутствующие Analytics метрики не выводятся из соседних, Cancellation отделён от ClientReturn, доли скрыты при несовпадающих когортах. Подтверждённых кодовых дефектов нет.
+
 # 2026-10-26 — завершена проверка себестоимости и внешних расходов Z04
 
 - 54 адресных synthetic проверки прошли: effective cost/effective date, stale confirmations, multi-store scope, external expense preview/coverage/idempotency/storage reopen. Политика распределения расходов не менялась, production bot не запускался.

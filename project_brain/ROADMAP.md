@@ -3,7 +3,7 @@
 ## Текущая программа — завершение существующих функций (26.10.2026)
 
 - Исполняемое ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md; журнал: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_PROGRESS_2026-10-26.md; реестр: EXISTING_FUNCTIONALITY_REGISTRY_2026-10-26.md.
-- База — e879e6d7, чьё дерево совпадает с main merge 89eb9224. Z00–Z04 и Z20 verified; Z20 baseline 37 passed; Z03 finance profile 62 passed, локальная сверка категорий/aggregate совпала с исторической сводкой (coverage UNVERIFIED; значения XLSX не записывались в Git); Z04 cost/expense synthetic profile 54 passed. Далее Z05, затем Z06.
+- База — e879e6d7, чьё дерево совпадает с main merge 89eb9224. Z00–Z05 и Z20 verified; Z20 baseline 37 passed; Z03 finance profile 62 passed, локальная сверка категорий/aggregate совпала с исторической сводкой (coverage UNVERIFIED; значения XLSX не записывались в Git); Z04 cost/expense profile 54 passed; Z05 cohort profile 103 passed. Далее Z06.
 - Конечная очередь — только подтверждённые findings F-01–F-03 и этапы Z03–Z23 по зависимостям. F-02/F-03 закрыты обновлением документации; F-01 проверить на публичном UI-потоке Z10. Внешние acceptance evidence остаются pending.
 - Завершённые программы не переоткрываются: A–G были объединены в #702–#704 (отдельные stacked #698–#701 закрыты без merge); H–O — #705–#708; supply-act diagnostics — #709–#711; X00–X06 — #712; daily readiness A–E — #713–#717. Все перечисленные целевые PR merged. Текущие старые descriptions ниже — исторические записи.
 - Merge, deploy, production bot start/stop/update и live Ozon requests этой программой не выполняются.

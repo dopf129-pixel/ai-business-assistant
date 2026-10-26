@@ -1,13 +1,13 @@
 # Журнал: завершение существующих функций бота
 
 Дата подготовки: 26.10.2026.
-Статус исполнения: IN_PROGRESS.
+Статус исполнения: IN_PROGRESS (Z00–Z05 и Z20 VERIFIED; далее Z06).
 ТЗ: LUNA_EXISTING_FUNCTIONALITY_COMPLETION_TASK_2026-10-26.md.
 Основание: EXISTING_FUNCTIONALITY_COMPLETION_AUDIT_2026-10-26.md.
 
 ## Точка продолжения
 
-Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Следующий этап — Z03.
+Z20 проверен: отдельная чистая проверочная копия, synthetic storage/temp/profile и локальный pytest-профиль. Z00–Z05 завершены для заявленного технического объёма; следующий этап — Z06.
 
 Проверенная удалённая база: main после PR #712–#717, merge SHA 89eb9224c3e9ec2126f58dc4d38794b33c2a2cc0. Локальная основная папка осталась на 7e6eabde и содержит прежние изменения/данные; не выполнять её автоматическое обновление или очистку.
 
@@ -22,7 +22,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z02 | Конечная очередь и текущие документы | VERIFIED | CURRENT_STATE, ROADMAP, CHANGELOG, TEST_MAP, telegram-user-guide; F-01–F-03 finite backlog | — |
 | Z03 | Суммы и категории начислений | VERIFIED | Официальный августовский XLSX сверён локально через offline comparator: 38 864 строк; категории и общий агрегат совпали с исторической сводкой; 62 relevant tests passed | Coverage UNVERIFIED без owner assertion; текущий runtime JSON не получен |
 | Z04 | Себестоимость и внешние расходы | VERIFIED | Cost confirmation/timeline/storage, external expense UI/coverage and multi-store stale callbacks: 54 passed | Только synthetic storage; production records/process не использовались |
-| Z05 | Заказы, отмены и возвраты | NOT_STARTED | — | Ограничения источников проверять отдельно |
+| Z05 | Заказы, отмены и возвраты | VERIFIED | 103 адресные regressions passed; missing Analytics metrics не восстанавливаются, ClientReturn отделён от Cancellation, несовпадающие когорты не получают долю | API diagnostic подтверждает FBO/FBS структуру; историческая причина события не выводится из текущего статуса |
 | Z06 | Финансовые снимки и проекции | NOT_STARTED | — | Текущий runtime export может потребоваться |
 | Z07 | Прозрачное 56-дневное evidence | NOT_STARTED | — | Полное владельческое окно не получено |
 | Z08 | Multi-SKU, корректировки и поставки | NOT_STARTED | — | Реальная multi-SKU приёмка отдельно |
@@ -37,7 +37,7 @@ Z20 выполнен до файловых тестов. Далее выбира
 | Z17 | Обновление и инструкции | NOT_STARTED | — | Рабочую установку не трогать |
 | Z18 | Synthetic backup/restore | NOT_STARTED | — | Пользовательские данные не использовать |
 | Z19 | Synthetic lifecycle/update | NOT_STARTED | — | Рабочий процесс не трогать |
-| Z20 | Изолированное окружение проверок | NOT_STARTED | — | Выполнить до файловых тестов |
+| Z20 | Изолированное окружение проверок | VERIFIED | Чистый verification worktree, Python 3.12.10, isolated venv/storage/temp, dotenv и credentials выключены; baseline 37 passed | Перед file-backed профилями соблюдать Z20 fencing |
 | Z21 | Сквозная приёмка и CI | NOT_STARTED | — | Не заменяет owner acceptance |
 | Z22 | PR и независимый review handoff | NOT_STARTED | — | Independent review выполняется отдельно |
 | Z23 | Пакет владельца и итог | NOT_STARTED | — | OWNER_EVIDENCE_PENDING |
@@ -119,7 +119,7 @@ Managed worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundati
 Проверка выполнена в чистом detached worktree `existing-functionality-verify`, созданном из commit `ee1df3c2`; worktree с прежними локальными ignored/runtime-файлами не использовался. Для теста создано отдельное окружение `.z20-isolated-env` на Python 3.12.10 с `requirements-dev.txt` (pytest 8.4.2), а также `.z20-storage`, `.z20-temp`, `.z20-userprofile`. `PYTHON_DOTENV_DISABLED=1`; `OZON_CLIENT_ID`, `OZON_API_KEY`, `TELEGRAM_BOT_TOKEN`, `OZON_CREDENTIAL_MASTER_KEY` заданы пустыми; `.env` в проверочной копии отсутствует.
 Команда: `python -m pytest -q tests/test_unit_price_target_planning_service.py` из окружения `.z20-isolated-env` — **37 passed in 0.42s**, 0 failed, 0 deselected. На первой попытке стандартное sandbox исполнение не смогло открыть временный файл до старта коллекции; тот же тестовый профиль повторён с разрешённой записью, ограниченной чистой проверочной копией. Это была ошибка прав доступа среды, не pytest regression.
 До и после теста сравнивались SHA-256 пяти tracked JSON-файлов в проверочной копии: `history.json`, `profiles.json`, `tasks.json`, `tax_configuration.json`, `users.json`; все значения совпали. Проверочный каталог хранения был направлен в `.z20-storage`; основной пользовательский checkout не открывался для теста и не менялся. Код/приложение/реальный бот/внешние API не запускались.
-Следующий доступный этап: Z03; перед каждым новым file-backed профилем сохранять то же отключение dotenv/credentials и явное synthetic storage/temp.
+Следующий доступный этап после исходной изоляции: Z03; перед каждым новым file-backed профилем сохранять то же отключение dotenv/credentials и явное synthetic storage/temp.
 
 ### Z03 — суммы и классификация начислений
 
@@ -135,3 +135,11 @@ Managed worktree: C:\Users\gelashvilee\.codex\worktrees\daily-readiness-foundati
 Внешние расходы прошли preview → confirm → explicit coverage → возврат к прибыли → explicit refresh и multi-store callback scope. Описание от пользователя доходит до preview; повторная/конкурентная отправка, старый view callback и uncertain write не дублируют запись. Неполное покрытие имеет явные gaps и не превращается в нулевой расход. Текущие правила подтверждения покрытия и учёта наблюдаемой прибыли сохранены без изменения.
 Общий адресный профиль: cost confirmation flow, effective timeline, confirmation runtime, coverage, historical-cost input и Telegram expenses — **53 passed in 1.49s**; отдельный storage reopen profile — **1 passed in 0.21s**. Итого **54 passed**, 0 failed/deselected. Git tracked data в verification worktree не изменились; код не менялся.
 Не выполнялись реальные Telegram/API обращения или перезапуск реального бота. Следующий этап: Z05.
+
+### Z05 — заказанные, отменённые и возвращённые единицы
+
+Статус: VERIFIED по источникам и имеющимся runtime/test контрактам; код не менялся. В Analytics запрошенные метрики индексируются по собственным именам, отсутствующие `cancellations`/`returns` остаются отсутствующими; нельзя брать значение соседнего индекса. При неполной пагинации заказанное количество не выдаётся как полное.
+Проверены FBO/FBS вызовы, `product.quantity`, лимиты/страницы, дедупликация ID и conflicting duplicates. Предоставленный обезличенный API diagnostic показал 272 уникальные FBO записи: 270 `Cancellation` и 2 `ClientReturn`; FBS вернул 0. Это диагностическая выборка, не доказательство полноты всей истории. `Cancellation` не попадает в клиентские возвраты. Денежный возврат выручки, факт складского восстановления и запись типа `ClientReturn` остаются разными понятиями; восстановление товара этим источником не доказано.
+Fallback отмен Seller API фильтрует отправления по окну даты создания и текущему статусу `cancelled`; он не является когортой исторических отмен. Поэтому знаменатель/процент отмен не показывается. Возвраты `ClientReturn` фильтруются по изменению статуса в периоде, но источник и заказанная база не имеют подтверждённой одинаковой когорты; их доля также скрыта. Текущий status не описывается как точная дата события отмены.
+Адресный regression-профиль experimental economics, Analytics runtime, return evidence response/timestamp/service, quantity authority/diagnostics, Seller API attempts и FBO-v3 economics — **103 passed in 2.71s**, 0 failed/deselected. Реальный API повторно не вызывался; применены ранее полученные обезличенные API summaries. Не найдено подтверждённого дефекта для исправления.
+Следующий этап: Z06 — проверить совместимость финансового снимка и его проекций.
