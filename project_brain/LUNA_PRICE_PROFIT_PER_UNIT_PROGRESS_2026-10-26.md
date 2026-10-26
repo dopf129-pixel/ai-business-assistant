@@ -22,7 +22,7 @@
 | Q00 | DONE | PR #719 открыт, exact-head Verify #40363801273 успешен; main/spec SHA совпадают с исходной точкой, выделена реализационная ветка; рабочий tree чистый; локальные ignored runtime/cache каталоги сохранены нетронутыми. Подробности ниже. |
 | Q01 | DONE | Предметный аудит завершён: существующая формула, source scope, Telegram route, saved-plan schema/CAS и отсутствие price-observation workflow подтверждены в `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`. Runtime не менялся; Q02 baseline впереди. |
 | Q02 | DONE | Изолированный baseline Windows/Python 3.12: 247 passed; Python dotenv/live credentials отключены, storage/basetemp вынесены в новую temp-папку, hashes всех 5 tracked `data/*.json` совпали до/после. Первый фактический запуск найденного runner с исправленным `PYTHONPATH=app` прошёл. |
-| Q03 | NOT_STARTED | — |
+| Q03 | DONE | Зафиксированы outcome/tariff/ad/snapshot/observation contracts, layer boundary, limits и additive planning persistence в `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`; Decision 061. Runtime поведение пока не заявляется. |
 | Q04 | NOT_STARTED | — |
 | Q05 | NOT_STARTED | — |
 | Q06 | NOT_STARTED | — |
@@ -70,8 +70,8 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q03: записать единые contracts result/evidence/tariff/snapshot и архитектурное решение additive planning persistence.
-2. После Q03 начать Q04/Q15 независимыми последовательными этапами по dependency table.
+1. Начать Q04: реализовать pure tariff range resolver с N03/N04 regressions.
+2. После Q04 перейти к Q05/Q06; Q15 выполнять по dependency table.
 3. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
 
 ## Записи исполнения
@@ -104,3 +104,11 @@
 - SHA-256 всех пяти tracked files `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json` совпали до/после. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми; существующие `.runtime-data`, кеш и user checkouts не открывались и не изменялись.
 - До успешного запуска были две безвредные подготовительные ошибки команды (один несуществующий test filename и отсутствующий `PYTHONPATH=app`): pytest не собрал тесты в первой попытке, второй запуск остановился на collection import errors; обе попытки завершились hash check без изменений owner data. Исправленный запуск — PASS.
 - Q02 — PASS; baseline зафиксирован для будущих регрессий. Следующее: Q03 — formalize shared contracts/decision.
+
+### Q03 — shared contracts and persistence ownership (2026-10-27)
+
+- Добавлены `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`, detailed `DECISIONS_061.md` и индексированное архитектурное решение 061 в `DECISIONS.md`.
+- Зафиксированы: objective ₽ за успешную единицу; seller-price basis; отдельные status/evidence basis; exact-scope bounded tariff resolution; три рекламных режима с revenue basis; пороги равенства/строгого роста через canonical forward; frozen source snapshot; bounded candidates/HTTP; owner-triggered read-only observations; quality-gated recommendations; explicit saved-plan upgrade и old v1/v2 frozen readers.
+- Ownership: existing tenant SQLite + `PlanningWorkspaceRepository` единственные владельцы схемы/миграций/транзакций новых tariff/observation entities; application services — тонкая orchestration; pure resolver/compare — без I/O. Saved plans сохраняют frozen profile revision; observations append-only с idempotency/CAS; текущий backup/restore boundary сохраняется.
+- Проверки: сверены секции 2, 4–11, 13 ТЗ, DECISIONS 036–050/059–060, текущие planning schema и baseline suites. Q03 — contract-only; pytest новых runtime функций не запускался.
+- Q03 — PASS, runtime implementation ещё не заявлена. Следующее: Q04 — pure tariff resolver.

@@ -1,5 +1,18 @@
 # Architecture Decisions
 
+## Decision 061 — unit price tariff and observation persistence
+
+Date: 2026-10-27  
+Topic: persist price tariff assumptions and observation evidence without creating another accounting store.
+
+Keep `UnitPriceScenarioService` and active-store `TaxService` as the only forward calculation. Reuse tenant `ozon_assistant.db` and `PlanningWorkspaceRepository` as the single schema/migration/transaction owner for additive tariff and observation records; application services validate and orchestrate, while resolvers/comparisons remain pure. Manual tariff profiles are scoped to exact owner/store/product/offer/SKU/scheme/effective date and frozen plan revisions carry the exact profile revision/rate resolved for each price. A current-price fee point never implies a range. Observations are owner-triggered, read-only, completed-day evidence; no scheduler, historical price inference or Ozon price mutation is allowed. Additive migrations, strict allowlists, idempotency/CAS, quotas, frozen old v1/v2 plan readers and existing backup/restore are mandatory. See `DECISIONS_061.md` and `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.
+
+Reason: persistent planning evidence belongs to the existing tenant planning workspace, not financial accounting. One storage authority and the canonical forward engine preserve tenant isolation, tax/rounding contracts and backward compatibility.
+
+Status: Contract adopted for the Q00–Q35 implementation; not yet implemented. Q06/Q15/Q26 and Q35 must provide migration, isolation, restore and exact-head CI evidence.
+
+---
+
 ## Decision 060 — updater maintenance gate and bounded SQLite snapshot
 
 Date: 2026-10-25
