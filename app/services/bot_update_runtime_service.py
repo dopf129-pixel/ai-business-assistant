@@ -12,6 +12,7 @@ import time
 
 from services.bot_backup_service import BotBackupService
 from services.bot_instance_lifecycle_service import (
+    BotStartupMaintenanceGuard,
     inspect_bot_instance,
     project_root_fingerprint,
     request_graceful_stop,
@@ -52,6 +53,7 @@ class BotUpdateRuntimeService:
         git_runner=None,
         command_runner=None,
         lock_factory=None,
+        startup_guard_factory=None,
         sleep=time.sleep,
         monotonic=time.monotonic,
         platform=None,
@@ -77,6 +79,11 @@ class BotUpdateRuntimeService:
         self.git_runner = git_runner or self._run_git
         self.command_runner = command_runner or self._run_command
         self.lock_factory = lock_factory or _CheckoutUpdateLock
+        self.startup_guard_factory = startup_guard_factory or getattr(
+            self.backup_service,
+            "startup_guard_factory",
+            lambda token: BotStartupMaintenanceGuard(token),
+        )
         self.sleep = sleep
         self.monotonic = monotonic
         self.platform = platform or os.name
@@ -100,6 +107,7 @@ class BotUpdateRuntimeService:
             return self._failure("BOT_UPDATE_POWERSHELL_UNAVAILABLE")
 
         lock = None
+        startup_guard = None
         try:
             lock = self.lock_factory(self.project_root)
             lock.acquire()
@@ -109,15 +117,29 @@ class BotUpdateRuntimeService:
             return self._failure("BOT_UPDATE_LOCK_UNAVAILABLE")
 
         try:
-            return self._update_locked(no_start=no_start)
+            try:
+                startup_guard = self.startup_guard_factory(self.lifecycle_token)
+                if not startup_guard.acquire():
+                    return self._failure("BOT_UPDATE_STARTUP_GUARD_BUSY")
+            except Exception:
+                return self._failure("BOT_UPDATE_STARTUP_GUARD_UNAVAILABLE")
+            return self._update_locked(
+                no_start=no_start,
+                startup_guard=startup_guard,
+            )
         finally:
+            if startup_guard is not None:
+                try:
+                    startup_guard.close()
+                except Exception:
+                    pass
             try:
                 if lock is not None:
                     lock.release()
             except Exception:
                 pass
 
-    def _update_locked(self, *, no_start):
+    def _update_locked(self, *, no_start, startup_guard):
         identity = self._safe_call(self.preflight.inspect_repository_identity)
         if identity is None:
             return self._failure("BOT_UPDATE_REPOSITORY_IDENTITY_UNAVAILABLE")
@@ -214,7 +236,15 @@ class BotUpdateRuntimeService:
                 bot_stopped=bot_stopped,
             )
 
-        backup = self._safe_call(self.backup_service.backup)
+        backup_under_guard = getattr(self.backup_service, "backup_under_guard", None)
+        if not callable(backup_under_guard):
+            return self._failure(
+                "BOT_UPDATE_BACKUP_GUARD_UNSUPPORTED",
+                current_revision=current_revision,
+                target_revision=target_revision,
+                bot_stopped=bot_stopped,
+            )
+        backup = self._safe_call(lambda: backup_under_guard(startup_guard))
         if backup is None or backup.get("error") is not False:
             return self._failure(
                 "BOT_UPDATE_BACKUP_FAILED",
@@ -259,7 +289,10 @@ class BotUpdateRuntimeService:
                 bot_stopped=bot_stopped,
             )
 
-        if not self._git("merge", "--ff-only", "--no-edit", target_revision):
+        if not self._git(
+            "merge", "--ff-only", "--no-edit", "--no-overwrite-ignore",
+            target_revision,
+        ):
             return self._failure(
                 "BOT_UPDATE_FAST_FORWARD_FAILED",
                 current_revision=self._read_head(),
@@ -327,6 +360,9 @@ class BotUpdateRuntimeService:
                 "executed": True,
             }
 
+        # The checkout and dependencies are now ready. Release the startup gate
+        # immediately before handing control to the normal startup script.
+        startup_guard.close()
         start_args = self._start_arguments()
         if not self._invoke_command(start_args, timeout=self.step_timeout_seconds):
             return self._failure(

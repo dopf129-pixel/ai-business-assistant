@@ -1,10 +1,122 @@
+# 2026-10-26 — исправлены два дополнительных review finding в PR #717
+
+- Preflight теперь обнаруживает пересечения между входящими путями Git и ignored локальными файлами/папками в обе стороны; fast-forward дополнительно использует `--no-overwrite-ignore`, чтобы защитить данные при гонке после preflight.
+- В recovery runbook команда dry-run восстановления нормализует путь соседней папки до передачи в строгую проверку backup service.
+- Регрессии обновления и backup/restore: **57 passed** на Windows/Python 3.12. Code head `7c065b3a4ca6ef8211b3d149e5d998147cd3f925` прошёл Verify `40292624411`: Windows/Linux по **3,740 passed**, compile и Linux production Docker build/runtime smoke успешны. Слияние, развёртывание и операции с реальным ботом не выполнялись.
+
+# 2026-10-25 — устранены четыре дефекта review обновления, lifecycle и backup
+
+- Preflight блокирует fast-forward, если входящая версия затрагивает существующий игнорируемый локальный файл; updater держит общий startup/maintenance lock через backup, merge, установку зависимостей и offline-проверки.
+- Graceful stop повторно сверяет поколение и checkout до отправки команды и во время ожидания; SQLite snapshot выполняется в ограниченном по времени процессе, который завершается вместе с таймаутом.
+- Добавлены синтетические регрессии на четыре найденных сценария. Адресные Windows профили: **70 passed in 14.99s** и **8 passed in 3.58s**; in-memory compile 9 файлов и `git diff --check` прошли. Code head `39d1a12bcb699ef504abbbb1c484a5a7745f23a7` прошёл exact-head Verify `40222900262`: Windows **3,736 passed in 69.29s**, Linux **3,736 passed in 15.67s**, compile и production Docker build/runtime smoke успешны. Повторное technical review не выявило новых actionable дефектов; production bot не запускался.
+
 # 2026-10-25 — устранены дефекты review резервного копирования D01 (R1–R3)
 
-- Бэкап принимает три фактически list-based хранилища (`actions.json`, `conversation_history.json`, `store_reports.json`) и использует один контракт типов при создании и проверке архива.
-- Новый системный startup guard общий для запуска бота и создания снимка. Пока читаются файлы, новый экземпляр не может стартовать; если запуск уже получил guard, бэкап завершается без публикации.
-- Путь пользовательского mapping registry записывается в манифест относительно одобренного корня; вложенный storage root выбирается наиболее специфично. Проверка архива, dry-run и фактическое восстановление согласованы.
-- Добавлены регрессии на реальные storage writers, interleaving старта во время snapshot и project/nested/separate storage mapping paths.
-- Итоговый адресный профиль backup/lifecycle: **32 passed in 1.93s**; `compileall -q app tests` и `git diff --check` прошли (компиляция выдала одно существующее SyntaxWarning вне изменённых файлов).
+- Бэкап принимает реальные list-based хранилища; общий token-scoped startup guard исключает запуск бота на время snapshot; custom mapping registry в одобренных корнях проходит verify, dry-run и restore по одному контракту.
+- Добавлены регрессии storage writers, конкурентного запуска и project/nested/separate storage путей. Адресный профиль: **32 passed in 1.93s**; compileall и diff-check прошли.
+- Bounded lifecycle soak теперь учитывает постоянный startup/snapshot lock и проверяет фиксированный набор из трёх файлов вместо устаревшего лимита двух; причина и текущие CI результаты зафиксированы в backup review report.
+
+# 2026-10-25 — E01–E03: PR stack и review/owner handoff
+
+- Подготовлен draft PR stack #713–#717: reconciliation, completeness/report UX, backup/restore, updater/status и final acceptance. #713/#714 остаются зелёными на текущих heads. Первые #714–#716 checks нашли три тестовые регрессии, исправленные в #714. Дополнительный review backup #715 выявил R1–R3; они исправлены и перенесены вперёд. Exact-head Verify для новых heads #715–#717 ожидается.
+- Добавлены independent review package и owner validation steps. Реальный bot JSON, полный 56-дневный cross-docking snapshot и 24–72h эксплуатационные наблюдения остаются `USER_VALIDATION_PENDING`.
+- Слияние, развёртывание и production запуск не выполнялись. Разбор регрессий: `project_brain/DAILY_USE_CI_REGRESSION_FIX_2026-10-25.md`. Полный статус и base/head/CI: `project_brain/DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`.
+
+# 2026-10-25 — E00: связанная приёмка ежедневной работы
+
+- Сквозная регрессия связывает report/completeness/expense/refresh/export, canonical price calculation, saved plan, cost/expense persistence, verified backup, restore dry-run и чтение после восстановления в новом root.
+- Изолированный Windows/Python 3.12 профиль: **350 passed in 22.70s**. Текущий bot JSON и полный cross-docking snapshot остаются владельческим evidence, не заменяются synthetic данными.
+- Подробности и ограничения: `project_brain/DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`.
+
+# 2026-10-25 — D06: ограниченная проверка устойчивости и recovery runbook
+
+- Добавлен finite synthetic soak: повторные расчёты/экспорты, 12 ревизий планов, сохранение себестоимости/расходов и 8 изолированных start/status/stop циклов с замером файлов, потоков, handles и длительности.
+- Добавлены короткая памятка восстановления Windows и шаблон наблюдений владельца на 24–72 часа. Настоящий бот и seller credentials не запускались.
+- D06 profile: **11 passed in 3.74s**; acceptance: `project_brain/DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`.
+
+# 2026-10-25 — D05: статус процесса и safe diagnostics
+
+- Статус локально разделяет readiness Telegram polling и корректность startup-конфигурации; показывает проверенный build revision/mode, совпадение checkout и ограниченный код последнего startup/polling failure.
+- Lifecycle сохраняет только allowlisted enum причины, CLI не раскрывает пути/секреты/тексты исключений, а штатная остановка ограничена текущим checkout. Support JSON включает проверенный режим запуска.
+- D04/D05 + backup/restore/lifecycle regressions: **87 passed** на Windows/Python 3.12; parser scripts без ошибок.
+
+# 2026-10-25 — D03/D04: checkout-bound и проверенное обновление бота
+
+- Локальный lifecycle хранит только one-way fingerprint checkout; graceful stop требует совпадения с текущей папкой. Старые/чужие процессы не останавливаются автоматически.
+- `update_bot.ps1` теперь поддерживает проверку без изменений, проверенное обновление с запуском и режим `-NoStart`. Обновление закрепляется на точном SHA, до fast-forward создаётся и повторно проверяется backup, а успех запуска подтверждается polling readiness.
+- Регрессии обновления, backup/restore и lifecycle: **54 passed** на Windows/Python 3.12; реальный бот/remote не запускались.
+
+# 2026-10-25 — C04: измерение повторной работы и batch профиля
+
+- Зафиксированы query/source counts для details, exports, refresh и synthetic batch из трёх SKU. Детали и выгрузки используют сохранённый snapshot; batch читает каталог один раз и одну финансовую страницу на SKU в synthetic profile.
+- Избыточного production запроса не найдено, оптимизация не добавлялась. Fake HTTP counts и elapsed явно отделены от реального Ozon latency. Новый regression: 1 каталог, 3 snapshots, 3 fake finance pages, 6 fake attempts, 0,06 fake seconds.
+- Acceptance: `project_brain/DAILY_USE_PERFORMANCE_ACCEPTANCE_C04_2026-10-25.md`.
+
+# 2026-10-25 — C03: подавление позднего результата старого магазина
+
+- Расчётный callback и read-only текстовый результат теперь подавляются, если активный магазин изменился во время ожидания. Повторные расчёты и точный refresh остаются scoped и дедуплицируются; 429/timeout не объявляются успешным обновлением.
+- Проверки C03: **44 passed, 1 ACL-bound test deselected**; in-memory compile и diff-check прошли. Acceptance: `project_brain/DAILY_USE_RELIABILITY_ACCEPTANCE_C03_2026-10-25.md`.
+
+# 2026-10-25 — C02: обновление точного периода из диагностики
+
+- Кнопка `🔄 Обновить расчёт` из scoped диагностики теперь повторяет исходный период без повторного выбора дат. Owner/store/TTL проверяются до чтения сохранённого периода; успех создаёт новую ревизию отчёта.
+- Существующие ограничения старых подтверждений себестоимости, перехода между магазинами, произвольного периода и подтверждения внешних расходов проверены регрессиями; другие потоки не менялись.
+- Связанный profile: **105 passed, 9 storage-backed tests deselected** из-за Windows ACL для pytest temp directories. Acceptance: `project_brain/DAILY_USE_NAVIGATION_ACCEPTANCE_C02_2026-10-25.md`.
+
+# 2026-10-25 — C01: компактный отчёт и scoped детализация
+
+- Основной отчёт прибыли форматирует денежные значения с копейками и пробелами тысяч, показывает долю от общей выручки и уточняет, включает ли итог себестоимость и полные внешние расходы. При нулевой/отрицательной выручке не вычисляет долю.
+- Добавлена кнопка `📋 Подробности` из того же owner/store снимка на 10 минут; callback не повторяет запрос к Ozon. Длинный текст отправляется существующим UTF-16-safe splitter с клавиатурой на последнем сообщении.
+- Короткий экран показывает одну приоритетную причину неполноты и число дополнительных; «Полнота данных» и диагностика сохраняют полный canonical список.
+- Проверки C01: **74 passed, 1 deselected** (локальный storage-backed `tmp_path` тест ограничен Windows ACL); измеренные compact ответы ниже 2 500 UTF-16 units; каждый отправляемый chunk ограничен 3 800 units. Exact-head CI ещё требуется.
+- Приёмка и ограничение проверки: `project_brain/DAILY_USE_SCREEN_ACCEPTANCE_C01_2026-10-25.md`.
+
+# 2026-10-25 — C00: схема экранов ежедневной работы
+
+- Зафиксированы пользовательские пути прибыли, экспериментальной экономики магазина, юнит-экономики, планов, внешних расходов и диагностики, а также схема короткого отчёта и scoped деталей.
+- Аудит подтвердил, что подробный текст прибыли не сохранялся для открытия из callback; gap закрыт в C01. На этапе C00 production-код и расчётные суммы не менялись.
+- Измерены representative response sizes и UTF-16 Telegram splitter. Подробности: `project_brain/DAILY_USE_SCREEN_INVENTORY_C00_2026-10-25.md`.
+
+# 2026-10-25 — B05: единые причины полноты в отчёте и экспортах
+
+- Analytics CSV/JSON metadata теперь сохраняет allowlisted статусы полноты и canonical причины из того же owner/store/period snapshot, что основной ответ, details и диагностика. Старый snapshot без поля остаётся совместимым.
+- Короткий и подробный ответы используют подписи причин из общей диагностики. Support JSON не получил денежные суммы или raw source payload.
+- Регрессии runtime/cache, completeness, diagnostics и export: **41 passed, 1 локальный `tmp_path` тест deselected из-за Windows ACL**. Отчёт B05: `project_brain/DAILY_USE_COMPLETENESS_ACCEPTANCE_B05_2026-10-25.md`.
+
+# 2026-10-25 — B04: историческая себестоимость требует дату действия
+
+- Удалено использование текущей недатированной стоимости для исторического finance SKU, если нет подтверждённой себестоимости на дату периода. Старые периоды больше не наследуют стоимость, внесённую позже.
+- Регрессии подтвердили сохранение датированной исторической записи, fail-closed для отсутствующей cost coverage и неизменность Return COGS authorization/commit gates: **154 passed in 5.28s**.
+- Подробности: `project_brain/DAILY_USE_COGS_EFFECTIVE_DATE_AUDIT_2026-10-25.md`.
+
+# 2026-10-25 — B03: сверена разбивка начислений
+
+- Подтверждено, что классификация детализации не меняет net accrual/прибыль: последняя миля вложена в логистику, Performance CPC — только сверка, хранение из двух источников не суммируется.
+- Проверены actual monthly commission и exact balance regressions: **94 passed in 2.54s**; 5 чистых external-expense evidence cases прошли. SQLite/Telegram temp-path tests требуют exact-head CI из-за локального ACL ограничения.
+- B03 audit: `project_brain/DAILY_USE_EXPENSE_CATEGORY_AUDIT_2026-10-25.md`. Production-код не менялся.
+
+# 2026-10-25 — B02: подтверждены границы источников единиц
+
+- Зафиксирована полная августовская Analytics выборка: 31 день и 6 117 ordered units; cancellation/returns в ответе отсутствуют и остаются unknown.
+- Проверен владелецкий read-only API diagnostic: 270 `Cancellation` и 2 `ClientReturn` записи FBO, FBS полный и пустой; возвратные записи не смешиваются с отменами, а доли к другой когорте скрыты.
+- Existing fallbacks и фильтр дат проверены: **73 passed in 2.48s**. Отчёт/ограничения: `project_brain/DAILY_USE_EVENT_SOURCE_AUDIT_2026-10-25.md`.
+
+# 2026-10-25 — B01: покомпонентное evidence полноты
+
+- Completeness view показывает сумму или «неизвестно», источник, date basis, период, покрытие и причину для финансовых итогов, налога, себестоимости, количества, внешних расходов, рекламы и возвратов.
+- Нулевые суммы отделены от unknown; partial внешние расходы показываются только как наблюдаемая сумма, а сверочная реклама не вычитается повторно.
+- Целевой профиль полноты/диагностики/export/Return COGS: **43 passed in 1.58s**. Подробности — в журнале ежедневной готовности.
+
+# 2026-10-25 — B00: аудит полноты ежедневных расчётов
+
+- Повторно проверены completeness, diagnostic/support export, scoped report snapshots и Return COGS blocker chain. Подтверждённых production defects не найдено; выявленные source/product gaps ограничены B01–B05/C.
+- Целевой profile: **40 passed in 1.64s**; подробный gap-реестр и ограничения внесены в `project_brain/DAILY_USE_COMPLETENESS_GAP_AUDIT_2026-10-25.md`.
+
+# 2026-10-25 — A02/A03: offline сверка и проверки экономики
+
+- Добавлены read-only профиль XLSX начислений и локальный comparator снимка прибыли; signed значения сверяются через Decimal без новой формулы финансового результата.
+- Добавлены 10 тестов формата/покрытия/обезличенного снимка и multi-SKU regression на zero-sales и отсутствующую себестоимость.
+- Проверки: A02 — 10 passed; A03 finance/store/cross-docking — 94 passed; product/unit/planning — 90 passed. Результаты записаны в `project_brain/LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
 
 # 2026-10-25 — исправлен статус ставки кросс-докинга в готовности плана
 
@@ -1465,4 +1577,22 @@ Summary Report теперь включает:
 - PR #712 включает сбор подписанных начислений и фактически принятых cross-dock единиц за 56 завершённых дней, ставку по SKU/магазину и её применение в текущей экономике и сценариях планирования. Сохранённые планы версии 2 фиксируют evidence; v1 остаются на прежнем расчёте.
 - Verify run **39591125957** на code SHA `4f77cfef6e6725929a4b6539e376a258407e8305`: Windows **3,640 passed**, Linux **3,640 passed**, compile успешен на обеих ОС, production Docker build/runtime smoke успешны. Полный локальный pytest не запускался из-за ACL/shared-storage ограничения.
 - PR #712 оставлен открытым для независимого архитектурного review. Merge, deploy, live Ozon API и реальный запуск бота не выполнялись.
+
+# 2026-10-25 — C05: сквозной переход к расходам из расчёта
+
+- Исправлен stale snapshot handling при переходе из полноты расчёта к внешним расходам; переход сохраняет точные даты и обратный callback к исходному отчёту.
+- Добавлена сквозная fake-only регрессия возврата, подтверждения полноты, явного пересчёта и экспорта без лишних запросов. Руководство пользователя обновлено.
+- Локально: 81 связанный тест прошёл, 3 temp-backed сценария исключены из-за Windows ACL; требуется exact-head CI.
+
+# 2026-10-25 — D01 локальная резервная копия
+
+- Добавлены `backup_bot.ps1` и локальный Python helper для backup/verify allowlisted JSON и SQLite после подтверждения остановки token-bound бота. Архив содержит проверяемый manifest/sha256/completion marker; `.env` и секреты исключены. D01 synthetic profile: 7 passed.
+
+# 2026-10-25 — D02 проверка и восстановление копии
+
+- Добавлены read-only `-CheckOnly` и восстановление backup v1 в новый пустой каталог со staging, повторной проверкой payload и marker. Исходные каталоги, `.env`, секретный ключ и процесс бота не меняются; combined synthetic backup/restore profile: 13 passed.
+
+# 2026-10-25 — D03 read-only update preflight
+
+- Добавлены локальная проверка target SHA из cached `origin/main`, проверка точного Git root/main/origin и fail-closed защита dirty/untracked paths и legacy users/tasks data. `update_bot.ps1 -CheckOnly` не выполняет сеть, Git changes, lifecycle actions или установку; 9 synthetic Git tests passed.
 

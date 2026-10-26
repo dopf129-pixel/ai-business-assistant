@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -28,6 +29,7 @@ class BotBackupService:
     MAX_JSON_BYTES = 32 * 1024 * 1024
     TENANT_DIRECTORY_RE = re.compile(r"^[0-9a-f]{24}$")
     SQLITE_NAME = "ozon_assistant.db"
+    SQLITE_BACKUP_TIMEOUT_SECONDS = 30.0
 
     ROOT_JSON_FILES = (
         "actions.json",
@@ -67,6 +69,7 @@ class BotBackupService:
         startup_guard_factory=None,
         revision_reader=None,
         now_provider=None,
+        sqlite_backup_timeout_seconds=SQLITE_BACKUP_TIMEOUT_SECONDS,
     ):
         self.project_root = Path(project_root).resolve(strict=True)
         configured_root = storage_root
@@ -102,14 +105,29 @@ class BotBackupService:
         self.startup_guard_factory = startup_guard_factory
         self.revision_reader = revision_reader or self._read_revision
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        try:
+            timeout = float(sqlite_backup_timeout_seconds)
+        except (TypeError, ValueError):
+            timeout = self.SQLITE_BACKUP_TIMEOUT_SECONDS
+        self.sqlite_backup_timeout_seconds = max(0.1, min(timeout, 120.0))
 
     def backup(self):
         """Write a verified archive while excluding concurrent bot startup."""
-        startup_guard = None
+        return self._backup_with_guard(None)
+
+    def backup_under_guard(self, startup_guard):
+        """Back up while the caller holds this service's startup gate."""
+        return self._backup_with_guard(startup_guard)
+
+    def _backup_with_guard(self, startup_guard):
+        owns_guard = startup_guard is None
         try:
-            startup_guard = self.startup_guard_factory(self.lifecycle_token)
-            if not startup_guard.acquire():
-                return self._error("BOT_BACKUP_STARTUP_BUSY")
+            if owns_guard:
+                startup_guard = self.startup_guard_factory(self.lifecycle_token)
+                if not startup_guard.acquire():
+                    return self._error("BOT_BACKUP_STARTUP_BUSY")
+            elif not self._is_compatible_held_guard(startup_guard):
+                return self._error("BOT_BACKUP_STARTUP_GUARD_INVALID")
             lifecycle = self._lifecycle_status()
             if lifecycle.get("state") != "STOPPED":
                 return self._error("BOT_BACKUP_BOT_NOT_STOPPED")
@@ -223,11 +241,28 @@ class BotBackupService:
                 return self._error("BOT_BACKUP_STARTUP_GUARD_UNAVAILABLE")
             return self._error("BOT_BACKUP_FAILED")
         finally:
-            if startup_guard is not None:
+            if owns_guard and startup_guard is not None:
                 try:
                     startup_guard.close()
                 except Exception:
                     pass
+
+    def _is_compatible_held_guard(self, guard):
+        if (
+            getattr(guard, "is_acquired", False) is not True
+            or not self.lifecycle_token
+        ):
+            return False
+        try:
+            expected = self.startup_guard_factory(self.lifecycle_token)
+            return (
+                getattr(guard, "token_fingerprint", None)
+                == getattr(expected, "token_fingerprint", None)
+                and Path(guard.lock_path).resolve(strict=False)
+                == Path(expected.lock_path).resolve(strict=False)
+            )
+        except Exception:
+            return False
 
     def verify_archive(self, archive_path):
         """Verify a completed archive without extracting or writing its contents."""
@@ -615,47 +650,74 @@ class BotBackupService:
 
     def _snapshot_sqlite(self, source_path):
         temporary_path = None
-        source = None
-        destination = None
         try:
             if source_path.stat().st_size > self.MAX_FILE_BYTES:
                 raise _BackupFailure("BOT_BACKUP_FILE_SIZE_LIMIT")
             fd, temporary_path = tempfile.mkstemp(prefix="ai-assistant-backup-", suffix=".db")
             os.close(fd)
-            uri_path = source_path.resolve(strict=True).as_uri() + "?mode=ro"
-            source = sqlite3.connect(uri_path, uri=True, timeout=5.0)
-            source.execute("PRAGMA query_only = ON")
-            destination = sqlite3.connect(temporary_path)
-            source.backup(destination)
-            integrity = destination.execute("PRAGMA integrity_check").fetchone()
-            if integrity != ("ok",):
-                raise _BackupFailure("BOT_BACKUP_SQLITE_INTEGRITY_FAILED")
-            user_version = destination.execute("PRAGMA user_version").fetchone()[0]
-            table_count = destination.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            ).fetchone()[0]
-            destination.close()
-            destination = None
+            worker = Path(__file__).resolve().parents[1] / "sqlite_backup_worker.py"
+            arguments = [
+                sys.executable,
+                "-I",
+                str(worker),
+                str(source_path.resolve(strict=True)),
+                temporary_path,
+            ]
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+            try:
+                result = subprocess.run(
+                    arguments,
+                    cwd=str(self.project_root),
+                    env=self._sqlite_worker_environment(),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=self.sqlite_backup_timeout_seconds,
+                    creationflags=creationflags,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise _BackupFailure("BOT_BACKUP_SQLITE_TIMEOUT") from error
+            except OSError as error:
+                raise _BackupFailure("BOT_BACKUP_SQLITE_WORKER_UNAVAILABLE") from error
+            if result.returncode != 0:
+                raise _BackupFailure("BOT_BACKUP_SQLITE_INVALID")
+            try:
+                metadata = json.loads(result.stdout)
+            except (TypeError, ValueError) as error:
+                raise _BackupFailure("BOT_BACKUP_SQLITE_INVALID") from error
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("integrity_check") != "ok"
+                or type(metadata.get("user_version")) is not int
+                or metadata["user_version"] < 0
+                or type(metadata.get("table_count")) is not int
+                or metadata["table_count"] < 0
+            ):
+                raise _BackupFailure("BOT_BACKUP_SQLITE_INVALID")
             payload = Path(temporary_path).read_bytes()
-            return payload, {
-                "integrity_check": "ok",
-                "user_version": int(user_version),
-                "table_count": int(table_count),
-            }
+            return payload, metadata
         except _BackupFailure:
             raise
         except Exception as error:
             raise _BackupFailure("BOT_BACKUP_SQLITE_INVALID") from error
         finally:
-            if destination is not None:
-                destination.close()
-            if source is not None:
-                source.close()
             if temporary_path:
                 try:
                     os.unlink(temporary_path)
                 except OSError:
                     pass
+
+    @staticmethod
+    def _sqlite_worker_environment():
+        allowed = {"systemroot", "windir", "temp", "tmp"}
+        return {
+            key: value
+            for key, value in os.environ.items()
+            if key.casefold() in allowed
+        }
 
     def _verify_archive(self, archive_path, require_complete):
         try:

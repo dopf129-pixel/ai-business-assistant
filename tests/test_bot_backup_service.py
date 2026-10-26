@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import sqlite3
 import stat
+import time
 import zipfile
 
 import pytest
@@ -12,6 +13,7 @@ from services.action_storage_service import ActionStorageService
 from services.conversation_history_storage_service import ConversationHistoryStorageService
 from services.store_report_storage_service import StoreReportStorageService
 from services.bot_backup_service import BotBackupService
+from services.bot_backup_service import _BackupFailure
 from services.bot_instance_lifecycle_service import (
     BotInstanceLease,
     BotLifecycleError,
@@ -88,6 +90,46 @@ def test_backup_accepts_list_json_written_by_supported_app_storages(tmp_path):
         assert actual == expected
 
 
+def test_sqlite_snapshot_terminates_when_source_remains_exclusively_locked(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    database = project / "ozon_assistant.db"
+    _write_database(database, "synthetic")
+    service = _service(
+        project,
+        None,
+        sqlite_backup_timeout_seconds=0.25,
+    )
+    lock = sqlite3.connect(database, timeout=0.1)
+    lock.execute("BEGIN EXCLUSIVE")
+    lock.execute("INSERT INTO synthetic VALUES (?)", ("locked",))
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(_BackupFailure) as error:
+            service._snapshot_sqlite(database)
+        elapsed = time.monotonic() - started
+    finally:
+        lock.rollback()
+        lock.close()
+
+    assert error.value.code == "BOT_BACKUP_SQLITE_TIMEOUT"
+    assert elapsed < 3.0
+
+
+def test_sqlite_backup_uses_bounded_worker_and_preserves_valid_database(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    database = project / "ozon_assistant.db"
+    _write_database(database, "synthetic")
+    service = _service(project, None, sqlite_backup_timeout_seconds=5)
+
+    payload, metadata = service._snapshot_sqlite(database)
+
+    assert metadata == {"integrity_check": "ok", "user_version": 0, "table_count": 1}
+    assert payload
+
+
 def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()
@@ -130,6 +172,28 @@ def test_backup_holds_startup_guard_for_the_entire_snapshot(tmp_path, monkeypatc
         assert json.loads(archive.read("files/project/assistant_session.json")) == {
             "generation": 0
         }
+
+
+def test_backup_reuses_update_guard_without_releasing_callers_lock(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_json(project / "data" / "users.json", {"owner": "synthetic"})
+    state_root = tmp_path / "lifecycle"
+    service = _service(project, None, lifecycle_state_root=state_root)
+    guard = service.startup_guard_factory("synthetic-token")
+    assert guard.acquire() is True
+
+    try:
+        result = service.backup_under_guard(guard)
+        assert result["error"] is False, result
+        assert service.verify_archive(result["backup_path"])["error"] is False
+        assert guard.is_acquired is True
+    finally:
+        guard.close()
+
+    lease = BotInstanceLease("synthetic-token", state_root=state_root)
+    lease.acquire()
+    lease.close()
 
 
 def test_backup_refuses_to_start_while_bot_startup_owns_guard(tmp_path):
@@ -539,7 +603,18 @@ def test_restore_cli_check_only_verifies_and_does_not_create_target(monkeypatch,
     service = _service(project, None)
     backup_result = service.backup()
     assert backup_result["error"] is False, backup_result
-    target = tmp_path / "cli-target"
+    # The runbook normalizes its parent-relative sibling path before passing it
+    # to the restore CLI; raw '..' segments are intentionally rejected.
+    target = (project / ".." / "restore-drill").resolve()
+    runbook = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "daily-use-recovery-runbook.md"
+    ).read_text(encoding="utf-8")
+    assert (
+        "[System.IO.Path]::GetFullPath((Join-Path (Get-Location) '..\\restore-drill'))"
+        in runbook
+    )
 
     exit_code = backup_cli_main([
         "restore",

@@ -4,7 +4,12 @@ import subprocess
 import pytest
 
 from bot_update import main as update_cli_main
-from services.bot_instance_lifecycle_service import project_root_fingerprint
+from services.bot_instance_lifecycle_service import (
+    BotInstanceLease,
+    BotLifecycleError,
+    BotStartupMaintenanceGuard,
+    project_root_fingerprint,
+)
 from services.bot_update_runtime_service import (
     BotUpdateRuntimeService,
     _CheckoutUpdateLock,
@@ -78,12 +83,18 @@ class _Backup:
         self.verify_error = verify_error
         self.backup_calls = 0
         self.verify_calls = []
+        self.guards = []
 
     def backup(self):
         self.backup_calls += 1
         if self.backup_error:
             return {"error": True, "code": "SYNTHETIC_BACKUP_ERROR"}
         return {"error": False, "backup_path": "C:/synthetic/verified-backup.zip"}
+
+    def backup_under_guard(self, guard):
+        assert guard.is_acquired is True
+        self.guards.append(guard)
+        return self.backup()
 
     def verify_archive(self, path):
         self.verify_calls.append(path)
@@ -131,6 +142,9 @@ class _Harness:
             git_runner=self.git,
             command_runner=self.command,
             lock_factory=lambda _root: self.lock,
+            startup_guard_factory=lambda token: BotStartupMaintenanceGuard(
+                token, state_root=self.root / ".synthetic-lifecycle"
+            ),
             sleep=lambda _seconds: None,
             monotonic=self.clock,
             platform="nt",
@@ -196,7 +210,9 @@ def test_update_no_start_pins_sha_verifies_backup_and_runs_local_checks(tmp_path
         "fast_forward", "dependencies", "local_checks",
     ]
     assert harness.git_calls[0][0] == "fetch"
-    assert harness.git_calls[1] == ("merge", "--ff-only", "--no-edit", TARGET)
+    assert harness.git_calls[1] == (
+        "merge", "--ff-only", "--no-edit", "--no-overwrite-ignore", TARGET
+    )
     assert harness.backup.backup_calls == 1
     assert harness.backup.verify_calls == ["C:/synthetic/verified-backup.zip"]
     assert harness.stop_calls == []
@@ -226,6 +242,52 @@ def test_update_stops_only_owned_checkout_and_confirms_exact_revision_readiness(
         any(str(argument).casefold().endswith("start_bot.ps1") for argument in call[0])
         for call in harness.command_calls
     )
+
+
+def test_update_guard_blocks_startup_through_merge_and_releases_for_normal_start(tmp_path):
+    harness = _Harness(tmp_path)
+    state_root = tmp_path / ".synthetic-lifecycle"
+    lease = BotInstanceLease("synthetic-token", state_root=state_root)
+    merge_start_codes = []
+    start_gate_was_open = []
+    original_git = harness.service.git_runner
+    original_command = harness.service.command_runner
+
+    def git(root, arguments):
+        if arguments[0] == "merge":
+            try:
+                lease.acquire()
+            except BotLifecycleError as error:
+                merge_start_codes.append(error.code)
+            else:
+                lease.close()
+                pytest.fail("startup escaped the update maintenance guard during merge")
+        return original_git(root, arguments)
+
+    def command(arguments, *, cwd, timeout):
+        if any(str(argument).casefold().endswith("start_bot.ps1") for argument in arguments):
+            try:
+                lease.acquire()
+            except BotLifecycleError as error:
+                start_gate_was_open.append(False)
+                pytest.fail(f"startup guard remained held at handoff: {error.code}")
+            else:
+                start_gate_was_open.append(True)
+                lease.close()
+        return original_command(arguments, cwd=cwd, timeout=timeout)
+
+    harness.service.git_runner = git
+    harness.service.command_runner = command
+
+    result = harness.service.update()
+
+    assert result["error"] is False
+    assert merge_start_codes == ["BOT_INSTANCE_MAINTENANCE_ACTIVE"]
+    assert start_gate_was_open == [True]
+    assert harness.backup.guards
+    assert harness.backup.guards[0].is_acquired is False
+    lease.acquire()
+    lease.close()
 
 
 def test_already_current_fetches_but_does_not_stop_back_up_or_restart(tmp_path):
@@ -353,6 +415,28 @@ def test_updater_lock_busy_has_no_side_effects(tmp_path):
     assert harness.git_calls == []
     assert harness.stop_calls == []
     assert harness.backup.backup_calls == 0
+
+
+def test_startup_guard_contention_stops_update_before_fetch(tmp_path):
+    harness = _Harness(tmp_path)
+
+    class _BusyGuard:
+        is_acquired = False
+
+        def acquire(self):
+            return False
+
+        def close(self):
+            pass
+
+    harness.service.startup_guard_factory = lambda _token: _BusyGuard()
+
+    result = harness.service.update(no_start=True)
+
+    assert result["code"] == "BOT_UPDATE_STARTUP_GUARD_BUSY"
+    assert harness.git_calls == []
+    assert harness.preflight.identity_calls == 0
+    assert harness.lock.released is True
 
 
 def test_foreign_checkout_process_is_never_stopped(tmp_path):

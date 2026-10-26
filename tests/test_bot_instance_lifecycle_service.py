@@ -34,7 +34,13 @@ def test_instance_state_is_token_scoped_and_does_not_persist_token(tmp_path):
         assert token not in lease.metadata_path.read_text(encoding="utf-8")
         assert "token" not in payload
         assert payload["state"] == "STARTING"
+        public_status = inspect_bot_instance(token, state_root=tmp_path)
+        assert "generation" not in public_status
         assert inspect_bot_instance("another-synthetic-token", state_root=tmp_path)["state"] == "STOPPED"
+        stop_status = inspect_bot_instance(
+            token, state_root=tmp_path, include_generation=True
+        )
+        assert stop_status["generation"] == payload["generation"]
     finally:
         lease.close()
 
@@ -203,6 +209,62 @@ def test_graceful_stop_can_refuse_a_different_checkout_before_control_request(
         assert inspect_bot_instance(token, state_root=tmp_path / "state")["state"] == "STARTING"
     finally:
         lease.close()
+
+
+def test_stop_does_not_retarget_a_replacement_generation_while_starting(
+    tmp_path, monkeypatch
+):
+    token = "synthetic-stop-generation-replacement"
+    expected_checkout = project_root_fingerprint(tmp_path / "current-checkout")
+    foreign_checkout = project_root_fingerprint(tmp_path / "other-checkout")
+    statuses = iter([
+        {"state": "STARTING", "generation": "a" * 32},
+        {"state": "STARTING", "generation": "b" * 32},
+    ])
+    metadata = iter([
+        {
+            "state": "STARTING",
+            "generation": "a" * 32,
+            "project_root_fingerprint": expected_checkout,
+        },
+        {
+            "state": "STARTING",
+            "generation": "b" * 32,
+            "project_root_fingerprint": foreign_checkout,
+            "control_port": 43210,
+            "control_secret": "synthetic-foreign-secret",
+        },
+    ])
+    sent = []
+    monkeypatch.setattr(
+        "services.bot_instance_lifecycle_service.inspect_bot_instance",
+        lambda *_args, **_kwargs: next(statuses),
+    )
+    monkeypatch.setattr(
+        "services.bot_instance_lifecycle_service._read_metadata",
+        lambda *_args, **_kwargs: next(metadata),
+    )
+    monkeypatch.setattr(
+        "services.bot_instance_lifecycle_service.time.sleep", lambda _seconds: None
+    )
+    monkeypatch.setattr(
+        "services.bot_instance_lifecycle_service.socket.create_connection",
+        lambda *args, **kwargs: sent.append((args, kwargs)),
+    )
+
+    result = request_graceful_stop(
+        token,
+        state_root=tmp_path,
+        timeout_seconds=1,
+        expected_project_root_fingerprint=expected_checkout,
+    )
+
+    assert result == {
+        "stopped": False,
+        "state": "STARTING",
+        "code": "BOT_INSTANCE_GENERATION_CHANGED",
+    }
+    assert sent == []
 
 
 def test_status_persists_only_allowlisted_failure_code_and_checkout_fingerprint(tmp_path):

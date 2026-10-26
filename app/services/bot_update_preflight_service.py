@@ -44,6 +44,16 @@ class BotUpdatePreflightService:
         """Return a plan based only on local checkout and cached refs."""
         blockers = []
         try:
+            ignored_local_paths = self._nul_paths(
+                self._git_text(
+                    "ls-files", "--others", "--ignored", "--exclude-standard",
+                    "--directory", "-z",
+                )
+            )
+        except _PreflightFailure:
+            return self._blocked("BOT_UPDATE_IGNORED_PATH_CHECK_FAILED")
+
+        try:
             actual_root = self._git_text("rev-parse", "--show-toplevel")
             current_revision = self._git_text("rev-parse", "--verify", "HEAD")
             current_branch = self._git_text("branch", "--show-current")
@@ -104,6 +114,7 @@ class BotUpdatePreflightService:
         unsafe_local = []
         preservable_local = []
         untracked_conflicts = []
+        ignored_overwrite_conflicts = []
         for normalized_path, (status, original_path) in sorted(by_path.items()):
             if normalized_path in self.PRESERVABLE_DATA_PATHS:
                 if self._paths_intersect_any(normalized_path, incoming_paths):
@@ -133,6 +144,14 @@ class BotUpdatePreflightService:
             blockers.append({
                 "code": "BOT_UPDATE_UNTRACKED_OVERWRITE_CONFLICT",
                 "paths": sorted(set(untracked_conflicts)),
+            })
+        for path in sorted(set(incoming_paths)):
+            if self._paths_intersect_any(path, ignored_local_paths):
+                ignored_overwrite_conflicts.append(path)
+        if ignored_overwrite_conflicts:
+            blockers.append({
+                "code": "BOT_UPDATE_IGNORED_OVERWRITE_CONFLICT",
+                "paths": sorted(set(ignored_overwrite_conflicts)),
             })
         protected_incoming = sorted(
             path for path in incoming_paths
@@ -298,7 +317,10 @@ class BotUpdatePreflightService:
 
     @staticmethod
     def _normalize_path(path):
-        return str(path or "").replace("\\", "/").removeprefix("./").casefold()
+        return (
+            str(path or "").replace("\\", "/").removeprefix("./")
+            .rstrip("/").casefold()
+        )
 
     @classmethod
     def _paths_intersect_any(cls, path, candidates):

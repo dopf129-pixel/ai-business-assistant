@@ -14,6 +14,7 @@ env/
 
 # Local runtime storage
 .runtime-data/
+.local-backups/
 
 # SQLite
 *.db
@@ -33,6 +34,7 @@ reports/
 
 # Local pytest and verification scratch directories
 /.pytest_cache/
+/.daily-use-e00-*/
 /.pytest-*/
 /.codex-pytest-*/
 /.codex-test-*/

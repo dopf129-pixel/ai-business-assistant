@@ -1,5 +1,11 @@
 # Project Roadmap
 
+## Ежедневная готовность — 25.10.2026
+
+- Исполнение `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md` идёт отдельным stacked PR процессом от проверенного PR #712 head `698c9f8`. PR #713–#717 закрывают A, B/C, backup/restore, updater/status и E acceptance. Первые #714–#716 runs нашли три регрессии, исправленных в #714 (`7ec47ef6`); #715 (`40c99b69`) и #716 (`e578779c`) перебазированы. Исправленные exact-head Verify #713–#716 зелёные; финальный #717 ещё проверяется после обновления handoff.
+- D06 acceptance: `DAILY_USE_RESILIENCE_ACCEPTANCE_D06_2026-10-25.md`; E00 linked acceptance: `DAILY_USE_END_TO_END_LINKED_ACCEPTANCE_E00_2026-10-25.md`; review handoff: `DAILY_USE_READINESS_REVIEW_HANDOFF_2026-10-25.md`; runbook: `docs/daily-use-recovery-runbook.md`; 24–72h owner log: `DAILY_USE_OWNER_OBSERVATION_LOG_2026-10-25.md` (`USER_VALIDATION_PENDING`). Current bot JSON и полный 56-day cross-docking snapshot ждут владельческой проверки после обновления; точный August accrual workbook дал complete `177282.17 ₽`. Слияние/развёртывание/real bot не выполнялись.
+- Актуальный журнал, stage matrix и фактические проверки: `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
+
 ## Активная программа planning workspace — 19.10.2026
 
 - A–G и предыдущая периодная аналитика находятся в merged `main` `722f368526c278b701cbfd69f3dbb9a474d52386` через PR #702; main Verify `39165543772` successful. Старые статусы PR ниже — исторические checkpoint, не текущая очередь слияния.
@@ -681,3 +687,9 @@ Next seller-facing accounting priority:
 - H: local single-instance Telegram lifecycle is implemented and PR #705 full Windows/Linux + Docker verification passed.
 - I: durable, tenant-scoped saved price plans are implemented, including revisions and explicit source refresh; PR #706 full Windows/Linux + Docker verification passed.
 - Next dependency: J adds a bounded advertising-rate solver; K uses saved plans to calculate economics for an explicit sales mix. Continue through L–N and only close O after current-head Windows/Linux and Docker checks.
+# 2026-10-25 — readiness for daily use
+
+- В работе новая программа A–E: реальные сверки, полнота данных, ежедневный UX, backup/restore/update и общий review handoff. Задание: `LUNA_DAILY_USE_READINESS_TASK_2026-10-25.md`; факты и продолжение — в `LUNA_DAILY_USE_READINESS_PROGRESS_2026-10-25.md`.
+- S00–A03 и B00–B05 завершены. B00 не нашёл подтверждённой production ошибки; B01 расширил completeness evidence; B02 закрепил event date bases; B03 подтвердил no-double-count для расходов; B04 исправил перенос текущей недатированной себестоимости на исторический SKU; B05 устранил потерю причин полноты в CSV/JSON.
+- S00/A00/A01/A02/A03/B00/B01/B02/B03/B04/B05 закрыты. Исходная база PR #712 — проверенный head `698c9f8bb9c4b8f5acc6b4fdcb475c1062e658ea`; нового merge/deploy нет. Storage-backed профиль B05, ограниченный Windows ACL на pytest `tmp_path`, должен пройти exact-head CI.
+- A02 добавил локальный XLSX-to-snapshot comparator на явном профиле начислений; августовский файл прочитан без записи финансовой суммы в Git. A03 подтвердил существующую логику категорий и добавил трёх-SKU regression; B05 использует единые status/reason codes в экранах и экспортах из сохранённого snapshot. Сейчас C00 и D00 могут идти независимо; A04 будет закрыт после завершения C, как требует dependency.

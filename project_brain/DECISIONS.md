@@ -1,6 +1,24 @@
 # Architecture Decisions
 
-## Decision 059
+## Decision 060 — updater maintenance gate and bounded SQLite snapshot
+
+Date: 2026-10-25
+Topic: prevent startup/update overlap and bound backup waits.
+
+The local updater holds the token-scoped startup/maintenance OS guard through stop verification, backup, fast-forward, dependency checks and offline health checks. The backup service can reuse that already-held guard without releasing it; the updater releases it only at the normal startup handoff or when the operation exits. SQLite online backup runs in a separate standard-library-only process with a hard parent deadline, so a locked database can be terminated and partial snapshots removed. Details: `DECISIONS_060.md`.
+
+---
+
+## Decision 059 — Bot startup and backup snapshot exclusion
+
+Date: 2026-10-25
+Topic: shared token-scoped startup/snapshot guard.
+
+Canonical startup and backup use one transient operating-system guard. Backup holds it from lifecycle inspection through verified archive publication; startup holds it while obtaining the long-lived instance lock and publishing `STARTING`. Both fail closed when the other owns the guard. The guard does not change lifecycle metadata or stop an existing process. Details: `DECISIONS_059.md`.
+
+---
+
+## Decision 058
 
 Date:
 
@@ -8,21 +26,107 @@ Date:
 
 Topic:
 
-Bot startup and backup snapshot exclusion
+Safe process status and local runtime diagnosis
 
 Decision:
 
-- Canonical bot startup and backup snapshot creation share a token-scoped operating-system guard in the lifecycle state root.
-- Backup holds the guard from the stopped-state check through verified publication; startup holds it while acquiring the long-lived instance lock and publishing `STARTING`.
-- Both operations fail closed if the other owns the guard. The guard is transient and does not alter lifecycle metadata or stop a running process.
+- Local status reports polling lifecycle separately from offline environment validity; `RUNNING` remains tied to PTB updater/application readiness, never PID presence.
+- Lifecycle may persist only one of the fixed startup/polling failure codes. Raw exceptions, credentials, environment contents, full checkout paths, and control secrets are not included in status or support output.
+- Status displays whether the active process checkout matches the requested project root without printing either path or its fingerprint. Graceful stop requires that same checkout identity.
+- Support build metadata may include only validated revision, start time, and `foreground`/`background` mode. Invalid fields normalize to `UNAVAILABLE`; source reachability remains part of report diagnostics, not the local healthcheck.
 
 Reason:
 
-A stopped-state check alone cannot prevent startup during a multi-file snapshot. Shared exclusion closes the race without persisting a new lock service or changing the backup data layout. Details and regressions: `DECISIONS_059.md` and `DAILY_USE_BACKUP_REVIEW_FIXES_R1_R3_2026-10-25.md`.
+Owners need to distinguish a missing/unready process from a local configuration problem and from an Ozon/report source gap without exposing secrets or mistaking local environment checks for live service readiness.
 
 Status:
 
-Implemented with synthetic startup/snapshot interleaving and busy-lock regressions; exact-head CI is pending.
+D05 implements and verifies the status, safe failure-code, checkout identity, and support metadata contracts with synthetic data. No production process or external API was used.
+
+---
+
+## Decision 057
+
+Date:
+
+2026-10-25
+
+Topic:
+
+Local fast-forward update preflight and target pinning
+
+Decision:
+
+- `update_bot.ps1 -CheckOnly` is read-only and evaluates only the local repository plus cached `origin/main`. It returns the exact current and target commit and explicitly says the cached ref may be stale.
+- The supported update path is only `main` tracking the canonical `origin/main` remote; never accept an arbitrary branch, ref, remote URL, or shell text from a bot message/report.
+- Before stopping the process, inspect dirty/untracked paths and incoming changes. Preserve only exact legacy `data/tasks.json`/`data/users.json` changes when the incoming target does not touch them; block all other dirty code/data and untracked overwrite conflicts.
+- The mutating updater must perform an explicit fetch, then rerun preflight against and retain that immutable fetched SHA. It must not stash, reset, or clean local state.
+- Lifecycle metadata stores only a one-way fingerprint of the normalized checkout path. Automatic stop requires a matching fingerprint; old active metadata without it and processes from another checkout fail closed. PID is never used to kill a process.
+- The updater serializes through a non-blocking OS lock under that worktree's private Git directory. A successful normal update requires exact target revision plus `RUNNING` lifecycle readiness; `-NoStart` explicitly leaves the process stopped.
+
+Reason:
+
+The bot shares a local checkout with durable seller data. Pinning an approved origin commit and resolving every worktree conflict before lifecycle changes prevents an update from hiding or overwriting business state.
+
+Status:
+
+D03/D04 implement and verify read-only preflight plus mocked update orchestration. Local tests use synthetic repositories and injected boundaries. No live update has been run.
+
+---
+
+## Decision 056
+
+Date:
+
+2026-10-25
+
+Topic:
+
+Local business-data backup and isolated restore contract
+
+Decision:
+
+- Backup v1 is a local archive with two logical roots: project state and configured storage-root state. The manifest records only root-relative paths, sizes, SHA-256 checksums, format/version, app revision and UTC creation time.
+- The backup command requires the token-bound bot lifecycle to report `STOPPED`; it does not stop or start the bot. SQLite uses its backup API and integrity check; JSON is parsed before the completed archive is atomically published.
+- `.env`, keys, source code, Git, virtualenvs, diagnostics, logs, caches, temporary files and process-control metadata are excluded. Encrypted credentials may be present in the SQLite database; restoring them requires the original separately-held `OZON_CREDENTIAL_MASTER_KEY`.
+- Restore v1 validates the archive and writes only to a new empty destination. It does not replace active storage, edit `.env`, connect to Ozon/Telegram, or claim cross-database transaction consistency.
+
+Reason:
+
+The application stores durable data across shared and tenant-specific roots and retains legacy paths that are not all redirected by `AI_ASSISTANT_STORAGE_ROOT`. Explicit roots and a stopped-process boundary make backup scope reviewable while keeping recovery isolated from the live store.
+
+Status:
+
+D00 inventory complete; D01–D02 implement and verify the contract with synthetic data only.
+
+---
+
+## Decision 055
+
+Date:
+
+2026-10-25
+
+Topic:
+
+Offline reconciliation of owner reports and saved canonical snapshots
+
+Decision:
+
+- Reconciliation is a local, read-only tool. It consumes one explicit report profile and the existing saved Period Profit JSON export; it does not call Ozon, start the bot, import report rows into persistent storage, or implement a second profit formula.
+- Each report profile pins its sheet, header row, required columns, date basis, unit and amount semantics. An unknown workbook structure fails with a stable reason code instead of guessing a column.
+- Period and the locally assigned store alias must match; the alias is a user-supplied guard, not a verified Ozon store identity. SKU-filtered evidence only compares with a canonical snapshot carrying the same SKU dimension. Missing or partial coverage stays evidence-required; an observed zero is distinct from no rows.
+- Application revision is copied only from the saved export or supplied explicitly. When it is absent, it remains `UNAVAILABLE`; the current checkout revision is not assumed to be the revision that produced a previously saved bot result.
+- The report profile aggregates signed `Сумма итого, руб.` values by `Дата начисления`. Repeated accrual IDs remain separate rows because the source export can contain several valid lines per ID; duplicate headers or malformed rows fail closed.
+- The first supported profile is the Ozon accrual workbook. Additional report types require their own verified profile and tests.
+
+Reason:
+
+The existing Period Profit snapshot is the calculation authority. A local comparator can validate report evidence without changing accounting logic or exposing seller row identifiers, while explicit profiles prevent accidental comparison across different source schemas and date grains.
+
+Status:
+
+A02 implemented with a local CLI and isolated tests; exact-head CI and review remain pending.
 
 ---
 

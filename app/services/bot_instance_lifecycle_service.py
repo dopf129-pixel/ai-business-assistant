@@ -71,6 +71,7 @@ class BotStartupMaintenanceGuard:
                 "TELEGRAM_BOT_TOKEN is not configured.",
             )
         fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        self.token_fingerprint = fingerprint
         self.state_root = Path(state_root) if state_root is not None else _default_state_root()
         self.lock_path = self.state_root / f"startup-{fingerprint}.lock"
         self._lock_file = None
@@ -80,9 +81,14 @@ class BotStartupMaintenanceGuard:
         """Build the guard from an existing one-way token fingerprint."""
         instance = cls.__new__(cls)
         instance.state_root = Path(state_root)
+        instance.token_fingerprint = fingerprint
         instance.lock_path = instance.state_root / f"startup-{fingerprint}.lock"
         instance._lock_file = None
         return instance
+
+    @property
+    def is_acquired(self) -> bool:
+        return self._lock_file is not None
 
     def acquire(self) -> bool:
         """Acquire the short-lived startup/snapshot gate without waiting."""
@@ -126,7 +132,7 @@ class BotStartupMaintenanceGuard:
         if not self.acquire():
             raise BotLifecycleError(
                 "BOT_INSTANCE_MAINTENANCE_ACTIVE",
-                "Bot startup is temporarily blocked by a data snapshot.",
+                "Bot startup is temporarily blocked by a maintenance operation.",
             )
         return self
 
@@ -339,7 +345,7 @@ class BotInstanceLease:
             if not startup_guard.acquire():
                 raise BotLifecycleError(
                     "BOT_INSTANCE_MAINTENANCE_ACTIVE",
-                    "Bot startup is temporarily blocked by a data snapshot.",
+                    "Bot startup is temporarily blocked by a maintenance operation.",
                 )
             try:
                 self.state_root.mkdir(parents=True, exist_ok=True)
@@ -493,7 +499,12 @@ class BotInstanceLease:
             self._lock_file = None
 
 
-def inspect_bot_instance(token: str, *, state_root: str | Path | None = None) -> dict:
+def inspect_bot_instance(
+    token: str,
+    *,
+    state_root: str | Path | None = None,
+    include_generation: bool = False,
+) -> dict:
     """Return a bounded local status without contacting Telegram or Ozon."""
     root = Path(state_root) if state_root is not None else _default_state_root()
     fingerprint = hashlib.sha256((token or "").strip().encode("utf-8")).hexdigest()
@@ -532,7 +543,7 @@ def inspect_bot_instance(token: str, *, state_root: str | Path | None = None) ->
                 "mode": None, "project_root_fingerprint": None,
                 "last_failure_code": None,
             }
-        return {
+        result = {
             "state": metadata["state"],
             "revision": metadata.get("revision"),
             "started_at_utc": metadata.get("started_at_utc"),
@@ -540,6 +551,9 @@ def inspect_bot_instance(token: str, *, state_root: str | Path | None = None) ->
             "project_root_fingerprint": metadata.get("project_root_fingerprint"),
             "last_failure_code": metadata.get("last_failure_code"),
         }
+        if include_generation:
+            result["generation"] = metadata.get("generation")
+        return result
     except (BotLifecycleError, OSError):
         return {
             "state": "UNKNOWN", "revision": None, "started_at_utc": None,
@@ -559,12 +573,15 @@ def request_graceful_stop(
 ) -> dict:
     """Ask the authenticated owner to stop, then confirm lock release."""
     deadline = time.monotonic() + max(0.0, min(float(timeout_seconds), 15.0))
-    status = inspect_bot_instance(token, state_root=state_root)
+    status = inspect_bot_instance(
+        token, state_root=state_root, include_generation=True
+    )
     if status["state"] == "STOPPED":
         return {"stopped": True, "state": "STOPPED"}
     root = Path(state_root) if state_root is not None else _default_state_root()
     fingerprint = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
-    payload = _read_metadata(root / f"instance-{fingerprint}.json", fingerprint)
+    metadata_path = root / f"instance-{fingerprint}.json"
+    payload = _read_metadata(metadata_path, fingerprint)
     if expected_project_root_fingerprint is not None and (
         payload is None
         or payload.get("project_root_fingerprint") != expected_project_root_fingerprint
@@ -574,19 +591,93 @@ def request_graceful_stop(
             "state": status["state"],
             "code": "BOT_INSTANCE_CHECKOUT_MISMATCH",
         }
+    expected_generation = status.get("generation")
+    if not isinstance(expected_generation, str) or not re.fullmatch(
+        r"[0-9a-f]{32}", expected_generation
+    ):
+        return {
+            "stopped": False,
+            "state": status["state"],
+            "code": "BOT_INSTANCE_METADATA_INVALID",
+        }
     while status["state"] == "STARTING" and (
         payload is None or "control_port" not in payload
     ) and time.monotonic() < deadline:
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
-        status = inspect_bot_instance(token, state_root=state_root)
+        status = inspect_bot_instance(
+            token, state_root=state_root, include_generation=True
+        )
         if status["state"] == "STOPPED":
             return {"stopped": True, "state": "STOPPED"}
-        payload = _read_metadata(root / f"instance-{fingerprint}.json", fingerprint)
+        payload = _read_metadata(metadata_path, fingerprint)
+        if status.get("generation") != expected_generation:
+            return {
+                "stopped": False,
+                "state": status["state"],
+                "code": "BOT_INSTANCE_GENERATION_CHANGED",
+            }
+        target_error = _validate_stop_target(
+            payload,
+            expected_generation,
+            expected_project_root_fingerprint,
+        )
+        if target_error is not None:
+            return {
+                "stopped": False,
+                "state": status["state"],
+                "code": target_error,
+            }
     if payload is None or payload.get("state") not in {"STARTING", "RUNNING", "STOPPING"}:
         return {"stopped": False, "state": "UNKNOWN", "code": "BOT_INSTANCE_METADATA_INVALID"}
+    target_error = _validate_stop_target(
+        payload,
+        expected_generation,
+        expected_project_root_fingerprint,
+    )
+    if target_error is not None:
+        return {"stopped": False, "state": status["state"], "code": target_error}
     if status["state"] == "STOPPING":
-        return _wait_for_instance_stop(token, state_root, deadline)
+        return _wait_for_instance_stop(
+            token,
+            state_root,
+            deadline,
+            expected_generation=expected_generation,
+            expected_project_root_fingerprint=expected_project_root_fingerprint,
+        )
     if status["state"] not in {"STARTING", "RUNNING"} or "control_port" not in payload:
+        code = "BOT_INSTANCE_STOP_TIMEOUT" if status["state"] == "STARTING" else "BOT_INSTANCE_STATUS_UNCONFIRMED"
+        return {"stopped": False, "state": status["state"], "code": code}
+
+    # Re-read the authenticated target immediately before connecting. A new
+    # process may have replaced the STARTING generation while this call waited.
+    status = inspect_bot_instance(
+        token, state_root=state_root, include_generation=True
+    )
+    if status["state"] == "STOPPED":
+        return {"stopped": True, "state": "STOPPED"}
+    if status.get("generation") != expected_generation:
+        return {
+            "stopped": False,
+            "state": status["state"],
+            "code": "BOT_INSTANCE_GENERATION_CHANGED",
+        }
+    payload = _read_metadata(metadata_path, fingerprint)
+    target_error = _validate_stop_target(
+        payload,
+        expected_generation,
+        expected_project_root_fingerprint,
+    )
+    if target_error is not None:
+        return {"stopped": False, "state": status["state"], "code": target_error}
+    if status["state"] == "STOPPING":
+        return _wait_for_instance_stop(
+            token,
+            state_root,
+            deadline,
+            expected_generation=expected_generation,
+            expected_project_root_fingerprint=expected_project_root_fingerprint,
+        )
+    if status["state"] not in {"STARTING", "RUNNING"} or payload is None or "control_port" not in payload:
         code = "BOT_INSTANCE_STOP_TIMEOUT" if status["state"] == "STARTING" else "BOT_INSTANCE_STATUS_UNCONFIRMED"
         return {"stopped": False, "state": status["state"], "code": code}
     request = {
@@ -607,11 +698,19 @@ def request_graceful_stop(
                 response += chunk
         acknowledgement = json.loads(response.split(b"\n", 1)[0].decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError):
-        latest = inspect_bot_instance(token, state_root=state_root)
+        latest = inspect_bot_instance(
+            token, state_root=state_root, include_generation=True
+        )
         if latest["state"] == "STOPPED":
             return {"stopped": True, "state": "STOPPED"}
         if latest["state"] in {"STOPPING", "STARTING"}:
-            return _wait_for_instance_stop(token, state_root, deadline)
+            return _wait_for_instance_stop(
+                token,
+                state_root,
+                deadline,
+                expected_generation=expected_generation,
+                expected_project_root_fingerprint=expected_project_root_fingerprint,
+            )
         return {"stopped": False, "state": "UNKNOWN", "code": "BOT_INSTANCE_CONTROL_UNAVAILABLE"}
     if (
         not isinstance(acknowledgement, dict)
@@ -620,18 +719,85 @@ def request_graceful_stop(
     ):
         return {"stopped": False, "state": "UNKNOWN", "code": "BOT_INSTANCE_CONTROL_REJECTED"}
 
-    return _wait_for_instance_stop(token, state_root, deadline)
+    return _wait_for_instance_stop(
+        token,
+        state_root,
+        deadline,
+        expected_generation=expected_generation,
+        expected_project_root_fingerprint=expected_project_root_fingerprint,
+    )
 
 
-def _wait_for_instance_stop(token: str, state_root, deadline: float) -> dict:
+def _validate_stop_target(payload, expected_generation, expected_project_root_fingerprint):
+    if payload is None:
+        return "BOT_INSTANCE_METADATA_INVALID"
+    if expected_generation is not None and payload.get("generation") != expected_generation:
+        return "BOT_INSTANCE_GENERATION_CHANGED"
+    if expected_project_root_fingerprint is not None and (
+        payload.get("project_root_fingerprint") != expected_project_root_fingerprint
+    ):
+        return "BOT_INSTANCE_CHECKOUT_MISMATCH"
+    return None
+
+
+def _wait_for_instance_stop(
+    token: str,
+    state_root,
+    deadline: float,
+    *,
+    expected_generation=None,
+    expected_project_root_fingerprint=None,
+) -> dict:
     while time.monotonic() < deadline:
-        status = inspect_bot_instance(token, state_root=state_root)
+        status = inspect_bot_instance(
+            token, state_root=state_root, include_generation=True
+        )
         if status["state"] == "STOPPED":
             return {"stopped": True, "state": "STOPPED"}
+        if status.get("generation") != expected_generation:
+            return {
+                "stopped": False,
+                "state": status["state"],
+                "code": "BOT_INSTANCE_GENERATION_CHANGED",
+            }
+        fingerprint = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+        payload = _read_metadata(
+            (Path(state_root) if state_root is not None else _default_state_root())
+            / f"instance-{fingerprint}.json",
+            fingerprint,
+        )
+        target_error = _validate_stop_target(
+            payload,
+            expected_generation,
+            expected_project_root_fingerprint,
+        )
+        if target_error is not None:
+            return {"stopped": False, "state": status["state"], "code": target_error}
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
-    final_status = inspect_bot_instance(token, state_root=state_root)
+    final_status = inspect_bot_instance(
+        token, state_root=state_root, include_generation=True
+    )
     if final_status["state"] == "STOPPED":
         return {"stopped": True, "state": "STOPPED"}
+    if final_status.get("generation") != expected_generation:
+        return {
+            "stopped": False,
+            "state": final_status["state"],
+            "code": "BOT_INSTANCE_GENERATION_CHANGED",
+        }
+    fingerprint = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+    payload = _read_metadata(
+        (Path(state_root) if state_root is not None else _default_state_root())
+        / f"instance-{fingerprint}.json",
+        fingerprint,
+    )
+    target_error = _validate_stop_target(
+        payload,
+        expected_generation,
+        expected_project_root_fingerprint,
+    )
+    if target_error is not None:
+        return {"stopped": False, "state": final_status["state"], "code": target_error}
     return {
         "stopped": False,
         "state": final_status["state"],
