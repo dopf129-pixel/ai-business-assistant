@@ -17,6 +17,7 @@ from services.unit_price_observation_normalizer import UnitPriceObservationNorma
 from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
 from services.unit_price_observation_ranking_service import UnitPriceObservationRankingService
 from services.unit_price_recommendation_ranking_service import UnitPriceRecommendationRankingService
+from services.unit_price_comparison_history_service import UnitPriceComparisonHistoryService
 
 
 class TelegramUnitPriceObservationRuntimeService:
@@ -43,6 +44,10 @@ class TelegramUnitPriceObservationRuntimeService:
         self.observation_ranking_service = UnitPriceObservationRankingService(
             repository=repository, planning_service=planning_service,
             ranking_service=self.ranking_service,
+        )
+        self.comparison_history_service = UnitPriceComparisonHistoryService(
+            repository=repository, planning_service=planning_service,
+            observation_ranking_service=self.observation_ranking_service,
         )
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.monotonic_clock = monotonic_clock or monotonic
@@ -103,6 +108,27 @@ class TelegramUnitPriceObservationRuntimeService:
         if len(parts) == 3 and parts[:2] == ["upo", "rank"]:
             self._clear_pending(scope)
             return self._rank_observations(parts[2], scope)
+        if len(parts) == 4 and parts[:2] == ["upo", "comparison"]:
+            self._clear_pending(scope)
+            revision = self._positive_int(parts[3])
+            if revision is None:
+                return self._stale()
+            return self._open_comparison(parts[2], revision, scope)
+        if len(parts) == 4 and parts[:2] == ["upo", "refresh"]:
+            self._clear_pending(scope)
+            revision = self._positive_int(parts[3])
+            if revision is None:
+                return self._stale()
+            return self._refresh_comparison(parts[2], revision, scope)
+        if value == "upo:comparisons":
+            self._clear_pending(scope)
+            return self._comparison_history(scope)
+        if len(parts) == 3 and parts[:2] == ["upo", "comparisons"]:
+            self._clear_pending(scope)
+            offset = self._nonnegative_int(parts[2])
+            if offset is None:
+                return self._stale()
+            return self._comparison_history(scope, offset=offset)
         if len(parts) == 5 and parts[:2] == ["upo", "collect"]:
             return self._prompt_window(parts[2], parts[3], parts[4], scope)
         if len(parts) == 3 and parts[:2] == ["upo", "history"]:
@@ -684,7 +710,7 @@ class TelegramUnitPriceObservationRuntimeService:
         return response
 
     def _rank_observations(self, observation_id, scope):
-        compared = self.observation_ranking_service.rank_for_observation(
+        compared = self.comparison_history_service.create_for_observation(
             observation_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
             now=self.clock(),
         )
@@ -692,11 +718,120 @@ class TelegramUnitPriceObservationRuntimeService:
             if isinstance(compared, dict) and compared.get("code") == "PLANNING_OBSERVATION_NOT_FOUND":
                 return self._stale()
             return self._error(compared.get("code") if isinstance(compared, dict) else None)
-        return self._ranking_screen(
-            compared["ranking"], compared["identity"], observation_id,
+        return self._comparison_screen(compared, observation_id=observation_id)
+
+    def _open_comparison(self, comparison_id, revision, scope):
+        opened = self.comparison_history_service.get(
+            comparison_id, revision=revision,
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(opened, dict) or opened.get("error") is True:
+            return self._stale()
+        return self._comparison_screen(opened)
+
+    def _refresh_comparison(self, comparison_id, revision, scope):
+        refreshed = self.comparison_history_service.refresh(
+            comparison_id, expected_revision=revision,
+            owner_id=scope["owner_id"], store_id=scope["store_id"], now=self.clock(),
+        )
+        if not isinstance(refreshed, dict) or refreshed.get("error") is True:
+            if isinstance(refreshed, dict) and refreshed.get("code") == "PLANNING_COMPARISON_REVISION_CONFLICT":
+                return self._prompt_result(
+                    "OBSERVATION_COMPARISON_STALE",
+                    "Эта версия сравнения устарела. Откройте последнюю сохранённую версию.",
+                    self._keyboard([{"text": "История сравнений", "callback": "upo:comparisons"}]),
+                )
+            return self._error(refreshed.get("code") if isinstance(refreshed, dict) else None)
+        if refreshed.get("refresh_status") == "NO_NEW_EVIDENCE":
+            message = "Новых сохранённых данных пока нет. Снимок и его победитель не изменены."
+            refreshed = dict(refreshed)
+            refreshed["refresh_message"] = message
+        return self._comparison_screen(refreshed)
+
+    def _comparison_history(self, scope, *, offset=0):
+        listed = self.comparison_history_service.list(
+            limit=self.PAGE_SIZE, offset=offset,
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(listed, dict) or listed.get("error") is True:
+            return self._error(listed.get("code") if isinstance(listed, dict) else None)
+        lines = ["Сохранённые сравнения цены и прибыли на единицу:"]
+        buttons = []
+        for index, item in enumerate(listed.get("items") or [], start=1):
+            payload = item.get("payload") or {}
+            ranking = payload.get("ranking") or {}
+            identity = payload.get("identity") or {}
+            best = ranking.get("best_profit_per_unit")
+            lines.append(
+                f"{index}. SKU {identity.get('sku', '—')} · версия {item.get('revision')} · "
+                f"{best if best is not None else 'без рейтинга'} ₽/шт. · {item.get('freshness_status')}"
+            )
+            buttons.append({
+                "text": f"Открыть сравнение {index}",
+                "callback": f"upo:comparison:{item['comparison_id']}:{item['revision']}",
+            })
+        if not buttons:
+            lines.append("Сохранённых сравнений пока нет.")
+        if listed.get("has_more") is True:
+            next_offset = listed.get("next_offset")
+            if type(next_offset) is int:
+                buttons.append({
+                    "text": "Следующая страница",
+                    "callback": f"upo:comparisons:{next_offset}",
+                })
+        lines.append("История загружается из локального снимка; источники не перечитываются.")
+        buttons.append({"text": "Мои наблюдения", "callback": "upo:m"})
+        return self._prompt_result(
+            "OBSERVATION_COMPARISON_HISTORY", "\n".join(lines), self._keyboard(buttons),
         )
 
-    def _ranking_screen(self, ranking, target_identity, observation_id):
+    def _comparison_screen(self, opened, *, observation_id=None):
+        payload = opened.get("payload") or {}
+        identity = payload.get("identity") or {}
+        ranking = payload.get("ranking") or {}
+        refs = payload.get("source_references") or []
+        anchor_id = observation_id or (refs[0].get("observation_id") if refs else None)
+        response = self._ranking_screen(
+            ranking, identity, anchor_id,
+            comparison_id=opened.get("comparison_id"),
+            comparison_revision=opened.get("revision"),
+        )
+        status_labels = {
+            "CURRENT": "актуально на момент сохранённых данных",
+            "STALE": "данные источника обновились; сохранённый рейтинг неизменён",
+            "SUPERSEDED": "есть более новая версия; этот рейтинг сохранён без изменений",
+            "SUPERSEDED_AND_STALE": "версия заменена и данные источника обновились; старый рейтинг сохранён",
+        }
+        lines = [response.get("text", "")]
+        if opened.get("refresh_message"):
+            lines.append(opened["refresh_message"])
+        lines.append(
+            f"Сохранено сравнение v{opened.get('revision')} · "
+            f"{status_labels.get(opened.get('freshness_status'), 'актуальность неизвестна')}"
+        )
+        lines.append("Открытие сравнения не пересчитывает рейтинг и не вызывает Ozon.")
+        buttons = []
+        if anchor_id:
+            buttons.append({"text": "Карточка наблюдения", "callback": f"upo:o:{anchor_id}"})
+        if (opened.get("revision") == opened.get("latest_revision")
+                and opened.get("comparison_id")):
+            buttons.append({
+                "text": "Обновить по сохранённым данным",
+                "callback": f"upo:refresh:{opened['comparison_id']}:{opened['revision']}",
+            })
+        buttons.extend([
+            {"text": "История сравнений", "callback": "upo:comparisons"},
+            {"text": "Мои наблюдения", "callback": "upo:m"},
+        ])
+        response["text"] = "\n".join(lines)
+        response["message"] = response["text"]
+        response["keyboard"] = self._keyboard(buttons)
+        response["comparison_revision"] = opened.get("revision")
+        response["freshness_status"] = opened.get("freshness_status")
+        return response
+
+    def _ranking_screen(self, ranking, target_identity, observation_id,
+                        comparison_id=None, comparison_revision=None):
         quality = ranking.get("quality_assessment") or {}
         status = ranking.get("status")
         lines = [
@@ -747,13 +882,21 @@ class TelegramUnitPriceObservationRuntimeService:
                 f"Повторные наблюдения той же цены не считались отдельными вариантами: {repeated}."
             )
         lines.append("Наблюдения и сохранённые планы не изменены; внешние источники не запрашивались.")
+        buttons = []
+        if comparison_id and type(comparison_revision) is int:
+            buttons.append({
+                "text": "Открыть сохранённое сравнение",
+                "callback": f"upo:comparison:{comparison_id}:{comparison_revision}",
+            })
+        buttons.extend([
+            {"text": "История сравнений", "callback": "upo:comparisons"},
+            {"text": "Карточка наблюдения", "callback": f"upo:o:{observation_id}"},
+            {"text": "Мои наблюдения", "callback": "upo:m"},
+        ])
         return self._prompt_result(
             "OBSERVATION_RANKING_READY" if status == "RANKED" else "OBSERVATION_RANKING_NOT_READY",
             "\n".join(lines),
-            self._keyboard([
-                {"text": "Карточка наблюдения", "callback": f"upo:o:{observation_id}"},
-                {"text": "Мои наблюдения", "callback": "upo:m"},
-            ]),
+            self._keyboard(buttons),
         )
 
     @staticmethod
@@ -939,6 +1082,20 @@ class TelegramUnitPriceObservationRuntimeService:
     @staticmethod
     def _safe_display(value, limit):
         return " ".join(str(value or "").replace("\x00", "").split())[:limit]
+
+    @staticmethod
+    def _positive_int(value):
+        if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,2}", value):
+            return None
+        number = int(value)
+        return number if number <= 100 else None
+
+    @staticmethod
+    def _nonnegative_int(value):
+        if not isinstance(value, str) or not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", value):
+            return None
+        number = int(value)
+        return number if number < 200 else None
 
     def _keyboard(self, buttons):
         safe = [

@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q22 завершены, Q23–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q23 завершены, Q24–Q35 ожидают.
 
 ## Исходная точка
 
@@ -42,7 +42,7 @@
 | Q20 | VERIFIED | Telegram наблюдение: ручная установка цены, сбор, ревизия результата, история, заметки и завершение; linked Q16–Q20 profile 197 passed. Acceptance ниже. |
 | Q21 | VERIFIED | Добавлены quality/comparability gates для model/fact оснований; отдельный service, экран и payload; linked Q16–Q21 profile 205 passed. Acceptance ниже. |
 | Q22 | VERIFIED | Добавлен отдельный ranking наблюдений; linked Q16–Q22 profile 274 passed. См. Q22 acceptance. |
-| Q23 | NOT_STARTED | — |
+| Q23 | VERIFIED | Additive DB v5 immutable comparison snapshots, exact observation/result/plan revision references, source-free reopen/export, explicit append refresh, stale/superseded labels; focused 33 passed, linked Q16–Q23 474 passed. Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. |
 | Q24 | NOT_STARTED | — |
 | Q25 | NOT_STARTED | — |
 | Q26 | NOT_STARTED | — |
@@ -296,3 +296,14 @@
 - Адресный Q22 profile после выделения application service — **26 passed in 1.42s**. Связанный Windows/Python 3.12 Q16–Q22 profile по 16 targets — **274 passed in 5.68s**. Использованы synthetic records, временный storage/basetemp, отключённые dotenv/plugin autoload и credential env; live API, owner DB, tracked `data/*.json` и реальный бот не использовались.
 - Acceptance: `UNIT_PRICE_RECOMMENDATION_RANKING_Q22_2026-10-27.md`. `git diff -- data` должен оставаться пустым; перед следующим этапом повторить AST/diff checks. Q22 — VERIFIED; Q23 продолжает неизменяемую историю сравнений.
 - Классификация: **Architecture Review Required** — добавлены pure ranking и local-only observation application services, встроенные в существующий Telegram runtime; storage schema, canonical result schema, Ozon adapters и бизнес-формула прибыли не менялись.
+
+### Q23 — неизменяемая история сравнения и актуальность (2026-10-27)
+
+- Planning SQLite расширена additive migration v4→v5: owner/store-scoped immutable comparison revisions, evidence fingerprint, idempotency и SQL UPDATE/DELETE guards. Существующие saved plans и observation/result rows не переписываются; сохранённые ссылки фиксируют observation ID/result revision и source plan ID/revision для каждой проверенной цены, плюс manifest прочих видимых результатов SKU для stale detection.
+- Добавлен `UnitPriceComparisonHistoryService`. Первое построение рейтинга сохраняет exact snapshot. Повторное открытие и JSON export читают сохранённый payload и не пересчитывают ranking/не запрашивают Ozon. Явное обновление сравнивает доступные сохранённые observation revisions; если evidence не изменилось, запись не добавляется. Новые результаты, собранные существующим observation flow, создают новую revision, не стирая победителя прежней версии.
+- Карточка/история маркируют `CURRENT`, `STALE`, `SUPERSEDED` или `SUPERSEDED_AND_STALE`. Stale определяется только по локальному состоянию источников: новому result revision, новому/архивированному same-SKU observation или изменённой revision исходного плана. Открытие версии не меняет её победителя. Пагинация истории bounded; очистка runtime user state не удаляет DB records.
+- Добавлены регрессии: idempotent/CAS create and append, tenant isolation, schema payload allowlist, triggers, database failure rollback/retry, schema v3/v4 migration с сохранением плана и наблюдения, comparison reopen после runtime recreation/clear-user-state, new evidence append, stale/superseded labels, unchanged refresh и source-free JSON export. Рейтинг по-прежнему проходит Q21 gate и использует исходную формулу/показатели без пересчёта.
+- Адресный Windows/Python 3.12 профиль четырёх Q23-focused targets: **33 passed in 2.08s**. Linked профиль 28 planning/observation/tariff/runtime targets: **474 passed in 10.94s** при отключённом pytest plugin autoload и удалённых credential-like process variables. Два старых теста DB schema v4 сначала выявили ожидаемые stale assertions; они обновлены на v5, затем полный linked профиль стал зелёным.
+- Тесты выполнялись в temporary pytest storage/basetemp из существующего Python 3.12 project environment, от текущего implementation worktree. Для Windows указан уже локальный Git IANA zoneinfo path (`PYTHONTZPATH`); live API, owner DB, bot и `.env` не использовались. `git diff -- data` пустой.
+- Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. `DECISIONS.md` не менялся: repository schema versioning, append-only evidence, tenant scope и source-free saved result уже следуют Decision 061 и Q16/Q21/Q22 контрактам.
+- Q23 — VERIFIED. Классификация: **Architecture Review Required** — additive SQLite schema migration, repository contract и Telegram/application wiring. Следующий этап: Q24 — связать полный путь SKU → тариф → план/сравнение → порог → сохранение → наблюдение → рекомендация.

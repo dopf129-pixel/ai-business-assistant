@@ -56,8 +56,11 @@ class UnitPriceObservationRankingService:
                     or not isinstance(result, dict)):
                 continue
             evaluated.append({
+                "observation_id": observation.get("observation_id"),
                 "result": result,
                 "result_revision": result_record.get("revision"),
+                "source_document_id": (observation.get("source_plan") or {}).get("document_id"),
+                "source_document_revision": (observation.get("source_plan") or {}).get("revision"),
                 "created_at": result_record.get("created_at") or observation.get("updated_at") or "",
                 "assumption_signature": self._assumption_signature(
                     observation, owner_id=owner_id, store_id=store_id,
@@ -86,6 +89,35 @@ class UnitPriceObservationRankingService:
             "assumption_signature": item["assumption_signature"],
             "owner_id": owner_id, "store_id": store_id,
         } for index, item in enumerate(checked)]
+        source_references = [{
+            "index": index,
+            "observation_id": item.get("observation_id"),
+            "result_revision": item.get("result_revision"),
+            "source_document_id": item.get("source_document_id"),
+            "source_document_revision": item.get("source_document_revision"),
+        } for index, item in enumerate(checked)]
+        known_source_references = [{
+            "observation_id": item.get("observation_id"),
+            "result_revision": item.get("result_revision"),
+            "source_document_id": item.get("source_document_id"),
+            "source_document_revision": item.get("source_document_revision"),
+        } for item in evaluated]
+        if any(
+            not isinstance(reference["observation_id"], str)
+            or type(reference["result_revision"]) is not int
+            or not isinstance(reference["source_document_id"], str)
+            or type(reference["source_document_revision"]) is not int
+            for reference in source_references
+        ):
+            return self._error("UNIT_PRICE_RANKING_SOURCE_REFERENCE_INVALID")
+        if any(
+            not isinstance(reference["observation_id"], str)
+            or type(reference["result_revision"]) is not int
+            or not isinstance(reference["source_document_id"], str)
+            or type(reference["source_document_revision"]) is not int
+            for reference in known_source_references
+        ):
+            return self._error("UNIT_PRICE_RANKING_SOURCE_REFERENCE_INVALID")
         ranking = self.ranking_service.rank_observations(candidates, now=now)
         if not isinstance(ranking, dict) or ranking.get("error") is True:
             return self._error(ranking.get("code") if isinstance(ranking, dict) else None)
@@ -93,7 +125,15 @@ class UnitPriceObservationRankingService:
         ranking["omitted_repeated_price_count"] = max(0, len(evaluated) - len(distinct))
         return {
             "error": False, "ranking": ranking,
-            "identity": {"sku": target_identity.get("sku"), "sale_schema": target_identity.get("sale_schema")},
+            "identity": {
+                "store_id": store_id,
+                "product_id": target_identity.get("product_id"),
+                "offer_id": target_identity.get("offer_id"),
+                "sku": target_identity.get("sku"),
+                "sale_schema": target_identity.get("sale_schema"),
+            },
+            "source_references": source_references,
+            "known_source_references": known_source_references,
             "read_only": True, "executed": False,
         }
 

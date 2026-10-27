@@ -1,3 +1,10 @@
+# 2026-10-27 — Q23: immutable history for unit-price comparisons
+
+- Added tenant/store-scoped comparison snapshots with exact observation/result and saved-plan revision references. Refresh appends a new immutable revision only when locally saved evidence changes; old rankings remain readable.
+- Reopening, history navigation, and JSON export read the persisted snapshot only. The UI labels current, stale, superseded, and superseded-plus-stale comparisons; cache clearing does not delete records.
+- Added planning database schema v5 as an additive migration; existing plans and observation result history are preserved.
+- Acceptance: `project_brain/UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`.
+
 # 2026-10-27 — Q22: рейтинг наблюдений цены по прибыли с единицы
 
 - Добавлен отдельный рейтинг наблюдённых вариантов цены: только после Q21 gate, по прибыли ₽/шт., с равными максимумами и денежной разницей от базового периода. Для нулевой/отрицательной базы процент не показывается.

@@ -26,7 +26,7 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 3
-    DATABASE_SCHEMA_VERSION = 4
+    DATABASE_SCHEMA_VERSION = 5
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
@@ -35,6 +35,9 @@ class PlanningWorkspaceRepository:
     MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE = 100
     MAX_UNIT_PRICE_OBSERVATION_RESULTS = 20
     MAX_UNIT_PRICE_OBSERVATION_PAYLOAD_BYTES = 64 * 1024
+    MAX_UNIT_PRICE_COMPARISONS_PER_STORE = 200
+    MAX_UNIT_PRICE_COMPARISON_REVISIONS = 100
+    MAX_UNIT_PRICE_COMPARISON_PAYLOAD_BYTES = 64 * 1024
     MAX_UNIT_PRICE_OBSERVATION_NOTE_LENGTH = 500
     MAX_REVISIONS_PER_DOCUMENT = 20
     MAX_PAYLOAD_BYTES = 64 * 1024
@@ -957,6 +960,246 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def create_unit_price_comparison(
+        self, payload, *, idempotency_key, owner_id=None, store_id=None,
+    ):
+        """Persist the first immutable revision of an owner-scoped comparison."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized = self._normalize_unit_price_comparison(payload, scope)
+        if scope.get("error") or key is None or normalized is None:
+            return self._error("PLANNING_COMPARISON_INPUT_INVALID")
+        fingerprint = self._observation_request_hash(normalized)
+        request_hash = self._observation_request_hash({
+            "operation": "create_comparison", "payload": normalized,
+        })
+        if fingerprint is None or request_hash is None:
+            return self._error("PLANNING_COMPARISON_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._comparison_idempotent_result(connection, scope, key, request_hash)
+            if replay is not None:
+                connection.commit()
+                return replay
+            count = connection.execute(
+                "SELECT COUNT(DISTINCT comparison_id) FROM planning_unit_price_comparisons "
+                "WHERE owner_id=? AND store_id=?",
+                (scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if count >= self.MAX_UNIT_PRICE_COMPARISONS_PER_STORE:
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_QUOTA_REACHED")
+            if not self._unit_price_comparison_references_exist(
+                connection, scope, normalized,
+            ):
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_SOURCE_REFERENCE_INVALID")
+            comparison_id = uuid4().hex
+            now = self._timestamp()
+            connection.execute(
+                "INSERT INTO planning_unit_price_comparisons "
+                "(comparison_id, owner_id, store_id, revision, payload_json, evidence_hash, created_at) "
+                "VALUES (?, ?, ?, 1, ?, ?, ?)",
+                (comparison_id, scope["owner_id"], scope["store_id"],
+                 self._encode(normalized), fingerprint, now),
+            )
+            result = {"error": False, "comparison_id": comparison_id, "revision": 1}
+            self._remember_comparison_idempotency(connection, scope, key, request_hash, result, now)
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_COMPARISON_CONFLICT")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def append_unit_price_comparison_revision(
+        self, comparison_id, payload, *, expected_revision, idempotency_key,
+        owner_id=None, store_id=None,
+    ):
+        """Append refreshed comparison evidence with CAS; prior revisions remain immutable."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized_id = self._short_text(comparison_id, 80)
+        normalized = self._normalize_unit_price_comparison(payload, scope)
+        if (scope.get("error") or key is None or normalized_id is None
+                or type(expected_revision) is not int or expected_revision < 1
+                or normalized is None):
+            return self._error("PLANNING_COMPARISON_INPUT_INVALID")
+        request_hash = self._observation_request_hash({
+            "operation": "append_comparison", "comparison_id": normalized_id,
+            "expected_revision": expected_revision, "payload": normalized,
+        })
+        fingerprint = self._observation_request_hash(normalized)
+        if request_hash is None or fingerprint is None:
+            return self._error("PLANNING_COMPARISON_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._comparison_idempotent_result(connection, scope, key, request_hash)
+            if replay is not None:
+                connection.commit()
+                return replay
+            latest = connection.execute(
+                "SELECT revision, payload_json FROM planning_unit_price_comparisons "
+                "WHERE comparison_id=? AND owner_id=? AND store_id=? "
+                "ORDER BY revision DESC LIMIT 1",
+                (normalized_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if latest is None:
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_NOT_FOUND")
+            if latest["revision"] != expected_revision:
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_REVISION_CONFLICT")
+            try:
+                previous_payload = json.loads(latest["payload_json"])
+            except (TypeError, ValueError):
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_CORRUPT")
+            previous = self._normalize_unit_price_comparison(previous_payload, scope)
+            if previous is None or previous["identity"] != normalized["identity"]:
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_IDENTITY_CONFLICT")
+            if not self._unit_price_comparison_references_exist(
+                connection, scope, normalized,
+            ):
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_SOURCE_REFERENCE_INVALID")
+            if expected_revision >= self.MAX_UNIT_PRICE_COMPARISON_REVISIONS:
+                connection.rollback()
+                return self._error("PLANNING_COMPARISON_REVISION_QUOTA_REACHED")
+            now = self._timestamp()
+            revision = expected_revision + 1
+            connection.execute(
+                "INSERT INTO planning_unit_price_comparisons "
+                "(comparison_id, owner_id, store_id, revision, payload_json, evidence_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (normalized_id, scope["owner_id"], scope["store_id"], revision,
+                 self._encode(normalized), fingerprint, now),
+            )
+            result = {"error": False, "comparison_id": normalized_id, "revision": revision}
+            self._remember_comparison_idempotency(connection, scope, key, request_hash, result, now)
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_COMPARISON_CONFLICT")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def get_unit_price_comparison(
+        self, comparison_id, *, revision=None, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        normalized_id = self._short_text(comparison_id, 80)
+        if (scope.get("error") or normalized_id is None
+                or (revision is not None and (type(revision) is not int or revision < 1))):
+            return self._error("PLANNING_COMPARISON_NOT_FOUND")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            latest = connection.execute(
+                "SELECT MAX(revision) FROM planning_unit_price_comparisons "
+                "WHERE comparison_id=? AND owner_id=? AND store_id=?",
+                (normalized_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if latest is None:
+                return self._error("PLANNING_COMPARISON_NOT_FOUND")
+            selected = revision if revision is not None else latest
+            row = connection.execute(
+                "SELECT payload_json, evidence_hash, created_at FROM planning_unit_price_comparisons "
+                "WHERE comparison_id=? AND owner_id=? AND store_id=? AND revision=?",
+                (normalized_id, scope["owner_id"], scope["store_id"], selected),
+            ).fetchone()
+            if row is None:
+                return self._error("PLANNING_COMPARISON_REVISION_NOT_FOUND")
+            try:
+                decoded = self._normalize_unit_price_comparison(
+                    json.loads(row["payload_json"]), scope,
+                )
+            except (TypeError, ValueError):
+                decoded = None
+            if decoded is None or self._observation_request_hash(decoded) != row["evidence_hash"]:
+                return self._error("PLANNING_COMPARISON_CORRUPT")
+            return {
+                "error": False, "comparison_id": normalized_id,
+                "revision": selected, "latest_revision": latest,
+                "superseded": selected < latest, "created_at": row["created_at"],
+                "payload": decoded,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def list_unit_price_comparisons(
+        self, *, limit=10, offset=0, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or type(limit) is not int or not 1 <= limit <= self.MAX_PAGE_SIZE
+                or type(offset) is not int or offset < 0):
+            return self._error("PLANNING_COMPARISON_LIST_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            rows = connection.execute(
+                "SELECT c.comparison_id, c.revision, c.payload_json, c.evidence_hash, c.created_at "
+                "FROM planning_unit_price_comparisons c JOIN ("
+                "SELECT comparison_id, MAX(revision) AS latest_revision "
+                "FROM planning_unit_price_comparisons WHERE owner_id=? AND store_id=? "
+                "GROUP BY comparison_id) latest ON latest.comparison_id=c.comparison_id "
+                "AND latest.latest_revision=c.revision WHERE c.owner_id=? AND c.store_id=? "
+                "ORDER BY c.created_at DESC, c.comparison_id LIMIT ? OFFSET ?",
+                (scope["owner_id"], scope["store_id"], scope["owner_id"],
+                 scope["store_id"], limit + 1, offset),
+            ).fetchall()
+            items = []
+            for row in rows[:limit]:
+                try:
+                    payload = self._normalize_unit_price_comparison(
+                        json.loads(row["payload_json"]), scope,
+                    )
+                except (TypeError, ValueError):
+                    payload = None
+                if payload is None or self._observation_request_hash(payload) != row["evidence_hash"]:
+                    return self._error("PLANNING_COMPARISON_CORRUPT")
+                items.append({
+                    "comparison_id": row["comparison_id"], "revision": row["revision"],
+                    "created_at": row["created_at"], "payload": payload,
+                })
+            return {
+                "error": False, "items": items, "has_more": len(rows) > limit,
+                "next_offset": offset + limit if len(rows) > limit else None,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
     def set_unit_price_observation_note(
         self, observation_id, note, *, expected_state_revision,
         idempotency_key, owner_id=None, store_id=None,
@@ -1296,6 +1539,285 @@ class PlanningWorkspaceRepository:
         if not active_owner or owner != active_owner or store != str(active_store or ""):
             return {"error": True, "code": "PLANNING_TENANT_SCOPE_MISMATCH"}
         return {"error": False, "owner_id": owner, "store_id": store}
+
+    @classmethod
+    def _normalize_unit_price_comparison(cls, payload, scope):
+        if (scope.get("error") or not isinstance(payload, dict)
+                or set(payload) != {
+                    "schema_version", "identity", "ranking", "source_references",
+                    "known_source_references",
+                }
+                or type(payload.get("schema_version")) is not int
+                or payload["schema_version"] != 1
+                or not isinstance(payload.get("identity"), dict)
+                or not isinstance(payload.get("ranking"), dict)
+                or not isinstance(payload.get("source_references"), list)
+                or not 1 <= len(payload["source_references"]) <= 10
+                or not isinstance(payload.get("known_source_references"), list)
+                or not 1 <= len(payload["known_source_references"]) <= cls.MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE):
+            return None
+        identity = payload["identity"]
+        if (set(identity) != {"store_id", "product_id", "offer_id", "sku", "sale_schema"}
+                or identity.get("store_id") != scope["store_id"]
+                or identity.get("sale_schema") != "FBO"
+                or any(not cls._short_text(identity.get(key), limit) for key, limit in (
+                    ("store_id", 80), ("product_id", 80), ("offer_id", 120), ("sku", 64),
+                ))):
+            return None
+        ranking = payload["ranking"]
+        ranking_fields = {
+            "error", "kind", "status", "evidence_basis", "verified", "baseline_index",
+            "checked_candidate_count", "quality_assessment", "ranking", "best_indices",
+            "best_profit_per_unit", "read_only", "executed", "recommendation_scope",
+            "display_basis", "omitted_candidate_count", "omitted_repeated_price_count",
+        }
+        if (set(ranking) - ranking_fields or ranking.get("error") is not False
+                or ranking.get("kind") != "UNIT_PRICE_OBSERVATION_RANKING"
+                or ranking.get("status") not in {"RANKED", "NOT_READY", "INCOMPARABLE"}
+                or (ranking.get("evidence_basis") is not None
+                    and ranking.get("evidence_basis") not in cls._OBSERVATION_EVIDENCE_BASES)
+                or type(ranking.get("verified")) is not bool
+                or ranking.get("read_only") is not True or ranking.get("executed") is not False
+                or type(ranking.get("checked_candidate_count")) is not int
+                or not 1 <= ranking["checked_candidate_count"] <= 10
+                or type(ranking.get("baseline_index")) is not int
+                or ranking["baseline_index"] < 0
+                or not isinstance(ranking.get("quality_assessment"), dict)
+                or not isinstance(ranking.get("ranking"), list)
+                or not isinstance(ranking.get("best_indices"), list)
+                or any(type(index) is not int or index < 0 for index in ranking["best_indices"])
+                or len(set(ranking["best_indices"])) != len(ranking["best_indices"])):
+            return None
+        quality = ranking["quality_assessment"]
+        quality_fields = {
+            "error", "status", "evidence_basis", "verified", "candidate_count",
+            "candidates", "reasons", "warnings", "thresholds", "read_only", "executed",
+        }
+        if (set(quality) != quality_fields or quality.get("error") is not False
+                or quality.get("status") not in {"COMPARABLE", "NOT_READY", "INCOMPARABLE"}
+                or (quality.get("evidence_basis") is not None
+                    and quality.get("evidence_basis") not in cls._OBSERVATION_EVIDENCE_BASES)
+                or type(quality.get("verified")) is not bool
+                or type(quality.get("candidate_count")) is not int
+                or not isinstance(quality.get("candidates"), list)
+                or not isinstance(quality.get("reasons"), list)
+                or not isinstance(quality.get("warnings"), list)
+                or not isinstance(quality.get("thresholds"), dict)
+                or quality.get("read_only") is not True or quality.get("executed") is not False
+                or len(quality["candidates"]) != ranking["checked_candidate_count"]
+                or quality["candidate_count"] != len(quality["candidates"])
+                or quality["status"] != ("COMPARABLE" if ranking["status"] == "RANKED"
+                                          else ranking["status"])):
+            return None
+        if (set(quality["thresholds"]) != {
+                "recommended_window_days", "small_sample_units", "max_evidence_age_days",
+        } or any(type(value) is not int or value < 0 for value in quality["thresholds"].values())):
+            return None
+        candidate_fields = {
+            "index", "result_revision", "status", "window_days", "successful_units",
+            "price_cents", "evidence_age_days", "reasons", "warnings",
+        }
+        for item in quality["candidates"]:
+            if (not isinstance(item, dict) or set(item) != candidate_fields
+                    or type(item.get("index")) is not int or item["index"] < 0
+                    or type(item.get("result_revision")) is not int or item["result_revision"] < 1
+                    or item.get("status") not in {"READY", "INCOMPARABLE"}
+                    or any(item.get(key) is not None and (
+                        type(item[key]) is not int or item[key] < 0
+                    ) for key in ("window_days", "successful_units", "price_cents", "evidence_age_days"))
+                    or not isinstance(item.get("reasons"), list)
+                    or not isinstance(item.get("warnings"), list)
+                    or any(not isinstance(text, str) or len(text) > 300
+                           for text in item["reasons"] + item["warnings"])):
+                return None
+        candidate_by_index = {item["index"]: item for item in quality["candidates"]}
+        if (len(candidate_by_index) != len(quality["candidates"])
+                or ranking["baseline_index"] not in candidate_by_index):
+            return None
+        ranking_row_fields = {
+            "index", "result_revision", "seller_price_cents", "profit_per_unit",
+            "delta_vs_baseline", "delta_percent_vs_baseline", "delta_percent_reason", "is_best",
+        }
+        if len(ranking["ranking"]) > 10:
+            return None
+        ranked_indices = set()
+        for item in ranking["ranking"]:
+            if (not isinstance(item, dict) or set(item) != ranking_row_fields
+                    or type(item.get("index")) is not int
+                    or type(item.get("result_revision")) is not int
+                    or type(item.get("seller_price_cents")) is not int
+                    or type(item.get("is_best")) is not bool
+                    or item["index"] not in candidate_by_index
+                    or item["result_revision"] != candidate_by_index[item["index"]]["result_revision"]
+                    or item["seller_price_cents"] < 1
+                    or cls._decimal_string(item.get("profit_per_unit")) is False
+                    or cls._decimal_string(item.get("delta_vs_baseline")) is False
+                    or (item.get("delta_percent_vs_baseline") is not None and
+                        cls._decimal_string(item.get("delta_percent_vs_baseline")) is False)
+                    or (item.get("delta_percent_reason") is not None and
+                        not isinstance(item.get("delta_percent_reason"), str))):
+                return None
+            ranked_indices.add(item["index"])
+        if ranking["status"] == "RANKED":
+            if (len(ranked_indices) != ranking["checked_candidate_count"]
+                    or not isinstance(ranking.get("best_profit_per_unit"), str)
+                    or cls._decimal_string(ranking["best_profit_per_unit"]) is False
+                    or set(ranking["best_indices"]) != {
+                        item["index"] for item in ranking["ranking"] if item["is_best"]
+                    }):
+                return None
+        elif ranking["ranking"] or ranking["best_indices"] or ranking.get("best_profit_per_unit") is not None:
+            return None
+        if len(quality["reasons"]) > 64 or len(quality["warnings"]) > 64:
+            return None
+        reference_fields = {
+            "index", "observation_id", "result_revision", "source_document_id",
+            "source_document_revision",
+        }
+        references = []
+        seen_indices = set()
+        for item in payload["source_references"]:
+            if (not isinstance(item, dict) or set(item) != reference_fields
+                    or type(item.get("index")) is not int or item["index"] < 0
+                    or item["index"] in seen_indices
+                    or not cls._short_text(item.get("observation_id"), 80)
+                    or type(item.get("result_revision")) is not int or item["result_revision"] < 1
+                    or not cls._short_text(item.get("source_document_id"), 80)
+                    or type(item.get("source_document_revision")) is not int
+                    or item["source_document_revision"] < 1):
+                return None
+            seen_indices.add(item["index"])
+            references.append(dict(item))
+        if len(references) != ranking["checked_candidate_count"]:
+            return None
+        if seen_indices != set(candidate_by_index):
+            return None
+        known_fields = {
+            "observation_id", "result_revision", "source_document_id",
+            "source_document_revision",
+        }
+        known_references = []
+        known_ids = set()
+        for item in payload["known_source_references"]:
+            if (not isinstance(item, dict) or set(item) != known_fields
+                    or not cls._short_text(item.get("observation_id"), 80)
+                    or item["observation_id"] in known_ids
+                    or type(item.get("result_revision")) is not int or item["result_revision"] < 1
+                    or not cls._short_text(item.get("source_document_id"), 80)
+                    or type(item.get("source_document_revision")) is not int
+                    or item["source_document_revision"] < 1):
+                return None
+            known_ids.add(item["observation_id"])
+            known_references.append(dict(item))
+        known_by_id = {item["observation_id"]: item for item in known_references}
+        if any(
+            known_by_id.get(item["observation_id"], {}).get("result_revision")
+                != item["result_revision"]
+            or known_by_id.get(item["observation_id"], {}).get("source_document_id")
+                != item["source_document_id"]
+            or known_by_id.get(item["observation_id"], {}).get("source_document_revision")
+                != item["source_document_revision"]
+            for item in references
+        ):
+            return None
+        if quality.get("candidate_count") != len(references):
+            return None
+        normalized = {
+            "schema_version": 1, "identity": dict(identity),
+            "ranking": cls._json_roundtrip_safe(ranking),
+            "source_references": sorted(references, key=lambda item: item["index"]),
+            "known_source_references": sorted(
+                known_references, key=lambda item: item["observation_id"],
+            ),
+        }
+        if normalized["ranking"] is None:
+            return None
+        encoded = cls._encode(normalized)
+        if encoded is None or len(encoded.encode("utf-8")) > cls.MAX_UNIT_PRICE_COMPARISON_PAYLOAD_BYTES:
+            return None
+        return normalized
+
+    @classmethod
+    def _unit_price_comparison_references_exist(cls, connection, scope, payload):
+        identity = payload.get("identity") or {}
+        known = payload.get("known_source_references") or []
+        for reference in known:
+            observation = connection.execute(
+                "SELECT * FROM planning_unit_price_observations "
+                "WHERE observation_id=? AND owner_id=? AND store_id=?",
+                (reference["observation_id"], scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if (observation is None
+                    or observation["result_revision"] < reference["result_revision"]
+                    or observation["product_id"] != identity.get("product_id")
+                    or observation["offer_id"] != identity.get("offer_id")
+                    or observation["sku"] != identity.get("sku")
+                    or observation["sale_schema"] != identity.get("sale_schema")
+                    or observation["source_document_id"] != reference["source_document_id"]
+                    or observation["source_document_revision"] != reference["source_document_revision"]):
+                return False
+            result_row = connection.execute(
+                "SELECT payload_json FROM planning_unit_price_observation_results "
+                "WHERE observation_id=? AND owner_id=? AND store_id=? AND result_revision=?",
+                (reference["observation_id"], scope["owner_id"], scope["store_id"],
+                 reference["result_revision"]),
+            ).fetchone()
+            if result_row is None:
+                return False
+            decoded = cls._decode_observation_result(result_row["payload_json"])
+            if (decoded.get("error") is True or not cls._observation_result_matches(
+                    decoded["payload"], observation, scope["store_id"],
+            )):
+                return False
+            plan = connection.execute(
+                "SELECT r.payload_json FROM planning_revisions r "
+                "JOIN planning_documents d ON d.document_id=r.document_id "
+                "AND d.owner_id=r.owner_id AND d.store_id=r.store_id "
+                "WHERE r.document_id=? AND r.owner_id=? AND r.store_id=? AND r.revision=?",
+                (reference["source_document_id"], scope["owner_id"], scope["store_id"],
+                 reference["source_document_revision"]),
+            ).fetchone()
+            if (plan is None or not cls._saved_plan_contains_observation_identity(
+                plan["payload_json"], {
+                    "product_id": observation["product_id"],
+                    "offer_id": observation["offer_id"],
+                    "sku": observation["sku"],
+                    "sale_schema": observation["sale_schema"],
+                }, scope["store_id"],
+            )):
+                return False
+        return True
+
+    @classmethod
+    def _json_roundtrip_safe(cls, value):
+        nodes = [0]
+
+        def visit(node, depth):
+            nodes[0] += 1
+            if nodes[0] > 1200 or depth > 12:
+                raise ValueError("comparison payload limit")
+            if node is None or type(node) in (bool, int):
+                return node
+            if isinstance(node, str):
+                if len(node) > 1000:
+                    raise ValueError("comparison text limit")
+                return node
+            if isinstance(node, list):
+                if len(node) > 100:
+                    raise ValueError("comparison list limit")
+                return [visit(item, depth + 1) for item in node]
+            if isinstance(node, dict):
+                if len(node) > 100 or any(not isinstance(key, str) or len(key) > 100 for key in node):
+                    raise ValueError("comparison object limit")
+                return {key: visit(item, depth + 1) for key, item in node.items()}
+            # Decimal-like metrics are serialized as strings by the ranking service;
+            # binary floats are intentionally rejected.
+            raise ValueError("comparison value type")
+
+        try:
+            return visit(value, 0)
+        except ValueError:
+            return None
 
     @classmethod
     def _normalize_tariff_profile_payload(cls, payload, scope):
@@ -2096,12 +2618,41 @@ class PlanningWorkspaceRepository:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(owner_id, store_id, idempotency_key)
             )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_unit_price_comparisons (
+                comparison_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                payload_json TEXT NOT NULL,
+                evidence_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(comparison_id, owner_id, store_id, revision)
+            )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_unit_price_comparisons_scope "
+                "ON planning_unit_price_comparisons(owner_id, store_id, created_at DESC)"
+            )
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_unit_price_comparison_idempotency (
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(owner_id, store_id, idempotency_key)
+            )""")
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_observation_results_no_update
                 BEFORE UPDATE ON planning_unit_price_observation_results
                 BEGIN SELECT RAISE(ABORT, 'immutable observation result'); END""")
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_observation_results_no_delete
                 BEFORE DELETE ON planning_unit_price_observation_results
                 BEGIN SELECT RAISE(ABORT, 'immutable observation result'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_comparisons_no_update
+                BEFORE UPDATE ON planning_unit_price_comparisons
+                BEGIN SELECT RAISE(ABORT, 'immutable price comparison'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_comparisons_no_delete
+                BEFORE DELETE ON planning_unit_price_comparisons
+                BEGIN SELECT RAISE(ABORT, 'immutable price comparison'); END""")
             if version < self.DATABASE_SCHEMA_VERSION:
                 connection.execute(
                     "UPDATE planning_schema SET version=? WHERE singleton=1",
@@ -2496,6 +3047,49 @@ class PlanningWorkspaceRepository:
             """DELETE FROM planning_unit_price_observation_idempotency
                WHERE owner_id=? AND store_id=? AND idempotency_key IN (
                  SELECT idempotency_key FROM planning_unit_price_observation_idempotency
+                 WHERE owner_id=? AND store_id=? ORDER BY created_at DESC, idempotency_key DESC
+                 LIMIT -1 OFFSET 1000)""",
+            (scope["owner_id"], scope["store_id"], scope["owner_id"], scope["store_id"]),
+        )
+
+    @staticmethod
+    def _comparison_idempotent_result(connection, scope, key, request_hash):
+        row = connection.execute(
+            "SELECT request_hash, result_json FROM planning_unit_price_comparison_idempotency "
+            "WHERE owner_id=? AND store_id=? AND idempotency_key=?",
+            (scope["owner_id"], scope["store_id"], key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_hash"] != request_hash:
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_COMPARISON_IDEMPOTENCY_CONFLICT"
+            )
+        try:
+            result = json.loads(row["result_json"])
+        except (TypeError, ValueError):
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_COMPARISON_IDEMPOTENCY_RECORD_CORRUPT"
+            )
+        if not isinstance(result, dict) or type(result.get("error")) is not bool:
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_COMPARISON_IDEMPOTENCY_RECORD_CORRUPT"
+            )
+        return result
+
+    @staticmethod
+    def _remember_comparison_idempotency(connection, scope, key, request_hash, result, now):
+        connection.execute(
+            "INSERT INTO planning_unit_price_comparison_idempotency "
+            "(owner_id, store_id, idempotency_key, request_hash, result_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (scope["owner_id"], scope["store_id"], key, request_hash,
+             PlanningWorkspaceRepository._encode(result), now),
+        )
+        connection.execute(
+            """DELETE FROM planning_unit_price_comparison_idempotency
+               WHERE owner_id=? AND store_id=? AND idempotency_key IN (
+                 SELECT idempotency_key FROM planning_unit_price_comparison_idempotency
                  WHERE owner_id=? AND store_id=? ORDER BY created_at DESC, idempotency_key DESC
                  LIMIT -1 OFFSET 1000)""",
             (scope["owner_id"], scope["store_id"], scope["owner_id"], scope["store_id"]),

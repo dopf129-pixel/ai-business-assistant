@@ -465,7 +465,7 @@ def test_result_quota_and_database_rollback_are_atomic(tmp_path, monkeypatch):
         reset_current_tenant_user_id(token)
 
 
-def test_v3_database_migration_adds_only_observation_tables_and_preserves_plan(tmp_path):
+def test_v3_database_migration_adds_observation_and_comparison_tables_preserving_plan(tmp_path):
     db = tmp_path / "v3.sqlite"
     repo = PlanningWorkspaceRepository(
         db_path=db, clock=lambda: datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc),
@@ -475,6 +475,8 @@ def test_v3_database_migration_adds_only_observation_tables_and_preserves_plan(t
         plan = _plan(repo)
     finally:
         reset_current_tenant_user_id(token)
+
+
     connection = sqlite3.connect(db)
     connection.execute("UPDATE planning_schema SET version=3 WHERE singleton=1")
     connection.execute("DROP TABLE planning_unit_price_observation_results")
@@ -495,7 +497,7 @@ def test_v3_database_migration_adds_only_observation_tables_and_preserves_plan(t
         )}
     finally:
         connection.close()
-    assert version == 4
+    assert version == 5
     assert {
         "planning_unit_price_observations",
         "planning_unit_price_observation_results",
@@ -505,8 +507,68 @@ def test_v3_database_migration_adds_only_observation_tables_and_preserves_plan(t
         "trg_unit_price_observation_results_no_update",
         "trg_unit_price_observation_results_no_delete",
     } <= triggers
+    assert {
+        "planning_unit_price_comparisons",
+        "planning_unit_price_comparison_idempotency",
+    } <= tables
+    assert {
+        "trg_unit_price_comparisons_no_update",
+        "trg_unit_price_comparisons_no_delete",
+    } <= triggers
     token = _context()
     try:
         assert migrated.get_document(plan["document_id"])["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_v4_migration_preserves_observation_result_and_adds_comparison_history(tmp_path):
+    db = tmp_path / "v4.sqlite"
+    repo = PlanningWorkspaceRepository(
+        db_path=db, clock=lambda: datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc),
+    )
+    token = _context()
+    try:
+        plan = _plan(repo)
+        observation = _start(repo, plan)
+        saved_result = repo.append_unit_price_observation_result(
+            observation["observation_id"], _result(), expected_state_revision=1,
+            expected_result_revision=0, idempotency_key="obs-v4-migration-result",
+        )
+        assert saved_result["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+    connection = sqlite3.connect(db)
+    connection.execute("UPDATE planning_schema SET version=4 WHERE singleton=1")
+    connection.execute("DROP TRIGGER trg_unit_price_comparisons_no_update")
+    connection.execute("DROP TRIGGER trg_unit_price_comparisons_no_delete")
+    connection.execute("DROP TABLE planning_unit_price_comparison_idempotency")
+    connection.execute("DROP TABLE planning_unit_price_comparisons")
+    connection.commit()
+    connection.close()
+
+    migrated = PlanningWorkspaceRepository(db_path=db)
+    connection = migrated.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT version FROM planning_schema WHERE singleton=1",
+        ).fetchone()[0] == 5
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'",
+        )}
+        assert {
+            "planning_unit_price_comparisons",
+            "planning_unit_price_comparison_idempotency",
+        } <= tables
+    finally:
+        connection.close()
+
+    token = _context()
+    try:
+        reopened = migrated.get_unit_price_observation(observation["observation_id"])
+        assert reopened["error"] is False
+        assert reopened["result"]["revision"] == 1
+        assert reopened["result"]["payload"] == _result()
     finally:
         reset_current_tenant_user_id(token)

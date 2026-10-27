@@ -133,7 +133,9 @@ def _create_observation_at_price(runtime, scope, document, price):
     return runtime.handle_callback(preview["keyboard"]["buttons"][0]["callback"], user_id="owner-1")
 
 
-def _append_model_observation_result(repo, observation, scope, *, start, end, profit, units):
+def _append_model_observation_result(
+    repo, observation, scope, *, start, end, profit, units, expected_result_revision=0,
+):
     identity = observation["identity"]
     payload = {
         "schema_version": 1,
@@ -176,8 +178,10 @@ def _append_model_observation_result(repo, observation, scope, *, start, end, pr
     return repo.append_unit_price_observation_result(
         observation["observation_id"], payload,
         expected_state_revision=observation["state_revision"],
-        expected_result_revision=0,
-        idempotency_key=f"rank-result-{observation['seller_price_cents']}",
+        expected_result_revision=expected_result_revision,
+        idempotency_key=(
+            f"rank-result-{observation['seller_price_cents']}-v{expected_result_revision + 1}"
+        ),
         owner_id=scope["owner_id"], store_id=scope["store_id"],
     )
 
@@ -382,6 +386,77 @@ def test_observation_ranking_uses_latest_compatible_results_without_source_calls
     assert "Объём продаж не меняет рейтинг" in result["message"]
     assert "не доказывает, что разницу вызвала только цена" in result["message"]
     assert "Проверено вариантов разных цен: 2" in result["message"]
+    assert collector.calls == []
+
+    refresh_callback = next(
+        button["callback"] for button in result["keyboard"]["buttons"]
+        if button["text"] == "Обновить по сохранённым данным"
+    )
+    _, _, comparison_id, comparison_revision = refresh_callback.split(":")
+    comparison_revision = int(comparison_revision)
+    comparison_callback = f"upo:comparison:{comparison_id}:{comparison_revision}"
+    saved = repo.get_unit_price_comparison(
+        comparison_id, revision=comparison_revision,
+        owner_id="owner-1", store_id="store-a",
+    )
+    assert saved["error"] is False
+    assert saved["payload"]["source_references"] == [
+        {"index": 0, "observation_id": first["observation_id"],
+         "result_revision": 1, "source_document_id": document["document_id"],
+         "source_document_revision": 1},
+        {"index": 1, "observation_id": second["observation_id"],
+         "result_revision": 1, "source_document_id": document["document_id"],
+         "source_document_revision": 1},
+    ]
+
+    opened = runtime.handle_callback(comparison_callback, user_id="owner-1")
+    assert "Сохранено сравнение v1" in opened["message"]
+    assert "Открытие сравнения не пересчитывает рейтинг" in opened["message"]
+    assert collector.calls == []
+    reopened_runtime = TelegramUnitPriceObservationRuntimeService(
+        repository=repo, planning_service=runtime.planning_service,
+        collection_service=runtime.collection_service, result_service=runtime.result_service,
+        keyboard_service=runtime.keyboard_service, clock=lambda: NOW,
+    )
+    reopened_screen = reopened_runtime.handle_callback(comparison_callback, user_id="owner-1")
+    assert reopened_screen["message"] == opened["message"]
+    assert "20.00 ₽/шт." in reopened_screen["message"]
+    reopened_runtime.clear_user_state("owner-1")
+    after_cache_clear = reopened_runtime.handle_callback(comparison_callback, user_id="owner-1")
+    assert after_cache_clear["message"] == opened["message"]
+    assert collector.calls == []
+    exported = runtime.comparison_history_service.export_json(
+        comparison_id, revision=1, owner_id="owner-1", store_id="store-a",
+    )
+    assert exported["error"] is False
+    assert exported["source_reads"] is False
+    assert '"observation_id"' not in exported["content"]
+    assert '"observation_result_revision":1' in exported["content"]
+
+    unchanged = runtime.handle_callback(refresh_callback, user_id="owner-1")
+    assert "Новых сохранённых данных пока нет" in unchanged["message"]
+    assert unchanged["comparison_revision"] == 1
+
+    latest_first = repo.get_unit_price_observation(
+        first["observation_id"], owner_id="owner-1", store_id="store-a",
+    )["observation"]
+    assert _append_model_observation_result(
+        repo, latest_first, scope, start="2026-10-01", end="2026-10-07",
+        profit="22.00", units=100, expected_result_revision=1,
+    )["error"] is False
+    refreshed = runtime.handle_callback(refresh_callback, user_id="owner-1")
+    assert "Сохранено сравнение v2" in refreshed["message"]
+    assert "Цена 100.00 ₽ → 22.00 ₽/шт." in refreshed["message"]
+    old = runtime.comparison_history_service.get(
+        comparison_id, revision=1, owner_id="owner-1", store_id="store-a",
+    )
+    latest = runtime.comparison_history_service.get(
+        comparison_id, revision=2, owner_id="owner-1", store_id="store-a",
+    )
+    assert old["freshness_status"] == "SUPERSEDED_AND_STALE"
+    assert old["payload"]["ranking"]["best_profit_per_unit"] == "20.00"
+    assert latest["freshness_status"] == "CURRENT"
+    assert latest["payload"]["ranking"]["best_profit_per_unit"] == "22.00"
     assert collector.calls == []
 
 
