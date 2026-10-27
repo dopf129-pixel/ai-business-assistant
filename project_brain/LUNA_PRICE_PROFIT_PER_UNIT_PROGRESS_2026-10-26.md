@@ -54,7 +54,7 @@
 | Q32 | VERIFIED | Обновлены user guide, changelog, current state, test map, roadmap and architecture decision index/details; acceptance описывает формулу, полноту, ограничения возвратов и resume. Внешние персональные/API данные не запрашивались. |
 | Q33 | VERIFIED | Изолированный полный Windows/Python 3.12 pytest: **3983 passed in 53.74s**; compileall, diff-check и data-diff прошли. Exact-head CI проверяется в Q35. См. `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`. |
 | Q34 | VERIFIED | Self-review по реализации, границам FBO, tenant/privacy, completeness, compatibility и модели: блокирующих замечаний не найдено. Architecture Review Required; self-review не является независимым approval. См. `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. |
-| Q35 | NOT_STARTED | — |
+| Q35 | IN_PROGRESS | Реализация опубликована как stacked PR #720 поверх открытого задания #719; исходный commit `c069a3660d2b4dba3a3d78b9404af265c3cb0e0f` получил Verify run `40573544926`, Windows и Linux jobs запущены. Готов review handoff: `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`. После фиксации handoff и CI сверить точный финальный HEAD. |
 
 ## Проверки подготовки документа
 
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Resume с Q35: зафиксировать проверенный пакет явными путями, отправить реализационную ветку, открыть stacked PR поверх PR #719, дождаться успешного CI именно на финальном HEAD и записать review/handoff пакет. Q33 local full suite и Q34 self-review подтверждены ниже; старые baseline результаты не переносить на новые SHA.
+Resume в Q35: завершить handoff документ, зафиксировать и отправить его в PR #720, дождаться зелёного Verify на итоговом HEAD и записать точный run/SHA. PR #720 stacked поверх PR #719; сначала должен быть интегрирован task/spec branch, затем implementation. Q33 local full suite и Q34 self-review подтверждены ниже; старые baseline результаты не переносить на новые SHA.
 
 ## Записи исполнения
 
