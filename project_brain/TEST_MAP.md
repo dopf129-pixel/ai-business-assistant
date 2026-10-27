@@ -5820,3 +5820,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — rating displays exact owner store, SKU, product/offer identifiers and FBO scheme.
 - `tests/test_telegram_response_formatter.py` and `tests/test_telegram_loading_feedback_v1451_v1460.py` — existing UTF-16-safe long-message splitting, complete text retention and final-chunk keyboard transport stay covered.
 - Q25 focused profile: **59 passed in 1.88s**. Linked Q16–Q25 Windows/Python 3.12 profile over 32 targets: **495 passed in 12.46s**. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price owner exports (Q26)
+
+- `tests/test_unit_price_owner_exports.py`: fixed CSV/JSON row schemas for exact saved comparison, immutable observation result, and tariff snapshot; same canonical rows, version/evidence fields, unknown-versus-zero, identity checks, and internal record ID redaction.
+- `tests/test_telegram_unit_price_observation_runtime.py`: buttons and file output for observation/comparison use exact revisions; reopen/export does not call the collection source.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py`: tariff screen and CSV/JSON export use one frozen scenario snapshot; bounded rows, unknown price coverage, callback length, and tenant-scoped profile access.
+- Shared serializer tests cover supported-kind allowlist, CSV formula escaping, JSON schema, size and row bounds. Existing analytics document sender remains the only Telegram file transport.
+- Q26 focused profile: **39 passed in 2.38s**. Linked calculator/observation/tariff/export profile: **439 passed across 30 targets in 10.25s**. Syntax compilation and `git diff --check` passed; `git diff -- data` was empty. Full pytest/exact-head CI remain Q33–Q35.

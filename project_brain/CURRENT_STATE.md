@@ -2,7 +2,7 @@
 
 - PR #718 слит в main: `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`; reviewed head `8c1408d55d31e111761bdee708a2792ab1dafa33`, Verify #40348020402 успешен на Windows/Linux и Docker. Записи ниже о незавершённом merge относятся к предыдущим checkpoint.
 - По решению владельца подготовлено `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`: 8 модулей A–H, этапы Q00–Q35. Цель — прибыль в рублях с одной проданной единицы, с тарифными диапазонами, ручными комиссиями, рекламными сценариями и проверкой по наблюдениям.
-- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q25 пройдены 27.10.2026: полный цикл наблюдения проверен через production factory; калькулятор цены найден из главного меню и помощи, основной экран показывает ₽/шт., а подробная разбивка открывается отдельно. Связанный профиль Q16–Q25: 495 passed. Полный pytest/exact-head CI остаются Q33–Q35. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`.
+- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q26 пройдены 27.10.2026: калькулятор доступен из меню, основной экран показывает ₽/шт., а сравнение, наблюдение и профиль комиссии выгружаются из тех же сохранённых снимков через CSV/JSON без повторного запроса к Ozon. Q26 focused: 39 passed; linked price-planning/export profile: 439 passed на 30 наборах. Полный pytest/exact-head CI остаются Q33–Q35. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`.
 - ТЗ требует расширять существующие calculator/TaxService/planning/finance adapters, сохранять старые планы и данные, закончить на PR с зелёным exact-head CI и независимым review package. Merge/deploy/real bot запуск в новую программу не входят.
 
 # 2026-10-26 — историческая программа: завершение существующего функционала

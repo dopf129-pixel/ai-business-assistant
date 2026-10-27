@@ -2817,18 +2817,27 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Налоговый режим и ставки: политика активного магазина.",
             "Не включены постоянные расходы, хранение, возвраты и отмены.",
         ]
+        keyboard = self.keyboard_service.build_unit_price_scenario_keyboard(
+            session["scenario_id"], session["version"],
+            include_return_mean=completeness.get("complete") is True,
+            include_price_planning=self.target_planning_service is not None,
+            include_manual_tariff=(
+                str((session.get("snapshot", {}).get("product") or {}).get("scheme") or "").upper() == "FBO"
+            ),
+        )
+        tariff_runtime = self.tariff_profile_runtime_service
+        if (isinstance(keyboard, dict) and isinstance(keyboard.get("buttons"), list)
+                and tariff_runtime is not None
+                and getattr(tariff_runtime, "analytics_export_service", None) is not None):
+            keyboard["buttons"].append({
+                "text": "Профиль комиссии",
+                "callback": f"upt:show:{session['scenario_id']}:{session['version']}",
+            })
         return {
             "error": False,
             "status": "UNIT_PRICE_SCENARIO_ASSUMPTIONS_READY",
             "message": "\n".join(lines),
-            "keyboard": self.keyboard_service.build_unit_price_scenario_keyboard(
-                session["scenario_id"], session["version"],
-                include_return_mean=completeness.get("complete") is True,
-                include_price_planning=self.target_planning_service is not None,
-                include_manual_tariff=(
-                    str((session.get("snapshot", {}).get("product") or {}).get("scheme") or "").upper() == "FBO"
-                ),
-            ),
+            "keyboard": keyboard,
             "read_only": True,
             "executed": False,
         }

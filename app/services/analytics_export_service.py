@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import date
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 from services.analytics_export_serializer import AnalyticsExportSerializer
 from services.period_profit_diagnostic_view_service import (
@@ -11,6 +12,7 @@ from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 
 
 class AnalyticsExportService:
+    MAX_TARIFF_EXPORT_ROWS = 400
     SCENARIO_AMOUNT_FIELDS = (
         ("revenue", "revenue", "money"),
         ("discount_points", "discount_points", "money"),
@@ -649,6 +651,435 @@ class AnalyticsExportService:
             "exported_scope": "all_rows_in_exact_saved_revision",
         }
         return self.serializer.serialize("sales_mix", file_format, columns, rows, metadata)
+
+    def export_unit_price_comparison(self, opened, file_format):
+        """Export the exact persisted comparison revision without internal IDs."""
+        payload = opened.get("payload") if isinstance(opened, dict) else None
+        ranking = payload.get("ranking") if isinstance(payload, dict) else None
+        identity = payload.get("identity") if isinstance(payload, dict) else None
+        references = payload.get("source_references") if isinstance(payload, dict) else None
+        if (not isinstance(opened, dict) or opened.get("error") is True
+                or not isinstance(payload, dict) or payload.get("schema_version") != 1
+                or not isinstance(ranking, dict) or not isinstance(identity, dict)
+                or not isinstance(references, list) or len(references) > 10
+                or type(opened.get("revision")) is not int
+                or type(opened.get("latest_revision")) is not int):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        safe_identity = self._unit_price_identity(identity)
+        if safe_identity is None:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        source_versions = {}
+        for reference in references:
+            if (not isinstance(reference, dict) or type(reference.get("index")) is not int
+                    or type(reference.get("result_revision")) is not int
+                    or type(reference.get("source_document_revision")) is not int
+                    or reference["index"] in source_versions):
+                return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+            source_versions[reference["index"]] = {
+                "observation_result_revision": reference["result_revision"],
+                "saved_plan_revision": reference["source_document_revision"],
+            }
+        quality = ranking.get("quality_assessment")
+        quality = quality if isinstance(quality, dict) else {}
+        common = {
+            "comparison_revision": opened["revision"],
+            "freshness_status": opened.get("freshness_status"),
+            **safe_identity,
+            "ranking_status": ranking.get("status"),
+            "evidence_basis": ranking.get("evidence_basis"),
+            "display_basis": ranking.get("display_basis"),
+            "verified": ranking.get("verified") is True,
+            "quality_status": quality.get("status"),
+            "quality_reasons": self._safe_codes(quality.get("reasons")),
+            "quality_warnings": self._safe_codes(quality.get("warnings")),
+            "omitted_candidate_count": ranking.get("omitted_candidate_count", 0),
+            "omitted_repeated_price_count": ranking.get("omitted_repeated_price_count", 0),
+            "best_profit_per_unit": ranking.get("best_profit_per_unit"),
+        }
+        columns = [
+            self._column("comparison_revision", "Версия сравнения", "integer"),
+            self._column("freshness_status", "Актуальность сохранённой версии", "status"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU", "text"),
+            self._column("store_id", "Магазин", "text"),
+            self._column("sale_schema", "Схема продаж", "status"),
+            self._column("ranking_status", "Статус сравнения", "status"),
+            self._column("evidence_basis", "Основание результата", "status"),
+            self._column("display_basis", "Основание отображения", "status"),
+            self._column("verified", "Результат подтверждён", "boolean"),
+            self._column("candidate_index", "Индекс варианта", "integer"),
+            self._column("result_revision", "Версия наблюдения", "integer"),
+            self._column("saved_plan_revision", "Версия исходного плана", "integer"),
+            self._column("ranking_position", "Место среди проверенных", "integer"),
+            self._column("seller_price", "Цена продавца", "money", "RUB"),
+            self._column("profit_per_unit", "Прибыль на единицу", "money", "RUB/шт."),
+            self._column("delta_vs_baseline", "Изменение к базе", "money", "RUB/шт."),
+            self._column("delta_percent_vs_baseline", "Изменение к базе", "decimal", "%"),
+            self._column("is_best", "Максимум среди проверенных", "boolean"),
+            self._column("best_profit_per_unit", "Максимальная прибыль", "money", "RUB/шт."),
+            self._column("quality_status", "Статус качества данных", "status"),
+            self._column("quality_reasons", "Причины ограничения", "json"),
+            self._column("quality_warnings", "Предупреждения", "json"),
+            self._column("omitted_candidate_count", "Не проверено вариантов", "integer"),
+            self._column("omitted_repeated_price_count", "Повторных цен исключено", "integer"),
+        ]
+        rank_rows = ranking.get("ranking")
+        if not isinstance(rank_rows, list) or len(rank_rows) > 10:
+            return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+        rows = []
+        for position, candidate in enumerate(rank_rows, start=1):
+            if not isinstance(candidate, dict) or type(candidate.get("index")) is not int:
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            versions = source_versions.get(candidate["index"])
+            if versions is None:
+                return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+            rows.append({
+                **common,
+                "candidate_index": candidate["index"],
+                "result_revision": versions["observation_result_revision"],
+                "saved_plan_revision": versions["saved_plan_revision"],
+                "ranking_position": position,
+                "seller_price": self._cents_money(candidate.get("seller_price_cents")),
+                "profit_per_unit": candidate.get("profit_per_unit"),
+                "delta_vs_baseline": candidate.get("delta_vs_baseline"),
+                "delta_percent_vs_baseline": candidate.get("delta_percent_vs_baseline"),
+                "is_best": candidate.get("is_best") is True,
+            })
+        if not rows:
+            rows.append({
+                **common, "candidate_index": None, "result_revision": None,
+                "saved_plan_revision": None, "ranking_position": None,
+                "seller_price": None, "profit_per_unit": None,
+                "delta_vs_baseline": None, "delta_percent_vs_baseline": None,
+                "is_best": False,
+            })
+        metadata = {
+            "comparison_revision": opened["revision"],
+            "latest_revision": opened["latest_revision"],
+            "freshness_status": opened.get("freshness_status"),
+            "identity": safe_identity,
+            "ranking_status": ranking.get("status"),
+            "evidence_basis": ranking.get("evidence_basis"),
+            "display_basis": ranking.get("display_basis"),
+            "verified": ranking.get("verified") is True,
+            "baseline_index": ranking.get("baseline_index"),
+            "checked_candidate_count": ranking.get("checked_candidate_count", 0),
+            "best_profit_per_unit": ranking.get("best_profit_per_unit"),
+            "quality_status": quality.get("status"),
+            "quality_reasons": self._safe_codes(quality.get("reasons")),
+            "quality_warnings": self._safe_codes(quality.get("warnings")),
+            "omitted_candidate_count": ranking.get("omitted_candidate_count", 0),
+            "omitted_repeated_price_count": ranking.get("omitted_repeated_price_count", 0),
+            "source_versions": [
+                {"candidate_index": index, **source_versions[index]}
+                for index in sorted(source_versions)
+            ],
+            "source_reads": False,
+            "recalculated_on_export": False,
+        }
+        return self.serializer.serialize(
+            "unit_price_comparison", file_format, columns, rows, metadata,
+        )
+
+    def export_unit_price_observation(self, loaded, quality, file_format):
+        """Export one exact immutable observation-result revision."""
+        observation = loaded.get("observation") if isinstance(loaded, dict) else None
+        result_record = loaded.get("result") if isinstance(loaded, dict) else None
+        result = result_record.get("payload") if isinstance(result_record, dict) else None
+        identity = observation.get("identity") if isinstance(observation, dict) else None
+        if (not isinstance(observation, dict) or not isinstance(result_record, dict)
+                or not isinstance(result, dict) or result.get("schema_version") != 1
+                or type(result_record.get("revision")) is not int
+                or not isinstance(identity, dict) or not isinstance(quality, dict)):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        result_identity = result.get("identity") if isinstance(result.get("identity"), dict) else {}
+        safe_identity = self._unit_price_identity({
+            **identity,
+            "store_id": observation.get("store_id"),
+            "sale_schema": identity.get("sale_schema") or result_identity.get("sale_schema"),
+        })
+        if safe_identity is None:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        window = result.get("window") if isinstance(result.get("window"), dict) else {}
+        metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+        completeness = result.get("completeness") if isinstance(result.get("completeness"), dict) else {}
+        metric_keys = (
+            "gross_seller_revenue", "discount_points", "net_seller_revenue",
+            "attributed_revenue", "finance_net", "acquiring", "commission",
+            "logistics", "other_fees", "cpc_spend", "seller_revenue_drr_percent",
+            "attributed_revenue_drr_percent", "successful_sale_units",
+            "weighted_ad_spend_numerator", "successful_unit_denominator",
+            "source_row_count", "duplicate_row_count", "correction_count",
+            "sample_days", "window_start", "window_end", "revenue_basis",
+            "date_basis", "price_evidence_status", "advertising_status",
+            "observed_profit_per_unit", "profit_per_unit", "tax_per_unit", "unit_cost",
+        )
+        completeness_keys = (
+            "price_history", "successful_units", "finance", "advertising", "tariff",
+            "tax", "unit_cost", "returns", "analytics", "window", "deduplication",
+        )
+        metrics_projection = {key: metrics.get(key) for key in metric_keys if key in metrics}
+        completeness_projection = {
+            key: completeness.get(key) for key in completeness_keys if key in completeness
+        }
+        if any(
+            value is not None and (isinstance(value, (dict, list, tuple, bool))
+                                  or not isinstance(value, (str, int, float)))
+            for value in metrics_projection.values()
+        ) or any(
+            value is not None and not isinstance(value, str)
+            for value in completeness_projection.values()
+        ):
+            return self._error("ANALYTICS_EXPORT_VALUE_INVALID")
+        sources = result.get("sources")
+        if not isinstance(sources, list) or len(sources) > 16:
+            return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+        source_keys = (
+            "name", "status", "complete", "row_count", "source_date_basis",
+            "source_window_start", "source_window_end", "timezone", "as_of",
+            "requested_at", "received_at", "reason",
+        )
+        sources_projection = []
+        for source in sources:
+            if not isinstance(source, dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            sources_projection.append({key: source.get(key) for key in source_keys if key in source})
+        candidate_quality = (quality.get("candidates") or [{}])[0]
+        if not isinstance(candidate_quality, dict):
+            candidate_quality = {}
+        quality_projection = {
+            "status": quality.get("status"),
+            "evidence_basis": quality.get("evidence_basis"),
+            "verified": quality.get("verified") is True,
+            "reasons": self._safe_codes(quality.get("reasons")),
+            "warnings": self._safe_codes(quality.get("warnings")),
+            "window_days": candidate_quality.get("window_days"),
+            "successful_units": candidate_quality.get("successful_units"),
+            "candidate_reasons": self._safe_codes(candidate_quality.get("reasons")),
+            "candidate_warnings": self._safe_codes(candidate_quality.get("warnings")),
+            "thresholds": {
+                key: quality["thresholds"].get(key)
+                for key in ("recommended_window_days", "small_sample_units", "max_evidence_age_days")
+                if isinstance(quality.get("thresholds"), dict)
+                and key in quality["thresholds"]
+            },
+        }
+        columns = [
+            self._column("result_revision", "Версия результата", "integer"),
+            self._column("result_created_at", "Снимок создан", "text"),
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU", "text"),
+            self._column("store_id", "Магазин", "text"),
+            self._column("sale_schema", "Схема продаж", "status"),
+            self._column("seller_price", "Цена продавца", "money", "RUB"),
+            self._column("status", "Статус результата", "status"),
+            self._column("evidence_basis", "Основание результата", "status"),
+            self._column("window", "Окно наблюдения", "json"),
+            self._column("sources", "Состояние источников", "json"),
+            self._column("metrics", "Метрики", "json"),
+            self._column("completeness", "Полнота данных", "json"),
+            self._column("quality", "Сопоставимость и выборка", "json"),
+            self._column("reasons", "Причины ограничения", "json"),
+            self._column("warnings", "Предупреждения", "json"),
+        ]
+        row = {
+            "result_revision": result_record["revision"],
+            "result_created_at": result_record.get("created_at"),
+            **safe_identity,
+            "seller_price": self._cents_money(result.get("seller_price_cents")),
+            "status": result.get("status"),
+            "evidence_basis": result.get("evidence_basis"),
+            "window": {key: window.get(key) for key in ("from", "to", "timezone", "date_basis") if key in window},
+            "sources": sources_projection,
+            "metrics": metrics_projection,
+            "completeness": completeness_projection,
+            "quality": quality_projection,
+            "reasons": self._safe_codes(result.get("reasons")),
+            "warnings": self._safe_codes(result.get("warnings")),
+        }
+        metadata = {
+            "observation_state_revision": observation.get("state_revision"),
+            "result_revision": result_record["revision"],
+            "store_scope": safe_identity.get("store_id"),
+            "source_reads": False,
+            "recalculated_on_export": False,
+        }
+        return self.serializer.serialize(
+            "unit_price_observation", file_format, columns, [row], metadata,
+        )
+
+    def export_unit_price_tariff_profile(self, scenario_context, file_format):
+        """Export only the active scenario's frozen, identity-matched tariff set."""
+        result = scenario_context.get("result") if isinstance(scenario_context, dict) else None
+        identity = result.get("identity") if isinstance(result, dict) else None
+        snapshot = result.get("frozen_tariff_resolution") if isinstance(result, dict) else None
+        source_snapshot = result.get("snapshot") if isinstance(result, dict) else None
+        if (not isinstance(result, dict) or not isinstance(identity, dict)
+                or not isinstance(source_snapshot, dict)
+                or type(scenario_context.get("scenario_version")) is not int):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        safe_identity = self._unit_price_identity({
+            **identity,
+            "sale_schema": identity.get("sale_schema")
+            or (source_snapshot.get("product") or {}).get("scheme"),
+        })
+        if safe_identity is None:
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        snapshot = snapshot if isinstance(snapshot, dict) else {}
+        profiles = snapshot.get("profiles", [])
+        if not isinstance(profiles, list) or len(profiles) > 20:
+            return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+        selected = snapshot.get("selected_profile")
+        matched_band = snapshot.get("matched_band")
+        scenario_inputs = result.get("inputs") if isinstance(result.get("inputs"), dict) else {}
+        scenario_provenance = result.get("provenance") if isinstance(result.get("provenance"), dict) else {}
+        current_price = snapshot.get("seller_price_cents")
+        rows = []
+        for profile in profiles:
+            if not isinstance(profile, dict) or not isinstance(profile.get("identity"), dict):
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            profile_identity = profile["identity"]
+            if any(str(profile_identity.get(key) or "") != safe_identity.get(key) for key in (
+                "product_id", "offer_id", "sku",
+            )):
+                return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+            bands = profile.get("bands")
+            if not isinstance(bands, list) or len(bands) > 20:
+                return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+            is_selected = (
+                isinstance(selected, dict)
+                and selected.get("profile_id") == profile.get("profile_id")
+                and selected.get("revision") == profile.get("revision")
+                and selected.get("state_revision") == profile.get("state_revision")
+            )
+            for band in bands:
+                if not isinstance(band, dict):
+                    return self._error("ANALYTICS_EXPORT_ROW_SCHEMA_MISMATCH")
+                selected_band = is_selected and band.get("price_from_cents") == (matched_band or {}).get("price_from_cents") and band.get("price_to_cents") == (matched_band or {}).get("price_to_cents")
+                rows.append({
+                    **safe_identity,
+                    "scenario_version": scenario_context["scenario_version"],
+                    "tariff_status": snapshot.get("status", "UNKNOWN"),
+                    "tariff_reason": snapshot.get("reason"),
+                    "effective_date": profile.get("effective_from"),
+                    "effective_to": profile.get("effective_to"),
+                    "sale_schema": profile.get("sale_schema"),
+                    "price_basis": profile.get("price_basis"),
+                    "currency": profile.get("currency"),
+                    "profile_revision": profile.get("revision"),
+                    "profile_origin": profile.get("origin"),
+                    "confirmed_by_owner": profile.get("confirmed_by_owner"),
+                    "price_from": self._cents_money(band.get("price_from_cents")),
+                    "price_to": self._cents_money(band.get("price_to_cents")),
+                    "commission_rate": band.get("commission_rate"),
+                    "current_seller_price": self._cents_money(current_price),
+                    "current_commission_rate": (
+                        band.get("commission_rate") if selected_band else None
+                    ),
+                    "selected_for_current_price": bool(selected_band),
+                })
+                if len(rows) > self.MAX_TARIFF_EXPORT_ROWS:
+                    return self._error("ANALYTICS_EXPORT_ROW_LIMIT_EXCEEDED")
+        if not rows:
+            legacy_price = result.get("legacy_tariff_price_cents")
+            current_price = current_price or UnitPriceTariffSnapshotAdapter.price_to_cents(
+                scenario_inputs.get("price")
+            )
+            origin = scenario_provenance.get("commission_rate")
+            exact_legacy = type(legacy_price) is int and legacy_price == current_price
+            known_current = scenario_inputs.get("commission_rate") is not None and origin not in (None, "unknown")
+            rows.append({
+                **safe_identity,
+                "scenario_version": scenario_context["scenario_version"],
+                "tariff_status": snapshot.get("status") or (
+                    "LEGACY_EXACT_PRICE_ONLY" if exact_legacy
+                    else "CURRENT_PRICE_POINT_ONLY" if known_current
+                    else "UNKNOWN"
+                ),
+                "tariff_reason": snapshot.get("reason") or (
+                    "LEGACY_RATE_APPLIES_TO_SAVED_PRICE_ONLY" if exact_legacy
+                    else "NO_CONFIRMED_TARIFF_PROFILE" if not known_current
+                    else None
+                ),
+                "effective_date": snapshot.get("effective_date"), "effective_to": None,
+                "sale_schema": (source_snapshot.get("product") or {}).get("scheme"),
+                "price_basis": snapshot.get("price_basis") or "SELLER_PRICE_RUB",
+                "currency": "RUB", "profile_revision": None,
+                "profile_origin": origin, "confirmed_by_owner": None,
+                "price_from": self._cents_money(current_price),
+                "price_to": self._cents_money(current_price),
+                "commission_rate": scenario_inputs.get("commission_rate") if known_current else None,
+                "current_seller_price": self._cents_money(current_price),
+                "current_commission_rate": scenario_inputs.get("commission_rate") if known_current else None,
+                "selected_for_current_price": bool(known_current),
+            })
+        columns = [
+            self._column("product_id", "ID товара", "text"),
+            self._column("offer_id", "Артикул", "text"),
+            self._column("sku", "SKU", "text"),
+            self._column("store_id", "Магазин", "text"),
+            self._column("scenario_version", "Версия сценария", "integer"),
+            self._column("tariff_status", "Статус тарифа", "status"),
+            self._column("tariff_reason", "Причина ограничения", "status"),
+            self._column("effective_date", "Действует с", "text"),
+            self._column("effective_to", "Действует по", "text"),
+            self._column("sale_schema", "Схема продаж", "status"),
+            self._column("price_basis", "Основа цены", "status"),
+            self._column("currency", "Валюта", "text"),
+            self._column("profile_revision", "Версия профиля", "integer"),
+            self._column("profile_origin", "Источник профиля", "status"),
+            self._column("confirmed_by_owner", "Подтверждён владельцем", "boolean"),
+            self._column("price_from", "Цена от", "money", "RUB"),
+            self._column("price_to", "Цена до", "money", "RUB"),
+            self._column("commission_rate", "Ставка комиссии", "decimal", "%"),
+            self._column("current_seller_price", "Цена сценария", "money", "RUB"),
+            self._column("current_commission_rate", "Комиссия при цене сценария", "decimal", "%"),
+            self._column("selected_for_current_price", "Применён к текущей цене", "boolean"),
+        ]
+        metadata = {
+            "scenario_version": scenario_context["scenario_version"],
+            "identity": safe_identity,
+            "tariff_snapshot_version": snapshot.get("snapshot_version"),
+            "tariff_status": snapshot.get("status") or "UNKNOWN",
+            "tariff_reason": snapshot.get("reason"),
+            "effective_date": snapshot.get("effective_date"),
+            "price_basis": snapshot.get("price_basis") or "SELLER_PRICE_RUB",
+            "uncovered_prices_remain_unknown": True,
+            "source_reads": False,
+            "recalculated_on_export": False,
+        }
+        return self.serializer.serialize(
+            "unit_price_tariff_profile", file_format, columns, rows, metadata,
+        )
+
+    @staticmethod
+    def _unit_price_identity(identity):
+        if not isinstance(identity, dict):
+            return None
+        keys = ("product_id", "offer_id", "sku", "store_id", "sale_schema")
+        result = {}
+        for key in keys:
+            value = identity.get(key)
+            if key == "sale_schema" and value is None:
+                value = identity.get("scheme")
+            if not isinstance(value, (str, int)) or isinstance(value, bool) or not str(value).strip():
+                return None
+            result[key] = str(value)[:120]
+        return result
+
+    @staticmethod
+    def _safe_codes(values):
+        if not isinstance(values, (list, tuple)):
+            return []
+        return [value[:120] for value in values[:32] if isinstance(value, str)]
+
+    @staticmethod
+    def _cents_money(value):
+        if type(value) is not int or value < 0:
+            return None
+        return f"{value // 100}.{value % 100:02d}"
 
     def export_plan_comparison(self, snapshot_row, file_format):
         comparison = snapshot_row.get("comparison") if isinstance(snapshot_row, dict) else None

@@ -291,6 +291,7 @@ def create_telegram_assistant():
             repository=planning_workspace_repository,
             calculator_runtime=unit_price_calculator_runtime_service,
             keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
         )
         if planning_workspace_repository is not None
         else None
@@ -402,6 +403,7 @@ def create_telegram_assistant():
             collection_service=unit_price_observation_collection_service,
             result_service=observation_result_service,
             keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
         )
         saved_planning_plan_runtime_service.unit_price_observation_runtime_service = unit_price_observation_runtime_service
 

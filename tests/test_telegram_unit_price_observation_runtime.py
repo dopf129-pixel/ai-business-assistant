@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.analytics_export_service import AnalyticsExportService
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.saved_planning_plan_service import SavedPlanningPlanService
@@ -100,6 +101,7 @@ def flow(tmp_path):
         result_service=UnitPriceObservationResultService(
             scenario, UnitPriceTargetPlanningService(scenario),
         ), keyboard_service=AssistantKeyboardService(), clock=lambda: NOW,
+        analytics_export_service=AnalyticsExportService(),
         monotonic_clock=lambda: 100.0,
     )
     scope = {"owner_id": "owner-1", "store_id": "store-a",
@@ -237,6 +239,17 @@ def test_collection_persists_incomplete_result_and_can_reopen_after_runtime_rest
     assert detail["quality_assessment"]["status"] == "NOT_READY"
     assert detail["quality_assessment"]["verified"] is False
     assert "raw_response" not in detail["message"]
+    export_detail = runtime.handle_callback(f"upo:result:{observation_id}:1", user_id="owner-1")
+    export_button = next(
+        item for item in export_detail["keyboard"]["buttons"]
+        if item["text"] == "Выгрузить JSON"
+    )
+    exported = runtime.handle_callback(export_button["callback"], user_id="owner-1")
+    assert exported.get("document_kind") == "analytics_export", exported
+    assert exported["export_kind"] == "unit_price_observation"
+    assert b'"result_revision":1' in exported["file_content"]
+    assert observation_id.encode() not in exported["file_content"]
+    assert collector.calls == [(observation_id, "2026-10-01", "2026-10-07")]
 
 
 def test_note_and_finish_are_scoped_versioned_actions(flow):
@@ -388,6 +401,7 @@ def test_observation_ranking_uses_latest_compatible_results_without_source_calls
     assert "Объём продаж не меняет рейтинг" in result["message"]
     assert "не доказывает, что разницу вызвала только цена" in result["message"]
     assert "Проверено вариантов разных цен: 2" in result["message"]
+    assert any(button["text"] == "Сравнение CSV" for button in result["keyboard"]["buttons"])
     assert collector.calls == []
 
     refresh_callback = next(
@@ -414,6 +428,18 @@ def test_observation_ranking_uses_latest_compatible_results_without_source_calls
     opened = runtime.handle_callback(comparison_callback, user_id="owner-1")
     assert "Сохранено сравнение v1" in opened["message"]
     assert "Открытие сравнения не пересчитывает рейтинг" in opened["message"]
+    comparison_export = next(
+        button for button in opened["keyboard"]["buttons"]
+        if button["text"] == "Сравнение JSON"
+    )
+    exported_comparison = runtime.handle_callback(
+        comparison_export["callback"], user_id="owner-1",
+    )
+    assert exported_comparison["document_kind"] == "analytics_export"
+    assert exported_comparison["export_kind"] == "unit_price_comparison"
+    assert b'"comparison_revision":1' in exported_comparison["file_content"]
+    assert comparison_id.encode() not in exported_comparison["file_content"]
+    assert first["observation_id"].encode() not in exported_comparison["file_content"]
     assert collector.calls == []
     reopened_runtime = TelegramUnitPriceObservationRuntimeService(
         repository=repo, planning_service=runtime.planning_service,

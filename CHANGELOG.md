@@ -1,3 +1,9 @@
+# 2026-10-27 — Q26: выгрузки калькулятора цены
+
+- Добавлены CSV/JSON выгрузки точной сохранённой версии наблюдения и сравнения, а также замороженного тарифного снимка. Экран тарифов и файл строятся из одной allowlisted проекции; выгрузка не обновляет Ozon и не пересчитывает сохранённый результат.
+- Кнопки выгрузки доступны из карточки наблюдения, сохранённого сравнения и тарифного профиля. Используется общий сериализатор и существующая доставка документов; ограничения размера, строк и столбцов остаются активными.
+- Q26 focused: 39 passed. Связанный профиль калькулятора/наблюдений/тарифов и экспорта: 439 passed на 30 наборах. Полный pytest и exact-head CI — Q33–Q35.
+
 # 2026-10-27 — Q25: discoverable calculator and compact price result
 
 - Added a direct main-menu and Help entry for the price-profit-per-unit calculator, with an owner guide covering SKU selection, seller price, cost, advertising and manual commission fallback.

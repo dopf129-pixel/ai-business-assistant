@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import json
 from secrets import token_hex
 from threading import RLock
 from time import monotonic
@@ -22,12 +23,14 @@ class TelegramUnitPriceTariffProfileRuntimeService:
     MAX_SESSION_PROFILES = 128
 
     def __init__(self, repository, calculator_runtime, keyboard_service,
-                 clock=None, parser=UnitPriceTariffInputParser):
+                 clock=None, parser=UnitPriceTariffInputParser,
+                 analytics_export_service=None):
         self.repository = repository
         self.calculator_runtime = calculator_runtime
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.parser = parser
+        self.analytics_export_service = analytics_export_service
         self.tariff_resolver = UnitPriceTariffResolver()
         self.tariff_source = UnitPriceTariffSource()
         self._pending = {}
@@ -41,7 +44,84 @@ class TelegramUnitPriceTariffProfileRuntimeService:
             return self._start(parts[2], parts[3], user_id)
         if len(parts) == 4 and parts[:2] == ["upt", "d"]:
             return self._draft_action(parts[2], parts[3], user_id)
+        if len(parts) == 4 and parts[:2] == ["upt", "show"]:
+            return self._profile_snapshot_screen(parts[2], parts[3], user_id)
+        if len(parts) == 5 and parts[:2] == ["upt", "export"]:
+            if parts[4] not in {"csv", "json"}:
+                return self._error("UNIT_PRICE_TARIFF_ACTION_STALE")
+            return self._export_profile_snapshot(parts[2], parts[3], parts[4], user_id)
         return self._error("UNIT_PRICE_TARIFF_ACTION_STALE")
+
+    def _profile_snapshot_screen(self, scenario_id, version, user_id):
+        context = self._active_context(user_id, scenario_id, version)
+        if context.get("error"):
+            return self._error(context["code"])
+        if self.analytics_export_service is None:
+            return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+        exported = self.analytics_export_service.export_unit_price_tariff_profile(context, "json")
+        if not isinstance(exported, dict) or exported.get("error") is True:
+            return self._error(exported.get("code") if isinstance(exported, dict) else None)
+        try:
+            payload = json.loads(exported["file_content"].decode("utf-8"))
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError):
+            return self._error("ANALYTICS_EXPORT_SNAPSHOT_INVALID")
+        identity = payload.get("metadata", {}).get("identity", {})
+        lines = [
+            f"Тариф комиссии · SKU {identity.get('sku', '—')} · FBO",
+            f"Снимок сценария v{context['scenario_version']}; новая комиссия при открытии не запрашивалась.",
+        ]
+        rows = payload.get("rows") or []
+        for row in rows[:32]:
+            status = row.get("tariff_status") or "UNKNOWN"
+            rate = row.get("commission_rate")
+            if rate is None:
+                lines.append(
+                    f"{row.get('price_from') or '—'}–{row.get('price_to') or '—'} ₽: ставка неизвестна ({status})."
+                )
+            else:
+                lines.append(
+                    f"{row.get('price_from') or '—'}–{row.get('price_to') or '—'} ₽: {rate}% · {status}"
+                    + (" · применяется к цене сценария" if row.get("selected_for_current_price") else "")
+                )
+            if row.get("profile_revision") is not None:
+                lines[-1] += f" · версия профиля {row['profile_revision']}"
+        if len(rows) > 32:
+            lines.append(f"Показаны первые 32 из {len(rows)} диапазонов; полный список находится в файле.")
+        lines.append("Непокрытые диапазоны остаются неизвестными; они не заполняются автоматически.")
+        return {
+            "error": False, "status": "UNIT_PRICE_TARIFF_SNAPSHOT_READY",
+            "message": "\n".join(lines), "text": "\n".join(lines),
+            "keyboard": self._keyboard([
+                {"text": "Скачать CSV", "callback": f"upt:export:{scenario_id}:{version}:csv"},
+                {"text": "Скачать JSON", "callback": f"upt:export:{scenario_id}:{version}:json"},
+                {"text": "Назад к допущениям", "callback": f"upc:a:{scenario_id}:{version}"},
+            ]),
+            "read_only": True, "executed": False,
+        }
+
+    def _export_profile_snapshot(self, scenario_id, version, file_format, user_id):
+        context = self._active_context(user_id, scenario_id, version)
+        if context.get("error"):
+            return self._error(context["code"])
+        if self.analytics_export_service is None:
+            return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+        try:
+            return self.analytics_export_service.export_unit_price_tariff_profile(
+                context, file_format,
+            )
+        except Exception:
+            return self._error("ANALYTICS_EXPORT_FAILED")
+
+    def _keyboard(self, buttons):
+        safe = [
+            item for item in buttons if isinstance(item, dict)
+            and isinstance(item.get("callback"), str)
+            and len(item["callback"].encode("utf-8")) <= 64
+        ]
+        builder = getattr(self.keyboard_service, "build_unit_price_batch_keyboard", None)
+        return builder(safe) if callable(builder) else {
+            "error": False, "type": "inline_keyboard", "buttons": safe,
+        }
 
     def handle_text(self, text, user_id=None):
         context = self._active_context(user_id)

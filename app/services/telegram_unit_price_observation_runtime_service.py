@@ -32,12 +32,13 @@ class TelegramUnitPriceObservationRuntimeService:
     def __init__(self, *, repository, planning_service, collection_service,
                  result_service, keyboard_service, normalizer=None, clock=None,
                  monotonic_clock=None, default_timezone=DEFAULT_TIMEZONE,
-                 quality_service=None):
+                 quality_service=None, analytics_export_service=None):
         self.repository = repository
         self.planning_service = planning_service
         self.collection_service = collection_service
         self.result_service = result_service
         self.keyboard_service = keyboard_service
+        self.analytics_export_service = analytics_export_service
         self.normalizer = normalizer or UnitPriceObservationNormalizer
         self.quality_service = quality_service or UnitPriceObservationQualityService()
         self.ranking_service = UnitPriceRecommendationRankingService(self.quality_service)
@@ -114,6 +115,16 @@ class TelegramUnitPriceObservationRuntimeService:
             if revision is None:
                 return self._stale()
             return self._open_comparison(parts[2], revision, scope)
+        if len(parts) == 6 and parts[:3] == ["upo", "x", "c"]:
+            revision = self._positive_int(parts[4])
+            if revision is None or parts[5] not in {"csv", "json"}:
+                return self._stale()
+            return self._export_comparison(parts[3], revision, parts[5], scope)
+        if len(parts) == 6 and parts[:3] == ["upo", "x", "r"]:
+            revision = self._positive_int(parts[4])
+            if revision is None or parts[5] not in {"csv", "json"}:
+                return self._stale()
+            return self._export_observation_result(parts[3], revision, parts[5], scope)
         if len(parts) == 4 and parts[:2] == ["upo", "refresh"]:
             self._clear_pending(scope)
             revision = self._positive_int(parts[3])
@@ -698,12 +709,18 @@ class TelegramUnitPriceObservationRuntimeService:
             if warnings:
                 lines.append("Предупреждения: " + "; ".join(self._quality_reason_label(item) for item in warnings))
         lines.append("Исходные ответы API и идентификаторы операций не сохраняются.")
+        result_buttons = [
+            {"text": "Сравнить прибыль по наблюдениям SKU", "callback": f"upo:rank:{observation_id}"},
+            {"text": "История", "callback": f"upo:history:{observation_id}"},
+        ]
+        if self.analytics_export_service is not None:
+            result_buttons.extend([
+                {"text": "Выгрузить CSV", "callback": f"upo:x:r:{observation_id}:{revision}:csv"},
+                {"text": "Выгрузить JSON", "callback": f"upo:x:r:{observation_id}:{revision}:json"},
+            ])
         response = self._prompt_result(
             "OBSERVATION_RESULT_READY", "\n".join(lines),
-            self._keyboard([
-                {"text": "Сравнить прибыль по наблюдениям SKU", "callback": f"upo:rank:{observation_id}"},
-                {"text": "История", "callback": f"upo:history:{observation_id}"},
-            ]),
+            self._keyboard(result_buttons),
         )
         if quality is not None:
             response["quality_assessment"] = quality
@@ -728,6 +745,45 @@ class TelegramUnitPriceObservationRuntimeService:
         if not isinstance(opened, dict) or opened.get("error") is True:
             return self._stale()
         return self._comparison_screen(opened)
+
+    def _export_comparison(self, comparison_id, revision, file_format, scope):
+        if self.analytics_export_service is None:
+            return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+        opened = self.comparison_history_service.get(
+            comparison_id, revision=revision,
+            owner_id=scope["owner_id"], store_id=scope["store_id"],
+        )
+        if not isinstance(opened, dict) or opened.get("error") is True:
+            return self._stale()
+        try:
+            return self.analytics_export_service.export_unit_price_comparison(
+                opened, file_format,
+            )
+        except Exception:
+            return self._error("ANALYTICS_EXPORT_FAILED")
+
+    def _export_observation_result(self, observation_id, revision, file_format, scope):
+        if self.analytics_export_service is None:
+            return self._error("ANALYTICS_EXPORT_UNAVAILABLE")
+        loaded = self._load_observation(observation_id, scope, result_revision=revision)
+        if loaded is None:
+            return self._stale()
+        result_record = loaded.get("result") or {}
+        result = result_record.get("payload") or {}
+        quality = self.quality_service.assess(
+            [{
+                "result": result, "result_revision": revision,
+                "owner_id": scope["owner_id"], "store_id": scope["store_id"],
+            }], now=self.clock(),
+        )
+        if not isinstance(quality, dict) or quality.get("error") is True:
+            return self._error("UNIT_PRICE_OBSERVATION_QUALITY_CHECK_FAILED")
+        try:
+            return self.analytics_export_service.export_unit_price_observation(
+                loaded, quality, file_format,
+            )
+        except Exception:
+            return self._error("ANALYTICS_EXPORT_FAILED")
 
     def _refresh_comparison(self, comparison_id, revision, scope):
         refreshed = self.comparison_history_service.refresh(
@@ -824,6 +880,12 @@ class TelegramUnitPriceObservationRuntimeService:
             {"text": "Мои наблюдения", "callback": "upo:m"},
             {"text": "Мои планы · следующий вариант цены", "callback": "upp:m"},
         ])
+        if (self.analytics_export_service is not None and opened.get("comparison_id")
+                and type(opened.get("revision")) is int):
+            buttons.extend([
+                {"text": "Сравнение CSV", "callback": f"upo:x:c:{opened['comparison_id']}:{opened['revision']}:csv"},
+                {"text": "Сравнение JSON", "callback": f"upo:x:c:{opened['comparison_id']}:{opened['revision']}:json"},
+            ])
         response["text"] = "\n".join(lines)
         response["message"] = response["text"]
         response["keyboard"] = self._keyboard(buttons)

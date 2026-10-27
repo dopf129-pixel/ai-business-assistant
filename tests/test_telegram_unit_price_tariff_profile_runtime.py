@@ -3,6 +3,7 @@ from datetime import date
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from services.assistant_button_handler_service import AssistantButtonHandlerService
 from services.assistant_keyboard_service import AssistantKeyboardService
+from services.analytics_export_service import AnalyticsExportService
 from services.ozon_account_repository import make_store_tenant_scope
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.tax_service import TaxService
@@ -55,6 +56,8 @@ def _flow(tmp_path, scheme="FBO"):
     )
     repository = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     tariff = TelegramUnitPriceTariffProfileRuntimeService(repository, calculator, keyboard)
+    tariff.analytics_export_service = AnalyticsExportService()
+    calculator.tariff_profile_runtime_service = tariff
     handler = AssistantButtonHandlerService(
         assistant=object(), keyboard_service=keyboard,
         unit_price_calculator_runtime_service=calculator,
@@ -263,6 +266,47 @@ def test_public_second_confirmation_updates_same_profile_revision(tmp_path):
     assert len(listed["items"]) == 1
     assert profile["revision"] == 2
     assert profile["profile"]["bands"][0]["commission_rate"] == "12"
+
+
+def test_tariff_profile_screen_and_files_use_same_frozen_scenario_snapshot(tmp_path):
+    adapter, calculator, tariff, repository = _flow(tmp_path)
+    scenario = _scenario(calculator)
+    start = _public_button(
+        adapter, _button(scenario, "Указать тариф комиссии")["callback"],
+    )
+    preview = _public_text(
+        adapter, "Действует с: 2026-10-01\n0,01–99,99 ₽ = 12%\n100–199,99 ₽ = 14%",
+    )
+    saved = _public_button(adapter, _button(preview, "✅ Сохранить для SKU")["callback"])
+    scenario_id = saved["price_scenario"]["scenario_id"]
+    version = saved["price_scenario"]["scenario_version"]
+    assumptions = _public_button(adapter, f"upc:a:{scenario_id}:{version}")
+    profile_button = _button(assumptions, "Профиль комиссии")
+    assert len(profile_button["callback"].encode("utf-8")) <= 64
+
+    screen = _public_button(adapter, profile_button["callback"])
+    assert screen["status"] == "UNIT_PRICE_TARIFF_SNAPSHOT_READY"
+    assert "99.99 ₽" in screen["message"]
+    assert "100.00–199.99 ₽: 14%" in screen["message"]
+    assert "Непокрытые диапазоны остаются неизвестными" in screen["message"]
+    json_callback = _button(screen, "Скачать JSON")["callback"]
+    csv_callback = _button(screen, "Скачать CSV")["callback"]
+    assert len(json_callback.encode("utf-8")) <= 64
+    json_result = _public_button(adapter, json_callback)
+    csv_result = _public_button(adapter, csv_callback)
+    assert json_result["document_kind"] == csv_result["document_kind"] == "analytics_export"
+    assert json_result["export_kind"] == csv_result["export_kind"] == "unit_price_tariff_profile"
+    assert b"internal-profile" not in json_result["file_content"]
+    token = set_current_tenant_user_id(make_store_tenant_scope("user-1", "store-1"))
+    try:
+        listed = repository.list_tariff_profiles(
+            identity={"product_id": "p1", "offer_id": "hook-2", "sku": "3921245627"},
+            owner_id="user-1", store_id="store-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+    assert listed["error"] is False
+    assert listed["items"]
 
 
 def test_public_callback_from_previous_store_cannot_save(tmp_path):

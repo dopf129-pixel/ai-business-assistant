@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q25 завершены, Q26–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q26 завершены, Q27–Q35 ожидают.
 
 ## Исходная точка
 
@@ -45,7 +45,7 @@
 | Q23 | VERIFIED | Additive DB v5 immutable comparison snapshots, exact observation/result/plan revision references, source-free reopen/export, explicit append refresh, stale/superseded labels; focused 33 passed, linked Q16–Q23 474 passed. Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. |
 | Q24 | VERIFIED | Production-factory end-to-end public-handler path SKU → manual tariff → price/DRR → save → observation → honest gate → return to plans/next price. Focused 1 passed; linked Q16–Q24 475 passed in 11.48s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`. |
 | Q25 | VERIFIED | Main menu/Help discovery, concise ₽/шт. result, version-bound details/return, exact ranking identity and existing long-message splitter. Focused 59 passed; linked Q16–Q25 495 passed in 12.46s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`. |
-| Q26 | NOT_STARTED | — |
+| Q26 | VERIFIED | CSV/JSON comparison, tariff and observation exports reuse fixed allowlisted snapshots and shared document transport. Focused 39 passed; linked price-planning/export profile 439 passed across 30 targets. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. |
 | Q27 | NOT_STARTED | — |
 | Q28 | NOT_STARTED | — |
 | Q29 | NOT_STARTED | — |
@@ -326,3 +326,13 @@
 - Focused UX profile: `test_telegram_help_discovery.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_telegram_unit_price_observation_runtime.py` — **59 passed in 1.88s**. Первичный Q16–Q25 запуск выявил 2 UI regressions (stale source notice и missing-cost hint) среди 495 cases; оба отображения исправлены. Повторный linked Windows/Python 3.12 profile по 32 targets — **495 passed in 12.46s**.
 - No source/API/bot calls; tests use synthetic data. `git diff -- data` остаётся пустым. Full repository pytest, Linux/Windows exact-head CI and Docker remain Q33–Q35.
 - Q25 — VERIFIED; следующий этап Q26 — единые owner exports для сравнения, тарифов и наблюдений.
+
+### Q26 — единые выгрузки владельца (2026-10-27)
+
+- Добавлены отдельные allowlisted схемы CSV/JSON для точной сохранённой версии сравнения, неизменяемого результата наблюдения и замороженного тарифного snapshot. Содержимое файлов не включает внутренние IDs записей/планов/наблюдений, raw API payload, токены или произвольные support-поля; в выгрузке остаются owner-facing SKU/store identity, версии, evidence basis, quality status/reasons, полнота, источники и неизвестные значения.
+- Наблюдение и сравнение используют сохранённые exact revisions. Экспорт не запускает collection, source refresh или повторный расчёт. Тарифный экран и его CSV/JSON используют один frozen scenario context и канонический allowlisted JSON projection; не покрытые ценовые интервалы остаются unknown. Экран ограничен первыми 32 строками и сообщает о продолжении в файле; export schema ограничена 20 профилями × 20 сегментами (400 строк), общими ограничениями serializer по 5 000 строк, 64 колонкам и 2 MiB.
+- Кнопки CSV/JSON появляются только при наличии общего exporter. Транспорт документа не менялся; все три потока используют existing analytics document sender и единые serializer guards. Ошибка построения превращается в стабильный код результата, доставка выполняется существующим адаптером.
+- Регрессии: `tests/test_unit_price_owner_exports.py` проверяет CSV/JSON parity по бизнес-строкам, immutable versions, неизвестное vs ноль, same-identity и redaction; observation runtime проверяет открытие/экспорт без повторного source call; tariff runtime проверяет screen/file parity, exact snapshot, ограничения рядов, callback size и owner/store scope. Существующий serializer/document transport профили также включены.
+- Проверки Windows/Python 3.12.10: Q26 focused — **39 passed in 2.38s**; linked калькулятор/наблюдения/тарифы/экспорт, 30 targets — **439 passed in 10.25s**. `py_compile` по 9 затронутым Python-файлам и `git diff --check` прошли; `git diff -- data` пуст. Один первичный linked вызов не запустил тесты из-за ошибочно указанного отсутствующего target-файла; скорректированный профиль прошёл полностью. В первом адресном прогоне выявлены и исправлены две regressions в wire-up/export identity и одна перемещённая тестовая assertion; итоговый focused и linked прогоны зелёные.
+- Только synthetic fixtures и временные тестовые каталоги. Live Ozon API, `.env`, owner database и реальный Telegram sender не использовались. `DECISIONS.md` не менялся: Q26 продолжает Decision 061 / существующий owner export contract, не вводит новую систему хранения или источник данных.
+- Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. Q26 — VERIFIED; следующий этап Q27 — concurrency, stale callbacks, CAS metadata/payload и store switching.
