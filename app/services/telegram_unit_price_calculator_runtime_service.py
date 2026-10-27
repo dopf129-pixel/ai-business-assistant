@@ -130,13 +130,56 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if identity.get("tenant_scope") != scope:
             return self._stale_result()
         freshness = self._source_freshness(session)
+        inputs = deepcopy(session.get("inputs") or {})
+        provenance = deepcopy(session.get("provenance") or {})
+        frozen_tariff = deepcopy(
+            session.get("frozen_tariff_resolution")
+            or snapshot.get("tariff_resolution")
+        )
+        legacy_tariff_price_cents = session.get("legacy_tariff_price_cents")
+        if isinstance(frozen_tariff, dict):
+            cents = UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+            tariff_identity = {
+                "owner_id": str(identity.get("user_id") or user),
+                "store_id": str(identity.get("store_id") or ""),
+                "product_id": str(identity.get("product_id") or ""),
+                "offer_id": str(identity.get("offer_id") or ""),
+                "sku": str(identity.get("sku") or ""),
+            }
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff, tariff_identity, cents,
+            ) if cents is not None else {"available": False}
+            if resolution.get("available") is True:
+                inputs["commission_rate"] = resolution.get("commission_rate")
+                origin = (resolution.get("selected_profile") or {}).get("origin")
+                provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                }.get(origin, "unknown")
+            else:
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
+        else:
+            legacy_tariff_price_cents = self._legacy_tariff_anchor(
+                session, inputs, provenance,
+            )
+            current_price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                inputs.get("price")
+            )
+            if (legacy_tariff_price_cents is not None
+                    and current_price_cents != legacy_tariff_price_cents):
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
         return {
             "error": False,
             "snapshot": deepcopy(snapshot),
             "identity": identity,
-            "inputs": deepcopy(session.get("inputs") or {}),
-            "provenance": deepcopy(session.get("provenance") or {}),
+            "inputs": inputs,
+            "provenance": provenance,
             "sources": self._scenario_sources(session),
+            "frozen_tariff_resolution": frozen_tariff,
+            "legacy_tariff_price_cents": legacy_tariff_price_cents,
             "source_age_seconds": freshness["age_seconds"],
             "source_ttl_seconds": freshness["ttl_seconds"],
             "source_version": f"{session['scenario_id']}:{session['version']}",
@@ -1217,7 +1260,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             mode = "target_margin"
             target = parsed["value"]
-            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
                 session,
                 deepcopy(session.get("inputs") or {}),
                 deepcopy(session.get("provenance") or {}),
@@ -1225,6 +1268,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             tariff_required = bool(
                 self.tariff_profile_runtime_service is not None
                 or frozen_tariff is not None
+                or tariff_resolution is not None
                 or session.get("restored_from_saved_plan") is True
             )
             try:
@@ -1236,9 +1280,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     sources=self._scenario_sources(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
-                    exact_price_rate_cents=(
-                        session.get("legacy_tariff_price_cents")
-                        if session.get("restored_from_saved_plan") is True else None
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
                     ),
                 )
             except Exception:
@@ -1257,7 +1301,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             mode = "price_options"
             target = None
-            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
                 session,
                 deepcopy(session.get("inputs") or {}),
                 deepcopy(session.get("provenance") or {}),
@@ -1265,6 +1309,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             tariff_required = bool(
                 self.tariff_profile_runtime_service is not None
                 or frozen_tariff is not None
+                or tariff_resolution is not None
                 or session.get("restored_from_saved_plan") is True
             )
             try:
@@ -1277,9 +1322,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     sources=self._scenario_sources(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
-                    exact_price_rate_cents=(
-                        session.get("legacy_tariff_price_cents")
-                        if session.get("restored_from_saved_plan") is True else None
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
                     ),
                 )
             except Exception:
@@ -1289,7 +1334,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             input_value = list(parsed["normalized"])
         elif stage == "price_grid":
-            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
                 session,
                 deepcopy(session.get("inputs") or {}),
                 deepcopy(session.get("provenance") or {}),
@@ -1314,6 +1359,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             tariff_required = bool(
                 self.tariff_profile_runtime_service is not None
                 or frozen_tariff is not None
+                or tariff_resolution is not None
                 or session.get("restored_from_saved_plan") is True
             )
             try:
@@ -1326,9 +1372,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     sources=self._scenario_sources(session),
                     frozen_tariff_snapshot=frozen_tariff,
                     tariff_resolution_required=tariff_required,
-                    exact_price_rate_cents=(
-                        session.get("legacy_tariff_price_cents")
-                        if session.get("restored_from_saved_plan") is True else None
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
                     ),
                     price_grid_metadata=grid["metadata"],
                 )
@@ -1509,7 +1555,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             self._clear_pending_for_key(key)
             return self._stale_result()
 
-        comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+        comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
             session,
             deepcopy(session.get("inputs") or {}),
             deepcopy(session.get("provenance") or {}),
@@ -1517,6 +1563,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         tariff_required = bool(
             self.tariff_profile_runtime_service is not None
             or frozen_tariff is not None
+            or tariff_resolution is not None
             or session.get("restored_from_saved_plan") is True
         )
         try:
@@ -1529,9 +1576,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 sources=self._scenario_sources(session),
                 frozen_tariff_snapshot=frozen_tariff,
                 tariff_resolution_required=tariff_required,
-                exact_price_rate_cents=(
-                    session.get("legacy_tariff_price_cents")
-                    if session.get("restored_from_saved_plan") is True else None
+                exact_price_rate_cents=self._planning_exact_price_cents(
+                    session, comparison_inputs, comparison_provenance,
+                    tariff_resolution, frozen_tariff,
                 ),
                 advertising_mode=advertising_mode,
                 advertising_rates=advertising_rates,
@@ -2268,12 +2315,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "read_only": True,
                 "executed": False,
             }
+        effective_inputs, effective_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+            session, deepcopy(session.get("inputs") or {}),
+            deepcopy(session.get("provenance") or {}),
+        )
         result = self.advertising_cap_service.solve(
-            session.get("inputs"), target["normalized"],
+            effective_inputs, target["normalized"],
             identity=self._scenario_identity(session),
-            provenance=session.get("provenance"),
+            provenance=effective_provenance,
             sources=self._scenario_sources(session),
         )
+        commission_rate = effective_inputs.get("commission_rate")
+        commission_origin = effective_provenance.get("commission_rate", "unknown")
+        result["commission_rate"] = commission_rate
+        result["commission_origin"] = commission_origin
+        result["tariff_status"] = (tariff_resolution or {}).get("status")
+        result["tariff_reason"] = (tariff_resolution or {}).get("reason")
         with self._lock:
             current = self._scenarios.get(session["scenario_id"])
             if (not isinstance(current, dict)
@@ -2289,6 +2346,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["price_planning_target_margin"] = target["normalized"]
             current["advertising_cap_result"] = {
                 "result": deepcopy(result),
+                "commission_rate": commission_rate,
+                "commission_origin": commission_origin,
+                "frozen_tariff_resolution": deepcopy(frozen_tariff),
+                "legacy_tariff_price_cents": self._legacy_tariff_anchor(
+                    session, effective_inputs, effective_provenance,
+                ),
                 "target": target["normalized"],
                 "result_version": current["version"],
                 "snapshot_id": (current.get("snapshot") or {}).get("snapshot_id"),
@@ -2329,6 +2392,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         lines = [
             "Допустимые расходы на рекламу · один успешный заказ",
             f"Цена продавца: {price if price is not None else 'не задана'} ₽/шт.",
+            self._commission_basis_line(stored),
             f"Целевая маржа: {result.get('target_margin_percent', stored.get('target', '—'))}%",
             f"Текущая доля: {result.get('current_advertising_rate', '—')}% · {result.get('current_advertising_per_unit', '—')} ₽/шт.",
             cross_docking_line,
@@ -2385,10 +2449,36 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not isinstance(outcome, dict) or outcome.get("available") is not True:
             return self._stale_result()
         candidate = deepcopy(session.get("inputs") or {})
+        candidate_provenance = deepcopy(session.get("provenance") or {})
+        candidate["commission_rate"] = stored.get("commission_rate")
+        candidate_provenance["commission_rate"] = stored.get("commission_origin") or "unknown"
+        frozen_tariff = stored.get("frozen_tariff_resolution")
+        if isinstance(frozen_tariff, dict):
+            if UnitPriceTariffSnapshotAdapter.validate(
+                frozen_tariff, self._scenario_identity(session), candidate,
+            ) is None:
+                return self._stale_result()
+            tariff_identity = self._scenario_identity(session)
+            tariff_identity["owner_id"] = str(session.get("user_id") or "")
+            resolved = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff, tariff_identity,
+                UnitPriceTariffSnapshotAdapter.price_to_cents(candidate.get("price")),
+            )
+            if (resolved.get("available") is not True
+                    or resolved.get("commission_rate") != candidate.get("commission_rate")):
+                return self._stale_result()
+        else:
+            exact_price_cents = stored.get("legacy_tariff_price_cents")
+            candidate_price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                candidate.get("price")
+            )
+            if (exact_price_cents is not None
+                    and exact_price_cents != candidate_price_cents):
+                return self._stale_result()
         candidate["advertising_rate"] = outcome.get("advertising_rate")
         verified = self.scenario_service.calculate(
             candidate, identity=self._scenario_identity(session),
-            provenance=session.get("provenance"), sources=self._scenario_sources(session),
+            provenance=candidate_provenance, sources=self._scenario_sources(session),
         )
         calculated = verified.get("calculated") or {}
         try:
@@ -2766,7 +2856,26 @@ class TelegramUnitPriceCalculatorRuntimeService:
             # price. It cannot be carried to a newly edited candidate.
             return inputs, provenance, None, None
         if profile_runtime is None and frozen is None and not legacy_restore:
-            return inputs, provenance, None, None
+            exact_price_cents = self._legacy_tariff_anchor(session, inputs, provenance)
+            if exact_price_cents is None:
+                return inputs, provenance, None, None
+            if price_cents != exact_price_cents:
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
+                return inputs, provenance, None, {
+                    "error": False, "available": False, "status": "UNKNOWN",
+                    "reason": "COMMISSION_CONFIRMED_AT_DIFFERENT_PRICE",
+                    "seller_price_cents": price_cents,
+                    "exact_price_rate_cents": exact_price_cents,
+                }
+            return inputs, provenance, None, {
+                "error": False, "available": True,
+                "status": "LEGACY_EXACT_PRICE_ONLY", "reason": None,
+                "seller_price_cents": price_cents,
+                "exact_price_rate_cents": exact_price_cents,
+                "commission_rate": inputs.get("commission_rate"),
+                "origin": provenance.get("commission_rate", "unknown"),
+            }
         if price_cents is None:
             return inputs, provenance, None, {
                 "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
@@ -2834,6 +2943,54 @@ class TelegramUnitPriceCalculatorRuntimeService:
             inputs["commission_rate"] = None
             provenance["commission_rate"] = "unknown"
         return inputs, provenance, frozen_snapshot, resolution
+
+    @staticmethod
+    def _legacy_tariff_anchor(session, inputs, provenance):
+        """Return the sole price supported by an old exact-rate assumption."""
+        explicit = session.get("manual_commission_price_cents")
+        if type(explicit) is int and explicit > 0:
+            return explicit
+        legacy = session.get("legacy_tariff_price_cents")
+        if type(legacy) is int and legacy > 0:
+            return legacy
+        origin = str((provenance or {}).get("commission_rate") or "")
+        point_origins = {
+            "current_price_point", "ozon_current_fbo_rate", "CURRENT_PRICE_POINT",
+            "CONFIRMED_OFFICIAL_SOURCE",
+        }
+        if origin in point_origins:
+            snapshot = session.get("snapshot") or {}
+            source_price = (snapshot.get("suggested_inputs") or {}).get("price")
+            return UnitPriceTariffSnapshotAdapter.price_to_cents(source_price)
+        return None
+
+    @classmethod
+    def _planning_exact_price_cents(cls, session, inputs, provenance,
+                                    resolution, frozen_tariff):
+        if isinstance(frozen_tariff, dict):
+            return None
+        exact = (resolution or {}).get("exact_price_rate_cents")
+        if type(exact) is int and exact > 0:
+            return exact
+        return cls._legacy_tariff_anchor(session, inputs, provenance)
+
+    @staticmethod
+    def _commission_basis_line(stored):
+        rate = stored.get("commission_rate")
+        origin = str(stored.get("commission_origin") or "unknown")
+        labels = {
+            "manual_seller_assumption": "ручное допущение",
+            "current_price_point": "текущая точка Ozon",
+            "ozon_current_fbo_rate": "текущая точка Ozon",
+            "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый тариф",
+            "legacy_frozen_plan_rate": "ставка сохранённого плана",
+        }
+        if rate is None:
+            reason = stored.get("tariff_reason")
+            return "Комиссия: не подтверждена для этой цены" + (
+                f" ({str(reason)[:48]})" if reason else ""
+            ) + "."
+        return f"Комиссия на этой цене: {rate}% · {labels.get(origin, 'фиксированное допущение')}."
 
     @staticmethod
     def _advertising_basis(inputs, provenance):

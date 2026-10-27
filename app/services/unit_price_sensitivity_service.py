@@ -6,6 +6,8 @@ from hashlib import sha256
 import json
 import re
 
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+
 
 class UnitPriceSensitivityService:
     MAX_VALUES_PER_AXIS = 7
@@ -93,6 +95,8 @@ class UnitPriceSensitivityService:
             "provenance": source["provenance"],
             "sources": source["sources"],
             "as_of": source["source_as_of"],
+            "tariff_snapshot": source["frozen_tariff_resolution"],
+            "legacy_tariff_price_cents": source["legacy_tariff_price_cents"],
         })
         axis_names = list(normalized_axes)
         cell_count = 1
@@ -145,6 +149,7 @@ class UnitPriceSensitivityService:
                 "provenance": deepcopy(source["provenance"]),
                 "source_as_of": deepcopy(source["source_as_of"]),
                 "status": "SOURCE_STALE" if not fresh else "INCOMPLETE_INPUTS",
+                "tariff_resolution": None,
                 "target_reached": None,
                 "scenario": None,
             }
@@ -152,6 +157,27 @@ class UnitPriceSensitivityService:
                 candidate_provenance = deepcopy(source["provenance"])
                 for axis in coordinates:
                     candidate_provenance[axis] = "sensitivity_absolute_value"
+                tariff_result = self._resolve_cell_tariff(source, candidate_inputs)
+                if tariff_result is not None:
+                    cell["tariff_resolution"] = {
+                        key: tariff_result.get(key)
+                        for key in ("available", "status", "reason", "commission_rate", "origin")
+                    }
+                    if tariff_result.get("available") is not True:
+                        candidate_inputs["commission_rate"] = None
+                        candidate_provenance["commission_rate"] = "unknown"
+                        cell["inputs"] = deepcopy(candidate_inputs)
+                        cell["provenance"] = deepcopy(candidate_provenance)
+                        cell["status"] = (
+                            "SOURCE_UNAVAILABLE"
+                            if tariff_result.get("status") == "SOURCE_UNAVAILABLE"
+                            else "COMMISSION_UNKNOWN"
+                        )
+                        cells.append(cell)
+                        continue
+                    candidate_inputs["commission_rate"] = tariff_result.get("commission_rate")
+                    candidate_provenance["commission_rate"] = tariff_result.get("origin") or "unknown"
+                    cell["inputs"] = deepcopy(candidate_inputs)
                 cell["provenance"] = candidate_provenance
                 scenario = self.scenario_service.calculate(
                     candidate_inputs,
@@ -192,6 +218,7 @@ class UnitPriceSensitivityService:
             "source_age_seconds": source["source_age_seconds"],
             "source_ttl_seconds": source["source_ttl_seconds"],
             "base_input_signature": input_signature,
+            "tariff_scope": source["tariff_scope"],
             "axes": {
                 axis: {
                     "label": self.AXES[axis]["label"],
@@ -223,6 +250,8 @@ class UnitPriceSensitivityService:
             "provenance": source["provenance"],
             "sources": source["sources"],
             "as_of": source["source_as_of"],
+            "tariff_snapshot": source["frozen_tariff_resolution"],
+            "legacy_tariff_price_cents": source["legacy_tariff_price_cents"],
         })
 
     def _normalize_axes(self, axes):
@@ -285,6 +314,30 @@ class UnitPriceSensitivityService:
         version = context.get("source_version")
         if isinstance(version, bool) or not isinstance(version, (int, str)) or not str(version):
             return self._error("SENSITIVITY_SOURCE_VERSION_UNKNOWN")
+        tariff_snapshot = context.get("frozen_tariff_resolution")
+        legacy_tariff_price_cents = context.get("legacy_tariff_price_cents")
+        tariff_identity = {
+            "owner_id": str(identity.get("owner_id") or identity.get("user_id") or ""),
+            "store_id": str(identity.get("store_id") or ""),
+            "product_id": str(identity.get("product_id") or ""),
+            "offer_id": str(identity.get("offer_id") or ""),
+            "sku": str(identity.get("sku") or ""),
+        }
+        if tariff_snapshot is not None:
+            tariff_snapshot = UnitPriceTariffSnapshotAdapter.validate(
+                tariff_snapshot, tariff_identity, inputs,
+            )
+            if tariff_snapshot is None:
+                return self._error("SENSITIVITY_TARIFF_SNAPSHOT_INVALID")
+        if legacy_tariff_price_cents is not None and (
+            type(legacy_tariff_price_cents) is not int or legacy_tariff_price_cents < 1
+        ):
+            return self._error("SENSITIVITY_TARIFF_SNAPSHOT_INVALID")
+        tariff_scope = (
+            "FROZEN_PROFILE_SET" if tariff_snapshot is not None
+            else "EXACT_PRICE_ONLY" if legacy_tariff_price_cents is not None
+            else "FIXED_RATE_ASSUMPTION"
+        )
         return {
             "snapshot": deepcopy(snapshot),
             "identity": deepcopy(identity),
@@ -295,6 +348,81 @@ class UnitPriceSensitivityService:
             "source_ttl_seconds": float(ttl),
             "source_version": str(version),
             "source_as_of": deepcopy(context.get("source_as_of") or {}),
+            "frozen_tariff_resolution": deepcopy(tariff_snapshot),
+            "legacy_tariff_price_cents": legacy_tariff_price_cents,
+            "tariff_scope": tariff_scope,
+        }
+
+    def _resolve_cell_tariff(self, source, candidate_inputs):
+        """Resolve each price-axis cell against the exact frozen evidence."""
+        frozen = source.get("frozen_tariff_resolution")
+        identity = source["identity"]
+        tariff_identity = {
+            "owner_id": str(identity.get("owner_id") or identity.get("user_id") or ""),
+            "store_id": str(identity.get("store_id") or ""),
+            "product_id": str(identity.get("product_id") or ""),
+            "offer_id": str(identity.get("offer_id") or ""),
+            "sku": str(identity.get("sku") or ""),
+        }
+        candidate_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+            candidate_inputs.get("price")
+        )
+        if frozen is not None:
+            if candidate_cents is None:
+                return {"available": False, "status": "UNKNOWN", "reason": "SELLER_PRICE_INVALID"}
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen, tariff_identity, candidate_cents,
+            )
+            if resolution.get("error") is True:
+                return {"available": False, "status": "SOURCE_UNAVAILABLE", "reason": resolution.get("code")}
+            profile = resolution.get("selected_profile") or {}
+            origin = {
+                "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                "CURRENT_PRICE_POINT": "current_price_point",
+                "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+            }.get(profile.get("origin"), "unknown")
+            return {
+                "available": resolution.get("available") is True,
+                "status": resolution.get("status"),
+                "reason": resolution.get("reason"),
+                "commission_rate": resolution.get("commission_rate"),
+                "origin": origin,
+            }
+        exact_cents = source.get("legacy_tariff_price_cents")
+        base_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+            source["inputs"].get("price")
+        )
+        if exact_cents is not None:
+            if candidate_cents == exact_cents == base_cents:
+                return {
+                    "available": True, "status": "LEGACY_EXACT_PRICE_ONLY",
+                    "reason": None,
+                    "commission_rate": source["inputs"].get("commission_rate"),
+                    "origin": "legacy_frozen_plan_rate",
+                }
+            return {
+                "available": False, "status": "UNKNOWN",
+                "reason": "LEGACY_RATE_CONFIRMED_AT_SAVED_PRICE_ONLY",
+            }
+        # Old integrations that do not provide tariff evidence remain an
+        # explicit fixed-rate what-if mode. A source/current/manual point is
+        # not extrapolated to another price.
+        origin = str(source["provenance"].get("commission_rate") or "unknown")
+        point_origins = {
+            "current_price_point", "ozon_current_fbo_rate", "manual",
+            "manual_seller_assumption", "manual_unit_economics_input",
+            "legacy_frozen_plan_rate",
+        }
+        if candidate_cents != base_cents and origin in point_origins:
+            return {
+                "available": False, "status": "UNKNOWN",
+                "reason": "POINT_COMMISSION_NOT_EXTRAPOLATED",
+            }
+        return {
+            "available": True, "status": "FIXED_RATE_ASSUMPTION",
+            "reason": "NO_TARIFF_PROFILE_ATTACHED",
+            "commission_rate": source["inputs"].get("commission_rate"),
+            "origin": origin,
         }
 
     def _parse_value(self, raw, axis):

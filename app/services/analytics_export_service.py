@@ -317,6 +317,10 @@ class AnalyticsExportService:
             self._column("transfer_allowed", "Перенос сценария разрешён", "boolean"),
             self._column("inputs", "Допущения", "json"),
             self._column("provenance", "Источники допущений", "json"),
+            self._column("commission_rate", "Комиссия Ozon", "decimal", "%"),
+            self._column("commission_origin", "Источник ставки комиссии", "status"),
+            self._column("tariff_status", "Статус тарифа для цены", "status"),
+            self._column("tariff_reason", "Причина недоступности тарифа", "status"),
             *[self._column("calc_" + key, label, kind, unit)
               for key, label, kind, unit in self._calculation_columns()],
             self._column("target_reached", "Цель достигнута", "boolean"),
@@ -332,6 +336,8 @@ class AnalyticsExportService:
                     if freshness_status == "STALE"
                     else "SOURCE_FRESHNESS_UNCHECKED"
                 )
+            tariff = cell.get("tariff_resolution") or {}
+            inputs = cell.get("inputs") or {}
             rows.append({
                 "sku": identity.get("catalog_sku") or identity.get("sku"),
                 "offer_id": identity.get("offer_id"),
@@ -342,8 +348,12 @@ class AnalyticsExportService:
                 "source_freshness_status": freshness_status,
                 "source_staleness_reason": freshness_reason,
                 "transfer_allowed": fresh and cell.get("status") == "AVAILABLE",
-                "inputs": deepcopy(cell.get("inputs") or {}),
+                "inputs": deepcopy(inputs),
                 "provenance": deepcopy(cell.get("provenance") or {}),
+                "commission_rate": tariff.get("commission_rate", inputs.get("commission_rate")),
+                "commission_origin": tariff.get("origin") or (cell.get("provenance") or {}).get("commission_rate"),
+                "tariff_status": tariff.get("status"),
+                "tariff_reason": tariff.get("reason"),
                 **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
                 "target_reached": cell.get("target_reached"),
             })
@@ -355,6 +365,7 @@ class AnalyticsExportService:
             "axes": deepcopy(result.get("axes") or {}),
             "source_as_of": deepcopy(result.get("source_as_of") or {}),
             "target_margin_percent": result.get("target_margin_percent"),
+            "tariff_scope": result.get("tariff_scope"),
             "cell_count": result.get("cell_count"),
             "available_cell_count": result.get("available_cell_count"),
             "best_checked_cell_id": result.get("best_checked_cell_id"),
@@ -456,6 +467,13 @@ class AnalyticsExportService:
             self._column("missing_inputs", "Недостающие поля", "json"),
             self._column("inputs", "Допущения", "json"),
             self._column("provenance", "Происхождение допущений", "json"),
+            self._column("commission_rate", "Комиссия Ozon", "decimal", "%"),
+            self._column("commission_origin", "Источник комиссии", "status"),
+            self._column("tariff_scope", "Область тарифа", "status"),
+            self._column("tariff_status", "Статус тарифа", "status"),
+            self._column("tariff_reason", "Причина ограничения тарифа", "status"),
+            self._column("tariff_effective_date", "Дата тарифа", "text"),
+            self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("projection", "Сохранённая проекция", "json"),
             self._column("sales_quantity", "Подтверждённое количество", "integer", "шт."),
         ]
@@ -480,6 +498,7 @@ class AnalyticsExportService:
                 "missing_inputs": deepcopy(projection.get("missing_inputs") or []),
                 "inputs": deepcopy(item.get("inputs") or {}),
                 "provenance": deepcopy(item.get("provenance") or {}),
+                **self._unit_price_tariff_export_fields(item),
                 "projection": projection,
                 "sales_quantity": quantities.get(row_id) if isinstance(quantities, dict) else None,
             }
@@ -523,6 +542,13 @@ class AnalyticsExportService:
             self._column("break_even_per_unit", "Реклама безубыточности", "money", "RUB/шт."),
             self._column("target_rate", "Реклама для цели", "decimal", "%"),
             self._column("target_per_unit", "Расход на рекламу для цели", "money", "RUB/шт."),
+            self._column("commission_rate", "Комиссия Ozon", "decimal", "%"),
+            self._column("commission_origin", "Источник комиссии", "status"),
+            self._column("tariff_scope", "Область тарифа", "status"),
+            self._column("tariff_status", "Статус тарифа", "status"),
+            self._column("tariff_reason", "Причина ограничения тарифа", "status"),
+            self._column("tariff_effective_date", "Дата тарифа", "text"),
+            self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("inputs", "Сохранённые допущения", "json"),
         ]
         if cross_docking_enabled:
@@ -540,6 +566,7 @@ class AnalyticsExportService:
                 "target_rate": item.get("target_rate"),
                 "target_per_unit": item.get("target_per_unit"),
                 "inputs": deepcopy(item.get("inputs") or {}),
+                **self._unit_price_tariff_export_fields(item),
             }
             if cross_docking_enabled:
                 row["cross_docking_source"] = deepcopy(item.get("cross_docking_source"))
@@ -571,6 +598,13 @@ class AnalyticsExportService:
             self._column("status", "Статус строки", "status"),
             self._column("quantity", "Успешные продажи", "integer", "шт."),
             self._column("price_per_unit", "Цена плана", "money", "RUB/шт."),
+            self._column("commission_rate", "Комиссия Ozon", "decimal", "%"),
+            self._column("commission_origin", "Источник комиссии", "status"),
+            self._column("tariff_scope", "Область тарифа", "status"),
+            self._column("tariff_status", "Статус тарифа", "status"),
+            self._column("tariff_reason", "Причина ограничения тарифа", "status"),
+            self._column("tariff_effective_date", "Дата тарифа", "text"),
+            self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("components", "Компоненты строки", "json"),
             self._column("exclusion_reason", "Причина исключения", "status"),
         ]
@@ -591,6 +625,7 @@ class AnalyticsExportService:
                 "status": "INCLUDED" if projected_row else "EXCLUDED" if excluded_row else "UNKNOWN",
                 "quantity": projected_row.get("quantity") if projected_row else mix.get("quantities", {}).get(row_id),
                 "price_per_unit": projected_row.get("price_per_unit") if projected_row else None,
+                **self._unit_price_tariff_export_fields(item),
                 "components": deepcopy(projected_row.get("components") or {}) if projected_row else None,
                 "exclusion_reason": excluded_row.get("reason") if excluded_row else None,
             }
@@ -717,6 +752,13 @@ class AnalyticsExportService:
             self._column("invalid_inputs", "Некорректные допущения", "text"),
             self._column("inputs", "Допущения", "json"),
             self._column("provenance", "Источники допущений", "json"),
+            self._column("commission_rate", "Комиссия Ozon", "decimal", "%"),
+            self._column("commission_origin", "Источник комиссии", "status"),
+            self._column("tariff_scope", "Область тарифа", "status"),
+            self._column("tariff_status", "Статус тарифа", "status"),
+            self._column("tariff_reason", "Причина ограничения тарифа", "status"),
+            self._column("tariff_effective_date", "Дата тарифа", "text"),
+            self._column("tariff_price_basis", "Основа тарифной цены", "status"),
             self._column("manual_assumptions", "Ручные допущения", "json"),
             self._column("source_as_of", "Дата источников", "json"),
             self._column("scheme", "Схема исполнения", "status"),
@@ -760,6 +802,14 @@ class AnalyticsExportService:
                 "manual_assumptions": deepcopy(row.get("manual_assumptions") or {}),
                 "source_as_of": deepcopy(row.get("source_as_of") or {}),
                 "scheme": row.get("scheme"),
+                **self._unit_price_tariff_export_fields({
+                    "inputs": row.get("inputs"),
+                    "provenance": row.get("provenance"),
+                    "tariff_scope": row.get("tariff_scope"),
+                    "tariff_resolution_status": row.get("tariff_resolution_status"),
+                    "tariff_resolution_reason": row.get("tariff_resolution_reason"),
+                    "sources": {"tariff_resolution": row.get("frozen_tariff_resolution")},
+                }),
                 **{"calc_" + key: calculated.get(key) for key, _label, _kind, _unit in self._calculation_columns()},
             }
             for group in ("break_even", "target"):
@@ -835,6 +885,56 @@ class AnalyticsExportService:
         if semantic is not None:
             column["semantic"] = semantic
         return column
+
+    @staticmethod
+    def _unit_price_tariff_export_fields(item):
+        """Expose the stored commission basis without exporting tenant identity."""
+        item = item if isinstance(item, dict) else {}
+        inputs = item.get("inputs") if isinstance(item.get("inputs"), dict) else {}
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        tariff = sources.get("tariff_resolution")
+        tariff = tariff if isinstance(tariff, dict) else {}
+        origin = provenance.get("commission_rate") or "unknown"
+        scope = item.get("tariff_scope")
+        status = item.get("tariff_resolution_status")
+        reason = item.get("tariff_resolution_reason")
+        if tariff:
+            scope = scope or "FROZEN_PROFILE_SET"
+            status = status or tariff.get("status") or "UNKNOWN"
+            reason = reason or tariff.get("reason")
+        elif scope == "EXACT_PRICE_ONLY":
+            status = status or "LEGACY_EXACT_PRICE_ONLY"
+            reason = reason or "LEGACY_RATE_APPLIES_TO_SAVED_PRICE_ONLY"
+        elif scope == "FIXED_RATE_ASSUMPTION":
+            status = status or "FIXED_RATE_ASSUMPTION"
+            reason = reason or "NO_TARIFF_PROFILE_ATTACHED"
+        elif scope == "UNKNOWN":
+            status = status or "UNKNOWN"
+            reason = reason or "COMMISSION_UNCONFIRMED"
+        elif scope is None:
+            if origin in {
+                "manual", "manual_seller_assumption", "manual_unit_economics_input",
+                "current_price_point", "ozon_current_fbo_rate", "CURRENT_PRICE_POINT",
+                "CONFIRMED_OFFICIAL_SOURCE",
+            }:
+                scope, status = "EXACT_PRICE_ONLY", status or "LEGACY_EXACT_PRICE_ONLY"
+                reason = reason or "LEGACY_RATE_APPLIES_TO_SAVED_PRICE_ONLY"
+            elif inputs.get("commission_rate") is not None and origin != "unknown":
+                scope, status = "FIXED_RATE_ASSUMPTION", status or "FIXED_RATE_ASSUMPTION"
+                reason = reason or "NO_TARIFF_PROFILE_ATTACHED"
+            else:
+                scope, status = "UNKNOWN", status or "UNKNOWN"
+                reason = reason or "COMMISSION_UNCONFIRMED"
+        return {
+            "commission_rate": inputs.get("commission_rate"),
+            "commission_origin": origin,
+            "tariff_scope": scope,
+            "tariff_status": status,
+            "tariff_reason": reason,
+            "tariff_effective_date": tariff.get("effective_date"),
+            "tariff_price_basis": tariff.get("price_basis"),
+        }
 
     @staticmethod
     def _error(code):

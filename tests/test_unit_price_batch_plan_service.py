@@ -4,7 +4,12 @@ import pytest
 
 from services.period_profit_operation_diagnostics import PeriodProfitOperationTrace
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.tax_service import TaxService
 from services.unit_price_batch_plan_service import UnitPriceBatchPlanService
+from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
 class _Products:
@@ -132,7 +137,8 @@ def _selection(*items):
     } for item in items]
 
 
-def _service(products, failures=None, clock=None, complete=False, planner=None):
+def _service(products, failures=None, clock=None, complete=False, planner=None,
+             tariff_profile_runtime_service=None):
     source = _Source(products, failures, complete=complete)
     return UnitPriceBatchPlanService(
         source,
@@ -140,7 +146,117 @@ def _service(products, failures=None, clock=None, complete=False, planner=None):
         planner or _Planner(),
         clock=clock,
         tenant_scope_provider=lambda: "user-1::ozon::store-a",
+        tariff_profile_runtime_service=tariff_profile_runtime_service,
     ), source
+
+
+def test_batch_plan_and_row_price_edit_share_the_same_frozen_tariff_profile():
+    class _TariffRuntime:
+        def resolve_for_product(self, identity, seller_price, source_snapshot,
+                                source_age_seconds, source_ttl_seconds, user_id=None):
+            profile = {
+                "profile_id": "batch-tariff-" + str(identity["sku"]),
+                "revision": 1, "state_revision": 1, "owner_id": user_id,
+                "store_id": identity["store_id"],
+                "identity": {key: identity[key] for key in ("product_id", "offer_id", "sku")},
+                "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+                "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-test",
+                "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+                "effective_from": "2026-10-27", "effective_to": None,
+                "confirmed_by_owner": True,
+                "bands": [
+                    {"price_from_cents": 50_000, "price_to_cents": 50_000, "commission_rate": "11"},
+                    {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+                ],
+            }
+            tariff_identity = {
+                "owner_id": user_id, "store_id": identity["store_id"],
+                "product_id": identity["product_id"], "offer_id": identity["offer_id"],
+                "sku": identity["sku"],
+            }
+            resolved = UnitPriceTariffResolver().resolve(
+                seller_price_cents=UnitPriceTariffSnapshotAdapter.price_to_cents(seller_price),
+                identity=tariff_identity, sale_schema="FBO",
+                effective_date="2026-10-27", profiles=[profile],
+            )
+            return {
+                "error": False,
+                "resolution": resolved,
+                "frozen_tariff_resolution": UnitPriceTariffSnapshotAdapter.freeze(
+                    resolved, profile, candidate_profiles=[profile],
+                    effective_date="2026-10-27",
+                ),
+            }
+
+    class _TariffPlanner(_Planner):
+        def __init__(self):
+            super().__init__()
+            self.tariff_calls = []
+
+        def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+                  frozen_tariff_snapshot=None, tariff_resolution_required=False, **_kwargs):
+            self.tariff_calls.append((inputs.get("commission_rate"), frozen_tariff_snapshot,
+                                      tariff_resolution_required))
+            return super().solve(inputs, target, identity, provenance, sources)
+
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _TariffPlanner()
+    service, _source = _service(
+        products, complete=True, planner=planner,
+        tariff_profile_runtime_service=_TariffRuntime(),
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        row = batch["rows"][0]
+        edited = service.edit_row_assumption(batch, row["row_id"], "price", "500.01")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert batch["status"] == "COMPLETED"
+    assert row["inputs"]["commission_rate"] == "11"
+    assert row["tariff_scope"] == "FROZEN_PROFILE_SET"
+    assert all(call[1] is not None and call[2] is True for call in planner.tariff_calls)
+    assert edited["error"] is False
+    edited_row = next(item for item in edited["rows"] if item["row_id"] == row["row_id"])
+    assert edited_row["inputs"]["price"] == "500.01"
+    assert edited_row["inputs"]["commission_rate"] == "22"
+    assert edited_row["provenance"]["commission_rate"] == "manual_seller_assumption"
+
+
+def test_legacy_current_commission_in_batch_is_limited_to_source_price():
+    products = [_catalog_item(1), _catalog_item(2)]
+    source = _Source(products, complete=True)
+    original_load = source.load_snapshot
+
+    def load_current_point(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["input_provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+        return snapshot
+
+    source.load_snapshot = load_current_point
+    scenario = UnitPriceScenarioService(TaxService())
+    service = UnitPriceBatchPlanService(
+        source, scenario, UnitPriceTargetPlanningService(scenario),
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "0")
+        row = batch["rows"][0]
+        changed = service.edit_row_assumption(batch, row["row_id"], "price", "500.01")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert batch["status"] == "COMPLETED"
+    assert row["tariff_scope"] == "EXACT_PRICE_ONLY"
+    assert row["legacy_tariff_price_cents"] == 50_000
+    assert row["planning"]["target"]["price"] == "500.00"
+    assert changed["error"] is False
+    changed_row = next(item for item in changed["rows"] if item["row_id"] == row["row_id"])
+    assert changed_row["inputs"]["commission_rate"] is None
+    assert changed_row["provenance"]["commission_rate"] == "unknown"
+    assert changed_row["status"] == "INCOMPLETE_INPUTS"
 
 
 def test_batch_requires_two_to_ten_unique_exact_catalog_identities():

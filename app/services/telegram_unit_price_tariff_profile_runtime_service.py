@@ -12,6 +12,7 @@ from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_tariff_input_parser import UnitPriceTariffInputParser
 from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 from services.unit_price_tariff_source import UnitPriceTariffSource
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
 class TelegramUnitPriceTariffProfileRuntimeService:
@@ -250,6 +251,125 @@ class TelegramUnitPriceTariffProfileRuntimeService:
             "effective_date": effective_date,
             "selected_profile": deepcopy(selected),
             "candidate_profiles": deepcopy(profiles),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def resolve_for_product(self, identity, seller_price, source_snapshot,
+                            source_age_seconds, source_ttl_seconds, user_id=None):
+        """Resolve and freeze a product tariff for a non-single-plan consumer.
+
+        Reuses the same tenant-scoped persisted profiles and current-price
+        evidence as the single scenario, without requiring an active scenario
+        or making another Ozon request.
+        """
+        scope_value = str(self.tenant_scope_provider() or "").strip()
+        scope_owner, scope_store = split_store_tenant_scope(scope_value)
+        owner = str(user_id or "").strip()
+        if (not isinstance(identity, dict) or not owner or scope_owner != owner
+                or not scope_store or not isinstance(source_snapshot, dict)):
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_IDENTITY_INVALID"}
+        normalized_identity = {
+            "owner_id": owner,
+            "store_id": str(identity.get("store_id") or ""),
+            "product_id": str(identity.get("product_id") or ""),
+            "offer_id": str(identity.get("offer_id") or ""),
+            "sku": str(identity.get("sku") or ""),
+            "tenant_scope": str(identity.get("tenant_scope") or ""),
+        }
+        snapshot_identity = source_snapshot.get("identity") or {}
+        if (normalized_identity["store_id"] != scope_store
+                or normalized_identity["tenant_scope"] != scope_value
+                or any(not normalized_identity[field] for field in (
+                    "product_id", "offer_id", "sku",
+                ))
+                or any(str(snapshot_identity.get(field) or "") != normalized_identity[field]
+                       for field in ("store_id", "tenant_scope", "product_id", "offer_id", "sku"))):
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_IDENTITY_INVALID"}
+        cents = self._price_to_cents(seller_price)
+        if cents is None:
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_PRICE_INVALID"}
+        fresh = (
+            type(source_age_seconds) in {int, float}
+            and type(source_ttl_seconds) in {int, float}
+            and source_age_seconds >= 0
+            and 0 < source_ttl_seconds <= 600
+            and source_age_seconds < source_ttl_seconds
+        )
+        current_point = self.tariff_source.from_scenario_snapshot(source_snapshot)
+        profiles = list(current_point.get("profiles") or []) if fresh else []
+        source_price_cents = current_point.get("current_price_cents") if fresh else None
+        source_day = self._effective_date(
+            (source_snapshot.get("source_periods") or {}).get("seller_price_as_of")
+        ) if fresh and source_price_cents == cents else None
+        effective_date = source_day or date.today().isoformat()
+        identity_for_resolver = {
+            key: normalized_identity[key]
+            for key in ("owner_id", "store_id", "product_id", "offer_id", "sku")
+        }
+
+        listed = self.repository.list_tariff_profiles(
+            identity={key: normalized_identity[key] for key in ("product_id", "offer_id", "sku")},
+            owner_id=owner, store_id=scope_store,
+            limit=self.repository.MAX_TARIFF_PAGE_SIZE,
+        )
+        storage_unavailable = listed.get("error") is True or listed.get("has_more") is True
+        if not storage_unavailable:
+            for item in listed.get("items") or []:
+                record = self.repository.get_tariff_profile(
+                    item.get("profile_id"), owner_id=owner, store_id=scope_store,
+                )
+                if record.get("error") or record.get("status") != "ACTIVE":
+                    storage_unavailable = True
+                    break
+                profile = record.get("profile")
+                if not isinstance(profile, dict):
+                    storage_unavailable = True
+                    break
+                profiles.append(profile)
+                if len(profiles) > UnitPriceTariffResolver.MAX_PROFILES:
+                    storage_unavailable = True
+                    break
+
+        if storage_unavailable:
+            resolution = {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": "PROFILE_SOURCE_UNAVAILABLE", "commission_rate": None,
+                "price_basis": "SELLER_PRICE_RUB", "seller_price_cents": cents,
+                "effective_date": effective_date, "selected_profile": None,
+            }
+        else:
+            resolution = self.tariff_resolver.resolve(
+                seller_price_cents=cents, identity=identity_for_resolver,
+                sale_schema=(source_snapshot.get("product") or {}).get("scheme") or "FBO",
+                effective_date=effective_date, profiles=profiles,
+            )
+        if resolution.get("error") is True:
+            resolution = {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": resolution.get("reason") or resolution.get("code") or "TARIFF_INVALID",
+                "commission_rate": None, "price_basis": "SELLER_PRICE_RUB",
+                "seller_price_cents": cents, "effective_date": effective_date,
+                "selected_profile": None,
+            }
+        selected_meta = resolution.get("profile") or {}
+        selected_profile = next((
+            profile for profile in profiles
+            if isinstance(profile, dict)
+            and profile.get("profile_id") == selected_meta.get("profile_id")
+            and profile.get("revision") == selected_meta.get("revision")
+            and profile.get("state_revision") == selected_meta.get("state_revision")
+        ), None)
+        frozen = UnitPriceTariffSnapshotAdapter.freeze(
+            resolution, selected_profile, candidate_profiles=profiles,
+            effective_date=effective_date,
+        )
+        if frozen is None:
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_SNAPSHOT_INVALID"}
+        return {
+            "error": False,
+            "resolution": resolution,
+            "frozen_tariff_resolution": frozen,
             "read_only": True,
             "executed": False,
         }

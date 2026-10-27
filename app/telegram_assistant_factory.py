@@ -297,6 +297,7 @@ def create_telegram_assistant():
             source=unit_price_calculator_runtime_service.source,
             scenario_service=unit_price_calculator_runtime_service.scenario_service,
             target_planning_service=unit_price_calculator_runtime_service.target_planning_service,
+            tariff_profile_runtime_service=unit_price_tariff_profile_runtime_service,
         )
         unit_price_batch_plan_runtime_service = TelegramUnitPriceBatchPlanRuntimeService(
             batch_plan_service=batch_plan_service,

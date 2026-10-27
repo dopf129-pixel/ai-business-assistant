@@ -145,7 +145,7 @@ def test_batch_export_preserves_unknown_inputs_and_marks_plan_as_estimate():
         "evaluation_count": 3, "evaluation_limit": 100,
         "tenant_scope": "private-scope",
         "rows": [
-            {"row_id": "r1", "identity": {"offer_id": "offer", "catalog_sku": "sku"}, "status": "READY", "inputs": {"price": "500", "cost": "200"}, "provenance": {"cost": "manual"}, "scenario": {"calculated": {"revenue": "500", "profit": "96", "margin_percent": "19.2"}}, "planning": {"target": {"status": "FOUND", "price": "564.16", "profit": "141.04", "margin_percent": "25", "tax": "27.08", "goal_reached": True}}},
+            {"row_id": "r1", "identity": {"offer_id": "offer", "catalog_sku": "sku"}, "status": "READY", "inputs": {"price": "500", "cost": "200", "commission_rate": "15"}, "provenance": {"cost": "manual", "commission_rate": "ozon_current_fbo_rate"}, "tariff_scope": "EXACT_PRICE_ONLY", "tariff_resolution_status": "LEGACY_EXACT_PRICE_ONLY", "tariff_resolution_reason": None, "scenario": {"calculated": {"revenue": "500", "profit": "96", "margin_percent": "19.2"}}, "planning": {"target": {"status": "FOUND", "price": "564.16", "profit": "141.04", "margin_percent": "25", "tax": "27.08", "goal_reached": True}}},
             {"row_id": "r2", "identity": {"offer_id": "offer2", "catalog_sku": "sku2"}, "status": "INCOMPLETE_INPUTS", "inputs": {"price": "500", "cost": None}, "scenario": {"calculated": {}}, "planning": {}},
         ],
     }
@@ -159,14 +159,81 @@ def test_batch_export_preserves_unknown_inputs_and_marks_plan_as_estimate():
     assert document["metadata"]["fulfillment_estimate"] == "FBO"
     assert document["metadata"]["active_sort"] == "profit"
     assert "tenant_scope" not in document["metadata"]
+    assert document["rows"][0]["commission_rate"] == "15"
+    assert document["rows"][0]["commission_origin"] == "ozon_current_fbo_rate"
+    assert document["rows"][0]["tariff_scope"] == "EXACT_PRICE_ONLY"
+    assert document["rows"][0]["tariff_status"] == "LEGACY_EXACT_PRICE_ONLY"
+    assert document["rows"][0]["tariff_reason"] == "LEGACY_RATE_APPLIES_TO_SAVED_PRICE_ONLY"
+    assert document["rows"][1]["tariff_scope"] == "UNKNOWN"
+    assert document["rows"][1]["tariff_status"] == "UNKNOWN"
+
+
+def test_saved_plan_sales_mix_and_advertising_cap_exports_expose_same_frozen_commission():
+    tariff = {
+        "status": "MANUAL_RANGE", "reason": None,
+        "effective_date": "2026-10-27", "price_basis": "SELLER_PRICE_RUB",
+        "seller_price_cents": 50_000, "commission_rate": "11",
+        "matched_band": {"price_from_cents": 45_000, "price_to_cents": 60_000},
+    }
+    item = {
+        "row_id": "r1",
+        "identity": {"product_id": "p1", "offer_id": "offer-1", "sku": "sku-1"},
+        "inputs": {"price": "500", "commission_rate": "11"},
+        "provenance": {"commission_rate": "manual_seller_assumption"},
+        "sources": {"tariff_resolution": tariff},
+        "projection": {"status": "READY", "available": True},
+    }
+    document = {
+        "document_id": "doc-1", "revision": 1, "current_revision": 1,
+        "status": "ACTIVE", "title": "Plan",
+        "payload": {"plan_kind": "batch", "calculation_version": 2, "items": [item]},
+    }
+    service = AnalyticsExportService()
+
+    saved = _json(service.export_saved_plan(document, "json"))
+    mix = _json(service.export_sales_mix(document, {
+        "kind": "SALES_MIX_ECONOMICS", "rows": [{
+            "row_id": "r1", "quantity": 3, "price_per_unit": "500",
+            "components": {"commission": "55"},
+        }], "excluded_rows": [],
+    }, "json"))
+    cap = _json(service.export_advertising_cap(document, [{
+        "product_id": "p1", "offer_id": "offer-1", "sku": "sku-1",
+        "status": "READY", "inputs": item["inputs"],
+        "provenance": item["provenance"], "sources": item["sources"],
+        "target_rate": "8", "target_per_unit": "40",
+    }], "json"))
+
+    for result in (saved, mix, cap):
+        row = result["rows"][0]
+        assert row["commission_rate"] == "11"
+        assert row["commission_origin"] == "manual_seller_assumption"
+        assert row["tariff_scope"] == "FROZEN_PROFILE_SET"
+        assert row["tariff_status"] == "MANUAL_RANGE"
+        assert row["tariff_effective_date"] == "2026-10-27"
+        assert row["tariff_price_basis"] == "SELLER_PRICE_RUB"
+        assert "owner_id" not in json.dumps(row)
 
 
 def test_sensitivity_export_contains_all_cells_not_just_visible_page():
     result = {
         "kind": "UNIT_PRICE_SENSITIVITY", "cell_count": 8, "available_cell_count": 7,
+        "tariff_scope": "FROZEN_PROFILE_SET",
         "axes": {"price": {"values": [1, 2, 3]}}, "source_as_of": {"seller_price": "2026-10-17"},
         "cells": [
-            {"cell_id": str(index), "status": "AVAILABLE" if index < 8 else "UNKNOWN", "coordinates": {"price": index}, "inputs": {}, "provenance": {}, "scenario": {"calculated": {"profit": str(index - 4), "tax": 0}}}
+            {
+                "cell_id": str(index), "status": "AVAILABLE" if index < 8 else "COMMISSION_UNKNOWN",
+                "coordinates": {"price": index},
+                "inputs": {"commission_rate": "11" if index < 8 else None},
+                "provenance": {"commission_rate": "manual_seller_assumption"},
+                "tariff_resolution": {
+                    "available": index < 8, "status": "MANUAL_RANGE" if index < 8 else "UNKNOWN",
+                    "reason": None if index < 8 else "PRICE_OUTSIDE_PROFILE_BANDS",
+                    "commission_rate": "11" if index < 8 else None,
+                    "origin": "manual_seller_assumption" if index < 8 else "unknown",
+                },
+                "scenario": {"calculated": {"profit": str(index - 4), "tax": 0}},
+            }
             for index in range(1, 9)
         ],
     }
@@ -177,6 +244,11 @@ def test_sensitivity_export_contains_all_cells_not_just_visible_page():
     assert document["rows"][0]["calc_profit"] == "-3"
     assert document["rows"][1]["calc_tax"] == "0"
     assert document["metadata"]["exported_scope"] == "all_cells_in_exact_sensitivity_snapshot"
+    assert document["metadata"]["tariff_scope"] == "FROZEN_PROFILE_SET"
+    assert document["rows"][0]["commission_rate"] == "11"
+    assert document["rows"][0]["commission_origin"] == "manual_seller_assumption"
+    assert document["rows"][-1]["tariff_status"] == "UNKNOWN"
+    assert document["rows"][-1]["tariff_reason"] == "PRICE_OUTSIDE_PROFILE_BANDS"
     assert "owner_id" not in document["metadata"]
 
 

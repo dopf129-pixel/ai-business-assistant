@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q12 завершены, Q13–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q13 завершены, Q14–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -31,9 +31,9 @@
 | Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
 | Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
 | Q11 | VERIFIED | Bounded seller-price grid, tariff boundaries plus adjacent cents, no silent truncation, max 200 candidates / 20 tariff rules, 10-row pagination and selected-only compensation thresholds. Focused profile 104 passed; linked Q04–Q11 398 passed. See acceptance below. |
-| Q12 | VERIFIED | Frozen tariff bands partition target search into covered intervals; gaps/conflicts remain unknown; direct candidate/previous-cent checks; 20-rule and 1,024-forward limits. Focused 115 passed; linked Q04–Q12 profile 404 passed across 21 modules. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. |
-| Q13 | NOT_STARTED | — |
-| Q14 | NOT_STARTED | — |
+| Q12 | VERIFIED | Frozen tariff bands partition target search into covered intervals; gaps/conflicts remain unknown; direct candidate/previous-cent checks; 20-rule and 1,024-forward limits. Focused 115 passed; linked Q04–Q12 profile 404 passed across 21 modules. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`; implementation/docs commit `039ad79b`. |
+| Q13 | VERIFIED | Все ценовые consumers и owner exports используют согласованную тарифную основу; linked profile 230 passed. См. acceptance ниже. |
+| Q14 | VERIFIED | Numeric acceptance N01–N06, N08, N10/N11 and 21 related unit-price/export suites: 389 passed in 7.84s in isolated Windows/Python 3.12.10 environment. See acceptance below. |
 | Q15 | NOT_STARTED | — |
 | Q16 | NOT_STARTED | — |
 | Q17 | NOT_STARTED | — |
@@ -200,4 +200,21 @@
 - Старый сохранённый тариф без frozen snapshot допустим только на его точной цене. Telegram теперь вызывает `_prepare_tariff`, передаёт frozen snapshot/legacy exact point, показывает непокрытые диапазоны и ограничение «минимум только среди рассчитанных сегментов». Применение остаётся локальным и проходит прежнюю проверку прибыли/комиссии; Ozon API и изменение цены не добавлены.
 - Регрессии покрывают N03 (синтетический скачок 11%→22%, цель достижима до скачка, недостижима сразу после и снова достижима позже), поиск только в более позднем сегменте, gap/conflict, 20/21 rules, 1 024-call budget, source-unavailable, legacy exact-price, наблюдаемую немонотонность, Telegram coverage disclosure и tariff-aware apply.
 - Focused isolated Windows/Python 3.12.10 (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **115 passed in 1.65s**. Linked Q04–Q12 isolated profile over 21 tariff/planning/saved-plan/scenario/source/Telegram modules: **404 passed in 7.97s**. `git diff --check` passed; tracked protected JSON files remained clean. Temp root was new; dotenv/plugin autoload disabled, credential-named environment variables removed; no network/API, bot or owner DB used.
-- Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. Existing service/runtime contract is extended: **Architecture Review Required**. Q12 — VERIFIED. Next: Q13 audit of consumers of price/tariff changes.
+- Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. Existing service/runtime contract is extended: **Architecture Review Required**. Q12 — VERIFIED. Implementation/docs commit `039ad79b` (`Implement tariff-segmented target price search`). Next: Q13 audit of consumers of price/tariff changes.
+
+### Q13 — согласованность потребителей тарифа и ценовых изменений (2026-10-27)
+
+- Проверены single-price target/options/grid/DRR/ad-cap, sensitivity, batch edit/replan/ad-cap, saved-plan reopen/sales-mix и owner exports. Все consumer paths используют frozen tariff resolution при наличии снимка; unknown gaps не получают комиссию/прибыль как 0.
+- Legacy point-rate планы и введённые ставки без диапазона остаются применимы только к сохранённой цене и явно помечаются `LEGACY_EXACT_PRICE_ONLY`; фиксированное допущение остаётся отдельным режимом. Ручной ввод цены/ставки в batch создаёт точечный override, не распространяющий ставку на другие варианты.
+- Экспорт batch/saved-plan/ad-cap/sales-mix/sensitivity получил согласованные поля комиссии и provenance, tariff scope/status/reason и basis даты/цены. Исторические границы не выдаются за доказательство тарифа на новой цене; owner идентификаторы не добавляются.
+- Восстановление сохранённого плана проверяет tenant identity и повторно использует сохранённый snapshot; изменение профиля не переписывает замороженный сценарий, а применение перепроверяется через разрешённый тариф.
+- Изолированный linked Windows/Python 3.12.10 профиль из 10 модулей: **230 passed in 4.71s**. `py_compile` изменённых Python-модулей и `git diff --check` прошли. Тестовые storage/basetemp изолированы; API, `.env`, live bot и owner DB не использовались.
+- `DECISIONS.md` не менялся: Q13 расширяет существующие contracts, не вводя новую архитектурную политику. Классификация: **Architecture Review Required**.
+- Acceptance: `UNIT_PRICE_CONSUMER_AUDIT_Q13_2026-10-27.md`. Q13 — VERIFIED. Далее Q14: числовой профиль N01–N06, N08, N10/N11 и связанные unit-price suites.
+
+### Q14 — числовая приёмка модуля C (2026-10-27)
+
+- Запущены 21 существующий модуль unit-price/tariff/sensitivity/batch/Telegram/saved-plan/analytics-export: **389 passed in 7.84s**. Этот профиль включает synthetic N01/N02 advertising-compensation cents and ROUND_HALF_UP, N03 tariff-boundary jumps, N04 gaps/conflicts/unknown, N05 manual tariff preview-confirm/reopen/scope, N06 old saved-plan schema and frozen revisions, N08 distinct DRR bases, N10 ₽/unit ranking, N11 tax regimes/minimum tax/cross-docking and effective-date cost. Это синтетические fixture, не фактические ставки или рекомендации владельцу.
+- Тесты выполнены Windows/Python 3.12.10 в новом `%TEMP%` test/storage root, pytest basetemp также новый. Удалены из test process environment variable names, совпадающие с credential/provider filters, без вывода значений; отключены dotenv/plugin autoload и bytecode writes. Owner DB/data, `.env`, API/network и реальный бот не использовались.
+- Ошибок или корректировок числовых ожиданий не потребовалось. Поддержанные пределы из кода/регрессий остаются: сравнение 2–10 цен; grid до 200 точек и 20 tariff rules; target search до 20 rules/1,024 canonical forwards; DRR threshold до 64 forwards/candidate и 1,024 на сравнение. Максимум относится только к проверенному набору/диапазонам, не к глобальному optimum.
+- Acceptance: `UNIT_PRICE_NUMERIC_ACCEPTANCE_Q14_2026-10-27.md`. Q14 — VERIFIED, module C завершён; feature в целом ещё не завершён. Следующий этап: Q15 — contract источников и истории наблюдаемой цены.

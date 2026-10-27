@@ -37,6 +37,19 @@
 - `tests/test_unit_price_tariff_snapshot_adapter.py` covers snapshot identity, unavailable source, point-only and legacy exact-price behavior. Linked Q04–Q12 isolated profile across 21 modules: **404 passed in 7.97s**; focused profile: **115 passed in 1.65s**.
 - Search budgets: at most 20 tariff rules and 1,024 tariff-aware canonical forwards; gaps/conflicts remain unknown. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`.
 
+## Q13 — tariff consumer consistency and owner exports (2026-10-27)
+
+- `tests/test_unit_price_sensitivity_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py` cover frozen tariff per sensitivity cell, unavailable gaps, exact-price legacy rates, and rendered provenance.
+- `tests/test_unit_price_batch_plan_service.py` and `tests/test_telegram_unit_price_batch_plan_runtime_service.py` cover frozen batch pricing, exact manual point overrides, same commission basis in batch ad-cap, and legacy source-rate restrictions.
+- `tests/test_analytics_export_service.py` verifies saved-plan, sales-mix, ad-cap and batch exports include current commission/provenance/scope/status/reason without owner identifiers or misleading source-price band claims. `tests/test_saved_planning_plan_telegram_flow.py` verifies restore uses frozen tenant-scoped tariff state.
+- Linked isolated Windows/Python 3.12.10 profile across 10 calculator, tariff, sensitivity, batch, export and saved-plan modules: **230 passed in 4.71s**. Changed Python modules passed `py_compile`; `git diff --check` passed. No API, live bot, owner database, or tracked owner data was used. Acceptance: `UNIT_PRICE_CONSUMER_AUDIT_Q13_2026-10-27.md`.
+
+## Q14 — numeric acceptance of price-planning module C (2026-10-27)
+
+- The 21-module isolated profile covered all `test_unit_price_*`, `test_telegram_unit_price_*`, tariff-profile persistence, saved-plan restore and export suites: **389 passed in 7.84s** on Windows/Python 3.12.10.
+- Numeric coverage includes N01/N02 exact canonical examples and threshold ticks; N03 tariff discontinuities; N04 gaps/conflicts/unknown; N05 manual profile lifecycle and tenant/stale-action safety; N06 saved-plan version compatibility/frozen history; N08 seller-revenue vs attributed-revenue DRR; N10 per-unit ranking and ties; N11 tax, minimum tax, effective-date cost and no double-counting of cross-docking/last mile.
+- Test storage and pytest basetemp were new `%TEMP%` roots; dotenv/plugin autoload/bytecode writes disabled and credential/provider environment names removed without printing values. No API/network, owner DB, `.env`, real bot or live tariff data used. Acceptance: `UNIT_PRICE_NUMERIC_ACCEPTANCE_Q14_2026-10-27.md`.
+
 ## Q09 — сравнение 2–10 вариантов по canonical прибыли/шт. (2026-10-27)
 
 - `tests/test_unit_price_target_planning_service.py`: тарифная ставка подбирается по каждому candidate price на одном frozen snapshot; проверены переход ставок на границе 100 ₽, current-price point только на точной цене, legacy exact-price-only, 10/11 кандидатов, сравнение после ROUND_HALF_UP и tie по прибыли, равной после округления. Unknown candidate остаётся без прибыли и не ранжируется.

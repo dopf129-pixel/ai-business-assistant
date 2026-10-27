@@ -1161,8 +1161,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             total += (amount * quantity).quantize(Decimal("0.01"))
         lines.append(
             f"Сумма индивидуальных рекламных пределов при цели {target}%: "
-            f"{total:.2f} ₽/период. Это сумма лимитов отдельных SKU; "
-            "она не оптимизирует и не гарантирует маржу группы."
+            f"{total:.2f} ₽/период. Расчёт использует цену и комиссию из снимка каждого SKU; "
+            "это сумма отдельных лимитов, она не оптимизирует и не гарантирует маржу группы."
         )
 
     def _skip_sales_mix_quantity(self, scope, action):
@@ -1709,6 +1709,10 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "target_rate": goal.get("advertising_rate") if target is not None else None,
                     "target_per_unit": goal.get("advertising_per_unit") if target is not None else None,
                     "inputs": item.get("inputs") or {},
+                    "provenance": item.get("provenance") or {},
+                    "sources": {
+                        "tariff_resolution": (item.get("sources") or {}).get("tariff_resolution"),
+                    },
                     "cross_docking_source": (item.get("sources") or {}).get("cross_docking"),
                 })
             return self.analytics_export_service.export_advertising_cap(

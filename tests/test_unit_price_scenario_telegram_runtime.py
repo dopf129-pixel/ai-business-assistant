@@ -100,6 +100,18 @@ def _runtime(clock=None, **kwargs):
     return runtime, source
 
 
+def _mark_fixed_rate_assumption(source):
+    """Keep legacy what-if fixtures explicit when testing multiple prices."""
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+
+
 def _activate(store="store-1"):
     return set_current_tenant_user_id(f"user-1::ozon::{store}")
 
@@ -153,6 +165,54 @@ def test_advertising_cap_requires_explicit_target_and_applies_only_to_current_lo
     assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(target_cap["advertising_rate"])
     assert new_identity["version"] == 5
     assert stale_apply["status"] == "UNIT_PRICE_SCENARIO_STALE"
+    assert len(source.calls) == 1
+
+
+def test_advertising_cap_reuses_the_tariff_resolved_for_the_current_candidate_price():
+    tariff = _FrozenRangeTariffRuntime()
+    tariff.profile["bands"] = [
+        {"price_from_cents": 1, "price_to_cents": 50_000, "commission_rate": "11"},
+        {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+    ]
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(opened, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        price_button = next(
+            button for button in scenario["keyboard"]["buttons"]
+            if str(button.get("callback", "")).endswith(":price")
+        )
+        price_prompt = runtime.handle_callback(
+            price_button["callback"], user_id="user-1",
+        )
+        changed = runtime.handle_text("500.01", user_id="user-1")
+        cap_prompt = runtime.handle_callback(
+            _find_button(changed, "Сколько можно тратить на рекламу?")["callback"],
+            user_id="user-1",
+        )
+        cap = runtime.handle_text("25", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert changed["price_scenario"]["inputs"]["commission_rate"]["value"] == 22
+    assert cap_prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert cap["status"] == "UNIT_PRICE_ADVERTISING_CAP_RESULT"
+    assert cap["advertising_cap_result"]["commission_rate"] == "22"
+    assert cap["advertising_cap_result"]["commission_origin"] == "manual_seller_assumption"
+    assert "Комиссия на этой цене: 22%" in cap["message"]
+    expected_inputs = deepcopy(changed["price_scenario"]["effective_scenario_inputs"])
+    expected_inputs.update(commission_rate="22", advertising_rate="0")
+    expected = runtime.advertising_cap_service.solve(
+        expected_inputs, "25",
+        identity=changed["price_scenario"]["identity"],
+        provenance={"commission_rate": "manual_seller_assumption"},
+        sources=changed["price_scenario"].get("sources") or {},
+    )
+    assert cap["advertising_cap_result"]["target"] == expected["target"]
     assert len(source.calls) == 1
 
 
@@ -252,6 +312,7 @@ def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertis
 
 def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     cross_docking = {
         "status": "SKU_SUPPLY_PERIOD_AVERAGE",
         "reason": None,
@@ -293,6 +354,7 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
         )
         comparison = runtime.handle_text("499,90; 549,90", user_id="user-1")
         cap_runtime, cap_source = _runtime()
+        _mark_fixed_rate_assumption(cap_source)
         _add_cross_docking_evidence(cap_source, cross_docking)
         cap_scenario = _select_catalog_product(cap_runtime)
         cap_ready = cap_runtime.handle_callback(
@@ -587,6 +649,7 @@ def test_target_margin_prefers_a_smaller_verified_price_than_current_price():
             "tax_rate": None,
             "minimum_tax_rate": None,
         })
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
         return snapshot
 
     source.load_snapshot = load_snapshot
@@ -632,6 +695,7 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
             "tax_rate": None,
             "minimum_tax_rate": None,
         })
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
         return snapshot
 
     source.load_snapshot = load_snapshot
@@ -666,6 +730,7 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
 
 def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)
@@ -786,6 +851,7 @@ def test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_
 
 def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominator():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)
@@ -989,6 +1055,7 @@ def test_target_price_applies_only_from_current_verified_result_and_old_button_s
 
 def test_comparison_applies_only_the_selected_saved_row():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)

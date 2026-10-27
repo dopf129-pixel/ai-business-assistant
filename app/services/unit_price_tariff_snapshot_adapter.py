@@ -133,7 +133,7 @@ class UnitPriceTariffSnapshotAdapter:
         if reason is not None and cls._code(reason) is None:
             return None
         identity_for_resolver = {
-            "owner_id": str(identity.get("owner_id") or ""),
+            "owner_id": str(identity.get("owner_id") or identity.get("user_id") or ""),
             "store_id": str(identity.get("store_id") or ""),
             "product_id": str(identity.get("product_id") or ""),
             "offer_id": str(identity.get("offer_id") or ""),
@@ -229,7 +229,7 @@ class UnitPriceTariffSnapshotAdapter:
                 or not cls._valid_date(snapshot.get("effective_date"))):
             return {"error": True, "code": "TARIFF_SNAPSHOT_INVALID"}
         identity_for_resolver = {
-            "owner_id": str(identity.get("owner_id") or ""),
+            "owner_id": str(identity.get("owner_id") or identity.get("user_id") or ""),
             "store_id": str(identity.get("store_id") or ""),
             "product_id": str(identity.get("product_id") or ""),
             "offer_id": str(identity.get("offer_id") or ""),
@@ -307,6 +307,96 @@ class UnitPriceTariffSnapshotAdapter:
             "read_only": True,
             "executed": False,
         }
+
+    @classmethod
+    def with_manual_point_override(cls, snapshot, identity, seller_price_cents,
+                                   commission_rate, *, profile_id="manual-row-override"):
+        """Freeze an explicitly entered rate at one seller price only.
+
+        Existing frozen ranges are retained for other prices. The manual point
+        wins only at its exact price, matching the single-scenario contract.
+        """
+        if (not isinstance(snapshot, dict)
+                or snapshot.get("snapshot_version") != cls.VERSION
+                or not cls._valid_date(snapshot.get("effective_date"))
+                or type(seller_price_cents) is not int or seller_price_cents < 1
+                or not isinstance(identity, dict)):
+            return None
+        rate = cls._rate(commission_rate)
+        identity_for_resolver = {
+            "owner_id": str(identity.get("owner_id") or identity.get("user_id") or ""),
+            "store_id": str(identity.get("store_id") or ""),
+            "product_id": str(identity.get("product_id") or ""),
+            "offer_id": str(identity.get("offer_id") or ""),
+            "sku": str(identity.get("sku") or ""),
+        }
+        if (rate is None or any(not identity_for_resolver[key] for key in (
+            "owner_id", "store_id", "product_id", "offer_id", "sku",
+        ))):
+            return None
+        profiles = []
+        # A storage-source failure means the saved profile set may be partial.
+        # Keep only the explicitly entered point rather than treating that
+        # partial list as complete coverage.
+        if snapshot.get("status") != "SOURCE_UNAVAILABLE":
+            raw_profiles = snapshot.get("profiles")
+            if not isinstance(raw_profiles, list) or len(raw_profiles) > UnitPriceTariffResolver.MAX_PROFILES:
+                return None
+            for projection in raw_profiles:
+                profile = cls._profile_restore(projection, identity_for_resolver)
+                if profile is None:
+                    return None
+                if profile.get("source_ref") != "MANUAL_SCENARIO_COMMISSION_OVERRIDE":
+                    profiles.append(profile)
+        safe_profile_id = cls._safe_text(profile_id, 128)
+        if safe_profile_id is None:
+            return None
+        day = snapshot["effective_date"]
+        manual_profile = {
+            "profile_id": safe_profile_id,
+            "revision": 1,
+            "state_revision": 1,
+            "owner_id": identity_for_resolver["owner_id"],
+            "store_id": identity_for_resolver["store_id"],
+            "identity": {
+                "product_id": identity_for_resolver["product_id"],
+                "offer_id": identity_for_resolver["offer_id"],
+                "sku": identity_for_resolver["sku"],
+            },
+            "sale_schema": "FBO",
+            "price_basis": "SELLER_PRICE_RUB",
+            "currency": "RUB",
+            "origin": "MANUAL_SELLER_ASSUMPTION",
+            "source_ref": "MANUAL_SCENARIO_COMMISSION_OVERRIDE",
+            "recorded_at": day + "T00:00:00+00:00",
+            "confirmed_by_owner": True,
+            "effective_from": day,
+            "effective_to": day,
+            "bands": [{
+                "price_from_cents": seller_price_cents,
+                "price_to_cents": seller_price_cents,
+                "commission_rate": format(rate.normalize(), "f"),
+            }],
+        }
+        profiles.append(manual_profile)
+        if len(profiles) > UnitPriceTariffResolver.MAX_PROFILES:
+            return None
+        resolution = UnitPriceTariffResolver().resolve(
+            seller_price_cents=seller_price_cents,
+            identity=identity_for_resolver,
+            sale_schema="FBO",
+            effective_date=day,
+            profiles=profiles,
+            selected_profile_id=safe_profile_id,
+            selected_revision=1,
+            selected_state_revision=1,
+        )
+        if resolution.get("available") is not True:
+            return None
+        return cls.freeze(
+            resolution, manual_profile, candidate_profiles=profiles,
+            effective_date=day,
+        )
 
     @classmethod
     def _profile_projection(cls, profile):
