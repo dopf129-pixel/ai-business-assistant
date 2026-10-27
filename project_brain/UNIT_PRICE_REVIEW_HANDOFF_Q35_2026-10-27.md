@@ -7,8 +7,9 @@
 - Реализационный PR: [#720](https://github.com/dopf129-pixel/ai-business-assistant/pull/720).
 - PR с утверждённым заданием: [#719](https://github.com/dopf129-pixel/ai-business-assistant/pull/719).
 - #720 намеренно stacked на `codex/price-profit-per-unit-spec-20261026`; проверять и интегрировать нужно по порядку: сначала задание #719, затем реализацию #720. PR #720 не слит.
-- Initial implementation head: `c069a3660d2b4dba3a3d78b9404af265c3cb0e0f`. При появлении final verification commit это значение следует обновить на точный head PR.
-- GitHub Verify для initial head: [run 40573544926](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40573544926); на момент подготовки этого handoff CI выполняется, это не зелёное доказательство финального head.
+- Проверенный implementation head: `0154f857cd2600ad9879acf2084604ca4735449c`.
+- GitHub Verify: [run 40573748055](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40573748055) — `success` на этом exact head. Windows/Python 3.12, Linux full verification, Docker build/runtime smoke и SHA-bound report прошли. Verification artifact: [verification report](https://api.github.com/repos/dopf129-pixel/ai-business-assistant/actions/artifacts/12767520722).
+- Далее добавлен только документационный handoff commit. Его PR-head checks нужно проверить в PR перед независимым review; рабочий код и тесты после `0154f857` не изменялись.
 
 ## Что реализовано
 
@@ -23,7 +24,7 @@
 - Повторный профиль шести Q30/UI модулей в реализации: **56 passed in 2.60s**.
 - Q31 связанный профиль: **1374 passed across 175 modules**; bounded checks: **3 passed**.
 - `python -m compileall -q app`, `git diff --check`: PASS; `data/` diff основной реализации пустой.
-- Exact-head GitHub Verify необходимо сверить после публикации финального документа handoff. Требуются Windows/Linux full verification и Docker build/runtime smoke.
+- Exact implementation-head GitHub Verify прошёл: run `40573748055`; включает Windows/Linux full verification и Docker build/runtime smoke. После документационного handoff commit проверить, что проверки последнего PR SHA также зелёные.
 
 ## Основные review входы
 
