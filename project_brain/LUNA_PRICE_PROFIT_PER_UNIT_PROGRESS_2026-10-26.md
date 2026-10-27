@@ -31,7 +31,7 @@
 | Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
 | Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
 | Q11 | VERIFIED | Bounded seller-price grid, tariff boundaries plus adjacent cents, no silent truncation, max 200 candidates / 20 tariff rules, 10-row pagination and selected-only compensation thresholds. Focused profile 104 passed; linked Q04–Q11 398 passed. See acceptance below. |
-| Q12 | NOT_STARTED | — |
+| Q12 | IN_PROGRESS | Inventory legacy target solver, tariff segment coverage and bounded candidate-search interfaces. |
 | Q13 | NOT_STARTED | — |
 | Q14 | NOT_STARTED | — |
 | Q15 | NOT_STARTED | — |
@@ -190,3 +190,8 @@
 - Focused isolated Windows/Python 3.12.10 Q11 profile (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **104 passed in 1.55s**. Linked Q04–Q11 profile over 22 tariff/planning/scenario/source/consumer modules: **398 passed in 8.05s**. Three changed Python modules compiled in memory; `git diff --check` passed after final code changes.
 - Test root and pytest basetemp were new `%TEMP%` paths; dotenv and pytest plugin autoload disabled, credential-named environment variables removed without values. The five protected tracked `data/*.json` paths are git-clean; their newline-normalized SHA-256 matches Git HEAD. Raw worktree bytes are CRLF-normalized. No owner DB, ignored runtime data, `.env`, API/network or live bot was used.
 - Q11 modifies the existing planning service contract, Telegram result mode and keyboard actions: **Architecture Review Required**. Acceptance: `UNIT_PRICE_PRICE_GRID_Q11_2026-10-27.md`. Q11 — VERIFIED. Next: Q12 segmented target-price search across tariff jumps.
+- Q11 implementation/docs checkpoint: `66d1120995fcf906f9dfe7b7d816cfe200415ba5` (`Add bounded unit price grid`). Q11 journal/verification and Q12 start marker are recorded in the following documentation-only checkpoint.
+
+### Q12 — поиск минимальной целевой цены при скачках тарифа (2026-10-27)
+
+- IN_PROGRESS: inventory the existing single-rate solver and compare its assumptions with frozen tariff band/gap/conflict contracts before changing candidate search. No solver behavior changed yet.
