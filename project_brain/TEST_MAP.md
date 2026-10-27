@@ -5806,3 +5806,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_planning_workspace_repository.py::test_first_concurrent_connections_initialize_one_schema_and_allow_reopen` and `::test_legacy_schema_migrates_atomically_and_keeps_existing_document_state` — first-connection race and legacy migration expect the new additive schema version.
 - `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — persisted exact source references, restart/reopen, clear-user-state without deleting durable records, stale/superseded label after new evidence, no-change refresh, append-only new comparison revision, old winner retained, and JSON export without source IDs or collector calls.
 - Q23 focused Windows/Python 3.12 profile: **33 passed in 2.08s**. Linked Q16–Q23 profile across 28 planning/observation/tariff/runtime targets: **474 passed in 10.92s** with pytest plugin autoload disabled and credential-like process variables cleared. Full pytest and exact-head CI remain Q33–Q35.
+
+# Unit-price profit-per-unit end-to-end path (Q24)
+
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` — production factory and public Telegram handlers cover SKU selection, manual tariff bands, validation/retry, price and DRR comparison, saved plan, observation start/collection, insufficient-evidence ranking gate, return to plans, and editing the next price. All Ozon/collector dependencies are synthetic fakes; incomplete evidence remains not rankable.
+- `tests/test_telegram_unit_price_observation_runtime.py` — existing local-only persisted comparison/reopen/export behavior remains included in the linked profile.
+- Q24 focused Windows/Python 3.12: **1 passed in 1.00s**. Linked Q16–Q24 profile, 29 test targets: **475 passed in 11.48s**. Full pytest/exact-head CI remain Q33–Q35.

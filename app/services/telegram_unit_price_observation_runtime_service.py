@@ -822,6 +822,7 @@ class TelegramUnitPriceObservationRuntimeService:
         buttons.extend([
             {"text": "История сравнений", "callback": "upo:comparisons"},
             {"text": "Мои наблюдения", "callback": "upo:m"},
+            {"text": "Мои планы · следующий вариант цены", "callback": "upp:m"},
         ])
         response["text"] = "\n".join(lines)
         response["message"] = response["text"]

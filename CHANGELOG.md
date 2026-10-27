@@ -1,3 +1,9 @@
+# 2026-10-27 — Q24: complete unit-price planning and observation path
+
+- Connected saved price comparisons to the observation workflow with a direct return-to-plans action. A user can continue from a recommendation/quality result and try another saved price scenario without losing the durable plan.
+- Added a production-factory end-to-end regression through public button/text handlers: SKU selection, manual tariff ranges, price/DRR comparison, save, observation collection, honest insufficient-data ranking, then return and revise a plan. Synthetic sources only; no live API or bot.
+- Q16–Q24 linked Windows/Python 3.12 profile: 475 passed in 11.48s. Acceptance: `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`.
+
 # 2026-10-27 — Q23: immutable history for unit-price comparisons
 
 - Added tenant/store-scoped comparison snapshots with exact observation/result and saved-plan revision references. Refresh appends a new immutable revision only when locally saved evidence changes; old rankings remain readable.

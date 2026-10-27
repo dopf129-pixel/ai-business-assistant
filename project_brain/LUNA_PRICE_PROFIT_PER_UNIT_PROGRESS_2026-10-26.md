@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q23 завершены, Q24–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q24 завершены, Q25–Q35 ожидают.
 
 ## Исходная точка
 
@@ -43,7 +43,7 @@
 | Q21 | VERIFIED | Добавлены quality/comparability gates для model/fact оснований; отдельный service, экран и payload; linked Q16–Q21 profile 205 passed. Acceptance ниже. |
 | Q22 | VERIFIED | Добавлен отдельный ranking наблюдений; linked Q16–Q22 profile 274 passed. См. Q22 acceptance. |
 | Q23 | VERIFIED | Additive DB v5 immutable comparison snapshots, exact observation/result/plan revision references, source-free reopen/export, explicit append refresh, stale/superseded labels; focused 33 passed, linked Q16–Q23 474 passed. Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. |
-| Q24 | NOT_STARTED | — |
+| Q24 | VERIFIED | Production-factory end-to-end public-handler path SKU → manual tariff → price/DRR → save → observation → honest gate → return to plans/next price. Focused 1 passed; linked Q16–Q24 475 passed in 11.48s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`. |
 | Q25 | NOT_STARTED | — |
 | Q26 | NOT_STARTED | — |
 | Q27 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q23: сохранять неизменяемые ревизии сравнений с точными ссылками на результат и план; чтение/export без источников, явное обновление создаёт новую ревизию.
+Продолжить с Q25: review Telegram UX/discovery and response length for the complete price-profit-per-unit tool; then Q26–Q35 in dependency order.
 
 ## Записи исполнения
 
@@ -307,3 +307,12 @@
 - Тесты выполнялись в temporary pytest storage/basetemp из существующего Python 3.12 project environment, от текущего implementation worktree. Для Windows указан уже локальный Git IANA zoneinfo path (`PYTHONTZPATH`); live API, owner DB, bot и `.env` не использовались. `git diff -- data` пустой.
 - Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. `DECISIONS.md` не менялся: repository schema versioning, append-only evidence, tenant scope и source-free saved result уже следуют Decision 061 и Q16/Q21/Q22 контрактам.
 - Q23 — VERIFIED. Классификация: **Architecture Review Required** — additive SQLite schema migration, repository contract и Telegram/application wiring. Следующий этап: Q24 — связать полный путь SKU → тариф → план/сравнение → порог → сохранение → наблюдение → рекомендация.
+
+### Q24 — полный пользовательский цикл цены и наблюдения (2026-10-27)
+
+- В production factory end-to-end регрессии покрыт путь через public `button_handler.handle` и `handle_text`: выбор SKU, ввод двух тарифных диапазонов с некорректным вводом и восстановлением формы, сравнение двух цен/ДРР, сохранение плана, создание наблюдения, сбор synthetic incomplete evidence, отказ ranking gate присваивать неподтверждённую прибыль, возврат к сохранённым планам и продолжение с новой ценой.
+- Исправлена достижимость следующего варианта: экран результата сравнения/наблюдения содержит прямое действие «Мои планы · следующий вариант цены» (`upp:m`). Экшен открывает локальный список сохранённых планов; продолжение использует актуальный action token и не пересоздаёт либо не перезаписывает предыдущую версию.
+- Тест работает через `create_telegram_assistant` и подменённые fake source/collector; фактический источник вызван один раз для разрешённого сбора. Из-за отсутствия подтверждённых per-sale price/успешных единиц в synthetic evidence результат остаётся `INSUFFICIENT_DATA`, рейтинг возвращает `OBSERVATION_RANKING_NOT_READY`; ложная нулевая/положительная прибыль не показывается.
+- Focused: `tests/test_unit_price_profit_per_unit_end_to_end.py` — **1 passed in 1.00s**. Linked profile Q16–Q24 (29 test targets, Windows/Python 3.12, plugin autoload/dotenv disabled, temporary pytest storage): **475 passed in 11.48s**.
+- Ограничения: автоматический тариф остаётся точечной ставкой только при доказанной цене; ручной диапазон функционирует. Реальные owner API/price history/actual observation не проверялись и для инженерной приёмки не нужны. `git diff -- data` должен оставаться пустым.
+- Q24 — VERIFIED. Следующий этап: Q25 — UX, help/discovery, компактный отчёт и достижимость обещанных действий.
