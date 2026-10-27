@@ -3,6 +3,11 @@
 - В существующее tenant planning SQLite добавлены versioned tariff profiles и revisions с CAS, идемпотентностью, квотами и атомарной миграцией v3. Старые saved-plan payload versions v1/v2 не изменены.
 - Добавлены regressions для reopen/resolver, tenant isolation, archive/history, invalid profiles, quotas и transaction rollback. Isolated Windows/Python 3.12.10 профиль: **115 passed**; пять tracked data JSON hashes не изменились.
 
+# 2026-10-27 — Q07: Telegram-ввод и подтверждение тарифа комиссии
+
+- В FBO калькулятор добавлен ввод точечной ставки/ценовых диапазонов с предварительным просмотром и явным подтверждением. Поддержаны постоянный профиль и ограниченный session-only вариант; черновики защищены проверками owner/store/SKU/scenario version, TTL и replay.
+- Новый public-route/parser профиль совместно с тарифом, калькулятором, репозиторием и сохранёнными планами: **199 passed**; затронутые Python-модули скомпилированы. Интеграция тарифа непосредственно в расчёт и frozen plan — следующий Q08.
+
 # 2026-10-27 — Q05: подтверждённая комиссия только для текущей цены
 
 - Проверена официальная справка Ozon: проектный API даёт процент комиссии товара, но доступный контракт не подтверждает тарифную сетку гипотетических цен.

@@ -2070,6 +2070,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 session["scenario_id"], session["version"],
                 include_return_mean=completeness.get("complete") is True,
                 include_price_planning=self.target_planning_service is not None,
+                include_manual_tariff=(
+                    str((session.get("snapshot", {}).get("product") or {}).get("scheme") or "").upper() == "FBO"
+                ),
             ),
             "read_only": True,
             "executed": False,
@@ -2122,6 +2125,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 session["scenario_id"], session["version"],
                 include_return_mean=include_return_mean,
                 include_price_planning=self.target_planning_service is not None,
+                include_manual_tariff=(
+                    str((snapshot.get("product") or {}).get("scheme") or "").upper() == "FBO"
+                ),
             ),
             "price_scenario": result,
             "read_only": True,

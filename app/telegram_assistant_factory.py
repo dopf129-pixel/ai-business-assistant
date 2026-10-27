@@ -106,6 +106,9 @@ from services.telegram_unit_price_sensitivity_runtime_service import (
     TelegramUnitPriceSensitivityRuntimeService,
 )
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.telegram_unit_price_tariff_profile_runtime_service import (
+    TelegramUnitPriceTariffProfileRuntimeService,
+)
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.telegram_saved_planning_plan_runtime_service import (
@@ -269,6 +272,20 @@ def create_telegram_assistant():
             keyboard_service=keyboard,
         )
     )
+    planning_workspace_repository = (
+        PlanningWorkspaceRepository()
+        if unit_price_calculator_runtime_service is not None
+        else None
+    )
+    unit_price_tariff_profile_runtime_service = (
+        TelegramUnitPriceTariffProfileRuntimeService(
+            repository=planning_workspace_repository,
+            calculator_runtime=unit_price_calculator_runtime_service,
+            keyboard_service=keyboard,
+        )
+        if planning_workspace_repository is not None
+        else None
+    )
 
     unit_price_batch_plan_runtime_service = None
     if unit_price_calculator_runtime_service is not None:
@@ -308,7 +325,7 @@ def create_telegram_assistant():
             tax_service=unit_price_calculator_runtime_service.scenario_service.tax_service,
         )
         saved_plan_service = SavedPlanningPlanService(
-            repository=PlanningWorkspaceRepository(),
+            repository=planning_workspace_repository,
             scenario_service=unit_price_calculator_runtime_service.scenario_service,
         )
         saved_planning_plan_runtime_service = TelegramSavedPlanningPlanRuntimeService(
@@ -453,6 +470,9 @@ def create_telegram_assistant():
             saved_planning_plan_runtime_service=saved_planning_plan_runtime_service,
             analytics_export_service=analytics_export_service,
             build_metadata_service=app_build_metadata_service,
+            unit_price_tariff_profile_runtime_service=(
+                unit_price_tariff_profile_runtime_service
+            ),
         )
     )
 

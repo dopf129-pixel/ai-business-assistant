@@ -18,4 +18,4 @@ This feature persists seller-owned commission assumptions and historical price e
 
 ## Status
 
-Contract adopted for this implementation by the user's task. Q04 implements and tests the pure bounded resolver; Q05 verifies the official API boundary and maps only an exact current-price FBO point, leaving hypothetical ranges unavailable; Q06/Q15/Q26 and Q35 must still provide durable migration, scope, observation, restore and exact-head CI evidence. The overall feature is not production-wired or externally validated.
+Contract adopted for this implementation by the user's task. Q04 implements and tests the pure bounded resolver; Q05 verifies the official API boundary and maps only an exact current-price FBO point, leaving hypothetical ranges unavailable; Q06 adds durable tenant-scoped manual tariff persistence; Q07 wires explicit Telegram input/preview/confirmation with stale-ticket checks and session-only resolver-compatible profiles. Q08–Q14 calculation/frozen-plan wiring, Q15 observations, Q26 restore and Q35 exact-head CI remain outstanding. The overall feature is not production-validated.

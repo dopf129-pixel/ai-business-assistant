@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q05 завершены, Q06–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q07 завершены, Q08–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -26,7 +26,7 @@
 | Q04 | DONE | Добавлен pure `UnitPriceTariffResolver`; точные inclusive cents ranges, gaps, overlap/conflict, exact profile selection, current-price point, scope/date/scheme checks и numeric limits. Новый изолированный профиль: **34 passed in 0.44s**; подробности ниже. |
 | Q05 | DONE | Official FAQ/API source checked; current FBO rate exposed only as exact current-price point via pure adapter; range remains `RANGE_SOURCE_UNAVAILABLE`. Focused profile: 88 passed; five tracked data hashes unchanged. |
 | Q06 | DONE | Manual tariff persistence + rollback profile: 115 passed; five tracked data JSON hashes unchanged. See `UNIT_PRICE_PROFILE_PERSISTENCE_Q06_2026-10-27.md`. |
-| Q07 | NOT_STARTED | — |
+| Q07 | DONE | Public Telegram flow for manual FBO point/ranges: preview/explicit persistent or session-only confirmation, edit/cancel/refresh; stale/replay-safe draft bound to owner/store/SKU/scenario version. Session-only profile was also accepted by the pure resolver. Final combined profile: 199 passed. See `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`. |
 | Q08 | NOT_STARTED | — |
 | Q09 | NOT_STARTED | — |
 | Q10 | NOT_STARTED | — |
@@ -70,9 +70,8 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q07: owner-facing tariff input/preview/confirm/cancel/edit flow with draft tickets bound to owner/store/SKU/version.
-2. Q08 will connect the confirmed tariff snapshot to price scenarios and saved-plan frozen revisions.
-3. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
+1. Выполнить Q08: connect persistent/session-only tariff profiles to the canonical price scenario and freeze exact profile revision in saved-plan revisions.
+2. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
 
@@ -139,4 +138,13 @@
 - Добавлены `tests/test_planning_workspace_tariff_profiles.py` и обновлены миграционные ожидания в `tests/test_planning_workspace_repository.py`: round-trip/reopen/resolver, повтор create/update, stale CAS, immutable identity, owner/store isolation, archive/history, allowlist и quotas, атомарный rollback записи и v2→v3 rollback.
 - Адресный изолированный Windows/Python 3.12.10 профиль: `tests/test_planning_workspace_tariff_profiles.py`, `tests/test_planning_workspace_repository.py`, `tests/test_unit_price_tariff_resolver.py`, `tests/test_unit_price_tariff_source.py`, `tests/test_unit_price_scenario_source.py`, `tests/test_current_product_economics_source.py` — **115 passed in 2.26s**. При контрольном запуске пять tracked `data/*.json` SHA-256 совпали. `py_compile` и `git diff --check` прошли.
 - Проверка проходила с новым `%TEMP%` storage и basetemp, dotenv/live credential env отключён, без сети, реального API, пользовательской БД и запуска бота. Старые сохранённые плановые payload contracts не менялись.
-- Q06 — PASS; implementation commit `a5c78d75` (`Persist manual unit price tariff profiles`). Следующий этап: Q07 Telegram-ввод/подтверждение.
+- Q06 — PASS; implementation commit `a5c78d75` (`Persist manual unit price tariff profiles`). Q07 is complete; details follow.
+
+### Q07 — Telegram-ввод и подтверждение ручного тарифа (2026-10-27)
+
+- Добавлены parser и owner-facing маршрут через production `AssistantTelegramAdapter` → `AssistantButtonHandlerService` → `TelegramUnitPriceTariffProfileRuntimeService`. FBO-кнопка принимает точечную ставку или до 20 точных непересекающихся диапазонов в рублях/копейках; можно указать дату начала действия. До подтверждения данные существуют только как ограниченный временный черновик.
+- Явная кнопка сохраняет профиль либо создаёт session-only профиль; доступны редактирование, отмена и явное обновление цены Ozon. Перед подтверждением сверяются пользователь, магазин, SKU, схема, scenario id/version и TTL; старые/повторные кнопки не создают запись. Постоянная запись использует Q06 repository allowlist/CAS/idempotency; обновление сохраняет историю версий.
+- Session-only getter возвращает профиль только тому же owner/store/scenario и истекает через час; он не записывается в SQLite. Q08 ещё должен передавать этот профиль в resolver/сценарий и замораживать выбранную редакцию в сохранённом плане. После возврата с Q07 экран калькулятора использует прежние входные допущения до Q08.
+- Добавлены `tests/test_unit_price_tariff_input_parser.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: формат/границы/перекрытия/limits, полный public Telegram route, подтверждение/reopen, replay, revision update, session-only/no persistence, edit/cancel/invalid input, FBS deny, stale version/draft/store; session-only профиль принимается pure resolver. Финальная проверка совместно с тарифным resolver/source/repository, калькулятором и saved-plan Telegram suite: **199 passed in 4.47s** (изолированный Windows/Python 3.12.10, fresh TEMP storage/basetemp, dotenv off, без сети/API/бота).
+- Все затронутые Python-модули прошли `py_compile`; `git diff --check` завершился без замечаний. Тестовая база и pytest basetemp находились в отдельной TEMP-папке; protected tracked owner-data files не входят в изменения.
+- Q07 — PASS. Следующий этап: Q08 — resolver/snapshot/saved-plan integration. Реальный Telegram/Ozon сценарий не запускался.

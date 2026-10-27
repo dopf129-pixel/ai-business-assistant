@@ -567,6 +567,7 @@ class AssistantKeyboardService:
         version,
         include_return_mean=False,
         include_price_planning=False,
+        include_manual_tariff=False,
     ):
         sid = str(scenario_id)
         ver = str(version)
@@ -590,6 +591,8 @@ class AssistantKeyboardService:
                 {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
             ])
+        if include_manual_tariff:
+            buttons.append({"text": "Указать тариф комиссии", "callback": f"upt:start:{sid}:{ver}"})
         buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
         buttons.append({"text": "Сколько можно тратить на рекламу?", "callback": f"upc:j:{sid}:{ver}"})
         buttons.extend([
