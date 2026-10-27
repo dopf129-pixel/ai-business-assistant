@@ -95,7 +95,8 @@ def _public_text(adapter, text, store="store-1"):
 
 
 def test_public_telegram_flow_previews_and_persists_manual_ranges_idempotently(tmp_path):
-    adapter, calculator, _tariff, repository = _flow(tmp_path)
+    adapter, calculator, tariff, repository = _flow(tmp_path)
+    calculator.tariff_profile_runtime_service = tariff
     scenario = _scenario(calculator)
     start_button = _button(scenario, "Указать тариф комиссии")
     assert len(start_button["callback"]) <= 64
@@ -113,6 +114,8 @@ def test_public_telegram_flow_previews_and_persists_manual_ranges_idempotently(t
 
     assert result["error"] is False
     assert "Тариф сохранён" in result["message"]
+    assert result["price_scenario"]["tariff_resolution"]["available"] is True
+    assert result["price_scenario"]["tariff_resolution"]["commission_rate"] == "14"
     assert replay["error"] is True
     token = set_current_tenant_user_id(make_store_tenant_scope("user-1", "store-1"))
     try:
@@ -145,6 +148,7 @@ def test_public_edit_rotates_preview_ticket_and_cancel_never_persists(tmp_path):
 
 def test_public_session_only_profile_is_scoped_to_current_scenario_and_not_persisted(tmp_path):
     adapter, calculator, tariff, repository = _flow(tmp_path)
+    calculator.tariff_profile_runtime_service = tariff
     scenario = _scenario(calculator)
     start = _public_button(adapter, _button(scenario, "Указать тариф комиссии")["callback"])
     preview = _public_text(adapter, "100=14%")
@@ -160,6 +164,8 @@ def test_public_session_only_profile_is_scoped_to_current_scenario_and_not_persi
     assert profile["bands"][0]["commission_rate"] == "14"
     assert profile["origin"] == "MANUAL_SELLER_ASSUMPTION"
     assert persisted["items"] == []
+    assert result["price_scenario"]["tariff_resolution"]["available"] is True
+    assert result["price_scenario"]["tariff_resolution"]["commission_rate"] == "14"
     resolved = UnitPriceTariffResolver().resolve(
         seller_price_cents=10000,
         identity={

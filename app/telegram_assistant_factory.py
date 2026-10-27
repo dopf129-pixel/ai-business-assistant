@@ -286,6 +286,10 @@ def create_telegram_assistant():
         if planning_workspace_repository is not None
         else None
     )
+    if unit_price_calculator_runtime_service is not None:
+        unit_price_calculator_runtime_service.tariff_profile_runtime_service = (
+            unit_price_tariff_profile_runtime_service
+        )
 
     unit_price_batch_plan_runtime_service = None
     if unit_price_calculator_runtime_service is not None:

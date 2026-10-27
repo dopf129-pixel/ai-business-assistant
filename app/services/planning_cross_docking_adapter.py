@@ -13,6 +13,7 @@ from copy import deepcopy
 class PlanningCrossDockingAdapter:
     LEGACY_VERSION = 1
     CURRENT_VERSION = 2
+    CURRENT_SCHEMA_VERSION = 3
     METHODS = frozenset({
         "sku_accrual_cost_per_delivered_crossdock_unit",
         "store_accrual_cost_per_delivered_crossdock_unit",
@@ -172,7 +173,7 @@ class PlanningCrossDockingAdapter:
 
     @classmethod
     def _version(cls, payload):
-        """Resolve the repository's implicit v1 default for old payloads."""
+        """Resolve calculation version independently from additive plan schema."""
         if not isinstance(payload, dict):
             return None
         version = payload.get("calculation_version")
@@ -181,8 +182,18 @@ class PlanningCrossDockingAdapter:
             if schema is None or (type(schema) is int and schema == cls.LEGACY_VERSION):
                 return cls.LEGACY_VERSION
             return None
-        if (type(version) is not int
-                or (schema is not None and (type(schema) is not int or schema != version))):
+        if type(version) is not int or version not in {cls.LEGACY_VERSION, cls.CURRENT_VERSION}:
+            return None
+        if schema is None:
+            return version
+        if type(schema) is not int:
+            return None
+        schema_to_calculation = {
+            cls.LEGACY_VERSION: cls.LEGACY_VERSION,
+            cls.CURRENT_VERSION: cls.CURRENT_VERSION,
+            cls.CURRENT_SCHEMA_VERSION: cls.CURRENT_VERSION,
+        }
+        if schema_to_calculation.get(schema) != version:
             return None
         return version
 

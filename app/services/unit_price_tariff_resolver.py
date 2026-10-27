@@ -125,10 +125,21 @@ class UnitPriceTariffResolver:
                 matches.append((profile, band))
 
         if len(matches) > 1:
-            return self._unavailable(
-                "CONFLICT", "MULTIPLE_APPLICABLE_PROFILES",
-                request["seller_price_cents"],
-            )
+            # A bounded tariff schedule explicitly confirmed for a price
+            # range is stronger evidence than the single point observed at
+            # today's price. Keep ambiguity between two ranges (or between
+            # multiple point observations) unresolved.
+            range_matches = [
+                match for match in matches
+                if match[0]["origin"] != "CURRENT_PRICE_POINT"
+            ]
+            if len(range_matches) == 1:
+                matches = range_matches
+            else:
+                return self._unavailable(
+                    "CONFLICT", "MULTIPLE_APPLICABLE_PROFILES",
+                    request["seller_price_cents"],
+                )
         if len(matches) == 1:
             profile, band = matches[0]
             status = {

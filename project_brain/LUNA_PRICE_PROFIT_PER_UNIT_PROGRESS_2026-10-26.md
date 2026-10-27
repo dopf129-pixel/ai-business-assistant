@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q07 завершены, Q08–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q08 завершены, Q09–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -27,7 +27,7 @@
 | Q05 | DONE | Official FAQ/API source checked; current FBO rate exposed only as exact current-price point via pure adapter; range remains `RANGE_SOURCE_UNAVAILABLE`. Focused profile: 88 passed; five tracked data hashes unchanged. |
 | Q06 | DONE | Manual tariff persistence + rollback profile: 115 passed; five tracked data JSON hashes unchanged. See `UNIT_PRICE_PROFILE_PERSISTENCE_Q06_2026-10-27.md`. |
 | Q07 | DONE | Public Telegram flow for manual FBO point/ranges: preview/explicit persistent or session-only confirmation, edit/cancel/refresh; stale/replay-safe draft bound to owner/store/SKU/scenario version. Session-only profile was also accepted by the pure resolver. Final combined profile: 199 passed. Implementation commit `cea8a8e4`; see `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`. |
-| Q08 | NOT_STARTED | — |
+| Q08 | DONE | Frozen tariff snapshot and saved-plan schema v3 integrated; linked isolated Q04–Q08 profile 371 passed; 5 protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. |
 | Q09 | NOT_STARTED | — |
 | Q10 | NOT_STARTED | — |
 | Q11 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q08: connect persistent/session-only tariff profiles to the canonical price scenario and freeze exact profile revision in saved-plan revisions.
+1. Выполнить Q09: add 2–10-option comparison by canonical ₽/unit calculation on one frozen snapshot, preserving statuses/evidence and target.
 2. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
@@ -148,3 +148,14 @@
 - Добавлены `tests/test_unit_price_tariff_input_parser.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: формат/границы/перекрытия/limits, полный public Telegram route, подтверждение/reopen, replay, revision update, session-only/no persistence, edit/cancel/invalid input, FBS deny, stale version/draft/store; session-only профиль принимается pure resolver. Финальная проверка совместно с тарифным resolver/source/repository, калькулятором и saved-plan Telegram suite: **199 passed in 4.47s** (изолированный Windows/Python 3.12.10, fresh TEMP storage/basetemp, dotenv off, без сети/API/бота).
 - Все затронутые Python-модули прошли `py_compile`; `git diff --check` завершился без замечаний. Тестовая база и pytest basetemp находились в отдельной TEMP-папке; protected tracked owner-data files не входят в изменения.
 - Q07 — PASS; implementation commit `cea8a8e4c03753eb34a133497271543596d47f3b` (`Add Telegram manual tariff confirmation flow`). Next: Q08 — resolver/snapshot/saved-plan integration. Реальный Telegram/Ozon сценарий не запускался.
+
+### Q08 — тарифный снимок и совместимость сохранённых планов (2026-10-27)
+
+- Подключены persistent и session-only тарифные профили к текущему экрану расчёта через внедряемый resolver. Захват сохранённого сценария фиксирует exact profile/revision/state revision, допустимые ценовые диапазоны, разрешённую ставку и основание рекламы; повторное открытие использует только frozen snapshot.
+- Введён single-plan schema v3 с `calculation_version=2`; существующие v1/v2 остаются читаемыми без повторного API/БД чтения и не пересчитываются автоматически. Для legacy-плана сохранённая комиссия применима только к исходной цене. При изменении цены она остаётся неизвестной до подтверждённого ручного ввода либо явного обновления снимка. Обновление копии не переносит устаревшее ручное значение.
+- Snapshot adapter разрешает frozen профиль для другой цены без I/O, но только при полном, проверенном наборе кандидатов. `SOURCE_UNAVAILABLE`, пустое покрытие, чужая identity или испорченная ревизия не превращаются в rate. При единственном подтверждённом диапазоне он имеет приоритет над совпавшей точкой текущей цены; два пересекающихся диапазона остаются конфликтом.
+- Исправлены замеченные при интеграции дефекты: соблюдение фактического лимита page size репозитория (10), единый ключ owner id при восстановлении, устранение дублирования профиля session/persistent, защита от разрешения частичного source-unavailable набора и возврата кросс-ценового сравнения для legacy runtime без tariff resolver.
+- Проверка: изолированный Windows/Python 3.12.10 Q04–Q08 профиль — **371 passed in 8.41s**. Запуск: `python -m pytest -q -p no:cacheprovider --basetemp <fresh-temp> <22 tariff/source/scenario/planning test files>`. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми временными каталогами; dotenv и plugin autoload отключены.
+- SHA-256 пяти защищённых tracked JSON (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) совпали до и после запуска. Сеть, реальные Ozon/Telegram API, bot process, `.env`, рабочая пользовательская БД и ignored runtime data не использовались.
+- Документы Q08 обновлены: `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, Decision 061 и `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. Код затрагивает 8 сервисов/фабрику и 4 тестовых файла плюс новый adapter/test; это **Architecture Review Required**. Полный pytest/CI — не запускался; он запланирован в Q33–Q35.
+- Q08 — PASS. Следующее: Q09, сравнение 2–10 цен по ₽/шт. на общем frozen snapshot.

@@ -186,6 +186,54 @@ def test_current_price_point_never_confirms_neighbouring_price():
     assert neighbour["commission_rate"] is None
 
 
+def test_confirmed_range_is_used_when_it_overlaps_current_price_point():
+    point = _profile(
+        profile_id="current-point",
+        origin="CURRENT_PRICE_POINT",
+        source_ref="current-product-info",
+        recorded_at="2026-10-27T10:00:00+00:00",
+        observed_at="2026-10-27T10:00:00+00:00",
+        confirmed_by_owner=False,
+        effective_from="2026-10-27",
+        effective_to="2026-10-27",
+        bands=[{"price_from_cents": 5_000, "price_to_cents": 5_000, "commission_rate": "15"}],
+    )
+    manual = _profile(bands=[
+        {"price_from_cents": 4_000, "price_to_cents": 6_000, "commission_rate": "12"},
+    ])
+
+    result = _resolve(5_000, [point, manual])
+
+    assert result["status"] == "MANUAL_RANGE"
+    assert result["commission_rate"] == "12"
+    assert result["profile"]["profile_id"] == "profile-1"
+
+
+def test_two_overlapping_ranges_still_require_an_explicit_selection():
+    first = _profile(bands=[
+        {"price_from_cents": 4_000, "price_to_cents": 6_000, "commission_rate": "12"},
+    ])
+    second = _profile(profile_id="profile-2", bands=[
+        {"price_from_cents": 4_500, "price_to_cents": 6_500, "commission_rate": "13"},
+    ])
+    point = _profile(
+        profile_id="current-point",
+        origin="CURRENT_PRICE_POINT",
+        source_ref="current-product-info",
+        recorded_at="2026-10-27T10:00:00+00:00",
+        observed_at="2026-10-27T10:00:00+00:00",
+        confirmed_by_owner=False,
+        effective_from="2026-10-27",
+        effective_to="2026-10-27",
+        bands=[{"price_from_cents": 5_000, "price_to_cents": 5_000, "commission_rate": "15"}],
+    )
+
+    result = _resolve(5_000, [point, first, second])
+
+    assert result["status"] == "CONFLICT"
+    assert result["commission_rate"] is None
+
+
 @pytest.mark.parametrize("rate", ["NaN", "Infinity", "-Infinity", "-0.01", "100.01", True, None, 1.5])
 def test_invalid_or_non_decimal_rates_are_rejected(rate):
     profile = _profile(bands=[

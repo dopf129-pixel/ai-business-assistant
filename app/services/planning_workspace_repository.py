@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -22,7 +23,7 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 
 class PlanningWorkspaceRepository:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
     DATABASE_SCHEMA_VERSION = 3
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
@@ -55,6 +56,7 @@ class PlanningWorkspaceRepository:
     })
     _SOURCE_FIELDS = frozenset({
         "periods", "as_of", "loaded_at", "completeness", "cross_docking",
+        "tariff_resolution", "advertising_basis",
     })
 
     def __init__(self, db_path=None, clock=None):
@@ -936,9 +938,11 @@ class PlanningWorkspaceRepository:
             return None
         calc = payload.get("calculation_version", 1)
         schema = payload.get("schema_version", calc)
-        if (type(schema) is not int or schema not in {1, 2}
-                or type(calc) is not int or calc not in {1, 2}
-                or schema != calc):
+        supported_versions = {1: 1, 2: 2, 3: 2}
+        if (type(schema) is not int or schema not in supported_versions
+                or type(calc) is not int or supported_versions[schema] != calc):
+            return None
+        if schema == 3 and kind != "single":
             return None
         normalized_items = []
         seen = set()
@@ -1038,6 +1042,39 @@ class PlanningWorkspaceRepository:
                 elif (rate is not None or cross_docking.get("amount_per_unit") is not None
                       or cross_docking.get("applicable_to_sku") is True):
                     return None
+            if schema == 3:
+                from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+                tariff_resolution = clean_sources.get("tariff_resolution")
+                frozen_identity = {
+                    "owner_id": scope["owner_id"],
+                    "store_id": scope["store_id"],
+                    "product_id": product_id,
+                    "offer_id": offer_id,
+                    "sku": sku,
+                }
+                normalized_tariff = UnitPriceTariffSnapshotAdapter.validate(
+                    tariff_resolution, frozen_identity, clean_inputs,
+                )
+                if normalized_tariff is None:
+                    return None
+                clean_sources["tariff_resolution"] = normalized_tariff
+                advertising_basis = clean_sources.get("advertising_basis")
+                if (not isinstance(advertising_basis, dict)
+                        or set(advertising_basis) != {"mode", "revenue_basis", "rate", "origin"}
+                        or advertising_basis.get("mode") != "SAME_DRR"
+                        or advertising_basis.get("revenue_basis") != "SELLER_REVENUE"
+                        or advertising_basis.get("rate") != clean_inputs.get("advertising_rate")
+                        or advertising_basis.get("origin") != clean_provenance.get("advertising_rate")):
+                    return None
+                if (clean_sources.get("tariff_resolution", {}).get("status")
+                        in UnitPriceTariffSnapshotAdapter.AVAILABLE_STATUSES
+                        and clean_provenance.get("commission_rate") not in {
+                            "current_price_point", "manual_seller_assumption",
+                            "confirmed_official_source",
+                        }):
+                    return None
+            elif "tariff_resolution" in clean_sources or "advertising_basis" in clean_sources:
+                return None
             row_id = self._short_text(item.get("row_id"), 64, optional=True)
             normalized_items.append({
                 "row_id": row_id,
@@ -1078,6 +1115,12 @@ class PlanningWorkspaceRepository:
         if set(sources) - cls._SOURCE_FIELDS:
             return None
         cleaned = {}
+        for key in ("tariff_resolution", "advertising_basis"):
+            if key in sources:
+                value = sources.get(key)
+                if not isinstance(value, dict):
+                    return None
+                cleaned[key] = deepcopy(value)
         periods = sources.get("periods", {})
         if not isinstance(periods, dict) or set(periods) - {
             "seller_price_as_of", "commission_rate_as_of", "tax_policy_as_of",

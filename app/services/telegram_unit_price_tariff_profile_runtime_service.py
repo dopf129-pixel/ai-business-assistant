@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from secrets import token_hex
 from threading import RLock
 from time import monotonic
@@ -9,6 +10,8 @@ from time import monotonic
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_tariff_input_parser import UnitPriceTariffInputParser
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_source import UnitPriceTariffSource
 
 
 class TelegramUnitPriceTariffProfileRuntimeService:
@@ -24,6 +27,8 @@ class TelegramUnitPriceTariffProfileRuntimeService:
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.parser = parser
+        self.tariff_resolver = UnitPriceTariffResolver()
+        self.tariff_source = UnitPriceTariffSource()
         self._pending = {}
         self._session_profiles = {}
         self._lock = RLock()
@@ -91,6 +96,163 @@ class TelegramUnitPriceTariffProfileRuntimeService:
                 self._session_profiles.pop(key, None)
                 return None
             return deepcopy(entry["profile"])
+
+    def resolve_for_scenario(self, scenario_id, version, seller_price, user_id=None,
+                             *, session_profile_only=False):
+        """Resolve the tariff for one exact active scenario price, without API reads."""
+        if type(session_profile_only) is not bool:
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_ACTION_STALE"}
+        context = self._active_context(user_id, scenario_id, version)
+        if context.get("error"):
+            return {"error": True, "code": context["code"]}
+        cents = self._price_to_cents(seller_price)
+        if cents is None:
+            return {"error": True, "code": "UNIT_PRICE_TARIFF_PRICE_INVALID"}
+        result = context["result"]
+        snapshot = result.get("snapshot") or {}
+        identity = {
+            "owner_id": context["owner_id"],
+            "store_id": context["store_id"],
+            **context["identity"],
+        }
+        current_point = self.tariff_source.from_scenario_snapshot(snapshot)
+        source_fresh = (
+            type(result.get("source_age_seconds")) in {int, float}
+            and type(result.get("source_ttl_seconds")) in {int, float}
+            and result.get("source_ttl_seconds", 0) > 0
+            and result.get("source_age_seconds", float("inf")) < result.get("source_ttl_seconds", 0)
+        )
+        profiles = (
+            list(current_point.get("profiles") or [])
+            if source_fresh and not session_profile_only else []
+        )
+        source_price_cents = current_point.get("current_price_cents")
+        current_date = self._effective_date(
+            (snapshot.get("source_periods") or {}).get("seller_price_as_of")
+        ) if source_fresh and cents == source_price_cents else None
+        effective_date = current_date or date.today().isoformat()
+
+        if not session_profile_only:
+            listed = self.repository.list_tariff_profiles(
+                identity=context["identity"], owner_id=context["owner_id"],
+                store_id=context["store_id"], limit=self.repository.MAX_TARIFF_PAGE_SIZE,
+            )
+            if listed.get("error"):
+                return {"error": True, "code": listed.get("code") or "PLANNING_STORAGE_UNAVAILABLE"}
+            if listed.get("has_more"):
+                return {
+                    "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                    "reason": "PROFILE_LIMIT", "commission_rate": None,
+                    "price_basis": "SELLER_PRICE_RUB", "seller_price_cents": cents,
+                    "effective_date": effective_date, "selected_profile": None,
+                    "candidate_profiles": profiles,
+                }
+            for item in listed.get("items") or []:
+                record = self.repository.get_tariff_profile(
+                    item.get("profile_id"), owner_id=context["owner_id"],
+                    store_id=context["store_id"],
+                )
+                if record.get("error") or record.get("status") != "ACTIVE":
+                    return {
+                        "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                        "reason": "PROFILE_SOURCE_UNAVAILABLE", "commission_rate": None,
+                        "price_basis": "SELLER_PRICE_RUB", "seller_price_cents": cents,
+                        "effective_date": effective_date, "selected_profile": None,
+                        "candidate_profiles": profiles,
+                    }
+                profiles.append(record.get("profile"))
+        session_profile = self.get_session_profile(scenario_id, user_id=user_id)
+        if (session_profile is not None and not any(
+                isinstance(item, dict)
+                and item.get("profile_id") == session_profile.get("profile_id")
+                and item.get("revision") == session_profile.get("revision")
+                and item.get("state_revision") == session_profile.get("state_revision")
+                for item in profiles)):
+            profiles.append(session_profile)
+        if session_profile_only and session_profile is None:
+            return {
+                "error": False, "available": False, "status": "UNKNOWN",
+                "reason": "NO_APPLICABLE_PROFILE", "commission_rate": None,
+                "price_basis": "SELLER_PRICE_RUB", "seller_price_cents": cents,
+                "effective_date": effective_date, "selected_profile": None,
+                "candidate_profiles": [], "read_only": True, "executed": False,
+            }
+
+        # An explicit legacy commission edit is a user-confirmed point for
+        # this exact price. It must never be extrapolated to adjacent prices.
+        inputs = result.get("inputs") or {}
+        provenance = result.get("provenance") or {}
+        manual_rate = inputs.get("commission_rate")
+        selected_profile_id = (
+            session_profile.get("profile_id") if session_profile else None
+        )
+        selected_revision = session_profile.get("revision") if session_profile else None
+        selected_state_revision = session_profile.get("state_revision") if session_profile else None
+        if (provenance.get("commission_rate") in {
+                "manual", "manual_seller_assumption", "manual_unit_economics_input"
+        } and manual_rate is not None):
+            now = datetime.now(timezone.utc).isoformat()
+            manual_point = {
+                "profile_id": "manual-scenario-" + str(scenario_id),
+                "revision": 1,
+                "state_revision": 1,
+                "owner_id": context["owner_id"],
+                "store_id": context["store_id"],
+                "identity": context["identity"],
+                "sale_schema": "FBO",
+                "price_basis": "SELLER_PRICE_RUB",
+                "currency": "RUB",
+                "origin": "MANUAL_SELLER_ASSUMPTION",
+                "source_ref": "MANUAL_SCENARIO_COMMISSION_OVERRIDE",
+                "recorded_at": now,
+                "confirmed_by_owner": True,
+                "effective_from": date.today().isoformat(),
+                "effective_to": date.today().isoformat(),
+                "bands": [{
+                    "price_from_cents": cents, "price_to_cents": cents,
+                    "commission_rate": str(manual_rate),
+                }],
+            }
+            profiles.append(manual_point)
+            selected_profile_id = manual_point["profile_id"]
+            selected_revision = manual_point["revision"]
+            selected_state_revision = manual_point["state_revision"]
+
+        resolution = self.tariff_resolver.resolve(
+            seller_price_cents=cents,
+            identity=identity,
+            sale_schema=context.get("scheme"),
+            effective_date=effective_date,
+            profiles=profiles,
+            selected_profile_id=selected_profile_id,
+            selected_revision=selected_revision,
+            selected_state_revision=selected_state_revision,
+        )
+        if resolution.get("error"):
+            return {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": resolution.get("reason") or resolution.get("code") or "TARIFF_INVALID",
+                "commission_rate": None, "price_basis": "SELLER_PRICE_RUB",
+                "seller_price_cents": cents, "effective_date": effective_date,
+                "selected_profile": None, "candidate_profiles": profiles,
+            }
+        selected = None
+        if resolution.get("available") is True:
+            profile_meta = resolution.get("profile") or {}
+            selected = next((
+                item for item in profiles
+                if item.get("profile_id") == profile_meta.get("profile_id")
+                and item.get("revision") == profile_meta.get("revision")
+                and item.get("state_revision") == profile_meta.get("state_revision")
+            ), None)
+        return {
+            **resolution,
+            "effective_date": effective_date,
+            "selected_profile": deepcopy(selected),
+            "candidate_profiles": deepcopy(profiles),
+            "read_only": True,
+            "executed": False,
+        }
 
     def clear_pending(self, user_id):
         self._clear_pending_for_user(str(user_id or "").strip())
@@ -196,16 +358,16 @@ class TelegramUnitPriceTariffProfileRuntimeService:
                 return self._preview(ticket, notice="Постоянное сохранение недоступно. Вы можете применить тариф только к этой сессии.")
             return self._error(result.get("code", "UNIT_PRICE_TARIFF_SAVE_FAILED"))
         self._remove_pending(key, draft_id)
+        cache_key = (ticket["user_id"], ticket["tenant_scope"], ticket["scenario_id"])
+        with self._lock:
+            self._session_profiles[cache_key] = {
+                "identity": deepcopy(ticket["identity"]),
+                "profile": deepcopy(result["profile"]),
+                "created_at": self.clock(),
+            }
+            while len(self._session_profiles) > self.MAX_SESSION_PROFILES:
+                self._session_profiles.pop(next(iter(self._session_profiles)))
         if action == "session":
-            cache_key = (ticket["user_id"], ticket["tenant_scope"], ticket["scenario_id"])
-            with self._lock:
-                self._session_profiles[cache_key] = {
-                    "identity": deepcopy(ticket["identity"]),
-                    "profile": deepcopy(result["profile"]),
-                    "created_at": self.clock(),
-                }
-                while len(self._session_profiles) > self.MAX_SESSION_PROFILES:
-                    self._session_profiles.pop(next(iter(self._session_profiles)))
             notice = "Тариф действует только в этой сессии и не сохранён между перезапусками."
         else:
             notice = f"Тариф сохранён: редакция {result['revision']}. Источник — ручное подтверждение продавца."
@@ -301,6 +463,39 @@ class TelegramUnitPriceTariffProfileRuntimeService:
             "scheme": str(product.get("scheme") or "").upper(),
             "result": result,
         }
+
+    @staticmethod
+    def _price_to_cents(value):
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if (not amount.is_finite() or amount <= 0
+                or amount * 100 != (amount * 100).to_integral_value()):
+            return None
+        cents = int(amount * 100)
+        return cents if cents <= UnitPriceTariffResolver.MAX_PRICE_CENTS else None
+
+    @staticmethod
+    def _effective_date(value):
+        if not isinstance(value, str) or len(value) > 40:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value if len(value) == 10 and UnitPriceTariffProfileRuntimeService._valid_date(value) else None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return parsed.date().isoformat()
+
+    @staticmethod
+    def _valid_date(value):
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except (TypeError, ValueError):
+            return False
 
     def _ticket_matches(self, ticket, context):
         if not isinstance(ticket, dict):

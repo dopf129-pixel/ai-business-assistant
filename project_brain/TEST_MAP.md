@@ -2,6 +2,15 @@
 - Q06: `tests/test_planning_workspace_tariff_profiles.py` + `tests/test_planning_workspace_repository.py` cover persistent manual tariff profiles, additive v3 migration, restart/reopen/resolver, tenant isolation, immutable identity, create/update idempotency/CAS, archive state/history, allowlists, quotas and rollback. Combined Q06 source/resolver/repository profile: **115 passed**; five tracked data JSON hashes unchanged.
 - Q07: `tests/test_unit_price_tariff_input_parser.py` + `tests/test_telegram_unit_price_tariff_profile_runtime.py` cover bounded point/range/date parsing and the public Telegram route: explicit persistent/session-only confirmation, update history, preview/edit/cancel/refresh, invalid input, FBO-only behavior, replay/stale scenario/draft/store callbacks and profile reopen; session-only profile resolves through pure resolver. Combined with Q04–Q06 tariff/source/repository and existing calculator/saved-plan suites: **199 passed in 4.47s**. Acceptance: `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`.
 
+# Q08 — tariff resolution and saved-plan compatibility
+
+- `tests/test_unit_price_tariff_resolver.py`: an owner-confirmed range overrides one overlapping current-price point; two overlapping ranges remain `CONFLICT`.
+- `tests/test_unit_price_tariff_snapshot_adapter.py`: frozen exact revision resolves other prices offline; unknown and `SOURCE_UNAVAILABLE` snapshots never reuse rates or resolve from partial profiles; tampered identity/price/revision/rate is rejected.
+- `tests/test_saved_planning_plan_telegram_flow.py`: schema v3 capture/save/reopen, no source read on reopen, profile revision remains frozen after repository update, candidate price uses frozen bands, explicit refresh loads the new profile revision, old v2 plan stays at its historical price and becomes unknown at a changed price, direct manual commission upgrades to schema v3, and refreshing a copy does not carry the prior commission.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py`: persistent and session-only public Telegram confirmations feed the exact selected profile into the live scenario.
+- Combined isolated Windows/Python 3.12.10 Q04–Q08 profile: **371 passed**. Five tracked owner-data JSON SHA-256 hashes unchanged. No network, Ozon/Telegram API, real bot or user database was used.
+- Acceptance and boundaries: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`.
+
 # План проверок помощника выбора цены (26.10.2026)
 
 - Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q03: предметный audit/contracts; isolated Windows/Python 3.12.10 baseline — **247 passed**. Q04: `tests/test_unit_price_tariff_resolver.py` — **34 passed**, включая N03/N04 rate boundaries, range gaps/overlap/conflict, point-only tariff, exact owner/store/SKU/date/schema, limits и canonical-forward amounts. Audit: `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`; contracts: `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.
