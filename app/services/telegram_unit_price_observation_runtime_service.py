@@ -15,6 +15,8 @@ from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_observation_normalizer import UnitPriceObservationNormalizer
 from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
+from services.unit_price_observation_ranking_service import UnitPriceObservationRankingService
+from services.unit_price_recommendation_ranking_service import UnitPriceRecommendationRankingService
 
 
 class TelegramUnitPriceObservationRuntimeService:
@@ -37,6 +39,11 @@ class TelegramUnitPriceObservationRuntimeService:
         self.keyboard_service = keyboard_service
         self.normalizer = normalizer or UnitPriceObservationNormalizer
         self.quality_service = quality_service or UnitPriceObservationQualityService()
+        self.ranking_service = UnitPriceRecommendationRankingService(self.quality_service)
+        self.observation_ranking_service = UnitPriceObservationRankingService(
+            repository=repository, planning_service=planning_service,
+            ranking_service=self.ranking_service,
+        )
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.monotonic_clock = monotonic_clock or monotonic
         self.default_timezone = default_timezone
@@ -93,6 +100,9 @@ class TelegramUnitPriceObservationRuntimeService:
         if len(parts) == 3 and parts[:2] == ["upo", "o"]:
             self._clear_pending(scope)
             return self._card(parts[2], scope)
+        if len(parts) == 3 and parts[:2] == ["upo", "rank"]:
+            self._clear_pending(scope)
+            return self._rank_observations(parts[2], scope)
         if len(parts) == 5 and parts[:2] == ["upo", "collect"]:
             return self._prompt_window(parts[2], parts[3], parts[4], scope)
         if len(parts) == 3 and parts[:2] == ["upo", "history"]:
@@ -561,6 +571,11 @@ class TelegramUnitPriceObservationRuntimeService:
             {"text": "Мои наблюдения", "callback": "upo:m"},
             {"text": "Мои планы", "callback": "upp:m"},
         ])
+        if isinstance(latest, dict):
+            buttons.insert(0, {
+                "text": "Сравнить прибыль по наблюдениям SKU",
+                "callback": f"upo:rank:{observation_id}",
+            })
         return self._prompt_result("OBSERVATION_CARD_READY", "\n".join(lines), self._keyboard(buttons))
 
     def _history(self, observation_id, scope, offset=0):
@@ -659,11 +674,87 @@ class TelegramUnitPriceObservationRuntimeService:
         lines.append("Исходные ответы API и идентификаторы операций не сохраняются.")
         response = self._prompt_result(
             "OBSERVATION_RESULT_READY", "\n".join(lines),
-            self._simple_keyboard("История", f"upo:history:{observation_id}"),
+            self._keyboard([
+                {"text": "Сравнить прибыль по наблюдениям SKU", "callback": f"upo:rank:{observation_id}"},
+                {"text": "История", "callback": f"upo:history:{observation_id}"},
+            ]),
         )
         if quality is not None:
             response["quality_assessment"] = quality
         return response
+
+    def _rank_observations(self, observation_id, scope):
+        compared = self.observation_ranking_service.rank_for_observation(
+            observation_id, owner_id=scope["owner_id"], store_id=scope["store_id"],
+            now=self.clock(),
+        )
+        if not isinstance(compared, dict) or compared.get("error") is True:
+            if isinstance(compared, dict) and compared.get("code") == "PLANNING_OBSERVATION_NOT_FOUND":
+                return self._stale()
+            return self._error(compared.get("code") if isinstance(compared, dict) else None)
+        return self._ranking_screen(
+            compared["ranking"], compared["identity"], observation_id,
+        )
+
+    def _ranking_screen(self, ranking, target_identity, observation_id):
+        quality = ranking.get("quality_assessment") or {}
+        status = ranking.get("status")
+        lines = [
+            f"Рейтинг прибыли на единицу · SKU {target_identity.get('sku', '—')} · FBO",
+        ]
+        if status == "RANKED":
+            if ranking.get("display_basis") == "OBSERVED_COMPARABLE_PERIODS":
+                lines.append("Сопоставимые фактические периоды; только среди проверенных наблюдений.")
+            else:
+                lines.append("Модель при сохранённых допущениях; только среди проверенных вариантов.")
+            for position, row in enumerate(ranking["ranking"], start=1):
+                price = self._format_money(row["seller_price_cents"])
+                line = f"{position}. Цена {price} ₽ → {row['profit_per_unit']} ₽/шт."
+                line += f"; к базовому периоду {row['delta_vs_baseline']} ₽/шт."
+                if row.get("delta_percent_vs_baseline") is not None:
+                    line += f" ({row['delta_percent_vs_baseline']}%)"
+                elif row.get("delta_percent_reason") == "BASELINE_NOT_POSITIVE":
+                    line += "; процент к неположительной базе не рассчитывается"
+                if row.get("is_best") is True:
+                    line += "; максимум"
+                lines.append(line)
+            lines.append(
+                f"Максимум {ranking['best_profit_per_unit']} ₽/шт.; равных вариантов: "
+                f"{len(ranking['best_indices'])}. Объём продаж не меняет рейтинг."
+            )
+            lines.append("Сравнение не доказывает, что разницу вызвала только цена.")
+        else:
+            lines.append({
+                "NOT_READY": "Рейтинг пока не готов: нужен минимум 2 сопоставимых варианта.",
+                "INCOMPARABLE": "Рейтинг не построен: варианты нельзя безопасно сравнить.",
+            }.get(status, "Рейтинг не построен: не хватает подтверждённых данных."))
+            reasons = list(quality.get("reasons") or [])
+            if reasons:
+                lines.append(
+                    "Причины: " + "; ".join(
+                        self._quality_reason_label(item) for item in reasons[:8]
+                    )
+                )
+        checked = ranking.get("checked_candidate_count", 0)
+        if checked:
+            lines.append(f"Проверено вариантов разных цен: {checked}.")
+        omitted = ranking.get("omitted_candidate_count", 0)
+        if omitted:
+            lines.append(f"Ещё вариантов не проверено из-за лимита: {omitted}.")
+        repeated = ranking.get("omitted_repeated_price_count", 0)
+        if repeated:
+            lines.append(
+                f"Повторные наблюдения той же цены не считались отдельными вариантами: {repeated}."
+            )
+        lines.append("Наблюдения и сохранённые планы не изменены; внешние источники не запрашивались.")
+        return self._prompt_result(
+            "OBSERVATION_RANKING_READY" if status == "RANKED" else "OBSERVATION_RANKING_NOT_READY",
+            "\n".join(lines),
+            self._keyboard([
+                {"text": "Карточка наблюдения", "callback": f"upo:o:{observation_id}"},
+                {"text": "Мои наблюдения", "callback": "upo:m"},
+            ]),
+        )
 
     @staticmethod
     def _quality_reason_label(value):

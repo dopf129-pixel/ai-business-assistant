@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q20 завершены, Q21–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q22 завершены, Q23–Q35 ожидают.
 
 ## Исходная точка
 
@@ -41,7 +41,7 @@
 | Q19 | VERIFIED | Добавлен pure evaluator: модель доступна только по совместимому CPC и подтверждённому знаменателю успешных единиц; иначе сохраняются `INSUFFICIENT_DATA`/`INCOMPARABLE`. Q16–Q19 linked profile: 189 passed. Acceptance ниже. |
 | Q20 | VERIFIED | Telegram наблюдение: ручная установка цены, сбор, ревизия результата, история, заметки и завершение; linked Q16–Q20 profile 197 passed. Acceptance ниже. |
 | Q21 | VERIFIED | Добавлены quality/comparability gates для model/fact оснований; отдельный service, экран и payload; linked Q16–Q21 profile 205 passed. Acceptance ниже. |
-| Q22 | NOT_STARTED | — |
+| Q22 | VERIFIED | Добавлен отдельный ranking наблюдений; linked Q16–Q22 profile 274 passed. См. Q22 acceptance. |
 | Q23 | NOT_STARTED | — |
 | Q24 | NOT_STARTED | — |
 | Q25 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q22: ранжировать планы и результаты наблюдений раздельно по прибыли ₽/шт.; рейтинг только среди кандидатов, прошедших Q21 gate, и без причинных утверждений.
+Продолжить с Q23: сохранять неизменяемые ревизии сравнений с точными ссылками на результат и план; чтение/export без источников, явное обновление создаёт новую ревизию.
 
 ## Записи исполнения
 
@@ -284,3 +284,15 @@
 - Проверки Windows/Python 3.12: адресный Q21/Q19/Q16–repository/runtime профиль — **32 passed in 1.69s**; final linked Q16–Q21 профиль по 15 targets — **205 passed in 4.87s**. AST parse четырёх затронутых Python-файлов и `git diff --check` прошли; `git diff -- data` пуст. Есть только уведомления Git о будущей LF→CRLF нормализации.
 - Сравнительные assessment payload пока вычисляются в памяти и возвращаются экрану/handler; Q23 отвечает за durable immutable comparison revisions. Runtime источники, Ozon calls и канонические result записи не изменены. `DECISIONS.md` не менялся: Q03/Q15 уже требуют, чтобы только Q21 выставлял `COMPARABLE`.
 - Acceptance: `UNIT_PRICE_OBSERVATION_QUALITY_Q21_2026-10-27.md`. Q21 — VERIFIED после итоговых синтаксической и diff проверок. Классификация: **Architecture Review Required** (новый quality service и новый output field в Telegram payload).
+
+### Q22 — раздельный рейтинг и объяснение (2026-10-27)
+
+- Плановые цены остаются отдельным рейтингом `SCENARIO_ASSUMPTIONS` в существующем `UnitPriceTargetPlanningService`: сравнивается прибыль на единицу внутри заданных пользователем вариантов/сетки, победитель ограничен проверенными ценами, равные максимумы отмечаются вместе. Существующие регрессии N10 проверены повторно; объём продаж не участвует в выборе.
+- Добавлен pure `UnitPriceRecommendationRankingService` для наблюдений. Он сначала применяет Q21 comparability gate и только при общем `COMPARABLE` сортирует кандидатов по соответствующей метрике: `observed_profit_per_unit` для канонического факта или `profit_per_unit` для `MODELLED_FROM_OBSERVED_INPUTS`. Для модели сохраняется `verified=false`; неподтверждённые, неизвестные или несопоставимые результаты не получают частичного рейтинга.
+- Добавлен `UnitPriceObservationRankingService` для owner/store-scoped чтения неизменённых результатов и точных frozen revisions исходных планов. Он сравнивает тот же product/offer/SKU/FBO, выбирает последний результат на каждую цену, ограничивает рейтинг 10 уникальными ценами и сообщает о пропущенных вариантах/повторах. Ozon не перечитывается, immutable results не изменяются.
+- В карточке/детализации результата появилась кнопка сравнения; Telegram runtime формирует пользовательский ответ из application-service результата. Callback после переключения магазина безопасно возвращает stale-кнопку без раскрытия существования чужой записи.
+- Сравнение упорядочено от самого раннего выбранного окна как базового периода. Для каждого варианта показываются ₽/шт. и денежная разница; процент рассчитывается только при положительной базе. Равные округлённые до копейки значения получают общий максимум. UI всегда говорит «среди проверенных вариантов», явно отделяет модель от факта, показывает причины gate отказа и запрещает причинный вывод о влиянии цены.
+- Новые проверки: `tests/test_unit_price_recommendation_ranking_service.py` — N10 по 20 ₽/шт. при 100 ед. против 18 ₽/шт. при 200 ед.; равенство после ROUND_HALF_UP; отрицательная база; gate rejection; выбор фактической метрики; лимит и отсутствие мутации входа. `tests/test_telegram_unit_price_observation_runtime.py` — persisted-result Telegram ranking, exact same SKU, no source calls, блок разных frozen cost assumptions и отказ на callback после переключения магазина.
+- Адресный Q22 profile после выделения application service — **26 passed in 1.42s**. Связанный Windows/Python 3.12 Q16–Q22 profile по 16 targets — **274 passed in 5.68s**. Использованы synthetic records, временный storage/basetemp, отключённые dotenv/plugin autoload и credential env; live API, owner DB, tracked `data/*.json` и реальный бот не использовались.
+- Acceptance: `UNIT_PRICE_RECOMMENDATION_RANKING_Q22_2026-10-27.md`. `git diff -- data` должен оставаться пустым; перед следующим этапом повторить AST/diff checks. Q22 — VERIFIED; Q23 продолжает неизменяемую историю сравнений.
+- Классификация: **Architecture Review Required** — добавлены pure ranking и local-only observation application services, встроенные в существующий Telegram runtime; storage schema, canonical result schema, Ozon adapters и бизнес-формула прибыли не менялись.

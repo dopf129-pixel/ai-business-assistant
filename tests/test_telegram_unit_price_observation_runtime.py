@@ -124,6 +124,64 @@ def _create_observation(runtime, scope, document):
     return card
 
 
+def _create_observation_at_price(runtime, scope, document, price):
+    callback = runtime.plan_start_callback(scope, document)
+    assert runtime.handle_callback(callback, user_id="owner-1")["status"] == "SELLER_PRICE_INPUT_REQUIRED"
+    assert runtime.handle_text(price, user_id="owner-1")["status"] == "EFFECTIVE_TIME_INPUT_REQUIRED"
+    preview = runtime.handle_text("2026-09-30T12:00:00+03:00", user_id="owner-1")
+    assert preview["status"] == "OBSERVATION_START_PREVIEW"
+    return runtime.handle_callback(preview["keyboard"]["buttons"][0]["callback"], user_id="owner-1")
+
+
+def _append_model_observation_result(repo, observation, scope, *, start, end, profit, units):
+    identity = observation["identity"]
+    payload = {
+        "schema_version": 1,
+        "identity": {
+            "store_id": scope["store_id"], "product_id": identity["product_id"],
+            "offer_id": identity["offer_id"], "sku": identity["sku"],
+            "sale_schema": identity["sale_schema"],
+        },
+        "seller_price_cents": observation["seller_price_cents"],
+        "status": "AVAILABLE", "evidence_basis": "MODELLED_FROM_OBSERVED_INPUTS",
+        "window": {
+            "from": start, "to": end, "timezone": "Europe/Moscow",
+            "date_basis": "SOURCE_CALENDAR_DATE",
+        },
+        "sources": [
+            {
+                "name": source, "status": "COMPLETE", "complete": True,
+                "source_window_start": start, "source_window_end": end,
+                "source_date_basis": "SHARED_EVENT_DATE", "timezone": "Europe/Moscow",
+                "received_at": NOW.isoformat(),
+            }
+            for source in ("ANALYTICS", "PERFORMANCE")
+        ],
+        "metrics": {
+            "profit_per_unit": profit, "observed_profit_per_unit": None,
+            "successful_sale_units": units, "successful_unit_denominator": units,
+            "revenue_basis": "MODELLED_SELLER_REVENUE",
+            "advertising_status": "CPC_ONLY_MODEL",
+        },
+        "completeness": {
+            "price_history": "PRICE_HISTORY_UNCONFIRMED", "successful_units": "CONFIRMED",
+            "finance": "CONFIRMED", "advertising": "PARTIAL",
+            "tariff": "MANUAL_ASSUMPTION", "tax": "MANUAL_ASSUMPTION",
+            "unit_cost": "MANUAL_ASSUMPTION", "returns": "UNKNOWN",
+            "analytics": "CONFIRMED", "window": "CONFIRMED",
+            "deduplication": "CONFIRMED",
+        },
+        "reasons": [], "warnings": [],
+    }
+    return repo.append_unit_price_observation_result(
+        observation["observation_id"], payload,
+        expected_state_revision=observation["state_revision"],
+        expected_result_revision=0,
+        idempotency_key=f"rank-result-{observation['seller_price_cents']}",
+        owner_id=scope["owner_id"], store_id=scope["store_id"],
+    )
+
+
 def test_saved_plan_start_records_owner_price_and_keeps_callback_id_short(flow):
     repo, runtime, _, scope, document, _ = flow
     card = _create_observation(runtime, scope, document)
@@ -289,3 +347,95 @@ def test_saved_multi_sku_plan_starts_observation_for_selected_row(flow):
     assert len(observations) == 1
     assert observations[0]["identity"]["sku"] == "sku-2"
     assert observations[0]["source_plan"] == {"document_id": saved["document_id"], "revision": 1}
+
+
+def test_observation_ranking_uses_latest_compatible_results_without_source_calls(flow):
+    repo, runtime, collector, scope, document, _ = flow
+    first_card = _create_observation_at_price(runtime, scope, document, "100")
+    first = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"][0]
+    finish = next(button["callback"] for button in first_card["keyboard"]["buttons"]
+                  if button["callback"].startswith("upo:finish:"))
+    runtime.handle_callback(finish, user_id="owner-1")
+    second_card = _create_observation_at_price(runtime, scope, document, "95")
+    observations = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"]
+    second = next(item for item in observations if item["seller_price_cents"] == 9_500)
+    first = next(item for item in observations if item["seller_price_cents"] == 10_000)
+    assert first_card["status"] == second_card["status"] == "OBSERVATION_CARD_READY"
+    assert _append_model_observation_result(
+        repo, first, scope, start="2026-10-01", end="2026-10-07", profit="20.00", units=100,
+    )["error"] is False
+    assert _append_model_observation_result(
+        repo, second, scope, start="2026-10-08", end="2026-10-14", profit="18.00", units=200,
+    )["error"] is False
+
+    card = runtime.handle_callback(f"upo:o:{first['observation_id']}", user_id="owner-1")
+    rank_callback = next(
+        button["callback"] for button in card["keyboard"]["buttons"]
+        if button["callback"].startswith("upo:rank:")
+    )
+    result = runtime.handle_callback(rank_callback, user_id="owner-1")
+
+    assert result["status"] == "OBSERVATION_RANKING_READY"
+    assert "только среди проверенных вариантов" in result["message"]
+    assert "Цена 100.00 ₽ → 20.00 ₽/шт." in result["message"]
+    assert "Цена 95.00 ₽ → 18.00 ₽/шт." in result["message"]
+    assert "Объём продаж не меняет рейтинг" in result["message"]
+    assert "не доказывает, что разницу вызвала только цена" in result["message"]
+    assert "Проверено вариантов разных цен: 2" in result["message"]
+    assert collector.calls == []
+
+
+def test_observation_ranking_blocks_different_frozen_scenario_assumptions(flow):
+    repo, runtime, _, scope, document, _ = flow
+    first_card = _create_observation_at_price(runtime, scope, document, "100")
+    observations = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"]
+    first = observations[0]
+    finish = next(button["callback"] for button in first_card["keyboard"]["buttons"]
+                  if button["callback"].startswith("upo:finish:"))
+    runtime.handle_callback(finish, user_id="owner-1")
+    second_payload = _plan_payload()
+    second_payload["items"][0]["inputs"]["cost"] = "101.00"
+    saved = repo.save_document(
+        title="Changed assumptions", payload=second_payload,
+        idempotency_key="rank-plan-changed-cost",
+    )
+    second_document = runtime.planning_service.get_document(saved["document_id"], revision=1)["document"]
+    _create_observation_at_price(runtime, scope, second_document, "95")
+    observations = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"]
+    second = next(item for item in observations if item["seller_price_cents"] == 9_500)
+    first = next(item for item in observations if item["seller_price_cents"] == 10_000)
+    _append_model_observation_result(
+        repo, first, scope, start="2026-10-01", end="2026-10-07", profit="20.00", units=100,
+    )
+    _append_model_observation_result(
+        repo, second, scope, start="2026-10-08", end="2026-10-14", profit="18.00", units=200,
+    )
+
+    result = runtime.handle_callback(f"upo:rank:{first['observation_id']}", user_id="owner-1")
+
+    assert result["status"] == "OBSERVATION_RANKING_NOT_READY"
+    assert "Рейтинг не построен" in result["message"]
+    assert "модельные допущения различаются" in result["message"]
+    assert "Максимум" not in result["message"]
+
+
+def test_observation_ranking_callback_cannot_read_another_store(flow):
+    repo, runtime, collector, scope, document, _ = flow
+    _create_observation_at_price(runtime, scope, document, "100")
+    observation = repo.list_unit_price_observations(owner_id="owner-1", store_id="store-a")["items"][0]
+    _append_model_observation_result(
+        repo, observation, scope, start="2026-10-01", end="2026-10-07", profit="20.00", units=100,
+    )
+    callback = f"upo:rank:{observation['observation_id']}"
+    card = runtime.handle_callback(f"upo:o:{observation['observation_id']}", user_id="owner-1")
+    assert any(button["callback"] == callback for button in card["keyboard"]["buttons"])
+
+    other_store = set_current_tenant_user_id(make_store_tenant_scope("owner-1", "store-b"))
+    try:
+        result = runtime.handle_callback(callback, user_id="owner-1")
+    finally:
+        reset_current_tenant_user_id(other_store)
+
+    assert result["status"] == "OBSERVATION_ACTION_STALE"
+    assert "20.00" not in result["message"]
+    assert collector.calls == []
