@@ -4882,3 +4882,6 @@ Completed:
 
 - Добавлен локальный `update_bot.ps1 -CheckOnly`: он показывает текущую ревизию, кэшированный target SHA, безопасные data conflicts, зависимости, lifecycle и необходимость backup. Fetch/update/stop/start не выполняет.
 - Synthetic Git preflight: **9 passed**; Git ref, worktree и fake process state не изменились. Exact-head CI предстоит; см. `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`.
+# 2026-10-27 — unit-price observation Q17
+
+- Q17 bounded read-only collection завершён: точное FBO/SKU окно использует существующие ограниченные Ozon finance/Performance adapters; денежные и ценовые основания не выдаются за подтверждённую прибыль. Изолированный профиль: 172 passed; полный pytest/CI ещё впереди (Q33–Q35). Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`.

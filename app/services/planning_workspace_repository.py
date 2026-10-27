@@ -65,6 +65,7 @@ class PlanningWorkspaceRepository:
     _OBSERVATION_METRIC_KEYS = frozenset({
         "ordered_units", "cancelled_units", "returned_units", "successful_sale_units",
         "gross_seller_revenue", "net_seller_revenue", "attributed_revenue",
+        "discount_points", "other_fees",
         "seller_revenue_drr_percent", "attributed_revenue_drr_percent",
         "cpc_spend", "other_ad_spend", "finance_net", "acquiring", "commission",
         "logistics", "last_mile", "cross_docking", "paid_storage", "unit_cost",
@@ -2281,7 +2282,7 @@ class PlanningWorkspaceRepository:
             "name", "status", "complete", "row_count", "requested_at", "received_at",
             "as_of", "source_date_basis", "source_window_start", "source_window_end",
             "timezone", "correction_revision", "reason", "unknown_field_count",
-            "unsupported_types",
+            "unknown_fields", "unsupported_types",
         }
         if (not isinstance(source, dict) or not set(source).issubset(allowed)
                 or not {"name", "status", "complete"}.issubset(source)
@@ -2315,6 +2316,24 @@ class PlanningWorkspaceRepository:
             or len(source["unsupported_types"]) > 50
             or any(not isinstance(item, str) or len(item) > 80
                    for item in source["unsupported_types"])
+        ):
+            return False
+        if "unknown_fields" in source and (
+            not isinstance(source["unknown_fields"], list)
+            or len(source["unknown_fields"]) > 50
+            or any(
+                not isinstance(item, dict)
+                or set(item) != {"name", "type"}
+                or not isinstance(item.get("name"), str)
+                or not item["name"]
+                or len(item["name"]) > 80
+                or not isinstance(item.get("type"), str)
+                or item["type"] not in {
+                    "null", "bool", "int", "decimal", "float", "string",
+                    "object", "array", "unknown",
+                }
+                for item in source["unknown_fields"]
+            )
         ):
             return False
         return True

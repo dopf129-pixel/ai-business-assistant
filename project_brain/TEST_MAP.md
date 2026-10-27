@@ -5761,3 +5761,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Full Windows/Python 3.12 profile on the exact copied tree: **3745 passed in 42.92s**. Dotenv and live credentials were disabled; AI_ASSISTANT_STORAGE_ROOT was unset because two tests assert the legacy no-variable default.
 - python -m compileall -q app tests: exit 0. Existing non-blocking SyntaxWarning in tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177.
 - Exact-head Linux/Python 3.11 and Docker build/runtime remain CI evidence after PR publication.
+# Unit-price observation collection (Q17)
+
+- `tests/test_unit_price_observation_collection_service.py` — bounded read-only collection, completed local windows, exact FBO/SKU scope, finance trace budgets, fake-adapter/retry behavior, optional Performance CPC, source completeness, unsupported/unknown schema metadata, and privacy projection.
+- `tests/test_unit_price_observation_repository.py` — Q16 durable observation/result contract plus Q17 additive unknown-field/type metadata allowlist and raw-value rejection.
+- `tests/test_period_profit_sku_telegram_flow.py::test_factory_composes_observation_collector_with_existing_sources` — production factory wires the existing planning repository, finance and per-SKU advertising adapters into the observation runtime.
+- Linked Q17 profile: 172 passed across the above tests and existing finance/Performance budget/source regressions. Full suite/CI planned for Q33–Q35.

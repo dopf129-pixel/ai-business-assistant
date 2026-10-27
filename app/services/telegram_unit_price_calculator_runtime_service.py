@@ -48,6 +48,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         self.target_planning_service = target_planning_service
         self.advertising_cap_service = advertising_cap_service
         self.tariff_profile_runtime_service = tariff_profile_runtime_service
+        self.observation_collection_service = None
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.session_ttl_seconds = max(1, int(session_ttl_seconds))

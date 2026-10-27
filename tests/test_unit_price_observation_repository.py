@@ -247,6 +247,45 @@ def test_result_versions_are_immutable_versioned_and_idempotent(tmp_path):
         reset_current_tenant_user_id(token)
 
 
+def test_result_source_preserves_unknown_api_field_names_and_types_without_values(tmp_path):
+    repo = _repo(tmp_path)
+    token = _context()
+    try:
+        plan = _plan(repo)
+        observation = _start(repo, plan)
+        payload = _result(sources=[{
+            "name": "FINANCE",
+            "status": "PARTIAL",
+            "complete": False,
+            "unknown_field_count": 1,
+            "unknown_fields": [{"name": "new_flag", "type": "bool"}],
+            "unsupported_types": ["type_id:777"],
+        }])
+        stored = repo.append_unit_price_observation_result(
+            observation["observation_id"], payload,
+            expected_state_revision=1, expected_result_revision=0,
+            idempotency_key="obs-schema-evidence-01",
+        )
+        assert stored["error"] is False
+        readback = repo.get_unit_price_observation(observation["observation_id"])
+        source = readback["result"]["payload"]["sources"][0]
+        assert source["unknown_fields"] == [{"name": "new_flag", "type": "bool"}]
+        assert source["unsupported_types"] == ["type_id:777"]
+        assert "value" not in source["unknown_fields"][0]
+
+        payload["sources"][0]["unknown_fields"] = [{
+            "name": "new_flag", "type": "bool", "value": "must-not-be-stored",
+        }]
+        invalid = repo.append_unit_price_observation_result(
+            observation["observation_id"], payload,
+            expected_state_revision=1, expected_result_revision=1,
+            idempotency_key="obs-schema-evidence-02",
+        )
+        assert invalid["code"] == "PLANNING_OBSERVATION_RESULT_INVALID"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_results_allow_correction_versions_after_finish_but_not_archive(tmp_path):
     repo = _repo(tmp_path)
     token = _context()

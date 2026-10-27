@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q16 завершены, Q17 выполняется, Q18–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q17 завершены, Q18 выполняется, Q19–Q35 ожидают.
 
 ## Исходная точка
 
@@ -36,8 +36,8 @@
 | Q14 | VERIFIED | Numeric acceptance N01–N06, N08, N10/N11 and 21 related unit-price/export suites: 389 passed in 7.84s in isolated Windows/Python 3.12.10 environment. See acceptance below. |
 | Q15 | VERIFIED | Контракт разносит сценарную цену, owner declaration, текущий API snapshot и per-sale verified history; зафиксированы часы/интервалы, виды количеств, N07–N09 и ограничения источников. Acceptance ниже. |
 | Q16 | VERIFIED | Additive planning DB v3→v4 observation/results repository, append-only result revisions, CAS/idempotency, exact owner/store/SKU/price binding, quotas, overlap retention and rollback. Focused profile: **38 passed in 1.58s**; acceptance `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. |
-| Q17 | IN_PROGRESS | Начат аудит существующих read-only adapters и operation-budget boundaries; дальше — bounded collector с fake transport и проверкой retries/pagination/cancellation. |
-| Q18 | NOT_STARTED | — |
+| Q17 | VERIFIED | Read-only collector exact-bound к FBO наблюдению и завершённому окну; использует текущие finance/Performance adapters и root budget. Unknown field/type metadata сохранены без raw values; 172 focused tests passed. Acceptance ниже. |
+| Q18 | IN_PROGRESS | Начата нормализация collected evidence: взвешенные знаменатели, дубликаты/корректировки, mixed price/date basis, реклама и запрет двойного вычитания. |
 | Q19 | NOT_STARTED | — |
 | Q20 | NOT_STARTED | — |
 | Q21 | NOT_STARTED | — |
@@ -70,8 +70,7 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q11: построить bounded grid/step, включая границы frozen tariff bands; раскрыть исследованный набор и не выдавать его за глобальный оптимум.
-2. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
+Продолжить с Q18: нормализовать Q17 evidence в отдельной pure/model boundary с тестами на weighted aggregates, deduplication, mixed-price windows, correction handling, DRR revenue bases, finance-included advertising и отсутствие распределения account totals по SKU. Сохранить исходную полноту и не сообщать факт прибыли при неизвестном denominator.
 
 ## Записи исполнения
 
@@ -237,3 +236,12 @@
 - Bounded quotas/pagination применяются до роста хранилища. Завершённые overlapping windows сохраняются отдельно и остаются INCOMPARABLE, без автоматического объединения.
 - Isolated Windows/Python 3.12 профиль по новому repository test и двум существующим migration/repository modules: **38 passed in 1.58s**. `py_compile`, `git diff --check` прошли; `git diff -- data` пустой. Только synthetic temporary storage, без API/сети/.env/owner DB/live bot.
 - Acceptance: `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. Q16 — VERIFIED; реализация меняет схему и repository contract, классификация **Architecture Review Required**. Следующий этап Q17 — read-only collection через существующие adapters и bounded HTTP trace.
+
+### Q17 — bounded read-only collection (2026-10-27)
+
+- Добавлен `UnitPriceObservationCollectionService`, подключённый через существующую factory/runtime композицию. Коллектор проверяет точное FBO наблюдение, declared seller price и окно завершённых local dates от 3 до 56 дней; начало окна не раньше effective date.
+- Finance adapter заранее ограничен точным окном; finance retries/pagination и Performance polling работают внутри дочернего `PeriodProfitOperationTrace` (60 секунд, 64 HTTP attempts). Ошибки и отмены не оставляют trace активным.
+- Собираются SKU-scoped финансовые агрегаты и отдельный CPC evidence. Неизвестные поля/типы сохраняются только как ограниченные имена/типы; raw values, товарные имена, posting IDs и API payload не выдаются. История цены, успешные/заказанные единицы, возвраты, налог, себестоимость и историческая комиссия не выдумываются.
+- Новые регрессии проверяют окна/идентичность/FBO ограничения, fake finance transport, exact SKU scoping, budget/retry handling, optional Performance source, incomplete/unknown evidence и privacy projection; production factory composition также проверена. Результат остаётся evidence package, без записи immutable result до следующих этапов нормализации/сопоставления.
+- Изолированный Windows/Python 3.12.10 профиль из 10 связанных модулей — **172 passed in 3.65s**. Использованы новые TEMP storage/basetemp, dotenv/plugin autoload выключены, provider/credential env names удалены. `git diff --check` прошёл, `git diff -- data` пустой; сеть, live API, owner DB и бот не использовались. Полный pytest/CI оставлен Q33–Q35.
+- Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`. Q17 — VERIFIED; архитектурная классификация **Architecture Review Required** (новый service и factory composition). Далее Q18 — нормализация evidence и полноты.

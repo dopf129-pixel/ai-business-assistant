@@ -311,6 +311,14 @@ def test_production_factory_exposes_sku_runtime(monkeypatch, tmp_path):
         runner.button_handler.unit_price_calculator_runtime_service
         is runner.unit_price_calculator_runtime_service
     )
+    from services.unit_price_observation_collection_service import (
+        UnitPriceObservationCollectionService,
+    )
+    collector = runner.unit_price_calculator_runtime_service.observation_collection_service
+    assert isinstance(collector, UnitPriceObservationCollectionService)
+    assert collector.repository is runner.unit_price_calculator_runtime_service.tariff_profile_runtime_service.repository
+    assert collector.finance_service is runner.unit_price_calculator_runtime_service.source.finance_service
+    assert collector.advertising_service is runner.period_profit_sku_runtime_service.advertising_service
     from services.telegram_external_expense_runtime_service import (
         TelegramExternalExpenseRuntimeService,
     )

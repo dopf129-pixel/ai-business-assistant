@@ -109,6 +109,9 @@ from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.telegram_unit_price_tariff_profile_runtime_service import (
     TelegramUnitPriceTariffProfileRuntimeService,
 )
+from services.unit_price_observation_collection_service import (
+    UnitPriceObservationCollectionService,
+)
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.telegram_saved_planning_plan_runtime_service import (
@@ -371,6 +374,20 @@ def create_telegram_assistant():
     period_profit_cost_service = PeriodProfitEffectiveCostService()
 
     period_profit_advertising_service = PeriodProfitSkuAdvertisingService()
+
+    if (
+        unit_price_calculator_runtime_service is not None
+        and planning_workspace_repository is not None
+    ):
+        unit_price_calculator_runtime_service.observation_collection_service = (
+            UnitPriceObservationCollectionService(
+                repository=planning_workspace_repository,
+                finance_service=(
+                    unit_price_calculator_runtime_service.source.finance_service
+                ),
+                advertising_service=period_profit_advertising_service,
+            )
+        )
 
     period_profit_sku_runtime_service = (
         PeriodProfitSkuRuntimeService(
