@@ -1,3 +1,10 @@
+# 2026-10-27 — Q16: долговременный журнал наблюдения цены
+
+- Добавлена additive planning DB v4 schema для tenant/store-scoped наблюдений и immutable result revisions; version saved plans не менялась.
+- Добавлены owner-confirmed start, точная привязка к сохранённому SKU/плану/цене, CAS/idempotency с fingerprint запроса, архив/заметки, bounded quotas и pagination.
+- Версии результата ограничены allowlisted schema, блокируются от изменения/удаления на уровне SQLite и повторно валидируются при чтении. Q16 focused profile: **38 passed**.
+- Acceptance: `project_brain/UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. Следующий этап Q17 — bounded read-only сбор через существующие Ozon adapters.
+
 # 2026-10-27 — Q15: контракт фактических и заявленных наблюдений цены
 
 - Зафиксированы отдельные основания цены: план, заявленная владельцем установка, текущий API snapshot и per-sale verified history. Проверено по официальному FAQ Ozon: история изменения цены через API недоступна; текущая цена не доказывает историю. Определены date/time clocks, completed window, типы quantities и несмешиваемые revenue/DRR bases для N07–N09.

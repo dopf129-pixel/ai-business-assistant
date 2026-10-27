@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q15 завершены, Q16–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q16 завершены, Q17 выполняется, Q18–Q35 ожидают.
 
 ## Исходная точка
 
@@ -35,8 +35,8 @@
 | Q13 | VERIFIED | Все ценовые consumers и owner exports используют согласованную тарифную основу; linked profile 230 passed. См. acceptance ниже. |
 | Q14 | VERIFIED | Numeric acceptance N01–N06, N08, N10/N11 and 21 related unit-price/export suites: 389 passed in 7.84s in isolated Windows/Python 3.12.10 environment. See acceptance below. |
 | Q15 | VERIFIED | Контракт разносит сценарную цену, owner declaration, текущий API snapshot и per-sale verified history; зафиксированы часы/интервалы, виды количеств, N07–N09 и ограничения источников. Acceptance ниже. |
-| Q16 | NOT_STARTED | — |
-| Q17 | NOT_STARTED | — |
+| Q16 | VERIFIED | Additive planning DB v3→v4 observation/results repository, append-only result revisions, CAS/idempotency, exact owner/store/SKU/price binding, quotas, overlap retention and rollback. Focused profile: **38 passed in 1.58s**; acceptance `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. |
+| Q17 | IN_PROGRESS | Начат аудит существующих read-only adapters и operation-budget boundaries; дальше — bounded collector с fake transport и проверкой retries/pagination/cancellation. |
 | Q18 | NOT_STARTED | — |
 | Q19 | NOT_STARTED | — |
 | Q20 | NOT_STARTED | — |
@@ -228,3 +228,12 @@
 - N07: хранить сумму и совместимый denominator; агрегировать `Σamount/Σunits`, не среднее дневных ставок. N08: seller-revenue DRR и attributed-revenue DRR — разные основания. N09: смешанные цены/времена/налоги/расходы, пересекающиеся окна и пропуски запрещают verified comparison; неподтверждённые рекламы/количества не выдаются за полный факт.
 - Runtime не менялся, потому что Q15 фиксирует контракт перед durable repository/collector Q16–Q18. Проверка: сопоставление контракта с разделами 6.2, 6.3, 9.1–9.5 и текущими `CurrentProductEconomicsSource`, `FinanceService`, `PeriodProfitOzonClient`; `git diff --check` проходит. N07–N09 отображены в контракте; live tests/API не запускались.
 - Acceptance: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`. Q15 — VERIFIED. Далее Q16: append-only tenant-scoped observation/results repository и CAS/idempotency.
+
+### Q16 — журнал и версии результата (2026-10-27)
+
+- PlanningWorkspaceRepository получил additive DB migration v3→v4 и tenant/store-scoped observation/result/idempotency tables. Plan payload version не менялась; существующие saved plans и финансовые хранилища не дублируются.
+- Запись начинается только после owner confirmation и точного совпадения FBO SKU identity с выбранной immutable saved-plan revision. Seller price хранится в копейках; effective timestamp сохраняется с исходным UTC offset, timezone окна проверяется, будущий момент отклоняется.
+- CAS защищает lifecycle и result revisions. Idempotency key связан с fingerprint нормализованного запроса. Result version exact-bound к store/SKU/scheme/seller price, проходит schema/source/metric/completeness allowlists; SQL triggers и read-time validation fail closed защищают immutable history.
+- Bounded quotas/pagination применяются до роста хранилища. Завершённые overlapping windows сохраняются отдельно и остаются INCOMPARABLE, без автоматического объединения.
+- Isolated Windows/Python 3.12 профиль по новому repository test и двум существующим migration/repository modules: **38 passed in 1.58s**. `py_compile`, `git diff --check` прошли; `git diff -- data` пустой. Только synthetic temporary storage, без API/сети/.env/owner DB/live bot.
+- Acceptance: `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. Q16 — VERIFIED; реализация меняет схему и repository contract, классификация **Architecture Review Required**. Следующий этап Q17 — read-only collection через существующие adapters и bounded HTTP trace.

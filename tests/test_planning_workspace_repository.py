@@ -331,7 +331,7 @@ def test_first_concurrent_connections_initialize_one_schema_and_allow_reopen(tmp
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(connect, range(2)))
-    assert all(len(rows) == 1 and tuple(rows[0]) == (1, 3) for rows in outcomes)
+        assert all(len(rows) == 1 and tuple(rows[0]) == (1, 4) for rows in outcomes)
 
     token = _context()
     try:
@@ -373,7 +373,7 @@ def test_legacy_schema_migrates_atomically_and_keeps_existing_document_state(tmp
         ).fetchone()
     finally:
         connection.close()
-    assert [tuple(row) for row in schema_rows] == [(1, 3)]
+    assert [tuple(row) for row in schema_rows] == [(1, 4)]
     assert document["state_revision"] == 1
 
 

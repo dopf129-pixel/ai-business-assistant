@@ -218,8 +218,16 @@ def test_v2_schema_migration_rolls_back_additive_tables_on_failure(tmp_path):
     connection = sqlite3.connect(db)
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     version = connection.execute("SELECT version FROM planning_schema").fetchone()[0]
+    triggers = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger'"
+    )}
     connection.close()
     assert version == 2
     assert "planning_tariff_profiles" not in tables
     assert "planning_tariff_profile_revisions" not in tables
     assert "planning_tariff_profile_idempotency" not in tables
+    assert "planning_unit_price_observations" not in tables
+    assert "planning_unit_price_observation_results" not in tables
+    assert "planning_unit_price_observation_idempotency" not in tables
+    assert "trg_unit_price_observation_results_no_update" not in triggers
+    assert "trg_unit_price_observation_results_no_delete" not in triggers

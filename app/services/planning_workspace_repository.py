@@ -7,6 +7,7 @@ or factual finance repositories.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -15,6 +16,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
@@ -24,12 +26,16 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 3
-    DATABASE_SCHEMA_VERSION = 3
+    DATABASE_SCHEMA_VERSION = 4
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
     MAX_TARIFF_PAGE_SIZE = 10
     MAX_DOCUMENTS_PER_STORE = 200
+    MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE = 100
+    MAX_UNIT_PRICE_OBSERVATION_RESULTS = 20
+    MAX_UNIT_PRICE_OBSERVATION_PAYLOAD_BYTES = 64 * 1024
+    MAX_UNIT_PRICE_OBSERVATION_NOTE_LENGTH = 500
     MAX_REVISIONS_PER_DOCUMENT = 20
     MAX_PAYLOAD_BYTES = 64 * 1024
     MAX_PAGE_SIZE = 10
@@ -39,6 +45,55 @@ class PlanningWorkspaceRepository:
     MAX_SALES_MIX_EXPENSE_TOTAL = Decimal("1000000000.00")
     _TITLE_LIMIT = 80
     _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
+    _OBSERVATION_STATUSES = frozenset({"ACTIVE", "FINISHED", "ARCHIVED"})
+    _OBSERVATION_RESULT_STATUSES = frozenset({
+        "AVAILABLE", "INSUFFICIENT_DATA", "SOURCE_UNAVAILABLE", "STALE",
+        "INCOMPARABLE", "CONFLICT", "UNSUPPORTED_SCHEME",
+    })
+    _OBSERVATION_EVIDENCE_BASES = frozenset({
+        "SCENARIO_ASSUMPTIONS", "MODELLED_FROM_OBSERVED_INPUTS",
+        "CANONICAL_FACT_COMPARABLE",
+    })
+    _OBSERVATION_SOURCE_NAMES = frozenset({
+        "FINANCE", "ANALYTICS", "PERFORMANCE", "RETURNS", "TARIFF",
+        "COST", "TAX", "OWNER_DECLARED_PRICE", "SELLER_PRICE",
+    })
+    _OBSERVATION_SOURCE_STATUSES = frozenset({
+        "COMPLETE", "PARTIAL", "SOURCE_UNAVAILABLE", "NOT_REQUESTED",
+        "STALE", "CONFLICT", "RATE_LIMITED",
+    })
+    _OBSERVATION_METRIC_KEYS = frozenset({
+        "ordered_units", "cancelled_units", "returned_units", "successful_sale_units",
+        "gross_seller_revenue", "net_seller_revenue", "attributed_revenue",
+        "seller_revenue_drr_percent", "attributed_revenue_drr_percent",
+        "cpc_spend", "other_ad_spend", "finance_net", "acquiring", "commission",
+        "logistics", "last_mile", "cross_docking", "paid_storage", "unit_cost",
+        "tax_per_unit", "profit_per_unit", "scenario_profit_per_unit",
+        "observed_profit_per_unit", "price_change_count", "source_row_count",
+        "duplicate_row_count", "correction_count", "sample_days",
+        "successful_unit_denominator", "weighted_ad_spend_numerator",
+        "revenue_basis", "date_basis", "window_start", "window_end",
+        "price_evidence_status", "tariff_status", "tax_status", "unit_cost_status",
+        "advertising_status",
+    })
+    _OBSERVATION_METRIC_FIELDS = frozenset({
+        "value", "amount", "numerator", "denominator", "unit", "currency",
+        "revenue_basis", "date_basis", "quantity_basis", "source", "status",
+        "complete", "reason", "correction_count", "sample_count",
+    })
+    _OBSERVATION_COMPLETENESS_KEYS = frozenset({
+        "price_history", "successful_units", "finance", "advertising", "tariff",
+        "tax", "unit_cost", "returns", "analytics", "window", "deduplication",
+    })
+    _OBSERVATION_COMPLETENESS_STATUSES = frozenset({
+        "CONFIRMED", "MANUAL_ASSUMPTION", "UNKNOWN", "STALE", "NOT_APPLICABLE",
+        "PARTIAL", "SOURCE_UNAVAILABLE", "PRICE_HISTORY_UNCONFIRMED", "MIXED_PRICES",
+        "CONFLICT", "INCOMPARABLE",
+    })
+    _OBSERVATION_FORBIDDEN_KEYS = frozenset({
+        "apikey", "clientid", "authorization", "token", "password",
+        "secret", "headers", "rawjson", "rawresponse",
+    })
     _INPUT_FIELDS = frozenset({
         "price", "cost", "commission_rate", "advertising_rate",
         "discount_points_rate", "logistics_per_unit", "last_mile_per_unit",
@@ -649,6 +704,477 @@ class PlanningWorkspaceRepository:
                 "next_offset": offset + limit if len(rows) > limit else None,
             }
         except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def start_unit_price_observation(
+        self, *, identity, seller_price_cents, source_document_id,
+        source_document_revision, effective_from, window_timezone,
+        owner_confirmed, idempotency_key, note="", owner_id=None, store_id=None,
+    ):
+        """Start a tenant-scoped observation without copying its saved plan."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized_identity = self._normalize_observation_identity(identity)
+        effective = self._timestamp_preserving_offset(effective_from)
+        timezone_name = self._observation_timezone(window_timezone)
+        normalized_note = self._observation_note(note)
+        normalized_document_id = self._short_text(source_document_id, 80)
+        if (
+            scope.get("error") or key is None or normalized_identity is None
+            or type(seller_price_cents) is not int or seller_price_cents < 1
+            or seller_price_cents > UnitPriceTariffResolver.MAX_PRICE_CENTS
+            or normalized_document_id is None
+            or type(source_document_revision) is not int or source_document_revision < 1
+            or effective is None or owner_confirmed is not True
+            or timezone_name is None or normalized_note is None
+        ):
+            return self._error("PLANNING_OBSERVATION_INPUT_INVALID")
+        request_hash = self._observation_request_hash({
+            "operation": "start", "identity": normalized_identity,
+            "seller_price_cents": seller_price_cents,
+            "source_document_id": normalized_document_id,
+            "source_document_revision": source_document_revision,
+            "effective_from": effective, "window_timezone": timezone_name,
+            "owner_confirmed": owner_confirmed, "note": normalized_note,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_OBSERVATION_INPUT_INVALID")
+
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._observation_idempotent_result(
+                connection, scope, key, request_hash,
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            now = self._timestamp()
+            if datetime.fromisoformat(effective.replace("Z", "+00:00")) > datetime.fromisoformat(
+                now.replace("Z", "+00:00")
+            ):
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_EFFECTIVE_TIME_FUTURE")
+            plan = connection.execute(
+                """SELECT d.status, r.payload_json FROM planning_documents d
+                   JOIN planning_revisions r ON r.document_id=d.document_id
+                     AND r.owner_id=d.owner_id AND r.store_id=d.store_id
+                   WHERE d.document_id=? AND d.owner_id=? AND d.store_id=? AND r.revision=?""",
+                (normalized_document_id, scope["owner_id"], scope["store_id"],
+                 source_document_revision),
+            ).fetchone()
+            if plan is None:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_SOURCE_PLAN_NOT_FOUND")
+            if not self._saved_plan_contains_observation_identity(
+                plan["payload_json"], normalized_identity, scope["store_id"],
+            ):
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_SOURCE_PLAN_SCOPE_MISMATCH")
+            count = connection.execute(
+                "SELECT COUNT(*) FROM planning_unit_price_observations WHERE owner_id=? AND store_id=?",
+                (scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if count >= self.MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_QUOTA_REACHED")
+            observation_id = uuid4().hex
+            connection.execute(
+                """INSERT INTO planning_unit_price_observations
+                   (observation_id, owner_id, store_id, product_id, offer_id, sku,
+                    sale_schema, source_document_id, source_document_revision,
+                    seller_price_cents, price_evidence_kind, effective_from,
+                    window_timezone, status, state_revision, result_revision, note,
+                    started_at, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'FBO', ?, ?, ?,
+                           'OWNER_DECLARED_PRICE_CHANGE', ?, ?, 'ACTIVE', 1, 0, ?, ?, ?, ?)""",
+                (observation_id, scope["owner_id"], scope["store_id"],
+                 normalized_identity["product_id"], normalized_identity["offer_id"],
+                 normalized_identity["sku"], normalized_document_id,
+                 source_document_revision, seller_price_cents, effective,
+                 timezone_name, normalized_note, now, now, now),
+            )
+            result = {
+                "error": False, "observation_id": observation_id,
+                "status": "ACTIVE", "state_revision": 1, "result_revision": 0,
+            }
+            self._remember_observation_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_OBSERVATION_ALREADY_ACTIVE")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def get_unit_price_observation(
+        self, observation_id, *, result_revision=None, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or not isinstance(observation_id, str)
+                or not observation_id.strip()
+                or (result_revision is not None and (
+                    type(result_revision) is not int or result_revision < 1
+                ))):
+            return self._error("PLANNING_OBSERVATION_NOT_FOUND")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            row = connection.execute(
+                "SELECT * FROM planning_unit_price_observations WHERE observation_id=? "
+                "AND owner_id=? AND store_id=?",
+                (observation_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                return self._error("PLANNING_OBSERVATION_NOT_FOUND")
+            selected_revision = (
+                result_revision if result_revision is not None else row["result_revision"]
+            )
+            result = None
+            if selected_revision:
+                result_row = connection.execute(
+                    "SELECT payload_json, created_at FROM planning_unit_price_observation_results "
+                    "WHERE observation_id=? AND owner_id=? AND store_id=? AND result_revision=?",
+                    (observation_id, scope["owner_id"], scope["store_id"], selected_revision),
+                ).fetchone()
+                if result_row is None:
+                    return self._error("PLANNING_OBSERVATION_RESULT_NOT_FOUND")
+                decoded = self._decode_observation_result(result_row["payload_json"])
+                if decoded.get("error"):
+                    return decoded
+                if not self._observation_result_matches(
+                    decoded["payload"], row, scope["store_id"],
+                ):
+                    return self._error("PLANNING_OBSERVATION_RESULT_IDENTITY_MISMATCH")
+                result = {
+                    "revision": selected_revision,
+                    "created_at": result_row["created_at"],
+                    "payload": decoded["payload"],
+                }
+            return {
+                "error": False,
+                "observation": self._observation_dict(row),
+                "result": result,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def list_unit_price_observations(
+        self, *, include_archived=False, limit=10, offset=0,
+        owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or type(include_archived) is not bool
+                or type(limit) is not int or not 1 <= limit <= self.MAX_PAGE_SIZE
+                or type(offset) is not int or offset < 0):
+            return self._error("PLANNING_OBSERVATION_LIST_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            filter_sql = "" if include_archived else " AND status!='ARCHIVED'"
+            rows = connection.execute(
+                "SELECT * FROM planning_unit_price_observations WHERE owner_id=? AND store_id=?"
+                + filter_sql + " ORDER BY updated_at DESC, observation_id LIMIT ? OFFSET ?",
+                (scope["owner_id"], scope["store_id"], limit + 1, offset),
+            ).fetchall()
+            return {
+                "error": False,
+                "items": [self._observation_dict(row) for row in rows[:limit]],
+                "has_more": len(rows) > limit,
+                "next_offset": offset + limit if len(rows) > limit else None,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def list_unit_price_observation_results(
+        self, observation_id, *, limit=10, offset=0, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or not isinstance(observation_id, str)
+                or not observation_id.strip() or type(limit) is not int
+                or not 1 <= limit <= self.MAX_PAGE_SIZE or type(offset) is not int or offset < 0):
+            return self._error("PLANNING_OBSERVATION_LIST_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            observation = connection.execute(
+                "SELECT * FROM planning_unit_price_observations WHERE observation_id=? "
+                "AND owner_id=? AND store_id=?",
+                (observation_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if observation is None:
+                return self._error("PLANNING_OBSERVATION_NOT_FOUND")
+            rows = connection.execute(
+                "SELECT result_revision, payload_json, created_at FROM planning_unit_price_observation_results "
+                "WHERE observation_id=? AND owner_id=? AND store_id=? "
+                "ORDER BY result_revision DESC LIMIT ? OFFSET ?",
+                (observation_id, scope["owner_id"], scope["store_id"], limit + 1, offset),
+            ).fetchall()
+            items = []
+            for row in rows[:limit]:
+                decoded = self._decode_observation_result(row["payload_json"])
+                if decoded.get("error"):
+                    return decoded
+                if not self._observation_result_matches(
+                    decoded["payload"], observation, scope["store_id"],
+                ):
+                    return self._error("PLANNING_OBSERVATION_RESULT_IDENTITY_MISMATCH")
+                items.append({
+                    "revision": row["result_revision"],
+                    "created_at": row["created_at"],
+                    "payload": decoded["payload"],
+                })
+            return {
+                "error": False, "items": items, "has_more": len(rows) > limit,
+                "next_offset": offset + limit if len(rows) > limit else None,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def set_unit_price_observation_note(
+        self, observation_id, note, *, expected_state_revision,
+        idempotency_key, owner_id=None, store_id=None,
+    ):
+        normalized_note = self._observation_note(note)
+        if normalized_note is None:
+            return self._error("PLANNING_OBSERVATION_INPUT_INVALID")
+        return self._mutate_unit_price_observation(
+            observation_id, owner_id, store_id, expected_state_revision,
+            idempotency_key, "note", normalized_note,
+        )
+
+    def finish_unit_price_observation(
+        self, observation_id, *, expected_state_revision,
+        idempotency_key, owner_id=None, store_id=None,
+    ):
+        return self._mutate_unit_price_observation(
+            observation_id, owner_id, store_id, expected_state_revision,
+            idempotency_key, "finish", None,
+        )
+
+    def archive_unit_price_observation(
+        self, observation_id, *, expected_state_revision,
+        idempotency_key, owner_id=None, store_id=None,
+    ):
+        return self._mutate_unit_price_observation(
+            observation_id, owner_id, store_id, expected_state_revision,
+            idempotency_key, "archive", None,
+        )
+
+    def _mutate_unit_price_observation(
+        self, observation_id, owner_id, store_id, expected_state_revision,
+        idempotency_key, mutation, value,
+    ):
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        if (scope.get("error") or not isinstance(observation_id, str)
+                or not observation_id.strip()
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or mutation not in {"note", "finish", "archive"} or key is None):
+            return self._error("PLANNING_OBSERVATION_INPUT_INVALID")
+        request_hash = self._observation_request_hash({
+            "operation": mutation, "observation_id": observation_id,
+            "expected_state_revision": expected_state_revision, "value": value,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_OBSERVATION_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._observation_idempotent_result(
+                connection, scope, key, request_hash,
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                "SELECT status, state_revision FROM planning_unit_price_observations "
+                "WHERE observation_id=? AND owner_id=? AND store_id=?",
+                (observation_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_NOT_FOUND")
+            if row["state_revision"] != expected_state_revision:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_STATE_CONFLICT")
+            if row["status"] == "ARCHIVED":
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_ARCHIVED")
+            if mutation == "finish" and row["status"] != "ACTIVE":
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_NOT_ACTIVE")
+            now = self._timestamp()
+            next_state = expected_state_revision + 1
+            if mutation == "note":
+                changed = connection.execute(
+                    "UPDATE planning_unit_price_observations SET note=?, state_revision=?, updated_at=? "
+                    "WHERE observation_id=? AND owner_id=? AND store_id=? AND state_revision=? "
+                    "AND status IN ('ACTIVE','FINISHED')",
+                    (value, next_state, now, observation_id, scope["owner_id"],
+                     scope["store_id"], expected_state_revision),
+                ).rowcount
+                status = row["status"]
+            elif mutation == "finish":
+                changed = connection.execute(
+                    "UPDATE planning_unit_price_observations SET status='FINISHED', finished_at=?, "
+                    "state_revision=?, updated_at=? WHERE observation_id=? AND owner_id=? AND store_id=? "
+                    "AND state_revision=? AND status='ACTIVE'",
+                    (now, next_state, now, observation_id, scope["owner_id"],
+                     scope["store_id"], expected_state_revision),
+                ).rowcount
+                status = "FINISHED"
+            else:
+                changed = connection.execute(
+                    "UPDATE planning_unit_price_observations SET status='ARCHIVED', archived_at=?, "
+                    "state_revision=?, updated_at=? WHERE observation_id=? AND owner_id=? AND store_id=? "
+                    "AND state_revision=? AND status IN ('ACTIVE','FINISHED')",
+                    (now, next_state, now, observation_id, scope["owner_id"],
+                     scope["store_id"], expected_state_revision),
+                ).rowcount
+                status = "ARCHIVED"
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_STATE_CONFLICT")
+            result = {
+                "error": False, "observation_id": observation_id,
+                "status": status, "state_revision": next_state,
+            }
+            self._remember_observation_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def append_unit_price_observation_result(
+        self, observation_id, payload, *, expected_state_revision,
+        expected_result_revision, idempotency_key, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized = self._normalize_unit_price_observation_result(payload)
+        encoded = self._encode(normalized) if normalized is not None else None
+        if (scope.get("error") or not isinstance(observation_id, str)
+                or not observation_id.strip() or key is None
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or type(expected_result_revision) is not int or expected_result_revision < 0
+                or encoded is None
+                or len(encoded.encode("utf-8")) > self.MAX_UNIT_PRICE_OBSERVATION_PAYLOAD_BYTES):
+            return self._error("PLANNING_OBSERVATION_RESULT_INVALID")
+        request_hash = self._observation_request_hash({
+            "operation": "append_result", "observation_id": observation_id,
+            "expected_state_revision": expected_state_revision,
+            "expected_result_revision": expected_result_revision,
+            "payload": normalized,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_OBSERVATION_RESULT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._observation_idempotent_result(
+                connection, scope, key, request_hash,
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                "SELECT status, state_revision, result_revision, product_id, offer_id, sku, "
+                "sale_schema, seller_price_cents FROM planning_unit_price_observations "
+                "WHERE observation_id=? AND owner_id=? AND store_id=?",
+                (observation_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_NOT_FOUND")
+            if row["status"] == "ARCHIVED":
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_ARCHIVED")
+            if not self._observation_result_matches(payload, row, scope["store_id"]):
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_RESULT_IDENTITY_MISMATCH")
+            if (row["state_revision"] != expected_state_revision
+                    or row["result_revision"] != expected_result_revision):
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_RESULT_CONFLICT")
+            if row["result_revision"] >= self.MAX_UNIT_PRICE_OBSERVATION_RESULTS:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_RESULT_QUOTA_REACHED")
+            now = self._timestamp()
+            revision = expected_result_revision + 1
+            connection.execute(
+                """INSERT INTO planning_unit_price_observation_results
+                   (observation_id, owner_id, store_id, result_revision, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (observation_id, scope["owner_id"], scope["store_id"], revision, encoded, now),
+            )
+            changed = connection.execute(
+                "UPDATE planning_unit_price_observations SET result_revision=?, updated_at=? "
+                "WHERE observation_id=? AND owner_id=? AND store_id=? AND state_revision=? "
+                "AND result_revision=? AND status!='ARCHIVED'",
+                (revision, now, observation_id, scope["owner_id"], scope["store_id"],
+                 expected_state_revision, expected_result_revision),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_RESULT_CONFLICT")
+            result = {
+                "error": False, "observation_id": observation_id,
+                "result_revision": revision,
+                "state_revision": expected_state_revision,
+            }
+            self._remember_observation_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
             return self._error("PLANNING_STORAGE_UNAVAILABLE")
         finally:
             connection.close()
@@ -1515,6 +2041,66 @@ class PlanningWorkspaceRepository:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(owner_id, store_id, idempotency_key)
             )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_unit_price_observations (
+                observation_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                offer_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                sale_schema TEXT NOT NULL CHECK(sale_schema='FBO'),
+                source_document_id TEXT NOT NULL,
+                source_document_revision INTEGER NOT NULL CHECK(source_document_revision >= 1),
+                seller_price_cents INTEGER NOT NULL CHECK(seller_price_cents > 0),
+                price_evidence_kind TEXT NOT NULL CHECK(price_evidence_kind='OWNER_DECLARED_PRICE_CHANGE'),
+                effective_from TEXT NOT NULL,
+                window_timezone TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('ACTIVE','FINISHED','ARCHIVED')),
+                state_revision INTEGER NOT NULL CHECK(state_revision >= 1),
+                result_revision INTEGER NOT NULL DEFAULT 0 CHECK(result_revision >= 0),
+                note TEXT NOT NULL DEFAULT '',
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                archived_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(observation_id, owner_id, store_id)
+            )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_unit_price_observations_scope "
+                "ON planning_unit_price_observations(owner_id, store_id, status, updated_at)"
+            )
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_unit_price_observations_one_active_sku "
+                "ON planning_unit_price_observations(owner_id, store_id, product_id, offer_id, sku, sale_schema) "
+                "WHERE status='ACTIVE'"
+            )
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_unit_price_observation_results (
+                observation_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                result_revision INTEGER NOT NULL CHECK(result_revision >= 1),
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(observation_id, owner_id, store_id, result_revision),
+                FOREIGN KEY(observation_id, owner_id, store_id)
+                    REFERENCES planning_unit_price_observations(observation_id, owner_id, store_id) ON DELETE CASCADE
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_unit_price_observation_idempotency (
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(owner_id, store_id, idempotency_key)
+            )""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_observation_results_no_update
+                BEFORE UPDATE ON planning_unit_price_observation_results
+                BEGIN SELECT RAISE(ABORT, 'immutable observation result'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_observation_results_no_delete
+                BEFORE DELETE ON planning_unit_price_observation_results
+                BEGIN SELECT RAISE(ABORT, 'immutable observation result'); END""")
             if version < self.DATABASE_SCHEMA_VERSION:
                 connection.execute(
                     "UPDATE planning_schema SET version=? WHERE singleton=1",
@@ -1543,6 +2129,358 @@ class PlanningWorkspaceRepository:
             "created_at": row["created_at"], "updated_at": row["updated_at"],
             "revision_created_at": revision_created_at, "payload": payload,
         }
+
+    @classmethod
+    def _normalize_observation_identity(cls, identity):
+        if not isinstance(identity, dict) or set(identity) != {
+            "product_id", "offer_id", "sku", "sale_schema",
+        } or identity.get("sale_schema") != "FBO":
+            return None
+        result = {
+            "product_id": cls._short_text(identity.get("product_id"), 80),
+            "offer_id": cls._short_text(identity.get("offer_id"), 120),
+            "sku": cls._short_text(identity.get("sku"), 64),
+            "sale_schema": "FBO",
+        }
+        return result if all(result.get(key) for key in result) else None
+
+    @staticmethod
+    def _observation_timezone(value):
+        if not isinstance(value, str) or not value or len(value) > 64:
+            return None
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            return None
+        return value
+
+    @classmethod
+    def _observation_note(cls, value):
+        if not isinstance(value, str) or "\x00" in value:
+            return None
+        normalized = " ".join(value.split())
+        return normalized if len(normalized) <= cls.MAX_UNIT_PRICE_OBSERVATION_NOTE_LENGTH else None
+
+    @staticmethod
+    def _saved_plan_contains_observation_identity(
+        payload_json, identity, store_id,
+    ):
+        try:
+            payload = json.loads(payload_json)
+        except (ValueError, TypeError):
+            return False
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_identity = item.get("identity")
+            product = item.get("product")
+            if not isinstance(item_identity, dict):
+                continue
+            item_scheme = item_identity.get("scheme")
+            if item_scheme is None and isinstance(product, dict):
+                item_scheme = product.get("scheme")
+            if (
+                str(item_identity.get("product_id") or "") == identity["product_id"]
+                and str(item_identity.get("offer_id") or "") == identity["offer_id"]
+                and str(item_identity.get("sku") or "") == identity["sku"]
+                and str(item_identity.get("store_id") or "") == store_id
+                and str(item_scheme or "").upper() == identity["sale_schema"]
+            ):
+                return True
+        return False
+
+    @classmethod
+    def _normalize_unit_price_observation_result(cls, payload):
+        allowed = {
+            "schema_version", "identity", "seller_price_cents", "status",
+            "evidence_basis", "window",
+            "sources", "metrics", "completeness", "reasons", "warnings",
+        }
+        if (not isinstance(payload, dict) or set(payload) != allowed
+                or type(payload.get("schema_version")) is not int
+                or payload.get("schema_version") != 1
+                or not isinstance(payload.get("identity"), dict)
+                or type(payload.get("seller_price_cents")) is not int
+                or payload.get("seller_price_cents") < 1
+                or payload.get("seller_price_cents") > UnitPriceTariffResolver.MAX_PRICE_CENTS
+                or not isinstance(payload.get("status"), str)
+                or payload.get("status") not in cls._OBSERVATION_RESULT_STATUSES
+                or not isinstance(payload.get("evidence_basis"), str)
+                or payload.get("evidence_basis") not in cls._OBSERVATION_EVIDENCE_BASES
+                or not isinstance(payload.get("window"), dict)
+                or not isinstance(payload.get("sources"), list)
+                or len(payload["sources"]) > 20
+                or not isinstance(payload.get("metrics"), dict)
+                or not isinstance(payload.get("completeness"), dict)
+                or not isinstance(payload.get("reasons"), list)
+                or not isinstance(payload.get("warnings"), list)
+                or len(payload["reasons"]) > 32 or len(payload["warnings"]) > 32):
+            return None
+        identity = payload["identity"]
+        if (set(identity) != {"store_id", "product_id", "offer_id", "sku", "sale_schema"}
+                or any(not cls._short_text(identity.get(key), limit) for key, limit in (
+                    ("store_id", 80), ("product_id", 80), ("offer_id", 120),
+                    ("sku", 64),
+                ))
+                or identity.get("sale_schema") != "FBO"):
+            return None
+        if any(not cls._valid_observation_source(item) for item in payload["sources"]):
+            return None
+        if any(
+            key not in cls._OBSERVATION_METRIC_KEYS
+            or not cls._valid_observation_metric_value(value)
+            for key, value in payload["metrics"].items()
+        ):
+            return None
+        if any(
+            key not in cls._OBSERVATION_COMPLETENESS_KEYS
+            or not cls._valid_observation_completeness(value)
+            for key, value in payload["completeness"].items()
+        ):
+            return None
+        window = payload["window"]
+        if set(window) != {"from", "to", "timezone", "date_basis"}:
+            return None
+        if (not isinstance(window.get("from"), str)
+                or not isinstance(window.get("to"), str)
+                or not isinstance(window.get("date_basis"), str)):
+            return None
+        try:
+            start = date.fromisoformat(window["from"])
+            end = date.fromisoformat(window["to"])
+        except (TypeError, ValueError):
+            return None
+        if (end < start or (end - start).days >= 56
+                or cls._observation_timezone(window["timezone"]) is None
+                or window["date_basis"] not in {
+                    "LOCAL_CALENDAR_DATE", "SOURCE_CALENDAR_DATE", "UTC_DATE",
+                }):
+            return None
+        for message_list in (payload["reasons"], payload["warnings"]):
+            if any(not isinstance(item, str) or len(item) > 300 for item in message_list):
+                return None
+        nodes = [0]
+        if not cls._observation_result_json_safe(payload, 0, nodes):
+            return None
+        # Return a JSON-round-tripped copy so caller-owned nested values cannot be
+        # mutated after validation or affect the immutable stored revision.
+        encoded = cls._encode(payload)
+        if encoded is None or len(encoded.encode("utf-8")) > cls.MAX_UNIT_PRICE_OBSERVATION_PAYLOAD_BYTES:
+            return None
+        try:
+            return json.loads(encoded)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _valid_observation_source(cls, source):
+        allowed = {
+            "name", "status", "complete", "row_count", "requested_at", "received_at",
+            "as_of", "source_date_basis", "source_window_start", "source_window_end",
+            "timezone", "correction_revision", "reason", "unknown_field_count",
+            "unsupported_types",
+        }
+        if (not isinstance(source, dict) or not set(source).issubset(allowed)
+                or not {"name", "status", "complete"}.issubset(source)
+                or not isinstance(source.get("name"), str)
+                or source["name"].upper() not in cls._OBSERVATION_SOURCE_NAMES
+                or not isinstance(source.get("status"), str)
+                or source["status"] not in cls._OBSERVATION_SOURCE_STATUSES
+                or type(source.get("complete")) is not bool):
+            return False
+        for key in ("row_count", "correction_revision", "unknown_field_count"):
+            if key in source and (type(source[key]) is not int or source[key] < 0
+                                  or source[key] > 10**9):
+                return False
+        for key in ("requested_at", "received_at", "as_of"):
+            if key in source and source[key] is not None and (
+                not isinstance(source[key], str) or cls._timestamp_or_date(source[key]) is None
+            ):
+                return False
+        for key in ("source_date_basis", "source_window_start", "source_window_end"):
+            if key in source and source[key] is not None and not isinstance(source[key], str):
+                return False
+        if ("timezone" in source and source["timezone"] is not None
+                and cls._observation_timezone(source["timezone"]) is None):
+            return False
+        if "reason" in source and (
+            not isinstance(source["reason"], str) or len(source["reason"]) > 300
+        ):
+            return False
+        if "unsupported_types" in source and (
+            not isinstance(source["unsupported_types"], list)
+            or len(source["unsupported_types"]) > 50
+            or any(not isinstance(item, str) or len(item) > 80
+                   for item in source["unsupported_types"])
+        ):
+            return False
+        return True
+
+    @classmethod
+    def _valid_observation_completeness(cls, value):
+        if isinstance(value, str):
+            return value in cls._OBSERVATION_COMPLETENESS_STATUSES
+        if not isinstance(value, dict) or not set(value).issubset({"status", "origin", "reason"}):
+            return False
+        return (
+            isinstance(value.get("status"), str)
+            and value["status"] in cls._OBSERVATION_COMPLETENESS_STATUSES
+            and ("origin" not in value or isinstance(value["origin"], str))
+            and ("reason" not in value or (
+                isinstance(value["reason"], str) and len(value["reason"]) <= 300
+            ))
+        )
+
+    @classmethod
+    def _valid_observation_metric_value(cls, value):
+        if value is None or type(value) in (bool, int) or isinstance(value, str):
+            return True
+        if not isinstance(value, dict) or not set(value).issubset(cls._OBSERVATION_METRIC_FIELDS):
+            return False
+        return all(
+            item is None or type(item) in (bool, int) or isinstance(item, str)
+            for item in value.values()
+        )
+
+    @classmethod
+    def _observation_result_matches(cls, payload, observation_row, store_id):
+        identity = payload.get("identity") if isinstance(payload, dict) else None
+        if not isinstance(identity, dict):
+            return False
+        return (
+            identity.get("store_id") == store_id
+            and identity.get("product_id") == observation_row["product_id"]
+            and identity.get("offer_id") == observation_row["offer_id"]
+            and identity.get("sku") == observation_row["sku"]
+            and identity.get("sale_schema") == observation_row["sale_schema"]
+            and payload.get("seller_price_cents") == observation_row["seller_price_cents"]
+        )
+
+    @classmethod
+    def _observation_result_json_safe(cls, value, depth, nodes):
+        nodes[0] += 1
+        if depth > 8 or nodes[0] > 2000:
+            return False
+        if value is None or type(value) in (bool, int):
+            return not (type(value) is int and abs(value) > 10**15)
+        if isinstance(value, str):
+            return len(value) <= 4096 and "\x00" not in value
+        if isinstance(value, list):
+            return len(value) <= 200 and all(
+                cls._observation_result_json_safe(item, depth + 1, nodes)
+                for item in value
+            )
+        if isinstance(value, dict):
+            if len(value) > 100:
+                return False
+            for key, item in value.items():
+                if not isinstance(key, str) or not key or len(key) > 80:
+                    return False
+                normalized_key = re.sub(r"[^a-z0-9]", "", key.casefold())
+                if normalized_key in cls._OBSERVATION_FORBIDDEN_KEYS:
+                    return False
+                if not cls._observation_result_json_safe(item, depth + 1, nodes):
+                    return False
+            return True
+        # Money and rates are serialized as decimal strings; floats are forbidden.
+        return False
+
+    @classmethod
+    def _decode_observation_result(cls, payload_json):
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, ValueError):
+            return cls._error("PLANNING_OBSERVATION_RESULT_CORRUPT")
+        if isinstance(payload, dict) and type(payload.get("schema_version")) is int:
+            if payload["schema_version"] > 1:
+                return cls._error("PLANNING_OBSERVATION_RESULT_VERSION_UNSUPPORTED")
+        normalized = cls._normalize_unit_price_observation_result(payload)
+        if normalized is None:
+            return cls._error("PLANNING_OBSERVATION_RESULT_CORRUPT")
+        return {"error": False, "payload": normalized}
+
+    @staticmethod
+    def _observation_dict(row):
+        return {
+            "observation_id": row["observation_id"],
+            "store_id": row["store_id"],
+            "identity": {
+                "product_id": row["product_id"], "offer_id": row["offer_id"],
+                "sku": row["sku"], "sale_schema": row["sale_schema"],
+            },
+            "source_plan": {
+                "document_id": row["source_document_id"],
+                "revision": row["source_document_revision"],
+            },
+            "seller_price_cents": row["seller_price_cents"],
+            "price_evidence_kind": row["price_evidence_kind"],
+            "effective_from": row["effective_from"],
+            "window_timezone": row["window_timezone"],
+            "recorded_at": row["started_at"],
+            "price_evidence_source": "USER",
+            "status": row["status"],
+            "state_revision": row["state_revision"],
+            "result_revision": row["result_revision"],
+            "note": row["note"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "archived_at": row["archived_at"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _observation_request_hash(request):
+        encoded = PlanningWorkspaceRepository._encode(request)
+        if encoded is None:
+            return None
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _observation_idempotent_result(connection, scope, key, request_hash):
+        row = connection.execute(
+            "SELECT request_hash, result_json FROM planning_unit_price_observation_idempotency "
+            "WHERE owner_id=? AND store_id=? AND idempotency_key=?",
+            (scope["owner_id"], scope["store_id"], key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["request_hash"] != request_hash:
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_OBSERVATION_IDEMPOTENCY_CONFLICT"
+            )
+        try:
+            result = json.loads(row["result_json"])
+        except (TypeError, ValueError):
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_OBSERVATION_IDEMPOTENCY_RECORD_CORRUPT"
+            )
+        if not isinstance(result, dict) or type(result.get("error")) is not bool:
+            return PlanningWorkspaceRepository._error(
+                "PLANNING_OBSERVATION_IDEMPOTENCY_RECORD_CORRUPT"
+            )
+        return result
+
+    @staticmethod
+    def _remember_observation_idempotency(connection, scope, key, request_hash, result, now):
+        connection.execute(
+            "INSERT INTO planning_unit_price_observation_idempotency "
+            "(owner_id, store_id, idempotency_key, request_hash, result_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (scope["owner_id"], scope["store_id"], key, request_hash,
+             PlanningWorkspaceRepository._encode(result), now),
+        )
+        connection.execute(
+            """DELETE FROM planning_unit_price_observation_idempotency
+               WHERE owner_id=? AND store_id=? AND idempotency_key IN (
+                 SELECT idempotency_key FROM planning_unit_price_observation_idempotency
+                 WHERE owner_id=? AND store_id=? ORDER BY created_at DESC, idempotency_key DESC
+                 LIMIT -1 OFFSET 1000)""",
+            (scope["owner_id"], scope["store_id"], scope["owner_id"], scope["store_id"]),
+        )
 
     @staticmethod
     def _title(value):
@@ -1596,6 +2534,18 @@ class PlanningWorkspaceRepository:
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             return None
         return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _timestamp_preserving_offset(value):
+        if not isinstance(value, str) or len(value) > 40:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return parsed.isoformat()
 
     @classmethod
     def _timestamp_or_date(cls, value):
