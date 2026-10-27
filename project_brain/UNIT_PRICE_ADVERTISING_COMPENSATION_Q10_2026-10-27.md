@@ -1,7 +1,7 @@
 # Q10 acceptance: advertising scenarios and compensation thresholds
 
-Date: 2026-10-27  
-Implementation branch: `codex/price-profit-per-unit-implementation-20261027`  
+Date: 2026-10-27
+Implementation branch: `codex/price-profit-per-unit-implementation-20261027`
 Stage: Q10 — advertising modes and rounded per-unit-profit compensation thresholds.
 
 ## Accepted behavior
