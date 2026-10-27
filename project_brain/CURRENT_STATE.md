@@ -1,3 +1,9 @@
+# 2026-10-27 — калькулятор прибыли с единицы: Q30–Q31
+
+- Q30 public-handler acceptance частично выполнена: два обязательных сценария — подтверждённая тарифная точка и ручной тариф с двумя диапазонами — проходят через production factory/public handlers; дополнительно проверен ранее существующий flow сохранения и наблюдения. Полный Q30 блокирует решение, можно ли принимать введённое владельцем число успешных продаж только как явно маркированное допущение модели.
+- Q31 related regression: **1085 passed**; bounded soak/evaluation checks: **3 passed**. Текущий production behavior не расширялся догадкой о количестве продаж.
+- Подробности и resume point: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`, acceptance Q30/Q31 в `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md` и `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`.
+
 # 2026-10-27 — Q29: сохранность калькулятора цены при backup/restore
 
 - Q29 завершён: синтетические тариф, план, наблюдение и две версии результата восстановлены через существующий backup в новый storage root; scope и privacy guards подтверждены.

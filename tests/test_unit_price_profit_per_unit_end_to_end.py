@@ -62,6 +62,24 @@ class _ScenarioSource:
         }
 
 
+class _CurrentPointScenarioSource(_ScenarioSource):
+    """Read-only fake exposing a confirmed current-price tariff point."""
+
+    def load_snapshot(self, sku, user_id, force_refresh=False):
+        snapshot = super().load_snapshot(sku, user_id, force_refresh)
+        snapshot["suggested_inputs"]["commission_rate"] = 14.0
+        snapshot["input_provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+        snapshot["snapshot_id"] = "0123456789abcdef"
+        as_of = "2026-10-27T10:00:00+03:00"
+        snapshot["source_periods"]["seller_price_as_of"] = as_of
+        snapshot["source_periods"]["commission_rate_as_of"] = as_of
+        snapshot["source_completeness"].update({
+            "seller_price": {"complete": True},
+            "commission_rate": {"complete": True},
+        })
+        return snapshot
+
+
 class _IncompleteObservationCollector:
     """Synthetic source matching current adapters' intentionally limited contract."""
 
@@ -280,3 +298,157 @@ def test_production_factory_connects_price_planning_observation_and_next_variant
         assert len(collector.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)
+
+
+def test_production_public_route_uses_confirmed_current_tariff_point_and_exports_snapshot(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY",
+        "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    from telegram_assistant_factory import create_telegram_assistant
+
+    runner = create_telegram_assistant()
+    source = _CurrentPointScenarioSource()
+    runner.unit_price_calculator_runtime_service.source = source
+    user_id = "q30-current-point-owner"
+    store_id = "store-q24"
+    tenant = set_current_tenant_user_id(make_store_tenant_scope(user_id, store_id))
+    try:
+        entry = runner.unit_price_calculator_runtime_service.build_product_entry_button(
+            user_id, "sku-q24",
+        )
+        result = runner.button_handler.handle(entry["callback"], user_id=user_id)
+        assert result["status"] == "UNIT_PRICE_SCENARIO_READY", (
+            result["status"],
+            (result.get("price_scenario") or {}).get("missing_inputs"),
+            (result.get("price_scenario") or {}).get("invalid_inputs"),
+            result.get("code"),
+        )
+        tariff = result["price_scenario"]["tariff_resolution"]
+        assert tariff["status"] == "CURRENT_PRICE_POINT_ONLY"
+        assert float(tariff["commission_rate"]) == 14.0
+        assert source.calls == [("sku-q24", user_id, False)]
+
+        active = runner.unit_price_calculator_runtime_service.active_scenario_identity(user_id)
+        scenario_id = active["scenario_id"]
+        version = active["version"]
+        assumptions = runner.button_handler.handle(
+            f"upc:a:{scenario_id}:{version}", user_id=user_id,
+        )
+        profile = runner.button_handler.handle(
+            _button(assumptions, "Профиль комиссии")["callback"], user_id=user_id,
+        )
+        assert profile["status"] == "UNIT_PRICE_TARIFF_SNAPSHOT_READY"
+        exported = runner.button_handler.handle(
+            _button(profile, "Скачать JSON")["callback"], user_id=user_id,
+        )
+        assert exported["export_kind"] == "unit_price_tariff_profile"
+        assert b"CURRENT_PRICE_POINT" in exported["file_content"]
+        # Only the injected read-only snapshot source was reachable in this public route.
+        assert source.calls == [("sku-q24", user_id, False)]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_manual_tariff_survives_store_switch_restart_and_public_export(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY",
+        "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    from telegram_assistant_factory import create_telegram_assistant
+
+    first_runner = create_telegram_assistant()
+    first_source = _ScenarioSource()
+    first_runner.unit_price_calculator_runtime_service.source = first_source
+    handler = first_runner.button_handler
+    user_id = "q30-restart-owner"
+    store_id = "store-q24"
+
+    tenant = set_current_tenant_user_id(make_store_tenant_scope(user_id, store_id))
+    try:
+        entry = first_runner.unit_price_calculator_runtime_service.build_product_entry_button(
+            user_id, "sku-q24",
+        )
+        scenario = handler.handle(entry["callback"], user_id=user_id)
+        prompt = handler.handle(
+            _button(scenario, "Указать тариф комиссии")["callback"], user_id=user_id,
+        )
+        assert prompt["status"] == "UNIT_PRICE_TARIFF_INPUT"
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        effective = (today - timedelta(days=20)).isoformat()
+        preview = handler.handle_text(
+            f"Действует с: {effective}\n0,01–99,99 ₽ = 12%\n100–199,99 ₽ = 14%",
+            user_id=user_id,
+        )
+        assert preview["status"] == "UNIT_PRICE_TARIFF_PREVIEW"
+        save_callback = _button(preview, "✅ Сохранить для SKU")["callback"]
+        saved = handler.handle(save_callback, user_id=user_id)
+        assert saved["status"] == "UNIT_PRICE_SCENARIO_READY"
+        active = first_runner.unit_price_calculator_runtime_service.active_scenario_identity(user_id)
+        scenario_id = active["scenario_id"]
+        version = active["version"]
+        profile_callback = _button(
+            handler.handle(f"upc:a:{scenario_id}:{version}", user_id=user_id),
+            "Профиль комиссии",
+        )["callback"]
+        export_callback = _button(
+            handler.handle(profile_callback, user_id=user_id), "Скачать JSON",
+        )["callback"]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    switched = set_current_tenant_user_id(
+        make_store_tenant_scope(user_id, "store-q30-other"),
+    )
+    try:
+        stale_export = handler.handle(export_callback, user_id=user_id)
+        assert stale_export.get("error") is True
+        other_store_profiles = handler.unit_price_tariff_profile_runtime_service.repository.list_tariff_profiles(
+            owner_id=user_id, store_id="store-q30-other",
+        )
+        assert other_store_profiles["error"] is False
+        assert other_store_profiles["items"] == []
+    finally:
+        reset_current_tenant_user_id(switched)
+
+    # A fresh production composition reads the persisted manual profile from the same temp root.
+    second_runner = create_telegram_assistant()
+    second_source = _ScenarioSource()
+    second_runner.unit_price_calculator_runtime_service.source = second_source
+    second_tenant = set_current_tenant_user_id(
+        make_store_tenant_scope(user_id, store_id),
+    )
+    try:
+        entry = second_runner.unit_price_calculator_runtime_service.build_product_entry_button(
+            user_id, "sku-q24",
+        )
+        reopened = second_runner.button_handler.handle(entry["callback"], user_id=user_id)
+        assert reopened["status"] == "UNIT_PRICE_SCENARIO_READY"
+        assert reopened["price_scenario"]["tariff_resolution"]["commission_rate"] == "14"
+        assert second_source.calls == [("sku-q24", user_id, False)]
+
+        active = second_runner.unit_price_calculator_runtime_service.active_scenario_identity(user_id)
+        scenario_id = active["scenario_id"]
+        version = active["version"]
+        assumptions = second_runner.button_handler.handle(
+            f"upc:a:{scenario_id}:{version}", user_id=user_id,
+        )
+        profile = second_runner.button_handler.handle(
+            _button(assumptions, "Профиль комиссии")["callback"], user_id=user_id,
+        )
+        exported = second_runner.button_handler.handle(
+            _button(profile, "Скачать JSON")["callback"], user_id=user_id,
+        )
+        assert exported["export_kind"] == "unit_price_tariff_profile"
+        assert b"MANUAL_SELLER_ASSUMPTION" in exported["file_content"]
+        assert second_source.calls == [("sku-q24", user_id, False)]
+    finally:
+        reset_current_tenant_user_id(second_tenant)

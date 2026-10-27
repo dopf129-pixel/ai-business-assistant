@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q29 завершены, Q30–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q29 завершены, Q30 приостановлен из-за необходимого бизнес-решения; Q31 проверен на текущей реализации; Q32–Q35 ожидают.
 
 ## Исходная точка
 
@@ -49,8 +49,8 @@
 | Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
 | Q28 | VERIFIED | Fake-clock cancellation/time budget, partial source and explicit retry semantics verified. Existing attempt budget/quota/export-size/rollback guards pass in linked Q16–Q28 profile: 474 passed across 32 targets. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. |
 | Q29 | VERIFIED | Синтетический N13: тариф, план, observation и две версии результата пережили backup/verify/dry-run/restore в новый root; scope и приватность проверены. Q29 профиль: 5 passed, включая v2/v3/v4 migrations. Acceptance ниже. |
-| Q30 | NOT_STARTED | — |
-| Q31 | NOT_STARTED | — |
+| Q30 | BLOCKED_DECISION | Два новых public-handler сценария Q30 и существующий полный flow проверены; третий flow не может честно сделать модель доступной, пока не определено, разрешено ли вводить число успешных продаж как допущение. См. `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`. |
+| Q31 | VERIFIED_EXISTING | Связанный регрессионный набор: 1085 passed за 34.88s; bounded soak/evaluation profile: 3 passed за 3.26s. Q30 production-поведение не менялось. См. `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`. |
 | Q32 | NOT_STARTED | — |
 | Q33 | NOT_STARTED | — |
 | Q34 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q30: пройти минимум три production-composition пользовательских flow через public handlers и synthetic sources; затем Q31–Q35 по dependency order.
+Продолжить с необходимого решения для Q30: допустимо ли явно вводить владельцу число успешных продаж для модельного результата, без присвоения этому числу статуса API-факта. После решения закончить третий сквозной flow и продолжить Q32–Q35 по dependency order; Q31 linked regression уже прошёл на текущем production-коде.
 
 ## Записи исполнения
 
