@@ -31,6 +31,12 @@
 - `tests/test_unit_price_scenario_telegram_runtime.py` covers public entry/input/result, invalid-input preservation, 10-row pagination and global row selection, applying a selected candidate with a single frozen tariff/source read, Telegram callback byte limits, and read-only navigation when stale inputs disable applying.
 - Focused Q11 profile: **104 passed in 1.55s**. Linked Q04–Q11 Windows/Python 3.12.10 profile over the 22 tariff/planning/scenario/source/consumer modules: **398 passed in 8.05s**. Three changed Python modules compiled in memory; `git diff --check` passed. Five protected tracked JSON files are clean against HEAD and their LF-normalized SHA-256 hashes match Git objects; the raw checkout uses CRLF. Test storage and basetemp were new temporary roots, dotenv/plugin autoload disabled and credential-named environment variables removed. No API, owner DB, ignored runtime data or real bot used. Acceptance: `UNIT_PRICE_PRICE_GRID_Q11_2026-10-27.md`.
 
+## Q12 — target-price search across frozen tariff bands (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_scenario_telegram_runtime.py` cover segmented search across tariff jumps, direct candidate/previous-cent validation, ordered intervals, partial coverage disclosure, and tariff-aware apply.
+- `tests/test_unit_price_tariff_snapshot_adapter.py` covers snapshot identity, unavailable source, point-only and legacy exact-price behavior. Linked Q04–Q12 isolated profile across 21 modules: **404 passed in 7.97s**; focused profile: **115 passed in 1.65s**.
+- Search budgets: at most 20 tariff rules and 1,024 tariff-aware canonical forwards; gaps/conflicts remain unknown. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`.
+
 ## Q09 — сравнение 2–10 вариантов по canonical прибыли/шт. (2026-10-27)
 
 - `tests/test_unit_price_target_planning_service.py`: тарифная ставка подбирается по каждому candidate price на одном frozen snapshot; проверены переход ставок на границе 100 ₽, current-price point только на точной цене, legacy exact-price-only, 10/11 кандидатов, сравнение после ROUND_HALF_UP и tie по прибыли, равной после округления. Unknown candidate остаётся без прибыли и не ранжируется.

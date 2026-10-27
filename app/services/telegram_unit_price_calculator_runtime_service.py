@@ -1217,13 +1217,29 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             mode = "target_margin"
             target = parsed["value"]
+            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or session.get("restored_from_saved_plan") is True
+            )
             try:
                 result = self.target_planning_service.solve(
-                    session["inputs"],
+                    comparison_inputs,
                     target,
                     identity=self._scenario_identity(session),
-                    provenance=session["provenance"],
+                    provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=(
+                        session.get("legacy_tariff_price_cents")
+                        if session.get("restored_from_saved_plan") is True else None
+                    ),
                 )
             except Exception:
                 return self._price_planning_prompt(
@@ -1327,9 +1343,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._stale_result()
 
         if not isinstance(result, dict) or result.get("error") is True:
+            code = result.get("code") if isinstance(result, dict) else None
+            notice = (
+                "В тарифном снимке больше 20 правил. Уточните тарифные диапазоны; сценарий не изменён."
+                if code == "TARIFF_RULE_LIMIT_EXCEEDED"
+                else "Тарифный снимок не прошёл проверку. Обновите исходные данные и повторите расчёт."
+                if code == "INVALID_TARIFF_SNAPSHOT"
+                else "Расчёт не завершён. Текущие параметры сохранены; попробуйте ещё раз."
+            )
             return self._price_planning_prompt(
                 session, stage,
-                notice="Расчёт не завершён. Текущие параметры сохранены; попробуйте ещё раз.",
+                notice=notice,
             )
 
         with self._lock:
@@ -1633,6 +1657,30 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append(self._format_price_planning_outcome(
                 "Цена для цели", result.get("target") or {}, target
             ))
+            tariff_search = result.get("tariff_search") or {}
+            if tariff_search:
+                if tariff_search.get("scope") == "EXACT_SAVED_PRICE_ONLY":
+                    lines.append(
+                        "В старом плане комиссия задана только для сохранённой цены; "
+                        "соседние цены не рассчитаны."
+                    )
+                else:
+                    lines.append(
+                        "Минимум ищется только среди рассчитанных тарифных диапазонов; "
+                        "это не глобальная минимальная цена."
+                    )
+                gaps = tariff_search.get("gaps") or []
+                if gaps:
+                    gap_ranges = [
+                        self._money(item.get("from")) + "–" + self._money(item.get("to"))
+                        for item in gaps if isinstance(item, dict)
+                    ]
+                    if gap_ranges:
+                        lines.append(
+                            "Комиссия не определена для цен: "
+                            + "; ".join(gap_ranges)
+                            + "."
+                        )
         else:
             goal = result.get("target_margin_percent")
             lines.append(
@@ -2131,6 +2179,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return "" + label + ": заполните " + (", ".join(missing) or "обязательные параметры") + "."
         if outcome.get("status") == "NOT_FOUND_IN_TESTED_RANGE":
             return label + ": не удалось подобрать цену в допустимом диапазоне при этих условиях."
+        if outcome.get("status") == "NOT_FOUND_IN_COVERED_SEGMENTS":
+            return label + ": цель не достигнута ни в одном рассчитанном тарифном диапазоне."
+        if outcome.get("status") == "COMMISSION_UNKNOWN":
+            return label + ": нет подтверждённой комиссии для расчёта цены."
+        if outcome.get("status") == "SOURCE_UNAVAILABLE":
+            return label + ": источник тарифа недоступен; расчёт остановлен."
+        if outcome.get("status") == "NON_MONOTONIC_SEGMENT":
+            return label + ": в одном тарифном диапазоне поведение расчёта не монотонно; минимальная цена не подтверждена."
+        if outcome.get("status") == "FINAL_CHECK_FAILED":
+            return label + ": прямой расчёт или проверка соседней копейки не подтвердили результат."
         if outcome.get("status") == "SEARCH_BUDGET_EXHAUSTED":
             return label + ": лимит расчётов исчерпан; повторите попытку или проверьте допущения."
         if outcome.get("status") == "INVALID_INPUTS":

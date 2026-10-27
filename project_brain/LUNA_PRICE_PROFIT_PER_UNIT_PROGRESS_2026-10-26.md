@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q11 завершены, Q12–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q12 завершены, Q13–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -31,7 +31,7 @@
 | Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
 | Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
 | Q11 | VERIFIED | Bounded seller-price grid, tariff boundaries plus adjacent cents, no silent truncation, max 200 candidates / 20 tariff rules, 10-row pagination and selected-only compensation thresholds. Focused profile 104 passed; linked Q04–Q11 398 passed. See acceptance below. |
-| Q12 | IN_PROGRESS | Inventory legacy target solver, tariff segment coverage and bounded candidate-search interfaces. |
+| Q12 | VERIFIED | Frozen tariff bands partition target search into covered intervals; gaps/conflicts remain unknown; direct candidate/previous-cent checks; 20-rule and 1,024-forward limits. Focused 115 passed; linked Q04–Q12 profile 404 passed across 21 modules. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. |
 | Q13 | NOT_STARTED | — |
 | Q14 | NOT_STARTED | — |
 | Q15 | NOT_STARTED | — |
@@ -194,4 +194,10 @@
 
 ### Q12 — поиск минимальной целевой цены при скачках тарифа (2026-10-27)
 
-- IN_PROGRESS: inventory the existing single-rate solver and compare its assumptions with frozen tariff band/gap/conflict contracts before changing candidate search. No solver behavior changed yet.
+- Проверена исходная single-rate реализация `_find_candidate`: её бинарный поиск предполагает одну ставку и был бы некорректен при пересечении тарифной границы. Этот путь оставлен только для вызовов, которые не требуют tariff resolution; исходный лимит 128 forward calculations сохранён.
+- Для tariff-aware `solve()` добавлена отдельная ветка: snapshot проверяется по identity/current seller price; количество правил ограничено 20; ценовой домен режется в inclusive целочисленных копейках по каждой frozen band. Вычисляются только интервалы с единым resolved profile/rate; gaps, conflicts, expired/source-unavailable остаются unknown.
+- Внутри каждого рассчитанного интервала target search сначала проверяет пять упорядоченных точек, останавливается при наблюдаемом нарушении монотонности и бинарно сужает только локальный false/true bracket. Поиск посещает интервалы по возрастанию; между тарифными диапазонами бинарный переход не выполняется. Точный candidate и предыдущая копейка внутри диапазона повторно проверяются через `UnitPriceScenarioService`.
+- Старый сохранённый тариф без frozen snapshot допустим только на его точной цене. Telegram теперь вызывает `_prepare_tariff`, передаёт frozen snapshot/legacy exact point, показывает непокрытые диапазоны и ограничение «минимум только среди рассчитанных сегментов». Применение остаётся локальным и проходит прежнюю проверку прибыли/комиссии; Ozon API и изменение цены не добавлены.
+- Регрессии покрывают N03 (синтетический скачок 11%→22%, цель достижима до скачка, недостижима сразу после и снова достижима позже), поиск только в более позднем сегменте, gap/conflict, 20/21 rules, 1 024-call budget, source-unavailable, legacy exact-price, наблюдаемую немонотонность, Telegram coverage disclosure и tariff-aware apply.
+- Focused isolated Windows/Python 3.12.10 (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **115 passed in 1.65s**. Linked Q04–Q12 isolated profile over 21 tariff/planning/saved-plan/scenario/source/Telegram modules: **404 passed in 7.97s**. `git diff --check` passed; tracked protected JSON files remained clean. Temp root was new; dotenv/plugin autoload disabled, credential-named environment variables removed; no network/API, bot or owner DB used.
+- Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. Existing service/runtime contract is extended: **Architecture Review Required**. Q12 — VERIFIED. Next: Q13 audit of consumers of price/tariff changes.

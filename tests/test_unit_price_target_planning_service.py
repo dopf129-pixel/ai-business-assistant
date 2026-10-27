@@ -1,3 +1,4 @@
+from copy import deepcopy
 from decimal import Decimal
 
 import pytest
@@ -323,6 +324,279 @@ def test_comparison_uses_candidate_specific_frozen_tariff_and_ranks_rounded_unit
     assert result["candidate_count"] == 3
     assert all(row["compensation_thresholds"]["status"] in {"COMPLETED", "PARTIAL"}
                for row in rows)
+
+
+def test_target_search_checks_each_tariff_segment_and_keeps_lower_band_minimum():
+    planner, _service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="50", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff()
+
+    result = planner.solve(
+        inputs, "30", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["price"] == "84.75"
+    assert result["target"]["commission_rate"] == "11"
+    assert result["target"]["commission_origin"] == "MANUAL_SELLER_ASSUMPTION"
+    assert result["target"]["previous_cent_check"] == "CALCULATED"
+    assert result["target"]["previous_cent_goal_reached"] is False
+    assert result["tariff_search"]["scope"] == "MINIMUM_AMONG_COVERED_TARIFF_SEGMENTS"
+    assert result["tariff_search"]["global_minimum_claimed"] is False
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+
+    after_jump = planner.scenario_service.calculate({
+        **inputs, "price": "100.01", "commission_rate": "22",
+    })
+    later_reachable = planner.scenario_service.calculate({
+        **inputs, "price": "104.18", "commission_rate": "22",
+    })
+    assert after_jump["calculated"]["profit"] * 100 < 30 * 100.01
+    assert later_reachable["calculated"]["profit"] * 100 >= 30 * 104.18
+
+
+def test_target_search_continues_to_a_later_tariff_band_when_earlier_band_cannot_reach_goal():
+    planner, _service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="1000", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff(bands=[
+        {"price_from_cents": 1, "price_to_cents": 10_000, "commission_rate": "11"},
+        {"price_from_cents": 10_001, "price_to_cents": 300_000, "commission_rate": "22"},
+    ])
+
+    result = planner.solve(
+        inputs, "20", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert Decimal(result["target"]["price"]) > Decimal("100.00")
+    assert result["target"]["commission_rate"] == "22"
+    assert result["target"]["goal_reached"] is True
+    assert result["target"]["previous_cent_check"] == "CALCULATED"
+    assert result["target"]["previous_cent_goal_reached"] is False
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+
+
+def test_target_search_reports_uncovered_price_gaps_instead_of_filling_them():
+    planner, _service = _planner()
+    inputs = _inputs(
+        price="100", cost="50", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff(bands=[
+        {"price_from_cents": 1, "price_to_cents": 10_000, "commission_rate": "11"},
+        {"price_from_cents": 20_000, "price_to_cents": 30_000, "commission_rate": "22"},
+    ])
+
+    result = planner.solve(
+        inputs, "30", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["price"] == "84.75"
+    assert { (gap["from"], gap["to"]) for gap in result["tariff_search"]["gaps"] } >= {
+        ("100.01", "199.99"),
+        ("300.01", format(planner.max_price, ".2f")),
+    }
+    assert result["tariff_search"]["coverage_complete"] is False
+    assert result["tariff_search"]["global_minimum_claimed"] is False
+
+
+def test_target_search_marks_profile_conflict_as_gap_and_does_not_pick_first_profile():
+    planner, _service = _planner()
+    inputs = _inputs(
+        price="100", cost="50", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff()
+    conflicting_profile = deepcopy(frozen["profiles"][0])
+    conflicting_profile.update({
+        "profile_id": "profile-conflict", "revision": 2, "state_revision": 2,
+        "bands": [{
+            "price_from_cents": 25_000, "price_to_cents": 26_000,
+            "commission_rate": "10",
+        }],
+    })
+    frozen["profiles"].append(conflicting_profile)
+
+    result = planner.solve(
+        inputs, "30", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["error"] is False
+    assert result["target"]["price"] == "84.75"
+    assert {
+        (gap["from"], gap["to"], gap["reason"])
+        for gap in result["tariff_search"]["gaps"]
+    } >= {("250.00", "260.00", "TARIFF_PROFILE_CONFLICT")}
+
+
+def test_target_search_rejects_more_than_twenty_frozen_tariff_rules():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(price="100", commission_rate="11")
+    frozen = _frozen_manual_tariff()
+    additional_profile = deepcopy(frozen["profiles"][0])
+    additional_profile.update({
+        "profile_id": "profile-many-rules", "revision": 2, "state_revision": 2,
+        "bands": [{
+            "price_from_cents": 31_000 + (index * 100),
+            "price_to_cents": 31_099 + (index * 100),
+            "commission_rate": "22",
+        } for index in range(19)],
+    })
+    frozen["profiles"].append(additional_profile)
+
+    result = planner.solve(
+        inputs, "20", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "TARIFF_RULE_LIMIT_EXCEEDED"
+    assert service.calls == 0
+
+
+def test_target_search_stays_within_budget_for_twenty_tariff_rules_and_gaps():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="100000000", commission_rate="11",
+        logistics_per_unit="0", last_mile_per_unit="0", acquiring_per_unit="0",
+        advertising_rate="0", discount_points_rate="0", tax_mode="NONE",
+        tax_rate=None, minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff(bands=[
+        {
+            "price_from_cents": 1 + (index * 20_000),
+            "price_to_cents": 10_000 + (index * 20_000),
+            "commission_rate": "11" if index % 2 == 0 else "22",
+        }
+        for index in range(20)
+    ])
+
+    result = planner.solve(
+        inputs, "20", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "NOT_FOUND_IN_COVERED_SEGMENTS"
+    assert result["tariff_search"]["rule_count"] == result["tariff_search"]["rule_limit"] == 20
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+
+
+def test_target_search_stops_when_frozen_tariff_source_is_unavailable():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(price="100", commission_rate=None)
+    frozen = UnitPriceTariffSnapshotAdapter.freeze(
+        {"available": False, "status": "SOURCE_UNAVAILABLE", "reason": "SOURCE_UNAVAILABLE",
+         "seller_price_cents": 10_000, "price_basis": "SELLER_PRICE_RUB",
+         "effective_date": "2026-10-27"},
+        candidate_profiles=[], effective_date="2026-10-27",
+    )
+
+    result = planner.solve(
+        inputs, "20", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["error"] is False
+    assert result["break_even"]["status"] == "SOURCE_UNAVAILABLE"
+    assert result["target"]["status"] == "SOURCE_UNAVAILABLE"
+    assert service.calls == 0
+
+
+def test_target_search_refuses_a_segment_with_observed_non_monotonic_goal_predicate():
+    class NonMonotonicScenario:
+        MAX_INPUT_DIGITS = UnitPriceScenarioService.MAX_INPUT_DIGITS
+        MAX_INPUT_ADJUSTED_EXPONENT = UnitPriceScenarioService.MAX_INPUT_ADJUSTED_EXPONENT
+
+        @staticmethod
+        def calculate(inputs, **_kwargs):
+            price = Decimal(str(inputs["price"]))
+            profit = price if price < Decimal("50") else Decimal("0")
+            return {
+                "error": False,
+                "available": True,
+                "calculated": {
+                    "profit": float(profit),
+                    "margin_percent": 100.0 if profit else 0.0,
+                    "tax": 0.0,
+                },
+                "missing_inputs": [],
+                "invalid_inputs": [],
+            }
+
+    planner = UnitPriceTargetPlanningService(NonMonotonicScenario())
+    inputs = _inputs(
+        price="100", cost="0", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.solve(
+        inputs, "30", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=_frozen_manual_tariff(bands=[{
+            "price_from_cents": 1, "price_to_cents": 10_000,
+            "commission_rate": "11",
+        }]),
+        tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "NON_MONOTONIC_SEGMENT"
+    assert result["target"]["available"] is False
+
+
+def test_target_search_fails_closed_without_frozen_tariff_or_saved_exact_point():
+    planner, service = _planner(counting=True)
+
+    result = planner.solve(
+        _inputs(price="100", commission_rate="11"), "20",
+        identity=_TARIFF_IDENTITY, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "COMMISSION_UNKNOWN"
+    assert result["break_even"]["status"] == "COMMISSION_UNKNOWN"
+    assert result["evaluation_count"] == service.calls == 0
+    assert result["tariff_search"]["global_minimum_claimed"] is False
+
+
+def test_target_search_legacy_saved_rate_is_usable_only_at_its_exact_price():
+    planner, _service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="0", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.solve(
+        inputs, "80", identity=_TARIFF_IDENTITY,
+        tariff_resolution_required=True, exact_price_rate_cents=10_000,
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["price"] == "100.00"
+    assert result["target"]["commission_rate"] == "11"
+    assert result["tariff_search"]["scope"] == "EXACT_SAVED_PRICE_ONLY"
+    assert result["tariff_search"]["covered_segment_count"] == 1
+    assert result["tariff_search"]["global_minimum_claimed"] is False
 
 
 def test_current_price_point_does_not_create_numeric_profit_for_neighboring_prices():

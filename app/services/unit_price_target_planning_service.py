@@ -10,6 +10,7 @@ class UnitPriceTargetPlanningService:
     """Bounded, read-only price planning over the existing forward calculator."""
 
     MAX_FORWARD_CALCULATIONS = 128
+    MAX_TARIFF_FORWARD_CALCULATIONS = 1_024
     MAX_UPPER_BOUND_PROBES = 8
     MAX_LOWER_BOUND_PROBES = 8
     MAX_PRICE_SCALE_PROBES = 6
@@ -245,6 +246,9 @@ class UnitPriceTargetPlanningService:
         identity=None,
         provenance=None,
         sources=None,
+        frozen_tariff_snapshot=None,
+        tariff_resolution_required=False,
+        exact_price_rate_cents=None,
     ):
         target_result = self._normalize_target(target_margin_percent)
         if not target_result["valid"]:
@@ -253,13 +257,143 @@ class UnitPriceTargetPlanningService:
             return self._error_result("INVALID_INPUTS", identity)
 
         target = target_result["value"]
-        call_state = {"count": 0, "cache": {}}
+        if type(tariff_resolution_required) is not bool:
+            return self._error_result("INVALID_TARIFF_REQUIREMENT", identity)
+        if exact_price_rate_cents is not None and (
+            type(exact_price_rate_cents) is not int or exact_price_rate_cents < 1
+        ):
+            return self._error_result("INVALID_EXACT_PRICE_TARIFF", identity)
+        tariff_aware = (
+            frozen_tariff_snapshot is not None
+            or tariff_resolution_required
+            or exact_price_rate_cents is not None
+        )
+        tariff_identity = dict(identity or {})
+        tariff_identity.setdefault("owner_id", tariff_identity.get("user_id"))
+        if frozen_tariff_snapshot is not None and UnitPriceTariffSnapshotAdapter.validate(
+            frozen_tariff_snapshot, tariff_identity, inputs,
+        ) is None:
+            return self._error_result("INVALID_TARIFF_SNAPSHOT", identity)
+
+        call_state = {"count": 0, "cache": {}, "tariff_cache": {}}
+        if tariff_aware:
+            call_state["limit"] = self.MAX_TARIFF_FORWARD_CALCULATIONS
         common = {
             "identity": dict(identity or {}),
             "provenance": dict(provenance or {}),
             "sources": dict(sources or {}),
             "candidate_price_provenance": "planned_seller_price",
         }
+
+        if tariff_aware:
+            tariff_search = self._tariff_search_segments(
+                frozen_tariff_snapshot, tariff_identity,
+            )
+            if tariff_search.get("error") is True:
+                return self._error_result(tariff_search["code"], identity)
+            if tariff_search.get("status") == "SOURCE_UNAVAILABLE":
+                break_even = self._unavailable_outcome("SOURCE_UNAVAILABLE")
+                target_outcome = self._unavailable_outcome("SOURCE_UNAVAILABLE")
+            elif exact_price_rate_cents is not None and frozen_tariff_snapshot is None:
+                # A legacy saved plan confirms a rate at its saved price only.
+                exact_cents = self._current_price_cents(inputs)
+                if exact_cents != exact_price_rate_cents:
+                    break_even = self._unavailable_outcome("COMMISSION_UNKNOWN")
+                    target_outcome = self._unavailable_outcome("COMMISSION_UNKNOWN")
+                else:
+                    exact_segment = [{
+                        "price_from_cents": exact_cents,
+                        "price_to_cents": exact_cents,
+                        "commission_rate": inputs.get("commission_rate"),
+                        "commission_origin": "legacy_frozen_plan_rate",
+                        "commission_status": "LEGACY_EXACT_PRICE_ONLY",
+                    }]
+                    break_even = self._find_candidate_in_tariff_segments(
+                        inputs, Decimal("0"), call_state, common, exact_segment,
+                        frozen_tariff_snapshot=None,
+                        tariff_identity=tariff_identity,
+                        exact_price_rate_cents=exact_price_rate_cents,
+                    )
+                    target_outcome = (
+                        dict(break_even) if target == 0 else
+                        self._find_candidate_in_tariff_segments(
+                            inputs, target, call_state, common, exact_segment,
+                            frozen_tariff_snapshot=None,
+                            tariff_identity=tariff_identity,
+                            exact_price_rate_cents=exact_price_rate_cents,
+                        )
+                    )
+                    tariff_search["covered_segments"] = exact_segment
+                    tariff_search["coverage_complete"] = False
+                    tariff_search["scope"] = "EXACT_SAVED_PRICE_ONLY"
+                    tariff_search["gaps"] = []
+                    if exact_cents > self.MIN_PRICE_CENTS:
+                        tariff_search["gaps"].append({
+                            "price_from_cents": self.MIN_PRICE_CENTS,
+                            "price_to_cents": exact_cents - 1,
+                            "reason": "LEGACY_RATE_CONFIRMED_AT_SAVED_PRICE_ONLY",
+                        })
+                    if exact_cents < self.max_price_cents:
+                        tariff_search["gaps"].append({
+                            "price_from_cents": exact_cents + 1,
+                            "price_to_cents": self.max_price_cents,
+                            "reason": "LEGACY_RATE_CONFIRMED_AT_SAVED_PRICE_ONLY",
+                        })
+            else:
+                segments = tariff_search.get("covered_segments") or []
+                if not segments:
+                    break_even = self._unavailable_outcome("COMMISSION_UNKNOWN")
+                    target_outcome = self._unavailable_outcome("COMMISSION_UNKNOWN")
+                else:
+                    break_even = self._find_candidate_in_tariff_segments(
+                        inputs, Decimal("0"), call_state, common, segments,
+                        frozen_tariff_snapshot=frozen_tariff_snapshot,
+                        tariff_identity=tariff_identity,
+                    )
+                    target_outcome = (
+                        dict(break_even) if target == 0 else
+                        self._find_candidate_in_tariff_segments(
+                            inputs, target, call_state, common, segments,
+                            frozen_tariff_snapshot=frozen_tariff_snapshot,
+                            tariff_identity=tariff_identity,
+                        )
+                    )
+            tariff_search = self._public_tariff_search_metadata(tariff_search)
+            if break_even.get("status") == "FOUND":
+                self._verify_tariff_candidate(
+                    break_even, Decimal("0"), inputs, call_state, common,
+                    frozen_tariff_snapshot, tariff_identity,
+                    exact_price_rate_cents,
+                )
+            if target == 0:
+                target_outcome = dict(break_even)
+            elif target_outcome.get("status") == "FOUND":
+                self._verify_tariff_candidate(
+                    target_outcome, target, inputs, call_state, common,
+                    frozen_tariff_snapshot, tariff_identity,
+                    exact_price_rate_cents,
+                )
+            return {
+                "error": False,
+                "kind": "UNIT_PRICE_TARGET_PLAN",
+                "status": "COMPLETED",
+                "available": (
+                    break_even.get("status") == "FOUND"
+                    or target_outcome.get("status") == "FOUND"
+                ),
+                "target_margin_percent": format(target, "f"),
+                "break_even": break_even,
+                "target": target_outcome,
+                "evaluation_count": call_state["count"],
+                "evaluation_limit": self.MAX_TARIFF_FORWARD_CALCULATIONS,
+                "tariff_search": tariff_search,
+                "identity": common["identity"],
+                "provenance": self._candidate_provenance(common),
+                "source_price_provenance": common["provenance"].get("price"),
+                "sources": common["sources"],
+                "read_only": True,
+                "executed": False,
+            }
 
         break_even = self._find_candidate(
             inputs, Decimal("0"), call_state, common
@@ -755,6 +889,368 @@ class UnitPriceTargetPlanningService:
             "executed": False,
         }
 
+    def _tariff_search_segments(self, snapshot, identity):
+        if snapshot is None:
+            return {
+                "covered_segments": [],
+                "gaps": [{
+                    "price_from_cents": self.MIN_PRICE_CENTS,
+                    "price_to_cents": self.max_price_cents,
+                    "reason": "NO_FROZEN_TARIFF_SNAPSHOT",
+                }],
+                "coverage_complete": False,
+                "rule_count": 0,
+                "scope": "COVERED_FROZEN_TARIFF_SEGMENTS",
+            }
+        profiles = snapshot.get("profiles") or []
+        rule_count = sum(
+            len(profile.get("bands") or [])
+            for profile in profiles if isinstance(profile, dict)
+        )
+        if rule_count > self.MAX_PRICE_GRID_TARIFF_RULES:
+            return {
+                "error": True,
+                "code": "TARIFF_RULE_LIMIT_EXCEEDED",
+            }
+        if snapshot.get("status") == "SOURCE_UNAVAILABLE":
+            return {
+                "status": "SOURCE_UNAVAILABLE",
+                "covered_segments": [],
+                "gaps": [{
+                    "price_from_cents": self.MIN_PRICE_CENTS,
+                    "price_to_cents": self.max_price_cents,
+                    "reason": "TARIFF_SOURCE_UNAVAILABLE",
+                }],
+                "coverage_complete": False,
+                "rule_count": rule_count,
+                "scope": "COVERED_FROZEN_TARIFF_SEGMENTS",
+            }
+
+        cuts = {self.MIN_PRICE_CENTS, self.max_price_cents + 1}
+        for profile in profiles:
+            for band in profile.get("bands") or []:
+                low = max(self.MIN_PRICE_CENTS, band["price_from_cents"])
+                high = min(self.max_price_cents, band["price_to_cents"])
+                if low <= high:
+                    cuts.add(low)
+                    cuts.add(high + 1)
+
+        covered = []
+        gaps = []
+        ordered = sorted(cuts)
+        for low, after_high in zip(ordered, ordered[1:]):
+            high = after_high - 1
+            if low > high:
+                continue
+            start = UnitPriceTariffSnapshotAdapter.resolve_frozen(snapshot, identity, low)
+            end = UnitPriceTariffSnapshotAdapter.resolve_frozen(snapshot, identity, high)
+            if start.get("error") is True or end.get("error") is True:
+                return {"error": True, "code": "INVALID_TARIFF_SNAPSHOT"}
+            start_profile = start.get("selected_profile") or {}
+            end_profile = end.get("selected_profile") or {}
+            start_key = (
+                str(start.get("commission_rate")), start.get("status"),
+                start_profile.get("profile_id"), start_profile.get("revision"),
+                start_profile.get("state_revision"), start_profile.get("origin"),
+            )
+            end_key = (
+                str(end.get("commission_rate")), end.get("status"),
+                end_profile.get("profile_id"), end_profile.get("revision"),
+                end_profile.get("state_revision"), end_profile.get("origin"),
+            )
+            if (start.get("available") is True and end.get("available") is True
+                    and start_key == end_key):
+                covered.append({
+                    "price_from_cents": low,
+                    "price_to_cents": high,
+                    "commission_rate": str(start.get("commission_rate")),
+                    "commission_origin": start_profile.get("origin") or "unknown",
+                    "commission_status": start.get("status") or "UNKNOWN",
+                })
+                continue
+            statuses = {start.get("status"), end.get("status")}
+            if "SOURCE_UNAVAILABLE" in statuses:
+                reason = "TARIFF_SOURCE_UNAVAILABLE"
+            elif "CONFLICT" in statuses:
+                reason = "TARIFF_PROFILE_CONFLICT"
+            elif start_key != end_key and start.get("available") is True and end.get("available") is True:
+                reason = "TARIFF_RESOLUTION_CHANGED_WITHIN_SEGMENT"
+            elif "EXPIRED" in statuses:
+                reason = "TARIFF_PROFILE_EXPIRED"
+            elif "UNSUPPORTED_SCHEME" in statuses:
+                reason = "TARIFF_SCHEME_UNSUPPORTED"
+            else:
+                reason = "COMMISSION_UNKNOWN"
+            if gaps and gaps[-1]["reason"] == reason and gaps[-1]["price_to_cents"] + 1 == low:
+                gaps[-1]["price_to_cents"] = high
+            else:
+                gaps.append({
+                    "price_from_cents": low,
+                    "price_to_cents": high,
+                    "reason": reason,
+                })
+
+        covered_cents = sum(
+            segment["price_to_cents"] - segment["price_from_cents"] + 1
+            for segment in covered
+        )
+        return {
+            "covered_segments": covered,
+            "gaps": gaps,
+            "coverage_complete": covered_cents == self.max_price_cents,
+            "rule_count": rule_count,
+            "scope": "MINIMUM_AMONG_COVERED_TARIFF_SEGMENTS",
+        }
+
+    def _public_tariff_search_metadata(self, search):
+        def price_range(item):
+            return {
+                "from": format(self._price_from_cents(item["price_from_cents"]), ".2f"),
+                "to": format(self._price_from_cents(item["price_to_cents"]), ".2f"),
+            }
+
+        return {
+            "mode": "FROZEN_TARIFF_SEGMENTS",
+            "scope": search.get("scope") or "MINIMUM_AMONG_COVERED_TARIFF_SEGMENTS",
+            "rule_count": search.get("rule_count", 0),
+            "rule_limit": self.MAX_PRICE_GRID_TARIFF_RULES,
+            "covered_segment_count": len(search.get("covered_segments") or []),
+            "covered_ranges": [
+                {
+                    **price_range(item),
+                    "commission_rate": item.get("commission_rate"),
+                    "origin": item.get("commission_origin"),
+                }
+                for item in search.get("covered_segments") or []
+            ],
+            "gaps": [
+                {**price_range(item), "reason": item.get("reason")}
+                for item in search.get("gaps") or []
+            ],
+            "coverage_complete": search.get("coverage_complete") is True,
+            "global_minimum_claimed": False,
+        }
+
+    def _find_candidate_in_tariff_segments(
+        self, inputs, target, call_state, common, segments, *,
+        frozen_tariff_snapshot, tariff_identity, exact_price_rate_cents=None,
+    ):
+        for segment in segments:
+            low = segment["price_from_cents"]
+            high = segment["price_to_cents"]
+            points = sorted({
+                low, high,
+                low + (high - low) // 4,
+                low + (high - low) // 2,
+                low + (3 * (high - low)) // 4,
+            })
+            observations = []
+            for cents in points:
+                forward, status, resolution = self._evaluate_tariff_candidate(
+                    inputs, cents, call_state, common,
+                    frozen_tariff_snapshot=frozen_tariff_snapshot,
+                    tariff_identity=tariff_identity,
+                    exact_price_rate_cents=exact_price_rate_cents,
+                )
+                if status != "CALCULATED":
+                    if status == "COMMISSION_UNKNOWN":
+                        return self._unavailable_outcome(status)
+                    return self._unavailable_outcome(status, forward)
+                reached = self._reached(forward, self._price_from_cents(cents), target)
+                observations.append((cents, reached, forward, resolution))
+
+            states = [item[1] for item in observations]
+            if any(states[index] and not states[index + 1]
+                   for index in range(len(states) - 1)):
+                outcome = self._unavailable_outcome("NON_MONOTONIC_SEGMENT")
+                outcome["segment"] = {
+                    "price_from_cents": low, "price_to_cents": high,
+                }
+                return outcome
+            first_reached = next(
+                (index for index, item in enumerate(observations) if item[1]), None,
+            )
+            if first_reached is None:
+                continue
+            if first_reached == 0:
+                candidate_cents = observations[0][0]
+                forward = observations[0][2]
+                resolution = observations[0][3]
+            else:
+                left = observations[first_reached - 1][0]
+                right = observations[first_reached][0]
+                right_forward = observations[first_reached][2]
+                right_resolution = observations[first_reached][3]
+                while right - left > 1:
+                    middle = (left + right) // 2
+                    middle_forward, middle_status, middle_resolution = self._evaluate_tariff_candidate(
+                        inputs, middle, call_state, common,
+                        frozen_tariff_snapshot=frozen_tariff_snapshot,
+                        tariff_identity=tariff_identity,
+                        exact_price_rate_cents=exact_price_rate_cents,
+                    )
+                    if middle_status != "CALCULATED":
+                        return self._unavailable_outcome(middle_status, middle_forward)
+                    if self._reached(middle_forward, self._price_from_cents(middle), target):
+                        right = middle
+                        right_forward = middle_forward
+                        right_resolution = middle_resolution
+                    else:
+                        left = middle
+                candidate_cents = right
+                forward = right_forward
+                resolution = right_resolution
+            outcome = self._success_outcome(
+                self._price_from_cents(candidate_cents), forward, target,
+            )
+            selected_profile = (resolution or {}).get("selected_profile") or {}
+            outcome.update({
+                "commission_rate": str((resolution or {}).get("commission_rate")
+                                       or segment.get("commission_rate")),
+                "commission_origin": (
+                    selected_profile.get("origin")
+                    or segment.get("commission_origin") or "unknown"
+                ),
+                "commission_status": (
+                    (resolution or {}).get("status")
+                    or segment.get("commission_status") or "UNKNOWN"
+                ),
+                "commission": (forward.get("calculated") or {}).get("commission"),
+                "segment": {
+                    "price_from_cents": low,
+                    "price_to_cents": high,
+                },
+            })
+            return outcome
+        return self._unavailable_outcome("NOT_FOUND_IN_COVERED_SEGMENTS")
+
+    def _evaluate_tariff_candidate(
+        self, inputs, cents, call_state, common, *, frozen_tariff_snapshot,
+        tariff_identity, exact_price_rate_cents=None, bypass_cache=False,
+    ):
+        cache = call_state.setdefault("tariff_cache", {})
+        if not bypass_cache and cents in cache:
+            return cache[cents]
+        price = self._price_from_cents(cents)
+        if frozen_tariff_snapshot is not None:
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff_snapshot, tariff_identity, cents,
+            )
+            if resolution.get("error") is True:
+                return None, "INVALID_TARIFF_SNAPSHOT", resolution
+            if resolution.get("available") is not True:
+                status = ("SOURCE_UNAVAILABLE"
+                         if resolution.get("status") == "SOURCE_UNAVAILABLE"
+                         else "COMMISSION_UNKNOWN")
+                return None, status, resolution
+            selected_profile = resolution.get("selected_profile") or {}
+            commission_origin = selected_profile.get("origin") or "unknown"
+            commission_status = resolution.get("status") or "UNKNOWN"
+            rate = resolution.get("commission_rate")
+        else:
+            if (exact_price_rate_cents is None or cents != exact_price_rate_cents
+                    or self._current_price_cents(inputs) != exact_price_rate_cents):
+                return None, "COMMISSION_UNKNOWN", None
+            rate = inputs.get("commission_rate")
+            commission_origin = "legacy_frozen_plan_rate"
+            commission_status = "LEGACY_EXACT_PRICE_ONLY"
+            resolution = {
+                "available": True,
+                "commission_rate": rate,
+                "status": commission_status,
+                "selected_profile": {"origin": commission_origin},
+            }
+        if call_state["count"] >= call_state.get(
+            "limit", self.MAX_FORWARD_CALCULATIONS,
+        ):
+            return None, "SEARCH_BUDGET_EXHAUSTED", resolution
+        candidate_inputs = dict(inputs)
+        candidate_inputs["price"] = format(price, ".2f")
+        candidate_inputs["commission_rate"] = rate
+        candidate_provenance = dict(common["provenance"])
+        candidate_provenance["price"] = common["candidate_price_provenance"]
+        candidate_provenance["commission_rate"] = {
+            "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+            "CURRENT_PRICE_POINT": "current_price_point",
+            "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+        }.get(commission_origin, commission_origin)
+        call_state["count"] += 1
+        try:
+            forward = self.scenario_service.calculate(
+                candidate_inputs,
+                identity=common["identity"],
+                provenance=candidate_provenance,
+                sources=common["sources"],
+            )
+        except (ArithmeticError, OverflowError, TypeError, ValueError):
+            forward = None
+        status = self._forward_status(forward)
+        item = (forward, status, resolution)
+        if not bypass_cache:
+            cache[cents] = item
+        return item
+
+    def _verify_tariff_candidate(
+        self, outcome, target, inputs, call_state, common,
+        frozen_tariff_snapshot, tariff_identity, exact_price_rate_cents,
+    ):
+        cents = int(Decimal(outcome["price"]) * self.HUNDRED)
+        forward, status, resolution = self._evaluate_tariff_candidate(
+            inputs, cents, call_state, common,
+            frozen_tariff_snapshot=frozen_tariff_snapshot,
+            tariff_identity=tariff_identity,
+            exact_price_rate_cents=exact_price_rate_cents,
+            bypass_cache=True,
+        )
+        if status != "CALCULATED" or not self._reached(
+            forward, self._price_from_cents(cents), target,
+        ):
+            outcome.update(self._unavailable_outcome(
+                "SEARCH_BUDGET_EXHAUSTED"
+                if status == "SEARCH_BUDGET_EXHAUSTED" else "FINAL_CHECK_FAILED",
+                forward,
+            ))
+            return
+        segment = outcome.get("segment") or {}
+        previous_cents = cents - 1
+        previous_status = "OUTSIDE_COVERED_SEGMENT"
+        previous_goal_reached = None
+        if previous_cents >= segment.get("price_from_cents", cents):
+            previous, previous_status, _ = self._evaluate_tariff_candidate(
+                inputs, previous_cents, call_state, common,
+                frozen_tariff_snapshot=frozen_tariff_snapshot,
+                tariff_identity=tariff_identity,
+                exact_price_rate_cents=exact_price_rate_cents,
+                bypass_cache=True,
+            )
+            if previous_status != "CALCULATED":
+                outcome.update(self._unavailable_outcome(
+                    "SEARCH_BUDGET_EXHAUSTED"
+                    if previous_status == "SEARCH_BUDGET_EXHAUSTED" else "FINAL_CHECK_FAILED",
+                    previous,
+                ))
+                return
+            previous_goal_reached = self._reached(
+                previous, self._price_from_cents(previous_cents), target,
+            )
+            if previous_goal_reached:
+                outcome.update(self._unavailable_outcome("FINAL_CHECK_FAILED", previous))
+                return
+        verified = self._success_outcome(self._price_from_cents(cents), forward, target)
+        outcome.update(verified)
+        outcome.update({
+            "commission_rate": resolution.get("commission_rate"),
+            "commission_origin": (
+                (resolution.get("selected_profile") or {}).get("origin")
+                or outcome.get("commission_origin")
+            ),
+            "commission_status": resolution.get("status") or outcome.get("commission_status"),
+            "commission": (forward.get("calculated") or {}).get("commission"),
+            "segment": segment,
+            "previous_cent_check": previous_status,
+            "previous_cent_goal_reached": previous_goal_reached,
+        })
+
     def _find_candidate(self, inputs, target, call_state, common):
         low = self.MIN_PRICE_CENTS
         low_result, low_status = self._evaluate(inputs, low, call_state, common)
@@ -842,7 +1338,9 @@ class UnitPriceTargetPlanningService:
     def _evaluate(self, inputs, cents, call_state, common, bypass_cache=False):
         if not bypass_cache and cents in call_state["cache"]:
             return call_state["cache"][cents]
-        if call_state["count"] >= self.MAX_FORWARD_CALCULATIONS:
+        if call_state["count"] >= call_state.get(
+            "limit", self.MAX_FORWARD_CALCULATIONS,
+        ):
             return None, "SEARCH_BUDGET_EXHAUSTED"
         call_state["count"] += 1
         candidate_inputs = dict(inputs)

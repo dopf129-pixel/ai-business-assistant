@@ -352,6 +352,10 @@ def test_target_price_result_labels_missing_cross_docking_evidence_instead_of_ex
             user_id="user-1",
         )
         result = runtime.handle_text("20", user_id="user-1")
+        applied = runtime.handle_callback(
+            _find_button(result, "Подставить цену для цели")["callback"],
+            user_id="user-1",
+        )
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -476,6 +480,47 @@ def test_target_margin_input_retries_then_shows_verified_price_without_changing_
     assert source.calls == [("3921245627", "user-1", False)]
     assert len(result["message"]) < 3500
     assert all(len(item["callback"].encode("utf-8")) <= 64 for item in result["keyboard"]["buttons"])
+
+
+def test_target_margin_runtime_uses_frozen_tariff_segments_and_discloses_coverage_gaps():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        applied = runtime.handle_callback(
+            _find_button(result, "Подставить цену для цели")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    plan = result["price_planning_result"]
+    target = plan["target"]
+    assert prompt["stage"] == "target_margin"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert target["status"] == "FOUND"
+    assert target["commission_rate"] == "15"
+    assert target["commission_origin"] == "MANUAL_SELLER_ASSUMPTION"
+    assert plan["tariff_search"]["covered_segment_count"] == 3
+    assert plan["tariff_search"]["coverage_complete"] is False
+    assert plan["tariff_search"]["global_minimum_claimed"] is False
+    assert "Минимум ищется только среди рассчитанных тарифных диапазонов" in result["message"]
+    assert "Комиссия не определена для цен:" in result["message"]
+    assert "Цена основного сценария не изменена" in result["message"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == float(target["price"])
+    assert applied["price_scenario"]["inputs"]["commission_rate"]["value"] == float(target["commission_rate"])
+    assert len(result["message"]) < 3500
+    assert source.calls == [("3921245627", "user-1", False)]
 
 
 def test_target_margin_can_be_found_without_a_source_price():
