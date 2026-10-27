@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q13 завершены, Q14–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q15 завершены, Q16–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -34,7 +34,7 @@
 | Q12 | VERIFIED | Frozen tariff bands partition target search into covered intervals; gaps/conflicts remain unknown; direct candidate/previous-cent checks; 20-rule and 1,024-forward limits. Focused 115 passed; linked Q04–Q12 profile 404 passed across 21 modules. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`; implementation/docs commit `039ad79b`. |
 | Q13 | VERIFIED | Все ценовые consumers и owner exports используют согласованную тарифную основу; linked profile 230 passed. См. acceptance ниже. |
 | Q14 | VERIFIED | Numeric acceptance N01–N06, N08, N10/N11 and 21 related unit-price/export suites: 389 passed in 7.84s in isolated Windows/Python 3.12.10 environment. See acceptance below. |
-| Q15 | NOT_STARTED | — |
+| Q15 | VERIFIED | Контракт разносит сценарную цену, owner declaration, текущий API snapshot и per-sale verified history; зафиксированы часы/интервалы, виды количеств, N07–N09 и ограничения источников. Acceptance ниже. |
 | Q16 | NOT_STARTED | — |
 | Q17 | NOT_STARTED | — |
 | Q18 | NOT_STARTED | — |
@@ -218,3 +218,13 @@
 - Тесты выполнены Windows/Python 3.12.10 в новом `%TEMP%` test/storage root, pytest basetemp также новый. Удалены из test process environment variable names, совпадающие с credential/provider filters, без вывода значений; отключены dotenv/plugin autoload и bytecode writes. Owner DB/data, `.env`, API/network и реальный бот не использовались.
 - Ошибок или корректировок числовых ожиданий не потребовалось. Поддержанные пределы из кода/регрессий остаются: сравнение 2–10 цен; grid до 200 точек и 20 tariff rules; target search до 20 rules/1,024 canonical forwards; DRR threshold до 64 forwards/candidate и 1,024 на сравнение. Максимум относится только к проверенному набору/диапазонам, не к глобальному optimum.
 - Acceptance: `UNIT_PRICE_NUMERIC_ACCEPTANCE_Q14_2026-10-27.md`. Q14 — VERIFIED, module C завершён; feature в целом ещё не завершён. Следующий этап: Q15 — contract источников и истории наблюдаемой цены.
+
+### Q15 — контракт наблюдения и истории цены (2026-10-27)
+
+- Разделены четыре вида цены: сценарное предположение, подтверждённая владельцем установка с заявленным `effective_from`, текущий API snapshot на `observed_at` и история per-sale только при наличии точной цены продажи и времени события. Owner declaration не становится API-фактом.
+- Официальный Seller API FAQ проверен 27.10.2026: Ozon пишет, что историю изменения цены через API посмотреть нельзя; её можно открыть в кабинете, нажав на цену товара → «История изменений». Источник добавлен в acceptance. Текущий product prices read остаётся точкой времени чтения; текущая цена не переносится на прошлые даты.
+- Текущий financial sale evidence (`FinanceService.get_daily_sale_posting_evidence`) сохраняет SKU/номер отправления/accrual date, но не quantity, цену и sale-event timestamp. `seller_price` в `PeriodProfitOzonClient` сейчас диагностическое aggregate field; он не считается полной историей per-unit price и не привязывает начисление к окну события продажи.
+- Зафиксированы `date-only` vs timezone-aware instants, completed-but-not-final windows, observed/recorded/accrual/event clocks, source lateness/corrections, отдельные units (успешно проданные, заказанные, отменённые, возвращённые) и запрет использовать число строк/отправлений как units. Неполные или смешанные цены получают `PRICE_HISTORY_UNCONFIRMED`/`MIXED_PRICES`; ручной сценарий не заполняет исторические пробелы.
+- N07: хранить сумму и совместимый denominator; агрегировать `Σamount/Σunits`, не среднее дневных ставок. N08: seller-revenue DRR и attributed-revenue DRR — разные основания. N09: смешанные цены/времена/налоги/расходы, пересекающиеся окна и пропуски запрещают verified comparison; неподтверждённые рекламы/количества не выдаются за полный факт.
+- Runtime не менялся, потому что Q15 фиксирует контракт перед durable repository/collector Q16–Q18. Проверка: сопоставление контракта с разделами 6.2, 6.3, 9.1–9.5 и текущими `CurrentProductEconomicsSource`, `FinanceService`, `PeriodProfitOzonClient`; `git diff --check` проходит. N07–N09 отображены в контракте; live tests/API не запускались.
+- Acceptance: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`. Q15 — VERIFIED. Далее Q16: append-only tenant-scoped observation/results repository и CAS/idempotency.

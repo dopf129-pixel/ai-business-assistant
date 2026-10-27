@@ -13,6 +13,12 @@
 
 # План проверок помощника выбора цены (26.10.2026)
 
+## Q15 — observation evidence and price-history contract (2026-10-27)
+
+- Documentation-only contract checkpoint. Compared the source map with `CurrentProductEconomicsSource`, `FinanceService.get_daily_sale_posting_evidence`, and `PeriodProfitOzonClient`: current price is a read-time snapshot; finance sale evidence does not currently preserve per-sale quantity/price/event time; existing `seller_price` diagnostics are not a verified complete price history.
+- N07–N09 contract mapping explicitly keeps weighted numerator/denominator, successful vs ordered/cancelled/returned units, date-only vs instant clocks, seller-revenue vs attributed-revenue DRR, mixed/unknown prices and overlapping windows distinct. No runtime test was added because behavior is not implemented in Q15; persistence/normalization tests are staged with Q16–Q18.
+- Official source: Ozon Seller API FAQ section “Есть ли способ получить историю обновления цен по API?” says no and points to the product-card price history in Seller Cabinet: https://dev.ozon.ru/start/257-FAQ-spravochnik-oshibok-i-sposobov-ikh-resheniia. Detailed contract: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`.
+
 - Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q03: предметный audit/contracts; isolated Windows/Python 3.12.10 baseline — **247 passed**. Q04: `tests/test_unit_price_tariff_resolver.py` — **34 passed**, включая N03/N04 rate boundaries, range gaps/overlap/conflict, point-only tariff, exact owner/store/SKU/date/schema, limits и canonical-forward amounts. Audit: `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`; contracts: `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.
 - N01–N13 описывают содержательные проверки: рекламная компенсация и ROUND_HALF_UP; разные пороги равенства/роста; скачки тарифа и неизвестные диапазоны; ручной профиль/CAS; совместимость v1/v2; взвешенные единицы/ДРР; полнота наблюдений; цель ₽/шт.; налог/no-double-count; budgets/privacy; synthetic restore.
 - Существующие calculator/target/ad-cap/sensitivity, saved plans, SKU finance/Performance, tenant, Telegram и backup suites переиспользуются. Конкретные новые тестовые файлы и фактические результаты Luna добавляет при реализации этапов.

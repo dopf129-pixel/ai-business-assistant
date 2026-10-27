@@ -45,9 +45,10 @@ completeness{component:{status,origin,reason}}, generated_at
 
 ## Observation/recommendation
 
-- Журнал цены начинается явным действием владельца; бот цену не изменяет и не восстанавливает прошлую цену из текущей карточки. Сбор выполняется явно только за завершённые дневные интервалы с timezone/date basis.
-- Плановая цена отдельна от подтверждённой/наблюдаемой; неизвестная история даёт `PRICE_HISTORY_UNCONFIRMED`, смешанная — `MIXED_PRICES`. Нельзя приписать весь период одному варианту.
+- Журнал цены начинается явным действием владельца; бот цену не изменяет и не восстанавливает прошлую цену из текущей карточки. Сбор выполняется явно только за завершённые дневные интервалы с timezone/date basis. Детальная семантика evidence: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`.
+- Плановая цена, owner-declared installation, current API snapshot и verified per-sale price history — разные виды evidence. Текущая цена действительна только на `observed_at`; заявление владельца — явный пользовательский ввод, а не API-факт. Неизвестная история даёт `PRICE_HISTORY_UNCONFIRMED`, смешанная — `MIXED_PRICES`; весь период нельзя приписать одному варианту.
 - Сохраняются периоды, количество завершённых дней и совместимых единиц, цена/тарифные версии, рекламный denominator, source coverage, корректировки и ограничения.
+- N07: агрегировать только совместимые sums/counts (`Σamount/Σsuccessful_units`), не усреднять дневные rates и не считать строки/отправления единицами. N08: seller-revenue и attributed-revenue DRR — разные основания. N09: mixed prices, mismatched event/accrual/report clocks, different tax/cost/ad scope, incomplete units and overlapping windows block a verified comparison.
 - Наблюдения — append-only local analytical/planning records; повтор идемпотентен, metadata changes используют точный `state_revision` CAS, refresh добавляет новую immutable result revision. Пересекающиеся окна не объединяются с двойным счётом. Лимиты: 100 наблюдений на store, 20 result versions/observation, 64 KiB/normalized version.
 - Выборка 3–56 завершённых дней и 1–10,000 единиц — предупреждающая граница, не confidence/causal proof. Recommendation ранжирует только сопоставимые варианты, показывает факторы различий и не заявляет глобальный optimum или причинность.
 
