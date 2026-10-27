@@ -259,12 +259,38 @@ class UnitPriceTariffSnapshotAdapter:
                 "price_basis": "SELLER_PRICE_RUB", "effective_date": snapshot["effective_date"],
                 "candidate_profiles": [], "selected_profile": None,
             }
+        selected_profile_id = None
+        selected_revision = None
+        selected_state_revision = None
+        selected_meta = snapshot.get("selected_profile")
+        if seller_price_cents == snapshot.get("seller_price_cents") and isinstance(selected_meta, dict):
+            selected_profile = next((
+                item for item in profiles
+                if item.get("profile_id") == selected_meta.get("profile_id")
+                and item.get("revision") == selected_meta.get("revision")
+                and item.get("state_revision") == selected_meta.get("state_revision")
+                and item.get("source_ref") == "MANUAL_SCENARIO_COMMISSION_OVERRIDE"
+                and len(item.get("bands") or []) == 1
+                and item["bands"][0]["price_from_cents"] == snapshot.get("seller_price_cents")
+                and item["bands"][0]["price_to_cents"] == snapshot.get("seller_price_cents")
+            ), None)
+            if selected_profile is not None:
+                # An explicit manual edit is a confirmed point override for
+                # the captured price only. At that exact price it wins over
+                # an overlapping stored range; at every other price the
+                # complete frozen range set is resolved normally.
+                selected_profile_id = selected_profile["profile_id"]
+                selected_revision = selected_profile["revision"]
+                selected_state_revision = selected_profile["state_revision"]
         resolution = UnitPriceTariffResolver().resolve(
             seller_price_cents=seller_price_cents,
             identity=identity_for_resolver,
             sale_schema="FBO",
             effective_date=snapshot["effective_date"],
             profiles=profiles,
+            selected_profile_id=selected_profile_id,
+            selected_revision=selected_revision,
+            selected_state_revision=selected_state_revision,
         )
         selected = None
         if resolution.get("available") is True:

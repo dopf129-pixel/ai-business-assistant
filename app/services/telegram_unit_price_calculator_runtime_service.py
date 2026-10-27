@@ -911,6 +911,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         current["inputs"].get("price")
                     )
                 )
+                current.pop("frozen_tariff_resolution", None)
             current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
@@ -918,6 +919,38 @@ class TelegramUnitPriceCalculatorRuntimeService:
             session = deepcopy(current)
             self._pending.pop(key, None)
         return self._scenario_screen(session)
+
+    def refresh_tariff_profile_snapshot(self, scenario_id, version, user_id=None):
+        """Re-read local tariff profiles only after an explicit tariff confirmation."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        session = self._get_session(scenario_id, version, user, scope)
+        if session is None:
+            return self._stale_result()
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != version
+                or current.get("tenant_scope") != scope
+                or current.get("user_id") != user
+            ):
+                return self._stale_result()
+            current.pop("frozen_tariff_resolution", None)
+            current.pop("price_planning_result", None)
+            current.pop("manual_commission_price_cents", None)
+            current.get("overrides", set()).discard("commission_rate")
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            updated = deepcopy(current)
+            self._pending.pop(key, None)
+        return self._scenario_screen(
+            updated,
+            notice="Подтверждённый тариф обновлён в локальном снимке сценария. Источники Ozon не запрашивались.",
+        )
 
     def clear_pending(self, user_id):
         user = str(user_id or "").strip()
@@ -1180,18 +1213,34 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._price_planning_prompt(
                     session,
                     stage,
-                    notice="Список не принят целиком. Укажите от 2 до 5 разных цен до копейки через точку с запятой или с новой строки.",
+                    notice="Список не принят целиком. Укажите от 2 до 10 разных цен до копейки через точку с запятой или с новой строки.",
                 )
             mode = "price_options"
             target = None
+            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or session.get("restored_from_saved_plan") is True
+            )
             try:
                 result = self.target_planning_service.compare_prices(
-                    session["inputs"],
+                    comparison_inputs,
                     parsed["prices"],
                     target_margin_percent=session.get("price_planning_target_margin"),
                     identity=self._scenario_identity(session),
-                    provenance=session["provenance"],
+                    provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=(
+                        session.get("legacy_tariff_price_cents")
+                        if session.get("restored_from_saved_plan") is True else None
+                    ),
                 )
             except Exception:
                 return self._price_planning_prompt(
@@ -1247,7 +1296,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
         else:
             prompt = (
-                "Введите 2–5 разных цен через точку с запятой или с новой строки. "
+                "Введите 2–10 разных цен через точку с запятой или с новой строки. "
                 "Например: 499,90; 549,90; 599,90."
             )
         prompt += " Цена основного сценария не изменится."
@@ -1299,8 +1348,45 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 if goal is not None
                 else "Одинаковые допущения для всех вариантов; целевая маржа не задана."
             )
+            baseline = result.get("baseline") or {}
+            if baseline.get("available") is True:
+                lines.append(
+                    "База " + self._money(baseline.get("price")) + ": "
+                    + self._money(baseline.get("profit")) + "/шт."
+                )
+            elif baseline:
+                lines.append(
+                    "База " + self._money(baseline.get("price"))
+                    + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
+                )
+            advertising_basis = result.get("advertising_basis") or {}
+            if advertising_basis.get("rate") is not None:
+                lines.append(
+                    "Реклама для вариантов: одинаковая ДРР "
+                    + self._percent(advertising_basis.get("rate"))
+                    + " от выручки продавца."
+                )
+            best_prices = result.get("best_prices") or []
+            if best_prices:
+                lines.append(
+                    "Максимальная прибыль среди рассчитанных вариантов: "
+                    + self._money(result.get("best_profit")) + "/шт."
+                    + " при цене(ах) "
+                    + ", ".join(self._money(price) for price in best_prices) + "."
+                )
+            else:
+                lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
             for index, row in enumerate(result.get("rows") or [], start=1):
                 if row.get("available") is not True:
+                    if row.get("commission_status") in {
+                        "UNKNOWN", "CURRENT_PRICE_POINT_ONLY", "CONFLICT",
+                        "EXPIRED", "UNSUPPORTED_SCHEME",
+                    } or row.get("status") == "COMMISSION_UNKNOWN":
+                        lines.append(
+                            f"{index}. {self._money(row.get('price'))}: комиссия для этой цены "
+                            "не подтверждена; прибыль не рассчитана."
+                        )
+                        continue
                     missing = self._price_planning_missing_labels(
                         row.get("forward_result") or row
                     )
@@ -1315,6 +1401,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     f"{self._percent(row.get('margin_percent'))}; налог "
                     f"{self._money(row.get('tax'))}"
                 )
+                if row.get("commission_rate") is not None:
+                    line += "; комиссия " + self._percent(row.get("commission_rate"))
+                if row.get("profit_delta_vs_baseline") is not None:
+                    line += "; к базе " + self._money(row.get("profit_delta_vs_baseline")) + "/шт."
+                if row.get("is_best") is True:
+                    line += "; максимум"
                 if goal is not None:
                     line += "; цель " + self._percent(goal) + (
                         " достигнута" if row.get("goal_reached") is True
@@ -1329,7 +1421,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
         lines.extend([
             "Цена основного сценария не изменена.",
-            "Оценка одной успешной продажи FBO. Комиссия Ozon может измениться при новой цене; FBS не поддержан.",
+            "Оценка одной успешной продажи FBO. Каждый вариант использует свой подтверждённый тариф; неизвестный тариф не подменяется ставкой соседней цены. FBS не поддержан.",
             self._price_planning_cross_docking_note(session, result),
             "Постоянные расходы, платное хранение и эффекты возвратов не входят в расчёт.",
         ])
@@ -1495,12 +1587,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not isinstance(candidate_price, str):
             return self._stale_result()
         candidate_inputs = deepcopy(session.get("inputs") or {})
+        candidate_provenance = deepcopy(session.get("provenance") or {})
         candidate_inputs["price"] = candidate_price
+        if "commission_rate" in outcome:
+            candidate_inputs["commission_rate"] = outcome.get("commission_rate")
+            candidate_provenance["commission_rate"] = outcome.get("commission_origin") or "unknown"
         try:
             validation = self.scenario_service.calculate(
                 candidate_inputs,
                 identity=self._scenario_identity(session),
-                provenance=session.get("provenance") or {},
+                provenance=candidate_provenance,
                 sources=self._scenario_sources(session),
             )
         except Exception:
@@ -1513,6 +1609,17 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 expected_version,
                 "Не удалось перепроверить цену прямым расчётом. Параметры сценария не изменены.",
             )
+        if outcome.get("profit") is not None:
+            try:
+                validated_profit = Decimal(str(validation["calculated"]["profit"]))
+                expected_profit = Decimal(str(outcome["profit"]))
+            except (KeyError, InvalidOperation, TypeError, ValueError):
+                return self._stale_result()
+            if not validated_profit.is_finite() or validated_profit != expected_profit:
+                return self._invalidate_price_planning_result(
+                    session, user, scope, expected_version,
+                    "Тариф варианта изменился или не совпал с проверкой. Обновите расчёт; цену не подставил.",
+                )
 
         expired_source = False
         expired_session = False
@@ -1839,6 +1946,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["inputs"][field] = value
             current["provenance"][field] = "manual_seller_assumption"
             current["overrides"].add(field)
+            if field == "commission_rate":
+                current["manual_commission_price_cents"] = (
+                    UnitPriceTariffSnapshotAdapter.price_to_cents(
+                        current["inputs"].get("price")
+                    )
+                )
+                current.pop("frozen_tariff_resolution", None)
             current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
@@ -2256,6 +2370,19 @@ class TelegramUnitPriceCalculatorRuntimeService:
         effective_inputs, effective_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
             session, deepcopy(session["inputs"]), deepcopy(session["provenance"]),
         )
+        if frozen_tariff is not None and session.get("frozen_tariff_resolution") is None:
+            with self._lock:
+                current = self._scenarios.get(session.get("scenario_id"))
+                if (
+                    isinstance(current, dict)
+                    and current.get("version") == session.get("version")
+                    and current.get("tenant_scope") == session.get("tenant_scope")
+                    and current.get("user_id") == session.get("user_id")
+                ):
+                    if current.get("frozen_tariff_resolution") is None:
+                        current["frozen_tariff_resolution"] = deepcopy(frozen_tariff)
+                    frozen_tariff = deepcopy(current.get("frozen_tariff_resolution"))
+                    session["frozen_tariff_resolution"] = deepcopy(frozen_tariff)
         result = self.scenario_service.calculate(
             effective_inputs,
             identity=identity,

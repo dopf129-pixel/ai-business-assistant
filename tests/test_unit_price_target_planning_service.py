@@ -4,6 +4,8 @@ import pytest
 
 from services.tax_service import TaxService
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
@@ -41,6 +43,40 @@ class _CountingScenarioService:
 def _planner(counting=False):
     service = _CountingScenarioService() if counting else UnitPriceScenarioService(TaxService())
     return UnitPriceTargetPlanningService(service), service
+
+
+_TARIFF_IDENTITY = {
+    "owner_id": "owner-1", "user_id": "owner-1", "store_id": "store-1",
+    "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+}
+
+
+def _frozen_manual_tariff(bands=None, *, origin="MANUAL_SELLER_ASSUMPTION"):
+    profile = {
+        "profile_id": "profile-1", "revision": 1, "state_revision": 1,
+        "owner_id": "owner-1", "store_id": "store-1",
+        "identity": {key: _TARIFF_IDENTITY[key] for key in ("product_id", "offer_id", "sku")},
+        "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+        "origin": origin,
+        "source_ref": "synthetic-test" if origin == "MANUAL_SELLER_ASSUMPTION" else "current-price-api",
+        "recorded_at": "2026-10-27T10:00:00+00:00",
+        "observed_at": "2026-10-27T10:00:00+00:00" if origin != "MANUAL_SELLER_ASSUMPTION" else None,
+        "effective_from": "2026-10-01", "effective_to": None,
+        "confirmed_by_owner": True if origin == "MANUAL_SELLER_ASSUMPTION" else None,
+        "bands": bands or [
+            {"price_from_cents": 1, "price_to_cents": 10_000, "commission_rate": "11"},
+            {"price_from_cents": 10_001, "price_to_cents": 30_000, "commission_rate": "22"},
+        ],
+    }
+    price_cents = 10_000
+    resolved = UnitPriceTariffResolver().resolve(
+        seller_price_cents=price_cents, identity=_TARIFF_IDENTITY,
+        sale_schema="FBO", effective_date="2026-10-27", profiles=[profile],
+    )
+    assert resolved["available"] is True
+    return UnitPriceTariffSnapshotAdapter.freeze(
+        resolved, profile, candidate_profiles=[profile], effective_date="2026-10-27",
+    )
 
 
 def _assert_goal(outcome, target):
@@ -254,6 +290,128 @@ def test_current_price_probe_normalizes_only_insignificant_trailing_zeros(
     assert planner._current_price_cents({"price": price}) == expected_cents
 
 
+def test_comparison_uses_candidate_specific_frozen_tariff_and_ranks_rounded_unit_profit():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="0", commission_rate="11", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff()
+
+    result = planner.compare_prices(
+        inputs, "99,99; 100,00; 100,01", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen,
+    )
+
+    rows = result["rows"]
+    assert [row["commission_rate"] for row in rows] == ["11", "11", "22"]
+    assert [row["commission"] for row in rows] == [11.0, 11.0, 22.0]
+    assert [row["profit"] for row in rows] == [88.99, 89.0, 78.01]
+    assert result["baseline"]["price"] == "100.00"
+    assert result["baseline"]["profit"] == 89.0
+    assert [row["profit_delta_vs_baseline"] for row in rows] == ["-0.01", "0.00", "-10.99"]
+    assert result["best_prices"] == ["100.00"]
+    assert result["best_profit"] == "89.00"
+    assert result["evidence_basis"] == "SCENARIO_ASSUMPTIONS"
+    assert result["advertising_basis"] == {
+        "mode": "SAME_DRR", "revenue_basis": "SELLER_REVENUE", "rate": "0",
+    }
+    assert result["evaluation_count"] == service.calls == 3
+    assert result["candidate_count"] == 3
+
+
+def test_current_price_point_does_not_create_numeric_profit_for_neighboring_prices():
+    planner, _ = _planner()
+    point_profile = {
+        "profile_id": "point-1", "revision": 1, "state_revision": 1,
+        "owner_id": "owner-1", "store_id": "store-1",
+        "identity": {key: _TARIFF_IDENTITY[key] for key in ("product_id", "offer_id", "sku")},
+        "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+        "origin": "CURRENT_PRICE_POINT", "source_ref": "current-price-api",
+        "recorded_at": "2026-10-27T10:00:00+00:00",
+        "observed_at": "2026-10-27T10:00:00+00:00",
+        "effective_from": "2026-10-27", "effective_to": "2026-10-27",
+        "confirmed_by_owner": None,
+        "bands": [{"price_from_cents": 10_000, "price_to_cents": 10_000, "commission_rate": "14"}],
+    }
+    point = UnitPriceTariffResolver().resolve(
+        seller_price_cents=10_000, identity=_TARIFF_IDENTITY, sale_schema="FBO",
+        effective_date="2026-10-27", profiles=[point_profile],
+    )
+    frozen = UnitPriceTariffSnapshotAdapter.freeze(
+        point, point_profile, candidate_profiles=[point_profile], effective_date="2026-10-27",
+    )
+    inputs = _inputs(
+        price="100", cost="0", commission_rate="14", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.compare_prices(
+        inputs, "99,99; 100; 100,01", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen,
+    )
+
+    assert [row["available"] for row in result["rows"]] == [False, True, False]
+    assert result["rows"][0]["profit"] is None
+    assert result["rows"][2]["profit"] is None
+    assert [row["status"] for row in result["rows"]] == [
+        "COMMISSION_UNKNOWN", "CALCULATED", "COMMISSION_UNKNOWN",
+    ]
+    assert result["best_prices"] == ["100.00"]
+
+
+def test_comparison_keeps_legacy_rate_only_at_its_exact_frozen_price():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", commission_rate="14", cost="0", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.compare_prices(
+        inputs, "100; 100,01", identity=_TARIFF_IDENTITY,
+        tariff_resolution_required=True, exact_price_rate_cents=10_000,
+    )
+
+    assert result["rows"][0]["available"] is True
+    assert result["rows"][1]["available"] is False
+    assert result["rows"][0]["commission_status"] == "LEGACY_EXACT_PRICE_ONLY"
+    assert result["rows"][1]["profit"] is None
+
+
+def test_comparison_marks_all_equal_rounded_unit_profit_candidates_as_best():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", cost="0", commission_rate="100", logistics_per_unit="0",
+        last_mile_per_unit="0", acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.compare_prices(inputs, "99,99; 100")
+
+    assert [row["profit"] for row in result["rows"]] == [0.0, 0.0]
+    assert [row["is_best"] for row in result["rows"]] == [True, True]
+    assert result["best_prices"] == ["99.99", "100.00"]
+    assert result["best_profit"] == "0.00"
+
+
+def test_price_list_parser_accepts_ten_candidates_and_rejects_eleven():
+    planner, _ = _planner()
+
+    ten = planner.parse_price_list("; ".join(str(price) for price in range(100, 110)))
+    eleven = planner.parse_price_list("; ".join(str(price) for price in range(100, 111)))
+
+    assert ten["valid"] is True
+    assert len(ten["prices"]) == 10
+    assert eleven["valid"] is False
+
+
 def test_target_search_is_invariant_to_insignificant_trailing_price_zeros():
     outcomes = []
     for price in ("11.11", "11.110"):
@@ -357,7 +515,7 @@ def test_price_list_parser_accepts_decimal_comma_thousands_spaces_and_windows_ne
     "500;bad;600",
     "500;0",
     "500;1.234",
-    "500;600;700;800;900;1000",
+    "500;600;700;800;900;1000;1100;1200;1300;1400;1500",
     "500; ;600",
 ])
 def test_invalid_price_list_is_rejected_as_a_whole(text):

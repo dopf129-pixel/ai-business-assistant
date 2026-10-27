@@ -126,3 +126,40 @@ def test_source_unavailable_snapshot_cannot_resolve_from_a_partial_profile_list(
     assert result["status"] == "SOURCE_UNAVAILABLE"
     assert result["reason"] == "PROFILE_LIMIT"
     assert result.get("commission_rate") is None
+
+
+def test_exact_manual_scenario_point_overrides_frozen_range_only_at_captured_price():
+    range_profile = _profile()
+    point_profile = {
+        **_profile(),
+        "profile_id": "manual-scenario-override",
+        "origin": "MANUAL_SELLER_ASSUMPTION",
+        "source_ref": "MANUAL_SCENARIO_COMMISSION_OVERRIDE",
+        "recorded_at": "2026-10-27T11:00:00+00:00",
+        "effective_from": "2026-10-27",
+        "effective_to": "2026-10-27",
+        "bands": [{
+            "price_from_cents": 10_000,
+            "price_to_cents": 10_000,
+            "commission_rate": "13",
+        }],
+    }
+    resolution = UnitPriceTariffResolver().resolve(
+        seller_price_cents=10_000, identity=IDENTITY, sale_schema="FBO",
+        effective_date=DAY, profiles=[range_profile, point_profile],
+        selected_profile_id=point_profile["profile_id"],
+        selected_revision=point_profile["revision"],
+        selected_state_revision=point_profile["state_revision"],
+    )
+    snapshot = UnitPriceTariffSnapshotAdapter.freeze(
+        resolution, point_profile,
+        candidate_profiles=[range_profile, point_profile], effective_date=DAY,
+    )
+
+    exact = UnitPriceTariffSnapshotAdapter.resolve_frozen(snapshot, IDENTITY, 10_000)
+    outside = UnitPriceTariffSnapshotAdapter.resolve_frozen(snapshot, IDENTITY, 10_500)
+
+    assert exact["available"] is True
+    assert exact["commission_rate"] == "13"
+    assert outside["available"] is True
+    assert outside["commission_rate"] == "14"

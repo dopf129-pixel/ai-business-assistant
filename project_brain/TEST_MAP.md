@@ -18,6 +18,14 @@
 - Существующие calculator/target/ad-cap/sensitivity, saved plans, SKU finance/Performance, tenant, Telegram и backup suites переиспользуются. Конкретные новые тестовые файлы и фактические результаты Luna добавляет при реализации этапов.
 - При подготовке меняется только документация. Полный pytest для этой правки не запускался; проверки структуры/путей/числовых примеров фиксируются отдельно в журнале, а не выдаются за проверку будущего runtime.
 
+## Q09 — сравнение 2–10 вариантов по canonical прибыли/шт. (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py`: тарифная ставка подбирается по каждому candidate price на одном frozen snapshot; проверены переход ставок на границе 100 ₽, current-price point только на точной цене, legacy exact-price-only, 10/11 кандидатов, сравнение после ROUND_HALF_UP и tie по прибыли, равной после округления. Unknown candidate остаётся без прибыли и не ранжируется.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public Telegram path сохраняет введённую цель при сравнении, показывает базовую прибыль/шт. и лучший проверенный вариант, запрашивает tariff/source ровно по одному разу и применяет выбранный вариант только после повторной проверки canonical forward с тарифом выбранной строки.
+- `tests/test_unit_price_tariff_snapshot_adapter.py`: ручная точка, введённая для исходной цены поверх сохранённого диапазона, действует только на эту цену; остальные варианты разрешаются из сохранённого диапазона.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh`: возврат из legacy saved plan, явный ввод комиссии и новое сохранение снова используют подтверждённую точную ставку.
+- Focused profile (`target_planning_service`, scenario Telegram runtime, tariff-profile Telegram runtime, saved-plan flow, snapshot adapter): **120 passed in 3.16s**. Linked Q04–Q09 profile across 22 tariff/planning/scenario/consumer files: **378 passed in 8.90s**. Windows/Python 3.12.10, new `%TEMP%` storage and pytest basetemp, dotenv/plugin autoload off, no live credentials/API/bot. SHA-256 of five protected tracked `data/*.json` files matched before/after. `git diff --check` passed.
+
 # Исполнение ТЗ по существующим функциям (26.10.2026)
 
 ## Дополнительные регрессии независимого review PR #718

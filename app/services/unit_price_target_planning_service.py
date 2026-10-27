@@ -1,6 +1,8 @@
 import re
 from decimal import Decimal, InvalidOperation
 
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+
 
 class UnitPriceTargetPlanningService:
     """Bounded, read-only price planning over the existing forward calculator."""
@@ -9,6 +11,7 @@ class UnitPriceTargetPlanningService:
     MAX_UPPER_BOUND_PROBES = 8
     MAX_LOWER_BOUND_PROBES = 8
     MAX_PRICE_SCALE_PROBES = 6
+    MAX_COMPARISON_PRICES = 10
     MIN_PRICE_CENTS = 1
     CENT = Decimal("0.01")
     HUNDRED = Decimal("100")
@@ -46,7 +49,7 @@ class UnitPriceTargetPlanningService:
         if not isinstance(text, str) or len(text) > 256:
             return self._invalid_price_list()
         tokens = re.split(r";|\r\n|\r|\n", text.strip())
-        if not 2 <= len(tokens) <= 5 or any(not token.strip() for token in tokens):
+        if not 2 <= len(tokens) <= self.MAX_COMPARISON_PRICES or any(not token.strip() for token in tokens):
             return self._invalid_price_list()
 
         prices = []
@@ -160,6 +163,9 @@ class UnitPriceTargetPlanningService:
         identity=None,
         provenance=None,
         sources=None,
+        frozen_tariff_snapshot=None,
+        tariff_resolution_required=False,
+        exact_price_rate_cents=None,
     ):
         if isinstance(prices, str):
             parsed = self.parse_price_list(prices)
@@ -180,6 +186,21 @@ class UnitPriceTargetPlanningService:
         if not isinstance(inputs, dict):
             return self._error_result("INVALID_INPUTS", identity)
 
+        if type(tariff_resolution_required) is not bool:
+            return self._error_result("INVALID_TARIFF_REQUIREMENT", identity)
+        tariff_identity = dict(identity or {})
+        tariff_identity.setdefault("owner_id", tariff_identity.get("user_id"))
+        tariff_aware = frozen_tariff_snapshot is not None or tariff_resolution_required
+        if frozen_tariff_snapshot is not None:
+            if UnitPriceTariffSnapshotAdapter.validate(
+                frozen_tariff_snapshot, tariff_identity, inputs,
+            ) is None:
+                return self._error_result("INVALID_TARIFF_SNAPSHOT", identity)
+        if exact_price_rate_cents is not None and (
+            type(exact_price_rate_cents) is not int or exact_price_rate_cents < 1
+        ):
+            return self._error_result("INVALID_EXACT_PRICE_TARIFF", identity)
+
         rows = []
         common = {
             "identity": dict(identity or {}),
@@ -187,47 +208,178 @@ class UnitPriceTargetPlanningService:
             "sources": dict(sources or {}),
             "candidate_price_provenance": "manual_seller_assumption",
         }
-        for price in normalized_prices:
+        evaluation_count = 0
+
+        def evaluate(price):
+            nonlocal evaluation_count
+            cents = int(price * self.HUNDRED)
             candidate_inputs = dict(inputs)
             candidate_inputs["price"] = format(price, ".2f")
+            candidate_provenance = dict(common["provenance"])
+            tariff_status = "ASSUMPTION_INPUT"
+            tariff_reason = None
+            tariff_origin = candidate_provenance.get("commission_rate", "unknown")
+            resolved_rate = candidate_inputs.get("commission_rate")
+            if frozen_tariff_snapshot is not None:
+                resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                    frozen_tariff_snapshot, tariff_identity, cents,
+                )
+                if resolution.get("error") is True:
+                    return {
+                        "status": "SOURCE_UNAVAILABLE", "available": False,
+                        "price": format(price, ".2f"), "profit": None,
+                        "margin_percent": None, "tax": None, "goal_reached": None,
+                        "commission_rate": None, "commission": None,
+                        "commission_status": "SOURCE_UNAVAILABLE",
+                        "commission_reason": resolution.get("code"),
+                        "commission_origin": None,
+                        "missing_inputs": [], "invalid_inputs": [],
+                        "forward_result": None,
+                    }
+                if resolution.get("available") is not True:
+                    status = resolution.get("status")
+                    unavailable_status = (
+                        "SOURCE_UNAVAILABLE" if status == "SOURCE_UNAVAILABLE"
+                        else "COMMISSION_UNKNOWN"
+                    )
+                    return {
+                        "status": unavailable_status, "available": False,
+                        "price": format(price, ".2f"), "profit": None,
+                        "margin_percent": None, "tax": None, "goal_reached": None,
+                        "commission_rate": None, "commission": None,
+                        "commission_status": status or "UNKNOWN",
+                        "commission_reason": resolution.get("reason"),
+                        "commission_origin": None,
+                        "missing_inputs": ["commission_rate"],
+                        "invalid_inputs": [], "forward_result": None,
+                    }
+                resolved_rate = resolution.get("commission_rate")
+                tariff_status = resolution.get("status") or "CONFIRMED"
+                profile = resolution.get("selected_profile") or {}
+                tariff_origin = profile.get("origin") or "unknown"
+                candidate_inputs["commission_rate"] = resolved_rate
+                candidate_provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                }.get(tariff_origin, "unknown")
+            elif tariff_aware:
+                original_cents = self._current_price_cents(inputs)
+                if (exact_price_rate_cents is None or cents != exact_price_rate_cents
+                        or original_cents != exact_price_rate_cents):
+                    return {
+                        "status": "COMMISSION_UNKNOWN", "available": False,
+                        "price": format(price, ".2f"), "profit": None,
+                        "margin_percent": None, "tax": None, "goal_reached": None,
+                        "commission_rate": None, "commission": None,
+                        "commission_status": "UNKNOWN",
+                        "commission_reason": "NO_FROZEN_TARIFF_FOR_CANDIDATE_PRICE",
+                        "commission_origin": None,
+                        "missing_inputs": ["commission_rate"],
+                        "invalid_inputs": [], "forward_result": None,
+                    }
+                tariff_status = "LEGACY_EXACT_PRICE_ONLY"
+                tariff_origin = "legacy_frozen_plan_rate"
+                candidate_provenance["commission_rate"] = tariff_origin
+
             try:
                 forward = self.scenario_service.calculate(
                     candidate_inputs,
                     identity=common["identity"],
-                    provenance=self._candidate_provenance(common),
+                    provenance=self._candidate_provenance({
+                        **common, "provenance": candidate_provenance,
+                    }),
                     sources=common["sources"],
                 )
             except (ArithmeticError, OverflowError, TypeError, ValueError):
                 forward = None
-            available = self._forward_status(forward) == "CALCULATED"
+            evaluation_count += 1
+            status = self._forward_status(forward)
+            available = status == "CALCULATED"
             calculated = (forward or {}).get("calculated") or {}
-            goal_reached = (
-                self._reached(forward, price, target)
-                if available and target is not None
-                else None
-            )
-            rows.append({
-                "status": "CALCULATED" if available else self._forward_status(forward),
+            return {
+                "status": "CALCULATED" if available else status,
                 "available": available,
                 "price": format(price, ".2f"),
                 "profit": calculated.get("profit") if available else None,
                 "margin_percent": calculated.get("margin_percent") if available else None,
                 "tax": calculated.get("tax") if available else None,
-                "goal_reached": goal_reached,
+                "goal_reached": (
+                    self._reached(forward, price, target)
+                    if available and target is not None else None
+                ),
+                "commission_rate": resolved_rate,
+                "commission": calculated.get("commission") if available else None,
+                "commission_status": tariff_status,
+                "commission_reason": tariff_reason,
+                "commission_origin": tariff_origin,
                 "missing_inputs": list((forward or {}).get("missing_inputs") or []),
                 "invalid_inputs": list((forward or {}).get("invalid_inputs") or []),
                 "forward_result": forward if available else None,
-            })
+            }
+
+        for price in normalized_prices:
+            rows.append(evaluate(price))
+
+        best_profit = max(
+            (Decimal(str(row["profit"])) for row in rows if row.get("available") is True),
+            default=None,
+        )
+        for row in rows:
+            row["is_best"] = (
+                row.get("available") is True
+                and Decimal(str(row["profit"])) == best_profit
+            )
+            row["evidence_basis"] = "SCENARIO_ASSUMPTIONS"
+            row["profit_delta_vs_baseline"] = None
+
+        baseline_price = self._current_price_cents(inputs)
+        baseline = None
+        if baseline_price is not None:
+            baseline_decimal = self._price_from_cents(baseline_price)
+            baseline_row = next(
+                (row for row in rows if int(Decimal(row["price"]) * self.HUNDRED) == baseline_price),
+                None,
+            )
+            if baseline_row is None:
+                baseline_row = evaluate(baseline_decimal)
+            baseline = {
+                "price": format(baseline_decimal, ".2f"),
+                "status": baseline_row.get("status"),
+                "available": baseline_row.get("available") is True,
+                "profit": baseline_row.get("profit"),
+                "margin_percent": baseline_row.get("margin_percent"),
+                "commission_rate": baseline_row.get("commission_rate"),
+                "commission_status": baseline_row.get("commission_status"),
+                "evidence_basis": baseline_row.get("evidence_basis", "SCENARIO_ASSUMPTIONS"),
+            }
+            if baseline.get("available") is True:
+                baseline_profit = Decimal(str(baseline["profit"]))
+                for row in rows:
+                    if row.get("available") is True:
+                        row["profit_delta_vs_baseline"] = format(
+                            Decimal(str(row["profit"])) - baseline_profit, ".2f"
+                        )
 
         return {
             "error": False,
             "kind": "UNIT_PRICE_OPTIONS_COMPARISON",
             "status": "COMPLETED",
             "available": any(row["available"] for row in rows),
+            "baseline": baseline,
+            "best_profit": format(best_profit, ".2f") if best_profit is not None else None,
+            "best_prices": [row["price"] for row in rows if row.get("is_best") is True],
+            "evidence_basis": "SCENARIO_ASSUMPTIONS",
+            "advertising_basis": {
+                "mode": "SAME_DRR",
+                "revenue_basis": "SELLER_REVENUE",
+                "rate": inputs.get("advertising_rate"),
+            },
             "target_margin_percent": format(target, "f") if target is not None else None,
             "rows": rows,
-            "evaluation_count": len(rows),
-            "evaluation_limit": len(normalized_prices),
+            "candidate_count": len(rows),
+            "evaluation_count": evaluation_count,
+            "evaluation_limit": self.MAX_COMPARISON_PRICES + 1,
             "identity": common["identity"],
             "provenance": self._candidate_provenance(common),
             "source_price_provenance": common["provenance"].get("price"),
@@ -456,7 +608,7 @@ class UnitPriceTargetPlanningService:
         return {"valid": True, "value": target}
 
     def _validate_price_values(self, prices):
-        if not isinstance(prices, (list, tuple)) or not 2 <= len(prices) <= 5:
+        if not isinstance(prices, (list, tuple)) or not 2 <= len(prices) <= self.MAX_COMPARISON_PRICES:
             return None
         normalized = []
         seen = set()
@@ -519,7 +671,7 @@ class UnitPriceTargetPlanningService:
             "error": True,
             "valid": False,
             "code": code,
-            "message": "Введите от 2 до 5 разных положительных цен через точку с запятой или с новой строки.",
+            "message": "Введите от 2 до 10 разных положительных цен через точку с запятой или с новой строки.",
         }
 
     @staticmethod

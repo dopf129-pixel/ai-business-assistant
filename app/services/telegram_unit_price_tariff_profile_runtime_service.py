@@ -371,7 +371,7 @@ class TelegramUnitPriceTariffProfileRuntimeService:
             notice = "Тариф действует только в этой сессии и не сохранён между перезапусками."
         else:
             notice = f"Тариф сохранён: редакция {result['revision']}. Источник — ручное подтверждение продавца."
-        return self._return_to_scenario(ticket, user_id, notice)
+        return self._return_to_scenario(ticket, user_id, notice, refresh_tariff=True)
 
     def _save_profile(self, ticket, payload):
         listed = self.repository.list_tariff_profiles(
@@ -545,10 +545,16 @@ class TelegramUnitPriceTariffProfileRuntimeService:
         ]
         return self._response("UNIT_PRICE_TARIFF_PREVIEW", "\n".join(lines), {"error": False, "type": "inline_keyboard", "buttons": buttons})
 
-    def _return_to_scenario(self, ticket, user_id, notice):
-        result = self.calculator_runtime.handle_callback(
-            f"upc:v:{ticket['scenario_id']}:{ticket['scenario_version']}", user_id=user_id
-        )
+    def _return_to_scenario(self, ticket, user_id, notice, *, refresh_tariff=False):
+        refresher = getattr(self.calculator_runtime, "refresh_tariff_profile_snapshot", None)
+        if refresh_tariff and callable(refresher):
+            result = refresher(
+                ticket["scenario_id"], ticket["scenario_version"], user_id=user_id,
+            )
+        else:
+            result = self.calculator_runtime.handle_callback(
+                f"upc:v:{ticket['scenario_id']}:{ticket['scenario_version']}", user_id=user_id
+            )
         return self._prepend_notice(result, notice)
 
     @staticmethod

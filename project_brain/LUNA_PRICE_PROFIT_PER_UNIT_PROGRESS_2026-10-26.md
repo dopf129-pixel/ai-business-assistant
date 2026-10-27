@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q08 завершены, Q09–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q09 завершены, Q10–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -28,8 +28,8 @@
 | Q06 | DONE | Manual tariff persistence + rollback profile: 115 passed; five tracked data JSON hashes unchanged. See `UNIT_PRICE_PROFILE_PERSISTENCE_Q06_2026-10-27.md`. |
 | Q07 | DONE | Public Telegram flow for manual FBO point/ranges: preview/explicit persistent or session-only confirmation, edit/cancel/refresh; stale/replay-safe draft bound to owner/store/SKU/scenario version. Session-only profile was also accepted by the pure resolver. Final combined profile: 199 passed. Implementation commit `cea8a8e4`; see `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`. |
 | Q08 | DONE | Frozen tariff snapshot and saved-plan schema v3 integrated; linked isolated Q04–Q08 profile 371 passed; 5 protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. |
-| Q09 | NOT_STARTED | — |
-| Q10 | NOT_STARTED | — |
+| Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
+| Q10 | IN_PROGRESS | Следующий этап: отдельные рекламные режимы и пороги компенсации через canonical forward. |
 | Q11 | NOT_STARTED | — |
 | Q12 | NOT_STARTED | — |
 | Q13 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q09: add 2–10-option comparison by canonical ₽/unit calculation on one frozen snapshot, preserving statuses/evidence and target.
+1. Выполнить Q10: добавить сравнение одинаковой ДРР, раздельной ДРР и поддержанного расхода на единицу; пороги non-worse/strictly-better должны подтверждаться canonical forward.
 2. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
@@ -158,4 +158,14 @@
 - Проверка: изолированный Windows/Python 3.12.10 Q04–Q08 профиль — **371 passed in 8.41s**. Запуск: `python -m pytest -q -p no:cacheprovider --basetemp <fresh-temp> <22 tariff/source/scenario/planning test files>`. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми временными каталогами; dotenv и plugin autoload отключены.
 - SHA-256 пяти защищённых tracked JSON (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) совпали до и после запуска. Сеть, реальные Ozon/Telegram API, bot process, `.env`, рабочая пользовательская БД и ignored runtime data не использовались.
 - Документы Q08 обновлены: `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, Decision 061 и `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. Код затрагивает 8 сервисов/фабрику и 4 тестовых файла плюс новый adapter/test; это **Architecture Review Required**. Полный pytest/CI — не запускался; он запланирован в Q33–Q35.
-- Q08 — PASS. Следующее: Q09, сравнение 2–10 цен по ₽/шт. на общем frozen snapshot.
+- Q08 — PASS; implementation/docs commit `2cf24a71` (`Freeze tariffs in unit price plans`). Следующее: Q09, сравнение 2–10 цен по ₽/шт. на общем frozen snapshot.
+
+### Q09 — сравнение 2–10 цен по прибыли с единицы (2026-10-27)
+
+- Сравнение принимает от 2 до 10 явных вариантов и использует существующий `UnitPriceScenarioService` для каждой доступной строки. Комиссия разрешается отдельно для каждой цены из одного замороженного набора профилей; current-price point и legacy ставка применяются только к точной исходной цене. Неизвестный/непокрытый вариант получает `profit=None` и не может победить числом 0.
+- Экран показывает исходную базу, рекламное основание одинаковой ДРР, подтверждённый максимум только среди рассчитанных цен, ставку комиссии и изменение прибыли к базе. Сохранённая целевая маржа остаётся в результате при переходе к сравнению. Выбор цены повторно проверяется canonical forward с тарифом строки и только после совпадения применяет цену к локальному сценарию.
+- Frozen tariff snapshot фиксируется при первом построении экрана и сохраняется в session state только при совпадении owner/store/scenario/version. Последующие изменения цен не вызывают повторных source/profile reads. Явное подтверждение нового тарифа создаёт новое состояние снимка; старые callbacks и результаты инвалидируются.
+- Ручная комиссия, введённая в самом сценарии поверх сохранённого диапазона, трактуется как точечное допущение только для захваченной цены. Она может разрешить точную строку, не расширяется на соседние варианты и не ломает разрешение оставшихся цен из диапазона.
+- Добавлены регрессии в `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_unit_price_tariff_snapshot_adapter.py`. Критические случаи: тарифный скачок на 100 ₽, unknown current-price point, legacy exact-price-only, 10/11 кандидатов, равная округлённая прибыль, отсутствие повторных source reads и повторная проверка при применении.
+- Проверки Windows/Python 3.12.10 в новой `%TEMP%`-среде: focused runtime/profile — **120 passed in 3.16s**; полный связанный Q04–Q09 профиль — **378 passed in 8.90s**. Перед/после профильного запуска SHA-256 пяти защищённых `data/*.json` совпали. Dotenv и plugin autoload выключены, credentials-переменные удалены из процесса; сеть, Ozon/Telegram API, рабочая БД и реальный бот не использовались. `git diff --check` — PASS; предупреждения Git о нормализации LF→CRLF не меняют содержимое.
+- Q09 — VERIFIED. Commit: `PENDING` (`Compare unit-price candidates with frozen tariffs`). Это изменение расширяет существующие price-planning и Telegram contracts, поэтому классификация — **Architecture Review Required**. Следующий этап: Q10.

@@ -8,6 +8,8 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
@@ -188,6 +190,48 @@ def _add_cross_docking_evidence(source, cross_docking):
         return snapshot
 
     source.load_snapshot = load_snapshot
+
+
+class _FrozenRangeTariffRuntime:
+    def __init__(self):
+        self.calls = []
+        self.profile = {
+            "profile_id": "manual-range-1", "revision": 1, "state_revision": 1,
+            "owner_id": "user-1", "store_id": "store-1",
+            "identity": {"product_id": "p1", "offer_id": "hook-2", "sku": "3921245627"},
+            "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+            "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-runtime-test",
+            "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+            "effective_from": "2026-10-01", "effective_to": None,
+            "confirmed_by_owner": True,
+            "bands": [
+                {"price_from_cents": 1, "price_to_cents": 10_000, "commission_rate": "11"},
+                {"price_from_cents": 10_001, "price_to_cents": 30_000, "commission_rate": "22"},
+                {"price_from_cents": 30_001, "price_to_cents": 100_000, "commission_rate": "15"},
+            ],
+        }
+
+    def get_session_profile(self, scenario_id, user_id=None):
+        return None
+
+    def resolve_for_scenario(self, scenario_id, version, seller_price, user_id=None,
+                             *, session_profile_only=False):
+        self.calls.append((scenario_id, version, str(seller_price), user_id))
+        cents = UnitPriceTariffSnapshotAdapter.price_to_cents(seller_price)
+        resolution = UnitPriceTariffResolver().resolve(
+            seller_price_cents=cents,
+            identity={
+                "owner_id": "user-1", "store_id": "store-1", "product_id": "p1",
+                "offer_id": "hook-2", "sku": "3921245627",
+            },
+            sale_schema="FBO", effective_date="2026-10-14", profiles=[self.profile],
+        )
+        return {
+            **resolution,
+            "effective_date": "2026-10-14",
+            "selected_profile": deepcopy(self.profile) if resolution.get("available") is True else None,
+            "candidate_profiles": [deepcopy(self.profile)],
+        }
 
 
 def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertising():
@@ -610,6 +654,50 @@ def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario(
     assert "налог" in result["message"]
     assert price_before == 500
     assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        target_prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        target_result = runtime.handle_text("20", user_id="user-1")
+        prompt = runtime.handle_callback(
+            _find_button(target_result, "Сравнить другие цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99,99; 100; 100,01", user_id="user-1")
+        selected = runtime.handle_callback(
+            _find_button(result, "Подставить вариант 3")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    comparison = result["price_planning_result"]
+    assert target_prompt["stage"] == "target_margin"
+    assert prompt["stage"] == "price_options"
+    assert comparison["target_margin_percent"] == "20"
+    assert [row["commission_rate"] for row in comparison["rows"]] == ["11", "11", "22"]
+    assert [row["commission"] for row in comparison["rows"]] == [11.0, 11.0, 22.0]
+    assert comparison["baseline"]["price"] == "500.00"
+    assert comparison["baseline"]["available"] is True
+    assert comparison["best_prices"] == ["100.00"]
+    assert "Максимальная прибыль среди рассчитанных вариантов" in result["message"]
+    assert "Реклама для вариантов: одинаковая ДРР 0,00%" in result["message"]
+    assert selected["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert selected["price_scenario"]["inputs"]["price"]["value"] == 100.01
+    assert selected["price_scenario"]["inputs"]["commission_rate"]["value"] == 22.0
+    assert len(source.calls) == 1
+    assert len(tariff.calls) == 1
 
 
 def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
