@@ -5773,3 +5773,8 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_unit_price_observation_normalizer.py` — finite Decimal projection, explicit discount-point completeness, accrual-vs-Performance date-basis compatibility, separate seller/attributed DRR, weighted numerator/denominator and zero/missing denominator, duplicate/conflict handling, SKU scope, signed corrections, mixed-price flags, no double deduction and no unsupported observed-profit output.
 - `tests/test_unit_price_observation_collection_service.py` — upstream read-only evidence contract and bounded source coverage.
 - Q16–Q18 linked profile: **184 passed** across 11 observation, finance and Performance test modules. Full pytest/CI remains scheduled for Q33–Q35.
+
+# Unit-price observation result (Q19)
+
+- `tests/test_unit_price_observation_result_service.py` — canonical `UnitPriceScenarioService` parity; CPC-per-confirmed-successful-unit modeling; exact identity/price gates; unavailable denominator, mixed price and incompatible source date-basis outcomes; repository result-schema compatibility; caller-provided canonical labels cannot promote aggregates.
+- Q16–Q19 linked isolated profile: **189 passed in 4.10s** across 12 observation, repository, finance, Performance and production-wiring test modules. Full pytest/exact-head CI remains scheduled for Q33–Q35.

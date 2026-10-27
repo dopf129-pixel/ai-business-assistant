@@ -38,7 +38,7 @@
 | Q16 | VERIFIED | Additive planning DB v3→v4 observation/results repository, append-only result revisions, CAS/idempotency, exact owner/store/SKU/price binding, quotas, overlap retention and rollback. Focused profile: **38 passed in 1.58s**; acceptance `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. |
 | Q17 | VERIFIED | Read-only collector exact-bound к FBO наблюдению и завершённому окну; использует текущие finance/Performance adapters и root budget. Unknown field/type metadata сохранены без raw values; 172 focused tests passed. Acceptance ниже. |
 | Q18 | VERIFIED | Pure normalizer сохраняет суммы/основания, exact-compatible DRR, weighted denominators, conflict-safe dedup и signed correction semantics; текущие неизвестные price/quantity/discount coverage блокируют observed profit. 184 linked tests passed. Acceptance ниже. |
-| Q19 | IN_PROGRESS | Нужна реализация трёх раздельных оснований: canonical fact при полном evidence, отдельно подписанная модель по наблюдавшимся входам либо явное incomplete/incomparable. |
+| Q19 | VERIFIED | Добавлен pure evaluator: модель доступна только по совместимому CPC и подтверждённому знаменателю успешных единиц; иначе сохраняются `INSUFFICIENT_DATA`/`INCOMPARABLE`. Q16–Q19 linked profile: 189 passed. Acceptance ниже. |
 | Q20 | NOT_STARTED | — |
 | Q21 | NOT_STARTED | — |
 | Q22 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q19: построить результат поверх Q17 collector и Q18 normalizer. Canonical fact разрешать только при подтверждённых цене продажи, единицах и сопоставимости; иначе показывать отдельно подписанную модель только при достаточных наблюдаемых входах, либо явное `INCOMPARABLE`/`INSUFFICIENT_DATA`. Не объявлять частичный CPC или финансы полной прибылью.
+Продолжить с Q20: встроить verified Q19 evaluator в полный Telegram observation cycle. Использовать существующий result repository для append-only результата, показывать модель отдельно от факта, сохранять exact owner/store/SKU/price scope, повторно открывать историю и завершать наблюдение; Ozon reads остаются явными и read-only.
 
 ## Записи исполнения
 
@@ -254,3 +254,13 @@
 - Effective-date warnings и mixed-price status остаются явными. Account totals не распределяются по SKU. Суммы finance components и performance CPC не вычитаются повторно из `finance_net`; прибыль/налог/себестоимость не пересчитываются в normalizer.
 - Связанный Q16–Q18 изолированный Windows/Python 3.12.10 профиль — **184 passed in 3.92s**. Venv не содержал объявленный `tzdata`; в ходе первой попытки тесты не прошли на отсутствии Windows IANA timezone database. Декларированная зависимость поставлена только в уникальный TEMP target, после чего весь профиль прошёл. TEMP storage/basetemp использованы, dotenv/plugin autoload отключены, credential/provider env очищен; live API, owner DB, data files и бот не задействованы.
 - Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`. Q18 — VERIFIED; чистое вычисление без новых источников, архитектурное решение не меняется. Далее Q19 — canonical fact vs separately labeled model vs incomplete.
+
+### Q19 — сопоставимая оценка и ограничения факта (2026-10-27)
+
+- Добавлен `UnitPriceObservationResultService`, pure service без DB/Telegram/HTTP. Точный сценарий должен совпасть по store/product/offer/SKU/FBO и seller price. Результат использует schema v1 существующего `PlanningWorkspaceRepository`; новые result поля не добавлялись.
+- Canonical fact не выдаётся: Q15/Q18 подтверждают, что текущие источники не дают per-sale seller price/event time, полного successful-unit denominator и совместимой когорты. Фальшивый caller `CANONICAL_FACT_COMPARABLE` игнорируется.
+- Модель использует CPC только при complete Performance evidence, точной дате/окне/timezone/date basis и положительном подтверждённом successful-unit denominator. Нормализованная CPC/успешную единицу проходит existing parser и canonical `UnitPriceScenarioService`; observed profit остаётся `None`, модель отмечает ручные сценарные допущения и неполный рекламный scope. Нет двойного вычитания finance totals.
+- Адресный Q19 + Q18 profile: **17 passed**; финальный связанный Q16–Q19 profile: **189 passed in 4.10s**; `py_compile` сервиса и теста — exit 0; repository result validator принимает модельный payload. Первый профиль выявил неправильное ожидаемое значение в synthetic assertion; оно сверено с формулой canonical calculator, ожидание исправлено, финальные запуски зелёные.
+- Проверки использовали временные storage/basetemp; dotenv/provider plugins отключены, credential variables удалены. Owner DB, tracked `data/*.json`, API, live bot и production env не использовались. Полный pytest/exact-head CI остаются Q33–Q35.
+- Документация: `UNIT_PRICE_OBSERVATION_RESULT_Q19_2026-10-27.md`, CHANGELOG, CURRENT_STATE, TEST_MAP. DECISIONS не менялся — Decision 061/Q03 уже задают pure service boundary и evidence labels.
+- Классификация: **Architecture Review Required** — добавлен application service, использующий установленный canonical unit calculator; storage/source schemas не менялись.

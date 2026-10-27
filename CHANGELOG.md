@@ -1,3 +1,8 @@
+# 2026-10-27 — Q19: результат наблюдения прибыли за единицу
+
+- Добавлен pure evaluator, который связывает нормализованные evidence, точную SKU/цену и frozen unit-economics сценарий. Он выдаёт только явно подписанную модель `MODELLED_FROM_OBSERVED_INPUTS` или `INSUFFICIENT_DATA`/`INCOMPARABLE`; частичный CPC не объявляется полной рекламой или фактической прибылью.
+- Модель использует подтверждённые успешные единицы и совместимые даты/окна источников; каноническая формула — существующий `UnitPriceScenarioService`. Текущие aggregate источники не дают per-sale цену/время и знаменатель, поэтому факт не выдумывается.
+- Q16–Q19 linked profile: **189 passed**. См. `UNIT_PRICE_OBSERVATION_RESULT_Q19_2026-10-27.md`; Q20 подключит evaluator к Telegram cycle.
 # 2026-10-27 — Q16: долговременный журнал наблюдения цены
 
 - Добавлена additive planning DB v4 schema для tenant/store-scoped наблюдений и immutable result revisions; version saved plans не менялась.
