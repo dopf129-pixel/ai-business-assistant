@@ -9,7 +9,7 @@ Keep `UnitPriceScenarioService` and active-store `TaxService` as the only forwar
 
 Reason: persistent planning evidence belongs to the existing tenant planning workspace, not financial accounting. One storage authority and the canonical forward engine preserve tenant isolation, tax/rounding contracts and backward compatibility.
 
-Status: Contract adopted for the Q00–Q35 implementation; not yet implemented. Q06/Q15/Q26 and Q35 must provide migration, isolation, restore and exact-head CI evidence.
+Status: Q06 implements tenant-scoped manual FBO tariff persistence in additive planning DB v3 with CAS, idempotency, quotas, history and rollback. Q07–Q14 scenario/UI wiring, Q15 observations, Q26 restore and Q35 exact-head CI remain outstanding; the overall feature is not production-wired or externally validated.
 
 ---
 

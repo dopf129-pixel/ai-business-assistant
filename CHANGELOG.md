@@ -1,3 +1,8 @@
+# 2026-10-27 — Q06: постоянные ручные тарифные профили
+
+- В существующее tenant planning SQLite добавлены versioned tariff profiles и revisions с CAS, идемпотентностью, квотами и атомарной миграцией v3. Старые saved-plan payload versions v1/v2 не изменены.
+- Добавлены regressions для reopen/resolver, tenant isolation, archive/history, invalid profiles, quotas и transaction rollback. Isolated Windows/Python 3.12.10 профиль: **115 passed**; пять tracked data JSON hashes не изменились.
+
 # 2026-10-27 — Q05: подтверждённая комиссия только для текущей цены
 
 - Проверена официальная справка Ozon: проектный API даёт процент комиссии товара, но доступный контракт не подтверждает тарифную сетку гипотетических цен.

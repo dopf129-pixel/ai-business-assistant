@@ -25,7 +25,7 @@
 | Q03 | DONE | Зафиксированы outcome/tariff/ad/snapshot/observation contracts, layer boundary, limits и additive planning persistence в `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`; Decision 061. Runtime поведение пока не заявляется. |
 | Q04 | DONE | Добавлен pure `UnitPriceTariffResolver`; точные inclusive cents ranges, gaps, overlap/conflict, exact profile selection, current-price point, scope/date/scheme checks и numeric limits. Новый изолированный профиль: **34 passed in 0.44s**; подробности ниже. |
 | Q05 | DONE | Official FAQ/API source checked; current FBO rate exposed only as exact current-price point via pure adapter; range remains `RANGE_SOURCE_UNAVAILABLE`. Focused profile: 88 passed; five tracked data hashes unchanged. |
-| Q06 | NOT_STARTED | — |
+| Q06 | DONE | Manual tariff persistence + rollback profile: 115 passed; five tracked data JSON hashes unchanged. See `UNIT_PRICE_PROFILE_PERSISTENCE_Q06_2026-10-27.md`. |
 | Q07 | NOT_STARTED | — |
 | Q08 | NOT_STARTED | — |
 | Q09 | NOT_STARTED | — |
@@ -70,8 +70,8 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q06: additive tenant tariff-profile persistence in existing planning SQLite with revisions, idempotency, CAS, quotas and rollback.
-2. Q07: owner-facing input/confirm/cancel flow and safe manual fallback; then Q08–Q09 source resolution and wiring.
+1. Выполнить Q07: owner-facing tariff input/preview/confirm/cancel/edit flow with draft tickets bound to owner/store/SKU/version.
+2. Q08 will connect the confirmed tariff snapshot to price scenarios and saved-plan frozen revisions.
 3. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
@@ -128,4 +128,15 @@
 - Added `app/services/unit_price_tariff_source.py`, a pure adapter over the already fetched `UnitPriceScenarioSource` snapshot. It exposes only a same-price/same-date FBO `CURRENT_PRICE_POINT`; it never performs a second API call, persists data or propagates a point to other prices. Other prices remain `RANGE_SOURCE_UNAVAILABLE` for Q06–Q07 manual continuation.
 - Added `tests/test_unit_price_tariff_source.py`; isolated `test_unit_price_tariff_source.py`, `test_unit_price_tariff_resolver.py`, `test_unit_price_scenario_source.py` and `test_current_product_economics_source.py` on Windows/Python 3.12.10: **88 passed in 1.47s**. An earlier focused attempt had 6 failures caused by an incorrect synthetic tenant delimiter; fixture was corrected to repository convention. The final expanded source integration + source + resolver run passed.
 - Five tracked `data/*.json` SHA-256 hashes were unchanged. No live API, credentials, owner storage or bot process was used.
-- Q05 — PASS. Next dependency: Q06 durable manual tariff profile repository.
+- Q05 — PASS. Next dependency: Q06 durable manual tariff profile repository. Q06 subsequently passed; next dependency is Q07 Telegram input/confirmation.
+
+
+### Q06 — постоянные ручные тарифные профили (2026-10-27)
+
+- Расширена существующая `PlanningWorkspaceRepository` аддитивной версией БД v3; версия payload сохранённых планов остаётся v1/v2. Добавлены tenant-scoped таблицы активных/архивных тарифов, append-only content revisions и bounded idempotency records. Все операции выполняются транзакционно в этом репозитории.
+- Профиль принимает только подтверждённое владельцем допущение FBO по точной identity product/offer/SKU, цене продавца в копейках, рублям и effective dates. Запрещены лишние поля, неподтверждённый ввод, FBS, bool вместо целого/ставки, невалидные даты, пересечение inclusive диапазонов и превышение лимитов. Текущая API-точка не конвертируется в тарифный диапазон.
+- Create/update/archive используют tenant scope, idempotency и CAS по content/state revision. Идентичность immutable; есть bounded quotas/pagination. Архив меняет только state revision, чтение latest возвращает актуальный state, историческая тарифная ревизия остаётся точной. Restart/reopen профиль передаёт в pure resolver как `MANUAL_RANGE`.
+- Добавлены `tests/test_planning_workspace_tariff_profiles.py` и обновлены миграционные ожидания в `tests/test_planning_workspace_repository.py`: round-trip/reopen/resolver, повтор create/update, stale CAS, immutable identity, owner/store isolation, archive/history, allowlist и quotas, атомарный rollback записи и v2→v3 rollback.
+- Адресный изолированный Windows/Python 3.12.10 профиль: `tests/test_planning_workspace_tariff_profiles.py`, `tests/test_planning_workspace_repository.py`, `tests/test_unit_price_tariff_resolver.py`, `tests/test_unit_price_tariff_source.py`, `tests/test_unit_price_scenario_source.py`, `tests/test_current_product_economics_source.py` — **115 passed in 2.26s**. При контрольном запуске пять tracked `data/*.json` SHA-256 совпали. `py_compile` и `git diff --check` прошли.
+- Проверка проходила с новым `%TEMP%` storage и basetemp, dotenv/live credential env отключён, без сети, реального API, пользовательской БД и запуска бота. Старые сохранённые плановые payload contracts не менялись.
+- Q06 — PASS по тестам и diff; implementation checkpoint подготовлен к фиксации. Следующий этап: Q07 Telegram-ввод/подтверждение.

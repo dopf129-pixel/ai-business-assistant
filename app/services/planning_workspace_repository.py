@@ -18,11 +18,16 @@ from uuid import uuid4
 from services.ozon_account_repository import split_store_tenant_scope
 from services.tenant_context import get_current_tenant_user_id
 from services.tenant_storage import ensure_storage_parent, tenant_storage_path
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 2
-    DATABASE_SCHEMA_VERSION = 2
+    DATABASE_SCHEMA_VERSION = 3
+    MAX_TARIFF_PROFILES_PER_STORE = 200
+    MAX_TARIFF_REVISIONS_PER_PROFILE = 20
+    MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
+    MAX_TARIFF_PAGE_SIZE = 10
     MAX_DOCUMENTS_PER_STORE = 200
     MAX_REVISIONS_PER_DOCUMENT = 20
     MAX_PAYLOAD_BYTES = 64 * 1024
@@ -307,6 +312,345 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def create_tariff_profile(self, payload, *, idempotency_key,
+                              owner_id=None, store_id=None):
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized = self._normalize_tariff_profile_payload(payload, scope)
+        if scope.get("error") or key is None or normalized is None:
+            return self._error("PLANNING_TARIFF_PROFILE_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._tariff_idempotent_result(connection, scope, key)
+            if replay is not None:
+                connection.commit()
+                return replay
+            count = connection.execute(
+                "SELECT COUNT(*) FROM planning_tariff_profiles WHERE owner_id=? AND store_id=?",
+                (scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if count >= self.MAX_TARIFF_PROFILES_PER_STORE:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_QUOTA_REACHED")
+            now = self._timestamp()
+            profile_id = uuid4().hex
+            profile = {
+                **normalized,
+                "profile_id": profile_id,
+                "owner_id": scope["owner_id"],
+                "store_id": scope["store_id"],
+                "revision": 1,
+                "state_revision": 1,
+                "origin": "MANUAL_SELLER_ASSUMPTION",
+                "confirmed_by_owner": True,
+                "recorded_at": now,
+            }
+            encoded = self._encode(profile)
+            if encoded is None or len(encoded.encode("utf-8")) > self.MAX_TARIFF_PROFILE_PAYLOAD_BYTES:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_TOO_LARGE")
+            connection.execute(
+                """INSERT INTO planning_tariff_profiles
+                   (profile_id, owner_id, store_id, product_id, offer_id, sku,
+                    sale_schema, status, revision, state_revision, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'FBO', 'ACTIVE', 1, 1, ?, ?)""",
+                (profile_id, scope["owner_id"], scope["store_id"],
+                 profile["identity"]["product_id"], profile["identity"]["offer_id"],
+                 profile["identity"]["sku"], now, now),
+            )
+            connection.execute(
+                """INSERT INTO planning_tariff_profile_revisions
+                   (profile_id, owner_id, store_id, revision, state_revision, payload_json, created_at)
+                   VALUES (?, ?, ?, 1, 1, ?, ?)""",
+                (profile_id, scope["owner_id"], scope["store_id"], encoded, now),
+            )
+            result = {
+                "error": False, "profile_id": profile_id, "revision": 1,
+                "state_revision": 1, "status": "ACTIVE", "profile": profile,
+            }
+            self._remember_tariff_idempotency(connection, scope, key, result, now)
+            connection.commit()
+            return result
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def update_tariff_profile(self, profile_id, payload, *, expected_revision,
+                              expected_state_revision, idempotency_key,
+                              owner_id=None, store_id=None):
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized = self._normalize_tariff_profile_payload(payload, scope)
+        if (scope.get("error") or not self._valid_tariff_profile_id(profile_id)
+                or type(expected_revision) is not int or expected_revision < 1
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or key is None or normalized is None):
+            return self._error("PLANNING_TARIFF_PROFILE_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._tariff_idempotent_result(connection, scope, key)
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                """SELECT product_id, offer_id, sku, status, revision, state_revision
+                   FROM planning_tariff_profiles
+                   WHERE profile_id=? AND owner_id=? AND store_id=?""",
+                (profile_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_NOT_FOUND")
+            if row["status"] != "ACTIVE":
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_ARCHIVED")
+            if (row["revision"] != expected_revision
+                    or row["state_revision"] != expected_state_revision):
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_STATE_CONFLICT")
+            identity = normalized["identity"]
+            if (identity["product_id"] != row["product_id"]
+                    or identity["offer_id"] != row["offer_id"]
+                    or identity["sku"] != row["sku"]):
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_IDENTITY_IMMUTABLE")
+            count = connection.execute(
+                """SELECT COUNT(*) FROM planning_tariff_profile_revisions
+                   WHERE profile_id=? AND owner_id=? AND store_id=?""",
+                (profile_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if count >= self.MAX_TARIFF_REVISIONS_PER_PROFILE:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_REVISION_QUOTA_REACHED")
+            now = self._timestamp()
+            revision = expected_revision + 1
+            state_revision = expected_state_revision + 1
+            profile = {
+                **normalized,
+                "profile_id": profile_id,
+                "owner_id": scope["owner_id"],
+                "store_id": scope["store_id"],
+                "revision": revision,
+                "state_revision": state_revision,
+                "origin": "MANUAL_SELLER_ASSUMPTION",
+                "confirmed_by_owner": True,
+                "recorded_at": now,
+            }
+            encoded = self._encode(profile)
+            if encoded is None or len(encoded.encode("utf-8")) > self.MAX_TARIFF_PROFILE_PAYLOAD_BYTES:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_TOO_LARGE")
+            changed = connection.execute(
+                """UPDATE planning_tariff_profiles
+                   SET revision=?, state_revision=?, updated_at=?
+                   WHERE profile_id=? AND owner_id=? AND store_id=?
+                     AND revision=? AND state_revision=? AND status='ACTIVE'""",
+                (revision, state_revision, now, profile_id, scope["owner_id"],
+                 scope["store_id"], expected_revision, expected_state_revision),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_STATE_CONFLICT")
+            connection.execute(
+                """INSERT INTO planning_tariff_profile_revisions
+                   (profile_id, owner_id, store_id, revision, state_revision, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (profile_id, scope["owner_id"], scope["store_id"], revision,
+                 state_revision, encoded, now),
+            )
+            result = {
+                "error": False, "profile_id": profile_id, "revision": revision,
+                "state_revision": state_revision, "status": "ACTIVE", "profile": profile,
+            }
+            self._remember_tariff_idempotency(connection, scope, key, result, now)
+            connection.commit()
+            return result
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def archive_tariff_profile(self, profile_id, *, expected_revision,
+                               expected_state_revision, idempotency_key,
+                               owner_id=None, store_id=None):
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        if (scope.get("error") or not self._valid_tariff_profile_id(profile_id)
+                or type(expected_revision) is not int or expected_revision < 1
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or key is None):
+            return self._error("PLANNING_TARIFF_PROFILE_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._tariff_idempotent_result(connection, scope, key)
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                "SELECT status, revision, state_revision FROM planning_tariff_profiles "
+                "WHERE profile_id=? AND owner_id=? AND store_id=?",
+                (profile_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_NOT_FOUND")
+            if (row["revision"] != expected_revision
+                    or row["state_revision"] != expected_state_revision):
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_STATE_CONFLICT")
+            if row["status"] == "ARCHIVED":
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_ARCHIVED")
+            now = self._timestamp()
+            next_state = expected_state_revision + 1
+            changed = connection.execute(
+                """UPDATE planning_tariff_profiles SET status='ARCHIVED', state_revision=?, updated_at=?
+                   WHERE profile_id=? AND owner_id=? AND store_id=? AND revision=?
+                     AND state_revision=? AND status='ACTIVE'""",
+                (next_state, now, profile_id, scope["owner_id"], scope["store_id"],
+                 expected_revision, expected_state_revision),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_TARIFF_PROFILE_STATE_CONFLICT")
+            result = {
+                "error": False, "profile_id": profile_id,
+                "revision": expected_revision, "state_revision": next_state,
+                "status": "ARCHIVED",
+            }
+            self._remember_tariff_idempotency(connection, scope, key, result, now)
+            connection.commit()
+            return result
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def get_tariff_profile(self, profile_id, *, revision=None,
+                           owner_id=None, store_id=None):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or not self._valid_tariff_profile_id(profile_id)
+                or (revision is not None and (type(revision) is not int or revision < 1))):
+            return self._error("PLANNING_TARIFF_PROFILE_NOT_FOUND")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            row = connection.execute(
+                """SELECT status, revision, state_revision, product_id, offer_id, sku
+                   FROM planning_tariff_profiles
+                   WHERE profile_id=? AND owner_id=? AND store_id=?""",
+                (profile_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                return self._error("PLANNING_TARIFF_PROFILE_NOT_FOUND")
+            selected_revision = row["revision"] if revision is None else revision
+            revision_row = connection.execute(
+                """SELECT state_revision, payload_json, created_at
+                   FROM planning_tariff_profile_revisions
+                   WHERE profile_id=? AND owner_id=? AND store_id=? AND revision=?""",
+                (profile_id, scope["owner_id"], scope["store_id"], selected_revision),
+            ).fetchone()
+            if revision_row is None:
+                return self._error("PLANNING_TARIFF_PROFILE_REVISION_NOT_FOUND")
+            try:
+                profile = json.loads(revision_row["payload_json"])
+            except (ValueError, TypeError):
+                return self._error("PLANNING_TARIFF_PROFILE_CORRUPT")
+            if not self._stored_tariff_profile_valid(profile, scope, profile_id, selected_revision):
+                return self._error("PLANNING_TARIFF_PROFILE_CORRUPT")
+            selected_state_revision = (
+                row["state_revision"] if revision is None else revision_row["state_revision"]
+            )
+            profile["state_revision"] = selected_state_revision
+            return {
+                "error": False, "status": row["status"], "revision": selected_revision,
+                "state_revision": selected_state_revision,
+                "profile": profile, "revision_created_at": revision_row["created_at"],
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def list_tariff_profiles(self, *, identity=None, include_archived=False,
+                             limit=10, offset=0, owner_id=None, store_id=None):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or type(include_archived) is not bool
+                or type(limit) is not int or not 1 <= limit <= self.MAX_TARIFF_PAGE_SIZE
+                or type(offset) is not int or offset < 0):
+            return self._error("PLANNING_TARIFF_PROFILE_LIST_INVALID")
+        filters = []
+        params = [scope["owner_id"], scope["store_id"]]
+        if not include_archived:
+            filters.append("status='ACTIVE'")
+        if identity is not None:
+            if not isinstance(identity, dict) or set(identity) != {"product_id", "offer_id", "sku"}:
+                return self._error("PLANNING_TARIFF_PROFILE_LIST_INVALID")
+            normalized_identity = {
+                key: self._short_text(value, max_len)
+                for key, value, max_len in (
+                    ("product_id", identity.get("product_id"), 80),
+                    ("offer_id", identity.get("offer_id"), 120),
+                    ("sku", identity.get("sku"), 64),
+                )
+            }
+            if any(value is None for value in normalized_identity.values()):
+                return self._error("PLANNING_TARIFF_PROFILE_LIST_INVALID")
+            filters.append("product_id=? AND offer_id=? AND sku=?")
+            params.extend(normalized_identity[key] for key in ("product_id", "offer_id", "sku"))
+        where = " AND ".join(filters)
+        if where:
+            where = " AND " + where
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            rows = connection.execute(
+                """SELECT profile_id, product_id, offer_id, sku, status, revision,
+                          state_revision, created_at, updated_at
+                   FROM planning_tariff_profiles WHERE owner_id=? AND store_id=?"""
+                + where + " ORDER BY updated_at DESC, profile_id LIMIT ? OFFSET ?",
+                (*params, limit + 1, offset),
+            ).fetchall()
+            return {
+                "error": False,
+                "items": [dict(item) for item in rows[:limit]],
+                "has_more": len(rows) > limit,
+                "next_offset": offset + limit if len(rows) > limit else None,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
     def rename_document(self, document_id, title, *, expected_revision,
                         expected_state_revision, idempotency_key,
                         owner_id=None, store_id=None):
@@ -423,6 +767,162 @@ class PlanningWorkspaceRepository:
         if not active_owner or owner != active_owner or store != str(active_store or ""):
             return {"error": True, "code": "PLANNING_TENANT_SCOPE_MISMATCH"}
         return {"error": False, "owner_id": owner, "store_id": store}
+
+    @classmethod
+    def _normalize_tariff_profile_payload(cls, payload, scope):
+        allowed = {
+            "identity", "sale_schema", "price_basis", "currency", "origin",
+            "confirmed_by_owner", "effective_from", "effective_to", "bands",
+            "profile_schema_version",
+        }
+        required = {"identity", "sale_schema", "effective_from", "bands", "confirmed_by_owner"}
+        if (scope.get("error") or not isinstance(payload, dict)
+                or set(payload) - allowed or not required <= set(payload)
+                or payload.get("confirmed_by_owner") is not True
+                or payload.get("sale_schema") != "FBO"
+                or payload.get("price_basis", "SELLER_PRICE_RUB") != "SELLER_PRICE_RUB"
+                or payload.get("currency", "RUB") != "RUB"
+                or payload.get("origin", "MANUAL_SELLER_ASSUMPTION") != "MANUAL_SELLER_ASSUMPTION"
+                or type(payload.get("profile_schema_version", 1)) is not int
+                or payload.get("profile_schema_version", 1) != 1):
+            return None
+        raw_identity = payload.get("identity")
+        if not isinstance(raw_identity, dict) or set(raw_identity) != {"product_id", "offer_id", "sku"}:
+            return None
+        identity = {
+            "product_id": cls._short_text(raw_identity.get("product_id"), 80),
+            "offer_id": cls._short_text(raw_identity.get("offer_id"), 120),
+            "sku": cls._short_text(raw_identity.get("sku"), 64),
+        }
+        if any(value is None for value in identity.values()):
+            return None
+        start = cls._date_only(payload.get("effective_from"))
+        end = cls._date_only(payload.get("effective_to"), optional=True)
+        if start is None or (payload.get("effective_to") is not None and end is None):
+            return None
+        if end is not None and end < start:
+            return None
+        raw_bands = payload.get("bands")
+        if not isinstance(raw_bands, (list, tuple)) or not 1 <= len(raw_bands) <= UnitPriceTariffResolver.MAX_BANDS_PER_PROFILE:
+            return None
+        bands = []
+        for band in raw_bands:
+            if not isinstance(band, dict) or set(band) != {
+                "price_from_cents", "price_to_cents", "commission_rate",
+            }:
+                return None
+            lower = band.get("price_from_cents")
+            upper = band.get("price_to_cents")
+            rate_value = band.get("commission_rate")
+            if (type(lower) is not int or type(upper) is not int
+                    or not 1 <= lower <= upper <= UnitPriceTariffResolver.MAX_PRICE_CENTS
+                    or isinstance(rate_value, bool)
+                    or not isinstance(rate_value, (str, int, Decimal))):
+                return None
+            rate_text = cls._decimal_string(rate_value)
+            if rate_text is False:
+                return None
+            rate = Decimal(rate_text)
+            if (rate < 0 or rate > 100
+                    or len(rate.as_tuple().digits) > UnitPriceTariffResolver.MAX_RATE_DIGITS
+                    or (not rate.is_zero()
+                        and rate.adjusted() < UnitPriceTariffResolver.MIN_RATE_ADJUSTED_EXPONENT)):
+                return None
+            bands.append({
+                "price_from_cents": lower,
+                "price_to_cents": upper,
+                "commission_rate": "0" if rate.is_zero() else format(rate.normalize(), "f"),
+            })
+        bands.sort(key=lambda item: (item["price_from_cents"], item["price_to_cents"]))
+        if any(previous["price_to_cents"] >= current["price_from_cents"]
+               for previous, current in zip(bands, bands[1:])):
+            return None
+        return {
+            "profile_schema_version": 1,
+            "identity": identity,
+            "sale_schema": "FBO",
+            "price_basis": "SELLER_PRICE_RUB",
+            "currency": "RUB",
+            "origin": "MANUAL_SELLER_ASSUMPTION",
+            "confirmed_by_owner": True,
+            "effective_from": start,
+            "effective_to": end,
+            "bands": bands,
+        }
+
+    @staticmethod
+    def _date_only(value, optional=False):
+        if value is None and optional:
+            return None
+        if not isinstance(value, str) or len(value) != 10:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed.isoformat() if parsed.isoformat() == value else None
+
+    @staticmethod
+    def _valid_tariff_profile_id(value):
+        return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{32}", value) is not None
+
+    @classmethod
+    def _stored_tariff_profile_valid(cls, profile, scope, profile_id, revision):
+        if not isinstance(profile, dict):
+            return False
+        payload_fields = {
+            "profile_schema_version", "identity", "sale_schema", "price_basis",
+            "currency", "origin", "confirmed_by_owner", "effective_from",
+            "effective_to", "bands",
+        }
+        expected_fields = payload_fields | {
+            "profile_id", "owner_id", "store_id", "revision", "state_revision", "recorded_at",
+        }
+        if (set(profile) != expected_fields or profile.get("owner_id") != scope.get("owner_id")
+                or profile.get("store_id") != scope.get("store_id")
+                or profile.get("profile_id") != profile_id
+                or not cls._valid_tariff_profile_id(profile_id)
+                or type(profile.get("revision")) is not int or profile["revision"] != revision
+                or type(profile.get("state_revision")) is not int or profile["state_revision"] < 1
+                or cls._utc_timestamp(profile.get("recorded_at")) != profile.get("recorded_at")):
+            return False
+        payload = {key: profile[key] for key in payload_fields}
+        normalized = cls._normalize_tariff_profile_payload(payload, scope)
+        return (normalized is not None
+                and all(profile.get(key) == value for key, value in normalized.items()))
+
+    def _tariff_idempotent_result(self, connection, scope, key):
+        row = connection.execute(
+            "SELECT result_json FROM planning_tariff_profile_idempotency "
+            "WHERE owner_id=? AND store_id=? AND idempotency_key=?",
+            (scope["owner_id"], scope["store_id"], key),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            result = json.loads(row["result_json"])
+        except (ValueError, TypeError):
+            return self._error("PLANNING_TARIFF_PROFILE_IDEMPOTENCY_CORRUPT")
+        return result if isinstance(result, dict) else self._error("PLANNING_TARIFF_PROFILE_IDEMPOTENCY_CORRUPT")
+
+    def _remember_tariff_idempotency(self, connection, scope, key, result, now):
+        encoded = self._encode(result)
+        if encoded is None:
+            raise sqlite3.IntegrityError("tariff idempotency result is not serializable")
+        connection.execute(
+            """INSERT INTO planning_tariff_profile_idempotency
+               (owner_id, store_id, idempotency_key, result_json, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (scope["owner_id"], scope["store_id"], key, encoded, now),
+        )
+        connection.execute(
+            """DELETE FROM planning_tariff_profile_idempotency
+               WHERE owner_id=? AND store_id=? AND idempotency_key IN (
+                   SELECT idempotency_key FROM planning_tariff_profile_idempotency
+                   WHERE owner_id=? AND store_id=? ORDER BY created_at DESC, idempotency_key DESC
+                   LIMIT -1 OFFSET 1000)""",
+            (scope["owner_id"], scope["store_id"], scope["owner_id"], scope["store_id"]),
+        )
 
     def _payload(self, payload, scope, *, allow_legacy_sales_mix=False):
         if not isinstance(payload, dict) or set(payload) - {
@@ -926,6 +1426,45 @@ class PlanningWorkspaceRepository:
                     REFERENCES planning_documents(document_id, owner_id, store_id) ON DELETE CASCADE
             )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS planning_idempotency (
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(owner_id, store_id, idempotency_key)
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_tariff_profiles (
+                profile_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                offer_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                sale_schema TEXT NOT NULL CHECK(sale_schema='FBO'),
+                status TEXT NOT NULL CHECK(status IN ('ACTIVE','ARCHIVED')),
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                state_revision INTEGER NOT NULL CHECK(state_revision >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(profile_id, owner_id, store_id)
+            )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_planning_tariff_profiles_scope "
+                "ON planning_tariff_profiles(owner_id, store_id, status, product_id, offer_id, sku, updated_at)"
+            )
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_tariff_profile_revisions (
+                profile_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                state_revision INTEGER NOT NULL CHECK(state_revision >= 1),
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(profile_id, owner_id, store_id, revision),
+                FOREIGN KEY(profile_id, owner_id, store_id)
+                    REFERENCES planning_tariff_profiles(profile_id, owner_id, store_id) ON DELETE CASCADE
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_tariff_profile_idempotency (
                 owner_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
                 idempotency_key TEXT NOT NULL,

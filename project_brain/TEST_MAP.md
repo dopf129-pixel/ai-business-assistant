@@ -1,4 +1,5 @@
 - Q05: `tests/test_unit_price_tariff_source.py` — адаптация текущего FBO тарифа только в точку цены; `tests/test_unit_price_tariff_resolver.py` — диапазоны и отказ за пределами точки, `tests/test_unit_price_scenario_source.py` + `tests/test_current_product_economics_source.py` — интеграция source-контракта. Isolated combined profile: **88 passed**; details `UNIT_PRICE_TARIFF_SOURCE_Q05_2026-10-27.md`.
+- Q06: `tests/test_planning_workspace_tariff_profiles.py` + `tests/test_planning_workspace_repository.py` cover persistent manual tariff profiles, additive v3 migration, restart/reopen/resolver, tenant isolation, immutable identity, create/update idempotency/CAS, archive state/history, allowlists, quotas and rollback. Combined Q06 source/resolver/repository profile: **115 passed**; five tracked data JSON hashes unchanged.
 
 # План проверок помощника выбора цены (26.10.2026)
 
