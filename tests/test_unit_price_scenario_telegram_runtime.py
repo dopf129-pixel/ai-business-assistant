@@ -780,6 +780,64 @@ def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominat
     assert len(source.calls) == 1
 
 
+def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for_selected_price():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        invalid = runtime.handle_text("2;1;0.01", user_id="user-1")
+        result = runtime.handle_text("1;2;0.01", user_id="user-1")
+        next_page_button = next(
+            button for button in result["keyboard"]["buttons"]
+            if str(button.get("callback", "")).startswith("upc:w:")
+        )
+        second_page = runtime.handle_callback(next_page_button["callback"], user_id="user-1")
+        apply_button = _find_button(result, "Подставить вариант 1")
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    grid = result["price_planning_result"]
+    assert prompt["stage"] == "price_grid"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert "начало; конец; шаг" in invalid["message"]
+    assert result["status"] == "UNIT_PRICE_PRICE_COMPARISON_RESULT"
+    assert len(grid["rows"]) == 101
+    assert len(grid["rows"]) <= grid["price_grid"]["candidate_limit"] == 200
+    assert grid["evaluation_count"] <= grid["evaluation_limit"] == 1_024
+    assert grid["global_optimum_claimed"] is False
+    assert all("forward_result" not in row for row in grid["rows"])
+    assert all(row["compensation_thresholds"]["status"] == "DEFERRED_UNTIL_CANDIDATE_SELECTED"
+               for row in grid["rows"])
+    assert "не глобальный максимум" in result["message"]
+    assert "варианты 1–10" in result["message"]
+    assert "варианты 11–20" in second_page["message"]
+    second_page_buttons = second_page["keyboard"]["buttons"]
+    assert any(button["text"] == "Подставить вариант 11" for button in second_page_buttons)
+    assert not any(button["text"] == "Подставить вариант 1" for button in second_page_buttons)
+    assert all(len(button["callback"].encode("utf-8")) <= 64 for button in second_page_buttons)
+    stale_keyboard = AssistantKeyboardService().build_unit_price_planning_result_keyboard(
+        "scenario-1", 1, "price_grid", planning_result=grid,
+        allow_apply=False, page=1,
+    )
+    assert any(button["text"].startswith("◀ Предыдущие") for button in stale_keyboard["buttons"])
+    assert not any(button["text"].startswith("Подставить") for button in stale_keyboard["buttons"])
+    assert len(result["message"].encode("utf-16-le")) // 2 <= 4096
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert "Порог рекламы для выбранной цены относительно базы" in applied["message"]
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 1
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(tariff.calls) == 1
+
+
 def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
     runtime, _ = _runtime()
     token = _activate()

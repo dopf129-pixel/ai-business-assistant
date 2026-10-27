@@ -549,6 +549,170 @@ def test_compensation_threshold_reports_non_worse_target_unreachable_at_zero_drr
     assert candidate["compensation_thresholds"]["strictly_better"]["status"] == "NOT_REACHABLE"
 
 
+def test_price_grid_inserts_tariff_boundary_and_neighboring_cents_without_threshold_per_point():
+    planner, service = _planner(counting=True)
+    values = _inputs(
+        price="100", commission_rate="11", cost="20",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    snapshot = _frozen_manual_tariff()
+
+    grid = planner.build_price_grid(
+        "99.98;100.03;0.03", frozen_tariff_snapshot=snapshot,
+        identity=_TARIFF_IDENTITY, inputs=values,
+    )
+    result = planner.compare_prices(
+        values, grid["prices"], frozen_tariff_snapshot=snapshot,
+        tariff_resolution_required=True, identity=_TARIFF_IDENTITY,
+        price_grid_metadata=grid["metadata"],
+    )
+
+    assert grid["valid"] is True
+    assert grid["normalized"] == ["99.98", "100.00", "100.01", "100.03"]
+    assert grid["metadata"]["inserted_tariff_boundary_prices"] == ["100.00"]
+    assert [row["commission_rate"] for row in result["rows"]] == ["11", "11", "22", "22"]
+    assert [row["is_tariff_boundary"] for row in result["rows"]] == [False, True, True, False]
+    assert result["global_optimum_claimed"] is False
+    assert result["evaluation_count"] == service.calls == 5
+    assert all(row["compensation_thresholds"]["status"] == "DEFERRED_UNTIL_CANDIDATE_SELECTED"
+               for row in result["rows"])
+    assert all("forward_result" not in row for row in result["rows"])
+
+
+def test_price_grid_accepts_exact_two_hundred_candidates_with_bounded_forward_calls():
+    planner, service = _planner(counting=True)
+    values = _inputs(
+        price="100", cost="0", commission_rate="10",
+        logistics_per_unit="0", last_mile_per_unit="0",
+        acquiring_per_unit="0", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    grid = planner.build_price_grid("1;2.99;0.01")
+
+    result = planner.compare_prices(values, grid["prices"], price_grid_metadata=grid["metadata"])
+
+    assert grid["valid"] is True
+    assert len(result["rows"]) == result["candidate_count"] == 200
+    assert result["evaluation_count"] == service.calls == 201  # Includes the separate baseline.
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+    assert all("forward_result" not in row for row in result["rows"])
+
+
+def test_price_grid_keeps_profit_unknown_when_no_tariff_is_confirmed():
+    planner, service = _planner(counting=True)
+    grid = planner.build_price_grid("99;101;1")
+
+    result = planner.compare_prices(
+        _inputs(price="100", commission_rate="15"), grid["prices"],
+        tariff_resolution_required=True, price_grid_metadata=grid["metadata"],
+    )
+
+    assert grid["valid"] is True
+    assert result["available"] is False
+    assert result["best_profit"] is None
+    assert all(row["commission_status"] == "UNKNOWN" for row in result["rows"])
+    assert all(row["profit"] is None for row in result["rows"])
+    assert result["evaluation_count"] == service.calls == 0
+
+
+def test_price_grid_comparison_rejects_metadata_that_omits_required_grid_points():
+    planner, service = _planner(counting=True)
+    values = _inputs(price="100", commission_rate="11")
+    snapshot = _frozen_manual_tariff()
+    grid = planner.build_price_grid(
+        "99.98;100.03;0.03", frozen_tariff_snapshot=snapshot,
+        identity=_TARIFF_IDENTITY, inputs=values,
+    )
+    truncated_metadata = dict(grid["metadata"])
+    truncated_metadata["base_grid_count"] = 2
+    truncated_metadata["candidate_count"] = 2
+    truncated_metadata["searched_prices"] = ["99.98", "100.03"]
+    truncated_metadata["tariff_boundary_prices"] = []
+    truncated_metadata["inserted_tariff_boundary_prices"] = []
+
+    result = planner.compare_prices(
+        values, [Decimal("99.98"), Decimal("100.03")],
+        frozen_tariff_snapshot=snapshot, tariff_resolution_required=True,
+        identity=_TARIFF_IDENTITY, price_grid_metadata=truncated_metadata,
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "INVALID_PRICE_GRID"
+    assert service.calls == 0
+
+
+def test_price_grid_does_not_silently_truncate_when_base_or_tariff_points_exceed_limit():
+    planner, _ = _planner()
+    values = _inputs(price="100", commission_rate="11")
+    too_many_base_points = planner.build_price_grid("1;3;0.01")
+
+    bands = [{
+        "price_from_cents": 1, "price_to_cents": 10_000,
+        "commission_rate": "11",
+    }]
+    bands.extend({
+        "price_from_cents": 10_001 + (index * 5),
+        "price_to_cents": 10_002 + (index * 5),
+        "commission_rate": "22",
+    } for index in range(19))
+    snapshot = _frozen_manual_tariff(bands=bands)
+    too_many_boundary_points = planner.build_price_grid(
+        "99;104;0.03", frozen_tariff_snapshot=snapshot,
+        identity=_TARIFF_IDENTITY, inputs=values,
+    )
+
+    assert too_many_base_points == {
+        "valid": False, "code": "PRICE_GRID_LIMIT",
+        "required_candidates_at_least": 201, "candidate_limit": 200,
+    }
+    assert too_many_boundary_points["valid"] is False
+    assert too_many_boundary_points["code"] == "PRICE_GRID_LIMIT"
+    assert too_many_boundary_points["required_candidates"] > 200
+    assert "prices" not in too_many_boundary_points
+
+
+def test_price_grid_rejects_more_than_twenty_rules_across_frozen_profiles():
+    planner, _ = _planner()
+    values = _inputs(price="100", commission_rate="11")
+    bands = [
+        {"price_from_cents": 1, "price_to_cents": 9_999, "commission_rate": "11"},
+        {"price_from_cents": 10_000, "price_to_cents": 10_000, "commission_rate": "11"},
+    ]
+    bands.extend({
+        "price_from_cents": 10_000 + index * 10,
+        "price_to_cents": 10_009 + index * 10,
+        "commission_rate": "22",
+    } for index in range(1, 10))
+    snapshot = _frozen_manual_tariff(bands=bands)
+    second_profile = dict(snapshot["profiles"][0])
+    second_profile["profile_id"] = "profile-2"
+    second_profile["revision"] = 2
+    snapshot["profiles"].append(second_profile)
+
+    result = planner.build_price_grid(
+        "99;101;0.50", frozen_tariff_snapshot=snapshot,
+        identity=_TARIFF_IDENTITY, inputs=values,
+    )
+
+    assert result == {
+        "valid": False,
+        "code": "PRICE_GRID_TARIFF_RULE_LIMIT",
+        "tariff_rule_count": 22,
+        "tariff_rule_limit": 20,
+    }
+
+
+def test_price_grid_parser_rejects_reversed_zero_step_or_excess_precision():
+    planner, _ = _planner()
+
+    for text in ("10;10;1", "11;10;1", "10;20;0", "10;20;0.001", "10;20", "NaN;20;1"):
+        assert planner.parse_price_grid(text)["valid"] is False
+
+
 def test_target_search_is_invariant_to_insignificant_trailing_price_zeros():
     outcomes = []
     for price in ("11.11", "11.110"):

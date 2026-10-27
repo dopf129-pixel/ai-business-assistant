@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q10 завершены, Q11–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q11 завершены, Q12–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -30,7 +30,7 @@
 | Q08 | DONE | Frozen tariff snapshot and saved-plan schema v3 integrated; linked isolated Q04–Q08 profile 371 passed; 5 protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. |
 | Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
 | Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
-| Q11 | IN_PROGRESS | Bounded price grid with required tariff boundaries; report only the explored set and verified outcomes. |
+| Q11 | VERIFIED | Bounded seller-price grid, tariff boundaries plus adjacent cents, no silent truncation, max 200 candidates / 20 tariff rules, 10-row pagination and selected-only compensation thresholds. Focused profile 104 passed; linked Q04–Q11 398 passed. See acceptance below. |
 | Q12 | NOT_STARTED | — |
 | Q13 | NOT_STARTED | — |
 | Q14 | NOT_STARTED | — |
@@ -179,3 +179,14 @@
 - Focused isolated Windows/Python 3.12.10 profile: `tests/test_unit_price_target_planning_service.py tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_advertising_cap_service.py tests/test_unit_price_scenario_service.py` — **112 passed in 1.70s**. Same Python runner `-B -m py_compile` over `unit_price_advertising_compensation_service.py`, `unit_price_target_planning_service.py`, `telegram_unit_price_calculator_runtime_service.py`, and `assistant_keyboard_service.py` — exit 0.
 - Final linked isolated Q04–Q10 profile: 22 tariff/planning/scenario/source/consumer files — **390 passed in 7.90s**. Five protected tracked JSON SHA-256 hashes (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) unchanged. New `%TEMP%` storage and pytest basetemp used, dotenv/plugin autoload disabled and credential-named process variables removed without printing values; no `.env`, network/API, live bot, ignored runtime store or owner DB read/write.
 - `git diff --check` and `git diff --cached --check` passed after removing two trailing Markdown spaces from the acceptance header. Q10 implementation/docs commit: `c6d75a0437d82cc39297c85f960a1a9493b0b57a` (`Add advertising compensation to unit price comparison`); a small follow-up documentation whitespace cleanup is recorded separately. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. Code/docs touch the calculation service contract, public Telegram flow and a new pure solver: **Architecture Review Required**. Q10 — VERIFIED. Next: Q11 bounded candidate grid and tariff boundaries.
+
+### Q11 — ограниченная ценовая сетка и тарифные границы (2026-10-27)
+
+- В `UnitPriceTargetPlanningService` добавлен ввод диапазона цены продавца `начало; конец; шаг`. Конечная цена включается, даже если шаг не делит интервал; кандидаты упорядочиваются и дедуплицируются по копейкам.
+- Для каждого сохранённого тарифного диапазона внутри запрошенного интервала добавляются нижняя/верхняя границы и соседние копейки. Сумма правил по frozen profiles ограничена 20; кандидатный набор — 200. При превышении любого лимита расчёт не усечён: пользователь получает просьбу сузить сетку или уточнить тариф.
+- Сетка использует frozen tariff snapshot и существующий canonical forward. Неизвестный тариф/ставка остаются без прибыли, строки результата хранят компактные суммы без повторного payload forward. Исследованный набор записан в `price_grid.searched_prices`; статус максимума явно ограничен проверенной сеткой. Оценка рекламной компенсации отложена для всех строк и вычисляется после выбора одной цены.
+- Telegram выдаёт по 10 строк на страницу с глобальной нумерацией и корректным selector. Прокрутка страниц остаётся доступной при устаревшем источнике, но действие подстановки отключено. Выбранная цена повторно проходит canonical forward до локального применения; сетевых запросов на кандидата не добавлено.
+- Обнаруженные регрессии при проверке: инициализирован компактный список кросс-докинга в result formatter; исправлен тестовый путь notice; пагинация отделена от разрешения на применение.
+- Focused isolated Windows/Python 3.12.10 Q11 profile (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **104 passed in 1.55s**. Linked Q04–Q11 profile over 22 tariff/planning/scenario/source/consumer modules: **398 passed in 8.05s**. Three changed Python modules compiled in memory; `git diff --check` passed after final code changes.
+- Test root and pytest basetemp were new `%TEMP%` paths; dotenv and pytest plugin autoload disabled, credential-named environment variables removed without values. The five protected tracked `data/*.json` paths are git-clean; their newline-normalized SHA-256 matches Git HEAD. Raw worktree bytes are CRLF-normalized. No owner DB, ignored runtime data, `.env`, API/network or live bot was used.
+- Q11 modifies the existing planning service contract, Telegram result mode and keyboard actions: **Architecture Review Required**. Acceptance: `UNIT_PRICE_PRICE_GRID_Q11_2026-10-27.md`. Q11 — VERIFIED. Next: Q12 segmented target-price search across tariff jumps.

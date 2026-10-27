@@ -777,7 +777,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -801,10 +801,10 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._show_assumptions(session)
             if action == "v":
                 return self._return_to_scenario(session, user, scope, expected_version)
-            if action in {"g", "q"}:
+            if action in {"g", "q", "n"}:
                 return self._begin_price_planning_input(
                     session,
-                    "target_margin" if action == "g" else "price_options",
+                    {"g": "target_margin", "q": "price_options", "n": "price_grid"}[action],
                     user,
                     scope,
                     expected_version,
@@ -817,6 +817,16 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     scope,
                     expected_version,
                 )
+            if action == "w" and len(parts) == 5:
+                try:
+                    page = int(parts[4])
+                except (TypeError, ValueError):
+                    return self._stale_result()
+                stored = session.get("price_planning_result") or {}
+                if (str(page) != parts[4] or page < 0
+                        or stored.get("mode") != "price_grid"):
+                    return self._stale_result()
+                return self._price_planning_result_screen(session, page=page)
             if action == "u" and len(parts) == 5:
                 return self._apply_price_planning_result(
                     session, parts[4], user, scope, expected_version
@@ -883,7 +893,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._handle_price_comparison_advertising_text(
                 text, pending, session, user, scope, key,
             )
-        if pending.get("stage") in {"target_margin", "price_options"}:
+        if pending.get("stage") in {"target_margin", "price_options", "price_grid"}:
             return self._handle_price_planning_text(
                 text, pending, session, user, scope, key
             )
@@ -1162,7 +1172,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         return self._edit_prompt(session, field)
 
     def _begin_price_planning_input(self, session, stage, user, scope, expected_version):
-        if self.target_planning_service is None or stage not in {"target_margin", "price_options"}:
+        if self.target_planning_service is None or stage not in {"target_margin", "price_options", "price_grid"}:
             return self._stale_result()
         key = (user, scope)
         refresh_in_progress = None
@@ -1262,6 +1272,56 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     notice="Не удалось выполнить локальное сравнение. Сценарий не изменён; исправьте ввод или вернитесь к расчёту.",
                 )
             input_value = list(parsed["normalized"])
+        elif stage == "price_grid":
+            comparison_inputs, comparison_provenance, frozen_tariff, _ = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            grid = self.target_planning_service.build_price_grid(
+                raw_text,
+                frozen_tariff_snapshot=frozen_tariff,
+                identity=self._scenario_identity(session),
+                inputs=comparison_inputs,
+            )
+            if grid.get("valid") is not True:
+                notice = (
+                    "Сетка с тарифными границами превышает 200 точек. Сузьте диапазон или увеличьте шаг."
+                    if grid.get("code") == "PRICE_GRID_LIMIT"
+                    else "В снимке более 20 тарифных правил. Уточните применимый тарифный профиль."
+                    if grid.get("code") == "PRICE_GRID_TARIFF_RULE_LIMIT"
+                    else "Введите начало; конец; шаг цены продавца, каждое значение до копейки."
+                )
+                return self._price_planning_prompt(session, stage, notice=notice)
+            mode = "price_grid"
+            target = None
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or session.get("restored_from_saved_plan") is True
+            )
+            try:
+                result = self.target_planning_service.compare_prices(
+                    comparison_inputs,
+                    grid["prices"],
+                    target_margin_percent=session.get("price_planning_target_margin"),
+                    identity=self._scenario_identity(session),
+                    provenance=comparison_provenance,
+                    sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=(
+                        session.get("legacy_tariff_price_cents")
+                        if session.get("restored_from_saved_plan") is True else None
+                    ),
+                    price_grid_metadata=grid["metadata"],
+                )
+            except Exception:
+                return self._price_planning_prompt(
+                    session, stage,
+                    notice="Не удалось исследовать локальную сетку. Сценарий не изменён; сузьте диапазон и повторите ввод.",
+                )
+            input_value = list(grid["normalized"])
         else:
             self._clear_pending_for_key(key)
             return self._stale_result()
@@ -1512,6 +1572,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "Введите целевую маржу от 0 до 100% (например, 20 или 19,5). "
                 "Бот покажет ориентир безубыточности и цену для цели."
             )
+        elif stage == "price_grid":
+            prompt = (
+                "Введите начало диапазона; конец; шаг цены продавца до копейки. "
+                "Например: 80; 120; 5. В сетку также добавятся тарифные границы и соседние копейки. "
+                "Проверяется не более 200 точек; максимум будет только среди проверенной сетки."
+            )
         else:
             prompt = (
                 "Введите 2–10 разных цен через точку с запятой или с новой строки. "
@@ -1532,10 +1598,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "executed": False,
         }
 
-    def _price_planning_result_screen(self, session):
+    def _price_planning_result_screen(self, session, page=0):
         stored = session.get("price_planning_result") or {}
         mode = stored.get("mode")
         result = stored.get("result") or {}
+        all_rows = result.get("rows") or []
+        is_grid = mode == "price_grid"
+        page_size = 10
+        total_pages = max(1, (len(all_rows) + page_size - 1) // page_size) if is_grid else 1
+        if type(page) is not int or not 0 <= page < total_pages:
+            return self._stale_result()
+        first_row = page * page_size if is_grid else 0
+        visible_rows = all_rows[first_row:first_row + page_size] if is_grid else all_rows
         identity = session.get("snapshot", {}).get("identity") or {}
         product = session.get("snapshot", {}).get("product") or {}
         title = (
@@ -1578,6 +1652,25 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
                 )
             advertising_basis = result.get("advertising_basis") or {}
+            if is_grid:
+                grid = result.get("price_grid") or {}
+                inserted = grid.get("inserted_tariff_boundary_prices") or []
+                lines.append(
+                    "Сетка " + self._money(grid.get("start")) + "–"
+                    + self._money(grid.get("end")) + " ₽, шаг "
+                    + self._money(grid.get("step")) + " ₽; проверено точек: "
+                    + str(grid.get("candidate_count") or len(all_rows))
+                    + "; тарифных правил: " + str(grid.get("tariff_rule_count", 0))
+                    + "; дополнительных граничных точек: " + str(len(inserted)) + "."
+                )
+                lines.append(
+                    "Результат — максимум только среди проверенных цен; это не глобальный максимум."
+                )
+                start_number = first_row + 1
+                end_number = min(len(all_rows), first_row + page_size)
+                lines.append(
+                    f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number}."
+                )
             advertising_mode = advertising_basis.get("mode")
             if advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
                 lines.append(
@@ -1607,15 +1700,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             best_prices = result.get("best_prices") or []
             if best_prices:
-                lines.append(
-                    "Максимальная прибыль среди рассчитанных вариантов: "
-                    + self._money(result.get("best_profit")) + "/шт."
-                    + " при цене(ах) "
-                    + ", ".join(self._money(price) for price in best_prices) + "."
-                )
+                if is_grid:
+                    lines.append(
+                        "Максимальная прибыль на проверенной сетке: "
+                        + self._money(result.get("best_profit")) + "/шт.; равных вариантов: "
+                        + str(len(best_prices)) + "."
+                    )
+                else:
+                    lines.append(
+                        "Максимальная прибыль среди рассчитанных вариантов: "
+                        + self._money(result.get("best_profit")) + "/шт."
+                        + " при цене(ах) "
+                        + ", ".join(self._money(price) for price in best_prices) + "."
+                    )
             else:
                 lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
-            for index, row in enumerate(result.get("rows") or [], start=1):
+            for index, row in enumerate(visible_rows, start=first_row + 1):
                 if row.get("available") is not True:
                     if row.get("commission_status") in {
                         "UNKNOWN", "CURRENT_PRICE_POINT_ONLY", "CONFLICT",
@@ -1650,6 +1750,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     line += "; к базе " + self._money(row.get("profit_delta_vs_baseline")) + "/шт."
                 if row.get("is_best") is True:
                     line += "; максимум"
+                if row.get("is_tariff_boundary") is True:
+                    line += "; тарифная граница/соседняя копейка"
                 if goal is not None:
                     line += "; цель " + self._percent(goal) + (
                         " достигнута" if row.get("goal_reached") is True
@@ -1658,6 +1760,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     )
                 lines.append(line + ".")
                 thresholds = row.get("compensation_thresholds") or {}
+                if is_grid and thresholds.get("status") == "DEFERRED_UNTIL_CANDIDATE_SELECTED":
+                    continue
                 if thresholds:
                     lines.append(
                         "   Компенсация относительно базы: не хуже — "
@@ -1670,6 +1774,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 lines.append(
                     "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
                     "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
+                )
+            if is_grid:
+                lines.append(
+                    "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
+                    "бот проверит его отдельно по тому же снимку."
                 )
         freshness = self._source_freshness(session)
         if freshness.get("status") == "STALE":
@@ -1694,6 +1803,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 mode,
                 planning_result=result,
                 allow_apply=freshness.get("status") == "FRESH",
+                page=page,
             )
             if callable(keyboard_builder)
             else self.keyboard_service.build_unit_price_scenario_keyboard(
@@ -1716,15 +1826,23 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _price_planning_cross_docking_note(self, session, result):
         forward_results = []
+        observed = []
         for key in ("break_even", "target"):
             outcome = result.get(key)
             if isinstance(outcome, dict):
                 forward_results.append(outcome.get("forward_result"))
         for row in result.get("rows") or []:
             if isinstance(row, dict):
-                forward_results.append(row.get("forward_result"))
+                forward = row.get("forward_result")
+                if isinstance(forward, dict):
+                    forward_results.append(forward)
+                elif any(key in row for key in (
+                    "cross_docking_included", "cross_docking_status", "cross_docking_reason",
+                )):
+                    included = row.get("cross_docking_included") is True
+                    amount = row.get("cross_docking_per_unit")
+                    observed.append((included and amount is not None, amount, row))
 
-        observed = []
         for forward in forward_results:
             if not isinstance(forward, dict):
                 continue
@@ -1828,7 +1946,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             outcome = result.get("target")
             if not isinstance(outcome, dict) or outcome.get("goal_reached") is not True:
                 return self._stale_result()
-        elif mode == "price_options":
+        elif mode in {"price_options", "price_grid"}:
             try:
                 index = int(selector)
             except (TypeError, ValueError):
@@ -1884,6 +2002,37 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     session, user, scope, expected_version,
                     "Тариф варианта изменился или не совпал с проверкой. Обновите расчёт; цену не подставил.",
                 )
+
+        grid_threshold_notice = ""
+        if mode == "price_grid":
+            baseline = result.get("baseline") or {}
+            solver = getattr(self.target_planning_service, "advertising_compensation_service", None)
+            if baseline.get("available") is True and solver is not None:
+                def forward_for_threshold(candidate):
+                    try:
+                        return self.scenario_service.calculate(
+                            candidate,
+                            identity=self._scenario_identity(session),
+                            provenance=candidate_provenance,
+                            sources=self._scenario_sources(session),
+                        )
+                    except Exception:
+                        return None
+
+                thresholds = solver.solve(
+                    candidate_inputs,
+                    Decimal(str(baseline.get("profit"))),
+                    forward_for_threshold,
+                )
+                grid_threshold_notice = (
+                    " Порог рекламы для выбранной цены относительно базы: не хуже — "
+                    + self._format_compensation_threshold(thresholds.get("non_worse"))
+                    + "; строго лучше — "
+                    + self._format_compensation_threshold(thresholds.get("strictly_better"))
+                    + "."
+                )
+            else:
+                grid_threshold_notice = " Порог относительно прибыли базы не рассчитан: база недоступна."
 
         expired_source = False
         expired_session = False
@@ -1945,6 +2094,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             notice=(
                 "Цена " + self._money(candidate_price)
                 + " подставлена только в текущий сценарий. Цена и данные в Ozon не изменены."
+                + grid_threshold_notice
             ),
         )
 

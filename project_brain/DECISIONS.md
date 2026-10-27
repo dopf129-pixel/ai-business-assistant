@@ -9,7 +9,7 @@ Keep `UnitPriceScenarioService` and active-store `TaxService` as the only forwar
 
 Reason: persistent planning evidence belongs to the existing tenant planning workspace, not financial accounting. One storage authority and the canonical forward engine preserve tenant isolation, tax/rounding contracts and backward compatibility.
 
-Status: Q06 implements tenant-scoped manual FBO tariff persistence in additive planning DB v3 with CAS, idempotency, quotas, history and rollback. Q07 adds a public Telegram preview/explicit-confirm flow with owner/store/SKU/scenario-version-bound draft tickets, persistent or one-hour session-only use, and stale/replay protection. Q08 wires exact-price tariff resolution and frozen single-plan schema v3 while preserving legacy v1/v2 reads; the linked isolated Q04–Q08 profile passed 371 tests. Q09–Q14 comparison/threshold work, Q15 observations, Q26 restore and Q35 exact-head CI remain outstanding; the overall feature is not production-validated.
+Status: Q06 implements tenant-scoped manual FBO tariff persistence in additive planning DB v3 with CAS, idempotency, quotas, history and rollback. Q07 adds a public Telegram preview/explicit-confirm flow with owner/store/SKU/scenario-version-bound draft tickets, persistent or one-hour session-only use, and stale/replay protection. Q08 wires exact-price tariff resolution and frozen single-plan schema v3 while preserving legacy v1/v2 reads; Q09–Q11 add tariff-aware comparison, bounded advertising compensation and paginated tariff-boundary price grids. Q04–Q11 linked isolated profile passed 398 tests. Q12–Q14 target-price search and consumer audit, Q15 observations, Q26 restore and Q35 exact-head CI remain outstanding; the overall feature is not production-validated.
 
 ---
 

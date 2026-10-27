@@ -14,6 +14,8 @@ class UnitPriceTargetPlanningService:
     MAX_LOWER_BOUND_PROBES = 8
     MAX_PRICE_SCALE_PROBES = 6
     MAX_COMPARISON_PRICES = 10
+    MAX_PRICE_GRID_CANDIDATES = 200
+    MAX_PRICE_GRID_TARIFF_RULES = 20
     MAX_COMPARISON_FORWARD_CALCULATIONS = 1_024
     MAX_DERIVED_ADVERTISING_RATE_DIGITS = 28
     MIN_PRICE_CENTS = 1
@@ -74,6 +76,110 @@ class UnitPriceTargetPlanningService:
             "prices": prices,
             "normalized": [format(price, ".2f") for price in prices],
         }
+
+    def parse_price_grid(self, text):
+        if not isinstance(text, str) or len(text) > 128:
+            return {"valid": False, "code": "INVALID_PRICE_GRID"}
+        tokens = re.split(r";|\r\n|\r|\n", text.strip())
+        if len(tokens) != 3 or any(not token.strip() for token in tokens):
+            return {"valid": False, "code": "INVALID_PRICE_GRID"}
+        start, end, step = (self._parse_price_token(token) for token in tokens)
+        if start is None or end is None or step is None or start >= end or step <= 0:
+            return {"valid": False, "code": "INVALID_PRICE_GRID"}
+        return {
+            "valid": True,
+            "start": start,
+            "end": end,
+            "step": step,
+            "normalized": [format(value, ".2f") for value in (start, end, step)],
+        }
+
+    def build_price_grid(
+        self, text, *, frozen_tariff_snapshot=None, identity=None, inputs=None,
+    ):
+        parsed = self.parse_price_grid(text)
+        if parsed.get("valid") is not True:
+            return parsed
+        start_cents = int(parsed["start"] * self.HUNDRED)
+        end_cents = int(parsed["end"] * self.HUNDRED)
+        step_cents = int(parsed["step"] * self.HUNDRED)
+        span = end_cents - start_cents
+        whole_steps, remainder = divmod(span, step_cents)
+        base_count = whole_steps + 1 + (1 if remainder else 0)
+        if base_count > self.MAX_PRICE_GRID_CANDIDATES:
+            return {
+                "valid": False, "code": "PRICE_GRID_LIMIT",
+                "required_candidates_at_least": base_count,
+                "candidate_limit": self.MAX_PRICE_GRID_CANDIDATES,
+            }
+
+        base_cents = {start_cents + index * step_cents for index in range(whole_steps + 1)}
+        base_cents.add(end_cents)  # Include the requested end even when step misses it.
+        tariff_boundaries = set()
+        tariff_rule_count = 0
+        tariff_source_status = "NO_FROZEN_SNAPSHOT"
+        if frozen_tariff_snapshot is not None:
+            tariff_identity = dict(identity or {})
+            tariff_identity.setdefault("owner_id", tariff_identity.get("user_id"))
+            if (not isinstance(inputs, dict)
+                    or UnitPriceTariffSnapshotAdapter.validate(
+                        frozen_tariff_snapshot, tariff_identity, inputs,
+                    ) is None):
+                return {"valid": False, "code": "INVALID_TARIFF_SNAPSHOT"}
+            tariff_source_status = str(frozen_tariff_snapshot.get("status") or "UNKNOWN")[:48]
+            profiles = frozen_tariff_snapshot.get("profiles") or []
+            tariff_rule_count = sum(
+                len(profile.get("bands") or [])
+                for profile in profiles if isinstance(profile, dict)
+            )
+            if tariff_rule_count > self.MAX_PRICE_GRID_TARIFF_RULES:
+                return {
+                    "valid": False, "code": "PRICE_GRID_TARIFF_RULE_LIMIT",
+                    "tariff_rule_count": tariff_rule_count,
+                    "tariff_rule_limit": self.MAX_PRICE_GRID_TARIFF_RULES,
+                }
+            for profile in profiles:
+                for band in profile.get("bands") or []:
+                    lower = band["price_from_cents"]
+                    upper = band["price_to_cents"]
+                    for boundary in (lower - 1, lower, upper, upper + 1):
+                        if start_cents <= boundary <= end_cents:
+                            tariff_boundaries.add(boundary)
+
+        inserted_boundaries = tariff_boundaries - base_cents
+        candidate_cents = sorted(base_cents | tariff_boundaries)
+        if len(candidate_cents) > self.MAX_PRICE_GRID_CANDIDATES:
+            return {
+                "valid": False, "code": "PRICE_GRID_LIMIT",
+                "required_candidates": len(candidate_cents),
+                "candidate_limit": self.MAX_PRICE_GRID_CANDIDATES,
+                "tariff_rule_count": tariff_rule_count,
+            }
+        prices = [self._price_from_cents(value) for value in candidate_cents]
+        normalized = [format(price, ".2f") for price in prices]
+        metadata = {
+            "price_basis": "SELLER_PRICE_RUB",
+            "start": format(parsed["start"], ".2f"),
+            "end": format(parsed["end"], ".2f"),
+            "step": format(parsed["step"], ".2f"),
+            "base_grid_count": len(base_cents),
+            "tariff_rule_count": tariff_rule_count,
+            "tariff_rule_limit": self.MAX_PRICE_GRID_TARIFF_RULES,
+            "tariff_source_status": tariff_source_status,
+            "tariff_boundary_prices": [
+                format(self._price_from_cents(value), ".2f")
+                for value in sorted(tariff_boundaries)
+            ],
+            "inserted_tariff_boundary_prices": [
+                format(self._price_from_cents(value), ".2f")
+                for value in sorted(inserted_boundaries)
+            ],
+            "candidate_count": len(prices),
+            "candidate_limit": self.MAX_PRICE_GRID_CANDIDATES,
+            "searched_prices": normalized,
+            "global_optimum_claimed": False,
+        }
+        return {"valid": True, "prices": prices, "normalized": normalized, "metadata": metadata}
 
     def parse_advertising_rate_list(self, text, expected_count):
         if (not isinstance(text, str) or len(text) > 256
@@ -231,17 +337,26 @@ class UnitPriceTargetPlanningService:
         advertising_mode="SAME_DRR",
         advertising_rates=None,
         advertising_cost_basis=None,
+        price_grid_metadata=None,
     ):
+        grid_mode = price_grid_metadata is not None
         if isinstance(prices, str):
+            if grid_mode:
+                return self._error_result("INVALID_PRICE_GRID", identity)
             parsed = self.parse_price_list(prices)
             if parsed["error"]:
                 return self._error_result(parsed["code"], identity)
             normalized_prices = parsed["prices"]
         else:
-            normalized_prices = self._validate_price_values(prices)
+            normalized_prices = self._validate_price_values(
+                prices,
+                max_prices=(self.MAX_PRICE_GRID_CANDIDATES if grid_mode
+                            else self.MAX_COMPARISON_PRICES),
+            )
             if normalized_prices is None:
-                return self._error_result("INVALID_PRICE_LIST", identity)
-
+                return self._error_result(
+                    "INVALID_PRICE_GRID" if grid_mode else "INVALID_PRICE_LIST", identity,
+                )
         target = None
         if target_margin_percent is not None:
             target_result = self._normalize_target(target_margin_percent)
@@ -303,6 +418,14 @@ class UnitPriceTargetPlanningService:
             type(exact_price_rate_cents) is not int or exact_price_rate_cents < 1
         ):
             return self._error_result("INVALID_EXACT_PRICE_TARIFF", identity)
+        if grid_mode and not self._valid_price_grid_metadata(
+            price_grid_metadata,
+            normalized_prices,
+            frozen_tariff_snapshot=frozen_tariff_snapshot,
+            identity=tariff_identity,
+            inputs=inputs,
+        ):
+            return self._error_result("INVALID_PRICE_GRID", identity)
 
         rows = []
         common = {
@@ -499,6 +622,18 @@ class UnitPriceTargetPlanningService:
                 "advertising_rate": candidate_inputs.get("advertising_rate"),
                 "advertising_per_unit": calculated.get("advertising") if available else None,
                 "advertising_basis": deepcopy(advertising_basis),
+                "cross_docking_included": (
+                    forward.get("cross_docking_included") if isinstance(forward, dict) else None
+                ),
+                "cross_docking_status": (
+                    forward.get("cross_docking_status") if isinstance(forward, dict) else None
+                ),
+                "cross_docking_reason": (
+                    forward.get("cross_docking_reason") if isinstance(forward, dict) else None
+                ),
+                "cross_docking_per_unit": (
+                    calculated.get("cross_docking") if available else None
+                ),
                 "missing_inputs": list((forward or {}).get("missing_inputs") or []),
                 "invalid_inputs": list((forward or {}).get("invalid_inputs") or []),
                 "forward_result": forward if available else None,
@@ -541,7 +676,7 @@ class UnitPriceTargetPlanningService:
             row["evidence_basis"] = "SCENARIO_ASSUMPTIONS"
             row["profit_delta_vs_baseline"] = None
 
-        if baseline and baseline.get("available") is True:
+        if baseline and baseline.get("available") is True and not grid_mode:
             baseline_profit = Decimal(str(baseline["profit"]))
             for row in rows:
                 if row.get("available") is not True:
@@ -576,10 +711,22 @@ class UnitPriceTargetPlanningService:
         else:
             for row in rows:
                 row["compensation_thresholds"] = {
-                    "status": "BASELINE_UNAVAILABLE",
+                    "status": (
+                        "DEFERRED_UNTIL_CANDIDATE_SELECTED"
+                        if grid_mode and baseline and baseline.get("available") is True
+                        else "BASELINE_UNAVAILABLE"
+                    ),
                     "non_worse": None,
                     "strictly_better": None,
                 }
+        if grid_mode:
+            boundary_prices = set(price_grid_metadata["tariff_boundary_prices"])
+            for row in rows:
+                row["is_tariff_boundary"] = row["price"] in boundary_prices
+                # Grid results are kept compact; applying a chosen row performs
+                # a fresh canonical forward validation instead of retaining a
+                # full repeated source/input payload for up to 200 candidates.
+                row.pop("forward_result", None)
 
         return {
             "error": False,
@@ -602,6 +749,8 @@ class UnitPriceTargetPlanningService:
             "provenance": self._candidate_provenance(common),
             "source_price_provenance": common["provenance"].get("price"),
             "sources": common["sources"],
+            "price_grid": deepcopy(price_grid_metadata) if grid_mode else None,
+            "global_optimum_claimed": False if grid_mode else None,
             "read_only": True,
             "executed": False,
         }
@@ -825,8 +974,9 @@ class UnitPriceTargetPlanningService:
             return {"valid": False, "value": None}
         return {"valid": True, "value": target}
 
-    def _validate_price_values(self, prices):
-        if not isinstance(prices, (list, tuple)) or not 2 <= len(prices) <= self.MAX_COMPARISON_PRICES:
+    def _validate_price_values(self, prices, max_prices=None):
+        limit = self.MAX_COMPARISON_PRICES if max_prices is None else max_prices
+        if not isinstance(prices, (list, tuple)) or not 2 <= len(prices) <= limit:
             return None
         normalized = []
         seen = set()
@@ -845,6 +995,76 @@ class UnitPriceTargetPlanningService:
             seen.add(cents)
             normalized.append(self._price_from_cents(cents))
         return normalized
+
+    def _valid_price_grid_metadata(
+        self, metadata, normalized_prices, *, frozen_tariff_snapshot=None,
+        identity=None, inputs=None,
+    ):
+        required = {
+            "price_basis", "start", "end", "step", "base_grid_count",
+            "tariff_rule_count", "tariff_rule_limit", "tariff_source_status",
+            "tariff_boundary_prices", "inserted_tariff_boundary_prices",
+            "candidate_count", "candidate_limit", "searched_prices",
+            "global_optimum_claimed",
+        }
+        if not isinstance(metadata, dict) or set(metadata) != required:
+            return False
+        if (metadata.get("price_basis") != "SELLER_PRICE_RUB"
+                or metadata.get("global_optimum_claimed") is not False
+                or metadata.get("candidate_limit") != self.MAX_PRICE_GRID_CANDIDATES
+                or metadata.get("tariff_rule_limit") != self.MAX_PRICE_GRID_TARIFF_RULES
+                or metadata.get("candidate_count") != len(normalized_prices)
+                or metadata.get("searched_prices") != [
+                    format(value, ".2f") for value in normalized_prices
+                ]):
+            return False
+        start = self._parse_price_token(metadata.get("start", ""))
+        end = self._parse_price_token(metadata.get("end", ""))
+        step = self._parse_price_token(metadata.get("step", ""))
+        if (start is None or end is None or step is None or start >= end or step <= 0
+                or normalized_prices[0] != start or normalized_prices[-1] != end
+                or normalized_prices != sorted(normalized_prices)):
+            return False
+        base_count = metadata.get("base_grid_count")
+        rule_count = metadata.get("tariff_rule_count")
+        if (type(base_count) is not int or not 1 <= base_count <= len(normalized_prices)
+                or type(rule_count) is not int
+                or not 0 <= rule_count <= self.MAX_PRICE_GRID_TARIFF_RULES
+                or not isinstance(metadata.get("tariff_source_status"), str)
+                or len(metadata["tariff_source_status"]) > 48):
+            return False
+        boundary_prices = metadata.get("tariff_boundary_prices")
+        inserted_prices = metadata.get("inserted_tariff_boundary_prices")
+        if (not isinstance(boundary_prices, list) or len(boundary_prices) > 80
+                or not isinstance(inserted_prices, list) or len(inserted_prices) > 80):
+            return False
+        normalized_boundary = []
+        for collection in (boundary_prices, inserted_prices):
+            values = []
+            for value in collection:
+                price = self._parse_price_token(value) if isinstance(value, str) else None
+                if (price is None or format(price, ".2f") not in metadata["searched_prices"]
+                        or price < start or price > end):
+                    return False
+                values.append(format(price, ".2f"))
+            if len(values) != len(set(values)):
+                return False
+            normalized_boundary.append(set(values))
+        if not normalized_boundary[1].issubset(normalized_boundary[0]):
+            return False
+        rebuilt = self.build_price_grid(
+            ";".join((metadata["start"], metadata["end"], metadata["step"])),
+            frozen_tariff_snapshot=frozen_tariff_snapshot,
+            identity=identity,
+            inputs=inputs,
+        )
+        return (
+            rebuilt.get("valid") is True
+            and rebuilt.get("normalized") == metadata["searched_prices"]
+            and rebuilt.get("metadata") == metadata
+            and [format(value, ".2f") for value in normalized_prices]
+            == rebuilt.get("normalized")
+        )
 
     def _parse_price_token(self, token):
         value = token.strip()
