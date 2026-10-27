@@ -229,14 +229,16 @@ class UnitPriceObservationQualityService:
             elif completeness.get("advertising") != "CONFIRMED":
                 reasons.append("MODEL_ADVERTISING_SCOPE_UNCONFIRMED")
             units_source_name = next((
-                name for name in ("ANALYTICS", "FINANCE")
+                name for name in ("RETURNS", "ANALYTICS", "FINANCE")
                 if (self._find_source(sources, name) or {}).get("complete") is True
             ), "ANALYTICS" if self._find_source(sources, "ANALYTICS") is not None else "FINANCE")
+            if units_source_name == "RETURNS" and completeness.get("returns") != "CONFIRMED":
+                reasons.append("MODEL_BUYOUT_EVIDENCE_INCOMPLETE")
             self._check_sources(
                 sources, result.get("window"), reasons,
                 required=("PERFORMANCE", units_source_name),
                 require_complete=("PERFORMANCE", units_source_name),
-                basis_names=("PERFORMANCE", units_source_name),
+                basis_names=() if units_source_name == "RETURNS" else ("PERFORMANCE", units_source_name),
             )
             units_source = self._find_source(sources, units_source_name)
             if units_source is None or units_source.get("complete") is not True:

@@ -72,6 +72,7 @@ from services.period_profit_effective_cost_service import (
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
+from services.returns_buyout_facts_source import ReturnsBuyoutFactsSource
 from services.return_inventory_recovery_repository import (
     ReturnInventoryRecoveryRepository,
 )
@@ -384,10 +385,19 @@ def create_telegram_assistant():
 
     unit_price_observation_collection_service = None
     if unit_price_calculator_runtime_service is not None and planning_workspace_repository is not None:
+        current_economics_source = getattr(
+            unit_price_calculator_runtime_service.source,
+            "current_economics_source",
+            None,
+        )
+        ozon_client = getattr(current_economics_source, "ozon_client", None)
         unit_price_observation_collection_service = UnitPriceObservationCollectionService(
             repository=planning_workspace_repository,
             finance_service=unit_price_calculator_runtime_service.source.finance_service,
             advertising_service=period_profit_advertising_service,
+            returns_buyout_source=(
+                ReturnsBuyoutFactsSource(ozon_client) if ozon_client is not None else None
+            ),
         )
         unit_price_calculator_runtime_service.observation_collection_service = unit_price_observation_collection_service
 

@@ -5853,6 +5853,14 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 # Unit-price end-to-end acceptance and regression (Q30–Q31)
 
-- `tests/test_unit_price_profit_per_unit_end_to_end.py` — production factory/public-handler flows for confirmed current-price tariff point and JSON export; manual two-band tariff persistence across store switch and runtime recreation; the existing Q24 SKU→tariff→price/DRR→saved plan→observation→incomplete-quality gate→next-price flow. Q30 focused profile: **3 passed in 1.32s**. The third flow that promotes an insufficient observation to an available model is pending an owner decision on manually entering successful-unit volume; no production behavior was changed to guess this value.
-- Q31 linked profile: 122 related modules/targets matching unit-price, planning, tax, cross-docking, period-profit, backup/restore and Telegram help: **1085 passed in 34.88s**. `test_daily_use_bounded_soak.py` plus the bounded forward-evaluation assertion: **3 passed in 3.26s**.
-- Q30/Q31 acceptance details and the open business dependency are recorded in `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md` and `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`. Full pytest/exact-head CI remains Q33–Q35.
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` covers the production-factory/public-handler flow for a confirmed current-price tariff point and JSON export; manual two-band tariff persistence across store switch/restart; and SKU → plan → incomplete observation → complete FBO/Returns evidence → calculated buyout → explicitly modeled profit → two-price comparison.
+- Related observation/normalizer/model/quality/E2E focused profile: **49 passed in 2.37s**. The regression confirms strict pagination/status/quantity gates, source-window/timezone provenance, separate displayed returns, explicit model caveat and no Ozon mutation.
+- Q31 broader linked profile selected 175 modules matching unit-price, planning, tax, cross-docking, period-profit, backup/restore and help: **1374 passed in 39.94s**. `test_daily_use_bounded_soak.py` plus bounded forward-evaluation assertion: **3 passed in 3.12s** after Q30 changes.
+- Q30/Q31 details: `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`, `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`, and owner guide `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`. Full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price final verification and review (Q33–Q34)
+
+- Full repository `pytest`: **3,983 passed in 53.74s** on an isolated disposable Windows/Python 3.12 worktree. The disposable environment prevents legacy tests that modify `data/tasks.json` from touching the implementation checkout; `data/` in the implementation checkout is clean.
+- `python -m compileall -q app`: PASS; `git diff --check`: PASS; `git diff -- data`: empty. Final focused profile across six changed Q30/UI modules: **56 passed in 2.60s**.
+- Q34 review covers FBO-only scope, exact SKU/offer/store binding, full pagination and terminal-status gates, ambiguity/reconciliation, allowlisted persistence, shared Ozon request trace, model-only labeling, CPC date-basis limitations, and return-cost exclusion. No blocking finding; independent review and exact-head CI still required in Q35.
+- Acceptance records: `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`, `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. The exact-head CI result is tracked separately with the final implementation PR.

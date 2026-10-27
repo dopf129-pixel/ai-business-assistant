@@ -66,7 +66,8 @@ class PlanningWorkspaceRepository:
         "STALE", "CONFLICT", "RATE_LIMITED",
     })
     _OBSERVATION_METRIC_KEYS = frozenset({
-        "ordered_units", "cancelled_units", "returned_units", "successful_sale_units",
+        "ordered_units", "delivered_units", "cancelled_units", "returned_units",
+        "successful_sale_units", "buyout_rate_percent", "buyout_sample_size",
         "gross_seller_revenue", "net_seller_revenue", "attributed_revenue",
         "discount_points", "other_fees",
         "seller_revenue_drr_percent", "attributed_revenue_drr_percent",

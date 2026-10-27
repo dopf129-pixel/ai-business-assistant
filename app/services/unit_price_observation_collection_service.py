@@ -11,6 +11,7 @@ from services.period_profit_operation_diagnostics import (
     current_period_profit_trace,
     reset_period_profit_trace,
 )
+from services.returns_buyout_analytics_service import ReturnsBuyoutAnalyticsService
 
 
 class UnitPriceObservationCollectionService:
@@ -53,10 +54,17 @@ class UnitPriceObservationCollectionService:
     SUPPORTED_FEE_TYPE_IDS = frozenset({"1", "29", "32", "69", "98"})
     MAX_RAW_SCHEMA_NODES_PER_DAY = 10_000
 
-    def __init__(self, repository, finance_service, advertising_service=None, clock=None):
+    def __init__(
+        self, repository, finance_service, advertising_service=None, clock=None,
+        returns_buyout_source=None, returns_buyout_analytics_service=None,
+    ):
         self.repository = repository
         self.finance_service = finance_service
         self.advertising_service = advertising_service
+        self.returns_buyout_source = returns_buyout_source
+        self.returns_buyout_analytics_service = (
+            returns_buyout_analytics_service or ReturnsBuyoutAnalyticsService()
+        )
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def collect_window(self, observation_id, *, date_from, date_to):
@@ -216,10 +224,16 @@ class UnitPriceObservationCollectionService:
             **({"reason": finance_reason} if finance_reason else {}),
         }]
 
-        performance = self._load_advertising(identity["sku"], start, end, trace)
+        performance = self._load_advertising(
+            identity["sku"], start, end, timezone_name, trace,
+        )
         performance["source"]["requested_at"] = trace.started_at_utc
         performance["source"]["received_at"] = self._timestamp(self.clock())
         sources.append(performance["source"])
+        returns = self._load_returns_buyout(
+            identity=identity, start=start, end=end,
+            timezone_name=timezone_name, trace=trace,
+        )
         observed_at = self._timestamp(self.clock())
         price_effective_local_date = self._aware_datetime(
             observation["effective_from"]
@@ -236,6 +250,12 @@ class UnitPriceObservationCollectionService:
             warnings.append("FINANCE_WINDOW_PARTIAL: missing days are not filled with zero.")
         if performance["source"]["status"] != "COMPLETE":
             warnings.append("PERFORMANCE_CPC_SCOPE_ONLY: missing CPC does not mean zero advertising spend.")
+        if returns["successful_sale_units"] is not None:
+            warnings.extend([
+                "FBO_DELIVERED_UNITS_ARE_A_POINT_IN_TIME_POSTING_STATUS_SNAPSHOT.",
+                "BUYOUT_RATE_USES_DELIVERED_AND_CONFIRMED_NON_BUYOUT_UNITS; IT_IS_NOT_PREMIUM_ANALYTICS.",
+                "PERFORMANCE_REPORT_DATE_AND_FBO_POSTING_COHORT_ARE_NOT_IDENTICAL.",
+            ])
 
         metrics = {
             "gross_seller_revenue": self._money(finance_totals["gross_sales"]),
@@ -252,8 +272,14 @@ class UnitPriceObservationCollectionService:
             "date_basis": "OZON_ACCRUAL_DATE",
             "price_evidence_status": "PRICE_HISTORY_UNCONFIRMED",
             "advertising_status": performance["source"]["status"],
-            "successful_sale_units": None,
-            "ordered_units": None,
+            "successful_sale_units": returns["successful_sale_units"],
+            "successful_unit_denominator": returns["successful_sale_units"],
+            "ordered_units": returns["ordered_units"],
+            "delivered_units": returns["delivered_units"],
+            "cancelled_units": returns["cancelled_units"],
+            "returned_units": returns["returned_units"],
+            "buyout_rate_percent": returns["buyout_rate_percent"],
+            "buyout_sample_size": returns["buyout_sample_size"],
             "cpc_spend": performance["expense"],
         }
         status = (
@@ -297,10 +323,7 @@ class UnitPriceObservationCollectionService:
                 "complete": False,
                 "reason": "This collection does not require a Premium Analytics subscription; unit counts are not inferred.",
             }, {
-                "name": "RETURNS",
-                "status": "NOT_REQUESTED",
-                "complete": False,
-                "reason": "Return events are not part of the reused accrual adapter.",
+                **returns["source"],
             }, {
                 "name": "TARIFF",
                 "status": "NOT_REQUESTED",
@@ -320,13 +343,17 @@ class UnitPriceObservationCollectionService:
             "metrics": metrics,
             "completeness": {
                 "price_history": "PRICE_HISTORY_UNCONFIRMED",
-                "successful_units": "UNKNOWN",
+                "successful_units": "CONFIRMED" if returns["successful_sale_units"] is not None else "UNKNOWN",
                 "finance": "CONFIRMED" if finance_status == "COMPLETE" else "PARTIAL",
                 "advertising": "CONFIRMED" if performance["source"]["complete"] else "UNKNOWN",
                 "tariff": "UNKNOWN",
                 "tax": "UNKNOWN",
                 "unit_cost": "UNKNOWN",
-                "returns": "UNKNOWN",
+                "returns": "CONFIRMED" if returns["source"]["complete"] else (
+                    "SOURCE_UNAVAILABLE" if returns["source"]["status"] == "SOURCE_UNAVAILABLE"
+                    else "UNKNOWN" if returns["source"]["status"] == "NOT_REQUESTED"
+                    else "PARTIAL"
+                ),
                 "analytics": "UNKNOWN",
                 "window": "CONFIRMED",
                 "deduplication": "UNKNOWN",
@@ -339,13 +366,144 @@ class UnitPriceObservationCollectionService:
             "executed": False,
         }
 
-    def _load_advertising(self, sku, start, end, trace):
+    def _load_returns_buyout(self, *, identity, start, end, timezone_name, trace):
+        source = {
+            "name": "RETURNS",
+            "status": "NOT_REQUESTED",
+            "complete": False,
+            "source_date_basis": "FBO_POSTING_AND_RETURN_CHANGE_WINDOW",
+            "source_window_start": start.isoformat(),
+            "source_window_end": end.isoformat(),
+            "timezone": timezone_name,
+        }
+        empty = {
+            "source": source,
+            "successful_sale_units": None,
+            "ordered_units": None,
+            "delivered_units": None,
+            "cancelled_units": None,
+            "returned_units": None,
+            "buyout_rate_percent": None,
+            "buyout_sample_size": None,
+        }
+        if self.returns_buyout_source is None:
+            source["reason"] = "RETURNS_BUYOUT_SOURCE_NOT_CONFIGURED"
+            return empty
+
+        budget_error = self._budget_error(trace)
+        if budget_error:
+            source.update({
+                "status": "RATE_LIMITED" if "BUDGET" in budget_error else "SOURCE_UNAVAILABLE",
+                "reason": self._safe_reason(budget_error, default="RETURNS_BUYOUT_SOURCE_UNAVAILABLE"),
+            })
+            return empty
+        try:
+            facts = self.returns_buyout_source.get(
+                identity["offer_id"], start.isoformat(), end.isoformat(),
+            )
+        except Exception:
+            facts = None
+        received_at = self._timestamp(self.clock())
+        if not isinstance(facts, dict) or facts.get("error") is True:
+            code = self._safe_reason(
+                facts.get("code") if isinstance(facts, dict) else None,
+                default="RETURNS_BUYOUT_SOURCE_UNAVAILABLE",
+            )
+            source.update({
+                "status": "RATE_LIMITED" if "RATE_LIMIT" in code or "BUDGET" in code else "SOURCE_UNAVAILABLE",
+                "reason": code,
+                "requested_at": trace.started_at_utc,
+                "received_at": received_at,
+            })
+            return empty
+
+        analysis = self.returns_buyout_analytics_service.analyze(facts)
+        if not isinstance(analysis, dict) or analysis.get("error") is True:
+            source.update({
+                "status": "PARTIAL",
+                "reason": "RETURNS_BUYOUT_ANALYSIS_INVALID",
+                "requested_at": trace.started_at_utc,
+                "received_at": received_at,
+            })
+            return empty
+
+        def count(name):
+            value = facts.get(name)
+            return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
+
+        total_units = count("total_units")
+        delivered_units = count("delivered_units")
+        cancelled_units = count("cancelled_units")
+        returned_units = count("customer_return_units")
+        buyout_rate = analysis.get("observed_buyout_rate")
+        sample_size = analysis.get("buyout_sample_size")
+        postings = facts.get("postings")
+        terminal_statuses = {"delivered", "cancelled"}
+        terminal_postings = (
+            isinstance(postings, list)
+            and all(
+                isinstance(item, dict)
+                and str(item.get("status") or "").lower() in terminal_statuses
+                for item in postings
+            )
+        )
+        no_ambiguous_cancellations = count("ambiguous_cancelled_units") == 0
+        units_reconcile = (
+            total_units is not None
+            and delivered_units is not None
+            and cancelled_units is not None
+            and delivered_units + cancelled_units == total_units
+        )
+        complete = bool(
+            analysis.get("complete") is True
+            and facts.get("postings_complete") is True
+            and facts.get("returns_complete") is True
+            and no_ambiguous_cancellations
+            and terminal_postings
+            and units_reconcile
+        )
+        if complete:
+            source.update({
+                "status": "COMPLETE",
+                "complete": True,
+                "row_count": count("posting_count") or 0,
+                "requested_at": trace.started_at_utc,
+                "received_at": received_at,
+            })
+        else:
+            source.update({
+                "status": "PARTIAL",
+                "reason": "FBO_BUYOUT_SAMPLE_NOT_FINAL_OR_CLASSIFIED",
+                "requested_at": trace.started_at_utc,
+                "received_at": received_at,
+                "row_count": count("posting_count") or 0,
+            })
+
+        usable = complete and delivered_units is not None and delivered_units > 0
+        return {
+            "source": source,
+            "successful_sale_units": delivered_units if usable else None,
+            "ordered_units": total_units,
+            "delivered_units": delivered_units,
+            "cancelled_units": cancelled_units,
+            "returned_units": returned_units,
+            "buyout_rate_percent": buyout_rate if complete else None,
+            "buyout_sample_size": sample_size if complete else None,
+        }
+
+    def _load_advertising(self, sku, start, end, timezone_name, trace):
         if self.advertising_service is None:
-            return self._performance_unavailable("PERFORMANCE_ADAPTER_NOT_CONFIGURED")
+            return self._performance_unavailable(
+                "PERFORMANCE_ADAPTER_NOT_CONFIGURED", start=start, end=end,
+                timezone_name=timezone_name,
+            )
         budget_error = self._budget_error(trace)
         if budget_error:
             status = "RATE_LIMITED" if "RATE_LIMIT" in budget_error else "SOURCE_UNAVAILABLE"
-            return self._performance_unavailable(budget_error, status=status)
+            return self._performance_unavailable(
+                budget_error, status=status, start=start, end=end,
+                timezone_name=timezone_name,
+            )
         try:
             result = self.advertising_service.load(
                 start.isoformat(), end.isoformat(), {sku},
@@ -358,7 +516,10 @@ class UnitPriceObservationCollectionService:
                 default="PERFORMANCE_SOURCE_UNAVAILABLE",
             )
             status = "RATE_LIMITED" if "RATE_LIMIT" in code or "BUDGET" in code else "SOURCE_UNAVAILABLE"
-            return self._performance_unavailable(code, status=status)
+            return self._performance_unavailable(
+                code, status=status, start=start, end=end,
+                timezone_name=timezone_name,
+            )
         if result.get("configured") is False:
             return {
                 "expense": None,
@@ -368,13 +529,20 @@ class UnitPriceObservationCollectionService:
                     "source_date_basis": "PERFORMANCE_REPORT_DATE",
                     "source_window_start": start.isoformat(),
                     "source_window_end": end.isoformat(),
+                    "timezone": timezone_name,
                 },
             }
         if result.get("complete") is not True:
-            return self._performance_unavailable("PERFORMANCE_EVIDENCE_INCOMPLETE")
+            return self._performance_unavailable(
+                "PERFORMANCE_EVIDENCE_INCOMPLETE", start=start, end=end,
+                timezone_name=timezone_name,
+            )
         amount = self._decimal(result.get("expense"))
         if amount is None or amount < 0:
-            return self._performance_unavailable("PERFORMANCE_RESPONSE_INVALID")
+            return self._performance_unavailable(
+                "PERFORMANCE_RESPONSE_INVALID", start=start, end=end,
+                timezone_name=timezone_name,
+            )
         return {
             "expense": self._money(amount),
             "source": {
@@ -383,19 +551,31 @@ class UnitPriceObservationCollectionService:
                 "source_date_basis": "PERFORMANCE_REPORT_DATE",
                 "source_window_start": start.isoformat(),
                 "source_window_end": end.isoformat(),
+                "timezone": timezone_name,
                 "unsupported_types": [],
             },
         }
 
     @staticmethod
-    def _performance_unavailable(reason, status="SOURCE_UNAVAILABLE"):
+    def _performance_unavailable(
+        reason, status="SOURCE_UNAVAILABLE", *, start=None, end=None,
+        timezone_name=None,
+    ):
+        source = {
+            "name": "PERFORMANCE", "status": status,
+            "complete": False, "reason": reason,
+            "source_date_basis": "PERFORMANCE_REPORT_DATE",
+        }
+        if start is not None and end is not None:
+            source.update({
+                "source_window_start": start.isoformat(),
+                "source_window_end": end.isoformat(),
+            })
+        if isinstance(timezone_name, str) and timezone_name:
+            source["timezone"] = timezone_name
         return {
             "expense": None,
-            "source": {
-                "name": "PERFORMANCE", "status": status,
-                "complete": False, "reason": reason,
-                "source_date_basis": "PERFORMANCE_REPORT_DATE",
-            },
+            "source": source,
         }
 
     @classmethod
@@ -485,13 +665,16 @@ class UnitPriceObservationCollectionService:
 
     @staticmethod
     def _identity(observation):
-        fields = {
-            "store_id": observation.get("store_id"),
-            "product_id": observation.get("product_id"),
-            "offer_id": observation.get("offer_id"),
-            "sku": observation.get("sku"),
-            "sale_schema": observation.get("sale_schema"),
-        }
+        nested = observation.get("identity")
+        nested = nested if isinstance(nested, dict) else {}
+        fields = {}
+        for key in ("store_id", "product_id", "offer_id", "sku", "sale_schema"):
+            outer_value = observation.get(key)
+            nested_value = nested.get(key)
+            if (outer_value is not None and nested_value is not None
+                    and str(outer_value).strip() != str(nested_value).strip()):
+                return None
+            fields[key] = outer_value if outer_value is not None else nested_value
         if any(not isinstance(value, str) or not value.strip() for value in fields.values()):
             return None
         return {key: value.strip() for key, value in fields.items()}

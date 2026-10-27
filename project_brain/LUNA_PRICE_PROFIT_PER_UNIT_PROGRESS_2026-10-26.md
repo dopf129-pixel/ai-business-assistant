@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q29 завершены, Q30 приостановлен из-за необходимого бизнес-решения; Q31 проверен на текущей реализации; Q32–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q34 VERIFIED, Q35 ожидает завершения exact-head CI и PR handoff.
 
 ## Исходная точка
 
@@ -49,11 +49,11 @@
 | Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
 | Q28 | VERIFIED | Fake-clock cancellation/time budget, partial source and explicit retry semantics verified. Existing attempt budget/quota/export-size/rollback guards pass in linked Q16–Q28 profile: 474 passed across 32 targets. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. |
 | Q29 | VERIFIED | Синтетический N13: тариф, план, observation и две версии результата пережили backup/verify/dry-run/restore в новый root; scope и приватность проверены. Q29 профиль: 5 passed, включая v2/v3/v4 migrations. Acceptance ниже. |
-| Q30 | BLOCKED_DECISION | Два новых public-handler сценария Q30 и существующий полный flow проверены; третий flow не может честно сделать модель доступной, пока не определено, разрешено ли вводить число успешных продаж как допущение. См. `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`. |
-| Q31 | VERIFIED_EXISTING | Связанный регрессионный набор: 1085 passed за 34.88s; bounded soak/evaluation profile: 3 passed за 3.26s. Q30 production-поведение не менялось. См. `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`. |
-| Q32 | NOT_STARTED | — |
-| Q33 | NOT_STARTED | — |
-| Q34 | NOT_STARTED | — |
+| Q30 | VERIFIED | Три public-handler flows включая неполная выборка → полная FBO/Returns выборка → рассчитанный наблюдаемый % выкупа → модельная прибыль/шт. → сравнение цены; возвраты вынесены отдельно и их расходы не вычитаются. Первичный focused-профиль 49 passed; перед Q33 расширенный прогон шести модулей — 56 passed. Решение 062, owner guide и acceptance записаны. |
+| Q31 | VERIFIED | Повторный linked regression: **1374 passed в 39.94s на 175 модулях**; bounded soak/evaluation: **3 passed в 3.12s**; focused Q30 profile на момент Q31 — 49 passed. Поздний расширенный профиль отражён в Q33. См. `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`. |
+| Q32 | VERIFIED | Обновлены user guide, changelog, current state, test map, roadmap and architecture decision index/details; acceptance описывает формулу, полноту, ограничения возвратов и resume. Внешние персональные/API данные не запрашивались. |
+| Q33 | VERIFIED | Изолированный полный Windows/Python 3.12 pytest: **3983 passed in 53.74s**; compileall, diff-check и data-diff прошли. Exact-head CI проверяется в Q35. См. `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`. |
+| Q34 | VERIFIED | Self-review по реализации, границам FBO, tenant/privacy, completeness, compatibility и модели: блокирующих замечаний не найдено. Architecture Review Required; self-review не является независимым approval. См. `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. |
 | Q35 | NOT_STARTED | — |
 
 ## Проверки подготовки документа
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с необходимого решения для Q30: допустимо ли явно вводить владельцу число успешных продаж для модельного результата, без присвоения этому числу статуса API-факта. После решения закончить третий сквозной flow и продолжить Q32–Q35 по dependency order; Q31 linked regression уже прошёл на текущем production-коде.
+Resume с Q35: зафиксировать проверенный пакет явными путями, отправить реализационную ветку, открыть stacked PR поверх PR #719, дождаться успешного CI именно на финальном HEAD и записать review/handoff пакет. Q33 local full suite и Q34 self-review подтверждены ниже; старые baseline результаты не переносить на новые SHA.
 
 ## Записи исполнения
 
@@ -361,3 +361,39 @@
 - Дополнительно прошли существующие миграционные проверки: legacy planning schema, additive v2 rollback, schema v3→v5 и v4→v5 с сохранением плана/результатов.
 - Windows/Python 3.12 isolated Q29 profile: **5 passed in 0.95s**. В первом запуске исправлен только синтетический clock fixture; production code не менялся. `git diff -- data` пуст; production data, `.env`, API и живой бот не использовались.
 - Acceptance: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`. Q29 — VERIFIED. Следующий этап Q30 — три сквозных пользовательских потока через production factory/public Telegram handlers.
+
+### Q30 — наблюдаемый процент выкупа для модели прибыли (2026-10-27)
+
+- Владелец разрешил вычислять процент выкупа SKU вместо ручного ввода числа продаж. Архитектурное правило закреплено в `DECISIONS_062.md`: read-only FBO posting + Returns evidence, точный SKU, завершённая пагинация, terminal statuses, reconciliation количества и ноль неоднозначных отмен; только затем строится расчётная метрика и модельный знаменатель.
+- Подключён существующий `ReturnsBuyoutFactsSource` через уже используемый Ozon client в factory. Новый client/credential scope не добавлялись. Коллектор отдаёт только агрегаты; normalizer/allowlist сохраняют подтверждённые единицы/процент выборки без ID и сырых строк.
+- Исправлен подтверждённый gate defect: Performance source не нёс timezone метаданные, из-за чего модель с FBO cohort ошибочно попадала в `SOURCE_WINDOW_OR_DATE_BASIS_MISMATCH`. Теперь timezone передаётся с report window и остаётся частью immutable source evidence.
+- Отчёт явно показывает формулу buyout estimate, sample size, delivered/returned counts; расход возвратов не включён в модельную прибыль/шт. и это сказано пользователю. CPC-report date и FBO cohort остаются разными basis; модель не объявляет прибыль фактом и не делает causal claim.
+- Focused command: пять модулей collection / normalizer / result / quality / public E2E из `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`; **49 passed in 2.37s** на Windows/Python 3.12. Synthetic sources only; live API, real bot and Ozon mutations not used.
+- Изменённые production paths: observation collection, normalizer, result, quality, Telegram observation runtime, planning repository allowlist, factory wiring. Regression: nested persisted identity now accepted; duplicate conflicting identity rejected. Existing Q24 path remains in E2E.
+- Q30 — VERIFIED. Q31 and Q32 repeated/updated below. No user owner data or tracked `data/` changed.
+
+### Q31 — связанные регрессии после Q30 (2026-10-27)
+
+- Связанный Windows/Python 3.12 profile: 175 modules selected for unit price/planning/tax/cross-docking/period profit/backup-restore/help; **1374 passed in 39.94s**.
+- Bounded lifecycle/evaluation command: `tests/test_daily_use_bounded_soak.py tests/test_unit_price_target_planning_service.py::test_search_stays_inside_forward_evaluation_budget`; **3 passed in 3.12s**.
+- Q31 — VERIFIED. Profile outputs only; no owner SQLite/API/live process used. Acceptance: `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`.
+
+### Q32 — owner guide and acceptance docs (2026-10-27)
+
+- Добавлены user guide и Decision 062; обновлены `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, `ROADMAP.md`, decision index, Q30/Q31 acceptance and progress matrix.
+- Документы фиксируют exact buyout formula and denominator, strict incompleteness behavior, separate returned count, return-expense omission, report-date/cohort mismatch, sample caveat, privacy and the noncanonical/noncausal nature of the result.
+- Documentation links validated by existence and wording scan; `git diff --check` and full pytest/CI remain Q33. Q32 — VERIFIED.
+
+### Q33 — полный локальный прогон и чистота данных (2026-10-27)
+
+- Полный `pytest` выполнен в отдельной временной Git-копии с актуальными исходниками и тестами: **3983 passed in 53.74s**. Изолированный повтор выбран после того, как legacy-тесты в основной рабочей копии изменили tracked `data/tasks.json`; исходный файл восстановлен в точное чистое состояние, а результат `git status --short -- data` в основной реализации пустой.
+- На том же проверенном снимке: `python -m compileall -q app` — PASS; `git diff --check` — PASS; `git diff -- data` — пустой. Повторный профиль шести изменённых Q30/UI модулей в реализации: **56 passed in 2.60s**. Q31 связанный профиль — **1374 passed на 175 модулях**, ограниченная soak/evaluation — **3 passed**.
+- Проверки синтетические и локальные: credentials очищены, owner database и `.env` не читались, сеть/API и реальный бот не запускались. Полный прогон не изменил owner data в основной реализации.
+- Локальная часть Q33 — VERIFIED. CI на финальном PR HEAD остаётся обязательной частью Q35; точный run не переносится с предыдущих SHA.
+
+### Q34 — архитектурный self-review (2026-10-27)
+
+- Проверены FBO-only gate, точное связывание observation/offer_id/SKU/store, полноценность пагинации и классификации отмен, terminal posting statuses, reconciliation delivered+cancelled=total, allowlist persisted fields, read-only wiring через существующий Ozon client и общий operation trace, модельный status и явные ограничения CPC/возвратов.
+- Блокирующих correctness/privacy/compatibility findings не найдено. Buyout percent остаётся выборочной оценкой `delivered / (delivered + confirmed customer non-buyout)`, не официальной аналитикой Ozon; поздние возвраты учитываются отдельным числом, возвратные расходы не вычитаются из прибыли/шт. Результат не доказывает причинный эффект цены.
+- Изменение затрагивает несколько слоёв и более 300 строк: классификация — **Architecture Review Required**. Этот self-review не является независимым approval; финальный пакет передаётся для независимого review после зелёного exact-head CI.
+- Q34 — VERIFIED. CI, PR URL, SHA и review package фиксируются в Q35.

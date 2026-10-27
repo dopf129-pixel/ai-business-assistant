@@ -130,19 +130,27 @@ class UnitPriceObservationResultService:
                 reasons=["CANONICAL_FORWARD_RESULT_INCOMPLETE"],
             )
 
+        model_warnings = [
+            "MODEL_USES_FROZEN_SCENARIO_ASSUMPTIONS; PROFIT_IS_NOT_OBSERVED.",
+            "OBSERVED_ADVERTISING_INPUT_IS_CPC_ONLY; OTHER_ADVERTISING_TYPES_ARE_UNKNOWN.",
+            "OWNER_DECLARED_PRICE_DOES_NOT_PROVE_PRICE_USED_BY_EVERY_HISTORICAL_SALE.",
+            "NO_CAUSAL_CLAIM_ABOUT_PRICE_CHANGES_OR_ADVERTISING_EFFICIENCY_IS_MADE.",
+            "FINANCE_WINDOW_TOTALS_ARE_CONTEXT_ONLY; THEY_ARE_NOT_SUBTRACTED_FROM_UNIT_PROFIT.",
+            "CPC_PER_UNIT_IS_ROUNDED_TO_CENTS_BY_THE_CANONICAL_CALCULATOR; KEEP_NUMERATOR_AND_DENOMINATOR_VISIBLE.",
+        ]
+        if any(item.get("name") == "RETURNS" for item in base["sources"]):
+            model_warnings.extend([
+                "FBO_BUYOUT_RATE_IS_A_WINDOW_ESTIMATE_FROM_POSTING_AND_RETURN_STATUS_DATA.",
+                "DELIVERED_UNITS_ARE_A_POINT_IN_TIME_STATUS_SNAPSHOT; LATER_RETURNS_MAY_CHANGE_THE_COHORT.",
+                "FBO_RETURNED_UNITS_ARE_REPORTED_SEPARATELY; RETURN_COSTS_ARE_NOT_NETTED_FROM_MODELLED_UNIT_PROFIT.",
+                "CPC_REPORT_DATE_AND_FBO_POSTING_COHORT_ARE_NOT_IDENTICAL; THIS_IS_A_MODEL_NOT_ATTRIBUTED_COST_PER_ORDER.",
+            ])
         result = self._result(
             base,
             status="AVAILABLE",
             evidence_basis="MODELLED_FROM_OBSERVED_INPUTS",
             reasons=["CANONICAL_PER_SALE_PROFIT_NOT_AVAILABLE_FROM_CURRENT_SOURCES"],
-            warnings=[
-                "MODEL_USES_FROZEN_SCENARIO_ASSUMPTIONS; PROFIT_IS_NOT_OBSERVED.",
-                "OBSERVED_ADVERTISING_INPUT_IS_CPC_ONLY; OTHER_ADVERTISING_TYPES_ARE_UNKNOWN.",
-                "OWNER_DECLARED_PRICE_DOES_NOT_PROVE_PRICE_USED_BY_EVERY_HISTORICAL_SALE.",
-                "NO_CAUSAL_CLAIM_ABOUT_PRICE_CHANGES_OR_ADVERTISING_EFFICIENCY_IS_MADE.",
-                "FINANCE_WINDOW_TOTALS_ARE_CONTEXT_ONLY; THEY_ARE_NOT_SUBTRACTED_FROM_UNIT_PROFIT.",
-                "CPC_PER_UNIT_IS_ROUNDED_TO_CENTS_BY_THE_CANONICAL_CALCULATOR; KEEP_NUMERATOR_AND_DENOMINATOR_VISIBLE.",
-            ],
+            warnings=model_warnings,
         )
         result_metrics = result["metrics"]
         result_metrics.update({
@@ -184,7 +192,14 @@ class UnitPriceObservationResultService:
 
         sources = result["sources"]
         performance = self._source(sources, "PERFORMANCE")
-        unit_source = next((
+        returns_source = self._source(sources, "RETURNS")
+        use_returns_units = bool(
+            returns_source is not None
+            and returns_source.get("complete") is True
+            and returns_source.get("source_date_basis") == "FBO_POSTING_AND_RETURN_CHANGE_WINDOW"
+            and completeness.get("returns") == "CONFIRMED"
+        )
+        unit_source = returns_source if use_returns_units else next((
             item for item in sources
             if item.get("name") in {"ANALYTICS", "FINANCE"}
             and item.get("complete") is True
@@ -205,7 +220,13 @@ class UnitPriceObservationResultService:
                 or not source.get("source_date_basis")
             ):
                 return {"status": "INCOMPARABLE", "reasons": ["SOURCE_WINDOW_OR_DATE_BASIS_MISMATCH"]}
-        if performance.get("source_date_basis") != unit_source.get("source_date_basis"):
+        date_bases_match = performance.get("source_date_basis") == unit_source.get("source_date_basis")
+        returns_window_model = bool(
+            use_returns_units
+            and performance.get("source_date_basis") == "PERFORMANCE_REPORT_DATE"
+            and unit_source.get("source_date_basis") == "FBO_POSTING_AND_RETURN_CHANGE_WINDOW"
+        )
+        if not date_bases_match and not returns_window_model:
             return {"status": "INCOMPARABLE", "reasons": ["CPC_AND_SUCCESSFUL_UNITS_USE_DIFFERENT_DATE_BASES"]}
         if result["status"] == "CONFLICT":
             return {"status": "CONFLICT", "reasons": ["OBSERVATION_EVIDENCE_CONFLICT"]}

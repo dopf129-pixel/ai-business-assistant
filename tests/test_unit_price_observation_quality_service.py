@@ -53,6 +53,26 @@ def _model_candidate(price, start, end, *, sku="sku-1", units=40, signature="sam
     }
 
 
+def _fbo_buyout_model_candidate(price, start, end, *, units=40, signature="same-plan", returns_basis="FBO_POSTING_AND_RETURN_CHANGE_WINDOW"):
+    candidate = _model_candidate(
+        price, start, end, units=units, signature=signature,
+        basis="PERFORMANCE_REPORT_DATE",
+    )
+    result = candidate["result"]
+    result["sources"] = [
+        source for source in result["sources"] if source["name"] != "ANALYTICS"
+    ]
+    result["sources"].append(_source(
+        "RETURNS", start, end, basis=returns_basis,
+    ))
+    result["completeness"]["returns"] = "CONFIRMED"
+    result["metrics"].update({
+        "buyout_rate_percent": "80.00", "buyout_sample_size": units,
+        "delivered_units": units,
+    })
+    return candidate
+
+
 def _assess(candidates, **kwargs):
     return UnitPriceObservationQualityService().assess(candidates, now=NOW, **kwargs)
 
@@ -71,6 +91,27 @@ def test_same_assumptions_nonoverlapping_windows_are_model_comparable_not_verifi
     assert "COMPARISON_DOES_NOT_ESTABLISH_PRICE_CHANGE_CAUSALITY." in result["warnings"]
     assert result["candidates"][0]["window_days"] == 7
     assert "confidence" not in result
+
+
+def test_matching_fbo_buyout_estimate_models_compare_without_claiming_same_event_cohort():
+    result = _assess([
+        _fbo_buyout_model_candidate(100, "2026-10-01", "2026-10-07"),
+        _fbo_buyout_model_candidate(95, "2026-10-08", "2026-10-14"),
+    ])
+
+    assert result["status"] == "COMPARABLE"
+    assert result["evidence_basis"] == "MODELLED_FROM_OBSERVED_INPUTS"
+    assert result["verified"] is False
+    assert all(item["status"] == "READY" for item in result["candidates"])
+
+    inconsistent = _assess([
+        _fbo_buyout_model_candidate(100, "2026-10-01", "2026-10-07"),
+        _fbo_buyout_model_candidate(
+            95, "2026-10-08", "2026-10-14", returns_basis="ANOTHER_POSTING_BASIS",
+        ),
+    ])
+    assert inconsistent["status"] == "INCOMPARABLE"
+    assert "SOURCE_DATE_BASIS_MISMATCH" in inconsistent["reasons"]
 
 
 def test_overlap_and_different_price_basis_block_comparison():

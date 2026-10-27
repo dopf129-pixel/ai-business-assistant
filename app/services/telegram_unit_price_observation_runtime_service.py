@@ -666,6 +666,19 @@ class TelegramUnitPriceObservationRuntimeService:
             f"Окно {window.get('from')} — {window.get('to')} · {window.get('timezone')}",
             f"Основание: {result.get('evidence_basis')}",
         ]
+        buyout_rate = metrics.get("buyout_rate_percent")
+        buyout_sample = metrics.get("buyout_sample_size")
+        delivered_units = metrics.get("delivered_units")
+        returned_units = metrics.get("returned_units")
+        if isinstance(buyout_rate, str) and type(buyout_sample) is int:
+            lines.append(
+                f"Наблюдаемый выкуп SKU: {buyout_rate}% · выборка {buyout_sample} единиц; "
+                f"доставлено на момент сбора: {delivered_units if type(delivered_units) is int else 'нет данных'}."
+            )
+        if type(returned_units) is int:
+            lines.append(
+                f"Возвраты в окне: {returned_units} шт.; их расходы не вычтены из модельной прибыли/шт."
+            )
         if result.get("evidence_basis") == "MODELLED_FROM_OBSERVED_INPUTS":
             lines.append(f"Модельная прибыль: {metrics.get('profit_per_unit')} ₽/шт.; это не факт магазина.")
         else:
@@ -988,6 +1001,10 @@ class TelegramUnitPriceObservationRuntimeService:
             "EVIDENCE_BASIS_MISMATCH": "расчёты имеют разные основания",
             "REVENUE_OR_ADVERTISING_BASIS_MISMATCH": "различаются основания выручки или рекламы",
             "CPC_ONLY_MODEL_OMITS_OTHER_ADVERTISING_TYPES.": "учтён только CPC; другие типы рекламы неизвестны",
+            "FBO_BUYOUT_RATE_IS_A_WINDOW_ESTIMATE_FROM_POSTING_AND_RETURN_STATUS_DATA.": "процент выкупа — оценка по отправлениям и статусам возврата за окно",
+            "DELIVERED_UNITS_ARE_A_POINT_IN_TIME_STATUS_SNAPSHOT; LATER_RETURNS_MAY_CHANGE_THE_COHORT.": "доставленные единицы — снимок статусов; поздние возвраты могут изменить когорту",
+            "FBO_RETURNED_UNITS_ARE_REPORTED_SEPARATELY; RETURN_COSTS_ARE_NOT_NETTED_FROM_MODELLED_UNIT_PROFIT.": "возвраты показаны отдельно и не вычитаются из модельной прибыли на единицу",
+            "CPC_REPORT_DATE_AND_FBO_POSTING_COHORT_ARE_NOT_IDENTICAL; THIS_IS_A_MODEL_NOT_ATTRIBUTED_COST_PER_ORDER.": "CPC и когорта отправлений имеют разные основания дат; это модельная оценка",
             "OWNER_DECLARED_PRICE_DOES_NOT_VERIFY_PER_SALE_PRICE_HISTORY.": "ручное подтверждение не доказывает цену каждой продажи",
             "SAMPLE_THRESHOLDS_ARE_OPERATIONAL_WARNINGS_NOT_STATISTICAL_CONFIDENCE.": "ориентиры выборки не являются статистической уверенностью",
             "COMPARISON_DOES_NOT_ESTABLISH_PRICE_CHANGE_CAUSALITY.": "сравнение не доказывает, что изменения вызваны ценой",

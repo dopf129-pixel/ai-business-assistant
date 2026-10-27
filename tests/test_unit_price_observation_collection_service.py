@@ -132,6 +132,21 @@ class Advertising:
         }
 
 
+class ReturnsBuyoutSource:
+    def __init__(self, facts):
+        self.facts = facts
+        self.calls = []
+
+    def get(self, sku, since, to):
+        self.calls.append((sku, since, to))
+        trace = current_period_profit_trace()
+        for _ in range(2):
+            reserved = trace.reserve_ozon_request("fake-returns-buyout")
+            if reserved["error"]:
+                return {"error": True, "code": reserved["code"]}
+        return self.facts
+
+
 class FakeOzonFinanceTransport:
     """Fake the existing client boundary while retaining trace reservations."""
 
@@ -175,12 +190,13 @@ class FakeOzonFinanceTransport:
         }
 
 
-def _service(*, repository=None, finance=None, advertising=None):
+def _service(*, repository=None, finance=None, advertising=None, returns_buyout_source=None):
     return UnitPriceObservationCollectionService(
         repository or Repository(),
         finance or Finance(),
         advertising,
         clock=lambda: datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc),
+        returns_buyout_source=returns_buyout_source,
     )
 
 
@@ -263,6 +279,112 @@ def test_uses_existing_finance_adapter_with_fake_transport_and_no_raw_values():
     assert result["metrics"]["price_evidence_status"] == "PRICE_HISTORY_UNCONFIRMED"
     assert len(transport.calls) == 3
     assert result["diagnostics"]["http_attempts"] == 4
+
+
+def test_complete_same_sku_buyout_facts_supply_model_units_and_safe_rate():
+    facts = {
+        "error": False, "sku": "private-offer-id", "since": "2026-10-20",
+        "to": "2026-10-22", "posting_count": 4, "total_units": 4,
+        "delivered_units": 3, "cancelled_units": 1,
+        "ambiguous_cancelled_units": 0, "customer_non_buyout_units": 1,
+        "customer_return_units": 0, "customer_cancelled_units": 0,
+        "delivery_failure_units": 0, "unknown_return_units": 0,
+        "postings_complete": True, "returns_available": True,
+        "returns_complete": True, "postings": [
+            {"posting_number": "private-posting-1", "status": "delivered", "quantity": 1},
+            {"posting_number": "private-posting-2", "status": "delivered", "quantity": 1},
+            {"posting_number": "private-posting-3", "status": "delivered", "quantity": 1},
+            {"posting_number": "private-posting-4", "status": "cancelled", "quantity": 1},
+        ],
+        "return_events": [{"return_id": "private-return-id"}],
+    }
+    source = ReturnsBuyoutSource(facts)
+    result = _service(returns_buyout_source=source).collect_window(
+        "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+    )
+
+    returns_source = next(item for item in result["sources"] if item["name"] == "RETURNS")
+    performance_source = next(
+        item for item in result["sources"] if item["name"] == "PERFORMANCE"
+    )
+    assert returns_source["status"] == "COMPLETE"
+    assert returns_source["complete"] is True
+    assert returns_source["source_date_basis"] == "FBO_POSTING_AND_RETURN_CHANGE_WINDOW"
+    assert performance_source["timezone"] == "Europe/Moscow"
+    assert result["metrics"]["ordered_units"] == 4
+    assert result["metrics"]["delivered_units"] == 3
+    assert result["metrics"]["successful_sale_units"] == 3
+    assert result["metrics"]["successful_unit_denominator"] == 3
+    assert result["metrics"]["buyout_rate_percent"] == 75.0
+    assert result["metrics"]["buyout_sample_size"] == 4
+    assert result["completeness"]["successful_units"] == "CONFIRMED"
+    assert result["completeness"]["returns"] == "CONFIRMED"
+    assert source.calls == [("offer-1", "2026-10-20", "2026-10-22")]
+    serialized = repr(result)
+    assert "private-offer-id" not in serialized
+    assert "private-posting-1" not in serialized
+    assert "private-return-id" not in serialized
+    assert result["diagnostics"]["collection_http_attempts"] == 5
+
+
+def test_ambiguous_or_unfinalized_buyout_cohort_never_becomes_model_units():
+    facts = {
+        "error": False, "posting_count": 2, "total_units": 2,
+        "delivered_units": 1, "cancelled_units": 1,
+        "ambiguous_cancelled_units": 1, "customer_non_buyout_units": 0,
+        "customer_return_units": 0, "customer_cancelled_units": 0,
+        "delivery_failure_units": 0, "unknown_return_units": 1,
+        "postings_complete": True, "returns_available": True,
+        "returns_complete": True, "postings": [
+            {"posting_number": "private-posting-1", "status": "delivered", "quantity": 1},
+            {"posting_number": "private-posting-2", "status": "cancelled", "quantity": 1},
+        ], "return_events": [],
+    }
+    result = _service(returns_buyout_source=ReturnsBuyoutSource(facts)).collect_window(
+        "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+    )
+    returns_source = next(item for item in result["sources"] if item["name"] == "RETURNS")
+    assert returns_source["status"] == "PARTIAL"
+    assert result["metrics"]["successful_sale_units"] is None
+    assert result["metrics"]["buyout_rate_percent"] is None
+
+    facts["ambiguous_cancelled_units"] = 0
+    facts["postings"][0]["status"] = "awaiting_deliver"
+    result = _service(returns_buyout_source=ReturnsBuyoutSource(facts)).collect_window(
+        "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+    )
+    assert result["metrics"]["successful_sale_units"] is None
+    assert result["metrics"]["buyout_rate_percent"] is None
+
+
+def test_collector_reads_repository_nested_identity_and_rejects_scope_conflict():
+    stored = {
+        "status": "ACTIVE", "store_id": "store-a",
+        "sku": "3921245627",
+        "identity": {
+            "product_id": "product-1", "offer_id": "offer-1",
+            "sku": "3921245627", "sale_schema": "FBO",
+        },
+        "seller_price_cents": 10_000,
+        "window_timezone": "Europe/Moscow",
+        "effective_from": "2026-10-10T12:00:00+03:00",
+    }
+    result = _service(repository=Repository(stored)).collect_window(
+        "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+    )
+    assert result["error"] is False
+    assert result["identity"] == {
+        "store_id": "store-a", "product_id": "product-1",
+        "offer_id": "offer-1", "sku": "3921245627", "sale_schema": "FBO",
+    }
+
+    stored["identity"]["sku"] = "another-sku"
+    conflict = _service(repository=Repository(stored)).collect_window(
+        "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+    )
+    assert conflict["error"] is True
+    assert conflict["code"] == "PLANNING_OBSERVATION_IDENTITY_INVALID"
+    assert result["completeness"]["successful_units"] == "UNKNOWN"
 
 
 def test_finance_failure_does_not_zero_fill_unread_days_or_claim_complete_source():

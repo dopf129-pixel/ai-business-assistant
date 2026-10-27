@@ -136,6 +136,56 @@ def test_mismatched_source_date_basis_blocks_the_model():
     assert "profit_per_unit" not in result["metrics"]
 
 
+def test_complete_fbo_buyout_cohort_allows_explicit_model_with_date_basis_warning():
+    evidence = _evidence(performance_basis="PERFORMANCE_REPORT_DATE")
+    evidence["sources"].append({
+        "name": "RETURNS", "status": "COMPLETE", "complete": True,
+        "row_count": 4, "source_date_basis": "FBO_POSTING_AND_RETURN_CHANGE_WINDOW",
+        "source_window_start": evidence["window"]["from"],
+        "source_window_end": evidence["window"]["to"],
+        "timezone": evidence["window"]["timezone"],
+    })
+    evidence["metrics"].update({
+        "ordered_units": 4, "delivered_units": 3, "cancelled_units": 1,
+        "successful_sale_units": 3, "successful_unit_denominator": 3,
+        "returned_units": 1, "buyout_rate_percent": "75.00",
+        "buyout_sample_size": 4,
+    })
+    evidence["completeness"]["returns"] = "CONFIRMED"
+
+    result = _service().evaluate(
+        evidence, scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert result["evidence_basis"] == "MODELLED_FROM_OBSERVED_INPUTS"
+    assert result["metrics"]["successful_sale_units"] == 3
+    assert result["metrics"]["buyout_rate_percent"] == "75.00"
+    assert result["metrics"]["observed_profit_per_unit"] is None
+    assert any("FBO_BUYOUT_RATE_IS_A_WINDOW_ESTIMATE" in item for item in result["warnings"])
+    assert any("RETURN_COSTS_ARE_NOT_NETTED" in item for item in result["warnings"])
+    assert any("CPC_REPORT_DATE_AND_FBO_POSTING_COHORT" in item for item in result["warnings"])
+
+
+def test_incomplete_fbo_buyout_source_cannot_override_date_basis_gate():
+    evidence = _evidence(performance_basis="PERFORMANCE_REPORT_DATE")
+    evidence["sources"].append({
+        "name": "RETURNS", "status": "PARTIAL", "complete": False,
+        "row_count": 4, "source_date_basis": "FBO_POSTING_AND_RETURN_CHANGE_WINDOW",
+        "source_window_start": evidence["window"]["from"],
+        "source_window_end": evidence["window"]["to"],
+        "timezone": evidence["window"]["timezone"],
+    })
+
+    result = _service().evaluate(
+        evidence, scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+    )
+
+    assert result["status"] == "INCOMPARABLE"
+    assert "CPC_AND_SUCCESSFUL_UNITS_USE_DIFFERENT_DATE_BASES" in result["reasons"]
+    assert "profit_per_unit" not in result["metrics"]
+
+
 def test_mixed_price_window_blocks_a_single_price_model():
     result = _service().evaluate(
         _evidence(mixed=True), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,

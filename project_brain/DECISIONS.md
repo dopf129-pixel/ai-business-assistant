@@ -1,5 +1,9 @@
 # Architecture Decisions
 
+## Decision 062 — FBO observed buyout estimate for unit-price modeling
+
+Calculate a SKU-scoped window buyout estimate only from complete, terminal FBO posting and Returns evidence with reconciled units and no ambiguous cancellations. Keep the delivered/(delivered + confirmed customer non-buyout) rate and sample count visible; use delivered units as the model denominator only after the strict completeness gate. Returned units remain a separate count and return costs are not netted from modeled unit profit. The value is not official Ozon Analytics, canonical profit or causal evidence; CPC and FBO cohorts have distinct date bases. Keep collection read-only and bounded, persist only allowlisted aggregates, and compare only compatible model assumptions. Details: `DECISIONS_062.md` and `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`.
+
 ## Decision 061 — unit price tariff and observation persistence
 
 Date: 2026-10-27

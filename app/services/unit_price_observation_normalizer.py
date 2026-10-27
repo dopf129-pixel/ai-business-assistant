@@ -59,6 +59,7 @@ class UnitPriceObservationNormalizer:
         normalized_sources = cls._safe_sources(sources)
         finance = cls._source(normalized_sources, "FINANCE")
         performance = cls._source(normalized_sources, "PERFORMANCE")
+        returns = cls._source(normalized_sources, "RETURNS")
 
         amounts = {}
         for name in (
@@ -123,12 +124,39 @@ class UnitPriceObservationNormalizer:
         if type(sample_days) is not int or sample_days < 0:
             sample_days = None
 
+        ordered_units = cls._count(metrics.get("ordered_units"))
+        delivered_units = cls._count(metrics.get("delivered_units"))
+        cancelled_units = cls._count(metrics.get("cancelled_units"))
+        returned_units = cls._count(metrics.get("returned_units"))
+        buyout_sample_size = cls._count(metrics.get("buyout_sample_size"))
+        buyout_rate = cls._decimal(metrics.get("buyout_rate_percent"))
+        if buyout_rate is not None and not Decimal("0") <= buyout_rate <= Decimal("100"):
+            return cls._error("OBSERVATION_BUYOUT_RATE_INVALID")
+        raw_successful_units = cls._count(metrics.get("successful_sale_units"))
+        return_window_valid = bool(
+            returns is not None
+            and returns.get("complete") is True
+            and returns.get("source_date_basis") == "FBO_POSTING_AND_RETURN_CHANGE_WINDOW"
+        )
+        successful_units = None
+        if (
+            return_window_valid
+            and ordered_units is not None
+            and delivered_units is not None
+            and cancelled_units is not None
+            and ordered_units == delivered_units + cancelled_units
+            and raw_successful_units == delivered_units
+            and delivered_units > 0
+        ):
+            successful_units = delivered_units
+
         reasons = [
             "PRICE_HISTORY_UNCONFIRMED",
-            "SUCCESSFUL_UNIT_DENOMINATOR_UNKNOWN",
             "FINANCE_ROW_DEDUPLICATION_UNAVAILABLE",
             "CORRECTIONS_NOT_SEPARATELY_IDENTIFIED",
         ]
+        if successful_units is None:
+            reasons.append("SUCCESSFUL_UNIT_DENOMINATOR_UNKNOWN")
         if finance_complete and not discount_points_complete:
             reasons.append("DISCOUNT_POINTS_COMPLETENESS_NOT_CONFIRMED")
         if not finance_complete:
@@ -172,9 +200,15 @@ class UnitPriceObservationNormalizer:
             "cpc_spend": cls._money(amounts["cpc_spend"]),
             "seller_revenue_drr_percent": cls._money(seller_drr),
             "attributed_revenue_drr_percent": cls._money(attributed_drr),
-            "successful_sale_units": None,
+            "successful_sale_units": successful_units,
+            "ordered_units": ordered_units,
+            "delivered_units": delivered_units,
+            "cancelled_units": cancelled_units,
+            "returned_units": returned_units,
+            "buyout_rate_percent": cls._money(buyout_rate) if return_window_valid else None,
+            "buyout_sample_size": buyout_sample_size if return_window_valid else None,
             "weighted_ad_spend_numerator": cls._money(amounts["cpc_spend"]),
-            "successful_unit_denominator": None,
+            "successful_unit_denominator": successful_units,
             "source_row_count": source_row_count,
             "duplicate_row_count": None,
             "correction_count": None,
@@ -191,7 +225,7 @@ class UnitPriceObservationNormalizer:
         )
         completeness = {
             "price_history": price_evidence_status,
-            "successful_units": "UNKNOWN",
+            "successful_units": "CONFIRMED" if successful_units is not None else "UNKNOWN",
             "finance": "CONFIRMED" if finance_complete else (
                 "SOURCE_UNAVAILABLE" if finance is None or finance.get("status") == "SOURCE_UNAVAILABLE" else "PARTIAL"
             ),
@@ -202,7 +236,11 @@ class UnitPriceObservationNormalizer:
             "tariff": "UNKNOWN",
             "tax": "UNKNOWN",
             "unit_cost": "UNKNOWN",
-            "returns": "UNKNOWN",
+            "returns": "CONFIRMED" if return_window_valid else (
+                "SOURCE_UNAVAILABLE" if returns is not None and returns.get("status") == "SOURCE_UNAVAILABLE"
+                else "PARTIAL" if returns is not None and returns.get("status") in {"PARTIAL", "RATE_LIMITED"}
+                else "UNKNOWN"
+            ),
             "analytics": "UNKNOWN",
             "window": "CONFIRMED",
             "deduplication": "UNKNOWN",
@@ -411,6 +449,12 @@ class UnitPriceObservationNormalizer:
             and finance.get("source_date_basis") == performance.get("source_date_basis")
             and finance.get("timezone") == performance.get("timezone")
         )
+
+    @staticmethod
+    def _count(value):
+        if type(value) is int and 0 <= value <= 1_000_000_000:
+            return value
+        return None
 
     @staticmethod
     def _decimal(value):

@@ -1,8 +1,8 @@
-# 2026-10-27 — калькулятор прибыли с единицы: Q30–Q31
+# 2026-10-27 — калькулятор прибыли с единицы: Q30 buyout estimate
 
-- Q30 public-handler acceptance частично выполнена: два обязательных сценария — подтверждённая тарифная точка и ручной тариф с двумя диапазонами — проходят через production factory/public handlers; дополнительно проверен ранее существующий flow сохранения и наблюдения. Полный Q30 блокирует решение, можно ли принимать введённое владельцем число успешных продаж только как явно маркированное допущение модели.
-- Q31 related regression: **1085 passed**; bounded soak/evaluation checks: **3 passed**. Текущий production behavior не расширялся догадкой о количестве продаж.
-- Подробности и resume point: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`, acceptance Q30/Q31 в `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md` и `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`.
+- По решению владельца наблюдаемый процент выкупа SKU вычисляется из завершённых FBO postings и Returns API, а не принимается как ручное число. Неполные выборки и неоднозначные отмены блокируют модель; delivered/(delivered + подтверждённые невыкупы покупателя) показывается с размером выборки.
+- Сквозной Telegram flow показывает проценты/доставленные/возвращённые единицы, рассчитывает явно модельную прибыль и сравнивает 100 ₽ с 95 ₽. Возвратные расходы явно исключены из модели; CPC и FBO используют разные основания дат. Live Ozon/API не запускался.
+- Q30 focused profile: **56 passed in 2.60s across six changed UI/evidence modules**; Q31 linked profile: **1,374 passed in 39.94s на 175 модулях**, plus bounded soak/evaluation **3 passed in 3.12s**; Q33 full suite: **3,983 passed in 53.74s** in a disposable isolated worktree. Compileall and diff checks pass; tracked owner data in the implementation worktree is clean. Q34 self-review found no blocking findings; independent review and exact-head CI are Q35. Детали/resume: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`, Q30–Q34 acceptance and `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`.
 
 # 2026-10-27 — Q29: сохранность калькулятора цены при backup/restore
 
@@ -14,7 +14,7 @@
 
 - PR #718 слит в main: `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`; reviewed head `8c1408d55d31e111761bdee708a2792ab1dafa33`, Verify #40348020402 успешен на Windows/Linux и Docker. Записи ниже о незавершённом merge относятся к предыдущим checkpoint.
 - По решению владельца подготовлено `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`: 8 модулей A–H, этапы Q00–Q35. Цель — прибыль в рублях с одной проданной единицы, с тарифными диапазонами, ручными комиссиями, рекламными сценариями и проверкой по наблюдениям.
-- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q29 пройдены 27.10.2026: backup/restore синтетической базы сохраняет тарифы, планы и exact result history; прошлый Q28 linked профиль — 474 passed на 32 наборах. Q29 restore/migration профиль — 5 passed. Полный pytest/exact-head CI остаются Q33–Q35. Acceptance Q29: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`.
+- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q34 пройдены 27.10.2026: полный изолированный pytest — 3,983 passed; Q33/Q34 acceptance находятся в `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md` и `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. Exact-head CI и PR review package — Q35. Acceptance Q29: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`.
 - ТЗ требует расширять существующие calculator/TaxService/planning/finance adapters, сохранять старые планы и данные, закончить на PR с зелёным exact-head CI и независимым review package. Merge/deploy/real bot запуск в новую программу не входят.
 
 # 2026-10-26 — историческая программа: завершение существующего функционала

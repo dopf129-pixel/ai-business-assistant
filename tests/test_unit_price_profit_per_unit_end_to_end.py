@@ -2,6 +2,7 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from services.ozon_account_repository import make_store_tenant_scope
+from services.period_profit_operation_diagnostics import current_period_profit_trace
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
 
 
@@ -126,6 +127,69 @@ class _IncompleteObservationCollector:
         }
 
 
+class _ObservationFinance:
+    def prepare_read_session(self, date_from, date_to):
+        self.period = (date_from, date_to)
+
+    def begin_read_session(self):
+        return None
+
+    def get_daily_finance(self, day, *, sku):
+        reservation = current_period_profit_trace().reserve_ozon_request("q30-finance")
+        if reservation["error"]:
+            return {"error": True, "code": reservation["code"]}
+        return {
+            "error": False, "date": day, "sku": sku, "operations": 1,
+            "gross_sales": "1000.00", "discount_points": "0.00",
+            "net_accrual": "500.00", "commission": "-100.00",
+            "logistics": "-200.00", "acquiring": "-10.00",
+            "other_fees": "-190.00", "fee_components_included": True,
+            "accrual_type_breakdown": {},
+        }
+
+
+class _ObservationAdvertising:
+    def load(self, date_from, date_to, accepted_skus):
+        reservation = current_period_profit_trace().reserve_ozon_request("q30-performance")
+        if reservation["error"]:
+            return {"error": True, "code": reservation["code"]}
+        return {
+            "error": False, "configured": True, "complete": True,
+            "expense": "100.00", "matched_row_count": 2,
+        }
+
+
+class _ObservationReturns:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, sku, since, to):
+        self.calls.append((sku, since, to))
+        trace = current_period_profit_trace()
+        for _ in range(2):
+            reservation = trace.reserve_ozon_request("q30-returns")
+            if reservation["error"]:
+                return {"error": True, "code": reservation["code"]}
+        incomplete = len(self.calls) == 1
+        return {
+            "error": False, "sku": sku, "since": since, "to": to,
+            "posting_count": 5, "total_units": 5,
+            "delivered_units": 4, "cancelled_units": 1,
+            "ambiguous_cancelled_units": 1 if incomplete else 0,
+            "customer_non_buyout_units": 0 if incomplete else 1,
+            "customer_return_units": 0 if incomplete else 1, "customer_cancelled_units": 0,
+            "delivery_failure_units": 0, "unknown_return_units": 1 if incomplete else 0,
+            "postings_complete": True, "returns_available": True,
+            "returns_complete": True,
+            "postings": [
+                {"posting_number": f"q30-private-{index}",
+                 "status": "delivered" if index < 4 else "cancelled", "quantity": 1}
+                for index in range(5)
+            ],
+            "return_events": [],
+        }
+
+
 def _button(result, label):
     return next(button for button in result["keyboard"]["buttons"] if button["text"] == label)
 
@@ -148,6 +212,10 @@ def test_production_factory_connects_price_planning_observation_and_next_variant
     assert handler.unit_price_calculator_runtime_service is calculator
     assert handler.unit_price_observation_runtime_service is observation_runtime
     assert runner.saved_planning_plan_runtime_service.unit_price_observation_runtime_service is observation_runtime
+    from services.returns_buyout_facts_source import ReturnsBuyoutFactsSource
+    wired_buyout_source = observation_runtime.collection_service.returns_buyout_source
+    assert isinstance(wired_buyout_source, ReturnsBuyoutFactsSource)
+    assert wired_buyout_source.ozon_client is calculator.source.current_economics_source.ozon_client
 
     source = _ScenarioSource()
     collector = _IncompleteObservationCollector()
@@ -452,3 +520,179 @@ def test_manual_tariff_survives_store_switch_restart_and_public_export(
         assert second_source.calls == [("sku-q24", user_id, False)]
     finally:
         reset_current_tenant_user_id(second_tenant)
+
+
+def test_public_flow_incomplete_buyout_then_modelled_rate_and_comparison(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv(
+        "OZON_CREDENTIAL_MASTER_KEY",
+        "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    from telegram_assistant_factory import create_telegram_assistant
+    from services.unit_price_observation_collection_service import (
+        UnitPriceObservationCollectionService,
+    )
+
+    runner = create_telegram_assistant()
+    calculator = runner.unit_price_calculator_runtime_service
+    runtime = runner.unit_price_observation_runtime_service
+    handler = runner.button_handler
+    scenario_source = _ScenarioSource()
+    calculator.source = scenario_source
+    returns_source = _ObservationReturns()
+    runtime.collection_service = UnitPriceObservationCollectionService(
+        repository=runtime.repository,
+        finance_service=_ObservationFinance(),
+        advertising_service=_ObservationAdvertising(),
+        returns_buyout_source=returns_source,
+        clock=lambda: datetime.now(ZoneInfo("UTC")),
+    )
+
+    user_id = "q30-buyout-owner"
+    store_id = "store-q24"
+    tenant = set_current_tenant_user_id(make_store_tenant_scope(user_id, store_id))
+    try:
+        entry = calculator.build_product_entry_button(user_id, "sku-q24")
+        scenario = handler.handle(entry["callback"], user_id=user_id)
+        tariff_prompt = handler.handle(
+            _button(scenario, "Указать тариф комиссии")["callback"], user_id=user_id,
+        )
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        tariff_start = today - timedelta(days=40)
+        tariff_preview = handler.handle_text(
+            f"Действует с: {tariff_start.isoformat()}\n"
+            "0,01–99,99 ₽ = 12%\n100–199,99 ₽ = 14%",
+            user_id=user_id,
+        )
+        assert tariff_prompt["status"] == "UNIT_PRICE_TARIFF_INPUT"
+        scenario = handler.handle(
+            _button(tariff_preview, "✅ Сохранить для SKU")["callback"], user_id=user_id,
+        )
+        save_prompt = handler.handle(
+            _button(scenario, "💾 Сохранить план")["callback"], user_id=user_id,
+        )
+        assert handler.handle_text("Q30 buyout base 100", user_id=user_id)["status"] == "PLANNING_DOCUMENT_SAVED"
+
+        plan_list = handler.handle("upp:m", user_id=user_id)
+        base_action = next(
+            button["callback"] for button in plan_list["keyboard"]["buttons"]
+            if button["text"].startswith("Q30 buyout base 100")
+        )
+        base_plan = handler.handle(base_action, user_id=user_id)
+        editable = handler.handle(
+            _button(base_plan, "Продолжить по сохранённым допущениям")["callback"],
+            user_id=user_id,
+        )
+        handler.handle(_button(editable, "Цена")["callback"], user_id=user_id)
+        lower_price = handler.handle_text("95", user_id=user_id)
+        assert lower_price["price_scenario"]["inputs"]["price"]["value"] == 95.0
+        save_prompt = handler.handle(
+            _button(lower_price, "💾 Сохранить план")["callback"], user_id=user_id,
+        )
+        assert save_prompt["status"] == "PLANNING_TITLE_REQUIRED"
+        assert handler.handle_text("Q30 buyout lower 95", user_id=user_id)["status"] == "PLANNING_DOCUMENT_SAVED"
+
+        first_start = today - timedelta(days=28)
+        first_end = first_start + timedelta(days=6)
+        second_start = first_end + timedelta(days=1)
+        second_end = second_start + timedelta(days=6)
+
+        def start_and_collect(title, price, effective_date, date_from, date_to):
+            plans = handler.handle("upp:m", user_id=user_id)
+            action = next(
+                button["callback"] for button in plans["keyboard"]["buttons"]
+                if button["text"].startswith(title)
+            )
+            detail = handler.handle(action, user_id=user_id)
+            observation_prompt = handler.handle(
+                _button(detail, "Наблюдать цену · SKU sku-q24")["callback"],
+                user_id=user_id,
+            )
+            assert observation_prompt["status"] == "SELLER_PRICE_INPUT_REQUIRED"
+            assert handler.handle_text(str(price), user_id=user_id)["status"] == "EFFECTIVE_TIME_INPUT_REQUIRED"
+            effective = datetime.combine(
+                effective_date, time(12), tzinfo=ZoneInfo("Europe/Moscow"),
+            ).isoformat()
+            preview = handler.handle_text(effective, user_id=user_id)
+            card = handler.handle(
+                _button(preview, "Подтвердить наблюдение")["callback"], user_id=user_id,
+            )
+            prompt = handler.handle(
+                _button(card, "Собрать данные за период")["callback"], user_id=user_id,
+            )
+            assert prompt["status"] == "OBSERVATION_WINDOW_INPUT_REQUIRED"
+            collected = handler.handle_text(
+                f"{date_from.isoformat()} - {date_to.isoformat()}", user_id=user_id,
+            )
+            assert collected.get("status") == "OBSERVATION_CARD_READY", collected
+            return collected
+
+        base_card = start_and_collect(
+            "Q30 buyout base 100", 100, first_start - timedelta(days=1),
+            first_start, first_end,
+        )
+        base_observations = runtime.repository.list_unit_price_observations(
+            owner_id=user_id, store_id=store_id,
+        )
+        base_observation = next(
+            item for item in base_observations["items"]
+            if item["seller_price_cents"] == 10_000
+        )
+        first_result = runtime.repository.get_unit_price_observation(
+            base_observation["observation_id"], owner_id=user_id, store_id=store_id,
+        )["result"]["payload"]
+        assert first_result["status"] == "INSUFFICIENT_DATA"
+        assert first_result["metrics"].get("profit_per_unit") is None
+
+        retry_prompt = handler.handle(
+            _button(base_card, "Собрать данные за период")["callback"], user_id=user_id,
+        )
+        retry_card = handler.handle_text(
+            f"{first_start.isoformat()} - {first_end.isoformat()}", user_id=user_id,
+        )
+        assert retry_prompt["status"] == "OBSERVATION_WINDOW_INPUT_REQUIRED"
+        base_result_detail = handler.handle(
+            _button(retry_card, "История результатов")["callback"], user_id=user_id,
+        )
+        base_result_action = next(
+            button["callback"] for button in base_result_detail["keyboard"]["buttons"]
+            if button["text"] == "Открыть результат #2"
+        )
+        base_detail = handler.handle(base_result_action, user_id=user_id)
+        assert "Наблюдаемый выкуп SKU: 80.00%" in base_detail["message"]
+        assert "Модельная прибыль:" in base_detail["message"]
+        assert "Возвраты в окне: 1 шт." in base_detail["message"]
+        assert "расходы не вычтены из модельной прибыли/шт." in base_detail["message"]
+
+        finished_base = handler.handle(
+            _button(base_card, "Завершить наблюдение")["callback"],
+            user_id=user_id,
+        )
+        assert finished_base["status"] == "OBSERVATION_CARD_READY"
+        assert "Наблюдение завершено." in finished_base["message"]
+
+        lower_card = start_and_collect(
+            "Q30 buyout lower 95", 95, second_start - timedelta(days=1),
+            second_start, second_end,
+        )
+        lower_history = handler.handle(
+            _button(lower_card, "История результатов")["callback"], user_id=user_id,
+        )
+        lower_result = handler.handle(
+            next(button["callback"] for button in lower_history["keyboard"]["buttons"]
+                 if button["text"] == "Открыть результат #1"),
+            user_id=user_id,
+        )
+        comparison = handler.handle(
+            _button(lower_result, "Сравнить прибыль по наблюдениям SKU")["callback"],
+            user_id=user_id,
+        )
+        assert comparison["status"] == "OBSERVATION_RANKING_READY", comparison["message"]
+        assert "Модель при сохранённых допущениях" in comparison["message"]
+        assert "не доказывает" in comparison["message"]
+        assert len(returns_source.calls) == 3
+    finally:
+        reset_current_tenant_user_id(tenant)

@@ -113,6 +113,42 @@ def test_effective_date_warning_remains_mixed_price_risk():
     assert result["metrics"]["price_evidence_status"] == "PRICE_HISTORY_UNCONFIRMED"
 
 
+def test_complete_fbo_buyout_source_confirms_delivered_units_and_rate_only_for_same_sku_window():
+    evidence = _evidence()
+    evidence["sources"].append({
+        "name": "RETURNS", "status": "COMPLETE", "complete": True,
+        "row_count": 4,
+        "source_date_basis": "FBO_POSTING_AND_RETURN_CHANGE_WINDOW",
+        "source_window_start": "2026-10-01", "source_window_end": "2026-10-07",
+        "timezone": "Europe/Moscow", "posting_number": "must-not-pass-through",
+    })
+    evidence["metrics"].update({
+        "ordered_units": 4, "delivered_units": 3, "cancelled_units": 1,
+        "returned_units": 0, "successful_sale_units": 3,
+        "successful_unit_denominator": 3, "buyout_rate_percent": "75.00",
+        "buyout_sample_size": 4,
+    })
+
+    result = UnitPriceObservationNormalizer.normalize_collected(evidence)
+
+    assert result["metrics"]["successful_sale_units"] == 3
+    assert result["metrics"]["successful_unit_denominator"] == 3
+    assert result["metrics"]["buyout_rate_percent"] == "75.00"
+    assert result["metrics"]["buyout_sample_size"] == 4
+    assert result["completeness"]["successful_units"] == "CONFIRMED"
+    assert result["completeness"]["returns"] == "CONFIRMED"
+    assert "SUCCESSFUL_UNIT_DENOMINATOR_UNKNOWN" not in result["reasons"]
+    assert "posting_number" not in str(result)
+
+    evidence["sources"][-1]["complete"] = False
+    evidence["sources"][-1]["status"] = "PARTIAL"
+    incomplete = UnitPriceObservationNormalizer.normalize_collected(evidence)
+    assert incomplete["metrics"]["successful_sale_units"] is None
+    assert incomplete["metrics"]["buyout_rate_percent"] is None
+    assert incomplete["completeness"]["successful_units"] == "UNKNOWN"
+    assert incomplete["completeness"]["returns"] == "PARTIAL"
+
+
 def test_confirmed_mixed_price_window_stays_incomparable():
     evidence = _evidence()
     evidence["metrics"]["price_evidence_status"] = "MIXED_PRICES"
