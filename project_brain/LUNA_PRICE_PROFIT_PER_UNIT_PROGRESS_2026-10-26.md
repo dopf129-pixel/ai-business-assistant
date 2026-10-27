@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q09 завершены, Q10–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q10 завершены, Q11–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -29,8 +29,8 @@
 | Q07 | DONE | Public Telegram flow for manual FBO point/ranges: preview/explicit persistent or session-only confirmation, edit/cancel/refresh; stale/replay-safe draft bound to owner/store/SKU/scenario version. Session-only profile was also accepted by the pure resolver. Final combined profile: 199 passed. Implementation commit `cea8a8e4`; see `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`. |
 | Q08 | DONE | Frozen tariff snapshot and saved-plan schema v3 integrated; linked isolated Q04–Q08 profile 371 passed; 5 protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. |
 | Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
-| Q10 | IN_PROGRESS | Следующий этап: отдельные рекламные режимы и пороги компенсации через canonical forward. |
-| Q11 | NOT_STARTED | — |
+| Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
+| Q11 | IN_PROGRESS | Bounded price grid with required tariff boundaries; report only the explored set and verified outcomes. |
 | Q12 | NOT_STARTED | — |
 | Q13 | NOT_STARTED | — |
 | Q14 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q10: добавить сравнение одинаковой ДРР, раздельной ДРР и поддержанного расхода на единицу; пороги non-worse/strictly-better должны подтверждаться canonical forward.
+1. Выполнить Q11: построить bounded grid/step, включая границы frozen tariff bands; раскрыть исследованный набор и не выдавать его за глобальный оптимум.
 2. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
@@ -169,3 +169,13 @@
 - Добавлены регрессии в `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_unit_price_tariff_snapshot_adapter.py`. Критические случаи: тарифный скачок на 100 ₽, unknown current-price point, legacy exact-price-only, 10/11 кандидатов, равная округлённая прибыль, отсутствие повторных source reads и повторная проверка при применении.
 - Проверки Windows/Python 3.12.10 в новой `%TEMP%`-среде: focused runtime/profile — **120 passed in 3.16s**; полный связанный Q04–Q09 профиль — **378 passed in 8.90s**. Перед/после профильного запуска SHA-256 пяти защищённых `data/*.json` совпали. Dotenv и plugin autoload выключены, credentials-переменные удалены из процесса; сеть, Ozon/Telegram API, рабочая БД и реальный бот не использовались. `git diff --check` — PASS; предупреждения Git о нормализации LF→CRLF не меняют содержимое.
 - Q09 — VERIFIED. Implementation/docs commit `02c80f1a993a424a32cbaead0bad5036a2fb1a73` (`Compare unit-price candidates with frozen tariffs`). Это изменение расширяет существующие price-planning и Telegram contracts, поэтому классификация — **Architecture Review Required**. Следующий этап: Q10.
+
+### Q10 — рекламные режимы и пороги компенсации (2026-10-27)
+
+- Сравнение цен поддерживает SAME_DRR (текущая явно указанная seller-revenue ДРР), PER_PRICE_DRR (ввод одной ДРР на каждую цену с проверкой количества и порядка), MANUAL_COST_PER_SUCCESSFUL_UNIT (общие рекламные расходы / число успешных продаж). Для ручного режима знаменатель сохраняется как `SUCCESSFUL_UNITS`, расход на единицу округляется до копейки, эквивалентная candidate DRR остаётся допущением. Никакой режим не утверждает причинный эффект цены на конверсию, спрос или рекламные расходы.
+- Для каждого рассчитанного кандидата pure bounded `UnitPriceAdvertisingCompensationService` ищет по шкале 0–100% с шагом 0,01 процентного пункта порог прибыли за единицу не ниже и строго выше базовой. Каждый порог и следующий tick перепроверяются прямым вызовом `UnitPriceScenarioService`, поэтому налог, зависящий от расходов на рекламу, остаётся внутри канонической формулы. Недостижимый порог возвращается как `NOT_REACHABLE`; invalid/unknown/partial outcomes не подменяются нулём. Ограничения: 64 forward calls per candidate, 1,024 per comparison; монотонность подтверждается граничными probes, а результат обозначен как проверенный сценарный порог, не forecast.
+- Telegram-поток использует versioned pending state для двух режимов, принимает bounded input и сохраняет исходный сценарий до явного выбора. Выбранный candidate revalidates canonical profit; только после совпадения выбранная цена и advertising assumption сохраняются в локальном scenario state. Ozon API/source reads and seller price mutations не добавлялись. Review исправил concurrent-state read: prices/stage copied under lock before prompt is built.
+- Добавлены N01/N02 forward vectors, denominator/invalid input, tax-dependent forward boundary and `NOT_REACHABLE` assertions в `tests/test_unit_price_target_planning_service.py`; public input/apply assertions расширены в `tests/test_unit_price_scenario_telegram_runtime.py`.
+- Focused isolated Windows/Python 3.12.10 profile: `tests/test_unit_price_target_planning_service.py tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_advertising_cap_service.py tests/test_unit_price_scenario_service.py` — **112 passed in 1.70s**. Same Python runner `-B -m py_compile` over `unit_price_advertising_compensation_service.py`, `unit_price_target_planning_service.py`, `telegram_unit_price_calculator_runtime_service.py`, and `assistant_keyboard_service.py` — exit 0.
+- Final linked isolated Q04–Q10 profile: 22 tariff/planning/scenario/source/consumer files — **390 passed in 7.90s**. Five protected tracked JSON SHA-256 hashes (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) unchanged. New `%TEMP%` storage and pytest basetemp used, dotenv/plugin autoload disabled and credential-named process variables removed without printing values; no `.env`, network/API, live bot, ignored runtime store or owner DB read/write.
+- `git diff --check` is pending after this documentation update and will be run before the Q10 commit. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. Code/docs touch the calculation service contract, public Telegram flow and a new pure solver: **Architecture Review Required**. Q10 — VERIFIED. Next: Q11 bounded candidate grid and tariff boundaries.

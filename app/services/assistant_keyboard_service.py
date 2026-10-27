@@ -648,6 +648,10 @@ class AssistantKeyboardService:
                         "text": f"Подставить вариант {index + 1}",
                         "callback": f"upc:u:{sid}:{ver}:{index}",
                     })
+            buttons.extend([
+                {"text": "Указать ДРР для каждой цены", "callback": f"upc:d:{sid}:{ver}"},
+                {"text": "Указать расход на продажу", "callback": f"upc:h:{sid}:{ver}"},
+            ])
         buttons.extend([
             {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
             {"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"},

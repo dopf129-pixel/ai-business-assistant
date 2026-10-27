@@ -315,11 +315,14 @@ def test_comparison_uses_candidate_specific_frozen_tariff_and_ranks_rounded_unit
     assert result["best_prices"] == ["100.00"]
     assert result["best_profit"] == "89.00"
     assert result["evidence_basis"] == "SCENARIO_ASSUMPTIONS"
-    assert result["advertising_basis"] == {
-        "mode": "SAME_DRR", "revenue_basis": "SELLER_REVENUE", "rate": "0",
-    }
-    assert result["evaluation_count"] == service.calls == 3
+    assert result["advertising_basis"]["mode"] == "SAME_DRR"
+    assert result["advertising_basis"]["revenue_basis"] == "SELLER_REVENUE"
+    assert result["advertising_basis"]["rate"] == "0"
+    assert result["evaluation_count"] == service.calls
+    assert 3 <= result["evaluation_count"] <= result["evaluation_limit"] == 1_024
     assert result["candidate_count"] == 3
+    assert all(row["compensation_thresholds"]["status"] in {"COMPLETED", "PARTIAL"}
+               for row in rows)
 
 
 def test_current_price_point_does_not_create_numeric_profit_for_neighboring_prices():
@@ -410,6 +413,140 @@ def test_price_list_parser_accepts_ten_candidates_and_rejects_eleven():
     assert ten["valid"] is True
     assert len(ten["prices"]) == 10
     assert eleven["valid"] is False
+
+
+def test_per_price_drr_reproduces_n01_compensation_example_and_distinct_n02_thresholds():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="24.2",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="16.5",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.compare_prices(
+        inputs, "100; 95", advertising_mode="PER_PRICE_DRR",
+        advertising_rates=["16.50", "12"],
+    )
+
+    assert [row["advertising_per_unit"] for row in result["rows"]] == [16.5, 11.4]
+    assert [row["profit"] for row in result["rows"]] == [15.24, 16.55]
+    assert result["baseline"]["profit"] == 15.24
+    assert result["rows"][1]["profit_delta_vs_baseline"] == "1.31"
+    assert result["advertising_basis"]["mode"] == "PER_PRICE_DRR"
+    assert result["advertising_basis"]["revenue_basis"] == "SELLER_REVENUE"
+    thresholds = result["rows"][1]["compensation_thresholds"]
+    assert thresholds["non_worse"]["advertising_rate"] == "13.38"
+    assert thresholds["non_worse"]["advertising_per_unit"] == "12.71"
+    assert thresholds["strictly_better"]["advertising_rate"] == "13.37"
+    assert thresholds["strictly_better"]["advertising_per_unit"] == "12.70"
+    assert thresholds["non_worse"]["profit_per_unit"] == "15.24"
+    assert thresholds["strictly_better"]["profit_per_unit"] == "15.25"
+    assert result["evaluation_count"] == service.calls <= 1_024
+
+
+def test_advertising_cost_is_weighted_by_successful_units_and_exact_denominator_is_returned():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="24.2",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="0",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+    basis = planner.parse_advertising_cost_basis("200; 40")
+    result = planner.compare_prices(
+        inputs, "100; 95", advertising_mode="MANUAL_COST_PER_SUCCESSFUL_UNIT",
+        advertising_cost_basis=basis["basis"],
+    )
+
+    assert basis["valid"] is True
+    assert basis["basis"]["amount_per_unit"] == "5.00"
+    assert basis["basis"]["denominator"] == "SUCCESSFUL_UNITS"
+    assert [row["advertising_per_unit"] for row in result["rows"]] == [5.0, 5.0]
+    assert [row["advertising_rate"] for row in result["rows"]] == ["5.00", "5.263157894736842105263157895"]
+    assert result["advertising_basis"]["total_spend"] == "200.00"
+    assert result["advertising_basis"]["successful_units"] == 40
+    assert result["advertising_basis"]["amount_per_unit"] == "5.00"
+    assert result["advertising_basis"]["revenue_basis"] == "NOT_APPLICABLE"
+
+
+@pytest.mark.parametrize("text", [
+    "100", "100;0", "100;-1", "100;10001", "NaN;20", "100.001;20",
+])
+def test_advertising_cost_basis_rejects_missing_invalid_or_unbounded_denominators(text):
+    planner, _ = _planner()
+
+    result = planner.parse_advertising_cost_basis(text)
+
+    assert result["valid"] is False
+
+
+def test_compensation_threshold_uses_canonical_tax_dependent_on_ad_spend_and_checks_next_tick():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="24.2",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="16.5",
+        discount_points_rate="0", tax_mode="USN_INCOME_MINUS_EXPENSES",
+        tax_rate="15", minimum_tax_rate="1",
+    )
+
+    result = planner.compare_prices(
+        inputs, "100; 95", advertising_mode="PER_PRICE_DRR",
+        advertising_rates=["16.5", "12"],
+    )
+
+    baseline_profit = Decimal(str(result["baseline"]["profit"]))
+    candidate = result["rows"][1]
+    thresholds = candidate["compensation_thresholds"]
+    assert candidate["available"] is True
+    assert thresholds["non_worse"]["available"] is True
+    assert thresholds["strictly_better"]["available"] is True
+    for kind, predicate in (
+        ("non_worse", lambda profit: profit >= baseline_profit),
+        ("strictly_better", lambda profit: profit > baseline_profit),
+    ):
+        outcome = thresholds[kind]
+        rate = Decimal(outcome["advertising_rate"])
+        direct_inputs = dict(inputs)
+        direct_inputs.update({
+            "price": candidate["price"],
+            "commission_rate": candidate["commission_rate"],
+            "advertising_rate": outcome["advertising_rate"],
+        })
+        direct = planner.scenario_service.calculate(direct_inputs)
+        next_inputs = dict(direct_inputs)
+        next_inputs["advertising_rate"] = format(rate + Decimal("0.01"), ".2f")
+        next_direct = planner.scenario_service.calculate(next_inputs)
+        assert predicate(Decimal(str(direct["calculated"]["profit"])))
+        assert not predicate(Decimal(str(next_direct["calculated"]["profit"])))
+        assert outcome["tax_per_unit"] == format(
+            Decimal(str(direct["calculated"]["tax"])), ".2f",
+        )
+
+
+def test_compensation_threshold_reports_non_worse_target_unreachable_at_zero_drr():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="24.2",
+        logistics_per_unit="20", last_mile_per_unit="0",
+        acquiring_per_unit="4.06", advertising_rate="16.5",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.compare_prices(
+        inputs, "100;70", advertising_mode="PER_PRICE_DRR",
+        advertising_rates=["16.5", "0"],
+    )
+
+    candidate = result["rows"][1]
+    assert candidate["available"] is True
+    assert candidate["profit"] < result["baseline"]["profit"]
+    assert candidate["compensation_thresholds"]["non_worse"]["status"] == "NOT_REACHABLE"
+    assert candidate["compensation_thresholds"]["strictly_better"]["status"] == "NOT_REACHABLE"
 
 
 def test_target_search_is_invariant_to_insignificant_trailing_price_zeros():
@@ -528,7 +665,7 @@ def test_invalid_price_list_is_rejected_as_a_whole(text):
     assert "prices" not in result
 
 
-def test_comparison_preserves_input_order_and_uses_one_forward_call_per_price():
+def test_comparison_preserves_input_order_and_keeps_compensation_work_bounded():
     planner, service = _planner(counting=True)
 
     result = planner.compare_prices(
@@ -543,7 +680,12 @@ def test_comparison_preserves_input_order_and_uses_one_forward_call_per_price():
     assert [row["price"] for row in result["rows"]] == ["600.00", "500.00"]
     assert [row["profit"] for row in result["rows"]] == [258.2, 186.0]
     assert all(row["goal_reached"] is True for row in result["rows"])
-    assert result["evaluation_count"] == service.calls == 2
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] == 2
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+    assert all(row["compensation_thresholds"]["status"] == "BASELINE_UNAVAILABLE"
+               for row in result["rows"])
+    assert all(row["compensation_thresholds"] for row in result["rows"])
     assert result["identity"]["store_id"] == "s1"
     assert result["read_only"] is True and result["executed"] is False
 

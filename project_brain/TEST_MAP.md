@@ -18,6 +18,13 @@
 - Существующие calculator/target/ad-cap/sensitivity, saved plans, SKU finance/Performance, tenant, Telegram и backup suites переиспользуются. Конкретные новые тестовые файлы и фактические результаты Luna добавляет при реализации этапов.
 - При подготовке меняется только документация. Полный pytest для этой правки не запускался; проверки структуры/путей/числовых примеров фиксируются отдельно в журнале, а не выдаются за проверку будущего runtime.
 
+## Q10 — рекламные режимы и пороги компенсации (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py`: N01 reproduces the canonical 100 ₽/95 ₽ example (15.24 ₽/16.55 ₽); N02 checks distinct rounded non-worse/strictly-better limits and the next 0.01 percentage-point step; a tax-dependent case verifies both thresholds through `UnitPriceScenarioService`; unreachable goals return `NOT_REACHABLE`; manual total ad spend is divided by explicit successful-unit denominator and rounded to currency precision.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public callbacks collect per-price DRR or total spend/successful units, preserve the original main scenario while editing, render the explicit basis/statuses and apply a candidate only to the local scenario after forward validation. No Ozon source refresh is introduced.
+- Bounded solver probes the 0–100% DRR domain on 0.01 percentage-point ticks, validates monotonicity boundary probes, checks the returned tick and its next tick with direct canonical calculations, and has a maximum of 64 evaluations per candidate and 1,024 per comparison.
+- Focused Q10 profile: **112 passed in 1.70s**. Linked Q04–Q10 Windows/Python 3.12.10 profile over 22 tariff/planning/scenario/source/consumer test files: **390 passed in 7.90s**. Five protected tracked `data/*.json` SHA-256 hashes matched before/after; new temporary storage and pytest basetemp, dotenv/plugin autoload disabled, credential-named environment variables removed, no owner DB/API/bot used. Four changed Python modules passed `py_compile`; `git diff --check` passed.
+
 ## Q09 — сравнение 2–10 вариантов по canonical прибыли/шт. (2026-10-27)
 
 - `tests/test_unit_price_target_planning_service.py`: тарифная ставка подбирается по каждому candidate price на одном frozen snapshot; проверены переход ставок на границе 100 ₽, current-price point только на точной цене, legacy exact-price-only, 10/11 кандидатов, сравнение после ROUND_HALF_UP и tie по прибыли, равной после округления. Unknown candidate остаётся без прибыли и не ранжируется.

@@ -1,6 +1,8 @@
 import re
-from decimal import Decimal, InvalidOperation
+from copy import deepcopy
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from services.unit_price_advertising_compensation_service import UnitPriceAdvertisingCompensationService
 from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
@@ -12,6 +14,8 @@ class UnitPriceTargetPlanningService:
     MAX_LOWER_BOUND_PROBES = 8
     MAX_PRICE_SCALE_PROBES = 6
     MAX_COMPARISON_PRICES = 10
+    MAX_COMPARISON_FORWARD_CALCULATIONS = 1_024
+    MAX_DERIVED_ADVERTISING_RATE_DIGITS = 28
     MIN_PRICE_CENTS = 1
     CENT = Decimal("0.01")
     HUNDRED = Decimal("100")
@@ -23,6 +27,7 @@ class UnitPriceTargetPlanningService:
 
     def __init__(self, scenario_service):
         self.scenario_service = scenario_service
+        self.advertising_compensation_service = UnitPriceAdvertisingCompensationService()
         self.max_price = self._max_supported_price(scenario_service)
         self.max_price_cents = int(self.max_price * self.HUNDRED)
 
@@ -68,6 +73,63 @@ class UnitPriceTargetPlanningService:
             "valid": True,
             "prices": prices,
             "normalized": [format(price, ".2f") for price in prices],
+        }
+
+    def parse_advertising_rate_list(self, text, expected_count):
+        if (not isinstance(text, str) or len(text) > 256
+                or type(expected_count) is not int
+                or not 2 <= expected_count <= self.MAX_COMPARISON_PRICES):
+            return {"valid": False, "code": "INVALID_ADVERTISING_RATE_LIST"}
+        tokens = re.split(r";|\r\n|\r|\n", text.strip())
+        if len(tokens) != expected_count or any(not token.strip() for token in tokens):
+            return {"valid": False, "code": "INVALID_ADVERTISING_RATE_LIST"}
+        rates = []
+        for token in tokens:
+            parsed = self._normalize_target(token.strip())
+            if not parsed["valid"]:
+                return {"valid": False, "code": "INVALID_ADVERTISING_RATE_LIST"}
+            rates.append(parsed["value"])
+        return {
+            "valid": True,
+            "rates": rates,
+            "normalized": [format(rate, "f") for rate in rates],
+        }
+
+    def parse_advertising_cost_basis(self, text):
+        if not isinstance(text, str) or len(text) > 128:
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        tokens = re.split(r";|\r\n|\r|\n", text.strip())
+        if len(tokens) != 2 or any(not token.strip() for token in tokens):
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        amount_text, units_text = tokens[0].strip(), tokens[1].strip()
+        if len(amount_text) > 40 or not self._PRICE_PATTERN.fullmatch(amount_text):
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        try:
+            total_spend = Decimal(re.sub(r"[ \u00a0\u202f]", "", amount_text).replace(",", "."))
+        except InvalidOperation:
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        if (not total_spend.is_finite() or total_spend < 0
+                or total_spend > self.max_price or total_spend.as_tuple().exponent < -2):
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        if not re.fullmatch(r"[1-9]\d{0,4}", units_text):
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        units = int(units_text)
+        if units > 10_000:
+            return {"valid": False, "code": "INVALID_ADVERTISING_COST_BASIS"}
+        amount_per_unit = (total_spend / Decimal(units)).quantize(
+            self.CENT, rounding=ROUND_HALF_UP,
+        )
+        return {
+            "valid": True,
+            "basis": {
+                "mode": "MANUAL_COST_PER_SUCCESSFUL_UNIT",
+                "revenue_basis": "NOT_APPLICABLE",
+                "denominator": "SUCCESSFUL_UNITS",
+                "total_spend": format(total_spend, ".2f"),
+                "successful_units": units,
+                "amount_per_unit": format(amount_per_unit, ".2f"),
+                "origin": "MANUAL_SCENARIO_ASSUMPTION",
+            },
         }
 
     def solve(
@@ -166,6 +228,9 @@ class UnitPriceTargetPlanningService:
         frozen_tariff_snapshot=None,
         tariff_resolution_required=False,
         exact_price_rate_cents=None,
+        advertising_mode="SAME_DRR",
+        advertising_rates=None,
+        advertising_cost_basis=None,
     ):
         if isinstance(prices, str):
             parsed = self.parse_price_list(prices)
@@ -185,6 +250,44 @@ class UnitPriceTargetPlanningService:
             target = target_result["value"]
         if not isinstance(inputs, dict):
             return self._error_result("INVALID_INPUTS", identity)
+
+        normalized_advertising_mode = str(advertising_mode or "").strip().upper()
+        normalized_rates = None
+        normalized_cost_basis = None
+        if normalized_advertising_mode == "SAME_DRR":
+            if advertising_rates is not None or advertising_cost_basis is not None:
+                return self._error_result("INVALID_ADVERTISING_BASIS", identity)
+        elif normalized_advertising_mode == "PER_PRICE_DRR":
+            if advertising_cost_basis is not None:
+                return self._error_result("INVALID_ADVERTISING_BASIS", identity)
+            if isinstance(advertising_rates, str):
+                parsed_rates = self.parse_advertising_rate_list(
+                    advertising_rates, len(normalized_prices),
+                )
+                if parsed_rates.get("valid") is not True:
+                    return self._error_result("INVALID_ADVERTISING_RATE_LIST", identity)
+                normalized_rates = parsed_rates["rates"]
+            elif isinstance(advertising_rates, (list, tuple)) and len(advertising_rates) == len(normalized_prices):
+                normalized_rates = []
+                for value in advertising_rates:
+                    parsed_rate = self._normalize_target(value)
+                    if not parsed_rate["valid"]:
+                        return self._error_result("INVALID_ADVERTISING_RATE_LIST", identity)
+                    normalized_rates.append(parsed_rate["value"])
+            else:
+                return self._error_result("INVALID_ADVERTISING_RATE_LIST", identity)
+        elif normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+            if advertising_rates is not None or not isinstance(advertising_cost_basis, dict):
+                return self._error_result("INVALID_ADVERTISING_COST_BASIS", identity)
+            parsed_cost = self.parse_advertising_cost_basis(
+                str(advertising_cost_basis.get("total_spend", ""))
+                + ";" + str(advertising_cost_basis.get("successful_units", "")),
+            )
+            if parsed_cost.get("valid") is not True:
+                return self._error_result("INVALID_ADVERTISING_COST_BASIS", identity)
+            normalized_cost_basis = parsed_cost["basis"]
+        else:
+            return self._error_result("INVALID_ADVERTISING_MODE", identity)
 
         if type(tariff_resolution_required) is not bool:
             return self._error_result("INVALID_TARIFF_REQUIREMENT", identity)
@@ -209,13 +312,98 @@ class UnitPriceTargetPlanningService:
             "candidate_price_provenance": "manual_seller_assumption",
         }
         evaluation_count = 0
+        rate_by_price = (
+            {int(price * self.HUNDRED): rate for price, rate in zip(normalized_prices, normalized_rates)}
+            if normalized_rates is not None else {}
+        )
+        advertising_basis = {
+            "mode": normalized_advertising_mode,
+            "origin": (
+                common["provenance"].get("advertising_rate", "unknown")
+                if normalized_advertising_mode == "SAME_DRR"
+                else "MANUAL_SCENARIO_ASSUMPTION"
+            ),
+        }
+        if normalized_advertising_mode == "SAME_DRR":
+            advertising_basis.update({
+                "revenue_basis": "SELLER_REVENUE",
+                "rate": inputs.get("advertising_rate"),
+            })
+        elif normalized_advertising_mode == "PER_PRICE_DRR":
+            advertising_basis.update({
+                "revenue_basis": "SELLER_REVENUE",
+                "rates": [format(rate, "f") for rate in normalized_rates],
+                "price_order": [format(price, ".2f") for price in normalized_prices],
+            })
+        else:
+            advertising_basis.update(normalized_cost_basis)
 
-        def evaluate(price):
+        def run_forward(candidate_inputs, candidate_provenance):
             nonlocal evaluation_count
+            if evaluation_count >= self.MAX_COMPARISON_FORWARD_CALCULATIONS:
+                return {"error": True, "available": False, "code": "SEARCH_BUDGET_EXHAUSTED"}
+            evaluation_count += 1
+            try:
+                return self.scenario_service.calculate(
+                    candidate_inputs,
+                    identity=common["identity"],
+                    provenance=self._candidate_provenance({
+                        **common, "provenance": candidate_provenance,
+                    }),
+                    sources=common["sources"],
+                )
+            except (ArithmeticError, OverflowError, TypeError, ValueError):
+                return None
+
+        def evaluate(price, advertising_rate_override=None):
             cents = int(price * self.HUNDRED)
             candidate_inputs = dict(inputs)
             candidate_inputs["price"] = format(price, ".2f")
             candidate_provenance = dict(common["provenance"])
+            if advertising_rate_override is not None:
+                candidate_ad_rate = advertising_rate_override
+            elif normalized_advertising_mode == "PER_PRICE_DRR":
+                candidate_ad_rate = rate_by_price.get(cents)
+            elif normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                candidate_ad_rate = (
+                    Decimal(normalized_cost_basis["amount_per_unit"])
+                    * self.HUNDRED / price
+                )
+            else:
+                candidate_ad_rate = candidate_inputs.get("advertising_rate")
+            if candidate_ad_rate is not None:
+                if (normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT"
+                        and advertising_rate_override is None):
+                    normalized_rate = {
+                        "valid": (
+                            isinstance(candidate_ad_rate, Decimal)
+                            and candidate_ad_rate.is_finite()
+                            and Decimal("0") <= candidate_ad_rate <= self.HUNDRED
+                            and len(candidate_ad_rate.as_tuple().digits)
+                        <= self.MAX_DERIVED_ADVERTISING_RATE_DIGITS
+                            and candidate_ad_rate.adjusted() <= 2
+                            and candidate_ad_rate.adjusted() >= -12
+                        ),
+                        "value": candidate_ad_rate,
+                    }
+                else:
+                    normalized_rate = self._normalize_target(candidate_ad_rate)
+                if not normalized_rate["valid"]:
+                    return {
+                        "status": "INVALID_ADVERTISING_RATE", "available": False,
+                        "price": format(price, ".2f"), "profit": None,
+                        "margin_percent": None, "tax": None, "goal_reached": None,
+                        "commission_rate": candidate_inputs.get("commission_rate"),
+                        "commission": None, "commission_status": "UNRESOLVED",
+                        "commission_reason": "INVALID_ADVERTISING_RATE",
+                        "commission_origin": candidate_provenance.get("commission_rate"),
+                        "advertising_rate": None, "advertising_per_unit": None,
+                        "advertising_basis": deepcopy(advertising_basis),
+                        "missing_inputs": [], "invalid_inputs": ["advertising_rate"],
+                        "forward_result": None,
+                    }
+                candidate_ad_rate = normalized_rate["value"]
+                candidate_inputs["advertising_rate"] = format(candidate_ad_rate, "f")
             tariff_status = "ASSUMPTION_INPUT"
             tariff_reason = None
             tariff_origin = candidate_provenance.get("commission_rate", "unknown")
@@ -233,6 +421,9 @@ class UnitPriceTargetPlanningService:
                         "commission_status": "SOURCE_UNAVAILABLE",
                         "commission_reason": resolution.get("code"),
                         "commission_origin": None,
+                        "advertising_rate": candidate_inputs.get("advertising_rate"),
+                        "advertising_per_unit": None,
+                        "advertising_basis": deepcopy(advertising_basis),
                         "missing_inputs": [], "invalid_inputs": [],
                         "forward_result": None,
                     }
@@ -250,6 +441,9 @@ class UnitPriceTargetPlanningService:
                         "commission_status": status or "UNKNOWN",
                         "commission_reason": resolution.get("reason"),
                         "commission_origin": None,
+                        "advertising_rate": candidate_inputs.get("advertising_rate"),
+                        "advertising_per_unit": None,
+                        "advertising_basis": deepcopy(advertising_basis),
                         "missing_inputs": ["commission_rate"],
                         "invalid_inputs": [], "forward_result": None,
                     }
@@ -282,18 +476,7 @@ class UnitPriceTargetPlanningService:
                 tariff_origin = "legacy_frozen_plan_rate"
                 candidate_provenance["commission_rate"] = tariff_origin
 
-            try:
-                forward = self.scenario_service.calculate(
-                    candidate_inputs,
-                    identity=common["identity"],
-                    provenance=self._candidate_provenance({
-                        **common, "provenance": candidate_provenance,
-                    }),
-                    sources=common["sources"],
-                )
-            except (ArithmeticError, OverflowError, TypeError, ValueError):
-                forward = None
-            evaluation_count += 1
+            forward = run_forward(candidate_inputs, candidate_provenance)
             status = self._forward_status(forward)
             available = status == "CALCULATED"
             calculated = (forward or {}).get("calculated") or {}
@@ -313,6 +496,9 @@ class UnitPriceTargetPlanningService:
                 "commission_status": tariff_status,
                 "commission_reason": tariff_reason,
                 "commission_origin": tariff_origin,
+                "advertising_rate": candidate_inputs.get("advertising_rate"),
+                "advertising_per_unit": calculated.get("advertising") if available else None,
+                "advertising_basis": deepcopy(advertising_basis),
                 "missing_inputs": list((forward or {}).get("missing_inputs") or []),
                 "invalid_inputs": list((forward or {}).get("invalid_inputs") or []),
                 "forward_result": forward if available else None,
@@ -320,6 +506,28 @@ class UnitPriceTargetPlanningService:
 
         for price in normalized_prices:
             rows.append(evaluate(price))
+
+        baseline_price = self._current_price_cents(inputs)
+        baseline = None
+        baseline_row = None
+        if baseline_price is not None:
+            baseline_decimal = self._price_from_cents(baseline_price)
+            baseline_row = evaluate(
+                baseline_decimal,
+                advertising_rate_override=inputs.get("advertising_rate"),
+            )
+            baseline = {
+                "price": format(baseline_decimal, ".2f"),
+                "status": baseline_row.get("status"),
+                "available": baseline_row.get("available") is True,
+                "profit": baseline_row.get("profit"),
+                "margin_percent": baseline_row.get("margin_percent"),
+                "commission_rate": baseline_row.get("commission_rate"),
+                "commission_status": baseline_row.get("commission_status"),
+                "advertising_rate": baseline_row.get("advertising_rate"),
+                "advertising_per_unit": baseline_row.get("advertising_per_unit"),
+                "evidence_basis": "SCENARIO_ASSUMPTIONS",
+            }
 
         best_profit = max(
             (Decimal(str(row["profit"])) for row in rows if row.get("available") is True),
@@ -333,33 +541,45 @@ class UnitPriceTargetPlanningService:
             row["evidence_basis"] = "SCENARIO_ASSUMPTIONS"
             row["profit_delta_vs_baseline"] = None
 
-        baseline_price = self._current_price_cents(inputs)
-        baseline = None
-        if baseline_price is not None:
-            baseline_decimal = self._price_from_cents(baseline_price)
-            baseline_row = next(
-                (row for row in rows if int(Decimal(row["price"]) * self.HUNDRED) == baseline_price),
-                None,
-            )
-            if baseline_row is None:
-                baseline_row = evaluate(baseline_decimal)
-            baseline = {
-                "price": format(baseline_decimal, ".2f"),
-                "status": baseline_row.get("status"),
-                "available": baseline_row.get("available") is True,
-                "profit": baseline_row.get("profit"),
-                "margin_percent": baseline_row.get("margin_percent"),
-                "commission_rate": baseline_row.get("commission_rate"),
-                "commission_status": baseline_row.get("commission_status"),
-                "evidence_basis": baseline_row.get("evidence_basis", "SCENARIO_ASSUMPTIONS"),
-            }
-            if baseline.get("available") is True:
-                baseline_profit = Decimal(str(baseline["profit"]))
-                for row in rows:
-                    if row.get("available") is True:
-                        row["profit_delta_vs_baseline"] = format(
-                            Decimal(str(row["profit"])) - baseline_profit, ".2f"
-                        )
+        if baseline and baseline.get("available") is True:
+            baseline_profit = Decimal(str(baseline["profit"]))
+            for row in rows:
+                if row.get("available") is not True:
+                    row["compensation_thresholds"] = {
+                        "status": "CANDIDATE_UNAVAILABLE",
+                        "non_worse": None,
+                        "strictly_better": None,
+                    }
+                    continue
+                row["profit_delta_vs_baseline"] = format(
+                    Decimal(str(row["profit"])) - baseline_profit, ".2f"
+                )
+                threshold_inputs = dict(inputs)
+                threshold_inputs["price"] = row["price"]
+                threshold_inputs["commission_rate"] = row.get("commission_rate")
+                threshold_inputs["advertising_rate"] = inputs.get("advertising_rate")
+                threshold_provenance = dict(common["provenance"])
+                threshold_provenance["price"] = "manual_seller_assumption"
+                threshold_provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                }.get(row.get("commission_origin"), row.get("commission_origin") or "unknown")
+                thresholds = self.advertising_compensation_service.solve(
+                    threshold_inputs,
+                    baseline_profit,
+                    lambda candidate, candidate_provenance=threshold_provenance: run_forward(
+                        candidate, candidate_provenance,
+                    ),
+                )
+                row["compensation_thresholds"] = thresholds
+        else:
+            for row in rows:
+                row["compensation_thresholds"] = {
+                    "status": "BASELINE_UNAVAILABLE",
+                    "non_worse": None,
+                    "strictly_better": None,
+                }
 
         return {
             "error": False,
@@ -371,15 +591,13 @@ class UnitPriceTargetPlanningService:
             "best_prices": [row["price"] for row in rows if row.get("is_best") is True],
             "evidence_basis": "SCENARIO_ASSUMPTIONS",
             "advertising_basis": {
-                "mode": "SAME_DRR",
-                "revenue_basis": "SELLER_REVENUE",
-                "rate": inputs.get("advertising_rate"),
+                **advertising_basis,
             },
             "target_margin_percent": format(target, "f") if target is not None else None,
             "rows": rows,
             "candidate_count": len(rows),
             "evaluation_count": evaluation_count,
-            "evaluation_limit": self.MAX_COMPARISON_PRICES + 1,
+            "evaluation_limit": self.MAX_COMPARISON_FORWARD_CALCULATIONS,
             "identity": common["identity"],
             "provenance": self._candidate_provenance(common),
             "source_price_provenance": common["provenance"].get("price"),

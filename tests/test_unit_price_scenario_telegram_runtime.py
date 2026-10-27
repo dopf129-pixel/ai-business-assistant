@@ -700,6 +700,86 @@ def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_
     assert len(tariff.calls) == 1
 
 
+def test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ad_button = next(button for button in scenario["keyboard"]["buttons"]
+                         if str(button.get("callback", "")).endswith(":advertising_rate"))
+        ad_prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        scenario = runtime.handle_text("16.5", user_id="user-1")
+        compare_button = next(button for button in scenario["keyboard"]["buttons"]
+                              if str(button.get("callback", "")).startswith("upc:q:"))
+        comparison_prompt = runtime.handle_callback(compare_button["callback"], user_id="user-1")
+        initial = runtime.handle_text("450; 500", user_id="user-1")
+        drr_button = next(button for button in initial["keyboard"]["buttons"]
+                          if str(button.get("callback", "")).startswith("upc:d:"))
+        drr_prompt = runtime.handle_callback(drr_button["callback"], user_id="user-1")
+        invalid = runtime.handle_text("12", user_id="user-1")
+        result = runtime.handle_text("16.5; 8", user_id="user-1")
+        apply_button = next(button for button in result["keyboard"]["buttons"]
+                            if str(button.get("callback", "")).startswith("upc:u:")
+                            and str(button.get("callback", "")).endswith(":1"))
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert comparison_prompt["stage"] == "price_options"
+    assert drr_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    result_data = result["price_planning_result"]
+    assert result_data["advertising_basis"]["mode"] == "PER_PRICE_DRR"
+    assert result_data["advertising_basis"]["rates"] == ["16.5", "8"]
+    assert result_data["rows"][1]["compensation_thresholds"]["strictly_better"]["available"] is True
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == 8
+    assert len(source.calls) == 1
+
+
+def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominator():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ad_button = next(button for button in scenario["keyboard"]["buttons"]
+                         if str(button.get("callback", "")).endswith(":advertising_rate"))
+        ad_prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        scenario = runtime.handle_text("10", user_id="user-1")
+        compare_button = next(button for button in scenario["keyboard"]["buttons"]
+                              if str(button.get("callback", "")).startswith("upc:q:"))
+        comparison_prompt = runtime.handle_callback(compare_button["callback"], user_id="user-1")
+        initial = runtime.handle_text("450; 500", user_id="user-1")
+        cost_button = next(button for button in initial["keyboard"]["buttons"]
+                           if str(button.get("callback", "")).startswith("upc:h:"))
+        cost_prompt = runtime.handle_callback(cost_button["callback"], user_id="user-1")
+        result = runtime.handle_text("200; 40", user_id="user-1")
+        apply_button = next(button for button in result["keyboard"]["buttons"]
+                            if str(button.get("callback", "")).startswith("upc:u:")
+                            and str(button.get("callback", "")).endswith(":0"))
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    basis = result["price_planning_result"]["advertising_basis"]
+    assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert comparison_prompt["stage"] == "price_options"
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert basis["mode"] == "MANUAL_COST_PER_SUCCESSFUL_UNIT"
+    assert basis["denominator"] == "SUCCESSFUL_UNITS"
+    assert basis["successful_units"] == 40
+    assert basis["total_spend"] == "200.00"
+    assert basis["amount_per_unit"] == "5.00"
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(
+        result["price_planning_result"]["rows"][0]["advertising_rate"]
+    )
+    assert applied["price_scenario"]["calculated"]["advertising"] == 5.0
+    assert len(source.calls) == 1
+
+
 def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
     runtime, _ = _runtime()
     token = _activate()
