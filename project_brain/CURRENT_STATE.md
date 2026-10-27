@@ -4885,3 +4885,7 @@ Completed:
 # 2026-10-27 — unit-price observation Q17
 
 - Q17 bounded read-only collection завершён: точное FBO/SKU окно использует существующие ограниченные Ozon finance/Performance adapters; денежные и ценовые основания не выдаются за подтверждённую прибыль. Изолированный профиль: 172 passed; полный pytest/CI ещё впереди (Q33–Q35). Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`.
+
+# 2026-10-27 — unit-price observation Q18
+
+- Q18 добавил pure normalizer для денег, окон/дат, DRR bases, взвешенных знаменателей и conflict-safe dedup. Без полной скидочной базы, price history, successful-sale units и дедуп-подтверждения результат остаётся incomparable; финансы и CPC не вычитаются повторно. Связанный профиль: 184 passed. Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`.

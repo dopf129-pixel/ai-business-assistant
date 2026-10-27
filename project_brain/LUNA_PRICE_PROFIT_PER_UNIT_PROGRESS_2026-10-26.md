@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q17 завершены, Q18 выполняется, Q19–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q18 завершены, Q19 выполняется, Q20–Q35 ожидают.
 
 ## Исходная точка
 
@@ -37,8 +37,8 @@
 | Q15 | VERIFIED | Контракт разносит сценарную цену, owner declaration, текущий API snapshot и per-sale verified history; зафиксированы часы/интервалы, виды количеств, N07–N09 и ограничения источников. Acceptance ниже. |
 | Q16 | VERIFIED | Additive planning DB v3→v4 observation/results repository, append-only result revisions, CAS/idempotency, exact owner/store/SKU/price binding, quotas, overlap retention and rollback. Focused profile: **38 passed in 1.58s**; acceptance `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. |
 | Q17 | VERIFIED | Read-only collector exact-bound к FBO наблюдению и завершённому окну; использует текущие finance/Performance adapters и root budget. Unknown field/type metadata сохранены без raw values; 172 focused tests passed. Acceptance ниже. |
-| Q18 | IN_PROGRESS | Начата нормализация collected evidence: взвешенные знаменатели, дубликаты/корректировки, mixed price/date basis, реклама и запрет двойного вычитания. |
-| Q19 | NOT_STARTED | — |
+| Q18 | VERIFIED | Pure normalizer сохраняет суммы/основания, exact-compatible DRR, weighted denominators, conflict-safe dedup и signed correction semantics; текущие неизвестные price/quantity/discount coverage блокируют observed profit. 184 linked tests passed. Acceptance ниже. |
+| Q19 | IN_PROGRESS | Нужна реализация трёх раздельных оснований: canonical fact при полном evidence, отдельно подписанная модель по наблюдавшимся входам либо явное incomplete/incomparable. |
 | Q20 | NOT_STARTED | — |
 | Q21 | NOT_STARTED | — |
 | Q22 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q18: нормализовать Q17 evidence в отдельной pure/model boundary с тестами на weighted aggregates, deduplication, mixed-price windows, correction handling, DRR revenue bases, finance-included advertising и отсутствие распределения account totals по SKU. Сохранить исходную полноту и не сообщать факт прибыли при неизвестном denominator.
+Продолжить с Q19: построить результат поверх Q17 collector и Q18 normalizer. Canonical fact разрешать только при подтверждённых цене продажи, единицах и сопоставимости; иначе показывать отдельно подписанную модель только при достаточных наблюдаемых входах, либо явное `INCOMPARABLE`/`INSUFFICIENT_DATA`. Не объявлять частичный CPC или финансы полной прибылью.
 
 ## Записи исполнения
 
@@ -245,3 +245,12 @@
 - Новые регрессии проверяют окна/идентичность/FBO ограничения, fake finance transport, exact SKU scoping, budget/retry handling, optional Performance source, incomplete/unknown evidence и privacy projection; production factory composition также проверена. Результат остаётся evidence package, без записи immutable result до следующих этапов нормализации/сопоставления.
 - Изолированный Windows/Python 3.12.10 профиль из 10 связанных модулей — **172 passed in 3.65s**. Использованы новые TEMP storage/basetemp, dotenv/plugin autoload выключены, provider/credential env names удалены. `git diff --check` прошёл, `git diff -- data` пустой; сеть, live API, owner DB и бот не использовались. Полный pytest/CI оставлен Q33–Q35.
 - Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`. Q17 — VERIFIED; архитектурная классификация **Architecture Review Required** (новый service и factory composition). Далее Q18 — нормализация evidence и полноты.
+
+### Q18 — нормализация evidence, количеств и рекламы (2026-10-27)
+
+- Добавлен pure `UnitPriceObservationNormalizer`: Decimal/ROUND_HALF_UP projections, точные revenue/date/timezone bases, раздельные финансовые компоненты, finance net и Performance CPC. Seller DRR не вычисляется между `OZON_ACCRUAL_DATE` и `PERFORMANCE_REPORT_DATE`; attributed DRR, если есть, сохраняет отдельный Performance denominator.
+- Tax base `gross - discount_points` появляется только с явным подтверждением полноты скидочных баллов. Q17 summary такого сигнала не предоставляет, поэтому текущая база и наблюдённая прибыль остаются неизвестными. Успешных единиц и полной истории цены также нет; `source_row_count` не становится denominator.
+- Weighted utility считает `Σamount/Σunits`, обрабатывает нулевой/пропущенный denominator без подстановки нуля. Dedup utility требует exact SKU scope/stable row ID, collapses only identical duplicate, возвращает `CONFLICT` при отличающихся values, скрывает ID. Signed corrections сохраняются, но принимаются как correction только с явным `SIGNED_DELTA` и нулевыми units.
+- Effective-date warnings и mixed-price status остаются явными. Account totals не распределяются по SKU. Суммы finance components и performance CPC не вычитаются повторно из `finance_net`; прибыль/налог/себестоимость не пересчитываются в normalizer.
+- Связанный Q16–Q18 изолированный Windows/Python 3.12.10 профиль — **184 passed in 3.92s**. Venv не содержал объявленный `tzdata`; в ходе первой попытки тесты не прошли на отсутствии Windows IANA timezone database. Декларированная зависимость поставлена только в уникальный TEMP target, после чего весь профиль прошёл. TEMP storage/basetemp использованы, dotenv/plugin autoload отключены, credential/provider env очищен; live API, owner DB, data files и бот не задействованы.
+- Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`. Q18 — VERIFIED; чистое вычисление без новых источников, архитектурное решение не меняется. Далее Q19 — canonical fact vs separately labeled model vs incomplete.
