@@ -40,7 +40,7 @@
 | Q18 | VERIFIED | Pure normalizer сохраняет суммы/основания, exact-compatible DRR, weighted denominators, conflict-safe dedup и signed correction semantics; текущие неизвестные price/quantity/discount coverage блокируют observed profit. 184 linked tests passed. Acceptance ниже. |
 | Q19 | VERIFIED | Добавлен pure evaluator: модель доступна только по совместимому CPC и подтверждённому знаменателю успешных единиц; иначе сохраняются `INSUFFICIENT_DATA`/`INCOMPARABLE`. Q16–Q19 linked profile: 189 passed. Acceptance ниже. |
 | Q20 | VERIFIED | Telegram наблюдение: ручная установка цены, сбор, ревизия результата, история, заметки и завершение; linked Q16–Q20 profile 197 passed. Acceptance ниже. |
-| Q21 | NOT_STARTED | — |
+| Q21 | VERIFIED | Добавлены quality/comparability gates для model/fact оснований; отдельный service, экран и payload; linked Q16–Q21 profile 205 passed. Acceptance ниже. |
 | Q22 | NOT_STARTED | — |
 | Q23 | NOT_STARTED | — |
 | Q24 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q21: проверить quality/comparability gates для Q19 model и durable observation revisions. Сохранять перечисление причин и блокировать verified label при неподтверждённых окнах, ценах, количествах, basis, тарифе, налоге, расходах, overlap, freshness и confounders.
+Продолжить с Q22: ранжировать планы и результаты наблюдений раздельно по прибыли ₽/шт.; рейтинг только среди кандидатов, прошедших Q21 gate, и без причинных утверждений.
 
 ## Записи исполнения
 
@@ -274,3 +274,13 @@
 - Новые проверки: `tests/test_telegram_unit_price_observation_runtime.py` — 7 тестов на lifecycle, reopen после нового runtime, incomplete result, stale revision, notes/finish, FBO/tenant boundary, валидацию периода до источника, handler/factory route и multi-SKU exact row; `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production composition. Адресный профиль после оконной регрессии: **8 passed in 1.34s**.
 - Связанный профиль 14 Q16–Q20 modules/test targets: **197 passed in 4.70s** (Windows/Python 3.12). Python AST parse всех 7 изменённых/добавленных Python-файлов прошёл; `git diff --check` прошёл с уведомлениями Git о будущей LF→CRLF нормализации только Markdown; `git diff -- data` пуст. Тесты использовали временные storage/basetemp и synthetic collector; .env, credential values, live API, owner DB, tracked data и бот не использовались.
 - Acceptance: `UNIT_PRICE_OBSERVATION_TELEGRAM_Q20_2026-10-27.md`. Q20 — VERIFIED после прохождения linked Q16–Q20 профиля. Классификация: **Architecture Review Required** (новый Telegram runtime и изменение production factory/handlers); Decision 061/Q03 границы сохранены.
+
+### Q21 — quality/comparability gates (2026-10-27)
+
+- Добавлен pure `UnitPriceObservationQualityService` для сравнения 2–10 сохранённых кандидатных результатов. Проверяются точный store/product/offer/SKU/FBO, различные цены, одинаковые evidence basis и revenue/advertising basis, одинаковая продолжительность и состав дней недели, timezone/date basis, непересечение окон, завершённость окна, успешные units/denominator, полнота источников, совпадение source windows/date bases и свежесть обязательных источников.
+- `CANONICAL_FACT_COMPARABLE` требует подтверждения всех осей цены, количества, финансов/Analytics, рекламы, тарифа, налога, себестоимости, возвратов, окна и дедупликации; source records должны быть полными. Model-only сравнение допускает только CPC-only ограничение с одинаковым явным frozen assumption signature; оно возвращает `COMPARABLE` на модельном основании, но всегда `verified=false`, с предупреждениями о ручной цене, неизвестной другой рекламе, возвратах и отсутствии причинного доказательства.
+- Начальные настройки: желательная выборка 7 дней, предупреждение ниже 30 успешных единиц, свежесть evidence не старше 14 суток. Первые два значения дают предупреждения, не влияют на статистическую уверенность; результат никогда не возвращает confidence score. Все gate reasons и warnings сохраняются в response payload и показываются в Telegram result detail. Одного кандидата недостаточно для оценки.
+- Добавлены 8 service regressions: модельное сравнение без verified label; пересечения; разная идентичность; source date-basis mismatch; missing denominator; unmatched model assumptions; freshness oldest source; предупреждения малой выборки; synthetic complete canonical facts и incomplete factual label rejection; сохранение source result reasons. Q20 runtime regression проверяет `quality_assessment` на экране/payload.
+- Проверки Windows/Python 3.12: адресный Q21/Q19/Q16–repository/runtime профиль — **32 passed in 1.69s**; final linked Q16–Q21 профиль по 15 targets — **205 passed in 4.87s**. AST parse четырёх затронутых Python-файлов и `git diff --check` прошли; `git diff -- data` пуст. Есть только уведомления Git о будущей LF→CRLF нормализации.
+- Сравнительные assessment payload пока вычисляются в памяти и возвращаются экрану/handler; Q23 отвечает за durable immutable comparison revisions. Runtime источники, Ozon calls и канонические result записи не изменены. `DECISIONS.md` не менялся: Q03/Q15 уже требуют, чтобы только Q21 выставлял `COMPARABLE`.
+- Acceptance: `UNIT_PRICE_OBSERVATION_QUALITY_Q21_2026-10-27.md`. Q21 — VERIFIED после итоговых синтаксической и diff проверок. Классификация: **Architecture Review Required** (новый quality service и новый output field в Telegram payload).

@@ -14,6 +14,7 @@ from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
 from services.unit_price_observation_normalizer import UnitPriceObservationNormalizer
+from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
 
 
 class TelegramUnitPriceObservationRuntimeService:
@@ -27,13 +28,15 @@ class TelegramUnitPriceObservationRuntimeService:
 
     def __init__(self, *, repository, planning_service, collection_service,
                  result_service, keyboard_service, normalizer=None, clock=None,
-                 monotonic_clock=None, default_timezone=DEFAULT_TIMEZONE):
+                 monotonic_clock=None, default_timezone=DEFAULT_TIMEZONE,
+                 quality_service=None):
         self.repository = repository
         self.planning_service = planning_service
         self.collection_service = collection_service
         self.result_service = result_service
         self.keyboard_service = keyboard_service
         self.normalizer = normalizer or UnitPriceObservationNormalizer
+        self.quality_service = quality_service or UnitPriceObservationQualityService()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.monotonic_clock = monotonic_clock or monotonic
         self.default_timezone = default_timezone
@@ -619,11 +622,72 @@ class TelegramUnitPriceObservationRuntimeService:
             lines.append("Причины: " + ", ".join(str(item)[:120] for item in result["reasons"][:12]))
         if result.get("warnings"):
             lines.append("Ограничения: " + ", ".join(str(item)[:120] for item in result["warnings"][:8]))
+        quality = self.quality_service.assess(
+            [{
+                "result": result, "result_revision": revision,
+                "owner_id": scope["owner_id"], "store_id": scope["store_id"],
+            }], now=self.clock(),
+        )
+        if not isinstance(quality, dict) or quality.get("error") is True:
+            quality = None
+            lines.append("Сопоставимость: пока не удалось проверить качество данных.")
+        else:
+            quality_label = {
+                "COMPARABLE": "сопоставимо по указанному основанию",
+                "INCOMPARABLE": "вариант нельзя сопоставить",
+                "NOT_READY": "недостаточно вариантов для сравнения",
+            }.get(quality.get("status"), "проверка не завершена")
+            lines.append(f"Проверка сопоставимости: {quality_label}.")
+            candidate_quality = (quality.get("candidates") or [{}])[0]
+            days = candidate_quality.get("window_days")
+            units = candidate_quality.get("successful_units")
+            lines.append(
+                f"Выборка: {days if days is not None else 'нет данных'} дней; "
+                f"{units if units is not None else 'нет подтверждённых'} успешных единиц."
+            )
+            lines.append("Ориентир: 7 дней; менее 30 единиц — предупреждение, не статистическая уверенность.")
+            reasons = list(quality.get("reasons") or [])
+            reasons.extend(candidate_quality.get("reasons") or [])
+            warnings = list(quality.get("warnings") or [])
+            warnings.extend(candidate_quality.get("warnings") or [])
+            reasons = list(dict.fromkeys(reasons))
+            warnings = list(dict.fromkeys(warnings))
+            if reasons:
+                lines.append("Причины несопоставимости: " + "; ".join(self._quality_reason_label(item) for item in reasons))
+            if warnings:
+                lines.append("Предупреждения: " + "; ".join(self._quality_reason_label(item) for item in warnings))
         lines.append("Исходные ответы API и идентификаторы операций не сохраняются.")
-        return self._prompt_result(
+        response = self._prompt_result(
             "OBSERVATION_RESULT_READY", "\n".join(lines),
             self._simple_keyboard("История", f"upo:history:{observation_id}"),
         )
+        if quality is not None:
+            response["quality_assessment"] = quality
+        return response
+
+    @staticmethod
+    def _quality_reason_label(value):
+        labels = {
+            "AT_LEAST_TWO_PRICE_VARIANTS_REQUIRED": "для сравнения нужны как минимум две цены",
+            "PRICE_VARIANTS_NOT_DISTINCT": "цены вариантов должны отличаться",
+            "PRODUCT_STORE_OR_SCHEME_MISMATCH": "различаются магазин, товар или схема продаж",
+            "OBSERVATION_WINDOWS_OVERLAP": "периоды пересекаются и могут учитывать продажи дважды",
+            "WINDOW_DURATION_MISMATCH": "длительность периодов различается",
+            "WEEKDAY_COMPOSITION_MISMATCH": "в периодах разный состав дней недели",
+            "WINDOW_TIMEZONE_MISMATCH": "различаются часовые пояса периодов",
+            "WINDOW_DATE_BASIS_MISMATCH": "различается основание дат периода",
+            "SUCCESSFUL_UNIT_DENOMINATOR_UNCONFIRMED": "нет подтверждённого количества успешных единиц",
+            "OBSERVATION_EVIDENCE_STALE": "источники данных устарели",
+            "SOURCE_FRESHNESS_TIMESTAMP_UNAVAILABLE": "не подтверждено время получения данных",
+            "MODEL_ASSUMPTIONS_MISMATCH": "модельные допущения различаются",
+            "EVIDENCE_BASIS_MISMATCH": "расчёты имеют разные основания",
+            "REVENUE_OR_ADVERTISING_BASIS_MISMATCH": "различаются основания выручки или рекламы",
+            "CPC_ONLY_MODEL_OMITS_OTHER_ADVERTISING_TYPES.": "учтён только CPC; другие типы рекламы неизвестны",
+            "OWNER_DECLARED_PRICE_DOES_NOT_VERIFY_PER_SALE_PRICE_HISTORY.": "ручное подтверждение не доказывает цену каждой продажи",
+            "SAMPLE_THRESHOLDS_ARE_OPERATIONAL_WARNINGS_NOT_STATISTICAL_CONFIDENCE.": "ориентиры выборки не являются статистической уверенностью",
+            "COMPARISON_DOES_NOT_ESTABLISH_PRICE_CHANGE_CAUSALITY.": "сравнение не доказывает, что изменения вызваны ценой",
+        }
+        return labels.get(value, str(value).replace("_", " ").rstrip("."))
 
     def _load_observation(self, observation_id, scope, result_revision=None):
         result = self.repository.get_unit_price_observation(

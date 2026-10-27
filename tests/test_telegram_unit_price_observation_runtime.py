@@ -171,6 +171,9 @@ def test_collection_persists_incomplete_result_and_can_reopen_after_runtime_rest
     detail = reopened.handle_callback(f"upo:result:{observation_id}:1", user_id="owner-1")
     assert detail["status"] == "OBSERVATION_RESULT_READY"
     assert "Прибыль с единицы не рассчитана" in detail["message"]
+    assert "Проверка сопоставимости" in detail["message"]
+    assert detail["quality_assessment"]["status"] == "NOT_READY"
+    assert detail["quality_assessment"]["verified"] is False
     assert "raw_response" not in detail["message"]
 
 

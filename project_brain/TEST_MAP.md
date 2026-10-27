@@ -5784,3 +5784,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_unit_price_observation_runtime.py` — saved-plan entry, manual price/effective-time confirmation, exact single- or multi-SKU FBO scope, completed local date window validation before source access, durable result append, incomplete model labels, history/reopen after runtime recreation, stale callback rejection, note and finish flow.
 - `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production factory composes the observation runtime and routes it through the button handler and saved-plan runtime.
 - Q20 focused isolated Windows/Python 3.12 profile: **8 passed in 1.34s**. Linked Q16–Q20 profile follows in the progress log; full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price observation quality/comparability (Q21)
+
+- `tests/test_unit_price_observation_quality_service.py` — exact owner/store/product identity and distinct price variants; complete canonical fact gates; model-only shared assumption signatures; source/window/revenue/ad basis consistency; overlap, weekday pattern, completed windows, successful-unit denominator, freshness, sample/day warnings, reason preservation and no confidence/causal labels.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_collection_persists_incomplete_result_and_can_reopen_after_runtime_restart` — result detail returns the `quality_assessment` payload and keeps a one-variant result `NOT_READY`/`verified=false`.
+- Q21 quality/runtime focused profile: **32 passed in 1.69s**. Linked Q16–Q21 observation/finance/Performance profile: **205 passed in 4.87s**. Full pytest/exact-head CI remains Q33–Q35.
