@@ -340,6 +340,9 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
             f"upc:z:{scenario['price_scenario']['scenario_id']}:1",
             user_id="user-1",
         )
+        details = runtime.handle_callback(
+            _find_button(ready, "Подробности расчёта")["callback"], user_id="user-1"
+        )
         assumptions = runtime.handle_callback(
             _find_button(ready, "Допущения и источники")['callback'], user_id="user-1"
         )
@@ -371,13 +374,14 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
 
     assert ready["price_scenario"]["calculated"]["cross_docking"] == 12.0
     assert ready["price_scenario"]["calculated"]["profit"] == 214.0
-    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in ready["message"]
-    assert "начисления 1 200,00 ₽ / принято 100 шт." in ready["message"]
-    assert "начисления Ozon с корректировками -1 200,00 ₽" in ready["message"]
-    assert "покрытие 56/56 дней" in ready["message"]
-    assert "поставки: COMPLETE" in ready["message"]
-    assert "снимок: 2026-10-19T12:00:00Z" in ready["message"]
-    assert "must-not-be-exposed" not in ready["message"]
+    assert "Кросс-докинг учтён: 12,00 ₽/шт." in ready["message"]
+    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in details["message"]
+    assert "начисления 1 200,00 ₽ / принято 100 шт." in details["message"]
+    assert "начисления Ozon с корректировками -1 200,00 ₽" in details["message"]
+    assert "покрытие 56/56 дней" in details["message"]
+    assert "поставки: COMPLETE" in details["message"]
+    assert "снимок: 2026-10-19T12:00:00Z" in details["message"]
+    assert "must-not-be-exposed" not in details["message"]
     assert "Кросс-докинг: 12,00 ₽" in assumptions["message"]
     assert target_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
     assert "Кросс-докинг учтён: 12,00 ₽ на одну плановую успешную продажу." in target["message"]
@@ -499,10 +503,32 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert result["price_scenario"]["calculated"]["profit"] == 226.0
     assert result["price_scenario"]["comparison"]["available"] is True
+    assert result["message"].index("Прибыль:") < result["message"].index("Комиссия:")
+    assert "Прибыль: 226,00 ₽/шт." in result["message"]
+    assert "Выручка для налога" not in result["message"]
+    assert len(result["message"]) < 1200
     assert "При текущей цене 500,00 ₽" in result["message"]
     assert "Оценка одной успешной продажи FBO" in result["message"]
     assert "FBS не поддержан" in result["message"]
-    assert "не включены" in result["message"]
+    assert "Не включены хранение, постоянные расходы и возвраты." in result["message"]
+
+    token = _activate()
+    try:
+        details = runtime.handle_callback(
+            _find_button(result, "Подробности расчёта")["callback"], user_id="user-1"
+        )
+        short = runtime.handle_callback(
+            _find_button(details, "Краткий итог")["callback"], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert "Цена продавца: 500,00 ₽" in details["message"]
+    assert "Выручка для налога:" in details["message"]
+    assert "Налог:" in details["message"]
+    assert "Краткий итог" in [item["text"] for item in details["keyboard"]["buttons"]]
+    assert short["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert "Прибыль: 226,00 ₽/шт." in short["message"]
 
 
 def test_target_margin_input_retries_then_shows_verified_price_without_changing_scenario():

@@ -52,6 +52,10 @@ class AssistantKeyboardService:
                     "callback": "unit_economics"
                 },
                 {
+                    "text": "🎯 Подобрать цену по прибыли/шт.",
+                    "callback": "unit_price_calculator",
+                },
+                {
                     "text": "🎯 Решения по товарам",
                     "callback": "product_decisions"
                 },
@@ -601,6 +605,7 @@ class AssistantKeyboardService:
             {"text": "💾 Сохранить план", "callback": f"upp:s:{sid}:{ver}"},
             {"text": "📚 Мои планы", "callback": "upp:m"},
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
+            {"text": "Подробности расчёта", "callback": f"upc:x:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
             {"text": "Другой товар", "callback": "upc:m"},
             {"text": "Главное меню", "callback": "main_menu"},

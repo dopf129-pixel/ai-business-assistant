@@ -835,8 +835,16 @@ class TelegramUnitPriceObservationRuntimeService:
                         comparison_id=None, comparison_revision=None):
         quality = ranking.get("quality_assessment") or {}
         status = ranking.get("status")
+        product_identity = " · ".join(
+            f"{label} {str(target_identity[key])[:80]}"
+            for key, label in (("product_id", "товар"), ("offer_id", "артикул"))
+            if target_identity.get(key) not in (None, "")
+        )
+        store_id = str(target_identity.get("store_id") or "активный")[:60]
+        scheme = str(target_identity.get("sale_schema") or "неизвестна").upper()[:16]
         lines = [
-            f"Рейтинг прибыли на единицу · SKU {target_identity.get('sku', '—')} · FBO",
+            f"Рейтинг прибыли на единицу · SKU {target_identity.get('sku', '—')} · {scheme}",
+            f"Магазин: {store_id}" + (f" · {product_identity}" if product_identity else ""),
         ]
         if status == "RANKED":
             if ranking.get("display_basis") == "OBSERVED_COMPARABLE_PERIODS":

@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q24 завершены, Q25–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q25 завершены, Q26–Q35 ожидают.
 
 ## Исходная точка
 
@@ -44,7 +44,7 @@
 | Q22 | VERIFIED | Добавлен отдельный ranking наблюдений; linked Q16–Q22 profile 274 passed. См. Q22 acceptance. |
 | Q23 | VERIFIED | Additive DB v5 immutable comparison snapshots, exact observation/result/plan revision references, source-free reopen/export, explicit append refresh, stale/superseded labels; focused 33 passed, linked Q16–Q23 474 passed. Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. |
 | Q24 | VERIFIED | Production-factory end-to-end public-handler path SKU → manual tariff → price/DRR → save → observation → honest gate → return to plans/next price. Focused 1 passed; linked Q16–Q24 475 passed in 11.48s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`. |
-| Q25 | NOT_STARTED | — |
+| Q25 | VERIFIED | Main menu/Help discovery, concise ₽/шт. result, version-bound details/return, exact ranking identity and existing long-message splitter. Focused 59 passed; linked Q16–Q25 495 passed in 12.46s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`. |
 | Q26 | NOT_STARTED | — |
 | Q27 | NOT_STARTED | — |
 | Q28 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q25: review Telegram UX/discovery and response length for the complete price-profit-per-unit tool; then Q26–Q35 in dependency order.
+Продолжить с Q26: extend existing allowlisted analytics serializer/document transport for unit-price comparisons, tariff profiles and observations, then Q27–Q35 in dependency order.
 
 ## Записи исполнения
 
@@ -316,3 +316,13 @@
 - Focused: `tests/test_unit_price_profit_per_unit_end_to_end.py` — **1 passed in 1.00s**. Linked profile Q16–Q24 (29 test targets, Windows/Python 3.12, plugin autoload/dotenv disabled, temporary pytest storage): **475 passed in 11.48s**.
 - Ограничения: автоматический тариф остаётся точечной ставкой только при доказанной цене; ручной диапазон функционирует. Реальные owner API/price history/actual observation не проверялись и для инженерной приёмки не нужны. `git diff -- data` должен оставаться пустым.
 - Q24 — VERIFIED. Следующий этап: Q25 — UX, help/discovery, компактный отчёт и достижимость обещанных действий.
+
+### Q25 — понятный Telegram UX и discovery (2026-10-27)
+
+- В главное меню добавлен прямой вход «🎯 Подобрать цену по прибыли/шт.»; Help и примеры объясняют FBO-ограничение, ручной fallback комиссии, ключевые inputs и то, что цена Ozon не меняется. Старый «Юнит-экономика товаров» маршрут сохранён.
+- Результат по умолчанию стал компактным: товар/SKU, магазин и FBO, цена продавца, себестоимость, прибыль ₽/шт. и маржа, статус/основание комиссии, ДРР/удельный расход, кросс-докинг, сравнение с текущей ценой и короткие ограничения. Неизвестная комиссия, отсутствие себестоимости и устаревший source snapshot остаются видимыми; incomplete calculation не получает прибыль.
+- По кнопке `upc:x` открывается полная денежная раскладка с расчётом налога и расходными деталями; кнопка «Краткий итог» возвращает к прежнему экрану только в том же scenario version. Для кросс-докинга brief виден в обоих состояниях, подробная 56-дневная формула/coverage остаётся на экране деталей.
+- Экран рейтинга включает store scope, SKU, product_id/offer_id и схему FBO; новые display identifiers ограничены по длине. Existing Telegram UTF-16 splitter/transport не переписывались, проверены соответствующие transport tests и end-to-end доставка полного текста.
+- Focused UX profile: `test_telegram_help_discovery.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_telegram_unit_price_observation_runtime.py` — **59 passed in 1.88s**. Первичный Q16–Q25 запуск выявил 2 UI regressions (stale source notice и missing-cost hint) среди 495 cases; оба отображения исправлены. Повторный linked Windows/Python 3.12 profile по 32 targets — **495 passed in 12.46s**.
+- No source/API/bot calls; tests use synthetic data. `git diff -- data` остаётся пустым. Full repository pytest, Linux/Windows exact-head CI and Docker remain Q33–Q35.
+- Q25 — VERIFIED; следующий этап Q26 — единые owner exports для сравнения, тарифов и наблюдений.

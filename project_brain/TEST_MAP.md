@@ -5812,3 +5812,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_unit_price_profit_per_unit_end_to_end.py` — production factory and public Telegram handlers cover SKU selection, manual tariff bands, validation/retry, price and DRR comparison, saved plan, observation start/collection, insufficient-evidence ranking gate, return to plans, and editing the next price. All Ozon/collector dependencies are synthetic fakes; incomplete evidence remains not rankable.
 - `tests/test_telegram_unit_price_observation_runtime.py` — existing local-only persisted comparison/reopen/export behavior remains included in the linked profile.
 - Q24 focused Windows/Python 3.12: **1 passed in 1.00s**. Linked Q16–Q24 profile, 29 test targets: **475 passed in 11.48s**. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price calculator UX/discovery (Q25)
+
+- `tests/test_telegram_help_discovery.py` — calculator is reachable from the main keyboard and Help, and owner guidance documents manual tariff fallback, FBO planning, and explicit no-price-mutation behavior.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_zero_advertising_completes_scenario_and_reports_comparison` — concise result places ₽/unit before secondary metrics, preserves seller price/cost, commission evidence, DRR, stale/missing status and exclusions; exact version-bound details show full taxable revenue/tax breakdown and return to summary. Cross-docking details and sensitive-ID redaction remain checked by the detailed-flow regression.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — rating displays exact owner store, SKU, product/offer identifiers and FBO scheme.
+- `tests/test_telegram_response_formatter.py` and `tests/test_telegram_loading_feedback_v1451_v1460.py` — existing UTF-16-safe long-message splitting, complete text retention and final-chunk keyboard transport stay covered.
+- Q25 focused profile: **59 passed in 1.88s**. Linked Q16–Q25 Windows/Python 3.12 profile over 32 targets: **495 passed in 12.46s**. Full pytest/exact-head CI remain Q33–Q35.

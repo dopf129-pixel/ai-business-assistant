@@ -1,3 +1,10 @@
+# 2026-10-27 — Q25: discoverable calculator and compact price result
+
+- Added a direct main-menu and Help entry for the price-profit-per-unit calculator, with an owner guide covering SKU selection, seller price, cost, advertising and manual commission fallback.
+- The default FBO result now puts profit per unit first and keeps SKU/store, seller price, cost, tariff evidence, DRR, cross-docking, freshness and exclusions visible. A version-bound «Подробности расчёта» action opens the full tax/expense breakdown and returns to the concise result.
+- Observation ranking now identifies the exact store, SKU, product/offer IDs and sale scheme. Existing Telegram text splitting was verified with the expanded linked profile.
+- Q16–Q25 linked Windows/Python 3.12 profile: 495 passed in 12.46s. Acceptance: `project_brain/UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`.
+
 # 2026-10-27 — Q24: complete unit-price planning and observation path
 
 - Connected saved price comparisons to the observation workflow with a direct return-to-plans action. A user can continue from a recommendation/quality result and try another saved price scenario without losing the durable plan.

@@ -381,6 +381,8 @@ def test_observation_ranking_uses_latest_compatible_results_without_source_calls
 
     assert result["status"] == "OBSERVATION_RANKING_READY"
     assert "только среди проверенных вариантов" in result["message"]
+    assert "SKU sku-1 · FBO" in result["message"]
+    assert "Магазин: store-a · товар product-1 · артикул offer-1" in result["message"]
     assert "Цена 100.00 ₽ → 20.00 ₽/шт." in result["message"]
     assert "Цена 95.00 ₽ → 18.00 ₽/шт." in result["message"]
     assert "Объём продаж не меняет рейтинг" in result["message"]

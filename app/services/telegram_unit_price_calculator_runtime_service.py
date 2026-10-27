@@ -821,7 +821,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w", "x"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -843,6 +843,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._refresh(session, user, scope, expected_version)
             if action == "a":
                 return self._show_assumptions(session)
+            if action == "x":
+                return self._show_details_screen(session)
             if action == "v":
                 return self._return_to_scenario(session, user, scope, expected_version)
             if action in {"g", "q", "n"}:
@@ -3099,7 +3101,112 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "executed": False,
         }
 
+    def _show_details_screen(self, session):
+        response = self._scenario_screen(session)
+        result = response.get("price_scenario")
+        if not isinstance(result, dict):
+            return response
+        response["status"] = "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        response["message"] = self._format_result_details(session, result)[:3500]
+        keyboard = response.get("keyboard")
+        buttons = keyboard.get("buttons") if isinstance(keyboard, dict) else None
+        if isinstance(buttons, list):
+            scenario_id = str(session.get("scenario_id"))
+            version = str(session.get("version"))
+            details_callback = f"upc:x:{scenario_id}:{version}"
+            for button in buttons:
+                if isinstance(button, dict) and button.get("callback") == details_callback:
+                    button["text"] = "Краткий итог"
+                    button["callback"] = f"upc:v:{scenario_id}:{version}"
+                    break
+        return response
+
     def _format_result(self, session, result, notice=None):
+        snapshot = session["snapshot"]
+        product = snapshot.get("product") or {}
+        identity = snapshot.get("identity") or {}
+        inputs = result.get("effective_scenario_inputs") or session["inputs"]
+        values = result.get("calculated") or {}
+        tariff = result.get("tariff_resolution") or {}
+        store_label = str(
+            identity.get("store_name")
+            or identity.get("store_label")
+            or identity.get("store_id")
+            or "активный"
+        )[:50]
+        lines = [
+            "🧮 Плановая прибыль с единицы",
+            str(product.get("name") or "Товар")[:70] + " · SKU " + str(session["sku"]),
+            "Магазин: " + store_label + " · FBO",
+            "Цена продавца: " + self._money(inputs.get("price")),
+            "Себестоимость: " + self._money(inputs.get("cost")),
+        ]
+        if result.get("available") is True:
+            lines.extend([
+                "Прибыль: " + self._money(values.get("profit")) + "/шт.",
+                "Маржа: " + self._percent(values.get("margin_percent")),
+            ])
+        else:
+            lines.append("Прибыль с единицы пока не рассчитана.")
+            missing = result.get("missing_inputs") or []
+            labels = [self.EDITABLE_FIELDS[item][0] for item in missing if item in self.EDITABLE_FIELDS]
+            if "tax_mode" in missing or "tax_rate" in missing:
+                labels.append("налоговая политика магазина")
+            if "minimum_tax_rate" in missing:
+                labels.append("минимальная ставка налога")
+            invalid = result.get("invalid_inputs") or []
+            labels.extend(self.EDITABLE_FIELDS[item][0] for item in invalid if item in self.EDITABLE_FIELDS)
+            if "calculation" in invalid or "tax_calculation" in invalid:
+                labels.append("проверьте допустимость расчётных значений и налоговые настройки")
+            if labels:
+                lines.append("Нужно проверить: " + ", ".join(dict.fromkeys(labels)) + ".")
+            cross_docking_line = self._cross_docking_assumption(
+                snapshot.get("cross_docking") or {}, None
+            )
+            lines.append(cross_docking_line[:180])
+
+        if tariff.get("available") is True:
+            origin = ((tariff.get("selected_profile") or {}).get("origin"))
+            source_labels = {
+                "CURRENT_PRICE_POINT": "ставка подтверждена только для текущей цены",
+                "MANUAL_SELLER_ASSUMPTION": "ставка введена вами",
+                "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый источник Ozon",
+            }
+            lines.append(
+                "Комиссия: " + self._percent(inputs.get("commission_rate"))
+                + " · " + source_labels.get(origin, "сохранённый тариф")
+            )
+        else:
+            lines.append("Комиссия для выбранной цены не подтверждена.")
+
+        if result.get("available") is True:
+            lines.append(
+                "Реклама: ДРР " + self._percent(inputs.get("advertising_rate"))
+                + " · " + self._money(values.get("advertising")) + "/шт."
+            )
+            if values.get("cross_docking") is not None:
+                lines.append(
+                    "Кросс-докинг учтён: "
+                    + self._money(values.get("cross_docking")) + "/шт."
+                )
+            comparison = result.get("comparison") or {}
+            if comparison.get("available") is True:
+                lines.append(
+                    "При текущей цене " + self._money(comparison.get("price"))
+                    + " с теми же допущениями: " + self._money(comparison.get("profit"))
+                    + "/шт., " + self._percent(comparison.get("margin_percent")) + "."
+                )
+        if (result.get("source_freshness") or {}).get("status") == "STALE":
+            lines.append("Снимок источников устарел; обновите данные перед сравнением.")
+        if notice:
+            lines.insert(0, notice)
+        lines.extend([
+            "Оценка одной успешной продажи FBO. FBS не поддержан.",
+            "Не включены хранение, постоянные расходы и возвраты.",
+        ])
+        return "\n".join(lines)
+
+    def _format_result_details(self, session, result, notice=None):
         snapshot = session["snapshot"]
         product = snapshot.get("product") or {}
         identity = snapshot.get("identity") or {}
