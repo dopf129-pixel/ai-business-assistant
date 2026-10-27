@@ -294,19 +294,19 @@ class TelegramUnitPriceObservationRuntimeService:
                 or not self._plan_item(items[item_index], scope["store_id"])
                 or document.get("document_id") != pending.get("document_id")
                 or document.get("revision") != pending.get("revision")):
-            self._clear_pending(scope)
+            self._clear_pending_if_current(scope, pending)
             return self._error("PLANNING_OBSERVATION_SOURCE_PLAN_SCOPE_MISMATCH")
         current_plan = self.planning_service.get_document(
             pending["document_id"], revision=pending["revision"],
         )
         if not isinstance(current_plan, dict) or current_plan.get("error") is True:
-            self._clear_pending(scope)
+            self._clear_pending_if_current(scope, pending)
             return self._error("PLANNING_OBSERVATION_SOURCE_PLAN_NOT_FOUND")
         current_document = current_plan.get("document") or {}
         if (current_document.get("status") != "ACTIVE"
                 or current_document.get("document_id") != pending["document_id"]
                 or current_document.get("revision") != pending["revision"]):
-            self._clear_pending(scope)
+            self._clear_pending_if_current(scope, pending)
             return self._error("PLANNING_OBSERVATION_SOURCE_PLAN_SCOPE_MISMATCH")
         identity = pending["identity"]
         result = self.repository.start_unit_price_observation(
@@ -320,15 +320,15 @@ class TelegramUnitPriceObservationRuntimeService:
             owner_id=scope["owner_id"], store_id=scope["store_id"],
         )
         if not isinstance(result, dict) or result.get("error") is True:
-            self._clear_pending(scope)
+            self._clear_pending_if_current(scope, pending)
             return self._error(result.get("code") if isinstance(result, dict) else None)
         observation_id = result.get("observation_id")
         if not isinstance(observation_id, str) or not observation_id:
-            self._clear_pending(scope)
+            self._clear_pending_if_current(scope, pending)
             return self._list(scope, message="Наблюдение уже зарегистрировано.")
         pending["stage"] = "created"
         pending["observation_id"] = observation_id
-        self._set_pending(scope, pending)
+        self._set_pending_if_current(scope, pending, expected=pending)
         return self._card(observation_id, scope, message="Наблюдение создано.")
 
     def _prompt_window(self, observation_id, state_revision, result_revision, scope):
@@ -406,7 +406,7 @@ class TelegramUnitPriceObservationRuntimeService:
         finally:
             with self._lock:
                 self._collecting.discard(key)
-                self._pending.pop(scope["key"], None)
+            self._clear_pending_if_current(scope, pending)
 
     def _collect_and_persist(self, pending, date_from, date_to, scope):
         observation_id = pending["observation_id"]
@@ -511,7 +511,7 @@ class TelegramUnitPriceObservationRuntimeService:
             idempotency_key="upo-note-" + uuid4().hex,
             owner_id=scope["owner_id"], store_id=scope["store_id"],
         )
-        self._clear_pending(scope)
+        self._clear_pending_if_current(scope, pending)
         if not isinstance(result, dict) or result.get("error") is True:
             return self._error(result.get("code") if isinstance(result, dict) else None)
         return self._card(pending["observation_id"], scope, message="Заметка сохранена.")
@@ -1080,12 +1080,31 @@ class TelegramUnitPriceObservationRuntimeService:
         pending = dict(pending)
         pending["owner_id"] = scope["owner_id"]
         pending["tenant_scope"] = scope["tenant_scope"]
+        pending["_pending_token"] = token_hex(8)
         with self._lock:
             self._prune_locked()
             self._pending[scope["key"]] = pending
             self._pending.move_to_end(scope["key"])
             while len(self._pending) > 128:
                 self._pending.popitem(last=False)
+
+    def _set_pending_if_current(self, scope, pending, *, expected):
+        token = expected.get("_pending_token") if isinstance(expected, dict) else None
+        if not isinstance(token, str) or not token:
+            return False
+        updated = dict(pending)
+        updated["owner_id"] = scope["owner_id"]
+        updated["tenant_scope"] = scope["tenant_scope"]
+        updated["_pending_token"] = token_hex(8)
+        with self._lock:
+            current = self._pending.get(scope["key"])
+            if not isinstance(current, dict) or current.get("_pending_token") != token:
+                return False
+            self._pending[scope["key"]] = updated
+            self._pending.move_to_end(scope["key"])
+            while len(self._pending) > 128:
+                self._pending.popitem(last=False)
+        return True
 
     def _get_pending(self, scope):
         with self._lock:
@@ -1100,6 +1119,17 @@ class TelegramUnitPriceObservationRuntimeService:
     def _clear_pending(self, scope):
         with self._lock:
             self._pending.pop(scope["key"], None)
+
+    def _clear_pending_if_current(self, scope, expected):
+        token = expected.get("_pending_token") if isinstance(expected, dict) else None
+        if not isinstance(token, str) or not token:
+            return False
+        with self._lock:
+            current = self._pending.get(scope["key"])
+            if not isinstance(current, dict) or current.get("_pending_token") != token:
+                return False
+            self._pending.pop(scope["key"], None)
+        return True
 
     def _prune_locked(self):
         now = self.monotonic_clock()

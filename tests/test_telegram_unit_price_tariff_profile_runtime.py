@@ -1,4 +1,5 @@
 from datetime import date
+from threading import Event, Thread
 
 from telegram_app_layer.assistant_telegram_adapter import AssistantTelegramAdapter
 from services.assistant_button_handler_service import AssistantButtonHandlerService
@@ -307,6 +308,57 @@ def test_tariff_profile_screen_and_files_use_same_frozen_scenario_snapshot(tmp_p
         reset_current_tenant_user_id(token)
     assert listed["error"] is False
     assert listed["items"]
+
+
+def test_parallel_tariff_save_callback_has_one_writer_and_keeps_retry_safe(tmp_path):
+    adapter, calculator, _tariff, repository = _flow(tmp_path)
+    scenario = _scenario(calculator)
+    _public_button(adapter, _button(scenario, "Указать тариф комиссии")["callback"])
+    preview = _public_text(adapter, "100=14%")
+    save_callback = _button(preview, "✅ Сохранить для SKU")["callback"]
+    original_create = repository.create_tariff_profile
+    entered, release = Event(), Event()
+    call_count = []
+
+    def blocked_create(*args, **kwargs):
+        call_count.append(1)
+        entered.set()
+        assert release.wait(5)
+        return original_create(*args, **kwargs)
+
+    repository.create_tariff_profile = blocked_create
+    first_result = {}
+
+    def save_in_worker():
+        token = set_current_tenant_user_id(make_store_tenant_scope("user-1", "store-1"))
+        try:
+            first_result["value"] = adapter.handle_button(save_callback, user_id="user-1")
+        finally:
+            reset_current_tenant_user_id(token)
+
+    worker = Thread(target=save_in_worker)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        replay = _public_button(adapter, save_callback)
+        assert replay["error"] is True
+    finally:
+        release.set()
+        worker.join(5)
+
+    assert not worker.is_alive()
+    assert first_result["value"]["error"] is False
+    assert call_count == [1]
+    token = set_current_tenant_user_id(make_store_tenant_scope("user-1", "store-1"))
+    try:
+        listed = repository.list_tariff_profiles(
+            identity={"product_id": "p1", "offer_id": "hook-2", "sku": "3921245627"},
+            owner_id="user-1", store_id="store-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+    assert listed["error"] is False
+    assert len(listed["items"]) == 1
 
 
 def test_public_callback_from_previous_store_cannot_save(tmp_path):

@@ -5828,3 +5828,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_unit_price_tariff_profile_runtime.py`: tariff screen and CSV/JSON export use one frozen scenario snapshot; bounded rows, unknown price coverage, callback length, and tenant-scoped profile access.
 - Shared serializer tests cover supported-kind allowlist, CSV formula escaping, JSON schema, size and row bounds. Existing analytics document sender remains the only Telegram file transport.
 - Q26 focused profile: **39 passed in 2.38s**. Linked calculator/observation/tariff/export profile: **439 passed across 30 targets in 10.25s**. Syntax compilation and `git diff --check` passed; `git diff -- data` was empty. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price concurrency and scope (Q27)
+
+- `tests/test_telegram_unit_price_observation_runtime.py::test_late_collection_completion_preserves_newer_pending_note`: blocks a synthetic collector, creates a newer note input while collection is in flight, then proves the late completion preserves and successfully saves that newer draft.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py::test_parallel_tariff_save_callback_has_one_writer_and_keeps_retry_safe`: blocks the repository write, replays the same confirmation concurrently, and proves the second callback is stale and only one tariff row is created.
+- Pending operations now carry an internal unique token. Success/error cleanup compares this token; a late operation cannot clear a newer pending form. Observation-start completion also conditionally replaces only the pending action it began from. Tokens are local runtime metadata and are not persisted/exported.
+- Existing stale/replayed callback, cross-store/SKU isolation, late source/batch refresh, immutable revision, repository CAS, and cache/deep-copy tests remain in the linked profile.
+- Linked Windows/Python 3.12.10 Q16–Q27 profile: **460 passed across 31 targets in 11.03s**. No known cross-store result leak or cache-eviction KeyError was reproduced; those paths retain existing tests. Full pytest/exact-head CI remain Q33–Q35.

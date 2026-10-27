@@ -46,7 +46,7 @@
 | Q24 | VERIFIED | Production-factory end-to-end public-handler path SKU → manual tariff → price/DRR → save → observation → honest gate → return to plans/next price. Focused 1 passed; linked Q16–Q24 475 passed in 11.48s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`. |
 | Q25 | VERIFIED | Main menu/Help discovery, concise ₽/шт. result, version-bound details/return, exact ranking identity and existing long-message splitter. Focused 59 passed; linked Q16–Q25 495 passed in 12.46s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`. |
 | Q26 | VERIFIED | CSV/JSON comparison, tariff and observation exports reuse fixed allowlisted snapshots and shared document transport. Focused 39 passed; linked price-planning/export profile 439 passed across 30 targets. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. |
-| Q27 | NOT_STARTED | — |
+| Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
 | Q28 | NOT_STARTED | — |
 | Q29 | NOT_STARTED | — |
 | Q30 | NOT_STARTED | — |
@@ -336,3 +336,12 @@
 - Проверки Windows/Python 3.12.10: Q26 focused — **39 passed in 2.38s**; linked калькулятор/наблюдения/тарифы/экспорт, 30 targets — **439 passed in 10.25s**. `py_compile` по 9 затронутым Python-файлам и `git diff --check` прошли; `git diff -- data` пуст. Один первичный linked вызов не запустил тесты из-за ошибочно указанного отсутствующего target-файла; скорректированный профиль прошёл полностью. В первом адресном прогоне выявлены и исправлены две regressions в wire-up/export identity и одна перемещённая тестовая assertion; итоговый focused и linked прогоны зелёные.
 - Только synthetic fixtures и временные тестовые каталоги. Live Ozon API, `.env`, owner database и реальный Telegram sender не использовались. `DECISIONS.md` не менялся: Q26 продолжает Decision 061 / существующий owner export contract, не вводит новую систему хранения или источник данных.
 - Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. Q26 — VERIFIED; следующий этап Q27 — concurrency, stale callbacks, CAS metadata/payload и store switching.
+
+### Q27 — конкурентность и изоляция действий (2026-10-27)
+
+- Аудит связанного потока подтвердил race в `TelegramUnitPriceObservationRuntimeService`: после долгого сбора результатов `finally` безусловно удалял pending по store key. Если за это время пользователь открыл, например, форму заметки, завершившийся сбор стирал более новый черновик. Исправлено через внутренний `_pending_token`; cleanup теперь compare-and-delete, а `confirm_start` compare-and-replace. Токен генерируется на каждом изменении pending, не включается в persisted result или export.
+- Тот же compare-and-delete применён к завершению сохранения заметки и ошибок/успеха `confirm_start`, чтобы поздний ответ не очищал пользовательское состояние, созданное после старого запроса.
+- Добавлена воспроизводимая гонковая регрессия с `Event`-blocked fake collector: параллельно открывается форма заметки, затем сбор завершается; заметка остаётся доступна и сохраняется. Добавлен parallel double-click guard test вокруг блокированного SQLite create: второй callback stale, единственная запись остаётся сохранённой.
+- Остальные требования Q27 проверены существующими тестами: предыдущие store/SKU callbacks отклоняются; batch late build/refresh/edit не перезаписывает переключение/новую версию; сценарий меняется только при matching identity/version; repository CAS допускает одного победителя; immutable observation/comparison revisions и tenant-scoped reads; bounded maps защищены lock/deep-copy; evicted scenario возвращает stale без KeyError.
+- Linked Windows/Python 3.12.10 profile Q16–Q27: **460 passed across 31 targets in 11.03s**. Новые isolated tests: обе гонковые регрессии прошли. No API, owner database, live bot or Git data files were used; `git diff -- data` remains empty.
+- `DECISIONS.md` не менялся: Q27 уточняет runtime cleanup tokens поверх существующих RLock/CAS и Decision 061, не меняя persistence/interface contract. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. Следующий этап Q28 — retries, limits, cancellation, partial sources and recoverable failures.

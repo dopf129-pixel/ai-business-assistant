@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime, timezone
+from threading import Event, Thread
 
 import pytest
 
@@ -265,6 +266,66 @@ def test_note_and_finish_are_scoped_versioned_actions(flow):
     assert "завершено" in finished["message"]
     assert repo.get_unit_price_observation(observation_id, owner_id="owner-1", store_id="store-a")["observation"]["status"] == "FINISHED"
     assert all(button["text"] != "Собрать данные за период" for button in finished["keyboard"]["buttons"])
+
+
+def test_late_collection_completion_preserves_newer_pending_note(flow):
+    repo, runtime, collector, scope, document, _ = flow
+    card = _create_observation(runtime, scope, document)
+    observation_id = repo.list_unit_price_observations(
+        owner_id="owner-1", store_id="store-a",
+    )["items"][0]["observation_id"]
+    observation = repo.get_unit_price_observation(
+        observation_id, owner_id="owner-1", store_id="store-a",
+    )["observation"]
+    collect_callback = next(
+        item["callback"] for item in card["keyboard"]["buttons"]
+        if item["text"] == "Собрать данные за период"
+    )
+    runtime.handle_callback(collect_callback, user_id="owner-1")
+    entered, release = Event(), Event()
+
+    class _BlockingCollector:
+        def collect_window(self, *args, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return collector.collect_window(*args, **kwargs)
+
+    runtime.collection_service = _BlockingCollector()
+    worker_result = {}
+
+    def collect_in_worker():
+        token = set_current_tenant_user_id(
+            make_store_tenant_scope("owner-1", "store-a"),
+        )
+        try:
+            worker_result["value"] = runtime.handle_text(
+                "2026-10-01 - 2026-10-07", user_id="owner-1",
+            )
+        finally:
+            reset_current_tenant_user_id(token)
+
+    worker = Thread(target=collect_in_worker)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        note_prompt = runtime.handle_callback(
+            f"upo:note:{observation_id}:{observation['state_revision']}",
+            user_id="owner-1",
+        )
+        assert note_prompt["status"] == "OBSERVATION_NOTE_INPUT_REQUIRED"
+    finally:
+        release.set()
+        worker.join(5)
+
+    assert not worker.is_alive()
+    assert worker_result["value"]["status"] == "OBSERVATION_CARD_READY"
+    pending = runtime._get_pending(runtime._scope("owner-1"))
+    assert pending["stage"] == "note"
+    assert runtime.handle_text("Keep this newer note", user_id="owner-1")["status"] == "OBSERVATION_CARD_READY"
+    saved = repo.get_unit_price_observation(
+        observation_id, owner_id="owner-1", store_id="store-a",
+    )
+    assert saved["observation"]["note"] == "Keep this newer note"
 
 
 def test_plan_start_is_fbo_row_and_tenant_bound(flow):
