@@ -1,3 +1,5 @@
+- Q05: `tests/test_unit_price_tariff_source.py` — адаптация текущего FBO тарифа только в точку цены; `tests/test_unit_price_tariff_resolver.py` — диапазоны и отказ за пределами точки, `tests/test_unit_price_scenario_source.py` + `tests/test_current_product_economics_source.py` — интеграция source-контракта. Isolated combined profile: **88 passed**; details `UNIT_PRICE_TARIFF_SOURCE_Q05_2026-10-27.md`.
+
 # План проверок помощника выбора цены (26.10.2026)
 
 - Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q03: предметный audit/contracts; isolated Windows/Python 3.12.10 baseline — **247 passed**. Q04: `tests/test_unit_price_tariff_resolver.py` — **34 passed**, включая N03/N04 rate boundaries, range gaps/overlap/conflict, point-only tariff, exact owner/store/SKU/date/schema, limits и canonical-forward amounts. Audit: `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`; contracts: `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.

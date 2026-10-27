@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00 завершён, Q01–Q35 ожидают выполнения.
+Статус: IN_PROGRESS; Q00–Q05 завершены, Q06–Q35 ожидают выполнения.
 
 ## Исходная точка
 
@@ -24,7 +24,7 @@
 | Q02 | DONE | Изолированный baseline Windows/Python 3.12: 247 passed; Python dotenv/live credentials отключены, storage/basetemp вынесены в новую temp-папку, hashes всех 5 tracked `data/*.json` совпали до/после. Первый фактический запуск найденного runner с исправленным `PYTHONPATH=app` прошёл. |
 | Q03 | DONE | Зафиксированы outcome/tariff/ad/snapshot/observation contracts, layer boundary, limits и additive planning persistence в `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`; Decision 061. Runtime поведение пока не заявляется. |
 | Q04 | DONE | Добавлен pure `UnitPriceTariffResolver`; точные inclusive cents ranges, gaps, overlap/conflict, exact profile selection, current-price point, scope/date/scheme checks и numeric limits. Новый изолированный профиль: **34 passed in 0.44s**; подробности ниже. |
-| Q05 | NOT_STARTED | — |
+| Q05 | DONE | Official FAQ/API source checked; current FBO rate exposed only as exact current-price point via pure adapter; range remains `RANGE_SOURCE_UNAVAILABLE`. Focused profile: 88 passed; five tracked data hashes unchanged. |
 | Q06 | NOT_STARTED | — |
 | Q07 | NOT_STARTED | — |
 | Q08 | NOT_STARTED | — |
@@ -70,9 +70,9 @@
 
 ## Следующее действие / resume
 
-1. Выполнить Q05: проверить официальный тарифный источник и зафиксировать подтверждённость/ограничение current-price point.
-2. Выполнить Q06: additive tenant persistence/CAS/idempotency/quota для ручных профилей; Q15 может идти после Q03.
-3. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
+1. Выполнить Q06: additive tenant tariff-profile persistence in existing planning SQLite with revisions, idempotency, CAS, quotas and rollback.
+2. Q07: owner-facing input/confirm/cancel flow and safe manual fallback; then Q08–Q09 source resolution and wiring.
+3. Continue in dependency order; after every stage record commands, exact outcomes, protected-data hashes and commits below.
 
 ## Записи исполнения
 
@@ -121,3 +121,11 @@
 - N04 regressions проверяют дырку, inclusive overlap, конкурирующие профили и явный выбор revision, stale state revision, current point vs neighboring prices, foreign scopes/date, FBS, zero/invalid/NaN/Infinity/bool/float, истёкший профиль, скрытие небезопасного source ref и limits.
 - Изолированный Windows/Python 3.12.10 профиль: `tests/test_unit_price_tariff_resolver.py` — **34 passed in 0.44s**. Использовались новый temp/storage, dotenv disabled, credentials удалены из process env, pytest cache disabled. Никаких live запросов или owner-data изменений.
 - Q04 — PASS. По Q05 автоматический источник рассматривается отдельно; resolver не придумывает тарифы и не подставляет устаревшие defaults.
+
+### Q05 — current-price commission source boundary (2026-10-27)
+
+- Official Ozon Seller API FAQ and linked `ProductAPI_GetProductInfoPricesV4` page were checked; current project client calls `/v5/product/info/prices`. Official FAQ confirms a method to read a product commission percentage, but accessible contract does not confirm hypothetical seller-price input or a rate grid. See `UNIT_PRICE_TARIFF_SOURCE_Q05_2026-10-27.md` for source links and exact limitations.
+- Added `app/services/unit_price_tariff_source.py`, a pure adapter over the already fetched `UnitPriceScenarioSource` snapshot. It exposes only a same-price/same-date FBO `CURRENT_PRICE_POINT`; it never performs a second API call, persists data or propagates a point to other prices. Other prices remain `RANGE_SOURCE_UNAVAILABLE` for Q06–Q07 manual continuation.
+- Added `tests/test_unit_price_tariff_source.py`; isolated `test_unit_price_tariff_source.py`, `test_unit_price_tariff_resolver.py`, `test_unit_price_scenario_source.py` and `test_current_product_economics_source.py` on Windows/Python 3.12.10: **88 passed in 1.47s**. An earlier focused attempt had 6 failures caused by an incorrect synthetic tenant delimiter; fixture was corrected to repository convention. The final expanded source integration + source + resolver run passed.
+- Five tracked `data/*.json` SHA-256 hashes were unchanged. No live API, credentials, owner storage or bot process was used.
+- Q05 — PASS. Next dependency: Q06 durable manual tariff profile repository.
