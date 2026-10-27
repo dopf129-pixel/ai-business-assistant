@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q18 завершены, Q19 выполняется, Q20–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q20 завершены, Q21–Q35 ожидают.
 
 ## Исходная точка
 
@@ -39,7 +39,7 @@
 | Q17 | VERIFIED | Read-only collector exact-bound к FBO наблюдению и завершённому окну; использует текущие finance/Performance adapters и root budget. Unknown field/type metadata сохранены без raw values; 172 focused tests passed. Acceptance ниже. |
 | Q18 | VERIFIED | Pure normalizer сохраняет суммы/основания, exact-compatible DRR, weighted denominators, conflict-safe dedup и signed correction semantics; текущие неизвестные price/quantity/discount coverage блокируют observed profit. 184 linked tests passed. Acceptance ниже. |
 | Q19 | VERIFIED | Добавлен pure evaluator: модель доступна только по совместимому CPC и подтверждённому знаменателю успешных единиц; иначе сохраняются `INSUFFICIENT_DATA`/`INCOMPARABLE`. Q16–Q19 linked profile: 189 passed. Acceptance ниже. |
-| Q20 | NOT_STARTED | — |
+| Q20 | VERIFIED | Telegram наблюдение: ручная установка цены, сбор, ревизия результата, история, заметки и завершение; linked Q16–Q20 profile 197 passed. Acceptance ниже. |
 | Q21 | NOT_STARTED | — |
 | Q22 | NOT_STARTED | — |
 | Q23 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q20: встроить verified Q19 evaluator в полный Telegram observation cycle. Использовать существующий result repository для append-only результата, показывать модель отдельно от факта, сохранять exact owner/store/SKU/price scope, повторно открывать историю и завершать наблюдение; Ozon reads остаются явными и read-only.
+Продолжить с Q21: проверить quality/comparability gates для Q19 model и durable observation revisions. Сохранять перечисление причин и блокировать verified label при неподтверждённых окнах, ценах, количествах, basis, тарифе, налоге, расходах, overlap, freshness и confounders.
 
 ## Записи исполнения
 
@@ -264,3 +264,13 @@
 - Проверки использовали временные storage/basetemp; dotenv/provider plugins отключены, credential variables удалены. Owner DB, tracked `data/*.json`, API, live bot и production env не использовались. Полный pytest/exact-head CI остаются Q33–Q35.
 - Документация: `UNIT_PRICE_OBSERVATION_RESULT_Q19_2026-10-27.md`, CHANGELOG, CURRENT_STATE, TEST_MAP. DECISIONS не менялся — Decision 061/Q03 уже задают pure service boundary и evidence labels.
 - Классификация: **Architecture Review Required** — добавлен application service, использующий установленный canonical unit calculator; storage/source schemas не менялись.
+
+### Q20 — Telegram lifecycle наблюдения цены (2026-10-27)
+
+- Добавлен `TelegramUnitPriceObservationRuntimeService` и production-factory wiring: старт только с сохранённого FBO-плана и точной выбранной строки SKU (включая multi-SKU batch), явное подтверждение уже установленной владельцем цены/времени, чтение периода через Q17, Q18 normalization, Q19 evaluation, append-only результат, карточка/история/заметка/завершение.
+- Подключены публичный entrypoint из меню калькулятора при включённом manual tariff/FBO, кнопка наблюдения из каждой поддерживаемой строки сохранённого плана, маршрутизация callback/text handler и очистка временного ввода при переходах. Callback/черновики ограничены owner/store/tenant; старые revision callbacks отклоняются; Ozon mutations отсутствуют.
+- Для multi-SKU плана запись привязана к выбранному `item_index`; перед подтверждением повторно проверяются активность/revision плана, а при сборе единственная точная identity повторно находится в неизменённом frozen плане. SKU/имена/сырые API данные не показываются и не сохраняются в Telegram result.
+- Добавлена проверка окна до вызова источников: 3–56 календарных дней, конец строго раньше текущей локальной даты и начало не раньше локальной effective date заявленной цены. Ошибочные окна оставляют форму для повторного ввода; проверка дополнительно остаётся в независимом Q17 collector.
+- Новые проверки: `tests/test_telegram_unit_price_observation_runtime.py` — 7 тестов на lifecycle, reopen после нового runtime, incomplete result, stale revision, notes/finish, FBO/tenant boundary, валидацию периода до источника, handler/factory route и multi-SKU exact row; `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production composition. Адресный профиль после оконной регрессии: **8 passed in 1.34s**.
+- Связанный профиль 14 Q16–Q20 modules/test targets: **197 passed in 4.70s** (Windows/Python 3.12). Python AST parse всех 7 изменённых/добавленных Python-файлов прошёл; `git diff --check` прошёл с уведомлениями Git о будущей LF→CRLF нормализации только Markdown; `git diff -- data` пуст. Тесты использовали временные storage/basetemp и synthetic collector; .env, credential values, live API, owner DB, tracked data и бот не использовались.
+- Acceptance: `UNIT_PRICE_OBSERVATION_TELEGRAM_Q20_2026-10-27.md`. Q20 — VERIFIED после прохождения linked Q16–Q20 профиля. Классификация: **Architecture Review Required** (новый Telegram runtime и изменение production factory/handlers); Decision 061/Q03 границы сохранены.

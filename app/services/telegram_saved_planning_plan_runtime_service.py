@@ -871,6 +871,17 @@ class TelegramSavedPlanningPlanRuntimeService:
                     revision=document["revision"], state_revision=document["state_revision"],
                 ),
             })
+        observation_runtime = getattr(self, "unit_price_observation_runtime_service", None)
+        callback_builder = getattr(observation_runtime, "plan_start_callback", None)
+        if callable(callback_builder):
+            for item_index, item in enumerate(payload.get("items") or []):
+                callback = callback_builder(scope, document, item_index=item_index)
+                if callback:
+                    identity = item.get("identity") or {}
+                    buttons.insert(3 + item_index, {
+                        "text": f"Наблюдать цену · SKU {identity.get('sku', '—')}",
+                        "callback": callback,
+                    })
         if (
             self.plan_fact_comparison_service is not None
             and self.period_profit_sku_runtime is not None

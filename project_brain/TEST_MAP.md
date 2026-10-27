@@ -5778,3 +5778,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 
 - `tests/test_unit_price_observation_result_service.py` — canonical `UnitPriceScenarioService` parity; CPC-per-confirmed-successful-unit modeling; exact identity/price gates; unavailable denominator, mixed price and incompatible source date-basis outcomes; repository result-schema compatibility; caller-provided canonical labels cannot promote aggregates.
 - Q16–Q19 linked isolated profile: **189 passed in 4.10s** across 12 observation, repository, finance, Performance and production-wiring test modules. Full pytest/exact-head CI remains scheduled for Q33–Q35.
+
+# Telegram unit-price observation lifecycle (Q20)
+
+- `tests/test_telegram_unit_price_observation_runtime.py` — saved-plan entry, manual price/effective-time confirmation, exact single- or multi-SKU FBO scope, completed local date window validation before source access, durable result append, incomplete model labels, history/reopen after runtime recreation, stale callback rejection, note and finish flow.
+- `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production factory composes the observation runtime and routes it through the button handler and saved-plan runtime.
+- Q20 focused isolated Windows/Python 3.12 profile: **8 passed in 1.34s**. Linked Q16–Q20 profile follows in the progress log; full pytest/exact-head CI remains Q33–Q35.

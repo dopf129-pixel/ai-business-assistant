@@ -594,6 +594,7 @@ class AssistantKeyboardService:
             ])
         if include_manual_tariff:
             buttons.append({"text": "Указать тариф комиссии", "callback": f"upt:start:{sid}:{ver}"})
+            buttons.append({"text": "Наблюдения установленной цены", "callback": "upo:m"})
         buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
         buttons.append({"text": "Сколько можно тратить на рекламу?", "callback": f"upc:j:{sid}:{ver}"})
         buttons.extend([

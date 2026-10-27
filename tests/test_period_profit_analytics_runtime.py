@@ -665,6 +665,9 @@ def test_production_factory_routes_period_analytics_without_requery(
 
     runner = create_telegram_assistant()
     runtime = runner.period_profit_runtime_service
+    assert runner.unit_price_observation_runtime_service is not None
+    assert runner.button_handler.unit_price_observation_runtime_service is runner.unit_price_observation_runtime_service
+    assert runner.saved_planning_plan_runtime_service.unit_price_observation_runtime_service is runner.unit_price_observation_runtime_service
     query = _Query(_result())
     runtime.query_service = query
     tenant_token = set_current_tenant_user_id("seller-a")
