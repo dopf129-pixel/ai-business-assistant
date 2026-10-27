@@ -5836,3 +5836,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Pending operations now carry an internal unique token. Success/error cleanup compares this token; a late operation cannot clear a newer pending form. Observation-start completion also conditionally replaces only the pending action it began from. Tokens are local runtime metadata and are not persisted/exported.
 - Existing stale/replayed callback, cross-store/SKU isolation, late source/batch refresh, immutable revision, repository CAS, and cache/deep-copy tests remain in the linked profile.
 - Linked Windows/Python 3.12.10 Q16–Q27 profile: **460 passed across 31 targets in 11.03s**. No known cross-store result leak or cache-eviction KeyError was reproduced; those paths retain existing tests. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price limits and failure recovery (Q28)
+
+- `tests/test_unit_price_observation_collection_service.py::test_cancelled_parent_operation_makes_no_source_attempts_and_stays_incomplete`: cancelled parent trace causes zero finance/Performance calls and leaves both sources unavailable.
+- `tests/test_unit_price_observation_collection_service.py::test_time_budget_expiry_stops_remaining_days_and_optional_performance`: fake clock expires during first day; only one request/day is recorded, later days and Performance are not requested, and finance remains `PARTIAL` without zero-fill.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_collection_retries_only_after_explicit_user_action`: one synthetic 429 creates no result revision and no automatic retry; an explicit repeat action makes one fresh attempt and persists only after recovery.
+- Existing tests in `test_unit_price_observation_collection_service.py` cover shared attempt budget, tighter parent budget, rate-limited daily source, partial windows and unconfigured Performance. Repository tests cover quotas, immutable result revisions and atomic rollback; export serializer tests cover max size/rows/schema and formula escaping.
+- Q16–Q28 linked Windows/Python 3.12.10 profile: **474 passed across 32 targets in 11.15s**. No production change was needed; full pytest/exact-head CI remain Q33–Q35.

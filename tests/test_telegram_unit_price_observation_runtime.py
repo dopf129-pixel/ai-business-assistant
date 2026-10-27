@@ -328,6 +328,49 @@ def test_late_collection_completion_preserves_newer_pending_note(flow):
     assert saved["observation"]["note"] == "Keep this newer note"
 
 
+def test_collection_retries_only_after_explicit_user_action(flow):
+    repo, runtime, collector, _, document, _ = flow
+    card = _create_observation(runtime, runtime._scope("owner-1"), document)
+    observation_id = repo.list_unit_price_observations(
+        owner_id="owner-1", store_id="store-a",
+    )["items"][0]["observation_id"]
+    collect_callback = next(
+        item["callback"] for item in card["keyboard"]["buttons"]
+        if item["text"] == "Собрать данные за период"
+    )
+
+    class _FailOnceCollector:
+        def __init__(self):
+            self.calls = 0
+
+        def collect_window(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {"error": True, "code": "OZON_RATE_LIMITED"}
+            return collector.collect_window(*args, **kwargs)
+
+    failing = _FailOnceCollector()
+    runtime.collection_service = failing
+    runtime.handle_callback(collect_callback, user_id="owner-1")
+    failed = runtime.handle_text("2026-10-01 - 2026-10-07", user_id="owner-1")
+    assert failed["error"] is True
+    assert failed["code"] == "OZON_RATE_LIMITED"
+    assert failing.calls == 1
+    assert repo.get_unit_price_observation(
+        observation_id, owner_id="owner-1", store_id="store-a",
+    )["observation"]["result_revision"] == 0
+
+    retried_prompt = runtime.handle_callback(collect_callback, user_id="owner-1")
+    assert retried_prompt["status"] == "OBSERVATION_WINDOW_INPUT_REQUIRED"
+    recovered = runtime.handle_text("2026-10-01 - 2026-10-07", user_id="owner-1")
+    assert recovered["status"] == "OBSERVATION_CARD_READY"
+    assert failing.calls == 2
+    assert collector.calls == [(observation_id, "2026-10-01", "2026-10-07")]
+    assert repo.get_unit_price_observation(
+        observation_id, owner_id="owner-1", store_id="store-a",
+    )["observation"]["result_revision"] == 1
+
+
 def test_plan_start_is_fbo_row_and_tenant_bound(flow):
     _, runtime, _, scope, document, _ = flow
     multi = deepcopy(document)

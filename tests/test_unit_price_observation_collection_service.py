@@ -316,6 +316,69 @@ def test_collector_respects_a_tighter_parent_operation_budget():
     assert advertising.calls == []
 
 
+def test_cancelled_parent_operation_makes_no_source_attempts_and_stays_incomplete():
+    finance = Finance()
+    advertising = Advertising()
+    parent = PeriodProfitOperationTrace(
+        "cancelled_owner_operation", time_budget_seconds=60,
+        ozon_request_budget=10, clock=lambda: 100.0,
+    )
+    parent.cancel()
+    token = activate_period_profit_trace(parent)
+    try:
+        result = _service(finance=finance, advertising=advertising).collect_window(
+            "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+        )
+    finally:
+        reset_period_profit_trace(token)
+
+    finance_source = next(item for item in result["sources"] if item["name"] == "FINANCE")
+    performance_source = next(item for item in result["sources"] if item["name"] == "PERFORMANCE")
+    assert result["status"] == "SOURCE_UNAVAILABLE"
+    assert finance_source["status"] == performance_source["status"] == "SOURCE_UNAVAILABLE"
+    assert finance_source["reason"] == performance_source["reason"] == "OZON_OPERATION_CANCELLED"
+    assert result["diagnostics"]["http_attempts"] == 0
+    assert result["diagnostics"]["collection_http_attempts"] == 0
+    assert finance.days == []
+    assert advertising.calls == []
+
+
+def test_time_budget_expiry_stops_remaining_days_and_optional_performance():
+    now = {"seconds": 100.0}
+
+    class _SlowFirstDayFinance(Finance):
+        def get_daily_finance(self, day, *, sku):
+            result = super().get_daily_finance(day, sku=sku)
+            now["seconds"] = 161.0
+            return result
+
+    finance = _SlowFirstDayFinance()
+    advertising = Advertising()
+    parent = PeriodProfitOperationTrace(
+        "slow_owner_operation", time_budget_seconds=60,
+        ozon_request_budget=10, clock=lambda: now["seconds"],
+    )
+    token = activate_period_profit_trace(parent)
+    try:
+        result = _service(finance=finance, advertising=advertising).collect_window(
+            "observation-1", date_from="2026-10-20", date_to="2026-10-22",
+        )
+    finally:
+        reset_period_profit_trace(token)
+
+    finance_source = next(item for item in result["sources"] if item["name"] == "FINANCE")
+    performance_source = next(item for item in result["sources"] if item["name"] == "PERFORMANCE")
+    assert result["status"] == "INSUFFICIENT_DATA"
+    assert finance_source["status"] == "PARTIAL"
+    assert finance_source["reason"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+    assert performance_source["status"] == "SOURCE_UNAVAILABLE"
+    assert performance_source["reason"] == "OZON_OPERATION_TIME_BUDGET_EXHAUSTED"
+    assert result["metrics"]["sample_days"] == 1
+    assert result["diagnostics"]["http_attempts"] == 1
+    assert len(finance.days) == 1
+    assert advertising.calls == []
+
+
 @pytest.mark.parametrize("date_from,date_to", [
     ("2026-10-24", "2026-10-27"),  # includes local today
     ("2026-10-20", "2026-10-21"),  # too short

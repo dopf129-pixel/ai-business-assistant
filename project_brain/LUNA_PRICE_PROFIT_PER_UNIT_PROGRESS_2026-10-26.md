@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q26 завершены, Q27–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q28 завершены, Q29–Q35 ожидают.
 
 ## Исходная точка
 
@@ -47,7 +47,7 @@
 | Q25 | VERIFIED | Main menu/Help discovery, concise ₽/шт. result, version-bound details/return, exact ranking identity and existing long-message splitter. Focused 59 passed; linked Q16–Q25 495 passed in 12.46s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`. |
 | Q26 | VERIFIED | CSV/JSON comparison, tariff and observation exports reuse fixed allowlisted snapshots and shared document transport. Focused 39 passed; linked price-planning/export profile 439 passed across 30 targets. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. |
 | Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
-| Q28 | NOT_STARTED | — |
+| Q28 | VERIFIED | Fake-clock cancellation/time budget, partial source and explicit retry semantics verified. Existing attempt budget/quota/export-size/rollback guards pass in linked Q16–Q28 profile: 474 passed across 32 targets. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. |
 | Q29 | NOT_STARTED | — |
 | Q30 | NOT_STARTED | — |
 | Q31 | NOT_STARTED | — |
@@ -345,3 +345,11 @@
 - Остальные требования Q27 проверены существующими тестами: предыдущие store/SKU callbacks отклоняются; batch late build/refresh/edit не перезаписывает переключение/новую версию; сценарий меняется только при matching identity/version; repository CAS допускает одного победителя; immutable observation/comparison revisions и tenant-scoped reads; bounded maps защищены lock/deep-copy; evicted scenario возвращает stale без KeyError.
 - Linked Windows/Python 3.12.10 profile Q16–Q27: **460 passed across 31 targets in 11.03s**. Новые isolated tests: обе гонковые регрессии прошли. No API, owner database, live bot or Git data files were used; `git diff -- data` remains empty.
 - `DECISIONS.md` не менялся: Q27 уточняет runtime cleanup tokens поверх существующих RLock/CAS и Decision 061, не меняя persistence/interface contract. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. Следующий этап Q28 — retries, limits, cancellation, partial sources and recoverable failures.
+
+### Q28 — лимиты и восстановление после сбоев (2026-10-27)
+
+- Проверены текущие source boundaries: collector открывает одну operation trace, разделяет time/request budget с parent, учитывает каждый зарезервированный outbound attempt и не продолжает к следующим дням/Performance после исчерпания лимита. Частичный финансовый период сохраняет только реально полученные дни и status `PARTIAL`; absent дни не заполняются нулями. Профиль Performance при прекращении операции не вызывается.
+- Добавлены fake-clock/attempt regressions: отменённая parent operation — 0 source attempts; таймаут после первого дня — 1 finance request, 1 sample day, finance `PARTIAL`, Performance отсутствует. Добавлен Telegram retry: synthetic 429 не запускает автоматическую новую попытку и не создаёт result revision; повтор возможен только после явного нажатия владельца, затем новая успешная попытка создает ровно одну revision.
+- Существующие проверки остаются основанием для retry/429 через finance adapter, overall 64-attempt cap, tighter parent request cap, perf optionality, bounded export size/rows/columns/formula guards, per-store/result quotas и DB atomic rollback. Полный Q16–Q28 linked profile — **474 passed across 32 targets in 11.15s**.
+- Код production не менялся: ранее реализованные guards уже соответствуют критериям; изменения в этом этапе добавили только точные failure/retry regression tests и документацию. `DECISIONS.md` не менялся. No `.env`, owner data, live bot or live Ozon calls; `git diff -- data` пуст.
+- Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. Q28 — VERIFIED; следующий этап Q29 — old/new DB compatibility, backup/restore, privacy and synthetic-root verification.
