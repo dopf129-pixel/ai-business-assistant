@@ -5844,3 +5844,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_telegram_unit_price_observation_runtime.py::test_collection_retries_only_after_explicit_user_action`: one synthetic 429 creates no result revision and no automatic retry; an explicit repeat action makes one fresh attempt and persists only after recovery.
 - Existing tests in `test_unit_price_observation_collection_service.py` cover shared attempt budget, tighter parent budget, rate-limited daily source, partial windows and unconfigured Performance. Repository tests cover quotas, immutable result revisions and atomic rollback; export serializer tests cover max size/rows/schema and formula escaping.
 - Q16–Q28 linked Windows/Python 3.12.10 profile: **474 passed across 32 targets in 11.15s**. No production change was needed; full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price persistence, privacy and restore (Q29)
+
+- `tests/test_unit_price_backup_restore.py` creates a synthetic store tariff with two ranges, a saved plan, an observation and two immutable result revisions; backup/verify/dry-run/restore into a new root preserves exact payloads and history after reopening. It also verifies cross-store isolation and rejection of a result containing an unknown `raw_response` field.
+- Existing addressable compatibility tests remain part of this stage: `test_v3_database_migration_adds_observation_and_comparison_tables_preserving_plan`, `test_v4_migration_preserves_observation_result_and_adds_comparison_history`, legacy planning schema migration, and atomic v2 migration rollback.
+- Isolated Windows/Python 3.12 Q29 profile: **5 passed in 0.95s**. Full pytest and exact-head CI remain Q33–Q35.

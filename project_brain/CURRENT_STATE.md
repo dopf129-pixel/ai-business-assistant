@@ -1,8 +1,14 @@
+# 2026-10-27 — Q29: сохранность калькулятора цены при backup/restore
+
+- Q29 завершён: синтетические тариф, план, наблюдение и две версии результата восстановлены через существующий backup в новый storage root; scope и privacy guards подтверждены.
+- Проверки: новый backup/restore тест + адресные старые schema migrations — **5 passed in 0.95s**. Полный pytest и exact-head CI остаются Q33–Q35.
+- Acceptance: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`; журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`.
+
 # 2026-10-26 — следующая программа: выбор цены по прибыли с единицы
 
 - PR #718 слит в main: `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`; reviewed head `8c1408d55d31e111761bdee708a2792ab1dafa33`, Verify #40348020402 успешен на Windows/Linux и Docker. Записи ниже о незавершённом merge относятся к предыдущим checkpoint.
 - По решению владельца подготовлено `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`: 8 модулей A–H, этапы Q00–Q35. Цель — прибыль в рублях с одной проданной единицы, с тарифными диапазонами, ручными комиссиями, рекламными сценариями и проверкой по наблюдениям.
-- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q28 пройдены 27.10.2026: поздние ответы сохраняют новый черновик; отмена/429/истечение общего лимита не создают успешную полную revision. Q28 linked профиль: 474 passed на 32 наборах. Полный pytest/exact-head CI остаются Q33–Q35. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`.
+- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q29 пройдены 27.10.2026: backup/restore синтетической базы сохраняет тарифы, планы и exact result history; прошлый Q28 linked профиль — 474 passed на 32 наборах. Q29 restore/migration профиль — 5 passed. Полный pytest/exact-head CI остаются Q33–Q35. Acceptance Q29: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`.
 - ТЗ требует расширять существующие calculator/TaxService/planning/finance adapters, сохранять старые планы и данные, закончить на PR с зелёным exact-head CI и независимым review package. Merge/deploy/real bot запуск в новую программу не входят.
 
 # 2026-10-26 — историческая программа: завершение существующего функционала

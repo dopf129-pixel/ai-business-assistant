@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q28 завершены, Q29–Q35 ожидают.
+Статус: IN_PROGRESS; Q00–Q29 завершены, Q30–Q35 ожидают.
 
 ## Исходная точка
 
@@ -48,7 +48,7 @@
 | Q26 | VERIFIED | CSV/JSON comparison, tariff and observation exports reuse fixed allowlisted snapshots and shared document transport. Focused 39 passed; linked price-planning/export profile 439 passed across 30 targets. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. |
 | Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
 | Q28 | VERIFIED | Fake-clock cancellation/time budget, partial source and explicit retry semantics verified. Existing attempt budget/quota/export-size/rollback guards pass in linked Q16–Q28 profile: 474 passed across 32 targets. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. |
-| Q29 | NOT_STARTED | — |
+| Q29 | VERIFIED | Синтетический N13: тариф, план, observation и две версии результата пережили backup/verify/dry-run/restore в новый root; scope и приватность проверены. Q29 профиль: 5 passed, включая v2/v3/v4 migrations. Acceptance ниже. |
 | Q30 | NOT_STARTED | — |
 | Q31 | NOT_STARTED | — |
 | Q32 | NOT_STARTED | — |
@@ -70,7 +70,7 @@
 
 ## Следующее действие / resume
 
-Продолжить с Q26: extend existing allowlisted analytics serializer/document transport for unit-price comparisons, tariff profiles and observations, then Q27–Q35 in dependency order.
+Продолжить с Q30: пройти минимум три production-composition пользовательских flow через public handlers и synthetic sources; затем Q31–Q35 по dependency order.
 
 ## Записи исполнения
 
@@ -353,3 +353,11 @@
 - Существующие проверки остаются основанием для retry/429 через finance adapter, overall 64-attempt cap, tighter parent request cap, perf optionality, bounded export size/rows/columns/formula guards, per-store/result quotas и DB atomic rollback. Полный Q16–Q28 linked profile — **474 passed across 32 targets in 11.15s**.
 - Код production не менялся: ранее реализованные guards уже соответствуют критериям; изменения в этом этапе добавили только точные failure/retry regression tests и документацию. `DECISIONS.md` не менялся. No `.env`, owner data, live bot or live Ozon calls; `git diff -- data` пуст.
 - Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. Q28 — VERIFIED; следующий этап Q29 — old/new DB compatibility, backup/restore, privacy and synthetic-root verification.
+
+### Q29 — persistence, privacy и восстановление (2026-10-27)
+
+- Подтверждено, что тарифные профили, планы, наблюдения и их immutable results хранятся в существующей SQLite-базе `PlanningWorkspaceRepository`, которую уже архивирует `BotBackupService`. Новый механизм хранения/backup не вводился.
+- Добавлен synthetic end-to-end тест: owner/store создаёт тариф с двумя диапазонами, план, observation и две версии результата; выполняются backup, verify, dry-run, restore в отдельный root и чтение через новую repository instance. Проверены совпадение данных и revisions, отказ cross-store чтения, отказ записи `raw_response` и отсутствие тестового secret sentinel в SQLite.
+- Дополнительно прошли существующие миграционные проверки: legacy planning schema, additive v2 rollback, schema v3→v5 и v4→v5 с сохранением плана/результатов.
+- Windows/Python 3.12 isolated Q29 profile: **5 passed in 0.95s**. В первом запуске исправлен только синтетический clock fixture; production code не менялся. `git diff -- data` пуст; production data, `.env`, API и живой бот не использовались.
+- Acceptance: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`. Q29 — VERIFIED. Следующий этап Q30 — три сквозных пользовательских потока через production factory/public Telegram handlers.
