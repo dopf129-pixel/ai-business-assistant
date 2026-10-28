@@ -14,7 +14,7 @@
 # PR #720 повторное review исправление R8 (2026-10-28)
 
 - `tests/test_unit_price_batch_plan_service.py::test_changing_target_retries_snapshot_row_after_solver_budget_exhaustion`: два SKU исчерпывают per-row лимит при цели 50%; явная смена на 0% повторно рассчитывает оба сохранённых снимка и получает `READY` без выхода за лимит.
-- Адресный batch/target профиль: **92 passed in 0.90s**. Связанный девятимодульный профиль тарифов, batch solver и наблюдений: **165 passed in 4.14s** (Windows/Python 3.12). Полный pytest и exact-head CI для R8 ожидаются.
+- Адресный batch/target профиль: **92 passed in 0.90s**. Связанный девятимодульный профиль тарифов, batch solver и наблюдений: **165 passed in 4.14s** (Windows/Python 3.12). Полный pytest в отдельной временной worktree на коде `2f03edcd`: **3,997 passed in 48.17s**; основной checkout и `data/` чистые. Exact-head CI после публикации ожидается.
 
 # PR #720 повторные review исправления R6–R7 (2026-10-28)
 
