@@ -204,6 +204,30 @@ def test_unknown_schema_is_rejected_and_unrecognized_raw_fields_are_not_returned
     assert "raw-id" not in repr(result)
 
 
+def test_optional_opaque_cohort_reference_is_allowlisted_and_fingerprinted():
+    cohort_ref = "a" * 64
+    evidence = _evidence([], cohort_ref=cohort_ref)
+
+    result = UnitEconomicsExpenseNormalizer.normalize(evidence)
+    without_cohort = UnitEconomicsExpenseNormalizer.normalize(_evidence([]))
+
+    assert result["error"] is False
+    assert result["cohort_ref"] == cohort_ref
+    assert result["source_revision"] != without_cohort["source_revision"]
+    assert "cohort_ref" not in result["coverage"]
+
+
+@pytest.mark.parametrize("cohort_ref", ["", "A" * 64, "a" * 63, "g" * 64, 123])
+def test_malformed_optional_cohort_reference_rejects_snapshot_without_echoing_value(cohort_ref):
+    result = UnitEconomicsExpenseNormalizer.normalize(_evidence([], cohort_ref=cohort_ref))
+
+    assert result["error"] is True
+    assert result["code"] == "UNIT_ECONOMICS_EVIDENCE_INVALID"
+    assert "cohort_ref" not in repr(result)
+    if cohort_ref:
+        assert str(cohort_ref) not in repr(result)
+
+
 def test_unknown_timezone_is_preserved_as_unknown_and_negative_zero_is_canonicalized():
     evidence = _evidence([_operation("posting-A", [
         _component("part", "SERVICE_X", "-0.004", attribution="WINDOW_ALLOCATION"),

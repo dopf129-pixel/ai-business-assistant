@@ -1,8 +1,9 @@
-# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W06
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W07
 
 - W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
-- W03 закрепил архитектуру Decision 064. W04 зафиксировал synthetic numeric oracles N01–N18; baseline профиль — **334 passed**. W05 добавил pure нормализацию подписанных расходов, dedup/conflict, ownership ledger и coverage. W06 добавил resolver финансовой рекламы и reconciliation-only Performance CPC; связанный рекламный профиль — **90 passed**.
-- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`, `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`. Ozon adapters, расширенный runtime и DB schema ещё не реализованы; программа IN_PROGRESS, следующий этап W07.
+- W03 закрепил архитектуру Decision 064. W04 зафиксировал synthetic numeric oracles N01–N18; baseline профиль — **334 passed**. W05 добавил pure нормализацию подписанных расходов, dedup/conflict, ownership ledger и coverage. W06 добавил resolver финансовой рекламы и reconciliation-only Performance CPC; связанный профиль — **90 passed**.
+- W07 добавил pure return/non-buyout resolver, exact delivered/returned/retained cohort gate и отдельный inventory loss/recovery/compensation evidence. Optional opaque cohort binding проходит через нормализатор; отсутствие связи даёт структурированный incomplete result и закрывает strict расчёт. Связанный профиль W07/W06/W05 и legacy returns: **115 passed in 1.89s**.
+- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`, `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`, `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`. Source adapters, expanded runtime and DB schema not implemented; program IN_PROGRESS, next W08.
 
 # 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
 

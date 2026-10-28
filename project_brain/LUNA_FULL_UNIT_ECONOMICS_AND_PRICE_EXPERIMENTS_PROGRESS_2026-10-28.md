@@ -2,7 +2,7 @@
 
 Дата: 28.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W06 завершены; W07 следующий.
+Статус: IN_PROGRESS. W00–W07 завершены; W08 следующий.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,7 @@
 
 ## Resume
 
-- Следующий этап: W07.
+- Следующий этап: W08.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
 - W00 implementation HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
 - W01 audited incoming HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; evidence: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`.
@@ -33,7 +33,7 @@
 | W04 | W03 | DONE | 28.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, incoming code HEAD `aae26f899458df3c2a86dfab6814b2915f0b4611`: independently recalculated numeric/behavioral oracles N01–N18 and checked legacy calculator/TaxService outputs. 22 existing baseline suites passed: **334 passed in 6.97s** on Python 3.12.10/pytest 8.4.2 in disposable checkout and synthetic storage. Initial local attempt lacked IANA tzdata in the venv; rerun used already-installed local zoneinfo via `PYTHONTZPATH`, with no project dependency/code change. `git diff --check` passed and `git diff -- data` was empty. New code/regressions are not claimed. Evidence: `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`. |
 | W05 | W03,W04 | DONE | 28.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, incoming code HEAD `f3576fbc`: добавлен pure `UnitEconomicsExpenseNormalizer` для exact scope/window, signed Decimal money, source/component subparts, idempotent dedup/conflict, ownership ledger и page coverage gates; raw IDs/rows не выходят из функции. Regression profile с соседним existing observation normalizer: **29 passed in 0.52s**; `py_compile`, `git diff --check` PASS; owner data не менялись, live API не вызывался. Evidence: `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`. |
 | W06 | W05 | DONE | 28.10.2026, incoming code HEAD `ebe40128`: добавлен чистый `UnitEconomicsAdvertisingEvidenceService`, который принимает только нормализованные snapshot contracts. Явные финансовые CPC/CPO/OTHER — primary; Performance CPC — только сверка и не добавляется к финансовой сумме. Неизвестный/mismatched component key/category, partial page, account-level и window-allocation блокируют SKU total; account expenses остаются отдельно даже при нулевой сумме после corrections. RUB/unit требует complete exact SKU scope, recurring confirmed origin, positive compatible denominator и compatible date window; absolute spend не ограничен ценой. Добавлено `ADVERTISING_OTHER` в category contract. Адресный Windows/Python 3.12.10 профиль: **90 passed in 1.77s** на W06/W05/observation normalizer и трёх связанных legacy advertising suites. No Ozon API/owner data/bot; acceptance: `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`. |
-| W07 | W05 | NOT_STARTED | — |
+| W07 | W05 | DONE | 28.10.2026, incoming code HEAD `db5bb230`: добавлен pure `UnitEconomicsReturnEvidenceService` для явных return/non-buyout finance components, exact delivered→returned→retained quantity, отдельного inventory disposition/COGS и non-overlapping compensation. Несовпадение числа, owner/store/SKU/cohort, неполные страницы, unknown/pending disposition, credits и отсутствующая комиссия блокируют strict RUB/unit; суммы по posting/средние и row count не используются. Optional opaque 256-bit `cohort_ref` добавлен обратно совместимо в нормализатор и W03 контракт; adapter обязан создавать случайный токен только после доказанной transient связи, сырой ID не сохраняется. W07 fixtures проходят через нормализатор. Связанный изолированный Windows/Python 3.12.10 профиль: **115 passed in 1.89s**; финальный прогон после исправления regression assertions/import. Acceptance: `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`. Реальные источники/коллектор не подключены; data/.env/DB, Ozon и бот не использовались. |
 | W08 | W05 | NOT_STARTED | — |
 | W09 | W06,W07,W08 | NOT_STARTED | — |
 | W10 | W09 | NOT_STARTED | — |

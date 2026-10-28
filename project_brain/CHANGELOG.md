@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-28 — расширенная экономика SKU и эксперименты, W07
+
+- Добавлен pure resolver возвратных/невыкупных расходов и exact retained-cohort quantity с отдельной оценкой восстановления товара, безвозвратного COGS и компенсации.
+- Строгий RUB/unit закрывается при неполной атрибуции/страницах, несовпадении количества/когорты, неизвестном состоянии товара или неподтверждённой компенсации; абсолютные posting totals и средние не становятся затратой SKU.
+- Нормализатор расходов обратно совместимо поддерживает optional opaque cohort binding token. Это только перенос доказанной transient связи; сборщик API и сохранение токена не добавлены.
+- W07 isolated connected profile: **115 passed in 1.89s**. No real Ozon requests, bot start, credentials, `.env` or owner data used. Details: `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`.
+
 ## 2026-08-30
 
 ### Project Brain reconciliation after Finance Evidence Availability v554-v560

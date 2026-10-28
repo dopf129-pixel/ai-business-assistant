@@ -46,6 +46,7 @@ class UnitEconomicsExpenseNormalizer:
     _SAFE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
     _SAFE_METHOD_RE = re.compile(r"^[A-Za-z0-9_./-]{1,96}$")
     _SAFE_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+    _SAFE_COHORT_REF_RE = re.compile(r"^[0-9a-f]{64}$")
 
     @classmethod
     def normalize(cls, evidence):
@@ -62,6 +63,7 @@ class UnitEconomicsExpenseNormalizer:
         source = evidence.get("source")
         source_method = evidence.get("source_method")
         source_contract = evidence.get("source_contract_version")
+        cohort_ref = evidence.get("cohort_ref")
         window = cls._window(evidence.get("source_window"))
         received_at = cls._timestamp(evidence.get("received_at"))
         as_of = cls._timestamp(evidence.get("as_of"), allow_unknown=True)
@@ -78,6 +80,7 @@ class UnitEconomicsExpenseNormalizer:
             or window is None or received_at is None or as_of is None or coverage is None
             or not isinstance(operations, list) or len(operations) > cls.MAX_OPERATIONS
             or expected is None
+            or cohort_ref is not None and not cls._safe_cohort_ref(cohort_ref)
         ):
             return cls._error("UNIT_ECONOMICS_EVIDENCE_INVALID")
 
@@ -92,7 +95,7 @@ class UnitEconomicsExpenseNormalizer:
             evidence,
             {"schema_version", "identity", "source", "source_method", "source_contract_version",
              "source_window", "received_at", "as_of", "coverage", "operations",
-             "expected_component_keys"},
+             "expected_component_keys", "cohort_ref"},
         )
 
         for operation in operations:
@@ -265,6 +268,8 @@ class UnitEconomicsExpenseNormalizer:
                 "unknown_field_count": unknown_field_count,
             },
         }
+        if cohort_ref is not None:
+            result["cohort_ref"] = cohort_ref
         result["source_revision"] = cls._fingerprint(result)
         return result
 
@@ -434,6 +439,13 @@ class UnitEconomicsExpenseNormalizer:
     @classmethod
     def _safe_key(cls, value):
         return isinstance(value, str) and cls._SAFE_KEY_RE.fullmatch(value) is not None
+
+    @classmethod
+    def _safe_cohort_ref(cls, value):
+        return (
+            isinstance(value, str)
+            and cls._SAFE_COHORT_REF_RE.fullmatch(value) is not None
+        )
 
     @classmethod
     def _ownership_ledger(cls, components):
