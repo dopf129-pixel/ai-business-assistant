@@ -580,6 +580,37 @@ def test_multirow_recalculation_shares_batch_solver_budget(operation):
     assert updated["evaluation_count"] == updated["evaluation_limit"] == 6
 
 
+def test_changing_target_retries_snapshot_row_after_solver_budget_exhaustion():
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner(required_evaluations=129)
+    service, _source = _service(products, complete=True, planner=planner)
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "50")
+        assert [row["status"] for row in batch["rows"]] == [
+            "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED",
+        ]
+        assert all(
+            row["evaluation_count"] == service.TARGET_CALCULATION_LIMIT
+            for row in batch["rows"]
+        )
+
+        planner.required_evaluations = 6
+        updated = service.set_target_margin(batch, "0")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert updated["error"] is False
+    assert updated["target_margin_percent"] == "0"
+    assert [row["status"] for row in updated["rows"]] == ["READY", "READY"]
+    assert [
+        row["planning"]["target"]["margin_percent"] for row in updated["rows"]
+    ] == [0, 0]
+    assert [row["evaluation_count"] for row in updated["rows"]] == [6, 6]
+    assert planner.evaluation_limits == [128, 128, 128, 128]
+    assert updated["evaluation_count"] <= updated["evaluation_limit"]
+
+
 def test_solver_success_without_forward_target_proof_is_not_ready():
     products = [_catalog_item(1), _catalog_item(2)]
     service, _ = _service(

@@ -11,6 +11,11 @@
 - Combined isolated Windows/Python 3.12.10 Q04–Q08 profile: **371 passed**. Five tracked owner-data JSON SHA-256 hashes unchanged. No network, Ozon/Telegram API, real bot or user database was used.
 - Acceptance and boundaries: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`.
 
+# PR #720 повторное review исправление R8 (2026-10-28)
+
+- `tests/test_unit_price_batch_plan_service.py::test_changing_target_retries_snapshot_row_after_solver_budget_exhaustion`: два SKU исчерпывают per-row лимит при цели 50%; явная смена на 0% повторно рассчитывает оба сохранённых снимка и получает `READY` без выхода за лимит.
+- Адресный batch/target профиль: **92 passed in 0.90s**. Связанный девятимодульный профиль тарифов, batch solver и наблюдений: **165 passed in 4.14s** (Windows/Python 3.12). Полный pytest и exact-head CI для R8 ожидаются.
+
 # PR #720 повторные review исправления R6–R7 (2026-10-28)
 
 - `tests/test_unit_price_batch_plan_service.py`: лимиты solver для локальной правки строки, изменения целевой маржи и массового применения ДРР; разделение общего batch-бюджета и явный статус при исчерпании.

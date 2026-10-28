@@ -420,7 +420,7 @@ class UnitPriceBatchPlanService:
         rows_to_recalculate = [
             row for row in cloned["rows"]
             if isinstance(row.get("snapshot"), dict) and row.get("status") not in {
-                "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME", "BUDGET_EXHAUSTED"
+                "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME"
             }
         ]
         remaining_evaluations = self._remaining_evaluation_budget(
