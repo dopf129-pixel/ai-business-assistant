@@ -119,6 +119,36 @@ class _Planner:
         }
 
 
+class _BudgetPlanner(_Planner):
+    """Solver fake that consumes its full allowance when the target needs more."""
+
+    def __init__(self, required_evaluations=1):
+        super().__init__()
+        self.required_evaluations = required_evaluations
+
+    def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+              max_evaluations=None):
+        self.evaluation_limits.append(max_evaluations)
+        target = Decimal(str(target))
+        limit = max_evaluations if type(max_evaluations) is int else 1024
+        if self.required_evaluations > limit:
+            return {
+                "error": False,
+                "evaluation_count": limit,
+                "target": {"status": "SEARCH_BUDGET_EXHAUSTED"},
+            }
+        profit = float(target * Decimal("6"))
+        return {
+            "error": False,
+            "evaluation_count": self.required_evaluations,
+            "target": {
+                "status": "FOUND", "price": "600", "profit": profit,
+                "margin_percent": float(target),
+                "forward_result": {"available": True, "calculated": {"profit": profit}},
+            },
+        }
+
+
 def _catalog_item(index, scheme=None):
     result = {
         "product_id": f"product-{index}",
@@ -493,6 +523,61 @@ def test_batch_passes_remaining_global_budget_and_stops_before_an_extra_solver_c
         "READY", "READY", "BUDGET_EXHAUSTED",
     ]
     assert len(source.calls) == 2
+
+
+def test_local_row_edit_passes_per_row_solver_budget_and_reports_exhaustion():
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner()
+    service, _source = _service(products, complete=True, planner=planner)
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        planner.required_evaluations = service.TARGET_CALCULATION_LIMIT + 1
+        edited = service.edit_row_assumption(
+            batch, batch["rows"][0]["row_id"], "cost", "101",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [128, 128, 128]
+    assert edited["error"] is False
+    assert edited["status"] == "PARTIAL_BUDGET_EXHAUSTED"
+    assert edited["rows"][0]["status"] == "BUDGET_EXHAUSTED"
+    assert edited["rows"][0]["reason"] == "TARGET_CALCULATION_LIMIT"
+    assert edited["rows"][0]["evaluation_count"] == service.TARGET_CALCULATION_LIMIT
+    assert edited["evaluation_count"] <= edited["evaluation_limit"]
+
+
+@pytest.mark.parametrize("operation", ["target", "advertising"])
+def test_multirow_recalculation_shares_batch_solver_budget(operation):
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner()
+    service, _source = _service(products, complete=True, planner=planner)
+    service.TARGET_CALCULATION_LIMIT = 4
+    service.BATCH_CALCULATION_LIMIT = 6
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        planner.required_evaluations = 5
+        if operation == "target":
+            updated = service.set_target_margin(batch, "21")
+        else:
+            row_ids = [row["row_id"] for row in batch["rows"]]
+            updated = service.apply_advertising_rate(
+                batch, row_ids, "9", confirmed=True,
+                expected_batch_id=batch["batch_id"],
+                expected_batch_version=batch["version"],
+            )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [4, 4, 4, 2]
+    assert updated["error"] is False
+    assert updated["status"] == "PARTIAL_BUDGET_EXHAUSTED"
+    assert [row["status"] for row in updated["rows"]] == [
+        "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED",
+    ]
+    assert updated["evaluation_count"] == updated["evaluation_limit"] == 6
 
 
 def test_solver_success_without_forward_target_proof_is_not_ready():

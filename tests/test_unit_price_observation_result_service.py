@@ -1,8 +1,12 @@
 from copy import deepcopy
+from datetime import datetime, timezone
+
+import pytest
 
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.tax_service import TaxService
 from services.unit_price_observation_normalizer import UnitPriceObservationNormalizer
+from services.unit_price_observation_quality_service import UnitPriceObservationQualityService
 from services.unit_price_observation_result_service import UnitPriceObservationResultService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
@@ -122,6 +126,88 @@ def test_confirmed_tariff_provenance_is_preserved_in_result_completeness():
     assert result["status"] == "AVAILABLE"
     assert result["metrics"]["tariff_status"] == "CONFIRMED"
     assert result["completeness"]["tariff"] == "CONFIRMED"
+
+
+@pytest.mark.parametrize(
+    "tariff_origin", ["confirmed_official_source", "current_price_point"],
+)
+def test_confirmed_tariff_result_remains_ready_in_model_quality_gate(tariff_origin):
+    def candidate(price, start, end, commission_provenance):
+        evidence = _evidence()
+        evidence["seller_price_cents"] = price * 100
+        evidence["window"].update({"from": start, "to": end})
+        for source in evidence["sources"]:
+            source.update({
+                "source_window_start": start,
+                "source_window_end": end,
+                "received_at": "2026-10-27T09:00:00+00:00",
+            })
+        result = _service().evaluate(
+            evidence,
+            scenario_inputs=_inputs(price=f"{price:.2f}"),
+            identity=_SCENARIO_IDENTITY,
+            provenance={
+                "cost": "manual_owner_input",
+                "commission_rate": commission_provenance,
+            },
+        )
+        assert result["status"] == "AVAILABLE"
+        return {
+            "owner_id": "owner-a", "store_id": "store-a",
+            "result_revision": 1, "assumption_signature": "same-model-inputs",
+            "result": result,
+        }
+
+    candidates = [
+        candidate(100, "2026-10-01", "2026-10-07", tariff_origin),
+        candidate(95, "2026-10-08", "2026-10-14", tariff_origin),
+    ]
+    quality = UnitPriceObservationQualityService().assess(
+        candidates, now=datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert all(item["result"]["completeness"]["tariff"] == "CONFIRMED" for item in candidates)
+    assert quality["status"] == "COMPARABLE"
+    assert quality["verified"] is False
+    assert all(item["status"] == "READY" for item in quality["candidates"])
+
+
+def test_unknown_tariff_result_still_fails_model_quality_gate():
+    def candidate(price, start, end, commission_provenance):
+        evidence = _evidence()
+        evidence["seller_price_cents"] = price * 100
+        evidence["window"].update({"from": start, "to": end})
+        for source in evidence["sources"]:
+            source.update({
+                "source_window_start": start,
+                "source_window_end": end,
+                "received_at": "2026-10-27T09:00:00+00:00",
+            })
+        result = _service().evaluate(
+            evidence,
+            scenario_inputs=_inputs(price=f"{price:.2f}"),
+            identity=_SCENARIO_IDENTITY,
+            provenance={
+                "cost": "manual_owner_input",
+                "commission_rate": commission_provenance,
+            },
+        )
+        return {
+            "owner_id": "owner-a", "store_id": "store-a",
+            "result_revision": 1, "assumption_signature": "same-model-inputs",
+            "result": result,
+        }
+
+    first = candidate(100, "2026-10-01", "2026-10-07", "unknown")
+    second = candidate(95, "2026-10-08", "2026-10-14", "unknown")
+    quality = UnitPriceObservationQualityService().assess(
+        [first, second],
+        now=datetime(2026, 10, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert first["result"]["completeness"]["tariff"] == "UNKNOWN"
+    assert quality["status"] == "INCOMPARABLE"
+    assert "MODEL_TARIFF_BASIS_UNCONFIRMED" in quality["reasons"]
 
 
 def test_missing_successful_unit_denominator_returns_incomplete_without_profit():

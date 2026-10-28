@@ -397,7 +397,12 @@ class UnitPriceBatchPlanService:
             if (isinstance(manual_commission, dict)
                     and manual_commission.get("seller_price_cents") != new_cents):
                 row["manual_assumptions"].pop("commission_rate", None)
-        self._recalculate_row(cloned, row)
+        self._recalculate_row(
+            cloned, row,
+            max_evaluations=self._remaining_evaluation_budget(
+                cloned, {row.get("row_id")},
+            ),
+        )
         return self._finish_edit(cloned)
 
     def set_target_margin(self, batch, target_margin_percent):
@@ -412,11 +417,22 @@ class UnitPriceBatchPlanService:
             return self._error("BATCH_PLAN_TARGET_INVALID")
         cloned["version"] += 1
         cloned["target_margin_percent"] = format(parsed["value"], "f")
-        for row in cloned["rows"]:
+        rows_to_recalculate = [
+            row for row in cloned["rows"]
             if isinstance(row.get("snapshot"), dict) and row.get("status") not in {
                 "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME", "BUDGET_EXHAUSTED"
-            }:
-                self._recalculate_row(cloned, row)
+            }
+        ]
+        remaining_evaluations = self._remaining_evaluation_budget(
+            cloned, {row.get("row_id") for row in rows_to_recalculate},
+        )
+        for row in rows_to_recalculate:
+            self._recalculate_row(
+                cloned, row, max_evaluations=remaining_evaluations,
+            )
+            remaining_evaluations = max(
+                0, remaining_evaluations - int(row.get("evaluation_count") or 0),
+            )
         return self._finish_edit(cloned)
 
     def preview_advertising_rate(self, batch, row_ids, value):
@@ -499,6 +515,10 @@ class UnitPriceBatchPlanService:
             if "advertising_rate" in (checked.get("invalid_inputs") or []):
                 return self._error("BATCH_PLAN_ADVERTISING_PREVIEW_INVALID")
         cloned["version"] += 1
+        selected_ids = {row.get("row_id") for row in selected}
+        remaining_evaluations = self._remaining_evaluation_budget(
+            cloned, selected_ids,
+        )
         for row in selected:
             row.setdefault("inputs", {})["advertising_rate"] = value
             row.setdefault("provenance", {})["advertising_rate"] = "manual_seller_assumption"
@@ -506,7 +526,12 @@ class UnitPriceBatchPlanService:
                 "value": value,
                 "provenance": "manual_seller_assumption",
             }
-            self._recalculate_row(cloned, row)
+            self._recalculate_row(
+                cloned, row, max_evaluations=remaining_evaluations,
+            )
+            remaining_evaluations = max(
+                0, remaining_evaluations - int(row.get("evaluation_count") or 0),
+            )
         return self._finish_edit(cloned)
 
     def _finish(self, batch, trace):
@@ -541,9 +566,11 @@ class UnitPriceBatchPlanService:
         )
         return batch
 
-    def _recalculate_row(self, batch, row):
+    def _recalculate_row(self, batch, row, max_evaluations=None):
         row["missing_inputs"] = []
         row["invalid_inputs"] = []
+        row["evaluation_count"] = 0
+        row["planning"] = None
         if not self._row_is_fresh(row):
             row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED", planning=None)
             return
@@ -568,17 +595,46 @@ class UnitPriceBatchPlanService:
                 evaluation_count=0,
             )
             return
+        if max_evaluations is None:
+            max_evaluations = self._remaining_evaluation_budget(
+                batch, {row.get("row_id")},
+            )
+        if type(max_evaluations) is not int:
+            max_evaluations = 0
+        evaluation_limit = min(
+            self.TARGET_CALCULATION_LIMIT, max(0, max_evaluations),
+        )
+        if evaluation_limit <= 0:
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="BATCH_CALCULATION_LIMIT",
+                planning=None,
+            )
+            return
         planning = self.target_planning_service.solve(
             row["inputs"],
             batch["target_margin_percent"],
             identity=self._scenario_identity(batch, row),
             provenance=row.get("provenance") or {},
             sources=self._scenario_sources(row["snapshot"]),
+            max_evaluations=evaluation_limit,
             **self._tariff_planning_kwargs(batch, row),
         )
         row["planning"] = planning
         row["evaluation_count"] = int(planning.get("evaluation_count") or 0)
         outcome = planning.get("target") or {}
+        if row["evaluation_count"] > evaluation_limit:
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="TARGET_CALCULATION_LIMIT",
+            )
+            return
+        if outcome.get("status") == "SEARCH_BUDGET_EXHAUSTED":
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="TARGET_CALCULATION_LIMIT",
+            )
+            return
         if planning.get("error") or outcome.get("status") != "FOUND":
             row.update(
                 status="TARGET_NOT_CONFIRMED",
@@ -594,6 +650,18 @@ class UnitPriceBatchPlanService:
             )
             return
         row.update(status="READY", reason=None)
+
+    def _remaining_evaluation_budget(self, batch, replacing_row_ids):
+        """Reserve the shared budget for rows whose calculations are retained."""
+        replacing_row_ids = set(replacing_row_ids or ())
+        retained = sum(
+            row["evaluation_count"]
+            for row in batch.get("rows", [])
+            if isinstance(row, dict) and row.get("row_id") not in replacing_row_ids
+            and type(row.get("evaluation_count")) is int
+            and row["evaluation_count"] > 0
+        )
+        return max(0, self.BATCH_CALCULATION_LIMIT - retained)
 
     def _resolve_row_tariff(self, batch, row):
         resolver = getattr(self.tariff_profile_runtime_service, "resolve_for_product", None)

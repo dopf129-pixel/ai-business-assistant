@@ -214,7 +214,9 @@ class UnitPriceObservationQualityService:
                 reasons.append("MODELLED_PROFIT_PER_UNIT_UNAVAILABLE")
             if completeness.get("successful_units") != "CONFIRMED":
                 reasons.append("SUCCESSFUL_UNIT_COMPLETENESS_UNCONFIRMED")
-            if completeness.get("tariff") != "MANUAL_ASSUMPTION":
+            if completeness.get("tariff") not in {
+                "MANUAL_ASSUMPTION", "CONFIRMED",
+            }:
                 reasons.append("MODEL_TARIFF_BASIS_UNCONFIRMED")
             if completeness.get("tax") != "MANUAL_ASSUMPTION":
                 reasons.append("MODEL_TAX_BASIS_UNCONFIRMED")

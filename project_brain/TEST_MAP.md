@@ -11,6 +11,12 @@
 - Combined isolated Windows/Python 3.12.10 Q04–Q08 profile: **371 passed**. Five tracked owner-data JSON SHA-256 hashes unchanged. No network, Ozon/Telegram API, real bot or user database was used.
 - Acceptance and boundaries: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`.
 
+# PR #720 повторные review исправления R6–R7 (2026-10-28)
+
+- `tests/test_unit_price_batch_plan_service.py`: лимиты solver для локальной правки строки, изменения целевой маржи и массового применения ДРР; разделение общего batch-бюджета и явный статус при исчерпании.
+- `tests/test_unit_price_observation_result_service.py`: подтверждённая официальная ставка и ставка текущей ценовой точки проходят через result service в quality gate; модель остаётся `verified=False`; `UNKNOWN` по-прежнему блокируется.
+- Связанный профиль: **164 passed** на девяти модулях планирования цены, тарифов, наблюдений и Telegram. Полный pytest и CI нового HEAD ещё не выполнены.
+
 # План проверок помощника выбора цены (26.10.2026)
 
 ## Q15 — observation evidence and price-history contract (2026-10-27)

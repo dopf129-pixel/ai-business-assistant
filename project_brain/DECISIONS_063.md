@@ -9,7 +9,7 @@ Topic: preserve minimum-price semantics for rounded tariff-aware targets.
 - For frozen fixed-commission tariff segments, compute a conservative upper bound for the continuous target gap. Prune only segments proven unable to reach the target within the canonical rounding envelope.
 - Search remaining intervals left-first and use the canonical forward calculator to verify candidate cents. Verify representative points against the bound before relying on it.
 - Unsupported formulae, an inconsistent bound, invalid forward data, or exhausted evaluation budgets must fail closed; do not claim an unproven minimum.
-- A multi-SKU batch passes its remaining shared forward-calculation budget into each solver call before calculation starts.
+- Every batch solver call, including local row edits and multi-row target/advertising recalculations, receives its per-SKU and remaining shared forward-calculation budget before calculation starts. Exhaustion is surfaced as a bounded partial result; it is not treated as an ordinary target miss.
 
 ## Reason
 
@@ -17,4 +17,4 @@ A binary search can skip an earlier qualifying cent when rounded commission, adv
 
 ## Status
 
-Implemented in `UnitPriceTargetPlanningService` and `UnitPriceBatchPlanService`. Regressions cover the previously failing cent boundary, unsupported/non-monotonic forward behavior, evaluation cap and shared batch cap. The focused linked profile passed (149 tests), isolated full suite passed (3,990 tests), and exact-head Verify `40654624761` passed on `40a23315`. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md` for current status.
+Implemented in `UnitPriceTargetPlanningService` and `UnitPriceBatchPlanService`. Regressions cover the previously failing cent boundary, unsupported/non-monotonic forward behavior, evaluation cap and shared batch cap. Repeat-review fixes now cover local and bulk recalculation paths; their linked profile passes (164 tests), while the new full-suite and exact-head Verify are pending. Earlier results (149 focused, 3,990 full-suite, Verify `40654624761` on `40a23315`) apply only to the earlier head. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md` for current status.

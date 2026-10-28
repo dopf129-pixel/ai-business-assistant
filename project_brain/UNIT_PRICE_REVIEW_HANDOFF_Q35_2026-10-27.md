@@ -12,6 +12,12 @@
 - R4: tariff target search accounts for rounded canonical profit, verifies candidate cents, and fails closed on its evaluation budget.
 - R5: batch planning passes remaining shared calculation budget into each solver call and stops before additional source/solver calls once exhausted.
 
+## Повторный review — исправления R6–R7 (2026-10-28)
+
+- R6: одиночное редактирование, применение одной ставки рекламы к нескольким SKU и пересчёт целевой маржи теперь ограничивают поиск до вызова solver. Для multi-row действия остаток общего бюджета передаётся по строкам; неуспех из-за этого лимита отражается как `BUDGET_EXHAUSTED`.
+- R7: подтверждённый тариф из result service теперь принимается качественным gate наравне с ручным тарифом. Проверка остаётся модельной (`verified=False`), а `UNKNOWN` продолжает давать `MODEL_TARIFF_BASIS_UNCONFIRMED`.
+- Регрессии закрывают R6 edit/target/bulk paths и R7 подтверждённый/неизвестный provenance end-to-end. Связанный Windows/Python 3.12 профиль: **164 passed in 4.53s**. Изолированный полный pytest, публикация фикса в PR #720 и exact-head CI ещё не выполнены.
+
 Проверенный review-fix commit: `bb0a8aea` (`Fix unit price review findings R1-R5`). Head `40a23315d74958cb7b7e427b785f730ea886ac79` включает документацию результатов и прошёл [Verify run 40654624761](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40654624761): `success`, включая Windows/Python 3.12 и Linux full verification. Этот run относится к review-fix code head; предыдущие ссылки ниже относятся к первоначальной реализации.
 
 ## PR и порядок проверки
