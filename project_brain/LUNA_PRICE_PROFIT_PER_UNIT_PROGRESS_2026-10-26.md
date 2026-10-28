@@ -2,14 +2,14 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: Q35 ранее VERIFIED для review-fix code head `40a23315d74958cb7b7e427b785f730ea886ac79`; Q00–Q34 также VERIFIED. Повторный review R6–R7 исправлен в `b2f01fb3`; связанный профиль — 164 passed, полный изолированный suite — 3,996 passed. Exact-head Verify нового PR ещё требуется.
+Статус: Q35 ранее VERIFIED для review-fix code head `40a23315d74958cb7b7e427b785f730ea886ac79`; Q00–Q34 также VERIFIED. Повторный review R6–R7 исправлен в кодовом коммите `dbd87c7d`; связанный профиль — 164 passed, полный изолированный suite — 3,996 passed, exact-head Verify `40664676434` успешен. Последующая запись результата — документационный checkpoint.
 
 ## Повторный review PR #720 — 2026-10-28 (R6–R7)
 
 - R6: все локальные пути перерасчёта передают ограничение числа solver evaluations до вызова. При нескольких строках общий остаток распределяется последовательно, а исчерпание отмечается как `BUDGET_EXHAUSTED`.
 - R7: model quality gate разрешает `CONFIRMED` tariff provenance от официального источника или текущей ценовой точки; `UNKNOWN` остаётся блокирующим, результат сохраняет `MODELLED_FROM_OBSERVED_INPUTS` и `verified=False`.
 - Регрессии включают одиночную правку, массовое изменение рекламы, изменение целевой маржи и полный путь result → quality для подтверждённой/неизвестной комиссии.
-- Связанный Windows/Python 3.12 профиль: **164 passed in 4.53s**. Полный изолированный pytest на коде commit `b2f01fb3`: **3,996 passed in 47.43s**; compileall/diff-check прошли, основной checkout и `data/` чистые. Exact-head Verify после публикации ещё впереди.
+- Связанный Windows/Python 3.12 профиль: **164 passed in 4.53s**. Полный изолированный pytest на коде commit `b2f01fb3`: **3,996 passed in 47.43s**; compileall/diff-check прошли, основной checkout и `data/` чистые. Кодовый commit `dbd87c7d` опубликован и прошёл exact-head Verify `40664676434` (Windows + full verification).
 
 ## Исходная точка
 

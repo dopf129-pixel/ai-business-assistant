@@ -15,7 +15,7 @@
 
 - `tests/test_unit_price_batch_plan_service.py`: лимиты solver для локальной правки строки, изменения целевой маржи и массового применения ДРР; разделение общего batch-бюджета и явный статус при исчерпании.
 - `tests/test_unit_price_observation_result_service.py`: подтверждённая официальная ставка и ставка текущей ценовой точки проходят через result service в quality gate; модель остаётся `verified=False`; `UNKNOWN` по-прежнему блокируется.
-- Связанный профиль: **164 passed in 4.53s** на девяти модулях планирования цены, тарифов, наблюдений и Telegram. Полный изолированный pytest на `b2f01fb3`: **3,996 passed in 47.43s**; exact-head CI нового PR ещё ожидается.
+- Связанный профиль: **164 passed in 4.53s** на девяти модулях планирования цены, тарифов, наблюдений и Telegram. Полный изолированный pytest на `b2f01fb3`: **3,996 passed in 47.43s**; exact-head Verify [40664676434](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40664676434) успешно завершился на кодовом коммите `dbd87c7d` (Windows + full verification). Последующая запись результатов не меняет код.
 
 # План проверок помощника выбора цены (26.10.2026)
 

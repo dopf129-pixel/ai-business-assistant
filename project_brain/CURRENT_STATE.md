@@ -2,7 +2,7 @@
 
 - Повторные расчёты единичной строки и массовые расчёты целевой маржи/рекламы теперь ограничены на входе в solver: не более `TARGET_CALCULATION_LIMIT` на SKU и в пределах оставшегося `BATCH_CALCULATION_LIMIT`. Исчерпание возвращается как `BUDGET_EXHAUSTED`, а не как обычное отсутствие результата.
 - Тариф из подтверждённого источника допускается quality gate в модельном сравнении; неизвестный тариф остаётся блокирующим. Результат не повышается до подтверждённого факта.
-- Связанный профиль Windows/Python 3.12: **164 passed in 4.53s**; полный pytest в отдельной временной worktree на `b2f01fb3`: **3,996 passed in 47.43s**. `compileall` и `git diff --check` прошли; исходный checkout и `data/` остались без изменений. Публикация и exact-head CI ещё впереди; merge/deploy/live bot не выполнялись.
+- Связанный профиль Windows/Python 3.12: **164 passed in 4.53s**; полный pytest в отдельной временной worktree на `b2f01fb3`: **3,996 passed in 47.43s**. `compileall` и `git diff --check` прошли; исходный checkout и `data/` остались без изменений. Кодовый коммит `dbd87c7d` опубликован в PR #720 и прошёл exact-head Verify [40664676434](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40664676434) (Windows + full verification). Следующий коммит содержит только этот результат в документации; merge/deploy/live bot не выполнялись.
 
 # 2026-10-28 — review corrections калькулятора цены по прибыли/шт.
 
