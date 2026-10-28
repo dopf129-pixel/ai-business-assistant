@@ -620,6 +620,7 @@ class TelegramUnitPriceTariffProfileRuntimeService:
     def _session_profile(self, payload, ticket):
         return {
             **deepcopy(payload),
+            "source_ref": "MANUAL_SESSION_ONLY",
             "profile_id": "session-" + ticket["draft_id"],
             "owner_id": ticket["owner_id"],
             "store_id": ticket["store_id"],

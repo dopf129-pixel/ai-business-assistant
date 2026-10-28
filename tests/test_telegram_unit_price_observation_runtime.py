@@ -15,6 +15,8 @@ from services.telegram_unit_price_observation_runtime_service import TelegramUni
 from services.telegram_saved_planning_plan_runtime_service import TelegramSavedPlanningPlanRuntimeService
 from services.unit_price_observation_result_service import UnitPriceObservationResultService
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 from services.ozon_account_repository import make_store_tenant_scope
 
@@ -646,3 +648,67 @@ def test_observation_ranking_callback_cannot_read_another_store(flow):
     assert result["status"] == "OBSERVATION_ACTION_STALE"
     assert "20.00" not in result["message"]
     assert collector.calls == []
+
+
+def test_observation_price_resolves_frozen_commission_for_that_price():
+    identity = {
+        "owner_id": "owner-1", "store_id": "store-a",
+        "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+    }
+    profile = {
+        "profile_id": "manual-range-1", "revision": 1, "state_revision": 1,
+        "owner_id": identity["owner_id"], "store_id": identity["store_id"],
+        "identity": {key: identity[key] for key in ("product_id", "offer_id", "sku")},
+        "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+        "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "manual-seller-confirmed",
+        "recorded_at": "2026-10-20T00:00:00+00:00", "confirmed_by_owner": True,
+        "effective_from": "2026-10-20", "effective_to": None,
+        "bands": [
+            {"price_from_cents": 1, "price_to_cents": 9_999, "commission_rate": "12"},
+            {"price_from_cents": 10_000, "price_to_cents": 20_000, "commission_rate": "14"},
+        ],
+    }
+    resolution = UnitPriceTariffResolver().resolve(
+        seller_price_cents=10_000, identity=identity, sale_schema="FBO",
+        effective_date="2026-10-27", profiles=[profile],
+    )
+    frozen = UnitPriceTariffSnapshotAdapter.freeze(
+        resolution, profile, candidate_profiles=[profile], effective_date="2026-10-27",
+    )
+    item = {
+        "identity": {
+            "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+            "store_id": "store-a", "scheme": "FBO",
+        },
+        "inputs": {"price": "100.00", "commission_rate": "14", "cost": "20.00"},
+        "provenance": {"commission_rate": "manual_seller_assumption"},
+        "sources": {"tariff_resolution": frozen},
+    }
+
+    prepared = TelegramUnitPriceObservationRuntimeService._prepare_observation_scenario(
+        item, {"seller_price_cents": 9_500},
+        {"owner_id": "owner-1", "store_id": "store-a"},
+    )
+
+    inputs, _scenario_identity, provenance, tariff = prepared
+    assert inputs["price"] == "95.00"
+    assert inputs["commission_rate"] == "12"
+    assert provenance["commission_rate"] == "manual_seller_assumption"
+    assert tariff["commission_rate"] == "12"
+
+
+def test_observation_does_not_reuse_old_commission_without_price_coverage():
+    item = {
+        "identity": {"product_id": "p1", "offer_id": "o1", "sku": "s1"},
+        "inputs": {"price": "100.00", "commission_rate": "14"},
+        "provenance": {"commission_rate": "manual_seller_assumption"},
+        "sources": {},
+    }
+
+    prepared = TelegramUnitPriceObservationRuntimeService._prepare_observation_scenario(
+        item, {"seller_price_cents": 9_500},
+        {"owner_id": "owner-1", "store_id": "store-a"},
+    )
+
+    assert prepared[0]["commission_rate"] is None
+    assert prepared[2]["commission_rate"] == "unknown"

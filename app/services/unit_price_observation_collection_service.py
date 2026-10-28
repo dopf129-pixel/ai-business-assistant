@@ -1,6 +1,6 @@
 """Bounded read-only collection for one saved unit-price observation."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -366,6 +366,12 @@ class UnitPriceObservationCollectionService:
             "executed": False,
         }
 
+    @staticmethod
+    def _utc_timestamp(value):
+        return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+            "+00:00", "Z",
+        )
+
     def _load_returns_buyout(self, *, identity, start, end, timezone_name, trace):
         source = {
             "name": "RETURNS",
@@ -398,8 +404,16 @@ class UnitPriceObservationCollectionService:
             })
             return empty
         try:
+            zone = ZoneInfo(timezone_name)
+            window_start = datetime.combine(start, time.min, tzinfo=zone)
+            window_end = (
+                datetime.combine(end + timedelta(days=1), time.min, tzinfo=zone)
+                - timedelta(microseconds=1)
+            )
             facts = self.returns_buyout_source.get(
-                identity["offer_id"], start.isoformat(), end.isoformat(),
+                identity["offer_id"],
+                self._utc_timestamp(window_start),
+                self._utc_timestamp(window_end),
             )
         except Exception:
             facts = None

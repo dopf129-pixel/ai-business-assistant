@@ -563,6 +563,38 @@ def test_target_search_refuses_a_segment_with_observed_non_monotonic_goal_predic
     assert result["target"]["available"] is False
 
 
+def test_target_search_returns_earliest_cent_when_rounded_goal_predicate_flickers():
+    planner, service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="25", commission_rate="22",
+        logistics_per_unit="0", last_mile_per_unit="0", acquiring_per_unit="0",
+        advertising_rate="20", discount_points_rate="0", tax_mode="USN_INCOME",
+        tax_rate="6", minimum_tax_rate="1",
+    )
+    frozen = _frozen_manual_tariff(bands=[{
+        "price_from_cents": 1, "price_to_cents": 10_000,
+        "commission_rate": "22",
+    }])
+
+    result = planner.solve(
+        inputs, "10", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["price"] == "59.52"
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] <= result["evaluation_limit"]
+    at_candidate = UnitPriceScenarioService(TaxService()).calculate(
+        {**inputs, "price": "59.52", "commission_rate": "22"},
+    )
+    previous_cent = UnitPriceScenarioService(TaxService()).calculate(
+        {**inputs, "price": "59.51", "commission_rate": "22"},
+    )
+    assert planner._reached(at_candidate, Decimal("59.52"), Decimal("10"))
+    assert not planner._reached(previous_cent, Decimal("59.51"), Decimal("10"))
+
+
 def test_target_search_fails_closed_without_frozen_tariff_or_saved_exact_point():
     planner, service = _planner(counting=True)
 
@@ -1139,6 +1171,16 @@ def test_search_stays_inside_forward_evaluation_budget():
     _assert_goal(result["break_even"], "0")
     _assert_goal(result["target"], "30")
     assert Decimal("414.72") <= Decimal(result["target"]["price"]) <= Decimal("414.74")
+
+
+def test_caller_can_tighten_solver_forward_evaluation_budget():
+    planner, service = _planner(counting=True)
+
+    result = planner.solve(_inputs(), "30", max_evaluations=4)
+
+    assert result["evaluation_count"] == service.calls <= 4
+    assert result["evaluation_limit"] == 4
+    assert result["target"]["status"] == "SEARCH_BUDGET_EXHAUSTED"
 
 
 def test_comparison_keeps_unavailable_scenarios_distinct_from_target_failure():

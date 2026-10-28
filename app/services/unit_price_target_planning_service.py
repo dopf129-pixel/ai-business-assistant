@@ -20,6 +20,9 @@ class UnitPriceTargetPlanningService:
     MAX_COMPARISON_FORWARD_CALCULATIONS = 1_024
     MAX_DERIVED_ADVERTISING_RATE_DIGITS = 28
     MIN_PRICE_CENTS = 1
+    # Bounds all rounding introduced by per-component HALF_UP and the existing
+    # float-based tax service. Ambiguous intervals are evaluated canonically.
+    ROUNDING_GAP_BOUND = Decimal("0.25")
     CENT = Decimal("0.01")
     HUNDRED = Decimal("100")
     _TARGET_PATTERN = re.compile(r"\d+(?:[.,]\d{1,2})?\Z")
@@ -249,6 +252,7 @@ class UnitPriceTargetPlanningService:
         frozen_tariff_snapshot=None,
         tariff_resolution_required=False,
         exact_price_rate_cents=None,
+        max_evaluations=None,
     ):
         target_result = self._normalize_target(target_margin_percent)
         if not target_result["valid"]:
@@ -268,6 +272,15 @@ class UnitPriceTargetPlanningService:
             or tariff_resolution_required
             or exact_price_rate_cents is not None
         )
+        default_evaluation_limit = (
+            self.MAX_TARIFF_FORWARD_CALCULATIONS
+            if tariff_aware else self.MAX_FORWARD_CALCULATIONS
+        )
+        if max_evaluations is not None and (
+            type(max_evaluations) is not int
+            or not 1 <= max_evaluations <= default_evaluation_limit
+        ):
+            return self._error_result("INVALID_EVALUATION_LIMIT", identity)
         tariff_identity = dict(identity or {})
         tariff_identity.setdefault("owner_id", tariff_identity.get("user_id"))
         if frozen_tariff_snapshot is not None and UnitPriceTariffSnapshotAdapter.validate(
@@ -275,9 +288,12 @@ class UnitPriceTargetPlanningService:
         ) is None:
             return self._error_result("INVALID_TARIFF_SNAPSHOT", identity)
 
-        call_state = {"count": 0, "cache": {}, "tariff_cache": {}}
-        if tariff_aware:
-            call_state["limit"] = self.MAX_TARIFF_FORWARD_CALCULATIONS
+        call_state = {
+            "count": 0,
+            "cache": {},
+            "tariff_cache": {},
+            "limit": max_evaluations or default_evaluation_limit,
+        }
         common = {
             "identity": dict(identity or {}),
             "provenance": dict(provenance or {}),
@@ -385,7 +401,7 @@ class UnitPriceTargetPlanningService:
                 "break_even": break_even,
                 "target": target_outcome,
                 "evaluation_count": call_state["count"],
-                "evaluation_limit": self.MAX_TARIFF_FORWARD_CALCULATIONS,
+                "evaluation_limit": call_state["limit"],
                 "tariff_search": tariff_search,
                 "identity": common["identity"],
                 "provenance": self._candidate_provenance(common),
@@ -448,7 +464,7 @@ class UnitPriceTargetPlanningService:
             "break_even": break_even,
             "target": target_outcome,
             "evaluation_count": call_state["count"],
-            "evaluation_limit": self.MAX_FORWARD_CALCULATIONS,
+            "evaluation_limit": call_state["limit"],
             "identity": common["identity"],
             "provenance": self._candidate_provenance(common),
             "source_price_provenance": common["provenance"].get("price"),
@@ -1038,68 +1054,63 @@ class UnitPriceTargetPlanningService:
         for segment in segments:
             low = segment["price_from_cents"]
             high = segment["price_to_cents"]
-            points = sorted({
-                low, high,
-                low + (high - low) // 4,
-                low + (high - low) // 2,
-                low + (3 * (high - low)) // 4,
-            })
-            observations = []
-            for cents in points:
-                forward, status, resolution = self._evaluate_tariff_candidate(
+            # Verify the idealized bound against canonical outputs at bounded
+            # representative points. A custom/unsupported forward service must
+            # not inherit this solver's proof silently.
+            probe_points = sorted({low, (low + high) // 2, high})
+            for cents in probe_points:
+                probe, status, _resolution = self._evaluate_tariff_candidate(
                     inputs, cents, call_state, common,
                     frozen_tariff_snapshot=frozen_tariff_snapshot,
                     tariff_identity=tariff_identity,
                     exact_price_rate_cents=exact_price_rate_cents,
                 )
+                if status == "SEARCH_BUDGET_EXHAUSTED":
+                    return self._unavailable_outcome("SEARCH_BUDGET_EXHAUSTED")
                 if status != "CALCULATED":
-                    if status == "COMMISSION_UNKNOWN":
-                        return self._unavailable_outcome(status)
-                    return self._unavailable_outcome(status, forward)
-                reached = self._reached(forward, self._price_from_cents(cents), target)
-                observations.append((cents, reached, forward, resolution))
-
-            states = [item[1] for item in observations]
-            if any(states[index] and not states[index + 1]
-                   for index in range(len(states) - 1)):
-                outcome = self._unavailable_outcome("NON_MONOTONIC_SEGMENT")
+                    return self._unavailable_outcome(status, probe)
+                expected_gap = self._ideal_target_gap_upper_bound(
+                    inputs, target, segment.get("commission_rate"), cents, cents,
+                )
+                price = self._price_from_cents(cents)
+                try:
+                    actual_gap = (
+                        Decimal(str(probe["calculated"]["profit"]))
+                        - target * price / self.HUNDRED
+                    )
+                except (KeyError, InvalidOperation, TypeError, ValueError):
+                    expected_gap = None
+                    actual_gap = None
+                if (expected_gap is None or actual_gap is None
+                        or abs(actual_gap - expected_gap) > self.ROUNDING_GAP_BOUND):
+                    outcome = self._unavailable_outcome("NON_MONOTONIC_SEGMENT")
+                    outcome["segment"] = {
+                        "price_from_cents": low, "price_to_cents": high,
+                    }
+                    return outcome
+            search = self._search_first_tariff_candidate(
+                inputs, target, call_state, common, low, high,
+                commission_rate=segment.get("commission_rate"),
+                frozen_tariff_snapshot=frozen_tariff_snapshot,
+                tariff_identity=tariff_identity,
+                exact_price_rate_cents=exact_price_rate_cents,
+            )
+            if search["status"] == "BUDGET_EXHAUSTED":
+                return self._unavailable_outcome("SEARCH_BUDGET_EXHAUSTED")
+            if search["status"] == "UNAVAILABLE":
+                outcome = self._unavailable_outcome(
+                    search.get("reason") or "NON_MONOTONIC_SEGMENT",
+                    search.get("forward"),
+                )
                 outcome["segment"] = {
                     "price_from_cents": low, "price_to_cents": high,
                 }
                 return outcome
-            first_reached = next(
-                (index for index, item in enumerate(observations) if item[1]), None,
-            )
-            if first_reached is None:
+            if search["status"] == "NOT_FOUND":
                 continue
-            if first_reached == 0:
-                candidate_cents = observations[0][0]
-                forward = observations[0][2]
-                resolution = observations[0][3]
-            else:
-                left = observations[first_reached - 1][0]
-                right = observations[first_reached][0]
-                right_forward = observations[first_reached][2]
-                right_resolution = observations[first_reached][3]
-                while right - left > 1:
-                    middle = (left + right) // 2
-                    middle_forward, middle_status, middle_resolution = self._evaluate_tariff_candidate(
-                        inputs, middle, call_state, common,
-                        frozen_tariff_snapshot=frozen_tariff_snapshot,
-                        tariff_identity=tariff_identity,
-                        exact_price_rate_cents=exact_price_rate_cents,
-                    )
-                    if middle_status != "CALCULATED":
-                        return self._unavailable_outcome(middle_status, middle_forward)
-                    if self._reached(middle_forward, self._price_from_cents(middle), target):
-                        right = middle
-                        right_forward = middle_forward
-                        right_resolution = middle_resolution
-                    else:
-                        left = middle
-                candidate_cents = right
-                forward = right_forward
-                resolution = right_resolution
+            candidate_cents = search["cents"]
+            forward = search["forward"]
+            resolution = search["resolution"]
             outcome = self._success_outcome(
                 self._price_from_cents(candidate_cents), forward, target,
             )
@@ -1123,6 +1134,166 @@ class UnitPriceTargetPlanningService:
             })
             return outcome
         return self._unavailable_outcome("NOT_FOUND_IN_COVERED_SEGMENTS")
+
+    def _search_first_tariff_candidate(
+        self, inputs, target, call_state, common, low, high, *, commission_rate,
+        frozen_tariff_snapshot, tariff_identity, exact_price_rate_cents=None,
+    ):
+        """Find the first reached cent using a conservative rounded-profit bound.
+
+        The continuous profit gap is the minimum of at most three affine lines
+        for supported tax modes. Its maximum over any interval is attained at
+        an endpoint or a line intersection. If that maximum is below the
+        canonical forward calculation's rounding-error bound, the interval is
+        provably infeasible and can be skipped. Remaining intervals are split
+        left-first and verified at individual cents; budget exhaustion fails
+        closed instead of claiming a non-minimal price.
+        """
+        upper_gap = self._ideal_target_gap_upper_bound(
+            inputs, target, commission_rate, low, high,
+        )
+        if upper_gap is None:
+            return {"status": "UNAVAILABLE", "reason": "ROUNDING_BOUND_UNAVAILABLE"}
+        if upper_gap < -self.ROUNDING_GAP_BOUND:
+            return {"status": "NOT_FOUND"}
+        if low == high:
+            forward, status, resolution = self._evaluate_tariff_candidate(
+                inputs, low, call_state, common,
+                frozen_tariff_snapshot=frozen_tariff_snapshot,
+                tariff_identity=tariff_identity,
+                exact_price_rate_cents=exact_price_rate_cents,
+            )
+            if status == "SEARCH_BUDGET_EXHAUSTED":
+                return {"status": "BUDGET_EXHAUSTED"}
+            if status != "CALCULATED":
+                return {"status": "UNAVAILABLE", "reason": status, "forward": forward}
+            if self._reached(forward, self._price_from_cents(low), target):
+                return {
+                    "status": "FOUND", "cents": low,
+                    "forward": forward, "resolution": resolution,
+                }
+            return {"status": "NOT_FOUND"}
+
+        middle = (low + high) // 2
+        left = self._search_first_tariff_candidate(
+            inputs, target, call_state, common, low, middle,
+            commission_rate=commission_rate,
+            frozen_tariff_snapshot=frozen_tariff_snapshot,
+            tariff_identity=tariff_identity,
+            exact_price_rate_cents=exact_price_rate_cents,
+        )
+        if left["status"] != "NOT_FOUND":
+            return left
+        return self._search_first_tariff_candidate(
+            inputs, target, call_state, common, middle + 1, high,
+            commission_rate=commission_rate,
+            frozen_tariff_snapshot=frozen_tariff_snapshot,
+            tariff_identity=tariff_identity,
+            exact_price_rate_cents=exact_price_rate_cents,
+        )
+
+    def _ideal_target_gap_upper_bound(
+        self, inputs, target, commission_rate, low_cents, high_cents,
+    ):
+        """Return a conservative maximum continuous gap in [low, high]."""
+        def decimal(name, default=None):
+            raw = inputs.get(name, default)
+            if raw is None or raw == "" or isinstance(raw, bool):
+                return None
+            try:
+                result = Decimal(str(raw).strip().replace(",", "."))
+            except (InvalidOperation, TypeError, ValueError):
+                return None
+            return result if result.is_finite() else None
+
+        if commission_rate is None:
+            commission = decimal("commission_rate")
+        else:
+            try:
+                commission = Decimal(str(commission_rate))
+            except (InvalidOperation, TypeError, ValueError):
+                commission = None
+        advertising = decimal("advertising_rate")
+        points = decimal("discount_points_rate")
+        cost = decimal("cost")
+        logistics = decimal("logistics_per_unit")
+        last_mile = decimal("last_mile_per_unit")
+        acquiring = decimal("acquiring_per_unit")
+        cross_docking = decimal("cross_docking_per_unit", "0")
+        if cross_docking is None and inputs.get("cross_docking_per_unit") in (None, ""):
+            cross_docking = Decimal("0")
+        if any(value is None for value in (
+            commission, advertising, points, cost, logistics, last_mile,
+            acquiring, cross_docking,
+        )):
+            return None
+        if any(value < 0 or value > self.HUNDRED for value in (
+            commission, advertising, points,
+        )):
+            return None
+        fees = (logistics + last_mile + acquiring).quantize(
+            self.CENT, rounding=ROUND_HALF_UP,
+        )
+        base_slope = (
+            Decimal("1") - commission / self.HUNDRED
+            - advertising / self.HUNDRED
+        )
+        base_intercept = -(fees + cost + cross_docking)
+        target_rate = target / self.HUNDRED
+        lines = [(
+            base_slope - target_rate,
+            base_intercept,
+        )]
+        tax_mode = str(inputs.get("tax_mode") or "").strip().upper()
+        if tax_mode == "USN_INCOME":
+            tax_rate = decimal("tax_rate")
+            if tax_rate is None or not Decimal("0") <= tax_rate <= self.HUNDRED:
+                return None
+            lines = [(
+                base_slope - target_rate
+                - (Decimal("1") - points / self.HUNDRED)
+                * tax_rate / self.HUNDRED,
+                base_intercept,
+            )]
+        elif tax_mode == "USN_INCOME_MINUS_EXPENSES":
+            tax_rate = decimal("tax_rate")
+            minimum_tax_rate = decimal("minimum_tax_rate")
+            if any(value is None or not Decimal("0") <= value <= self.HUNDRED
+                   for value in (tax_rate, minimum_tax_rate)):
+                return None
+            regular_base_slope = base_slope - points / self.HUNDRED
+            regular_rate = tax_rate / self.HUNDRED
+            minimum_rate = minimum_tax_rate / self.HUNDRED
+            lines = [
+                (base_slope - target_rate, base_intercept),
+                (
+                    base_slope - target_rate - regular_base_slope * regular_rate,
+                    base_intercept * (Decimal("1") - regular_rate),
+                ),
+                (
+                    base_slope - target_rate
+                    - (Decimal("1") - points / self.HUNDRED) * minimum_rate,
+                    base_intercept,
+                ),
+            ]
+        elif tax_mode != "NONE":
+            return None
+
+        low = Decimal(low_cents) / self.HUNDRED
+        high = Decimal(high_cents) / self.HUNDRED
+        candidates = {low, high}
+        for index, (slope, intercept) in enumerate(lines):
+            for other_slope, other_intercept in lines[index + 1:]:
+                denominator = slope - other_slope
+                if denominator == 0:
+                    continue
+                crossing = (other_intercept - intercept) / denominator
+                if low < crossing < high:
+                    candidates.add(crossing)
+        return max(
+            min(slope * price + intercept for slope, intercept in lines)
+            for price in candidates
+        )
 
     def _evaluate_tariff_candidate(
         self, inputs, cents, call_state, common, *, frozen_tariff_snapshot,

@@ -65,6 +65,42 @@ def test_restored_frozen_profile_resolves_other_price_without_any_source_read():
     assert result["profile"]["revision"] == 2
 
 
+def test_frozen_snapshot_preserves_explicit_session_profile_over_stored_overlap():
+    stored = _profile()
+    stored["bands"] = [{
+        "price_from_cents": 1, "price_to_cents": 20_000,
+        "commission_rate": "14",
+    }]
+    session = deepcopy(stored)
+    session.update({
+        "profile_id": "session-1", "revision": 1, "state_revision": 1,
+        "source_ref": "MANUAL_SESSION_ONLY",
+        "bands": [{
+            "price_from_cents": 1, "price_to_cents": 20_000,
+            "commission_rate": "12",
+        }],
+    })
+    resolution = UnitPriceTariffResolver().resolve(
+        seller_price_cents=10_000, identity=IDENTITY, sale_schema="FBO",
+        effective_date=DAY, profiles=[stored, session],
+        selected_profile_id=session["profile_id"],
+        selected_revision=session["revision"],
+        selected_state_revision=session["state_revision"],
+    )
+    snapshot = UnitPriceTariffSnapshotAdapter.freeze(
+        resolution, session, candidate_profiles=[stored, session],
+        effective_date=DAY,
+    )
+
+    candidate = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+        snapshot, IDENTITY, 9_500,
+    )
+
+    assert candidate["available"] is True
+    assert candidate["commission_rate"] == "12"
+    assert candidate["selected_profile"]["profile_id"] == "session-1"
+
+
 def test_unknown_price_stays_unknown_and_never_reuses_saved_point_rate():
     snapshot = _frozen_snapshot()
     result = UnitPriceTariffSnapshotAdapter.resolve_frozen(

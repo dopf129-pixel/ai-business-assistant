@@ -184,6 +184,12 @@ class UnitPriceBatchPlanService:
             if scheme != "FBO":
                 row.update(status="UNSUPPORTED_SCHEME", reason="SCHEME_NOT_SUPPORTED")
                 continue
+            remaining_calculations = (
+                self.BATCH_CALCULATION_LIMIT - total_calculations
+            )
+            if remaining_calculations <= 0:
+                row.update(status="BUDGET_EXHAUSTED", reason="BATCH_CALCULATION_LIMIT")
+                continue
             if trace.is_budget_exhausted():
                 row.update(status="BUDGET_EXHAUSTED", reason="SHARED_OPERATION_BUDGET")
                 continue
@@ -256,22 +262,29 @@ class UnitPriceBatchPlanService:
                 )
                 continue
 
+            evaluation_limit = min(
+                self.TARGET_CALCULATION_LIMIT, remaining_calculations,
+            )
             planning = self.target_planning_service.solve(
                 row["inputs"],
                 target,
                 identity=self._scenario_identity(batch, row),
                 provenance=row["provenance"],
                 sources=self._scenario_sources(snapshot),
+                max_evaluations=evaluation_limit,
                 **self._tariff_planning_kwargs(batch, row),
             )
             row["evaluation_count"] = int(planning.get("evaluation_count") or 0)
             total_calculations += row["evaluation_count"]
-            if total_calculations > self.BATCH_CALCULATION_LIMIT:
+            if row["evaluation_count"] > evaluation_limit:
                 row.update(status="BUDGET_EXHAUSTED", reason="BATCH_CALCULATION_LIMIT")
                 continue
             row["scenario"] = scenario
             row["planning"] = planning
             target_result = planning.get("target") or {}
+            if target_result.get("status") == "SEARCH_BUDGET_EXHAUSTED":
+                row.update(status="BUDGET_EXHAUSTED", reason="TARGET_CALCULATION_LIMIT")
+                continue
             if planning.get("error") or target_result.get("status") != "FOUND":
                 row.update(status="TARGET_NOT_CONFIRMED", reason=target_result.get("reason") or target_result.get("status") or planning.get("code") or "TARGET_NOT_CONFIRMED")
             elif not self._candidate_reaches_target(target_result, target):

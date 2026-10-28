@@ -84,6 +84,7 @@ class _Scenario:
 class _Planner:
     def __init__(self, forward_profit_matches=True):
         self.forward_profit_matches = forward_profit_matches
+        self.evaluation_limits = []
 
     def parse_target_margin(self, value):
         try:
@@ -94,7 +95,9 @@ class _Planner:
             return {"error": True}
         return {"error": False, "value": target}
 
-    def solve(self, inputs, target, identity=None, provenance=None, sources=None):
+    def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+              max_evaluations=None):
+        self.evaluation_limits.append(max_evaluations)
         target = Decimal(str(target))
         price = Decimal("600")
         profit = float(target * price / Decimal("100"))
@@ -194,10 +197,14 @@ def test_batch_plan_and_row_price_edit_share_the_same_frozen_tariff_profile():
             self.tariff_calls = []
 
         def solve(self, inputs, target, identity=None, provenance=None, sources=None,
-                  frozen_tariff_snapshot=None, tariff_resolution_required=False, **_kwargs):
+                  frozen_tariff_snapshot=None, tariff_resolution_required=False,
+                  max_evaluations=None, **_kwargs):
             self.tariff_calls.append((inputs.get("commission_rate"), frozen_tariff_snapshot,
                                       tariff_resolution_required))
-            return super().solve(inputs, target, identity, provenance, sources)
+            return super().solve(
+                inputs, target, identity, provenance, sources,
+                max_evaluations=max_evaluations,
+            )
 
     products = [_catalog_item(1), _catalog_item(2)]
     planner = _TariffPlanner()
@@ -464,6 +471,28 @@ def test_complete_row_uses_solver_candidate_and_independent_forward_result_check
     assert [row["status"] for row in result["rows"]] == ["READY", "READY"]
     assert result["evaluation_count"] == 2
     assert result["rows"][0]["planning"]["target"]["forward_result"]["available"] is True
+    assert service.target_planning_service.evaluation_limits == [128, 128]
+
+
+def test_batch_passes_remaining_global_budget_and_stops_before_an_extra_solver_call():
+    products = [_catalog_item(index) for index in range(3)]
+    planner = _Planner()
+    service, source = _service(products, complete=True, planner=planner)
+    service.TARGET_CALCULATION_LIMIT = 1
+    service.BATCH_CALCULATION_LIMIT = 2
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        result = service.build(_selection(*products), "user-1", "20")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [1, 1]
+    assert result["evaluation_count"] == 2
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 2
+    assert [row["status"] for row in result["rows"]] == [
+        "READY", "READY", "BUDGET_EXHAUSTED",
+    ]
+    assert len(source.calls) == 2
 
 
 def test_solver_success_without_forward_target_proof_is_not_ready():

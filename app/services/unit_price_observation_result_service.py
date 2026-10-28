@@ -153,6 +153,16 @@ class UnitPriceObservationResultService:
             warnings=model_warnings,
         )
         result_metrics = result["metrics"]
+        tariff_origin = str(planner_provenance.get("commission_rate") or "").lower()
+        tariff_completeness = (
+            "MANUAL_ASSUMPTION"
+            if tariff_origin.startswith("manual")
+            else "CONFIRMED"
+            if tariff_origin in {
+                "confirmed_official_source", "current_price_point",
+            }
+            else "UNKNOWN"
+        )
         result_metrics.update({
             "scenario_profit_per_unit": profit,
             "profit_per_unit": profit,
@@ -164,11 +174,12 @@ class UnitPriceObservationResultService:
             "weighted_ad_spend_numerator": self._money(cpc),
             "advertising_status": "CPC_ONLY_MODEL",
             "revenue_basis": "MODELLED_SELLER_REVENUE; OBSERVED_CPC_PER_SUCCESSFUL_UNIT",
+            "tariff_status": tariff_completeness,
         })
         result["completeness"].update({
             "successful_units": "CONFIRMED",
             "advertising": "PARTIAL",
-            "tariff": "MANUAL_ASSUMPTION",
+            "tariff": tariff_completeness,
             "tax": "MANUAL_ASSUMPTION",
             "unit_cost": "MANUAL_ASSUMPTION",
         })

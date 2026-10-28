@@ -319,7 +319,10 @@ def test_complete_same_sku_buyout_facts_supply_model_units_and_safe_rate():
     assert result["metrics"]["buyout_sample_size"] == 4
     assert result["completeness"]["successful_units"] == "CONFIRMED"
     assert result["completeness"]["returns"] == "CONFIRMED"
-    assert source.calls == [("offer-1", "2026-10-20", "2026-10-22")]
+    assert source.calls == [(
+        "offer-1", "2026-10-19T21:00:00.000000Z",
+        "2026-10-22T20:59:59.999999Z",
+    )]
     serialized = repr(result)
     assert "private-offer-id" not in serialized
     assert "private-posting-1" not in serialized

@@ -1,5 +1,15 @@
 # Architecture Decisions
 
+## Decision 063 — bounded rounding-aware minimum-price search
+
+For tariff-aware target planning, never claim a minimum seller price by assuming rounded profit is monotonic at each cent. Within a frozen fixed-commission segment, use a conservative continuous profit-gap bound to prune only intervals proven below the target, then check remaining candidates with the canonical forward calculator from lowest price upward. Verify that the bound matches representative forward outputs and fail closed for unsupported formulae or exhausted evaluation budgets. Batch planning passes its remaining shared evaluation limit before each solver invocation.
+
+Reason: per-component cent rounding can make a rounded target predicate toggle around a threshold; a binary search can skip an earlier valid cent. The bounded left-first search preserves minimum-price semantics and avoids returning an unproven candidate.
+
+Status: implemented in `UnitPriceTargetPlanningService`; regressions in `test_unit_price_target_planning_service.py` and `test_unit_price_batch_plan_service.py`. Full suite and exact-head CI are pending the 2026-10-28 review correction run. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`.
+
+Details: `DECISIONS_063.md`.
+
 ## Decision 062 — FBO observed buyout estimate for unit-price modeling
 
 Calculate a SKU-scoped window buyout estimate only from complete, terminal FBO posting and Returns evidence with reconciled units and no ambiguous cancellations. Keep the delivered/(delivered + confirmed customer non-buyout) rate and sample count visible; use delivered units as the model denominator only after the strict completeness gate. Returned units remain a separate count and return costs are not netted from modeled unit profit. The value is not official Ozon Analytics, canonical profit or causal evidence; CPC and FBO cohorts have distinct date bases. Keep collection read-only and bounded, persist only allowlisted aggregates, and compare only compatible model assumptions. Details: `DECISIONS_062.md` and `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`.

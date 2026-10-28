@@ -18,6 +18,7 @@ from services.unit_price_observation_quality_service import UnitPriceObservation
 from services.unit_price_observation_ranking_service import UnitPriceObservationRankingService
 from services.unit_price_recommendation_ranking_service import UnitPriceRecommendationRankingService
 from services.unit_price_comparison_history_service import UnitPriceComparisonHistoryService
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
 class TelegramUnitPriceObservationRuntimeService:
@@ -458,16 +459,19 @@ class TelegramUnitPriceObservationRuntimeService:
         scenario_inputs, _ = PlanningCrossDockingAdapter.restore_item(plan_payload, item)
         if not isinstance(scenario_inputs, dict):
             return self._error("PLANNING_OBSERVATION_SCENARIO_INPUTS_UNAVAILABLE")
-        scenario_inputs = deepcopy(scenario_inputs)
-        scenario_inputs["price"] = self._format_money(observation["seller_price_cents"])
-        scenario_identity = deepcopy(item_identity or {})
-        scenario_identity["store_id"] = scope["store_id"]
-        provenance = deepcopy(item.get("provenance") or {})
-        provenance["price"] = "OWNER_DECLARED_OBSERVATION_PRICE"
+        prepared = self._prepare_observation_scenario(item, observation, scope)
+        if prepared is None:
+            return self._error("UNIT_PRICE_OBSERVATION_TARIFF_UNAVAILABLE")
+        scenario_inputs, scenario_identity, provenance, tariff_resolution = prepared
+        planning_sources = deepcopy(
+            item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        )
+        if tariff_resolution is not None:
+            planning_sources["tariff_resolution"] = tariff_resolution
         evaluated = self.result_service.evaluate(
             normalized, scenario_inputs=scenario_inputs,
             identity=scenario_identity, provenance=provenance,
-            planning_sources=item.get("sources") if isinstance(item.get("sources"), dict) else {},
+            planning_sources=planning_sources,
         )
         if not isinstance(evaluated, dict) or evaluated.get("error") is True:
             return self._error("UNIT_PRICE_OBSERVATION_EVALUATION_UNAVAILABLE")
@@ -484,6 +488,65 @@ class TelegramUnitPriceObservationRuntimeService:
         if not isinstance(saved, dict) or saved.get("error") is True:
             return self._error(saved.get("code") if isinstance(saved, dict) else None)
         return self._card(observation_id, scope, message="Сбор завершён. Результат сохранён отдельной ревизией.")
+
+    @classmethod
+    def _prepare_observation_scenario(cls, item, observation, scope):
+        """Use the frozen tariff for the owner-declared observation price.
+
+        Legacy plans may reuse a commission only at the exact saved price. If
+        a changed price has no covering frozen tariff, the commission is
+        cleared so the forward model cannot silently reuse the old rate.
+        """
+        if not isinstance(item, dict) or not isinstance(observation, dict):
+            return None
+        raw_inputs = item.get("inputs")
+        if not isinstance(raw_inputs, dict):
+            return None
+        try:
+            observed_cents = int(observation.get("seller_price_cents"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not 1 <= observed_cents <= cls.MAX_PRICE_CENTS:
+            return None
+
+        scenario_inputs = deepcopy(raw_inputs)
+        planned_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+            scenario_inputs.get("price")
+        )
+        scenario_inputs["price"] = cls._format_money(observed_cents)
+        scenario_identity = deepcopy(item.get("identity") or {})
+        scenario_identity["owner_id"] = str(scope.get("owner_id") or "")
+        scenario_identity["store_id"] = str(scope.get("store_id") or "")
+        provenance = deepcopy(item.get("provenance") or {})
+        if not isinstance(provenance, dict):
+            provenance = {}
+        provenance["price"] = "OWNER_DECLARED_OBSERVATION_PRICE"
+
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        frozen_tariff = sources.get("tariff_resolution")
+        resolution = None
+        if isinstance(frozen_tariff, dict):
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff, scenario_identity, observed_cents,
+            )
+            if resolution.get("error") is True:
+                return None
+            if resolution.get("available") is True:
+                scenario_inputs["commission_rate"] = resolution.get("commission_rate")
+                origin = (resolution.get("selected_profile") or {}).get("origin")
+                provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                }.get(origin, "unknown")
+            else:
+                scenario_inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
+        elif planned_cents != observed_cents:
+            scenario_inputs["commission_rate"] = None
+            provenance["commission_rate"] = "unknown"
+
+        return scenario_inputs, scenario_identity, provenance, resolution
 
     def _prompt_note(self, observation_id, state_revision, scope):
         loaded = self._load_observation(observation_id, scope)

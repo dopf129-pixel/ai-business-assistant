@@ -5864,3 +5864,13 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `python -m compileall -q app`: PASS; `git diff --check`: PASS; `git diff -- data`: empty. Final focused profile across six changed Q30/UI modules: **56 passed in 2.60s**.
 - Q34 review covers FBO-only scope, exact SKU/offer/store binding, full pagination and terminal-status gates, ambiguity/reconciliation, allowlisted persistence, shared Ozon request trace, model-only labeling, CPC date-basis limitations, and return-cost exclusion. No blocking finding; independent review and exact-head CI still required in Q35.
 - Acceptance records: `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`, `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`, and `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`. Verify run **40574423459** passed on PR SHA `483cd4d1` across Windows, Linux and Docker. This run covers the exact reviewed code plus documentation handoff.
+
+# Unit-price independent-review corrections (2026-10-28)
+
+- `tests/test_telegram_unit_price_observation_runtime.py` — scenario observation resolves the exact observed seller price against the frozen tariff snapshot; changed-price legacy plans without a range do not reuse the old commission.
+- `tests/test_unit_price_observation_result_service.py` — tariff completeness and `tariff_status` preserve the distinction between confirmed source evidence, manual owner assumption and unknown provenance.
+- `tests/test_unit_price_observation_collection_service.py` — Returns source receives UTC timestamps matching inclusive local-calendar date boundaries and configured timezone.
+- `tests/test_unit_price_tariff_snapshot_adapter.py` and `tests/test_telegram_unit_price_tariff_profile_runtime.py` — session-only explicit profile survives frozen resolution without suppressing ambiguity from overlapping persisted profiles.
+- `tests/test_unit_price_target_planning_service.py` — rounding-toggle boundary returns the first qualifying cent; preceding cent is checked by the canonical forward calculation; bounded evaluation exhaustion does not claim a minimum.
+- `tests/test_unit_price_batch_plan_service.py` — remaining shared solver budget is passed before calculation; rows beyond the budget do not trigger source or solver calls.
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` remains in the linked regression profile. Focused Windows/Python 3.12 profile: **149 passed across eight modules**. Full-suite and exact-head CI results are recorded in the review handoff once complete.

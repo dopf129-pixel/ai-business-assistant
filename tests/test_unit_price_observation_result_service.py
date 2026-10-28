@@ -104,9 +104,24 @@ def test_complete_compatible_evidence_builds_only_an_explicit_cpc_model():
     assert result["metrics"]["weighted_ad_spend_numerator"] == "12.00"
     assert result["metrics"]["successful_unit_denominator"] == 4
     assert result["metrics"]["advertising_status"] == "CPC_ONLY_MODEL"
+    assert result["metrics"]["tariff_status"] == "MANUAL_ASSUMPTION"
     assert result["completeness"]["tariff"] == "MANUAL_ASSUMPTION"
     assert any("OTHER_ADVERTISING_TYPES_ARE_UNKNOWN" in item for item in result["warnings"])
     assert PlanningWorkspaceRepository._normalize_unit_price_observation_result(result) is not None
+
+
+def test_confirmed_tariff_provenance_is_preserved_in_result_completeness():
+    result = _service().evaluate(
+        _evidence(), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+        provenance={
+            "cost": "manual_owner_input",
+            "commission_rate": "confirmed_official_source",
+        },
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert result["metrics"]["tariff_status"] == "CONFIRMED"
+    assert result["completeness"]["tariff"] == "CONFIRMED"
 
 
 def test_missing_successful_unit_denominator_returns_incomplete_without_profit():

@@ -263,22 +263,31 @@ class UnitPriceTariffSnapshotAdapter:
         selected_revision = None
         selected_state_revision = None
         selected_meta = snapshot.get("selected_profile")
-        if seller_price_cents == snapshot.get("seller_price_cents") and isinstance(selected_meta, dict):
+        if isinstance(selected_meta, dict):
             selected_profile = next((
                 item for item in profiles
                 if item.get("profile_id") == selected_meta.get("profile_id")
                 and item.get("revision") == selected_meta.get("revision")
                 and item.get("state_revision") == selected_meta.get("state_revision")
-                and item.get("source_ref") == "MANUAL_SCENARIO_COMMISSION_OVERRIDE"
-                and len(item.get("bands") or []) == 1
-                and item["bands"][0]["price_from_cents"] == snapshot.get("seller_price_cents")
-                and item["bands"][0]["price_to_cents"] == snapshot.get("seller_price_cents")
             ), None)
-            if selected_profile is not None:
-                # An explicit manual edit is a confirmed point override for
-                # the captured price only. At that exact price it wins over
-                # an overlapping stored range; at every other price the
-                # complete frozen range set is resolved normally.
+            if (selected_profile is not None
+                    and selected_profile.get("source_ref") == "MANUAL_SCENARIO_COMMISSION_OVERRIDE"):
+                # A direct one-price commission override remains valid only
+                # at the exact captured price; it must not become a range.
+                bands = selected_profile.get("bands") or []
+                if (seller_price_cents == snapshot.get("seller_price_cents")
+                        and len(bands) == 1
+                        and bands[0]["price_from_cents"] == snapshot.get("seller_price_cents")
+                        and bands[0]["price_to_cents"] == snapshot.get("seller_price_cents")):
+                    selected_profile_id = selected_profile["profile_id"]
+                    selected_revision = selected_profile["revision"]
+                    selected_state_revision = selected_profile["state_revision"]
+            elif (selected_profile is not None
+                    and selected_profile.get("source_ref") == "MANUAL_SESSION_ONLY"):
+                # Preserve the explicit profile selection frozen with the
+                # scenario, including session-only ranges that overlap a
+                # stored profile. Resolver still checks date, identity, and
+                # candidate band coverage; gaps remain unavailable.
                 selected_profile_id = selected_profile["profile_id"]
                 selected_revision = selected_profile["revision"]
                 selected_state_revision = selected_profile["state_revision"]
