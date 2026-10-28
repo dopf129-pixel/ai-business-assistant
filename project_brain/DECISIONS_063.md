@@ -17,4 +17,4 @@ A binary search can skip an earlier qualifying cent when rounded commission, adv
 
 ## Status
 
-Implemented in `UnitPriceTargetPlanningService` and `UnitPriceBatchPlanService`. Regressions cover the previously failing cent boundary, unsupported/non-monotonic forward behavior, evaluation cap and shared batch cap. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md` for exact test and CI status.
+Implemented in `UnitPriceTargetPlanningService` and `UnitPriceBatchPlanService`. Regressions cover the previously failing cent boundary, unsupported/non-monotonic forward behavior, evaluation cap and shared batch cap. The focused linked profile passed (149 tests) and the isolated full suite passed (3,990 tests); exact-head CI remains pending. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md` for current status.

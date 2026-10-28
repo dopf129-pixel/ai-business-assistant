@@ -4,7 +4,7 @@
 
 ## Статус независимого review — 2026-10-28
 
-Независимый review выявил пять воспроизведённых замечаний. Исправления внесены в PR #720; предыдущие CI ссылки относятся к старому SHA и не подтверждают новую версию. Свежие локальные regressions прошли (**149 passed across eight modules**); full-suite, code-quality checks и новый exact-head CI необходимо сверить с опубликованным commit перед завершением review.
+Независимый review выявил пять воспроизведённых замечаний. Исправления внесены в PR #720; предыдущие CI ссылки относятся к старому SHA и не подтверждают новую версию. Свежие локальные regressions прошли (**149 passed across eight modules**); полный изолированный suite — **3,990 passed in 49.21s**, `compileall` и `git diff --check` — PASS, `data/` основного checkout не изменён. После публикации commit остаётся получить новый exact-head CI.
 
 - R1: observation commission is resolved against its observed price using the frozen tariff snapshot; legacy point-only commission is not carried to a changed price, and completeness reports provenance.
 - R2: Returns receives UTC instants corresponding to inclusive local calendar dates.
@@ -12,7 +12,7 @@
 - R4: tariff target search accounts for rounded canonical profit, verifies candidate cents, and fails closed on its evaluation budget.
 - R5: batch planning passes remaining shared calculation budget into each solver call and stops before additional source/solver calls once exhausted.
 
-PR, updated head SHA and new Verify run must be appended after the change is published and checked.
+Проверенный review-fix commit: `bb0a8aea` (`Fix unit price review findings R1-R5`). Он прошёл полный локальный pytest в disposable worktree. После добавления итоговой CI-записи документация получит отдельный commit; при публикации обоих commits зафиксировать результирующий SHA PR и новый Verify run. Предыдущие Verify runs ниже не относятся к review fixes.
 
 ## PR и порядок проверки
 

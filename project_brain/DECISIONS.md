@@ -6,7 +6,7 @@ For tariff-aware target planning, never claim a minimum seller price by assuming
 
 Reason: per-component cent rounding can make a rounded target predicate toggle around a threshold; a binary search can skip an earlier valid cent. The bounded left-first search preserves minimum-price semantics and avoids returning an unproven candidate.
 
-Status: implemented in `UnitPriceTargetPlanningService`; regressions in `test_unit_price_target_planning_service.py` and `test_unit_price_batch_plan_service.py`. Full suite and exact-head CI are pending the 2026-10-28 review correction run. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`.
+Status: implemented in `UnitPriceTargetPlanningService`; regressions in `test_unit_price_target_planning_service.py` and `test_unit_price_batch_plan_service.py`. Focused profile (149 tests) and full isolated suite (3,990 tests) pass; exact-head CI is pending publication of the review fixes. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`.
 
 Details: `DECISIONS_063.md`.
 
