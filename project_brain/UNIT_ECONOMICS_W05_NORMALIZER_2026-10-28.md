@@ -35,6 +35,6 @@ tests/test_unit_price_observation_normalizer.py
 
 ## Ограничения / следующий шаг
 
-Компонент ещё не питается данными ни одного Ozon endpoint. W06/W07 добавили pure resolvers поверх normalized snapshots (реклама и возвраты/состояние товара), но source adapters не реализованы. Optional `cohort_ref` в W07 передаёт только уже доказанную exact связь; его генерация остаётся ответственностью будущего adapter. До интеграции эти payloads являются только контрактом и тестовым инструментом. Raw source identifiers разрешены лишь на время join/dedup.
+Компонент ещё не питается данными ни одного Ozon endpoint. W06/W07/W08 добавили pure resolvers поверх normalized snapshots (реклама, возвраты/состояние товара, хранение и дополнительные услуги), но source adapters не реализованы. Optional `cohort_ref` в W07 передаёт только уже доказанную exact связь; его генерация остаётся ответственностью будущего adapter. До интеграции эти payloads являются только контрактом и тестовым инструментом. Raw source identifiers разрешены лишь на время join/dedup.
 
 Пользовательские файлы/БД и `data/` не читались/изменялись; реальный Ozon API и бот не запускались. W06 может использовать этот нормализатор, но не должен обходить ownership или completeness gates.

@@ -2,7 +2,7 @@
 
 Дата: 28.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W07 завершены; W08 следующий.
+Статус: IN_PROGRESS. W00–W08 завершены; W09 следующий.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,7 @@
 
 ## Resume
 
-- Следующий этап: W08.
+- Следующий этап: W09.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
 - W00 implementation HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
 - W01 audited incoming HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; evidence: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`.
@@ -34,7 +34,7 @@
 | W05 | W03,W04 | DONE | 28.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, incoming code HEAD `f3576fbc`: добавлен pure `UnitEconomicsExpenseNormalizer` для exact scope/window, signed Decimal money, source/component subparts, idempotent dedup/conflict, ownership ledger и page coverage gates; raw IDs/rows не выходят из функции. Regression profile с соседним existing observation normalizer: **29 passed in 0.52s**; `py_compile`, `git diff --check` PASS; owner data не менялись, live API не вызывался. Evidence: `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`. |
 | W06 | W05 | DONE | 28.10.2026, incoming code HEAD `ebe40128`: добавлен чистый `UnitEconomicsAdvertisingEvidenceService`, который принимает только нормализованные snapshot contracts. Явные финансовые CPC/CPO/OTHER — primary; Performance CPC — только сверка и не добавляется к финансовой сумме. Неизвестный/mismatched component key/category, partial page, account-level и window-allocation блокируют SKU total; account expenses остаются отдельно даже при нулевой сумме после corrections. RUB/unit требует complete exact SKU scope, recurring confirmed origin, positive compatible denominator и compatible date window; absolute spend не ограничен ценой. Добавлено `ADVERTISING_OTHER` в category contract. Адресный Windows/Python 3.12.10 профиль: **90 passed in 1.77s** на W06/W05/observation normalizer и трёх связанных legacy advertising suites. No Ozon API/owner data/bot; acceptance: `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`. |
 | W07 | W05 | DONE | 28.10.2026, incoming code HEAD `db5bb230`: добавлен pure `UnitEconomicsReturnEvidenceService` для явных return/non-buyout finance components, exact delivered→returned→retained quantity, отдельного inventory disposition/COGS и non-overlapping compensation. Несовпадение числа, owner/store/SKU/cohort, неполные страницы, unknown/pending disposition, credits и отсутствующая комиссия блокируют strict RUB/unit; суммы по posting/средние и row count не используются. Optional opaque 256-bit `cohort_ref` добавлен обратно совместимо в нормализатор и W03 контракт; adapter обязан создавать случайный токен только после доказанной transient связи, сырой ID не сохраняется. W07 fixtures проходят через нормализатор. Связанный изолированный Windows/Python 3.12.10 профиль: **115 passed in 1.89s**; финальный прогон после исправления regression assertions/import. Acceptance: `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`. Реальные источники/коллектор не подключены; data/.env/DB, Ozon и бот не использовались. |
-| W08 | W05 | NOT_STARTED | — |
+| W08 | W05 | DONE | 28.10.2026, incoming code HEAD `c59ab11a`: добавлен pure `UnitEconomicsAdditionalExpenseEvidenceService` с disjoint `STORAGE`/`PLACEMENT`/delegated cross-docking buckets и hashed immutable map только для явно разрешённых `OTHER_SERVICE`. Необработанные key/category conflicts, account/unattributed, partial source, base overlaps и one-off/credit не становятся применимой recurring суммой; exact SKU и window-allocation numerator раздельны, единичная ставка не вычисляется до W09. Missing отличается от confirmed zero. Combined isolated Windows/Python 3.12.10 profile W08/W07/W06/W05/observation normalizer: **89 passed in 1.23s**. `py_compile`, `git diff --check`, line-length scan PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W08_STORAGE_ADDITIONAL_EXPENSES_2026-10-28.md`. API adapters не добавлены, SKU storage source не подтверждён; user data, Ozon и бот не затронуты. |
 | W09 | W06,W07,W08 | NOT_STARTED | — |
 | W10 | W09 | NOT_STARTED | — |
 | W11 | W03,W10 | NOT_STARTED | — |

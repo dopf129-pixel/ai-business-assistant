@@ -7,6 +7,12 @@
 - Нормализатор расходов обратно совместимо поддерживает optional opaque cohort binding token. Это только перенос доказанной transient связи; сборщик API и сохранение токена не добавлены.
 - W07 isolated connected profile: **115 passed in 1.89s**. No real Ozon requests, bot start, credentials, `.env` or owner data used. Details: `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`.
 
+## 2026-10-28 — расширенная экономика SKU и эксперименты, W08
+
+- Добавлен pure resolver disjoint storage/placement/additional-service evidence: отдельные exact SKU recurring и window-allocation numerator, base overlap/account residual/one-off/reconciliation evidence.
+- Additional services требуют immutable component mapping; category отсутствующего источника не превращается в ноль. Cross-docking делегируется существующему unit-rate источнику, unit denominator и per-unit rate здесь не выводятся.
+- W08 isolated connected profile: **89 passed in 1.23s**. Source adapters и SKU-level storage evidence пока не добавлены. Details: `UNIT_ECONOMICS_W08_STORAGE_ADDITIONAL_EXPENSES_2026-10-28.md`.
+
 ## 2026-08-30
 
 ### Project Brain reconciliation after Finance Evidence Availability v554-v560

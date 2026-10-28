@@ -1,9 +1,10 @@
-# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W07
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W08
 
 - W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
 - W03 закрепил архитектуру Decision 064. W04 зафиксировал synthetic numeric oracles N01–N18; baseline профиль — **334 passed**. W05 добавил pure нормализацию подписанных расходов, dedup/conflict, ownership ledger и coverage. W06 добавил resolver финансовой рекламы и reconciliation-only Performance CPC; связанный профиль — **90 passed**.
 - W07 добавил pure return/non-buyout resolver, exact delivered/returned/retained cohort gate и отдельный inventory loss/recovery/compensation evidence. Optional opaque cohort binding проходит через нормализатор; отсутствие связи даёт структурированный incomplete result и закрывает strict расчёт. Связанный профиль W07/W06/W05 и legacy returns: **115 passed in 1.89s**.
-- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`, `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`, `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`. Source adapters, expanded runtime and DB schema not implemented; program IN_PROGRESS, next W08.
+- W08 добавил pure resolver хранения/размещения и дополнительных услуг с disjoint mapping, confirmed-zero/missing gate, base overlap, account residual, one-off credits и delegation существующего кросс-докинга. Связанный W08/W07/W06/W05 profile: **89 passed in 1.23s**. Он не вычисляет per-unit rate и не подтверждает полноту всего магазина.
+- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`, `UNIT_ECONOMICS_W06_ADVERTISING_RECONCILIATION_2026-10-28.md`, `UNIT_ECONOMICS_W07_RETURN_COHORTS_2026-10-28.md`, `UNIT_ECONOMICS_W08_STORAGE_ADDITIONAL_EXPENSES_2026-10-28.md`. Source adapters, expanded runtime and DB schema not implemented; program IN_PROGRESS, next W09.
 
 # 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
 
