@@ -1,3 +1,8 @@
+# 2026-10-28 — W03: contracts экономики и эксперимента
+
+- Определены versioned contracts для расходов, количеств, расширенного сценария и фаз эксперимента, ownership расходов, последовательность gates, переходы состояний и additive migration plan для существующего tenant planning repository. Добавлены синтетические seed cases; runtime/schema пока не менялись.
+- Решение 064 закрепило один canonical calculator/TaxService, два несовместимых denominator режима, owner-only изменения цены и finite shared API budget. Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`.
+
 # 2026-10-28 — W02: официальные границы Ozon API
 
 - Сопоставлены публичные материалы Ozon и существующие Seller/Performance client calls для финансов, возвратов, Analytics, цен, рекламных отчётов и поставок. Неподтверждённые фильтры, схемы, лимиты и исторические поля явно помечены; live API и owner data не использовались.

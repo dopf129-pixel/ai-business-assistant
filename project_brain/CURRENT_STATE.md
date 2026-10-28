@@ -1,3 +1,9 @@
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W03
+
+- W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
+- W03 принял архитектуру Decision 064: один существующий `UnitPriceScenarioService`/`TaxService`, точные versioned evidence contracts, общий `PlanningWorkspaceRepository`, owner-confirmed experiment phases и explicit gates. Runtime и DB schema ещё не менялись; W04 следующий.
+- Подробный контракт: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`. Программа остаётся IN_PROGRESS и не является production acceptance.
+
 # 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
 
 - Создана реализационная ветка от exact spec PR #721; сохранность tracked/ignored owner data подтверждена baseline manifest. Код расчёта и data files не менялись.

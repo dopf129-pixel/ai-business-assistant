@@ -1,5 +1,9 @@
 # Architecture Decisions
 
+## Decision 064 — versioned unit-economics evidence and experiment ownership
+
+Keep the canonical unit-price calculator and active-store tax service as the only forward model. Add versioned exact-SKU expense/quantity snapshots with missing-versus-zero, coverage, attribution, denominator and ownership semantics; keep window allocation separate from a strict retained cohort. Persist through the existing tenant `PlanningWorkspaceRepository`; phases/results are immutable revisions with CAS/idempotency. Owner confirmations drive the experiment state machine, and one shared finite operation budget governs live collection. Design accepted on W03; implementation is pending W04–W37. See `DECISIONS_064.md` and `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`.
+
 ## Decision 063 — bounded rounding-aware minimum-price search
 
 For tariff-aware target planning, never claim a minimum seller price by assuming rounded profit is monotonic at each cent. Within a frozen fixed-commission segment, use a conservative continuous profit-gap bound to prune only intervals proven below the target, then check remaining candidates with the canonical forward calculator from lowest price upward. Verify that the bound matches representative forward outputs and fail closed for unsupported formulae or exhausted evaluation budgets. Batch planning passes its remaining shared evaluation limit before each solver invocation.
