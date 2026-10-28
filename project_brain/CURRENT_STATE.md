@@ -1,3 +1,9 @@
+# 2026-10-28 — W01 завершён: lineage источников и потребителей
+
+- Read-only карта W01: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`. Отмечены актуальные vs accrual/report/event даты, точный SKU/store scope, знаменатель и completeness для всех существующих затрат и наблюдений.
+- Подтверждено: `FinanceService.sales_count` считает положительные строки товара в posting, а не quantity; `get_daily_finance(..., sku=...)` может включить полный `total_amount` совпавшей multi-product операции, несмотря на SKU-фильтр. Оба поля требуют осторожного использования для нового strict SKU P&L.
+- W00–W01 завершены на implementation branch от spec PR #721; runtime код и тесты не менялись, owner data не читались/не трогались. Следующий этап W02 — официальная сверка API contracts.
+
 # 2026-10-28 — исполнение W00–W39 начато
 
 - W00 завершён: PR #721 проверен на exact HEAD `f76d2dd90e4298113c037278666532715974e4a8`; `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`. Implementation branch создана от exact spec HEAD; baseline owner-data inventory без чтения содержимого сохранён в `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
