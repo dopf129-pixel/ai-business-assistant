@@ -1,3 +1,8 @@
+# 2026-10-28 — W04: числовые эталоны и baseline экономики SKU
+
+- Зафиксированы конкретные входы/выходы и поведенческие gates N01–N18 для будущей расширенной экономики и пошагового эксперимента. Текущий legacy calculator и `TaxService` проверены на synthetic N01/N09/N10 inputs; реализация нового runtime этим этапом не заявляется.
+- Повторно прогнаны 22 существующих связанных test suites в изоляции: **334 passed in 6.97s**. Для локального Windows окружения явно подключена уже установленная tzdata zoneinfo; зависимости и production code не менялись. `git diff --check` passed; data diff empty.
+
 # 2026-10-28 — W03: contracts экономики и эксперимента
 
 - Определены versioned contracts для расходов, количеств, расширенного сценария и фаз эксперимента, ownership расходов, последовательность gates, переходы состояний и additive migration plan для существующего tenant planning repository. Добавлены синтетические seed cases; runtime/schema пока не менялись.
