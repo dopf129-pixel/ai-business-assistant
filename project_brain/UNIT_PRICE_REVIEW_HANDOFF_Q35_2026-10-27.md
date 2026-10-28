@@ -4,7 +4,7 @@
 
 ## Статус независимого review — 2026-10-28
 
-Независимый review выявил пять воспроизведённых замечаний. Исправления внесены в PR #720; предыдущие CI ссылки относятся к старому SHA и не подтверждают новую версию. Свежие локальные regressions прошли (**149 passed across eight modules**); полный изолированный suite — **3,990 passed in 49.21s**, `compileall` и `git diff --check` — PASS, `data/` основного checkout не изменён. После публикации commit остаётся получить новый exact-head CI.
+Независимый review выявил пять воспроизведённых замечаний. Исправления внесены в PR #720; предыдущие CI ссылки относятся к старым SHA и не подтверждают новую версию. Свежие локальные regressions прошли (**149 passed across eight modules**); полный изолированный suite — **3,990 passed in 49.21s**, `compileall` и `git diff --check` — PASS, `data/` основного checkout не изменён. Review-fix head прошёл GitHub Verify.
 
 - R1: observation commission is resolved against its observed price using the frozen tariff snapshot; legacy point-only commission is not carried to a changed price, and completeness reports provenance.
 - R2: Returns receives UTC instants corresponding to inclusive local calendar dates.
@@ -12,7 +12,7 @@
 - R4: tariff target search accounts for rounded canonical profit, verifies candidate cents, and fails closed on its evaluation budget.
 - R5: batch planning passes remaining shared calculation budget into each solver call and stops before additional source/solver calls once exhausted.
 
-Проверенный review-fix commit: `bb0a8aea` (`Fix unit price review findings R1-R5`). Он прошёл полный локальный pytest в disposable worktree. После добавления итоговой CI-записи документация получит отдельный commit; при публикации обоих commits зафиксировать результирующий SHA PR и новый Verify run. Предыдущие Verify runs ниже не относятся к review fixes.
+Проверенный review-fix commit: `bb0a8aea` (`Fix unit price review findings R1-R5`). Head `40a23315d74958cb7b7e427b785f730ea886ac79` включает документацию результатов и прошёл [Verify run 40654624761](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40654624761): `success`, включая Windows/Python 3.12 и Linux full verification. Этот run относится к review-fix code head; предыдущие ссылки ниже относятся к первоначальной реализации.
 
 ## PR и порядок проверки
 
@@ -32,11 +32,11 @@
 
 ## Проверки
 
-- Полный изолированный Windows/Python 3.12 `pytest`: **3983 passed in 53.74s**.
+- Полный изолированный Windows/Python 3.12 `pytest` на review-fix commit: **3,990 passed in 49.21s**.
 - Повторный профиль шести Q30/UI модулей в реализации: **56 passed in 2.60s**.
 - Q31 связанный профиль: **1374 passed across 175 modules**; bounded checks: **3 passed**.
 - `python -m compileall -q app`, `git diff --check`: PASS; `data/` diff основной реализации пустой.
-- Exact implementation-head GitHub Verify прошёл: run `40573748055`; финальный проверенный PR-head snapshot `483cd4d1` также прошёл Verify `40574423459`, Windows/Linux full verification и Docker build/runtime smoke. После текущего документирования статуса нужно сверить CI нового документационного HEAD.
+- Review-fix exact-head GitHub Verify `40654624761` passed on `40a23315`; Windows/Python 3.12 and Linux full verification succeeded. Initial implementation-head runs `40573748055` and `40574423459` predate review fixes.
 
 ## Основные review входы
 

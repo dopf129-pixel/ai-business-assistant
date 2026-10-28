@@ -2,7 +2,7 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: IN_PROGRESS; Q00–Q34 VERIFIED. На 2026-10-28 исправлены пять подтверждённых независимым review замечаний к PR #720. Связанный профиль — 149 passed, полный изолированный pytest — 3,990 passed; Q35 ожидает публикации commit и exact-head CI.
+Статус: Q35 VERIFIED для review-fix code head `40a23315d74958cb7b7e427b785f730ea886ac79`; Q00–Q34 также VERIFIED. Пять замечаний независимого review исправлены, локальные проверки и exact-head Verify успешны.
 
 ## Исходная точка
 
@@ -403,4 +403,4 @@ Resume: реализация и package готовы. PR #720 stacked повер
 - Исправлены R1–R5: наблюдение разрешает комиссию по своей фактической цене из замороженного тарифа; Returns window преобразуется из локальных дат в точные UTC-моменты; временный session-only профиль не переопределяет конфликтующие постоянные профили; поиск целевой цены проверяет первый допустимый цент с консервативной границей округления и fail-closed лимитом; batch передаёт solver оставшийся общий бюджет до начала вычислений.
 - Добавлены адресные регрессии и статус тарифа в result completeness. Связанный Windows/Python 3.12 профиль восьми наборов: **149 passed in 3.89s**.
 - Полный изолированный Windows/Python 3.12 pytest: **3,990 passed in 49.21s**. `python -m compileall -q app`, `git diff --check` прошли; `data/` в основном checkout не изменён. Полный прогон выполнялся в disposable worktree и использовал отдельный pytest basetemp; Ozon/Telegram API и реальные credentials отключены.
-- Q35 остаётся IN PROGRESS до отправки commit `bb0a8aea` вместе с этой записью и получения зелёного exact-head GitHub Verify. Указать новый SHA/run здесь после проверки; не переносить CI ссылки со старого SHA.
+- `bb0a8aea` содержит исправления R1–R5; `40a23315d74958cb7b7e427b785f730ea886ac79` включает review handoff с локальными результатами и прошёл exact-head GitHub Verify [40654624761](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40654624761): `success`, Windows и Linux jobs зелёные. Старые Verify runs не используются для подтверждения этого результата.
