@@ -220,7 +220,10 @@ def test_unknown_timezone_is_preserved_as_unknown_and_negative_zero_is_canonical
 
 def test_unattributed_amount_cannot_be_marked_as_an_additional_sku_expense():
     evidence = _evidence([_operation("posting-account", [
-        _component("part", "ACCOUNT_AD", "-300.00", attribution="UNATTRIBUTED"),
+        _component(
+            "part", "ACCOUNT_AD", "-300.00", category="ADVERTISING_OTHER",
+            attribution="UNATTRIBUTED",
+        ),
     ])])
 
     result = UnitEconomicsExpenseNormalizer.normalize(evidence)

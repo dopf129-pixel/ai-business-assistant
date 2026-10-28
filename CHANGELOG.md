@@ -1,3 +1,8 @@
+# 2026-10-28 — W06: рекламные расходы и сверка Performance CPC
+
+- Добавлен чистый `UnitEconomicsAdvertisingEvidenceService`: financial CPC/CPO/OTHER остаются основным источником; Performance CPC — отдельная сверка и никогда не прибавляется второй раз. Нераспознанные типы, account-level и window-allocation суммы не распределяются автоматически на SKU.
+- Абсолютные расходы/шт. доступны только при полном источнике, явном типе расходов, подтверждённом recurring mapping и совместимом знаменателе/окне; стоимость может превышать цену товара. Добавлены 18 regression tests; адресный связанный профиль: **90 passed in 1.77s**. Ozon API и пользовательские данные не использовались.
+
 # 2026-10-28 — W05: нормализация expense evidence
 
 - Добавлен pure `UnitEconomicsExpenseNormalizer`: scoped signed Decimal components, multi-service split, idempotent subcomponent dedup, conflict blocking, ownership ledger и неполная/подтверждённая coverage. Сырые операции/части и неизвестные поля не возвращаются наружу.

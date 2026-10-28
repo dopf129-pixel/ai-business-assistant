@@ -50,7 +50,7 @@ ExpenseComponentV1 {
   schema_version: 1,
   component_key: bounded stable enum/string,
   category: COMMISSION | ACQUIRING | LOGISTICS | ADVERTISING_CPC |
-            ADVERTISING_CPO | STORAGE | PLACEMENT | CROSS_DOCKING |
+            ADVERTISING_CPO | ADVERTISING_OTHER | STORAGE | PLACEMENT | CROSS_DOCKING |
             RETURN_NONBUYOUT | RETURN_INVENTORY_LOSS | OTHER_SERVICE,
   source: SELLER_FINANCE | PERFORMANCE | SUPPLY_ACT | DERIVED | OWNER_INPUT,
   source_method: bounded endpoint/version identifier,
