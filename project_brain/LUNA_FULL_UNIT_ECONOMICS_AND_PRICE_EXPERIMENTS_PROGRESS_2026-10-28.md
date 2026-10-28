@@ -2,15 +2,17 @@
 
 Дата: 28.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: NOT_STARTED. Реализация W00–W39 не начиналась.
+Статус: IN_PROGRESS. W00 завершён; W01 следующий.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
+Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
 Аудит подготовки: FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_AUDIT_2026-10-28.md.
 
 ## Resume
 
-- Следующий этап: W00.
-- Implementation branch и её HEAD: ещё не созданы; при старте перепроверить фактический main и spec PR.
+- Следующий этап: W01.
+- Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
+- W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`; implementation HEAD после W00 фиксируется в evidence и сверяется при каждом resume.
 - Если spec PR открыт, старт разрешён от его проверенного HEAD с явно зависимым stacked PR; ожидание предварительного merge не является блокером.
 - Production bot, Ozon API, .env и owner database не использовались.
 - Новые режимы экономики/эксперимента пока не реализованы; описанные схемы и acceptance — требования.
@@ -21,7 +23,7 @@
 
 | Этап | Зависимости | Статус | Фактический результат / проверки |
 |---|---|---|---|
-| W00 | — | NOT_STARTED | — |
+| W00 | — | DONE | 28.10.2026: проверены PR #721 (open, exact head `f76d2dd9…`, base main `9315046c…`), локальный checkout чистый; создана отдельная implementation branch от exact spec HEAD. Составлен baseline manifest без чтения содержимого owner data; tracked `data/*.json`, ignored `data/tenants/`, `.env` и локальные базы не включались/не изменялись. Evidence: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`. Runtime tests не запускались: W00 не меняет код. |
 | W01 | W00 | NOT_STARTED | — |
 | W02 | W01 | NOT_STARTED | — |
 | W03 | W01,W02 | NOT_STARTED | — |

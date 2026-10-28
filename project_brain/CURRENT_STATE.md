@@ -1,3 +1,8 @@
+# 2026-10-28 — исполнение W00–W39 начато
+
+- W00 завершён: PR #721 проверен на exact HEAD `f76d2dd90e4298113c037278666532715974e4a8`; `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`. Implementation branch создана от exact spec HEAD; baseline owner-data inventory без чтения содержимого сохранён в `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
+- Рабочее дерево при старте было чистым; `data/`, ignored tenant storage, `.env` и базы не менялись. Исполняемый код не менялся; следующий этап W01 — подтверждение lineage источников и потребителей.
+
 # 2026-10-28 — новая программа: экономика SKU и управляемые эксперименты
 
 - PR #719 и #720 слиты в main по авторизации владельца: merge SHA 6bf89cc8 и 9315046c. Последний reviewed implementation HEAD 28e6ae77 прошёл Verify 40667273360 на Windows/Linux; исторические записи ниже о незавершённом merge относятся к прежним checkpoint.
