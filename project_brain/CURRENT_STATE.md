@@ -1,8 +1,8 @@
-# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W04
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W05
 
 - W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
-- W03 принял архитектуру Decision 064: один существующий `UnitPriceScenarioService`/`TaxService`, точные versioned evidence contracts, общий `PlanningWorkspaceRepository`, owner-confirmed experiment phases и explicit gates. W04 закрепил synthetic numeric oracles N01–N18 и прошёл baseline профиль **334 теста**; расширенный runtime и DB schema ещё не реализованы.
-- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`. Программа остаётся IN_PROGRESS и не является production acceptance; следующий этап W05.
+- W03 принял архитектуру Decision 064. W04 закрепил synthetic numeric oracles N01–N18 и прошёл baseline профиль **334 теста**. W05 добавил pure нормализацию подписанных расходов, конфликтов/dedup, ownership ledger и page coverage; связанный профиль **29 тестов**.
+- Evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `UNIT_ECONOMICS_W04_NUMERIC_ORACLES_2026-10-28.md`, `UNIT_ECONOMICS_W05_NORMALIZER_2026-10-28.md`. Ozon adapters, расширенный runtime и DB schema ещё не реализованы; программа IN_PROGRESS, следующий этап W06.
 
 # 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
 

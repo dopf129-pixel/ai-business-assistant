@@ -1,3 +1,8 @@
+# 2026-10-28 — W05: нормализация expense evidence
+
+- Добавлен pure `UnitEconomicsExpenseNormalizer`: scoped signed Decimal components, multi-service split, idempotent subcomponent dedup, conflict blocking, ownership ledger и неполная/подтверждённая coverage. Сырые операции/части и неизвестные поля не возвращаются наружу.
+- Добавлены W05 regressions; связанные normalizer suites: **29 passed in 0.52s**; `py_compile` и `git diff --check` прошли. Реальные API и пользовательские данные не использовались.
+
 # 2026-10-28 — W04: числовые эталоны и baseline экономики SKU
 
 - Зафиксированы конкретные входы/выходы и поведенческие gates N01–N18 для будущей расширенной экономики и пошагового эксперимента. Текущий legacy calculator и `TaxService` проверены на synthetic N01/N09/N10 inputs; реализация нового runtime этим этапом не заявляется.
