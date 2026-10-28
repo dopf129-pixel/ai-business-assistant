@@ -1,3 +1,9 @@
+# 2026-10-28 — расширенная экономика SKU и эксперименты, W00–W02
+
+- Создана реализационная ветка от exact spec PR #721; сохранность tracked/ignored owner data подтверждена baseline manifest. Код расчёта и data files не менялись.
+- W01 зафиксировал lineage текущих источников; W02 отделил подтверждённые официальными материалами Ozon endpoint families от точных параметров, которые пока подтверждаются только реализацией/примером. Для Analytics no-Premium отсутствующие `cancellations`/`returns`/`delivered_units` считаются недоступными, не нулевыми.
+- W02 audit: `UNIT_ECONOMICS_W02_OZON_API_CONTRACT_AUDIT_2026-10-28.md`. Программа W03–W39 остаётся IN_PROGRESS; этот этап не означает production readiness или реальную проверку API.
+
 # 2026-10-28 — W01 завершён: lineage источников и потребителей
 
 - Read-only карта W01: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`. Отмечены актуальные vs accrual/report/event даты, точный SKU/store scope, знаменатель и completeness для всех существующих затрат и наблюдений.
