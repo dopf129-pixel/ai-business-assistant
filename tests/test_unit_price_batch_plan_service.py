@@ -4,7 +4,12 @@ import pytest
 
 from services.period_profit_operation_diagnostics import PeriodProfitOperationTrace
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
+from services.tax_service import TaxService
 from services.unit_price_batch_plan_service import UnitPriceBatchPlanService
+from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
 class _Products:
@@ -79,6 +84,7 @@ class _Scenario:
 class _Planner:
     def __init__(self, forward_profit_matches=True):
         self.forward_profit_matches = forward_profit_matches
+        self.evaluation_limits = []
 
     def parse_target_margin(self, value):
         try:
@@ -89,7 +95,9 @@ class _Planner:
             return {"error": True}
         return {"error": False, "value": target}
 
-    def solve(self, inputs, target, identity=None, provenance=None, sources=None):
+    def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+              max_evaluations=None):
+        self.evaluation_limits.append(max_evaluations)
         target = Decimal(str(target))
         price = Decimal("600")
         profit = float(target * price / Decimal("100"))
@@ -107,6 +115,36 @@ class _Planner:
                     "available": True,
                     "calculated": {"profit": profit},
                 },
+            },
+        }
+
+
+class _BudgetPlanner(_Planner):
+    """Solver fake that consumes its full allowance when the target needs more."""
+
+    def __init__(self, required_evaluations=1):
+        super().__init__()
+        self.required_evaluations = required_evaluations
+
+    def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+              max_evaluations=None):
+        self.evaluation_limits.append(max_evaluations)
+        target = Decimal(str(target))
+        limit = max_evaluations if type(max_evaluations) is int else 1024
+        if self.required_evaluations > limit:
+            return {
+                "error": False,
+                "evaluation_count": limit,
+                "target": {"status": "SEARCH_BUDGET_EXHAUSTED"},
+            }
+        profit = float(target * Decimal("6"))
+        return {
+            "error": False,
+            "evaluation_count": self.required_evaluations,
+            "target": {
+                "status": "FOUND", "price": "600", "profit": profit,
+                "margin_percent": float(target),
+                "forward_result": {"available": True, "calculated": {"profit": profit}},
             },
         }
 
@@ -132,7 +170,8 @@ def _selection(*items):
     } for item in items]
 
 
-def _service(products, failures=None, clock=None, complete=False, planner=None):
+def _service(products, failures=None, clock=None, complete=False, planner=None,
+             tariff_profile_runtime_service=None):
     source = _Source(products, failures, complete=complete)
     return UnitPriceBatchPlanService(
         source,
@@ -140,7 +179,121 @@ def _service(products, failures=None, clock=None, complete=False, planner=None):
         planner or _Planner(),
         clock=clock,
         tenant_scope_provider=lambda: "user-1::ozon::store-a",
+        tariff_profile_runtime_service=tariff_profile_runtime_service,
     ), source
+
+
+def test_batch_plan_and_row_price_edit_share_the_same_frozen_tariff_profile():
+    class _TariffRuntime:
+        def resolve_for_product(self, identity, seller_price, source_snapshot,
+                                source_age_seconds, source_ttl_seconds, user_id=None):
+            profile = {
+                "profile_id": "batch-tariff-" + str(identity["sku"]),
+                "revision": 1, "state_revision": 1, "owner_id": user_id,
+                "store_id": identity["store_id"],
+                "identity": {key: identity[key] for key in ("product_id", "offer_id", "sku")},
+                "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+                "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-test",
+                "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+                "effective_from": "2026-10-27", "effective_to": None,
+                "confirmed_by_owner": True,
+                "bands": [
+                    {"price_from_cents": 50_000, "price_to_cents": 50_000, "commission_rate": "11"},
+                    {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+                ],
+            }
+            tariff_identity = {
+                "owner_id": user_id, "store_id": identity["store_id"],
+                "product_id": identity["product_id"], "offer_id": identity["offer_id"],
+                "sku": identity["sku"],
+            }
+            resolved = UnitPriceTariffResolver().resolve(
+                seller_price_cents=UnitPriceTariffSnapshotAdapter.price_to_cents(seller_price),
+                identity=tariff_identity, sale_schema="FBO",
+                effective_date="2026-10-27", profiles=[profile],
+            )
+            return {
+                "error": False,
+                "resolution": resolved,
+                "frozen_tariff_resolution": UnitPriceTariffSnapshotAdapter.freeze(
+                    resolved, profile, candidate_profiles=[profile],
+                    effective_date="2026-10-27",
+                ),
+            }
+
+    class _TariffPlanner(_Planner):
+        def __init__(self):
+            super().__init__()
+            self.tariff_calls = []
+
+        def solve(self, inputs, target, identity=None, provenance=None, sources=None,
+                  frozen_tariff_snapshot=None, tariff_resolution_required=False,
+                  max_evaluations=None, **_kwargs):
+            self.tariff_calls.append((inputs.get("commission_rate"), frozen_tariff_snapshot,
+                                      tariff_resolution_required))
+            return super().solve(
+                inputs, target, identity, provenance, sources,
+                max_evaluations=max_evaluations,
+            )
+
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _TariffPlanner()
+    service, _source = _service(
+        products, complete=True, planner=planner,
+        tariff_profile_runtime_service=_TariffRuntime(),
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        row = batch["rows"][0]
+        edited = service.edit_row_assumption(batch, row["row_id"], "price", "500.01")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert batch["status"] == "COMPLETED"
+    assert row["inputs"]["commission_rate"] == "11"
+    assert row["tariff_scope"] == "FROZEN_PROFILE_SET"
+    assert all(call[1] is not None and call[2] is True for call in planner.tariff_calls)
+    assert edited["error"] is False
+    edited_row = next(item for item in edited["rows"] if item["row_id"] == row["row_id"])
+    assert edited_row["inputs"]["price"] == "500.01"
+    assert edited_row["inputs"]["commission_rate"] == "22"
+    assert edited_row["provenance"]["commission_rate"] == "manual_seller_assumption"
+
+
+def test_legacy_current_commission_in_batch_is_limited_to_source_price():
+    products = [_catalog_item(1), _catalog_item(2)]
+    source = _Source(products, complete=True)
+    original_load = source.load_snapshot
+
+    def load_current_point(*args, **kwargs):
+        snapshot = original_load(*args, **kwargs)
+        snapshot["input_provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+        return snapshot
+
+    source.load_snapshot = load_current_point
+    scenario = UnitPriceScenarioService(TaxService())
+    service = UnitPriceBatchPlanService(
+        source, scenario, UnitPriceTargetPlanningService(scenario),
+        tenant_scope_provider=lambda: "user-1::ozon::store-a",
+    )
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "0")
+        row = batch["rows"][0]
+        changed = service.edit_row_assumption(batch, row["row_id"], "price", "500.01")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert batch["status"] == "COMPLETED"
+    assert row["tariff_scope"] == "EXACT_PRICE_ONLY"
+    assert row["legacy_tariff_price_cents"] == 50_000
+    assert row["planning"]["target"]["price"] == "500.00"
+    assert changed["error"] is False
+    changed_row = next(item for item in changed["rows"] if item["row_id"] == row["row_id"])
+    assert changed_row["inputs"]["commission_rate"] is None
+    assert changed_row["provenance"]["commission_rate"] == "unknown"
+    assert changed_row["status"] == "INCOMPLETE_INPUTS"
 
 
 def test_batch_requires_two_to_ten_unique_exact_catalog_identities():
@@ -348,6 +501,114 @@ def test_complete_row_uses_solver_candidate_and_independent_forward_result_check
     assert [row["status"] for row in result["rows"]] == ["READY", "READY"]
     assert result["evaluation_count"] == 2
     assert result["rows"][0]["planning"]["target"]["forward_result"]["available"] is True
+    assert service.target_planning_service.evaluation_limits == [128, 128]
+
+
+def test_batch_passes_remaining_global_budget_and_stops_before_an_extra_solver_call():
+    products = [_catalog_item(index) for index in range(3)]
+    planner = _Planner()
+    service, source = _service(products, complete=True, planner=planner)
+    service.TARGET_CALCULATION_LIMIT = 1
+    service.BATCH_CALCULATION_LIMIT = 2
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        result = service.build(_selection(*products), "user-1", "20")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [1, 1]
+    assert result["evaluation_count"] == 2
+    assert result["evaluation_count"] <= result["evaluation_limit"] == 2
+    assert [row["status"] for row in result["rows"]] == [
+        "READY", "READY", "BUDGET_EXHAUSTED",
+    ]
+    assert len(source.calls) == 2
+
+
+def test_local_row_edit_passes_per_row_solver_budget_and_reports_exhaustion():
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner()
+    service, _source = _service(products, complete=True, planner=planner)
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        planner.required_evaluations = service.TARGET_CALCULATION_LIMIT + 1
+        edited = service.edit_row_assumption(
+            batch, batch["rows"][0]["row_id"], "cost", "101",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [128, 128, 128]
+    assert edited["error"] is False
+    assert edited["status"] == "PARTIAL_BUDGET_EXHAUSTED"
+    assert edited["rows"][0]["status"] == "BUDGET_EXHAUSTED"
+    assert edited["rows"][0]["reason"] == "TARGET_CALCULATION_LIMIT"
+    assert edited["rows"][0]["evaluation_count"] == service.TARGET_CALCULATION_LIMIT
+    assert edited["evaluation_count"] <= edited["evaluation_limit"]
+
+
+@pytest.mark.parametrize("operation", ["target", "advertising"])
+def test_multirow_recalculation_shares_batch_solver_budget(operation):
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner()
+    service, _source = _service(products, complete=True, planner=planner)
+    service.TARGET_CALCULATION_LIMIT = 4
+    service.BATCH_CALCULATION_LIMIT = 6
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "20")
+        planner.required_evaluations = 5
+        if operation == "target":
+            updated = service.set_target_margin(batch, "21")
+        else:
+            row_ids = [row["row_id"] for row in batch["rows"]]
+            updated = service.apply_advertising_rate(
+                batch, row_ids, "9", confirmed=True,
+                expected_batch_id=batch["batch_id"],
+                expected_batch_version=batch["version"],
+            )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert planner.evaluation_limits == [4, 4, 4, 2]
+    assert updated["error"] is False
+    assert updated["status"] == "PARTIAL_BUDGET_EXHAUSTED"
+    assert [row["status"] for row in updated["rows"]] == [
+        "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED",
+    ]
+    assert updated["evaluation_count"] == updated["evaluation_limit"] == 6
+
+
+def test_changing_target_retries_snapshot_row_after_solver_budget_exhaustion():
+    products = [_catalog_item(1), _catalog_item(2)]
+    planner = _BudgetPlanner(required_evaluations=129)
+    service, _source = _service(products, complete=True, planner=planner)
+    token = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        batch = service.build(_selection(*products), "user-1", "50")
+        assert [row["status"] for row in batch["rows"]] == [
+            "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED",
+        ]
+        assert all(
+            row["evaluation_count"] == service.TARGET_CALCULATION_LIMIT
+            for row in batch["rows"]
+        )
+
+        planner.required_evaluations = 6
+        updated = service.set_target_margin(batch, "0")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert updated["error"] is False
+    assert updated["target_margin_percent"] == "0"
+    assert [row["status"] for row in updated["rows"]] == ["READY", "READY"]
+    assert [
+        row["planning"]["target"]["margin_percent"] for row in updated["rows"]
+    ] == [0, 0]
+    assert [row["evaluation_count"] for row in updated["rows"]] == [6, 6]
+    assert planner.evaluation_limits == [128, 128, 128, 128]
+    assert updated["evaluation_count"] <= updated["evaluation_limit"]
 
 
 def test_solver_success_without_forward_target_proof_is_not_ready():

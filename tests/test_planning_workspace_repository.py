@@ -310,7 +310,7 @@ def test_clock_is_timezone_aware_and_payload_schema_stays_additive(tmp_path):
         connection = sqlite3.connect(repo.db_path)
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         connection.close()
-        assert {"planning_documents", "planning_revisions", "planning_idempotency"} <= tables
+        assert {"planning_documents", "planning_revisions", "planning_idempotency", "planning_tariff_profiles", "planning_tariff_profile_revisions", "planning_tariff_profile_idempotency"} <= tables
     finally:
         reset_current_tenant_user_id(token)
 
@@ -331,7 +331,7 @@ def test_first_concurrent_connections_initialize_one_schema_and_allow_reopen(tmp
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(connect, range(2)))
-    assert all(len(rows) == 1 and tuple(rows[0]) == (1, 2) for rows in outcomes)
+        assert all(len(rows) == 1 and tuple(rows[0]) == (1, 5) for rows in outcomes)
 
     token = _context()
     try:
@@ -373,7 +373,7 @@ def test_legacy_schema_migrates_atomically_and_keeps_existing_document_state(tmp
         ).fetchone()
     finally:
         connection.close()
-    assert [tuple(row) for row in schema_rows] == [(1, 2)]
+    assert [tuple(row) for row in schema_rows] == [(1, 5)]
     assert document["state_revision"] == 1
 
 

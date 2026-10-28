@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from threading import RLock
@@ -9,6 +9,7 @@ from uuid import uuid4
 from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.tenant_context import get_current_tenant_user_id
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
 class TelegramUnitPriceCalculatorRuntimeService:
@@ -40,11 +41,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
         max_catalog_selections=MAX_CATALOG_SELECTIONS,
         target_planning_service=None,
         advertising_cap_service=None,
+        tariff_profile_runtime_service=None,
     ):
         self.source = source
         self.scenario_service = scenario_service
         self.target_planning_service = target_planning_service
         self.advertising_cap_service = advertising_cap_service
+        self.tariff_profile_runtime_service = tariff_profile_runtime_service
+        self.observation_collection_service = None
         self.keyboard_service = keyboard_service
         self.clock = clock or monotonic
         self.session_ttl_seconds = max(1, int(session_ttl_seconds))
@@ -127,13 +131,56 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if identity.get("tenant_scope") != scope:
             return self._stale_result()
         freshness = self._source_freshness(session)
+        inputs = deepcopy(session.get("inputs") or {})
+        provenance = deepcopy(session.get("provenance") or {})
+        frozen_tariff = deepcopy(
+            session.get("frozen_tariff_resolution")
+            or snapshot.get("tariff_resolution")
+        )
+        legacy_tariff_price_cents = session.get("legacy_tariff_price_cents")
+        if isinstance(frozen_tariff, dict):
+            cents = UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+            tariff_identity = {
+                "owner_id": str(identity.get("user_id") or user),
+                "store_id": str(identity.get("store_id") or ""),
+                "product_id": str(identity.get("product_id") or ""),
+                "offer_id": str(identity.get("offer_id") or ""),
+                "sku": str(identity.get("sku") or ""),
+            }
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff, tariff_identity, cents,
+            ) if cents is not None else {"available": False}
+            if resolution.get("available") is True:
+                inputs["commission_rate"] = resolution.get("commission_rate")
+                origin = (resolution.get("selected_profile") or {}).get("origin")
+                provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                }.get(origin, "unknown")
+            else:
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
+        else:
+            legacy_tariff_price_cents = self._legacy_tariff_anchor(
+                session, inputs, provenance,
+            )
+            current_price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                inputs.get("price")
+            )
+            if (legacy_tariff_price_cents is not None
+                    and current_price_cents != legacy_tariff_price_cents):
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
         return {
             "error": False,
             "snapshot": deepcopy(snapshot),
             "identity": identity,
-            "inputs": deepcopy(session.get("inputs") or {}),
-            "provenance": deepcopy(session.get("provenance") or {}),
+            "inputs": inputs,
+            "provenance": provenance,
             "sources": self._scenario_sources(session),
+            "frozen_tariff_resolution": frozen_tariff,
+            "legacy_tariff_price_cents": legacy_tariff_price_cents,
             "source_age_seconds": freshness["age_seconds"],
             "source_ttl_seconds": freshness["ttl_seconds"],
             "source_version": f"{session['scenario_id']}:{session['version']}",
@@ -179,6 +226,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
         inputs.setdefault("cross_docking_per_unit", None)
         provenance = deepcopy(session.get("provenance") or {})
         provenance.setdefault("cross_docking_per_unit", "unknown")
+        inputs, provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+            session, inputs, provenance,
+        )
         completeness = deepcopy(snapshot.get("source_completeness") or {})
         completeness["cross_docking"] = PlanningCrossDockingAdapter.completeness_projection(
             cross_docking
@@ -204,9 +254,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
         projection.update({key: values.get(key) for key in allowed_projection})
         projection["cross_docking"] = values.get("cross_docking")
         captured_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        schema_version = (
+            PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION
+            if frozen_tariff is not None
+            else PlanningCrossDockingAdapter.CURRENT_VERSION
+        )
         payload = {
             "plan_kind": "single",
-            "schema_version": PlanningCrossDockingAdapter.CURRENT_VERSION,
+            "schema_version": schema_version,
             "calculation_version": self.scenario_service.VERSION,
             "target_margin_percent": self._target_margin_assumption(session),
             "items": [{
@@ -226,6 +281,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     "loaded_at": captured_at,
                     "completeness": completeness,
                     "cross_docking": cross_docking,
+                    **({"tariff_resolution": frozen_tariff,
+                        "advertising_basis": self._advertising_basis(inputs, provenance)}
+                       if tariff_resolution is not None else {}),
                 },
                 "projection": projection,
             }],
@@ -277,6 +335,23 @@ class TelegramUnitPriceCalculatorRuntimeService:
             or str(identity.get("store_id") or "") != str(split_store_tenant_scope(scope)[1] or "")
         ):
             return self._stale_result()
+        frozen_tariff = None
+        if payload.get("schema_version") == PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION:
+            frozen_identity = {
+                "owner_id": user,
+                "store_id": str(identity.get("store_id") or ""),
+                "product_id": str(identity.get("product_id") or ""),
+                "offer_id": str(identity.get("offer_id") or ""),
+                "sku": str(identity.get("sku") or ""),
+            }
+            frozen_tariff = UnitPriceTariffSnapshotAdapter.validate(
+                sources.get("tariff_resolution"), frozen_identity, inputs,
+            )
+            if (frozen_tariff is None
+                    or not self._valid_advertising_basis(
+                        sources.get("advertising_basis"), inputs, provenance,
+                    )):
+                return self._stale_result()
         periods = deepcopy(sources.get("periods") or {})
         snapshot = {
             "error": False,
@@ -298,6 +373,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "source_completeness": deepcopy(sources.get("completeness") or {}),
             "cross_docking": PlanningCrossDockingAdapter.display_source(cross_docking),
         }
+        if frozen_tariff is not None:
+            snapshot["tariff_resolution"] = deepcopy(frozen_tariff)
         scenario_id = uuid4().hex[:10]
         now = self.clock()
         manual_fields = {
@@ -312,6 +389,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "created_at": now, "updated_at": now, "source_loaded_at": now,
             "source_age_seconds_at_load": 0, "source_ttl_seconds": 0,
             "restored_from_saved_plan": True,
+            "frozen_tariff_resolution": deepcopy(frozen_tariff),
+            "legacy_tariff_price_cents": (
+                UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+                if payload.get("schema_version") != PlanningCrossDockingAdapter.CURRENT_SCHEMA_VERSION
+                else None
+            ),
+            "manual_commission_price_cents": None,
             "price_planning_target_margin": (
                 str(target_margin) if target_margin is not None else None
             ),
@@ -737,7 +821,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if len(parts) < 3 or parts[0] != "upc":
             return self._stale_result()
         action = parts[1]
-        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k"}:
+        if action in {"e", "f", "z", "b", "r", "a", "v", "c", "g", "q", "u", "j", "k", "d", "h", "n", "w", "x"}:
             if len(parts) < 4:
                 return self._stale_result()
             try:
@@ -759,16 +843,36 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._refresh(session, user, scope, expected_version)
             if action == "a":
                 return self._show_assumptions(session)
+            if action == "x":
+                return self._show_details_screen(session)
             if action == "v":
                 return self._return_to_scenario(session, user, scope, expected_version)
-            if action in {"g", "q"}:
+            if action in {"g", "q", "n"}:
                 return self._begin_price_planning_input(
                     session,
-                    "target_margin" if action == "g" else "price_options",
+                    {"g": "target_margin", "q": "price_options", "n": "price_grid"}[action],
                     user,
                     scope,
                     expected_version,
                 )
+            if action in {"d", "h"}:
+                return self._begin_price_comparison_advertising_input(
+                    session,
+                    "PER_PRICE_DRR" if action == "d" else "MANUAL_COST_PER_SUCCESSFUL_UNIT",
+                    user,
+                    scope,
+                    expected_version,
+                )
+            if action == "w" and len(parts) == 5:
+                try:
+                    page = int(parts[4])
+                except (TypeError, ValueError):
+                    return self._stale_result()
+                stored = session.get("price_planning_result") or {}
+                if (str(page) != parts[4] or page < 0
+                        or stored.get("mode") != "price_grid"):
+                    return self._stale_result()
+                return self._price_planning_result_screen(session, page=page)
             if action == "u" and len(parts) == 5:
                 return self._apply_price_planning_result(
                     session, parts[4], user, scope, expected_version
@@ -829,7 +933,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return self._stale_result()
         if pending.get("stage") == "advertising_cap_target":
             return self._handle_advertising_cap_target_text(text, pending, session, user, scope, key)
-        if pending.get("stage") in {"target_margin", "price_options"}:
+        if pending.get("stage") in {
+            "comparison_per_price_drr", "comparison_cost_per_successful_unit",
+        }:
+            return self._handle_price_comparison_advertising_text(
+                text, pending, session, user, scope, key,
+            )
+        if pending.get("stage") in {"target_margin", "price_options", "price_grid"}:
             return self._handle_price_planning_text(
                 text, pending, session, user, scope, key
             )
@@ -865,6 +975,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["inputs"][pending["field"]] = candidate_text
             current["provenance"][pending["field"]] = "manual_seller_assumption"
             current["overrides"].add(pending["field"])
+            if pending["field"] == "commission_rate":
+                current["manual_commission_price_cents"] = (
+                    UnitPriceTariffSnapshotAdapter.price_to_cents(
+                        current["inputs"].get("price")
+                    )
+                )
+                current.pop("frozen_tariff_resolution", None)
             current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
@@ -872,6 +989,38 @@ class TelegramUnitPriceCalculatorRuntimeService:
             session = deepcopy(current)
             self._pending.pop(key, None)
         return self._scenario_screen(session)
+
+    def refresh_tariff_profile_snapshot(self, scenario_id, version, user_id=None):
+        """Re-read local tariff profiles only after an explicit tariff confirmation."""
+        user, scope, context_error = self._context(user_id)
+        if context_error:
+            return self._friendly_error(context_error)
+        session = self._get_session(scenario_id, version, user, scope)
+        if session is None:
+            return self._stale_result()
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != version
+                or current.get("tenant_scope") != scope
+                or current.get("user_id") != user
+            ):
+                return self._stale_result()
+            current.pop("frozen_tariff_resolution", None)
+            current.pop("price_planning_result", None)
+            current.pop("manual_commission_price_cents", None)
+            current.get("overrides", set()).discard("commission_rate")
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            updated = deepcopy(current)
+            self._pending.pop(key, None)
+        return self._scenario_screen(
+            updated,
+            notice="Подтверждённый тариф обновлён в локальном снимке сценария. Источники Ozon не запрашивались.",
+        )
 
     def clear_pending(self, user_id):
         user = str(user_id or "").strip()
@@ -1069,7 +1218,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         return self._edit_prompt(session, field)
 
     def _begin_price_planning_input(self, session, stage, user, scope, expected_version):
-        if self.target_planning_service is None or stage not in {"target_margin", "price_options"}:
+        if self.target_planning_service is None or stage not in {"target_margin", "price_options", "price_grid"}:
             return self._stale_result()
         key = (user, scope)
         refresh_in_progress = None
@@ -1114,13 +1263,30 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 )
             mode = "target_margin"
             target = parsed["value"]
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or tariff_resolution is not None
+                or session.get("restored_from_saved_plan") is True
+            )
             try:
                 result = self.target_planning_service.solve(
-                    session["inputs"],
+                    comparison_inputs,
                     target,
                     identity=self._scenario_identity(session),
-                    provenance=session["provenance"],
+                    provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
+                    ),
                 )
             except Exception:
                 return self._price_planning_prompt(
@@ -1134,18 +1300,35 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 return self._price_planning_prompt(
                     session,
                     stage,
-                    notice="Список не принят целиком. Укажите от 2 до 5 разных цен до копейки через точку с запятой или с новой строки.",
+                    notice="Список не принят целиком. Укажите от 2 до 10 разных цен до копейки через точку с запятой или с новой строки.",
                 )
             mode = "price_options"
             target = None
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or tariff_resolution is not None
+                or session.get("restored_from_saved_plan") is True
+            )
             try:
                 result = self.target_planning_service.compare_prices(
-                    session["inputs"],
+                    comparison_inputs,
                     parsed["prices"],
                     target_margin_percent=session.get("price_planning_target_margin"),
                     identity=self._scenario_identity(session),
-                    provenance=session["provenance"],
+                    provenance=comparison_provenance,
                     sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
+                    ),
                 )
             except Exception:
                 return self._price_planning_prompt(
@@ -1153,14 +1336,73 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     notice="Не удалось выполнить локальное сравнение. Сценарий не изменён; исправьте ввод или вернитесь к расчёту.",
                 )
             input_value = list(parsed["normalized"])
+        elif stage == "price_grid":
+            comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+                session,
+                deepcopy(session.get("inputs") or {}),
+                deepcopy(session.get("provenance") or {}),
+            )
+            grid = self.target_planning_service.build_price_grid(
+                raw_text,
+                frozen_tariff_snapshot=frozen_tariff,
+                identity=self._scenario_identity(session),
+                inputs=comparison_inputs,
+            )
+            if grid.get("valid") is not True:
+                notice = (
+                    "Сетка с тарифными границами превышает 200 точек. Сузьте диапазон или увеличьте шаг."
+                    if grid.get("code") == "PRICE_GRID_LIMIT"
+                    else "В снимке более 20 тарифных правил. Уточните применимый тарифный профиль."
+                    if grid.get("code") == "PRICE_GRID_TARIFF_RULE_LIMIT"
+                    else "Введите начало; конец; шаг цены продавца, каждое значение до копейки."
+                )
+                return self._price_planning_prompt(session, stage, notice=notice)
+            mode = "price_grid"
+            target = None
+            tariff_required = bool(
+                self.tariff_profile_runtime_service is not None
+                or frozen_tariff is not None
+                or tariff_resolution is not None
+                or session.get("restored_from_saved_plan") is True
+            )
+            try:
+                result = self.target_planning_service.compare_prices(
+                    comparison_inputs,
+                    grid["prices"],
+                    target_margin_percent=session.get("price_planning_target_margin"),
+                    identity=self._scenario_identity(session),
+                    provenance=comparison_provenance,
+                    sources=self._scenario_sources(session),
+                    frozen_tariff_snapshot=frozen_tariff,
+                    tariff_resolution_required=tariff_required,
+                    exact_price_rate_cents=self._planning_exact_price_cents(
+                        session, comparison_inputs, comparison_provenance,
+                        tariff_resolution, frozen_tariff,
+                    ),
+                    price_grid_metadata=grid["metadata"],
+                )
+            except Exception:
+                return self._price_planning_prompt(
+                    session, stage,
+                    notice="Не удалось исследовать локальную сетку. Сценарий не изменён; сузьте диапазон и повторите ввод.",
+                )
+            input_value = list(grid["normalized"])
         else:
             self._clear_pending_for_key(key)
             return self._stale_result()
 
         if not isinstance(result, dict) or result.get("error") is True:
+            code = result.get("code") if isinstance(result, dict) else None
+            notice = (
+                "В тарифном снимке больше 20 правил. Уточните тарифные диапазоны; сценарий не изменён."
+                if code == "TARIFF_RULE_LIMIT_EXCEEDED"
+                else "Тарифный снимок не прошёл проверку. Обновите исходные данные и повторите расчёт."
+                if code == "INVALID_TARIFF_SNAPSHOT"
+                else "Расчёт не завершён. Текущие параметры сохранены; попробуйте ещё раз."
+            )
             return self._price_planning_prompt(
                 session, stage,
-                notice="Расчёт не завершён. Текущие параметры сохранены; попробуйте ещё раз.",
+                notice=notice,
             )
 
         with self._lock:
@@ -1193,15 +1435,226 @@ class TelegramUnitPriceCalculatorRuntimeService:
             session = deepcopy(current)
         return self._price_planning_result_screen(session)
 
+    def _begin_price_comparison_advertising_input(
+        self, session, advertising_mode, user, scope, expected_version,
+    ):
+        key = (user, scope)
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            stored = current.get("price_planning_result") if isinstance(current, dict) else None
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != expected_version
+                or not isinstance(stored, dict)
+                or stored.get("mode") != "price_options"
+                or stored.get("result_version") != expected_version
+                or stored.get("user_id") != user
+                or stored.get("tenant_scope") != scope
+                or stored.get("sku") != current.get("sku")
+                or stored.get("snapshot_id") != (current.get("snapshot") or {}).get("snapshot_id")
+                or self._source_freshness(current).get("status") != "FRESH"
+                or key in self._operation_tokens
+            ):
+                return self._stale_result()
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            stored["result_version"] = current["version"]
+            self._pending[key] = {
+                "scenario_id": current["scenario_id"],
+                "version": current["version"],
+                "stage": (
+                    "comparison_per_price_drr"
+                    if advertising_mode == "PER_PRICE_DRR"
+                    else "comparison_cost_per_successful_unit"
+                ),
+                "advertising_mode": advertising_mode,
+                "request_id": uuid4().hex,
+            }
+            pending_stage = self._pending[key]["stage"]
+            prices = deepcopy(stored.get("input") or [])
+            updated = deepcopy(current)
+        if advertising_mode == "PER_PRICE_DRR":
+            prompt = (
+                "Введите ДРР в процентах в том же порядке, что цены ниже, "
+                "через точку с запятой. Это доля от выручки продавца.\n"
+                + "; ".join(str(price) + " ₽" for price in prices)
+                + "\nНапример: 16,5; 12; 14,25."
+            )
+        else:
+            prompt = (
+                "Введите общие расходы на рекламу в рублях и число успешных продаж "
+                "из этого же объёма через точку с запятой.\n"
+                "Например: 1000; 40 — это 25 ₽ на одну успешную продажу. "
+                "Количество — от 1 до 10 000."
+            )
+        return {
+            "error": False,
+            "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+            "stage": pending_stage,
+            "message": prompt + "\nЦена основного сценария не изменится.",
+            "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                updated["scenario_id"], updated["version"],
+            ),
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _handle_price_comparison_advertising_text(self, text, pending, session, user, scope, key):
+        stored = session.get("price_planning_result") or {}
+        prices = stored.get("input")
+        if not isinstance(prices, list) or not 2 <= len(prices) <= 10:
+            self._clear_pending_for_key(key)
+            return self._stale_result()
+        advertising_mode = pending.get("advertising_mode")
+        if advertising_mode == "PER_PRICE_DRR":
+            parsed = self.target_planning_service.parse_advertising_rate_list(
+                str(text or ""), len(prices),
+            )
+            if parsed.get("valid") is not True:
+                return {
+                    "error": False,
+                    "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+                    "stage": pending["stage"],
+                    "message": (
+                        "ДРР не принята целиком. Введите ровно " + str(len(prices))
+                        + " процентов от 0 до 100, по одному на каждую цену, через точку с запятой."
+                    ),
+                    "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                        session["scenario_id"], session["version"],
+                    ),
+                    "read_only": True,
+                    "executed": False,
+                }
+            advertising_rates = parsed["rates"]
+            advertising_cost_basis = None
+            advertising_input = parsed["normalized"]
+        elif advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+            parsed = self.target_planning_service.parse_advertising_cost_basis(
+                str(text or ""),
+            )
+            if parsed.get("valid") is not True:
+                return {
+                    "error": False,
+                    "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+                    "stage": pending["stage"],
+                    "message": (
+                        "Расход не принят. Введите неотрицательную сумму в ₽ и число "
+                        "успешных продаж из того же объёма: сумма; продажи."
+                    ),
+                    "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                        session["scenario_id"], session["version"],
+                    ),
+                    "read_only": True,
+                    "executed": False,
+                }
+            advertising_rates = None
+            advertising_cost_basis = parsed["basis"]
+            advertising_input = {
+                "total_spend": parsed["basis"]["total_spend"],
+                "successful_units": parsed["basis"]["successful_units"],
+            }
+        else:
+            self._clear_pending_for_key(key)
+            return self._stale_result()
+
+        comparison_inputs, comparison_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+            session,
+            deepcopy(session.get("inputs") or {}),
+            deepcopy(session.get("provenance") or {}),
+        )
+        tariff_required = bool(
+            self.tariff_profile_runtime_service is not None
+            or frozen_tariff is not None
+            or tariff_resolution is not None
+            or session.get("restored_from_saved_plan") is True
+        )
+        try:
+            result = self.target_planning_service.compare_prices(
+                comparison_inputs,
+                prices,
+                target_margin_percent=session.get("price_planning_target_margin"),
+                identity=self._scenario_identity(session),
+                provenance=comparison_provenance,
+                sources=self._scenario_sources(session),
+                frozen_tariff_snapshot=frozen_tariff,
+                tariff_resolution_required=tariff_required,
+                exact_price_rate_cents=self._planning_exact_price_cents(
+                    session, comparison_inputs, comparison_provenance,
+                    tariff_resolution, frozen_tariff,
+                ),
+                advertising_mode=advertising_mode,
+                advertising_rates=advertising_rates,
+                advertising_cost_basis=advertising_cost_basis,
+            )
+        except Exception:
+            return {
+                "error": False,
+                "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+                "stage": pending["stage"],
+                "message": "Не удалось пересчитать варианты. Исходный список цен сохранён; исправьте ввод или отмените.",
+                "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                    session["scenario_id"], session["version"],
+                ),
+                "read_only": True,
+                "executed": False,
+            }
+        if not isinstance(result, dict) or result.get("error") is True:
+            return {
+                "error": False,
+                "status": "UNIT_PRICE_SCENARIO_INPUT_PENDING",
+                "stage": pending["stage"],
+                "message": "Результат не рассчитан. Исходный список цен сохранён; проверьте значения или отмените.",
+                "keyboard": self.keyboard_service.build_unit_price_cancel_keyboard(
+                    session["scenario_id"], session["version"],
+                ),
+                "read_only": True,
+                "executed": False,
+            }
+        with self._lock:
+            current = self._scenarios.get(session["scenario_id"])
+            if (
+                not isinstance(current, dict)
+                or self._active.get(key) != session["scenario_id"]
+                or current.get("version") != pending.get("version")
+                or self._pending.get(key) != pending
+            ):
+                return self._stale_result()
+            current["version"] += 1
+            current["updated_at"] = self.clock()
+            current["price_planning_result"] = {
+                **stored,
+                "mode": "price_options",
+                "input": deepcopy(prices),
+                "advertising_mode": advertising_mode,
+                "advertising_input": deepcopy(advertising_input),
+                "source_version": pending["version"],
+                "result_version": current["version"],
+                "user_id": user,
+                "tenant_scope": scope,
+                "sku": current["sku"],
+                "snapshot_id": (current.get("snapshot") or {}).get("snapshot_id"),
+                "result": deepcopy(result),
+            }
+            self._pending.pop(key, None)
+            saved = deepcopy(current)
+        return self._price_planning_result_screen(saved)
+
     def _price_planning_prompt(self, session, stage, notice=None):
         if stage == "target_margin":
             prompt = (
                 "Введите целевую маржу от 0 до 100% (например, 20 или 19,5). "
                 "Бот покажет ориентир безубыточности и цену для цели."
             )
+        elif stage == "price_grid":
+            prompt = (
+                "Введите начало диапазона; конец; шаг цены продавца до копейки. "
+                "Например: 80; 120; 5. В сетку также добавятся тарифные границы и соседние копейки. "
+                "Проверяется не более 200 точек; максимум будет только среди проверенной сетки."
+            )
         else:
             prompt = (
-                "Введите 2–5 разных цен через точку с запятой или с новой строки. "
+                "Введите 2–10 разных цен через точку с запятой или с новой строки. "
                 "Например: 499,90; 549,90; 599,90."
             )
         prompt += " Цена основного сценария не изменится."
@@ -1219,10 +1672,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "executed": False,
         }
 
-    def _price_planning_result_screen(self, session):
+    def _price_planning_result_screen(self, session, page=0):
         stored = session.get("price_planning_result") or {}
         mode = stored.get("mode")
         result = stored.get("result") or {}
+        all_rows = result.get("rows") or []
+        is_grid = mode == "price_grid"
+        page_size = 10
+        total_pages = max(1, (len(all_rows) + page_size - 1) // page_size) if is_grid else 1
+        if type(page) is not int or not 0 <= page < total_pages:
+            return self._stale_result()
+        first_row = page * page_size if is_grid else 0
+        visible_rows = all_rows[first_row:first_row + page_size] if is_grid else all_rows
         identity = session.get("snapshot", {}).get("identity") or {}
         product = session.get("snapshot", {}).get("product") or {}
         title = (
@@ -1246,6 +1707,30 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.append(self._format_price_planning_outcome(
                 "Цена для цели", result.get("target") or {}, target
             ))
+            tariff_search = result.get("tariff_search") or {}
+            if tariff_search:
+                if tariff_search.get("scope") == "EXACT_SAVED_PRICE_ONLY":
+                    lines.append(
+                        "В старом плане комиссия задана только для сохранённой цены; "
+                        "соседние цены не рассчитаны."
+                    )
+                else:
+                    lines.append(
+                        "Минимум ищется только среди рассчитанных тарифных диапазонов; "
+                        "это не глобальная минимальная цена."
+                    )
+                gaps = tariff_search.get("gaps") or []
+                if gaps:
+                    gap_ranges = [
+                        self._money(item.get("from")) + "–" + self._money(item.get("to"))
+                        for item in gaps if isinstance(item, dict)
+                    ]
+                    if gap_ranges:
+                        lines.append(
+                            "Комиссия не определена для цен: "
+                            + "; ".join(gap_ranges)
+                            + "."
+                        )
         else:
             goal = result.get("target_margin_percent")
             lines.append(
@@ -1253,8 +1738,92 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 if goal is not None
                 else "Одинаковые допущения для всех вариантов; целевая маржа не задана."
             )
-            for index, row in enumerate(result.get("rows") or [], start=1):
+            baseline = result.get("baseline") or {}
+            if baseline.get("available") is True:
+                lines.append(
+                    "База " + self._money(baseline.get("price")) + ": "
+                    + self._money(baseline.get("profit")) + "/шт."
+                )
+            elif baseline:
+                lines.append(
+                    "База " + self._money(baseline.get("price"))
+                    + ": прибыль для сравнения недоступна (комиссия не подтверждена)."
+                )
+            advertising_basis = result.get("advertising_basis") or {}
+            if is_grid:
+                grid = result.get("price_grid") or {}
+                inserted = grid.get("inserted_tariff_boundary_prices") or []
+                lines.append(
+                    "Сетка " + self._money(grid.get("start")) + "–"
+                    + self._money(grid.get("end")) + " ₽, шаг "
+                    + self._money(grid.get("step")) + " ₽; проверено точек: "
+                    + str(grid.get("candidate_count") or len(all_rows))
+                    + "; тарифных правил: " + str(grid.get("tariff_rule_count", 0))
+                    + "; дополнительных граничных точек: " + str(len(inserted)) + "."
+                )
+                lines.append(
+                    "Результат — максимум только среди проверенных цен; это не глобальный максимум."
+                )
+                start_number = first_row + 1
+                end_number = min(len(all_rows), first_row + page_size)
+                lines.append(
+                    f"Страница {page + 1}/{total_pages}: варианты {start_number}–{end_number}."
+                )
+            advertising_mode = advertising_basis.get("mode")
+            if advertising_mode == "SAME_DRR" and advertising_basis.get("rate") is not None:
+                lines.append(
+                    "Реклама для вариантов: одинаковая ДРР "
+                    + self._percent(advertising_basis.get("rate"))
+                    + " от выручки продавца."
+                )
+            elif advertising_mode == "PER_PRICE_DRR":
+                rate_pairs = zip(
+                    advertising_basis.get("price_order") or [],
+                    advertising_basis.get("rates") or [],
+                )
+                lines.append(
+                    "Реклама: отдельная ДРР от выручки продавца — "
+                    + "; ".join(
+                        self._money(price) + " ₽: " + self._percent(rate)
+                        for price, rate in rate_pairs
+                    ) + "."
+                )
+            elif advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                lines.append(
+                    "Реклама: " + self._money(advertising_basis.get("total_spend"))
+                    + " ₽ / " + str(advertising_basis.get("successful_units") or "—")
+                    + " успешных продаж = "
+                    + self._money(advertising_basis.get("amount_per_unit"))
+                    + " ₽ на успешную продажу (ручное допущение)."
+                )
+            best_prices = result.get("best_prices") or []
+            if best_prices:
+                if is_grid:
+                    lines.append(
+                        "Максимальная прибыль на проверенной сетке: "
+                        + self._money(result.get("best_profit")) + "/шт.; равных вариантов: "
+                        + str(len(best_prices)) + "."
+                    )
+                else:
+                    lines.append(
+                        "Максимальная прибыль среди рассчитанных вариантов: "
+                        + self._money(result.get("best_profit")) + "/шт."
+                        + " при цене(ах) "
+                        + ", ".join(self._money(price) for price in best_prices) + "."
+                    )
+            else:
+                lines.append("Нет вариантов с подтверждённой комиссией и рассчитанной прибылью.")
+            for index, row in enumerate(visible_rows, start=first_row + 1):
                 if row.get("available") is not True:
+                    if row.get("commission_status") in {
+                        "UNKNOWN", "CURRENT_PRICE_POINT_ONLY", "CONFLICT",
+                        "EXPIRED", "UNSUPPORTED_SCHEME",
+                    } or row.get("status") == "COMMISSION_UNKNOWN":
+                        lines.append(
+                            f"{index}. {self._money(row.get('price'))}: комиссия для этой цены "
+                            "не подтверждена; прибыль не рассчитана."
+                        )
+                        continue
                     missing = self._price_planning_missing_labels(
                         row.get("forward_result") or row
                     )
@@ -1269,6 +1838,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
                     f"{self._percent(row.get('margin_percent'))}; налог "
                     f"{self._money(row.get('tax'))}"
                 )
+                if row.get("commission_rate") is not None:
+                    line += "; комиссия " + self._percent(row.get("commission_rate"))
+                if row.get("advertising_per_unit") is not None:
+                    line += "; реклама " + self._money(row.get("advertising_per_unit")) + " ₽/шт."
+                if row.get("advertising_rate") is not None:
+                    line += "; эквивалент ДРР " + self._percent(row.get("advertising_rate"))
+                if row.get("profit_delta_vs_baseline") is not None:
+                    line += "; к базе " + self._money(row.get("profit_delta_vs_baseline")) + "/шт."
+                if row.get("is_best") is True:
+                    line += "; максимум"
+                if row.get("is_tariff_boundary") is True:
+                    line += "; тарифная граница/соседняя копейка"
                 if goal is not None:
                     line += "; цель " + self._percent(goal) + (
                         " достигнута" if row.get("goal_reached") is True
@@ -1276,6 +1857,27 @@ class TelegramUnitPriceCalculatorRuntimeService:
                         else " не проверена"
                     )
                 lines.append(line + ".")
+                thresholds = row.get("compensation_thresholds") or {}
+                if is_grid and thresholds.get("status") == "DEFERRED_UNTIL_CANDIDATE_SELECTED":
+                    continue
+                if thresholds:
+                    lines.append(
+                        "   Компенсация относительно базы: не хуже — "
+                        + self._format_compensation_threshold(thresholds.get("non_worse"))
+                        + "; строго лучше — "
+                        + self._format_compensation_threshold(thresholds.get("strictly_better"))
+                        + "."
+                    )
+            if baseline.get("available") is True:
+                lines.append(
+                    "Пороги проверены по округлённой прибыли и налоговой политике магазина; "
+                    "шаг ДРР — 0,01 п.п. Это сценарий, не прогноз эффекта цены на спрос или рекламу."
+                )
+            if is_grid:
+                lines.append(
+                    "Порог рекламы не рассчитывался для всех точек. При выборе одной цены "
+                    "бот проверит его отдельно по тому же снимку."
+                )
         freshness = self._source_freshness(session)
         if freshness.get("status") == "STALE":
             lines.append(
@@ -1283,7 +1885,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             )
         lines.extend([
             "Цена основного сценария не изменена.",
-            "Оценка одной успешной продажи FBO. Комиссия Ozon может измениться при новой цене; FBS не поддержан.",
+            "Оценка одной успешной продажи FBO. Каждый вариант использует свой подтверждённый тариф; неизвестный тариф не подменяется ставкой соседней цены. FBS не поддержан.",
             self._price_planning_cross_docking_note(session, result),
             "Постоянные расходы, платное хранение и эффекты возвратов не входят в расчёт.",
         ])
@@ -1299,6 +1901,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 mode,
                 planning_result=result,
                 allow_apply=freshness.get("status") == "FRESH",
+                page=page,
             )
             if callable(keyboard_builder)
             else self.keyboard_service.build_unit_price_scenario_keyboard(
@@ -1321,15 +1924,23 @@ class TelegramUnitPriceCalculatorRuntimeService:
 
     def _price_planning_cross_docking_note(self, session, result):
         forward_results = []
+        observed = []
         for key in ("break_even", "target"):
             outcome = result.get(key)
             if isinstance(outcome, dict):
                 forward_results.append(outcome.get("forward_result"))
         for row in result.get("rows") or []:
             if isinstance(row, dict):
-                forward_results.append(row.get("forward_result"))
+                forward = row.get("forward_result")
+                if isinstance(forward, dict):
+                    forward_results.append(forward)
+                elif any(key in row for key in (
+                    "cross_docking_included", "cross_docking_status", "cross_docking_reason",
+                )):
+                    included = row.get("cross_docking_included") is True
+                    amount = row.get("cross_docking_per_unit")
+                    observed.append((included and amount is not None, amount, row))
 
-        observed = []
         for forward in forward_results:
             if not isinstance(forward, dict):
                 continue
@@ -1433,7 +2044,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             outcome = result.get("target")
             if not isinstance(outcome, dict) or outcome.get("goal_reached") is not True:
                 return self._stale_result()
-        elif mode == "price_options":
+        elif mode in {"price_options", "price_grid"}:
             try:
                 index = int(selector)
             except (TypeError, ValueError):
@@ -1449,12 +2060,23 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not isinstance(candidate_price, str):
             return self._stale_result()
         candidate_inputs = deepcopy(session.get("inputs") or {})
+        candidate_provenance = deepcopy(session.get("provenance") or {})
         candidate_inputs["price"] = candidate_price
+        if "commission_rate" in outcome:
+            candidate_inputs["commission_rate"] = outcome.get("commission_rate")
+            candidate_provenance["commission_rate"] = outcome.get("commission_origin") or "unknown"
+        if outcome.get("advertising_rate") is not None:
+            candidate_inputs["advertising_rate"] = outcome.get("advertising_rate")
+            candidate_provenance["advertising_rate"] = (
+                "manual_seller_assumption"
+                if (result.get("advertising_basis") or {}).get("mode") != "SAME_DRR"
+                else candidate_provenance.get("advertising_rate", "unknown")
+            )
         try:
             validation = self.scenario_service.calculate(
                 candidate_inputs,
                 identity=self._scenario_identity(session),
-                provenance=session.get("provenance") or {},
+                provenance=candidate_provenance,
                 sources=self._scenario_sources(session),
             )
         except Exception:
@@ -1467,6 +2089,48 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 expected_version,
                 "Не удалось перепроверить цену прямым расчётом. Параметры сценария не изменены.",
             )
+        if outcome.get("profit") is not None:
+            try:
+                validated_profit = Decimal(str(validation["calculated"]["profit"]))
+                expected_profit = Decimal(str(outcome["profit"]))
+            except (KeyError, InvalidOperation, TypeError, ValueError):
+                return self._stale_result()
+            if not validated_profit.is_finite() or validated_profit != expected_profit:
+                return self._invalidate_price_planning_result(
+                    session, user, scope, expected_version,
+                    "Тариф варианта изменился или не совпал с проверкой. Обновите расчёт; цену не подставил.",
+                )
+
+        grid_threshold_notice = ""
+        if mode == "price_grid":
+            baseline = result.get("baseline") or {}
+            solver = getattr(self.target_planning_service, "advertising_compensation_service", None)
+            if baseline.get("available") is True and solver is not None:
+                def forward_for_threshold(candidate):
+                    try:
+                        return self.scenario_service.calculate(
+                            candidate,
+                            identity=self._scenario_identity(session),
+                            provenance=candidate_provenance,
+                            sources=self._scenario_sources(session),
+                        )
+                    except Exception:
+                        return None
+
+                thresholds = solver.solve(
+                    candidate_inputs,
+                    Decimal(str(baseline.get("profit"))),
+                    forward_for_threshold,
+                )
+                grid_threshold_notice = (
+                    " Порог рекламы для выбранной цены относительно базы: не хуже — "
+                    + self._format_compensation_threshold(thresholds.get("non_worse"))
+                    + "; строго лучше — "
+                    + self._format_compensation_threshold(thresholds.get("strictly_better"))
+                    + "."
+                )
+            else:
+                grid_threshold_notice = " Порог относительно прибыли базы не рассчитан: база недоступна."
 
         expired_source = False
         expired_session = False
@@ -1502,6 +2166,14 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 current["inputs"]["price"] = candidate_price
                 current["provenance"]["price"] = "manual_seller_assumption"
                 current["overrides"].add("price")
+                advertising_basis = result.get("advertising_basis") or {}
+                if outcome.get("advertising_rate") is not None:
+                    current["inputs"]["advertising_rate"] = candidate_inputs["advertising_rate"]
+                    current["provenance"]["advertising_rate"] = candidate_provenance.get(
+                        "advertising_rate", "unknown",
+                    )
+                    if advertising_basis.get("mode") != "SAME_DRR":
+                        current["overrides"].add("advertising_rate")
                 current.pop("price_planning_result", None)
                 current["version"] += 1
                 current["updated_at"] = self.clock()
@@ -1520,6 +2192,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             notice=(
                 "Цена " + self._money(candidate_price)
                 + " подставлена только в текущий сценарий. Цена и данные в Ozon не изменены."
+                + grid_threshold_notice
             ),
         )
 
@@ -1556,11 +2229,36 @@ class TelegramUnitPriceCalculatorRuntimeService:
             return "" + label + ": заполните " + (", ".join(missing) or "обязательные параметры") + "."
         if outcome.get("status") == "NOT_FOUND_IN_TESTED_RANGE":
             return label + ": не удалось подобрать цену в допустимом диапазоне при этих условиях."
+        if outcome.get("status") == "NOT_FOUND_IN_COVERED_SEGMENTS":
+            return label + ": цель не достигнута ни в одном рассчитанном тарифном диапазоне."
+        if outcome.get("status") == "COMMISSION_UNKNOWN":
+            return label + ": нет подтверждённой комиссии для расчёта цены."
+        if outcome.get("status") == "SOURCE_UNAVAILABLE":
+            return label + ": источник тарифа недоступен; расчёт остановлен."
+        if outcome.get("status") == "NON_MONOTONIC_SEGMENT":
+            return label + ": в одном тарифном диапазоне поведение расчёта не монотонно; минимальная цена не подтверждена."
+        if outcome.get("status") == "FINAL_CHECK_FAILED":
+            return label + ": прямой расчёт или проверка соседней копейки не подтвердили результат."
         if outcome.get("status") == "SEARCH_BUDGET_EXHAUSTED":
             return label + ": лимит расчётов исчерпан; повторите попытку или проверьте допущения."
         if outcome.get("status") == "INVALID_INPUTS":
             return label + ": проверьте некорректные параметры сценария."
         return label + ": расчёт недоступен; проверьте параметры и попробуйте снова."
+
+    def _format_compensation_threshold(self, outcome):
+        if not isinstance(outcome, dict) or outcome.get("available") is not True:
+            status = outcome.get("status") if isinstance(outcome, dict) else "UNAVAILABLE"
+            labels = {
+                "NOT_REACHABLE": "недостижимо даже при 0%",
+                "LIMIT_NOT_CONFIRMED": "не подтверждено прямой проверкой",
+                "FINAL_CHECK_FAILED": "граница не прошла проверку",
+                "BASELINE_UNAVAILABLE": "база недоступна",
+            }
+            return labels.get(status, "не рассчитано")
+        return (
+            self._percent(outcome.get("advertising_rate")) + " ДРР / "
+            + self._money(outcome.get("advertising_per_unit")) + " ₽/успешную продажу"
+        )
 
     def _price_planning_missing_labels(self, outcome):
         labels = [
@@ -1620,12 +2318,22 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "read_only": True,
                 "executed": False,
             }
+        effective_inputs, effective_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+            session, deepcopy(session.get("inputs") or {}),
+            deepcopy(session.get("provenance") or {}),
+        )
         result = self.advertising_cap_service.solve(
-            session.get("inputs"), target["normalized"],
+            effective_inputs, target["normalized"],
             identity=self._scenario_identity(session),
-            provenance=session.get("provenance"),
+            provenance=effective_provenance,
             sources=self._scenario_sources(session),
         )
+        commission_rate = effective_inputs.get("commission_rate")
+        commission_origin = effective_provenance.get("commission_rate", "unknown")
+        result["commission_rate"] = commission_rate
+        result["commission_origin"] = commission_origin
+        result["tariff_status"] = (tariff_resolution or {}).get("status")
+        result["tariff_reason"] = (tariff_resolution or {}).get("reason")
         with self._lock:
             current = self._scenarios.get(session["scenario_id"])
             if (not isinstance(current, dict)
@@ -1641,6 +2349,12 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["price_planning_target_margin"] = target["normalized"]
             current["advertising_cap_result"] = {
                 "result": deepcopy(result),
+                "commission_rate": commission_rate,
+                "commission_origin": commission_origin,
+                "frozen_tariff_resolution": deepcopy(frozen_tariff),
+                "legacy_tariff_price_cents": self._legacy_tariff_anchor(
+                    session, effective_inputs, effective_provenance,
+                ),
                 "target": target["normalized"],
                 "result_version": current["version"],
                 "snapshot_id": (current.get("snapshot") or {}).get("snapshot_id"),
@@ -1681,6 +2395,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
         lines = [
             "Допустимые расходы на рекламу · один успешный заказ",
             f"Цена продавца: {price if price is not None else 'не задана'} ₽/шт.",
+            self._commission_basis_line(stored),
             f"Целевая маржа: {result.get('target_margin_percent', stored.get('target', '—'))}%",
             f"Текущая доля: {result.get('current_advertising_rate', '—')}% · {result.get('current_advertising_per_unit', '—')} ₽/шт.",
             cross_docking_line,
@@ -1737,10 +2452,36 @@ class TelegramUnitPriceCalculatorRuntimeService:
         if not isinstance(outcome, dict) or outcome.get("available") is not True:
             return self._stale_result()
         candidate = deepcopy(session.get("inputs") or {})
+        candidate_provenance = deepcopy(session.get("provenance") or {})
+        candidate["commission_rate"] = stored.get("commission_rate")
+        candidate_provenance["commission_rate"] = stored.get("commission_origin") or "unknown"
+        frozen_tariff = stored.get("frozen_tariff_resolution")
+        if isinstance(frozen_tariff, dict):
+            if UnitPriceTariffSnapshotAdapter.validate(
+                frozen_tariff, self._scenario_identity(session), candidate,
+            ) is None:
+                return self._stale_result()
+            tariff_identity = self._scenario_identity(session)
+            tariff_identity["owner_id"] = str(session.get("user_id") or "")
+            resolved = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen_tariff, tariff_identity,
+                UnitPriceTariffSnapshotAdapter.price_to_cents(candidate.get("price")),
+            )
+            if (resolved.get("available") is not True
+                    or resolved.get("commission_rate") != candidate.get("commission_rate")):
+                return self._stale_result()
+        else:
+            exact_price_cents = stored.get("legacy_tariff_price_cents")
+            candidate_price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                candidate.get("price")
+            )
+            if (exact_price_cents is not None
+                    and exact_price_cents != candidate_price_cents):
+                return self._stale_result()
         candidate["advertising_rate"] = outcome.get("advertising_rate")
         verified = self.scenario_service.calculate(
             candidate, identity=self._scenario_identity(session),
-            provenance=session.get("provenance"), sources=self._scenario_sources(session),
+            provenance=candidate_provenance, sources=self._scenario_sources(session),
         )
         calculated = verified.get("calculated") or {}
         try:
@@ -1793,6 +2534,13 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["inputs"][field] = value
             current["provenance"][field] = "manual_seller_assumption"
             current["overrides"].add(field)
+            if field == "commission_rate":
+                current["manual_commission_price_cents"] = (
+                    UnitPriceTariffSnapshotAdapter.price_to_cents(
+                        current["inputs"].get("price")
+                    )
+                )
+                current.pop("frozen_tariff_resolution", None)
             current.pop("price_planning_result", None)
             current["version"] += 1
             current["updated_at"] = self.clock()
@@ -1879,6 +2627,8 @@ class TelegramUnitPriceCalculatorRuntimeService:
         provenance = deepcopy(fresh.get("input_provenance") or {})
         source_age, source_ttl = self._snapshot_freshness_metadata(fresh)
         for field in snapshot_session["overrides"]:
+            if field == "commission_rate":
+                continue
             inputs[field] = snapshot_session["inputs"].get(field)
             provenance[field] = "manual_seller_assumption"
         with self._lock:
@@ -1894,6 +2644,11 @@ class TelegramUnitPriceCalculatorRuntimeService:
             current["snapshot"] = deepcopy(fresh)
             current["inputs"] = inputs
             current["provenance"] = provenance
+            current["overrides"].discard("commission_rate")
+            current.pop("frozen_tariff_resolution", None)
+            current["restored_from_saved_plan"] = False
+            current.pop("legacy_tariff_price_cents", None)
+            current.pop("manual_commission_price_cents", None)
             current["updated_at"] = self.clock()
             current["source_loaded_at"] = current["updated_at"]
             current["source_age_seconds_at_load"] = source_age
@@ -2062,18 +2817,212 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Налоговый режим и ставки: политика активного магазина.",
             "Не включены постоянные расходы, хранение, возвраты и отмены.",
         ]
+        keyboard = self.keyboard_service.build_unit_price_scenario_keyboard(
+            session["scenario_id"], session["version"],
+            include_return_mean=completeness.get("complete") is True,
+            include_price_planning=self.target_planning_service is not None,
+            include_manual_tariff=(
+                str((session.get("snapshot", {}).get("product") or {}).get("scheme") or "").upper() == "FBO"
+            ),
+        )
+        tariff_runtime = self.tariff_profile_runtime_service
+        if (isinstance(keyboard, dict) and isinstance(keyboard.get("buttons"), list)
+                and tariff_runtime is not None
+                and getattr(tariff_runtime, "analytics_export_service", None) is not None):
+            keyboard["buttons"].append({
+                "text": "Профиль комиссии",
+                "callback": f"upt:show:{session['scenario_id']}:{session['version']}",
+            })
         return {
             "error": False,
             "status": "UNIT_PRICE_SCENARIO_ASSUMPTIONS_READY",
             "message": "\n".join(lines),
-            "keyboard": self.keyboard_service.build_unit_price_scenario_keyboard(
-                session["scenario_id"], session["version"],
-                include_return_mean=completeness.get("complete") is True,
-                include_price_planning=self.target_planning_service is not None,
-            ),
+            "keyboard": keyboard,
             "read_only": True,
             "executed": False,
         }
+
+    def _prepare_tariff(self, session, inputs, provenance):
+        """Resolve the exact candidate tariff and freeze its source profiles."""
+        profile_runtime = self.tariff_profile_runtime_service
+        frozen = session.get("frozen_tariff_resolution")
+        restored = session.get("restored_from_saved_plan") is True
+        price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+        identity = self._scenario_identity(session)
+        identity["owner_id"] = str(session.get("user_id") or identity.get("user_id") or "")
+        legacy_restore = restored and frozen is None
+        explicit_session_profile = (
+            profile_runtime.get_session_profile(
+                session.get("scenario_id"), user_id=session.get("user_id"),
+            )
+            if legacy_restore and profile_runtime is not None else None
+        )
+        explicit_manual_rate = (
+            session.get("manual_commission_price_cents") == price_cents
+            and inputs.get("commission_rate") is not None
+        )
+        if (legacy_restore and price_cents is not None
+                and price_cents == session.get("legacy_tariff_price_cents")
+                and explicit_session_profile is None and not explicit_manual_rate):
+            # Preserve a v1/v2 plan's historical rate only at its exact saved
+            # price. It cannot be carried to a newly edited candidate.
+            return inputs, provenance, None, None
+        if profile_runtime is None and frozen is None and not legacy_restore:
+            exact_price_cents = self._legacy_tariff_anchor(session, inputs, provenance)
+            if exact_price_cents is None:
+                return inputs, provenance, None, None
+            if price_cents != exact_price_cents:
+                inputs["commission_rate"] = None
+                provenance["commission_rate"] = "unknown"
+                return inputs, provenance, None, {
+                    "error": False, "available": False, "status": "UNKNOWN",
+                    "reason": "COMMISSION_CONFIRMED_AT_DIFFERENT_PRICE",
+                    "seller_price_cents": price_cents,
+                    "exact_price_rate_cents": exact_price_cents,
+                }
+            return inputs, provenance, None, {
+                "error": False, "available": True,
+                "status": "LEGACY_EXACT_PRICE_ONLY", "reason": None,
+                "seller_price_cents": price_cents,
+                "exact_price_rate_cents": exact_price_cents,
+                "commission_rate": inputs.get("commission_rate"),
+                "origin": provenance.get("commission_rate", "unknown"),
+            }
+        if price_cents is None:
+            return inputs, provenance, None, {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": "SELLER_PRICE_CENTS_INVALID",
+            }
+        if isinstance(frozen, dict):
+            resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                frozen, identity, price_cents,
+            )
+        elif legacy_restore and explicit_session_profile is not None:
+            resolution = profile_runtime.resolve_for_scenario(
+                session.get("scenario_id"), session.get("version"),
+                inputs.get("price"), user_id=session.get("user_id"),
+                session_profile_only=True,
+            )
+        elif legacy_restore and not explicit_manual_rate:
+            # Legacy plan has no frozen tariff range. Keep a changed price
+            # unknown until the seller confirms a tariff or explicitly refreshes.
+            resolution = {
+                "error": False, "available": False, "status": "UNKNOWN",
+                "reason": "NO_APPLICABLE_PROFILE", "commission_rate": None,
+                "price_basis": "SELLER_PRICE_RUB", "seller_price_cents": price_cents,
+                "effective_date": date.today().isoformat(),
+                "selected_profile": None, "candidate_profiles": [],
+            }
+        elif profile_runtime is not None:
+            resolution = profile_runtime.resolve_for_scenario(
+                session.get("scenario_id"), session.get("version"),
+                inputs.get("price"), user_id=session.get("user_id"),
+            )
+        else:
+            resolution = {"error": True, "code": "TARIFF_SOURCE_UNAVAILABLE"}
+        if resolution.get("error") is True:
+            resolution = {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": "TARIFF_SOURCE_UNAVAILABLE", "seller_price_cents": price_cents,
+                "price_basis": "SELLER_PRICE_RUB", "effective_date": date.today().isoformat(),
+                "candidate_profiles": [], "selected_profile": None,
+            }
+        selected_profile = resolution.get("selected_profile")
+        candidate_profiles = resolution.get("candidate_profiles") or []
+        frozen_snapshot = UnitPriceTariffSnapshotAdapter.freeze(
+            resolution, selected_profile, candidate_profiles=candidate_profiles,
+            effective_date=resolution.get("effective_date"),
+        )
+        if frozen_snapshot is None:
+            resolution = {
+                "error": False, "available": False, "status": "SOURCE_UNAVAILABLE",
+                "reason": "TARIFF_SNAPSHOT_INVALID", "seller_price_cents": price_cents,
+                "price_basis": "SELLER_PRICE_RUB", "effective_date": date.today().isoformat(),
+                "candidate_profiles": [], "selected_profile": None,
+            }
+            frozen_snapshot = UnitPriceTariffSnapshotAdapter.freeze(
+                resolution, candidate_profiles=[], effective_date=resolution["effective_date"],
+            )
+        if resolution.get("available") is True:
+            inputs["commission_rate"] = resolution.get("commission_rate")
+            origin = (selected_profile or {}).get("origin")
+            provenance["commission_rate"] = {
+                "CURRENT_PRICE_POINT": "current_price_point",
+                "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+            }.get(origin, "unknown")
+        else:
+            inputs["commission_rate"] = None
+            provenance["commission_rate"] = "unknown"
+        return inputs, provenance, frozen_snapshot, resolution
+
+    @staticmethod
+    def _legacy_tariff_anchor(session, inputs, provenance):
+        """Return the sole price supported by an old exact-rate assumption."""
+        explicit = session.get("manual_commission_price_cents")
+        if type(explicit) is int and explicit > 0:
+            return explicit
+        legacy = session.get("legacy_tariff_price_cents")
+        if type(legacy) is int and legacy > 0:
+            return legacy
+        origin = str((provenance or {}).get("commission_rate") or "")
+        point_origins = {
+            "current_price_point", "ozon_current_fbo_rate", "CURRENT_PRICE_POINT",
+            "CONFIRMED_OFFICIAL_SOURCE",
+        }
+        if origin in point_origins:
+            snapshot = session.get("snapshot") or {}
+            source_price = (snapshot.get("suggested_inputs") or {}).get("price")
+            return UnitPriceTariffSnapshotAdapter.price_to_cents(source_price)
+        return None
+
+    @classmethod
+    def _planning_exact_price_cents(cls, session, inputs, provenance,
+                                    resolution, frozen_tariff):
+        if isinstance(frozen_tariff, dict):
+            return None
+        exact = (resolution or {}).get("exact_price_rate_cents")
+        if type(exact) is int and exact > 0:
+            return exact
+        return cls._legacy_tariff_anchor(session, inputs, provenance)
+
+    @staticmethod
+    def _commission_basis_line(stored):
+        rate = stored.get("commission_rate")
+        origin = str(stored.get("commission_origin") or "unknown")
+        labels = {
+            "manual_seller_assumption": "ручное допущение",
+            "current_price_point": "текущая точка Ozon",
+            "ozon_current_fbo_rate": "текущая точка Ozon",
+            "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый тариф",
+            "legacy_frozen_plan_rate": "ставка сохранённого плана",
+        }
+        if rate is None:
+            reason = stored.get("tariff_reason")
+            return "Комиссия: не подтверждена для этой цены" + (
+                f" ({str(reason)[:48]})" if reason else ""
+            ) + "."
+        return f"Комиссия на этой цене: {rate}% · {labels.get(origin, 'фиксированное допущение')}."
+
+    @staticmethod
+    def _advertising_basis(inputs, provenance):
+        return {
+            "mode": "SAME_DRR",
+            "revenue_basis": "SELLER_REVENUE",
+            "rate": inputs.get("advertising_rate"),
+            "origin": provenance.get("advertising_rate", "unknown"),
+        }
+
+    @staticmethod
+    def _valid_advertising_basis(basis, inputs, provenance):
+        return (
+            isinstance(basis, dict)
+            and set(basis) == {"mode", "revenue_basis", "rate", "origin"}
+            and basis.get("mode") == "SAME_DRR"
+            and basis.get("revenue_basis") == "SELLER_REVENUE"
+            and basis.get("rate") == inputs.get("advertising_rate")
+            and basis.get("origin") == provenance.get("advertising_rate")
+        )
 
     def _scenario_screen(self, session, notice=None):
         session = deepcopy(session)
@@ -2082,21 +3031,48 @@ class TelegramUnitPriceCalculatorRuntimeService:
         sources = self._scenario_sources(session)
         source_freshness = self._source_freshness(session)
         source_fresh = source_freshness["status"] == "FRESH"
+        effective_inputs, effective_provenance, frozen_tariff, tariff_resolution = self._prepare_tariff(
+            session, deepcopy(session["inputs"]), deepcopy(session["provenance"]),
+        )
+        if frozen_tariff is not None and session.get("frozen_tariff_resolution") is None:
+            with self._lock:
+                current = self._scenarios.get(session.get("scenario_id"))
+                if (
+                    isinstance(current, dict)
+                    and current.get("version") == session.get("version")
+                    and current.get("tenant_scope") == session.get("tenant_scope")
+                    and current.get("user_id") == session.get("user_id")
+                ):
+                    if current.get("frozen_tariff_resolution") is None:
+                        current["frozen_tariff_resolution"] = deepcopy(frozen_tariff)
+                    frozen_tariff = deepcopy(current.get("frozen_tariff_resolution"))
+                    session["frozen_tariff_resolution"] = deepcopy(frozen_tariff)
         result = self.scenario_service.calculate(
-            session["inputs"],
+            effective_inputs,
             identity=identity,
-            provenance=session["provenance"],
+            provenance=effective_provenance,
             sources=sources,
         )
         current_price = snapshot.get("suggested_inputs", {}).get("price")
-        if current_price is not None and source_fresh:
+        same_price = (
+            UnitPriceTariffSnapshotAdapter.price_to_cents(current_price)
+            == UnitPriceTariffSnapshotAdapter.price_to_cents(effective_inputs.get("price"))
+        )
+        if (current_price is not None and source_fresh
+                and (same_price or tariff_resolution is None)):
             result = self.scenario_service.compare(
-                session["inputs"],
+                effective_inputs,
                 current_price=current_price,
                 identity=identity,
-                provenance=session["provenance"],
+                provenance=effective_provenance,
                 sources=sources,
             )
+        elif current_price is not None and source_fresh:
+            result["comparison"] = {
+                "kind": "current_tariff_not_reused_for_candidate_price",
+                "available": False,
+                "reason": "TARIFF_BASIS_DIFFERENT",
+            }
         elif current_price is not None:
             result["comparison"] = {
                 "kind": "same_assumptions_at_expired_source_price",
@@ -2104,6 +3080,9 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 "reason": "SOURCE_SNAPSHOT_EXPIRED",
             }
         result["source_freshness"] = source_freshness
+        result["tariff_resolution"] = tariff_resolution
+        result["frozen_tariff_resolution"] = frozen_tariff
+        result["effective_scenario_inputs"] = deepcopy(effective_inputs)
         text = self._format_result(session, result, notice)
         include_return_mean = (
             snapshot.get("source_completeness", {})
@@ -2122,13 +3101,121 @@ class TelegramUnitPriceCalculatorRuntimeService:
                 session["scenario_id"], session["version"],
                 include_return_mean=include_return_mean,
                 include_price_planning=self.target_planning_service is not None,
+                include_manual_tariff=(
+                    str((snapshot.get("product") or {}).get("scheme") or "").upper() == "FBO"
+                ),
             ),
             "price_scenario": result,
             "read_only": True,
             "executed": False,
         }
 
+    def _show_details_screen(self, session):
+        response = self._scenario_screen(session)
+        result = response.get("price_scenario")
+        if not isinstance(result, dict):
+            return response
+        response["status"] = "UNIT_PRICE_SCENARIO_DETAILS_READY"
+        response["message"] = self._format_result_details(session, result)[:3500]
+        keyboard = response.get("keyboard")
+        buttons = keyboard.get("buttons") if isinstance(keyboard, dict) else None
+        if isinstance(buttons, list):
+            scenario_id = str(session.get("scenario_id"))
+            version = str(session.get("version"))
+            details_callback = f"upc:x:{scenario_id}:{version}"
+            for button in buttons:
+                if isinstance(button, dict) and button.get("callback") == details_callback:
+                    button["text"] = "Краткий итог"
+                    button["callback"] = f"upc:v:{scenario_id}:{version}"
+                    break
+        return response
+
     def _format_result(self, session, result, notice=None):
+        snapshot = session["snapshot"]
+        product = snapshot.get("product") or {}
+        identity = snapshot.get("identity") or {}
+        inputs = result.get("effective_scenario_inputs") or session["inputs"]
+        values = result.get("calculated") or {}
+        tariff = result.get("tariff_resolution") or {}
+        store_label = str(
+            identity.get("store_name")
+            or identity.get("store_label")
+            or identity.get("store_id")
+            or "активный"
+        )[:50]
+        lines = [
+            "🧮 Плановая прибыль с единицы",
+            str(product.get("name") or "Товар")[:70] + " · SKU " + str(session["sku"]),
+            "Магазин: " + store_label + " · FBO",
+            "Цена продавца: " + self._money(inputs.get("price")),
+            "Себестоимость: " + self._money(inputs.get("cost")),
+        ]
+        if result.get("available") is True:
+            lines.extend([
+                "Прибыль: " + self._money(values.get("profit")) + "/шт.",
+                "Маржа: " + self._percent(values.get("margin_percent")),
+            ])
+        else:
+            lines.append("Прибыль с единицы пока не рассчитана.")
+            missing = result.get("missing_inputs") or []
+            labels = [self.EDITABLE_FIELDS[item][0] for item in missing if item in self.EDITABLE_FIELDS]
+            if "tax_mode" in missing or "tax_rate" in missing:
+                labels.append("налоговая политика магазина")
+            if "minimum_tax_rate" in missing:
+                labels.append("минимальная ставка налога")
+            invalid = result.get("invalid_inputs") or []
+            labels.extend(self.EDITABLE_FIELDS[item][0] for item in invalid if item in self.EDITABLE_FIELDS)
+            if "calculation" in invalid or "tax_calculation" in invalid:
+                labels.append("проверьте допустимость расчётных значений и налоговые настройки")
+            if labels:
+                lines.append("Нужно проверить: " + ", ".join(dict.fromkeys(labels)) + ".")
+            cross_docking_line = self._cross_docking_assumption(
+                snapshot.get("cross_docking") or {}, None
+            )
+            lines.append(cross_docking_line[:180])
+
+        if tariff.get("available") is True:
+            origin = ((tariff.get("selected_profile") or {}).get("origin"))
+            source_labels = {
+                "CURRENT_PRICE_POINT": "ставка подтверждена только для текущей цены",
+                "MANUAL_SELLER_ASSUMPTION": "ставка введена вами",
+                "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый источник Ozon",
+            }
+            lines.append(
+                "Комиссия: " + self._percent(inputs.get("commission_rate"))
+                + " · " + source_labels.get(origin, "сохранённый тариф")
+            )
+        else:
+            lines.append("Комиссия для выбранной цены не подтверждена.")
+
+        if result.get("available") is True:
+            lines.append(
+                "Реклама: ДРР " + self._percent(inputs.get("advertising_rate"))
+                + " · " + self._money(values.get("advertising")) + "/шт."
+            )
+            if values.get("cross_docking") is not None:
+                lines.append(
+                    "Кросс-докинг учтён: "
+                    + self._money(values.get("cross_docking")) + "/шт."
+                )
+            comparison = result.get("comparison") or {}
+            if comparison.get("available") is True:
+                lines.append(
+                    "При текущей цене " + self._money(comparison.get("price"))
+                    + " с теми же допущениями: " + self._money(comparison.get("profit"))
+                    + "/шт., " + self._percent(comparison.get("margin_percent")) + "."
+                )
+        if (result.get("source_freshness") or {}).get("status") == "STALE":
+            lines.append("Снимок источников устарел; обновите данные перед сравнением.")
+        if notice:
+            lines.insert(0, notice)
+        lines.extend([
+            "Оценка одной успешной продажи FBO. FBS не поддержан.",
+            "Не включены хранение, постоянные расходы и возвраты.",
+        ])
+        return "\n".join(lines)
+
+    def _format_result_details(self, session, result, notice=None):
         snapshot = session["snapshot"]
         product = snapshot.get("product") or {}
         identity = snapshot.get("identity") or {}
@@ -2144,7 +3231,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             + " — "
             + str(points_period.get("to") or "?")
         )
-        inputs = session["inputs"]
+        inputs = result.get("effective_scenario_inputs") or session["inputs"]
         values = result.get("calculated") or {}
         cross_docking = snapshot.get("cross_docking") or {}
         cross_docking_line = self._cross_docking_assumption(
@@ -2173,6 +3260,18 @@ class TelegramUnitPriceCalculatorRuntimeService:
             "Налог: " + self._money(values.get("tax")) + " (" + self._percent(values.get("effective_tax_rate")) + " цены)",
             "",
         ]
+        tariff = result.get("tariff_resolution") or {}
+        if tariff:
+            if tariff.get("available") is True:
+                source_labels = {
+                    "CURRENT_PRICE_POINT": "текущая точка Ozon",
+                    "MANUAL_SELLER_ASSUMPTION": "подтверждённый вами тариф",
+                    "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый источник Ozon",
+                }
+                origin = ((tariff.get("selected_profile") or {}).get("origin"))
+                lines.insert(7, "Основание комиссии: " + source_labels.get(origin, "зафиксированный тариф") + ".")
+            else:
+                lines.insert(7, "Комиссия для этой цены не подтверждена; расчёт прибыли не использует ставку от другой цены.")
         if result.get("available") is True:
             lines.extend([
                 "Плановая прибыль: " + self._money(values.get("profit")) + "/шт.",
@@ -2208,7 +3307,7 @@ class TelegramUnitPriceCalculatorRuntimeService:
             lines.insert(0, notice)
         lines.extend([
             "",
-            "Оценка одной успешной продажи FBO. Ставка комиссии взята из текущей карточки и может измениться при новой цене; FBS не поддержан.",
+            "Оценка одной успешной продажи FBO. Комиссия применяется только при подтверждении тарифа для указанной цены; FBS не поддержан.",
             "Хранение, общие расходы магазина и возвраты не включены.",
         ])
         return "\n".join(lines)

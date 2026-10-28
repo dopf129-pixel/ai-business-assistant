@@ -2,7 +2,19 @@
 
 Дата подготовки: 26.10.2026.
 Задание: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`.
-Статус: SPEC_PREPARED; реализация Q00–Q35 не начата.
+Статус: Q35 ранее VERIFIED для review-fix code head `40a23315d74958cb7b7e427b785f730ea886ac79`; Q00–Q34 также VERIFIED. R6–R7 исправлены в `dbd87c7d`; R8 исправляет повторный поиск после смены цели и прошёл связанный профиль из 165 тестов. Полный pytest и exact-head Verify для R8 ожидаются.
+
+## Повторный review PR #720 — исправление R8 (2026-10-28)
+
+- Исправлен путь `set_target_margin`: строка `BUDGET_EXHAUSTED` с сохранённым снимком теперь участвует в расчёте новой цели. Перед каждым повтором учитывается освободившийся per-row бюджет и остаток общего batch бюджета; `_recalculate_row` сбрасывает старый результат и проверяет свежесть источника. `SOURCE_UNAVAILABLE` и `UNSUPPORTED_SCHEME` по-прежнему не пересчитываются.
+- Регрессия покрывает два сохранённых SKU: поиск цели 50% расходует по 128 вычислений и завершается исчерпанием; после установки 0% оба повторно рассчитываются по 6 вычислений и получают `READY`. Адресный профиль — **92 passed in 0.90s**; связанный девятимодульный профиль — **165 passed in 4.14s** на Windows/Python 3.12. Полный pytest в отдельной временной worktree на кодовом SHA `2f03edcd`: **3,997 passed in 48.17s**; основной checkout и `data/` не изменены. Exact-head Verify `40666814742` успешно прошёл на `442e5dff`.
+
+## Повторный review PR #720 — 2026-10-28 (R6–R7)
+
+- R6: все локальные пути перерасчёта передают ограничение числа solver evaluations до вызова. При нескольких строках общий остаток распределяется последовательно, а исчерпание отмечается как `BUDGET_EXHAUSTED`.
+- R7: model quality gate разрешает `CONFIRMED` tariff provenance от официального источника или текущей ценовой точки; `UNKNOWN` остаётся блокирующим, результат сохраняет `MODELLED_FROM_OBSERVED_INPUTS` и `verified=False`.
+- Регрессии включают одиночную правку, массовое изменение рекламы, изменение целевой маржи и полный путь result → quality для подтверждённой/неизвестной комиссии.
+- Связанный Windows/Python 3.12 профиль: **164 passed in 4.53s**. Полный изолированный pytest на коде commit `b2f01fb3`: **3,996 passed in 47.43s**; compileall/diff-check прошли, основной checkout и `data/` чистые. Кодовый commit `dbd87c7d` опубликован и прошёл exact-head Verify `40664676434` (Windows + full verification).
 
 ## Исходная точка
 
@@ -19,42 +31,42 @@
 
 | Этап | Статус | Результат / проверки |
 |---|---|---|
-| Q00 | NOT_STARTED | — |
-| Q01 | NOT_STARTED | — |
-| Q02 | NOT_STARTED | — |
-| Q03 | NOT_STARTED | — |
-| Q04 | NOT_STARTED | — |
-| Q05 | NOT_STARTED | — |
-| Q06 | NOT_STARTED | — |
-| Q07 | NOT_STARTED | — |
-| Q08 | NOT_STARTED | — |
-| Q09 | NOT_STARTED | — |
-| Q10 | NOT_STARTED | — |
-| Q11 | NOT_STARTED | — |
-| Q12 | NOT_STARTED | — |
-| Q13 | NOT_STARTED | — |
-| Q14 | NOT_STARTED | — |
-| Q15 | NOT_STARTED | — |
-| Q16 | NOT_STARTED | — |
-| Q17 | NOT_STARTED | — |
-| Q18 | NOT_STARTED | — |
-| Q19 | NOT_STARTED | — |
-| Q20 | NOT_STARTED | — |
-| Q21 | NOT_STARTED | — |
-| Q22 | NOT_STARTED | — |
-| Q23 | NOT_STARTED | — |
-| Q24 | NOT_STARTED | — |
-| Q25 | NOT_STARTED | — |
-| Q26 | NOT_STARTED | — |
-| Q27 | NOT_STARTED | — |
-| Q28 | NOT_STARTED | — |
-| Q29 | NOT_STARTED | — |
-| Q30 | NOT_STARTED | — |
-| Q31 | NOT_STARTED | — |
-| Q32 | NOT_STARTED | — |
-| Q33 | NOT_STARTED | — |
-| Q34 | NOT_STARTED | — |
-| Q35 | NOT_STARTED | — |
+| Q00 | DONE | PR #719 открыт, exact-head Verify #40363801273 успешен; main/spec SHA совпадают с исходной точкой, выделена реализационная ветка; рабочий tree чистый; локальные ignored runtime/cache каталоги сохранены нетронутыми. Подробности ниже. |
+| Q01 | DONE | Предметный аудит завершён: существующая формула, source scope, Telegram route, saved-plan schema/CAS и отсутствие price-observation workflow подтверждены в `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`. Runtime не менялся; Q02 baseline впереди. |
+| Q02 | DONE | Изолированный baseline Windows/Python 3.12: 247 passed; Python dotenv/live credentials отключены, storage/basetemp вынесены в новую temp-папку, hashes всех 5 tracked `data/*.json` совпали до/после. Первый фактический запуск найденного runner с исправленным `PYTHONPATH=app` прошёл. |
+| Q03 | DONE | Зафиксированы outcome/tariff/ad/snapshot/observation contracts, layer boundary, limits и additive planning persistence в `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`; Decision 061. Runtime поведение пока не заявляется. |
+| Q04 | DONE | Добавлен pure `UnitPriceTariffResolver`; точные inclusive cents ranges, gaps, overlap/conflict, exact profile selection, current-price point, scope/date/scheme checks и numeric limits. Новый изолированный профиль: **34 passed in 0.44s**; подробности ниже. |
+| Q05 | DONE | Official FAQ/API source checked; current FBO rate exposed only as exact current-price point via pure adapter; range remains `RANGE_SOURCE_UNAVAILABLE`. Focused profile: 88 passed; five tracked data hashes unchanged. |
+| Q06 | DONE | Manual tariff persistence + rollback profile: 115 passed; five tracked data JSON hashes unchanged. See `UNIT_PRICE_PROFILE_PERSISTENCE_Q06_2026-10-27.md`. |
+| Q07 | DONE | Public Telegram flow for manual FBO point/ranges: preview/explicit persistent or session-only confirmation, edit/cancel/refresh; stale/replay-safe draft bound to owner/store/SKU/scenario version. Session-only profile was also accepted by the pure resolver. Final combined profile: 199 passed. Implementation commit `cea8a8e4`; see `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`. |
+| Q08 | DONE | Frozen tariff snapshot and saved-plan schema v3 integrated; linked isolated Q04–Q08 profile 371 passed; 5 protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. |
+| Q09 | DONE | Сравнение 2–10 цен по canonical прибыли/шт. использует один frozen tariff snapshot; неизвестный вариант не получает прибыль 0; **378 passed**, owner-data hashes unchanged; commit ниже. |
+| Q10 | VERIFIED | SAME_DRR / PER_PRICE_DRR / total spend per successful unit; rounded non-worse/strictly-better thresholds and unreachable status use canonical forward. Focused 112 passed; linked Q04–Q10 390 passed, five protected JSON hashes unchanged. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. |
+| Q11 | VERIFIED | Bounded seller-price grid, tariff boundaries plus adjacent cents, no silent truncation, max 200 candidates / 20 tariff rules, 10-row pagination and selected-only compensation thresholds. Focused profile 104 passed; linked Q04–Q11 398 passed. See acceptance below. |
+| Q12 | VERIFIED | Frozen tariff bands partition target search into covered intervals; gaps/conflicts remain unknown; direct candidate/previous-cent checks; 20-rule and 1,024-forward limits. Focused 115 passed; linked Q04–Q12 profile 404 passed across 21 modules. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`; implementation/docs commit `039ad79b`. |
+| Q13 | VERIFIED | Все ценовые consumers и owner exports используют согласованную тарифную основу; linked profile 230 passed. См. acceptance ниже. |
+| Q14 | VERIFIED | Numeric acceptance N01–N06, N08, N10/N11 and 21 related unit-price/export suites: 389 passed in 7.84s in isolated Windows/Python 3.12.10 environment. See acceptance below. |
+| Q15 | VERIFIED | Контракт разносит сценарную цену, owner declaration, текущий API snapshot и per-sale verified history; зафиксированы часы/интервалы, виды количеств, N07–N09 и ограничения источников. Acceptance ниже. |
+| Q16 | VERIFIED | Additive planning DB v3→v4 observation/results repository, append-only result revisions, CAS/idempotency, exact owner/store/SKU/price binding, quotas, overlap retention and rollback. Focused profile: **38 passed in 1.58s**; acceptance `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. |
+| Q17 | VERIFIED | Read-only collector exact-bound к FBO наблюдению и завершённому окну; использует текущие finance/Performance adapters и root budget. Unknown field/type metadata сохранены без raw values; 172 focused tests passed. Acceptance ниже. |
+| Q18 | VERIFIED | Pure normalizer сохраняет суммы/основания, exact-compatible DRR, weighted denominators, conflict-safe dedup и signed correction semantics; текущие неизвестные price/quantity/discount coverage блокируют observed profit. 184 linked tests passed. Acceptance ниже. |
+| Q19 | VERIFIED | Добавлен pure evaluator: модель доступна только по совместимому CPC и подтверждённому знаменателю успешных единиц; иначе сохраняются `INSUFFICIENT_DATA`/`INCOMPARABLE`. Q16–Q19 linked profile: 189 passed. Acceptance ниже. |
+| Q20 | VERIFIED | Telegram наблюдение: ручная установка цены, сбор, ревизия результата, история, заметки и завершение; linked Q16–Q20 profile 197 passed. Acceptance ниже. |
+| Q21 | VERIFIED | Добавлены quality/comparability gates для model/fact оснований; отдельный service, экран и payload; linked Q16–Q21 profile 205 passed. Acceptance ниже. |
+| Q22 | VERIFIED | Добавлен отдельный ranking наблюдений; linked Q16–Q22 profile 274 passed. См. Q22 acceptance. |
+| Q23 | VERIFIED | Additive DB v5 immutable comparison snapshots, exact observation/result/plan revision references, source-free reopen/export, explicit append refresh, stale/superseded labels; focused 33 passed, linked Q16–Q23 474 passed. Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. |
+| Q24 | VERIFIED | Production-factory end-to-end public-handler path SKU → manual tariff → price/DRR → save → observation → honest gate → return to plans/next price. Focused 1 passed; linked Q16–Q24 475 passed in 11.48s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_FLOW_Q24_2026-10-27.md`. |
+| Q25 | VERIFIED | Main menu/Help discovery, concise ₽/шт. result, version-bound details/return, exact ranking identity and existing long-message splitter. Focused 59 passed; linked Q16–Q25 495 passed in 12.46s. Acceptance: `UNIT_PRICE_PROFIT_PER_UNIT_UX_Q25_2026-10-27.md`. |
+| Q26 | VERIFIED | CSV/JSON comparison, tariff and observation exports reuse fixed allowlisted snapshots and shared document transport. Focused 39 passed; linked price-planning/export profile 439 passed across 30 targets. Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. |
+| Q27 | VERIFIED | Conditional pending tokens prevent late observation actions from clearing/replacing a newer user draft; duplicate concurrent tariff confirmation has one writer. Linked Q16–Q27 profile: 460 passed across 31 targets. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. |
+| Q28 | VERIFIED | Fake-clock cancellation/time budget, partial source and explicit retry semantics verified. Existing attempt budget/quota/export-size/rollback guards pass in linked Q16–Q28 profile: 474 passed across 32 targets. Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. |
+| Q29 | VERIFIED | Синтетический N13: тариф, план, observation и две версии результата пережили backup/verify/dry-run/restore в новый root; scope и приватность проверены. Q29 профиль: 5 passed, включая v2/v3/v4 migrations. Acceptance ниже. |
+| Q30 | VERIFIED | Три public-handler flows включая неполная выборка → полная FBO/Returns выборка → рассчитанный наблюдаемый % выкупа → модельная прибыль/шт. → сравнение цены; возвраты вынесены отдельно и их расходы не вычитаются. Первичный focused-профиль 49 passed; перед Q33 расширенный прогон шести модулей — 56 passed. Решение 062, owner guide и acceptance записаны. |
+| Q31 | VERIFIED | Повторный linked regression: **1374 passed в 39.94s на 175 модулях**; bounded soak/evaluation: **3 passed в 3.12s**; focused Q30 profile на момент Q31 — 49 passed. Поздний расширенный профиль отражён в Q33. См. `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`. |
+| Q32 | VERIFIED | Обновлены user guide, changelog, current state, test map, roadmap and architecture decision index/details; acceptance описывает формулу, полноту, ограничения возвратов и resume. Внешние персональные/API данные не запрашивались. |
+| Q33 | VERIFIED | Изолированный полный Windows/Python 3.12 pytest: **3983 passed in 53.74s**; compileall, diff-check и data-diff прошли. Exact-head CI проверяется в Q35. См. `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`. |
+| Q34 | VERIFIED | Self-review по реализации, границам FBO, tenant/privacy, completeness, compatibility и модели: блокирующих замечаний не найдено. Architecture Review Required; self-review не является независимым approval. См. `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. |
+| Q35 | VERIFIED | Реализация опубликована как stacked PR #720 поверх PR #719. Exact implementation SHA `0154f857cd2600ad9879acf2084604ca4735449c`: Verify run `40573748055` SUCCESS; Windows/Python 3.12, Linux full verification, Docker build/runtime smoke успешны. Финальный PR SHA `483cd4d1f4724e68a140a4b94aa4d6355a1e3ae6` также прошёл Verify `40574423459` (all jobs SUCCESS). Review handoff оформлен; независимый reviewer сможет начать по пакету в PR.
 
 ## Проверки подготовки документа
 
@@ -70,11 +82,337 @@
 
 ## Следующее действие / resume
 
-1. Прочитать ТЗ, AGENTS и актуальные project-brain contracts.
-2. Начать Q00: проверить фактический main/HEAD, выбрать безопасный implementation worktree/ветку и записать базу.
-3. Перейти к Q01/Q02, затем двигаться по dependency table.
-4. После каждого этапа обновлять эту таблицу и дописывать точные команды/результаты ниже.
+Resume: реализация и package готовы. PR #720 stacked поверх PR #719; порядок интеграции — сначала task/spec branch, затем implementation. Последний проверенный PR SHA/run — `483cd4d1f4724e68a140a4b94aa4d6355a1e3ae6` / `40574423459`, все jobs SUCCESS. Текущая запись — только документационный checkpoint; проверь итоговый CI нового HEAD в GitHub. Старые baseline результаты не переносить на новые SHA.
 
 ## Записи исполнения
 
-Пока отсутствуют.
+### Q00 — зафиксирована база реализации (2026-10-27)
+
+- PR #719: открыт, mergeable, ветка задания `codex/price-profit-per-unit-spec-20261026`, HEAD `7c554a1411717cfe1d5dab0722fe025affbf32f6`; основание PR и фактический `origin/main` — `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`. Задание выполняется stacked branch/PR поверх PR #719, чтобы не дублировать его документацию и не ждать слияния.
+- Проверка точного HEAD PR #719: Verify run `40363801273`, conclusion `success` (Windows/Python 3.12, Linux/Python 3.11, production Docker build/runtime smoke; доказательство относится только к документальной базе).
+- Выделенная рабочая копия `daily-readiness-foundation` была clean до переключения; реализационная ветка создана без копирования/изменения чужого diff: `codex/price-profit-per-unit-implementation-20261027` на SHA `7c554a1411717cfe1d5dab0722fe025affbf32f6`.
+- Защищённые owner-data пути: отслеживаемые `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`; локальный ignored `.runtime-data` в выделенной копии не открывался и не меняется. В Desktop checkout и соседних worktree не вносятся изменения. Реальный бот, `.env`, Telegram/Ozon API и сетевые данные не используются.
+- Команды проверки: `git status --short --branch`, `git rev-parse HEAD`, `git fetch --no-tags origin main`, `git rev-parse FETCH_HEAD`, GitHub `get_pr_info(#719)`, `fetch_commit_workflow_runs(7c554a1411717cfe1d5dab0722fe025affbf32f6)`.
+- Фактический результат: перед созданием ветки tree clean; PR head соответствует текущему main + документальный commit; ветка исполнения выделена. Q00 — PASS. Pytest не запускался: этап только фиксирует базу, среду изолированных проверок определит Q02.
+- Q00 следующий этап после commit: Q01 — предметный аудит маршрутов и существующих контрактов.
+
+### Q01 — предметный аудит (2026-10-27)
+
+- Добавлен read-only audit `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md` со ссылками на реализацию, тесты, наблюдаемые parser/search/storage limits, подтверждённые существующие контракты и отсутствующие функции.
+- Подтверждено: canonical forward/TaxService VERSION=2 и ROUND_HALF_UP уже существуют; current FBO fee — только точечный тариф; input source маркирует fixed fees/ad manual-required; сравнение цен — 2–5 вариантов с единой переданной ставкой; ad cap не является порогом сохранения ₽/шт.; Planning SQLite имеет tenant scope, revisions/CAS, schema v2 и allowlist, но нет tariff/observation entities; отдельного price-observation handler/repository нет.
+- Публичные consumer paths подтверждены по `assistant_button_handler_service.py`, `assistant_keyboard_service.py`, `telegram_unit_price_calculator_runtime_service.py`, `telegram_assistant_factory.py`; existing regression suites указаны в audit.
+- Проверки: `rg` по tracked services/adapters/tests и точечное чтение существующих сервисов/схемы — PASS; runtime и storage не изменялись, pytest не нужен на audit-only этапе.
+- Архитектурный вывод оставлен к Q03: расширить существующую tenant planning SQLite additive tariff/observation entities, переиспользовать canonical engine и UI route; DECISIONS пока не менялся.
+- Q01 — PASS. Следующее: Q02 — полностью изолированный baseline.
+
+### Q02 — изолированный базовый профиль (2026-10-27)
+
+- Runner: существующий Python 3.12.10 venv `.z20-isolated-env` из предыдущего verification worktree; в него не ставились/не обновлялись пакеты. Запускался только как interpreter/pytest, тестовый код и результаты принадлежат реализации worktree.
+- Для каждого pytest запуска создавались отдельные случайные `%TEMP%/codex-q02-price-profit-*` roots: `AI_ASSISTANT_STORAGE_ROOT=.../storage`, `--basetemp=.../pytest-temp`, `PYTHONDONTWRITEBYTECODE=1`, `PYTHON_DOTENV_DISABLED=1`, `PYTEST_ADDOPTS=''`, `PYTHONPATH=<implementation-worktree>/app`; credentials keys из процесса удалены без чтения/логирования значений. pytest cache plugin выключен.
+- Команда успешного baseline: `python -m pytest -q -p no:cacheprovider --basetemp <fresh-temp> <16 related test files>`; файлы: `test_unit_price_scenario_service.py`, `test_unit_price_scenario_source.py`, `test_current_product_economics_source.py`, `test_current_unit_economics_production_wiring.py`, `test_unit_price_scenario_architecture_review_regressions.py`, `test_unit_price_scenario_repeat_review_regressions.py`, `test_unit_price_target_planning_service.py`, `test_unit_price_advertising_cap_service.py`, `test_unit_price_sensitivity_service.py`, `test_telegram_unit_price_sensitivity_runtime_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_planning_workspace_repository.py`, `test_saved_planning_plan_telegram_flow.py`, `test_period_profit_plan_fact_comparison.py`, `test_analytics_export_service.py`, `test_analytics_export_serializer.py`.
+- Результат Windows/Python 3.12.10: **247 passed in 7.60s**.
+- SHA-256 всех пяти tracked files `data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json` совпали до/после. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми; существующие `.runtime-data`, кеш и user checkouts не открывались и не изменялись.
+- До успешного запуска были две безвредные подготовительные ошибки команды (один несуществующий test filename и отсутствующий `PYTHONPATH=app`): pytest не собрал тесты в первой попытке, второй запуск остановился на collection import errors; обе попытки завершились hash check без изменений owner data. Исправленный запуск — PASS.
+- Q02 — PASS; baseline зафиксирован для будущих регрессий. Следующее: Q03 — formalize shared contracts/decision.
+
+### Q03 — shared contracts and persistence ownership (2026-10-27)
+
+- Добавлены `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`, detailed `DECISIONS_061.md` и индексированное архитектурное решение 061 в `DECISIONS.md`.
+- Зафиксированы: objective ₽ за успешную единицу; seller-price basis; отдельные status/evidence basis; exact-scope bounded tariff resolution; три рекламных режима с revenue basis; пороги равенства/строгого роста через canonical forward; frozen source snapshot; bounded candidates/HTTP; owner-triggered read-only observations; quality-gated recommendations; explicit saved-plan upgrade и old v1/v2 frozen readers.
+- Ownership: existing tenant SQLite + `PlanningWorkspaceRepository` единственные владельцы схемы/миграций/транзакций новых tariff/observation entities; application services — тонкая orchestration; pure resolver/compare — без I/O. Saved plans сохраняют frozen profile revision; observations append-only с idempotency/CAS; текущий backup/restore boundary сохраняется.
+- Проверки: сверены секции 2, 4–11, 13 ТЗ, DECISIONS 036–050/059–060, текущие planning schema и baseline suites. Q03 — contract-only; pytest новых runtime функций не запускался.
+- Q03 — PASS, runtime implementation ещё не заявлена. Следующее: Q04 — pure tariff resolver.
+
+### Q04 — pure tariff range resolver (2026-10-27)
+
+- Добавлены `app/services/unit_price_tariff_resolver.py` и `tests/test_unit_price_tariff_resolver.py`. Resolver не обращается к Telegram/Ozon/SQLite; принимает bounded normalized profiles и exact seller price cents, identity, FBO schema и date.
+- Resolver реализует inclusive integer-cent bounds, explicit current-price point, manual/confirmed origins, exact profile/revision selection, explicit conflict, gaps as UNKNOWN, expiration, FBO-only support, owner/store/product/offer/SKU/date scope checks, 20-profile/20-band limits и существующий forward price ceiling. Ставки принимаются только как Decimal/string/int (без bool/float), `[0,100]`, non-finite отклоняются, 0% сохраняется. Об overlap включённой границы отказ; ссылка источника проходит allowlist до projection.
+- N03 boundary cross-check передаёт тариф resolver → canonical `UnitPriceScenarioService`: комиссии 11.00 ₽ для 100.00, 22.00 ₽ для 100.01 и 22.22 ₽ для 101.00.
+- N04 regressions проверяют дырку, inclusive overlap, конкурирующие профили и явный выбор revision, stale state revision, current point vs neighboring prices, foreign scopes/date, FBS, zero/invalid/NaN/Infinity/bool/float, истёкший профиль, скрытие небезопасного source ref и limits.
+- Изолированный Windows/Python 3.12.10 профиль: `tests/test_unit_price_tariff_resolver.py` — **34 passed in 0.44s**. Использовались новый temp/storage, dotenv disabled, credentials удалены из process env, pytest cache disabled. Никаких live запросов или owner-data изменений.
+- Q04 — PASS. По Q05 автоматический источник рассматривается отдельно; resolver не придумывает тарифы и не подставляет устаревшие defaults.
+
+### Q05 — current-price commission source boundary (2026-10-27)
+
+- Official Ozon Seller API FAQ and linked `ProductAPI_GetProductInfoPricesV4` page were checked; current project client calls `/v5/product/info/prices`. Official FAQ confirms a method to read a product commission percentage, but accessible contract does not confirm hypothetical seller-price input or a rate grid. See `UNIT_PRICE_TARIFF_SOURCE_Q05_2026-10-27.md` for source links and exact limitations.
+- Added `app/services/unit_price_tariff_source.py`, a pure adapter over the already fetched `UnitPriceScenarioSource` snapshot. It exposes only a same-price/same-date FBO `CURRENT_PRICE_POINT`; it never performs a second API call, persists data or propagates a point to other prices. Other prices remain `RANGE_SOURCE_UNAVAILABLE` for Q06–Q07 manual continuation.
+- Added `tests/test_unit_price_tariff_source.py`; isolated `test_unit_price_tariff_source.py`, `test_unit_price_tariff_resolver.py`, `test_unit_price_scenario_source.py` and `test_current_product_economics_source.py` on Windows/Python 3.12.10: **88 passed in 1.47s**. An earlier focused attempt had 6 failures caused by an incorrect synthetic tenant delimiter; fixture was corrected to repository convention. The final expanded source integration + source + resolver run passed.
+- Five tracked `data/*.json` SHA-256 hashes were unchanged. No live API, credentials, owner storage or bot process was used.
+- Q05 — PASS. Next dependency: Q06 durable manual tariff profile repository. Q06 subsequently passed; next dependency is Q07 Telegram input/confirmation.
+
+
+### Q06 — постоянные ручные тарифные профили (2026-10-27)
+
+- Расширена существующая `PlanningWorkspaceRepository` аддитивной версией БД v3; версия payload сохранённых планов остаётся v1/v2. Добавлены tenant-scoped таблицы активных/архивных тарифов, append-only content revisions и bounded idempotency records. Все операции выполняются транзакционно в этом репозитории.
+- Профиль принимает только подтверждённое владельцем допущение FBO по точной identity product/offer/SKU, цене продавца в копейках, рублям и effective dates. Запрещены лишние поля, неподтверждённый ввод, FBS, bool вместо целого/ставки, невалидные даты, пересечение inclusive диапазонов и превышение лимитов. Текущая API-точка не конвертируется в тарифный диапазон.
+- Create/update/archive используют tenant scope, idempotency и CAS по content/state revision. Идентичность immutable; есть bounded quotas/pagination. Архив меняет только state revision, чтение latest возвращает актуальный state, историческая тарифная ревизия остаётся точной. Restart/reopen профиль передаёт в pure resolver как `MANUAL_RANGE`.
+- Добавлены `tests/test_planning_workspace_tariff_profiles.py` и обновлены миграционные ожидания в `tests/test_planning_workspace_repository.py`: round-trip/reopen/resolver, повтор create/update, stale CAS, immutable identity, owner/store isolation, archive/history, allowlist и quotas, атомарный rollback записи и v2→v3 rollback.
+- Адресный изолированный Windows/Python 3.12.10 профиль: `tests/test_planning_workspace_tariff_profiles.py`, `tests/test_planning_workspace_repository.py`, `tests/test_unit_price_tariff_resolver.py`, `tests/test_unit_price_tariff_source.py`, `tests/test_unit_price_scenario_source.py`, `tests/test_current_product_economics_source.py` — **115 passed in 2.26s**. При контрольном запуске пять tracked `data/*.json` SHA-256 совпали. `py_compile` и `git diff --check` прошли.
+- Проверка проходила с новым `%TEMP%` storage и basetemp, dotenv/live credential env отключён, без сети, реального API, пользовательской БД и запуска бота. Старые сохранённые плановые payload contracts не менялись.
+- Q06 — PASS; implementation commit `a5c78d75` (`Persist manual unit price tariff profiles`). Q07 is complete; details follow.
+
+### Q07 — Telegram-ввод и подтверждение ручного тарифа (2026-10-27)
+
+- Добавлены parser и owner-facing маршрут через production `AssistantTelegramAdapter` → `AssistantButtonHandlerService` → `TelegramUnitPriceTariffProfileRuntimeService`. FBO-кнопка принимает точечную ставку или до 20 точных непересекающихся диапазонов в рублях/копейках; можно указать дату начала действия. До подтверждения данные существуют только как ограниченный временный черновик.
+- Явная кнопка сохраняет профиль либо создаёт session-only профиль; доступны редактирование, отмена и явное обновление цены Ozon. Перед подтверждением сверяются пользователь, магазин, SKU, схема, scenario id/version и TTL; старые/повторные кнопки не создают запись. Постоянная запись использует Q06 repository allowlist/CAS/idempotency; обновление сохраняет историю версий.
+- Session-only getter возвращает профиль только тому же owner/store/scenario и истекает через час; он не записывается в SQLite. Q08 ещё должен передавать этот профиль в resolver/сценарий и замораживать выбранную редакцию в сохранённом плане. После возврата с Q07 экран калькулятора использует прежние входные допущения до Q08.
+- Добавлены `tests/test_unit_price_tariff_input_parser.py` и `tests/test_telegram_unit_price_tariff_profile_runtime.py`: формат/границы/перекрытия/limits, полный public Telegram route, подтверждение/reopen, replay, revision update, session-only/no persistence, edit/cancel/invalid input, FBS deny, stale version/draft/store; session-only профиль принимается pure resolver. Финальная проверка совместно с тарифным resolver/source/repository, калькулятором и saved-plan Telegram suite: **199 passed in 4.47s** (изолированный Windows/Python 3.12.10, fresh TEMP storage/basetemp, dotenv off, без сети/API/бота).
+- Все затронутые Python-модули прошли `py_compile`; `git diff --check` завершился без замечаний. Тестовая база и pytest basetemp находились в отдельной TEMP-папке; protected tracked owner-data files не входят в изменения.
+- Q07 — PASS; implementation commit `cea8a8e4c03753eb34a133497271543596d47f3b` (`Add Telegram manual tariff confirmation flow`). Next: Q08 — resolver/snapshot/saved-plan integration. Реальный Telegram/Ozon сценарий не запускался.
+
+### Q08 — тарифный снимок и совместимость сохранённых планов (2026-10-27)
+
+- Подключены persistent и session-only тарифные профили к текущему экрану расчёта через внедряемый resolver. Захват сохранённого сценария фиксирует exact profile/revision/state revision, допустимые ценовые диапазоны, разрешённую ставку и основание рекламы; повторное открытие использует только frozen snapshot.
+- Введён single-plan schema v3 с `calculation_version=2`; существующие v1/v2 остаются читаемыми без повторного API/БД чтения и не пересчитываются автоматически. Для legacy-плана сохранённая комиссия применима только к исходной цене. При изменении цены она остаётся неизвестной до подтверждённого ручного ввода либо явного обновления снимка. Обновление копии не переносит устаревшее ручное значение.
+- Snapshot adapter разрешает frozen профиль для другой цены без I/O, но только при полном, проверенном наборе кандидатов. `SOURCE_UNAVAILABLE`, пустое покрытие, чужая identity или испорченная ревизия не превращаются в rate. При единственном подтверждённом диапазоне он имеет приоритет над совпавшей точкой текущей цены; два пересекающихся диапазона остаются конфликтом.
+- Исправлены замеченные при интеграции дефекты: соблюдение фактического лимита page size репозитория (10), единый ключ owner id при восстановлении, устранение дублирования профиля session/persistent, защита от разрешения частичного source-unavailable набора и возврата кросс-ценового сравнения для legacy runtime без tariff resolver.
+- Проверка: изолированный Windows/Python 3.12.10 Q04–Q08 профиль — **371 passed in 8.41s**. Запуск: `python -m pytest -q -p no:cacheprovider --basetemp <fresh-temp> <22 tariff/source/scenario/planning test files>`. `AI_ASSISTANT_STORAGE_ROOT` и pytest basetemp были новыми временными каталогами; dotenv и plugin autoload отключены.
+- SHA-256 пяти защищённых tracked JSON (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) совпали до и после запуска. Сеть, реальные Ozon/Telegram API, bot process, `.env`, рабочая пользовательская БД и ignored runtime data не использовались.
+- Документы Q08 обновлены: `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, Decision 061 и `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`. Код затрагивает 8 сервисов/фабрику и 4 тестовых файла плюс новый adapter/test; это **Architecture Review Required**. Полный pytest/CI — не запускался; он запланирован в Q33–Q35.
+- Q08 — PASS; implementation/docs commit `2cf24a71` (`Freeze tariffs in unit price plans`). Следующее: Q09, сравнение 2–10 цен по ₽/шт. на общем frozen snapshot.
+
+### Q09 — сравнение 2–10 цен по прибыли с единицы (2026-10-27)
+
+- Сравнение принимает от 2 до 10 явных вариантов и использует существующий `UnitPriceScenarioService` для каждой доступной строки. Комиссия разрешается отдельно для каждой цены из одного замороженного набора профилей; current-price point и legacy ставка применяются только к точной исходной цене. Неизвестный/непокрытый вариант получает `profit=None` и не может победить числом 0.
+- Экран показывает исходную базу, рекламное основание одинаковой ДРР, подтверждённый максимум только среди рассчитанных цен, ставку комиссии и изменение прибыли к базе. Сохранённая целевая маржа остаётся в результате при переходе к сравнению. Выбор цены повторно проверяется canonical forward с тарифом строки и только после совпадения применяет цену к локальному сценарию.
+- Frozen tariff snapshot фиксируется при первом построении экрана и сохраняется в session state только при совпадении owner/store/scenario/version. Последующие изменения цен не вызывают повторных source/profile reads. Явное подтверждение нового тарифа создаёт новое состояние снимка; старые callbacks и результаты инвалидируются.
+- Ручная комиссия, введённая в самом сценарии поверх сохранённого диапазона, трактуется как точечное допущение только для захваченной цены. Она может разрешить точную строку, не расширяется на соседние варианты и не ломает разрешение оставшихся цен из диапазона.
+- Добавлены регрессии в `tests/test_unit_price_target_planning_service.py`, `tests/test_unit_price_scenario_telegram_runtime.py`, `tests/test_unit_price_tariff_snapshot_adapter.py`. Критические случаи: тарифный скачок на 100 ₽, unknown current-price point, legacy exact-price-only, 10/11 кандидатов, равная округлённая прибыль, отсутствие повторных source reads и повторная проверка при применении.
+- Проверки Windows/Python 3.12.10 в новой `%TEMP%`-среде: focused runtime/profile — **120 passed in 3.16s**; полный связанный Q04–Q09 профиль — **378 passed in 8.90s**. Перед/после профильного запуска SHA-256 пяти защищённых `data/*.json` совпали. Dotenv и plugin autoload выключены, credentials-переменные удалены из процесса; сеть, Ozon/Telegram API, рабочая БД и реальный бот не использовались. `git diff --check` — PASS; предупреждения Git о нормализации LF→CRLF не меняют содержимое.
+- Q09 — VERIFIED. Implementation/docs commit `02c80f1a993a424a32cbaead0bad5036a2fb1a73` (`Compare unit-price candidates with frozen tariffs`). Это изменение расширяет существующие price-planning и Telegram contracts, поэтому классификация — **Architecture Review Required**. Следующий этап: Q10.
+
+### Q10 — рекламные режимы и пороги компенсации (2026-10-27)
+
+- Сравнение цен поддерживает SAME_DRR (текущая явно указанная seller-revenue ДРР), PER_PRICE_DRR (ввод одной ДРР на каждую цену с проверкой количества и порядка), MANUAL_COST_PER_SUCCESSFUL_UNIT (общие рекламные расходы / число успешных продаж). Для ручного режима знаменатель сохраняется как `SUCCESSFUL_UNITS`, расход на единицу округляется до копейки, эквивалентная candidate DRR остаётся допущением. Никакой режим не утверждает причинный эффект цены на конверсию, спрос или рекламные расходы.
+- Для каждого рассчитанного кандидата pure bounded `UnitPriceAdvertisingCompensationService` ищет по шкале 0–100% с шагом 0,01 процентного пункта порог прибыли за единицу не ниже и строго выше базовой. Каждый порог и следующий tick перепроверяются прямым вызовом `UnitPriceScenarioService`, поэтому налог, зависящий от расходов на рекламу, остаётся внутри канонической формулы. Недостижимый порог возвращается как `NOT_REACHABLE`; invalid/unknown/partial outcomes не подменяются нулём. Ограничения: 64 forward calls per candidate, 1,024 per comparison; монотонность подтверждается граничными probes, а результат обозначен как проверенный сценарный порог, не forecast.
+- Telegram-поток использует versioned pending state для двух режимов, принимает bounded input и сохраняет исходный сценарий до явного выбора. Выбранный candidate revalidates canonical profit; только после совпадения выбранная цена и advertising assumption сохраняются в локальном scenario state. Ozon API/source reads and seller price mutations не добавлялись. Review исправил concurrent-state read: prices/stage copied under lock before prompt is built.
+- Добавлены N01/N02 forward vectors, denominator/invalid input, tax-dependent forward boundary and `NOT_REACHABLE` assertions в `tests/test_unit_price_target_planning_service.py`; public input/apply assertions расширены в `tests/test_unit_price_scenario_telegram_runtime.py`.
+- Focused isolated Windows/Python 3.12.10 profile: `tests/test_unit_price_target_planning_service.py tests/test_unit_price_scenario_telegram_runtime.py tests/test_unit_price_advertising_cap_service.py tests/test_unit_price_scenario_service.py` — **112 passed in 1.70s**. Same Python runner `-B -m py_compile` over `unit_price_advertising_compensation_service.py`, `unit_price_target_planning_service.py`, `telegram_unit_price_calculator_runtime_service.py`, and `assistant_keyboard_service.py` — exit 0.
+- Final linked isolated Q04–Q10 profile: 22 tariff/planning/scenario/source/consumer files — **390 passed in 7.90s**. Five protected tracked JSON SHA-256 hashes (`data/history.json`, `data/profiles.json`, `data/tasks.json`, `data/tax_configuration.json`, `data/users.json`) unchanged. New `%TEMP%` storage and pytest basetemp used, dotenv/plugin autoload disabled and credential-named process variables removed without printing values; no `.env`, network/API, live bot, ignored runtime store or owner DB read/write.
+- `git diff --check` and `git diff --cached --check` passed after removing two trailing Markdown spaces from the acceptance header. Q10 implementation/docs commit: `c6d75a0437d82cc39297c85f960a1a9493b0b57a` (`Add advertising compensation to unit price comparison`); a small follow-up documentation whitespace cleanup is recorded separately. Acceptance: `UNIT_PRICE_ADVERTISING_COMPENSATION_Q10_2026-10-27.md`. Code/docs touch the calculation service contract, public Telegram flow and a new pure solver: **Architecture Review Required**. Q10 — VERIFIED. Next: Q11 bounded candidate grid and tariff boundaries.
+
+### Q11 — ограниченная ценовая сетка и тарифные границы (2026-10-27)
+
+- В `UnitPriceTargetPlanningService` добавлен ввод диапазона цены продавца `начало; конец; шаг`. Конечная цена включается, даже если шаг не делит интервал; кандидаты упорядочиваются и дедуплицируются по копейкам.
+- Для каждого сохранённого тарифного диапазона внутри запрошенного интервала добавляются нижняя/верхняя границы и соседние копейки. Сумма правил по frozen profiles ограничена 20; кандидатный набор — 200. При превышении любого лимита расчёт не усечён: пользователь получает просьбу сузить сетку или уточнить тариф.
+- Сетка использует frozen tariff snapshot и существующий canonical forward. Неизвестный тариф/ставка остаются без прибыли, строки результата хранят компактные суммы без повторного payload forward. Исследованный набор записан в `price_grid.searched_prices`; статус максимума явно ограничен проверенной сеткой. Оценка рекламной компенсации отложена для всех строк и вычисляется после выбора одной цены.
+- Telegram выдаёт по 10 строк на страницу с глобальной нумерацией и корректным selector. Прокрутка страниц остаётся доступной при устаревшем источнике, но действие подстановки отключено. Выбранная цена повторно проходит canonical forward до локального применения; сетевых запросов на кандидата не добавлено.
+- Обнаруженные регрессии при проверке: инициализирован компактный список кросс-докинга в result formatter; исправлен тестовый путь notice; пагинация отделена от разрешения на применение.
+- Focused isolated Windows/Python 3.12.10 Q11 profile (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **104 passed in 1.55s**. Linked Q04–Q11 profile over 22 tariff/planning/scenario/source/consumer modules: **398 passed in 8.05s**. Three changed Python modules compiled in memory; `git diff --check` passed after final code changes.
+- Test root and pytest basetemp were new `%TEMP%` paths; dotenv and pytest plugin autoload disabled, credential-named environment variables removed without values. The five protected tracked `data/*.json` paths are git-clean; their newline-normalized SHA-256 matches Git HEAD. Raw worktree bytes are CRLF-normalized. No owner DB, ignored runtime data, `.env`, API/network or live bot was used.
+- Q11 modifies the existing planning service contract, Telegram result mode and keyboard actions: **Architecture Review Required**. Acceptance: `UNIT_PRICE_PRICE_GRID_Q11_2026-10-27.md`. Q11 — VERIFIED. Next: Q12 segmented target-price search across tariff jumps.
+- Q11 implementation/docs checkpoint: `66d1120995fcf906f9dfe7b7d816cfe200415ba5` (`Add bounded unit price grid`). Q11 journal/verification and Q12 start marker are recorded in the following documentation-only checkpoint.
+
+### Q12 — поиск минимальной целевой цены при скачках тарифа (2026-10-27)
+
+- Проверена исходная single-rate реализация `_find_candidate`: её бинарный поиск предполагает одну ставку и был бы некорректен при пересечении тарифной границы. Этот путь оставлен только для вызовов, которые не требуют tariff resolution; исходный лимит 128 forward calculations сохранён.
+- Для tariff-aware `solve()` добавлена отдельная ветка: snapshot проверяется по identity/current seller price; количество правил ограничено 20; ценовой домен режется в inclusive целочисленных копейках по каждой frozen band. Вычисляются только интервалы с единым resolved profile/rate; gaps, conflicts, expired/source-unavailable остаются unknown.
+- Внутри каждого рассчитанного интервала target search сначала проверяет пять упорядоченных точек, останавливается при наблюдаемом нарушении монотонности и бинарно сужает только локальный false/true bracket. Поиск посещает интервалы по возрастанию; между тарифными диапазонами бинарный переход не выполняется. Точный candidate и предыдущая копейка внутри диапазона повторно проверяются через `UnitPriceScenarioService`.
+- Старый сохранённый тариф без frozen snapshot допустим только на его точной цене. Telegram теперь вызывает `_prepare_tariff`, передаёт frozen snapshot/legacy exact point, показывает непокрытые диапазоны и ограничение «минимум только среди рассчитанных сегментов». Применение остаётся локальным и проходит прежнюю проверку прибыли/комиссии; Ozon API и изменение цены не добавлены.
+- Регрессии покрывают N03 (синтетический скачок 11%→22%, цель достижима до скачка, недостижима сразу после и снова достижима позже), поиск только в более позднем сегменте, gap/conflict, 20/21 rules, 1 024-call budget, source-unavailable, legacy exact-price, наблюдаемую немонотонность, Telegram coverage disclosure и tariff-aware apply.
+- Focused isolated Windows/Python 3.12.10 (`test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_unit_price_tariff_snapshot_adapter.py`): **115 passed in 1.65s**. Linked Q04–Q12 isolated profile over 21 tariff/planning/saved-plan/scenario/source/Telegram modules: **404 passed in 7.97s**. `git diff --check` passed; tracked protected JSON files remained clean. Temp root was new; dotenv/plugin autoload disabled, credential-named environment variables removed; no network/API, bot or owner DB used.
+- Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`. Existing service/runtime contract is extended: **Architecture Review Required**. Q12 — VERIFIED. Implementation/docs commit `039ad79b` (`Implement tariff-segmented target price search`). Next: Q13 audit of consumers of price/tariff changes.
+
+### Q13 — согласованность потребителей тарифа и ценовых изменений (2026-10-27)
+
+- Проверены single-price target/options/grid/DRR/ad-cap, sensitivity, batch edit/replan/ad-cap, saved-plan reopen/sales-mix и owner exports. Все consumer paths используют frozen tariff resolution при наличии снимка; unknown gaps не получают комиссию/прибыль как 0.
+- Legacy point-rate планы и введённые ставки без диапазона остаются применимы только к сохранённой цене и явно помечаются `LEGACY_EXACT_PRICE_ONLY`; фиксированное допущение остаётся отдельным режимом. Ручной ввод цены/ставки в batch создаёт точечный override, не распространяющий ставку на другие варианты.
+- Экспорт batch/saved-plan/ad-cap/sales-mix/sensitivity получил согласованные поля комиссии и provenance, tariff scope/status/reason и basis даты/цены. Исторические границы не выдаются за доказательство тарифа на новой цене; owner идентификаторы не добавляются.
+- Восстановление сохранённого плана проверяет tenant identity и повторно использует сохранённый snapshot; изменение профиля не переписывает замороженный сценарий, а применение перепроверяется через разрешённый тариф.
+- Изолированный linked Windows/Python 3.12.10 профиль из 10 модулей: **230 passed in 4.71s**. `py_compile` изменённых Python-модулей и `git diff --check` прошли. Тестовые storage/basetemp изолированы; API, `.env`, live bot и owner DB не использовались.
+- `DECISIONS.md` не менялся: Q13 расширяет существующие contracts, не вводя новую архитектурную политику. Классификация: **Architecture Review Required**.
+- Acceptance: `UNIT_PRICE_CONSUMER_AUDIT_Q13_2026-10-27.md`. Q13 — VERIFIED. Далее Q14: числовой профиль N01–N06, N08, N10/N11 и связанные unit-price suites.
+
+### Q14 — числовая приёмка модуля C (2026-10-27)
+
+- Запущены 21 существующий модуль unit-price/tariff/sensitivity/batch/Telegram/saved-plan/analytics-export: **389 passed in 7.84s**. Этот профиль включает synthetic N01/N02 advertising-compensation cents and ROUND_HALF_UP, N03 tariff-boundary jumps, N04 gaps/conflicts/unknown, N05 manual tariff preview-confirm/reopen/scope, N06 old saved-plan schema and frozen revisions, N08 distinct DRR bases, N10 ₽/unit ranking, N11 tax regimes/minimum tax/cross-docking and effective-date cost. Это синтетические fixture, не фактические ставки или рекомендации владельцу.
+- Тесты выполнены Windows/Python 3.12.10 в новом `%TEMP%` test/storage root, pytest basetemp также новый. Удалены из test process environment variable names, совпадающие с credential/provider filters, без вывода значений; отключены dotenv/plugin autoload и bytecode writes. Owner DB/data, `.env`, API/network и реальный бот не использовались.
+- Ошибок или корректировок числовых ожиданий не потребовалось. Поддержанные пределы из кода/регрессий остаются: сравнение 2–10 цен; grid до 200 точек и 20 tariff rules; target search до 20 rules/1,024 canonical forwards; DRR threshold до 64 forwards/candidate и 1,024 на сравнение. Максимум относится только к проверенному набору/диапазонам, не к глобальному optimum.
+- Acceptance: `UNIT_PRICE_NUMERIC_ACCEPTANCE_Q14_2026-10-27.md`. Q14 — VERIFIED, module C завершён; feature в целом ещё не завершён. Следующий этап: Q15 — contract источников и истории наблюдаемой цены.
+
+### Q15 — контракт наблюдения и истории цены (2026-10-27)
+
+- Разделены четыре вида цены: сценарное предположение, подтверждённая владельцем установка с заявленным `effective_from`, текущий API snapshot на `observed_at` и история per-sale только при наличии точной цены продажи и времени события. Owner declaration не становится API-фактом.
+- Официальный Seller API FAQ проверен 27.10.2026: Ozon пишет, что историю изменения цены через API посмотреть нельзя; её можно открыть в кабинете, нажав на цену товара → «История изменений». Источник добавлен в acceptance. Текущий product prices read остаётся точкой времени чтения; текущая цена не переносится на прошлые даты.
+- Текущий financial sale evidence (`FinanceService.get_daily_sale_posting_evidence`) сохраняет SKU/номер отправления/accrual date, но не quantity, цену и sale-event timestamp. `seller_price` в `PeriodProfitOzonClient` сейчас диагностическое aggregate field; он не считается полной историей per-unit price и не привязывает начисление к окну события продажи.
+- Зафиксированы `date-only` vs timezone-aware instants, completed-but-not-final windows, observed/recorded/accrual/event clocks, source lateness/corrections, отдельные units (успешно проданные, заказанные, отменённые, возвращённые) и запрет использовать число строк/отправлений как units. Неполные или смешанные цены получают `PRICE_HISTORY_UNCONFIRMED`/`MIXED_PRICES`; ручной сценарий не заполняет исторические пробелы.
+- N07: хранить сумму и совместимый denominator; агрегировать `Σamount/Σunits`, не среднее дневных ставок. N08: seller-revenue DRR и attributed-revenue DRR — разные основания. N09: смешанные цены/времена/налоги/расходы, пересекающиеся окна и пропуски запрещают verified comparison; неподтверждённые рекламы/количества не выдаются за полный факт.
+- Runtime не менялся, потому что Q15 фиксирует контракт перед durable repository/collector Q16–Q18. Проверка: сопоставление контракта с разделами 6.2, 6.3, 9.1–9.5 и текущими `CurrentProductEconomicsSource`, `FinanceService`, `PeriodProfitOzonClient`; `git diff --check` проходит. N07–N09 отображены в контракте; live tests/API не запускались.
+- Acceptance: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`. Q15 — VERIFIED. Далее Q16: append-only tenant-scoped observation/results repository и CAS/idempotency.
+
+### Q16 — журнал и версии результата (2026-10-27)
+
+- PlanningWorkspaceRepository получил additive DB migration v3→v4 и tenant/store-scoped observation/result/idempotency tables. Plan payload version не менялась; существующие saved plans и финансовые хранилища не дублируются.
+- Запись начинается только после owner confirmation и точного совпадения FBO SKU identity с выбранной immutable saved-plan revision. Seller price хранится в копейках; effective timestamp сохраняется с исходным UTC offset, timezone окна проверяется, будущий момент отклоняется.
+- CAS защищает lifecycle и result revisions. Idempotency key связан с fingerprint нормализованного запроса. Result version exact-bound к store/SKU/scheme/seller price, проходит schema/source/metric/completeness allowlists; SQL triggers и read-time validation fail closed защищают immutable history.
+- Bounded quotas/pagination применяются до роста хранилища. Завершённые overlapping windows сохраняются отдельно и остаются INCOMPARABLE, без автоматического объединения.
+- Isolated Windows/Python 3.12 профиль по новому repository test и двум существующим migration/repository modules: **38 passed in 1.58s**. `py_compile`, `git diff --check` прошли; `git diff -- data` пустой. Только synthetic temporary storage, без API/сети/.env/owner DB/live bot.
+- Acceptance: `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. Q16 — VERIFIED; реализация меняет схему и repository contract, классификация **Architecture Review Required**. Следующий этап Q17 — read-only collection через существующие adapters и bounded HTTP trace.
+
+### Q17 — bounded read-only collection (2026-10-27)
+
+- Добавлен `UnitPriceObservationCollectionService`, подключённый через существующую factory/runtime композицию. Коллектор проверяет точное FBO наблюдение, declared seller price и окно завершённых local dates от 3 до 56 дней; начало окна не раньше effective date.
+- Finance adapter заранее ограничен точным окном; finance retries/pagination и Performance polling работают внутри дочернего `PeriodProfitOperationTrace` (60 секунд, 64 HTTP attempts). Ошибки и отмены не оставляют trace активным.
+- Собираются SKU-scoped финансовые агрегаты и отдельный CPC evidence. Неизвестные поля/типы сохраняются только как ограниченные имена/типы; raw values, товарные имена, posting IDs и API payload не выдаются. История цены, успешные/заказанные единицы, возвраты, налог, себестоимость и историческая комиссия не выдумываются.
+- Новые регрессии проверяют окна/идентичность/FBO ограничения, fake finance transport, exact SKU scoping, budget/retry handling, optional Performance source, incomplete/unknown evidence и privacy projection; production factory composition также проверена. Результат остаётся evidence package, без записи immutable result до следующих этапов нормализации/сопоставления.
+- Изолированный Windows/Python 3.12.10 профиль из 10 связанных модулей — **172 passed in 3.65s**. Использованы новые TEMP storage/basetemp, dotenv/plugin autoload выключены, provider/credential env names удалены. `git diff --check` прошёл, `git diff -- data` пустой; сеть, live API, owner DB и бот не использовались. Полный pytest/CI оставлен Q33–Q35.
+- Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`. Q17 — VERIFIED; архитектурная классификация **Architecture Review Required** (новый service и factory composition). Далее Q18 — нормализация evidence и полноты.
+
+### Q18 — нормализация evidence, количеств и рекламы (2026-10-27)
+
+- Добавлен pure `UnitPriceObservationNormalizer`: Decimal/ROUND_HALF_UP projections, точные revenue/date/timezone bases, раздельные финансовые компоненты, finance net и Performance CPC. Seller DRR не вычисляется между `OZON_ACCRUAL_DATE` и `PERFORMANCE_REPORT_DATE`; attributed DRR, если есть, сохраняет отдельный Performance denominator.
+- Tax base `gross - discount_points` появляется только с явным подтверждением полноты скидочных баллов. Q17 summary такого сигнала не предоставляет, поэтому текущая база и наблюдённая прибыль остаются неизвестными. Успешных единиц и полной истории цены также нет; `source_row_count` не становится denominator.
+- Weighted utility считает `Σamount/Σunits`, обрабатывает нулевой/пропущенный denominator без подстановки нуля. Dedup utility требует exact SKU scope/stable row ID, collapses only identical duplicate, возвращает `CONFLICT` при отличающихся values, скрывает ID. Signed corrections сохраняются, но принимаются как correction только с явным `SIGNED_DELTA` и нулевыми units.
+- Effective-date warnings и mixed-price status остаются явными. Account totals не распределяются по SKU. Суммы finance components и performance CPC не вычитаются повторно из `finance_net`; прибыль/налог/себестоимость не пересчитываются в normalizer.
+- Связанный Q16–Q18 изолированный Windows/Python 3.12.10 профиль — **184 passed in 3.92s**. Venv не содержал объявленный `tzdata`; в ходе первой попытки тесты не прошли на отсутствии Windows IANA timezone database. Декларированная зависимость поставлена только в уникальный TEMP target, после чего весь профиль прошёл. TEMP storage/basetemp использованы, dotenv/plugin autoload отключены, credential/provider env очищен; live API, owner DB, data files и бот не задействованы.
+- Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`. Q18 — VERIFIED; чистое вычисление без новых источников, архитектурное решение не меняется. Далее Q19 — canonical fact vs separately labeled model vs incomplete.
+
+### Q19 — сопоставимая оценка и ограничения факта (2026-10-27)
+
+- Добавлен `UnitPriceObservationResultService`, pure service без DB/Telegram/HTTP. Точный сценарий должен совпасть по store/product/offer/SKU/FBO и seller price. Результат использует schema v1 существующего `PlanningWorkspaceRepository`; новые result поля не добавлялись.
+- Canonical fact не выдаётся: Q15/Q18 подтверждают, что текущие источники не дают per-sale seller price/event time, полного successful-unit denominator и совместимой когорты. Фальшивый caller `CANONICAL_FACT_COMPARABLE` игнорируется.
+- Модель использует CPC только при complete Performance evidence, точной дате/окне/timezone/date basis и положительном подтверждённом successful-unit denominator. Нормализованная CPC/успешную единицу проходит existing parser и canonical `UnitPriceScenarioService`; observed profit остаётся `None`, модель отмечает ручные сценарные допущения и неполный рекламный scope. Нет двойного вычитания finance totals.
+- Адресный Q19 + Q18 profile: **17 passed**; финальный связанный Q16–Q19 profile: **189 passed in 4.10s**; `py_compile` сервиса и теста — exit 0; repository result validator принимает модельный payload. Первый профиль выявил неправильное ожидаемое значение в synthetic assertion; оно сверено с формулой canonical calculator, ожидание исправлено, финальные запуски зелёные.
+- Проверки использовали временные storage/basetemp; dotenv/provider plugins отключены, credential variables удалены. Owner DB, tracked `data/*.json`, API, live bot и production env не использовались. Полный pytest/exact-head CI остаются Q33–Q35.
+- Документация: `UNIT_PRICE_OBSERVATION_RESULT_Q19_2026-10-27.md`, CHANGELOG, CURRENT_STATE, TEST_MAP. DECISIONS не менялся — Decision 061/Q03 уже задают pure service boundary и evidence labels.
+- Классификация: **Architecture Review Required** — добавлен application service, использующий установленный canonical unit calculator; storage/source schemas не менялись.
+
+### Q20 — Telegram lifecycle наблюдения цены (2026-10-27)
+
+- Добавлен `TelegramUnitPriceObservationRuntimeService` и production-factory wiring: старт только с сохранённого FBO-плана и точной выбранной строки SKU (включая multi-SKU batch), явное подтверждение уже установленной владельцем цены/времени, чтение периода через Q17, Q18 normalization, Q19 evaluation, append-only результат, карточка/история/заметка/завершение.
+- Подключены публичный entrypoint из меню калькулятора при включённом manual tariff/FBO, кнопка наблюдения из каждой поддерживаемой строки сохранённого плана, маршрутизация callback/text handler и очистка временного ввода при переходах. Callback/черновики ограничены owner/store/tenant; старые revision callbacks отклоняются; Ozon mutations отсутствуют.
+- Для multi-SKU плана запись привязана к выбранному `item_index`; перед подтверждением повторно проверяются активность/revision плана, а при сборе единственная точная identity повторно находится в неизменённом frozen плане. SKU/имена/сырые API данные не показываются и не сохраняются в Telegram result.
+- Добавлена проверка окна до вызова источников: 3–56 календарных дней, конец строго раньше текущей локальной даты и начало не раньше локальной effective date заявленной цены. Ошибочные окна оставляют форму для повторного ввода; проверка дополнительно остаётся в независимом Q17 collector.
+- Новые проверки: `tests/test_telegram_unit_price_observation_runtime.py` — 7 тестов на lifecycle, reopen после нового runtime, incomplete result, stale revision, notes/finish, FBO/tenant boundary, валидацию периода до источника, handler/factory route и multi-SKU exact row; `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production composition. Адресный профиль после оконной регрессии: **8 passed in 1.34s**.
+- Связанный профиль 14 Q16–Q20 modules/test targets: **197 passed in 4.70s** (Windows/Python 3.12). Python AST parse всех 7 изменённых/добавленных Python-файлов прошёл; `git diff --check` прошёл с уведомлениями Git о будущей LF→CRLF нормализации только Markdown; `git diff -- data` пуст. Тесты использовали временные storage/basetemp и synthetic collector; .env, credential values, live API, owner DB, tracked data и бот не использовались.
+- Acceptance: `UNIT_PRICE_OBSERVATION_TELEGRAM_Q20_2026-10-27.md`. Q20 — VERIFIED после прохождения linked Q16–Q20 профиля. Классификация: **Architecture Review Required** (новый Telegram runtime и изменение production factory/handlers); Decision 061/Q03 границы сохранены.
+
+### Q21 — quality/comparability gates (2026-10-27)
+
+- Добавлен pure `UnitPriceObservationQualityService` для сравнения 2–10 сохранённых кандидатных результатов. Проверяются точный store/product/offer/SKU/FBO, различные цены, одинаковые evidence basis и revenue/advertising basis, одинаковая продолжительность и состав дней недели, timezone/date basis, непересечение окон, завершённость окна, успешные units/denominator, полнота источников, совпадение source windows/date bases и свежесть обязательных источников.
+- `CANONICAL_FACT_COMPARABLE` требует подтверждения всех осей цены, количества, финансов/Analytics, рекламы, тарифа, налога, себестоимости, возвратов, окна и дедупликации; source records должны быть полными. Model-only сравнение допускает только CPC-only ограничение с одинаковым явным frozen assumption signature; оно возвращает `COMPARABLE` на модельном основании, но всегда `verified=false`, с предупреждениями о ручной цене, неизвестной другой рекламе, возвратах и отсутствии причинного доказательства.
+- Начальные настройки: желательная выборка 7 дней, предупреждение ниже 30 успешных единиц, свежесть evidence не старше 14 суток. Первые два значения дают предупреждения, не влияют на статистическую уверенность; результат никогда не возвращает confidence score. Все gate reasons и warnings сохраняются в response payload и показываются в Telegram result detail. Одного кандидата недостаточно для оценки.
+- Добавлены 8 service regressions: модельное сравнение без verified label; пересечения; разная идентичность; source date-basis mismatch; missing denominator; unmatched model assumptions; freshness oldest source; предупреждения малой выборки; synthetic complete canonical facts и incomplete factual label rejection; сохранение source result reasons. Q20 runtime regression проверяет `quality_assessment` на экране/payload.
+- Проверки Windows/Python 3.12: адресный Q21/Q19/Q16–repository/runtime профиль — **32 passed in 1.69s**; final linked Q16–Q21 профиль по 15 targets — **205 passed in 4.87s**. AST parse четырёх затронутых Python-файлов и `git diff --check` прошли; `git diff -- data` пуст. Есть только уведомления Git о будущей LF→CRLF нормализации.
+- Сравнительные assessment payload пока вычисляются в памяти и возвращаются экрану/handler; Q23 отвечает за durable immutable comparison revisions. Runtime источники, Ozon calls и канонические result записи не изменены. `DECISIONS.md` не менялся: Q03/Q15 уже требуют, чтобы только Q21 выставлял `COMPARABLE`.
+- Acceptance: `UNIT_PRICE_OBSERVATION_QUALITY_Q21_2026-10-27.md`. Q21 — VERIFIED после итоговых синтаксической и diff проверок. Классификация: **Architecture Review Required** (новый quality service и новый output field в Telegram payload).
+
+### Q22 — раздельный рейтинг и объяснение (2026-10-27)
+
+- Плановые цены остаются отдельным рейтингом `SCENARIO_ASSUMPTIONS` в существующем `UnitPriceTargetPlanningService`: сравнивается прибыль на единицу внутри заданных пользователем вариантов/сетки, победитель ограничен проверенными ценами, равные максимумы отмечаются вместе. Существующие регрессии N10 проверены повторно; объём продаж не участвует в выборе.
+- Добавлен pure `UnitPriceRecommendationRankingService` для наблюдений. Он сначала применяет Q21 comparability gate и только при общем `COMPARABLE` сортирует кандидатов по соответствующей метрике: `observed_profit_per_unit` для канонического факта или `profit_per_unit` для `MODELLED_FROM_OBSERVED_INPUTS`. Для модели сохраняется `verified=false`; неподтверждённые, неизвестные или несопоставимые результаты не получают частичного рейтинга.
+- Добавлен `UnitPriceObservationRankingService` для owner/store-scoped чтения неизменённых результатов и точных frozen revisions исходных планов. Он сравнивает тот же product/offer/SKU/FBO, выбирает последний результат на каждую цену, ограничивает рейтинг 10 уникальными ценами и сообщает о пропущенных вариантах/повторах. Ozon не перечитывается, immutable results не изменяются.
+- В карточке/детализации результата появилась кнопка сравнения; Telegram runtime формирует пользовательский ответ из application-service результата. Callback после переключения магазина безопасно возвращает stale-кнопку без раскрытия существования чужой записи.
+- Сравнение упорядочено от самого раннего выбранного окна как базового периода. Для каждого варианта показываются ₽/шт. и денежная разница; процент рассчитывается только при положительной базе. Равные округлённые до копейки значения получают общий максимум. UI всегда говорит «среди проверенных вариантов», явно отделяет модель от факта, показывает причины gate отказа и запрещает причинный вывод о влиянии цены.
+- Новые проверки: `tests/test_unit_price_recommendation_ranking_service.py` — N10 по 20 ₽/шт. при 100 ед. против 18 ₽/шт. при 200 ед.; равенство после ROUND_HALF_UP; отрицательная база; gate rejection; выбор фактической метрики; лимит и отсутствие мутации входа. `tests/test_telegram_unit_price_observation_runtime.py` — persisted-result Telegram ranking, exact same SKU, no source calls, блок разных frozen cost assumptions и отказ на callback после переключения магазина.
+- Адресный Q22 profile после выделения application service — **26 passed in 1.42s**. Связанный Windows/Python 3.12 Q16–Q22 profile по 16 targets — **274 passed in 5.68s**. Использованы synthetic records, временный storage/basetemp, отключённые dotenv/plugin autoload и credential env; live API, owner DB, tracked `data/*.json` и реальный бот не использовались.
+- Acceptance: `UNIT_PRICE_RECOMMENDATION_RANKING_Q22_2026-10-27.md`. `git diff -- data` должен оставаться пустым; перед следующим этапом повторить AST/diff checks. Q22 — VERIFIED; Q23 продолжает неизменяемую историю сравнений.
+- Классификация: **Architecture Review Required** — добавлены pure ranking и local-only observation application services, встроенные в существующий Telegram runtime; storage schema, canonical result schema, Ozon adapters и бизнес-формула прибыли не менялись.
+
+### Q23 — неизменяемая история сравнения и актуальность (2026-10-27)
+
+- Planning SQLite расширена additive migration v4→v5: owner/store-scoped immutable comparison revisions, evidence fingerprint, idempotency и SQL UPDATE/DELETE guards. Существующие saved plans и observation/result rows не переписываются; сохранённые ссылки фиксируют observation ID/result revision и source plan ID/revision для каждой проверенной цены, плюс manifest прочих видимых результатов SKU для stale detection.
+- Добавлен `UnitPriceComparisonHistoryService`. Первое построение рейтинга сохраняет exact snapshot. Повторное открытие и JSON export читают сохранённый payload и не пересчитывают ranking/не запрашивают Ozon. Явное обновление сравнивает доступные сохранённые observation revisions; если evidence не изменилось, запись не добавляется. Новые результаты, собранные существующим observation flow, создают новую revision, не стирая победителя прежней версии.
+- Карточка/история маркируют `CURRENT`, `STALE`, `SUPERSEDED` или `SUPERSEDED_AND_STALE`. Stale определяется только по локальному состоянию источников: новому result revision, новому/архивированному same-SKU observation или изменённой revision исходного плана. Открытие версии не меняет её победителя. Пагинация истории bounded; очистка runtime user state не удаляет DB records.
+- Добавлены регрессии: idempotent/CAS create and append, tenant isolation, schema payload allowlist, triggers, database failure rollback/retry, schema v3/v4 migration с сохранением плана и наблюдения, comparison reopen после runtime recreation/clear-user-state, new evidence append, stale/superseded labels, unchanged refresh и source-free JSON export. Рейтинг по-прежнему проходит Q21 gate и использует исходную формулу/показатели без пересчёта.
+- Адресный Windows/Python 3.12 профиль четырёх Q23-focused targets: **33 passed in 2.08s**. Linked профиль 28 planning/observation/tariff/runtime targets: **474 passed in 10.94s** при отключённом pytest plugin autoload и удалённых credential-like process variables. Два старых теста DB schema v4 сначала выявили ожидаемые stale assertions; они обновлены на v5, затем полный linked профиль стал зелёным.
+- Тесты выполнялись в temporary pytest storage/basetemp из существующего Python 3.12 project environment, от текущего implementation worktree. Для Windows указан уже локальный Git IANA zoneinfo path (`PYTHONTZPATH`); live API, owner DB, bot и `.env` не использовались. `git diff -- data` пустой.
+- Acceptance: `UNIT_PRICE_COMPARISON_HISTORY_Q23_2026-10-27.md`. `DECISIONS.md` не менялся: repository schema versioning, append-only evidence, tenant scope и source-free saved result уже следуют Decision 061 и Q16/Q21/Q22 контрактам.
+- Q23 — VERIFIED. Классификация: **Architecture Review Required** — additive SQLite schema migration, repository contract и Telegram/application wiring. Следующий этап: Q24 — связать полный путь SKU → тариф → план/сравнение → порог → сохранение → наблюдение → рекомендация.
+
+### Q24 — полный пользовательский цикл цены и наблюдения (2026-10-27)
+
+- В production factory end-to-end регрессии покрыт путь через public `button_handler.handle` и `handle_text`: выбор SKU, ввод двух тарифных диапазонов с некорректным вводом и восстановлением формы, сравнение двух цен/ДРР, сохранение плана, создание наблюдения, сбор synthetic incomplete evidence, отказ ranking gate присваивать неподтверждённую прибыль, возврат к сохранённым планам и продолжение с новой ценой.
+- Исправлена достижимость следующего варианта: экран результата сравнения/наблюдения содержит прямое действие «Мои планы · следующий вариант цены» (`upp:m`). Экшен открывает локальный список сохранённых планов; продолжение использует актуальный action token и не пересоздаёт либо не перезаписывает предыдущую версию.
+- Тест работает через `create_telegram_assistant` и подменённые fake source/collector; фактический источник вызван один раз для разрешённого сбора. Из-за отсутствия подтверждённых per-sale price/успешных единиц в synthetic evidence результат остаётся `INSUFFICIENT_DATA`, рейтинг возвращает `OBSERVATION_RANKING_NOT_READY`; ложная нулевая/положительная прибыль не показывается.
+- Focused: `tests/test_unit_price_profit_per_unit_end_to_end.py` — **1 passed in 1.00s**. Linked profile Q16–Q24 (29 test targets, Windows/Python 3.12, plugin autoload/dotenv disabled, temporary pytest storage): **475 passed in 11.48s**.
+- Ограничения: автоматический тариф остаётся точечной ставкой только при доказанной цене; ручной диапазон функционирует. Реальные owner API/price history/actual observation не проверялись и для инженерной приёмки не нужны. `git diff -- data` должен оставаться пустым.
+- Q24 — VERIFIED. Следующий этап: Q25 — UX, help/discovery, компактный отчёт и достижимость обещанных действий.
+
+### Q25 — понятный Telegram UX и discovery (2026-10-27)
+
+- В главное меню добавлен прямой вход «🎯 Подобрать цену по прибыли/шт.»; Help и примеры объясняют FBO-ограничение, ручной fallback комиссии, ключевые inputs и то, что цена Ozon не меняется. Старый «Юнит-экономика товаров» маршрут сохранён.
+- Результат по умолчанию стал компактным: товар/SKU, магазин и FBO, цена продавца, себестоимость, прибыль ₽/шт. и маржа, статус/основание комиссии, ДРР/удельный расход, кросс-докинг, сравнение с текущей ценой и короткие ограничения. Неизвестная комиссия, отсутствие себестоимости и устаревший source snapshot остаются видимыми; incomplete calculation не получает прибыль.
+- По кнопке `upc:x` открывается полная денежная раскладка с расчётом налога и расходными деталями; кнопка «Краткий итог» возвращает к прежнему экрану только в том же scenario version. Для кросс-докинга brief виден в обоих состояниях, подробная 56-дневная формула/coverage остаётся на экране деталей.
+- Экран рейтинга включает store scope, SKU, product_id/offer_id и схему FBO; новые display identifiers ограничены по длине. Existing Telegram UTF-16 splitter/transport не переписывались, проверены соответствующие transport tests и end-to-end доставка полного текста.
+- Focused UX profile: `test_telegram_help_discovery.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_telegram_unit_price_observation_runtime.py` — **59 passed in 1.88s**. Первичный Q16–Q25 запуск выявил 2 UI regressions (stale source notice и missing-cost hint) среди 495 cases; оба отображения исправлены. Повторный linked Windows/Python 3.12 profile по 32 targets — **495 passed in 12.46s**.
+- No source/API/bot calls; tests use synthetic data. `git diff -- data` остаётся пустым. Full repository pytest, Linux/Windows exact-head CI and Docker remain Q33–Q35.
+- Q25 — VERIFIED; следующий этап Q26 — единые owner exports для сравнения, тарифов и наблюдений.
+
+### Q26 — единые выгрузки владельца (2026-10-27)
+
+- Добавлены отдельные allowlisted схемы CSV/JSON для точной сохранённой версии сравнения, неизменяемого результата наблюдения и замороженного тарифного snapshot. Содержимое файлов не включает внутренние IDs записей/планов/наблюдений, raw API payload, токены или произвольные support-поля; в выгрузке остаются owner-facing SKU/store identity, версии, evidence basis, quality status/reasons, полнота, источники и неизвестные значения.
+- Наблюдение и сравнение используют сохранённые exact revisions. Экспорт не запускает collection, source refresh или повторный расчёт. Тарифный экран и его CSV/JSON используют один frozen scenario context и канонический allowlisted JSON projection; не покрытые ценовые интервалы остаются unknown. Экран ограничен первыми 32 строками и сообщает о продолжении в файле; export schema ограничена 20 профилями × 20 сегментами (400 строк), общими ограничениями serializer по 5 000 строк, 64 колонкам и 2 MiB.
+- Кнопки CSV/JSON появляются только при наличии общего exporter. Транспорт документа не менялся; все три потока используют existing analytics document sender и единые serializer guards. Ошибка построения превращается в стабильный код результата, доставка выполняется существующим адаптером.
+- Регрессии: `tests/test_unit_price_owner_exports.py` проверяет CSV/JSON parity по бизнес-строкам, immutable versions, неизвестное vs ноль, same-identity и redaction; observation runtime проверяет открытие/экспорт без повторного source call; tariff runtime проверяет screen/file parity, exact snapshot, ограничения рядов, callback size и owner/store scope. Существующий serializer/document transport профили также включены.
+- Проверки Windows/Python 3.12.10: Q26 focused — **39 passed in 2.38s**; linked калькулятор/наблюдения/тарифы/экспорт, 30 targets — **439 passed in 10.25s**. `py_compile` по 9 затронутым Python-файлам и `git diff --check` прошли; `git diff -- data` пуст. Один первичный linked вызов не запустил тесты из-за ошибочно указанного отсутствующего target-файла; скорректированный профиль прошёл полностью. В первом адресном прогоне выявлены и исправлены две regressions в wire-up/export identity и одна перемещённая тестовая assertion; итоговый focused и linked прогоны зелёные.
+- Только synthetic fixtures и временные тестовые каталоги. Live Ozon API, `.env`, owner database и реальный Telegram sender не использовались. `DECISIONS.md` не менялся: Q26 продолжает Decision 061 / существующий owner export contract, не вводит новую систему хранения или источник данных.
+- Acceptance: `UNIT_PRICE_OWNER_EXPORTS_Q26_2026-10-27.md`. Q26 — VERIFIED; следующий этап Q27 — concurrency, stale callbacks, CAS metadata/payload и store switching.
+
+### Q27 — конкурентность и изоляция действий (2026-10-27)
+
+- Аудит связанного потока подтвердил race в `TelegramUnitPriceObservationRuntimeService`: после долгого сбора результатов `finally` безусловно удалял pending по store key. Если за это время пользователь открыл, например, форму заметки, завершившийся сбор стирал более новый черновик. Исправлено через внутренний `_pending_token`; cleanup теперь compare-and-delete, а `confirm_start` compare-and-replace. Токен генерируется на каждом изменении pending, не включается в persisted result или export.
+- Тот же compare-and-delete применён к завершению сохранения заметки и ошибок/успеха `confirm_start`, чтобы поздний ответ не очищал пользовательское состояние, созданное после старого запроса.
+- Добавлена воспроизводимая гонковая регрессия с `Event`-blocked fake collector: параллельно открывается форма заметки, затем сбор завершается; заметка остаётся доступна и сохраняется. Добавлен parallel double-click guard test вокруг блокированного SQLite create: второй callback stale, единственная запись остаётся сохранённой.
+- Остальные требования Q27 проверены существующими тестами: предыдущие store/SKU callbacks отклоняются; batch late build/refresh/edit не перезаписывает переключение/новую версию; сценарий меняется только при matching identity/version; repository CAS допускает одного победителя; immutable observation/comparison revisions и tenant-scoped reads; bounded maps защищены lock/deep-copy; evicted scenario возвращает stale без KeyError.
+- Linked Windows/Python 3.12.10 profile Q16–Q27: **460 passed across 31 targets in 11.03s**. Новые isolated tests: обе гонковые регрессии прошли. No API, owner database, live bot or Git data files were used; `git diff -- data` remains empty.
+- `DECISIONS.md` не менялся: Q27 уточняет runtime cleanup tokens поверх существующих RLock/CAS и Decision 061, не меняя persistence/interface contract. Acceptance: `UNIT_PRICE_CONCURRENCY_SCOPE_Q27_2026-10-27.md`. Следующий этап Q28 — retries, limits, cancellation, partial sources and recoverable failures.
+
+### Q28 — лимиты и восстановление после сбоев (2026-10-27)
+
+- Проверены текущие source boundaries: collector открывает одну operation trace, разделяет time/request budget с parent, учитывает каждый зарезервированный outbound attempt и не продолжает к следующим дням/Performance после исчерпания лимита. Частичный финансовый период сохраняет только реально полученные дни и status `PARTIAL`; absent дни не заполняются нулями. Профиль Performance при прекращении операции не вызывается.
+- Добавлены fake-clock/attempt regressions: отменённая parent operation — 0 source attempts; таймаут после первого дня — 1 finance request, 1 sample day, finance `PARTIAL`, Performance отсутствует. Добавлен Telegram retry: synthetic 429 не запускает автоматическую новую попытку и не создаёт result revision; повтор возможен только после явного нажатия владельца, затем новая успешная попытка создает ровно одну revision.
+- Существующие проверки остаются основанием для retry/429 через finance adapter, overall 64-attempt cap, tighter parent request cap, perf optionality, bounded export size/rows/columns/formula guards, per-store/result quotas и DB atomic rollback. Полный Q16–Q28 linked profile — **474 passed across 32 targets in 11.15s**.
+- Код production не менялся: ранее реализованные guards уже соответствуют критериям; изменения в этом этапе добавили только точные failure/retry regression tests и документацию. `DECISIONS.md` не менялся. No `.env`, owner data, live bot or live Ozon calls; `git diff -- data` пуст.
+- Acceptance: `UNIT_PRICE_RELIABILITY_Q28_2026-10-27.md`. Q28 — VERIFIED; следующий этап Q29 — old/new DB compatibility, backup/restore, privacy and synthetic-root verification.
+
+### Q29 — persistence, privacy и восстановление (2026-10-27)
+
+- Подтверждено, что тарифные профили, планы, наблюдения и их immutable results хранятся в существующей SQLite-базе `PlanningWorkspaceRepository`, которую уже архивирует `BotBackupService`. Новый механизм хранения/backup не вводился.
+- Добавлен synthetic end-to-end тест: owner/store создаёт тариф с двумя диапазонами, план, observation и две версии результата; выполняются backup, verify, dry-run, restore в отдельный root и чтение через новую repository instance. Проверены совпадение данных и revisions, отказ cross-store чтения, отказ записи `raw_response` и отсутствие тестового secret sentinel в SQLite.
+- Дополнительно прошли существующие миграционные проверки: legacy planning schema, additive v2 rollback, schema v3→v5 и v4→v5 с сохранением плана/результатов.
+- Windows/Python 3.12 isolated Q29 profile: **5 passed in 0.95s**. В первом запуске исправлен только синтетический clock fixture; production code не менялся. `git diff -- data` пуст; production data, `.env`, API и живой бот не использовались.
+- Acceptance: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`. Q29 — VERIFIED. Следующий этап Q30 — три сквозных пользовательских потока через production factory/public Telegram handlers.
+
+### Q30 — наблюдаемый процент выкупа для модели прибыли (2026-10-27)
+
+- Владелец разрешил вычислять процент выкупа SKU вместо ручного ввода числа продаж. Архитектурное правило закреплено в `DECISIONS_062.md`: read-only FBO posting + Returns evidence, точный SKU, завершённая пагинация, terminal statuses, reconciliation количества и ноль неоднозначных отмен; только затем строится расчётная метрика и модельный знаменатель.
+- Подключён существующий `ReturnsBuyoutFactsSource` через уже используемый Ozon client в factory. Новый client/credential scope не добавлялись. Коллектор отдаёт только агрегаты; normalizer/allowlist сохраняют подтверждённые единицы/процент выборки без ID и сырых строк.
+- Исправлен подтверждённый gate defect: Performance source не нёс timezone метаданные, из-за чего модель с FBO cohort ошибочно попадала в `SOURCE_WINDOW_OR_DATE_BASIS_MISMATCH`. Теперь timezone передаётся с report window и остаётся частью immutable source evidence.
+- Отчёт явно показывает формулу buyout estimate, sample size, delivered/returned counts; расход возвратов не включён в модельную прибыль/шт. и это сказано пользователю. CPC-report date и FBO cohort остаются разными basis; модель не объявляет прибыль фактом и не делает causal claim.
+- Focused command: пять модулей collection / normalizer / result / quality / public E2E из `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`; **49 passed in 2.37s** на Windows/Python 3.12. Synthetic sources only; live API, real bot and Ozon mutations not used.
+- Изменённые production paths: observation collection, normalizer, result, quality, Telegram observation runtime, planning repository allowlist, factory wiring. Regression: nested persisted identity now accepted; duplicate conflicting identity rejected. Existing Q24 path remains in E2E.
+- Q30 — VERIFIED. Q31 and Q32 repeated/updated below. No user owner data or tracked `data/` changed.
+
+### Q31 — связанные регрессии после Q30 (2026-10-27)
+
+- Связанный Windows/Python 3.12 profile: 175 modules selected for unit price/planning/tax/cross-docking/period profit/backup-restore/help; **1374 passed in 39.94s**.
+- Bounded lifecycle/evaluation command: `tests/test_daily_use_bounded_soak.py tests/test_unit_price_target_planning_service.py::test_search_stays_inside_forward_evaluation_budget`; **3 passed in 3.12s**.
+- Q31 — VERIFIED. Profile outputs only; no owner SQLite/API/live process used. Acceptance: `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`.
+
+### Q32 — owner guide and acceptance docs (2026-10-27)
+
+- Добавлены user guide и Decision 062; обновлены `CHANGELOG.md`, `CURRENT_STATE.md`, `TEST_MAP.md`, `ROADMAP.md`, decision index, Q30/Q31 acceptance and progress matrix.
+- Документы фиксируют exact buyout formula and denominator, strict incompleteness behavior, separate returned count, return-expense omission, report-date/cohort mismatch, sample caveat, privacy and the noncanonical/noncausal nature of the result.
+- Documentation links validated by existence and wording scan; `git diff --check` and full pytest/CI remain Q33. Q32 — VERIFIED.
+
+### Q33 — полный локальный прогон и чистота данных (2026-10-27)
+
+- Полный `pytest` выполнен в отдельной временной Git-копии с актуальными исходниками и тестами: **3983 passed in 53.74s**. Изолированный повтор выбран после того, как legacy-тесты в основной рабочей копии изменили tracked `data/tasks.json`; исходный файл восстановлен в точное чистое состояние, а результат `git status --short -- data` в основной реализации пустой.
+- На том же проверенном снимке: `python -m compileall -q app` — PASS; `git diff --check` — PASS; `git diff -- data` — пустой. Повторный профиль шести изменённых Q30/UI модулей в реализации: **56 passed in 2.60s**. Q31 связанный профиль — **1374 passed на 175 модулях**, ограниченная soak/evaluation — **3 passed**.
+- Проверки синтетические и локальные: credentials очищены, owner database и `.env` не читались, сеть/API и реальный бот не запускались. Полный прогон не изменил owner data в основной реализации.
+- Локальная часть Q33 — VERIFIED. CI на финальном PR HEAD остаётся обязательной частью Q35; точный run не переносится с предыдущих SHA.
+
+### Q34 — архитектурный self-review (2026-10-27)
+
+- Проверены FBO-only gate, точное связывание observation/offer_id/SKU/store, полноценность пагинации и классификации отмен, terminal posting statuses, reconciliation delivered+cancelled=total, allowlist persisted fields, read-only wiring через существующий Ozon client и общий operation trace, модельный status и явные ограничения CPC/возвратов.
+- Блокирующих correctness/privacy/compatibility findings не найдено. Buyout percent остаётся выборочной оценкой `delivered / (delivered + confirmed customer non-buyout)`, не официальной аналитикой Ozon; поздние возвраты учитываются отдельным числом, возвратные расходы не вычитаются из прибыли/шт. Результат не доказывает причинный эффект цены.
+- Изменение затрагивает несколько слоёв и более 300 строк: классификация — **Architecture Review Required**. Этот self-review не является независимым approval; финальный пакет передаётся для независимого review после зелёного exact-head CI.
+- Q34 — VERIFIED. CI, PR URL, SHA и review package фиксируются в Q35.
+
+### Q35 — повторная проверка после независимого review (2026-10-28)
+
+- Исправлены R1–R5: наблюдение разрешает комиссию по своей фактической цене из замороженного тарифа; Returns window преобразуется из локальных дат в точные UTC-моменты; временный session-only профиль не переопределяет конфликтующие постоянные профили; поиск целевой цены проверяет первый допустимый цент с консервативной границей округления и fail-closed лимитом; batch передаёт solver оставшийся общий бюджет до начала вычислений.
+- Добавлены адресные регрессии и статус тарифа в result completeness. Связанный Windows/Python 3.12 профиль восьми наборов: **149 passed in 3.89s**.
+- Полный изолированный Windows/Python 3.12 pytest: **3,990 passed in 49.21s**. `python -m compileall -q app`, `git diff --check` прошли; `data/` в основном checkout не изменён. Полный прогон выполнялся в disposable worktree и использовал отдельный pytest basetemp; Ozon/Telegram API и реальные credentials отключены.
+- `bb0a8aea` содержит исправления R1–R5; `40a23315d74958cb7b7e427b785f730ea886ac79` включает review handoff с локальными результатами и прошёл exact-head GitHub Verify [40654624761](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40654624761): `success`, Windows и Linux jobs зелёные. Старые Verify runs не используются для подтверждения этого результата.

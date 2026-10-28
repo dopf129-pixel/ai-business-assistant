@@ -10,6 +10,7 @@ from services.tenant_context import reset_current_tenant_user_id, set_current_te
 from services.telegram_saved_planning_plan_runtime_service import TelegramSavedPlanningPlanRuntimeService
 from services.telegram_unit_price_batch_plan_runtime_service import TelegramUnitPriceBatchPlanRuntimeService
 from services.telegram_unit_price_calculator_runtime_service import TelegramUnitPriceCalculatorRuntimeService
+from services.telegram_unit_price_tariff_profile_runtime_service import TelegramUnitPriceTariffProfileRuntimeService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.sales_mix_planning_service import SalesMixPlanningService
@@ -1186,6 +1187,226 @@ def test_public_handler_saves_and_refreshes_existing_plan_with_cas_and_manual_ov
         assert source.calls == [
             ("sku-1", "user-1", False), ("sku-1", "user-1", True),
         ]
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    single.tariff_profile_runtime_service = TelegramUnitPriceTariffProfileRuntimeService(
+        service.repository, single, single.keyboard_service,
+    )
+    tenant = _activate()
+    try:
+        profile_payload = {
+            "identity": {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1"},
+            "sale_schema": "FBO",
+            "effective_from": "2026-10-01",
+            "effective_to": None,
+            "confirmed_by_owner": True,
+            "bands": [
+                {"price_from_cents": 45_000, "price_to_cents": 59_999, "commission_rate": "10"},
+                {"price_from_cents": 60_000, "price_to_cents": 70_000, "commission_rate": "20"},
+            ],
+        }
+        created = service.repository.create_tariff_profile(
+            profile_payload, idempotency_key="q08-profile-create",
+        )
+        assert created["error"] is False
+
+        current = _select_single(single)
+        scenario_callback = next(
+            button["callback"] for button in current["keyboard"]["buttons"]
+            if button["callback"].startswith("upc:e:")
+        )
+        _, _, scenario_id, scenario_version, _ = scenario_callback.split(":")
+        resolution = single.tariff_profile_runtime_service.resolve_for_scenario(
+            scenario_id, int(scenario_version), "500", user_id="user-1",
+        )
+        assert resolution["error"] is False, resolution
+        capture = single.get_saved_plan_capture(
+            scenario_id, int(scenario_version), user_id="user-1",
+        )
+        assert capture["error"] is False
+        frozen = capture["payload"]
+        assert frozen["schema_version"] == 3
+        frozen_item = frozen["items"][0]
+        tariff = frozen_item["sources"]["tariff_resolution"]
+        assert tariff["commission_rate"] == "10", (tariff["status"], tariff["reason"])
+        assert tariff["selected_profile"]["revision"] == 1
+        assert frozen_item["sources"]["advertising_basis"] == {
+            "mode": "SAME_DRR", "revenue_basis": "SELLER_REVENUE",
+            "rate": frozen_item["inputs"]["advertising_rate"],
+            "origin": frozen_item["provenance"]["advertising_rate"],
+        }
+        saved = service.save_capture("Frozen tariff plan", capture, idempotency_key="q08-plan-save")
+        assert saved["error"] is False
+
+        updated_payload = deepcopy(profile_payload)
+        updated_payload["bands"] = [
+            {"price_from_cents": 45_000, "price_to_cents": 59_999, "commission_rate": "11"},
+            {"price_from_cents": 60_000, "price_to_cents": 70_000, "commission_rate": "22"},
+        ]
+        updated_profile = service.repository.update_tariff_profile(
+            created["profile_id"], updated_payload, expected_revision=1,
+            expected_state_revision=1, idempotency_key="q08-profile-update",
+        )
+        assert updated_profile["error"] is False
+        assert updated_profile["revision"] == 2
+
+        restarted = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        restarted.tariff_profile_runtime_service = TelegramUnitPriceTariffProfileRuntimeService(
+            service.repository, restarted, restarted.keyboard_service,
+        )
+        calls_before_open = len(source.calls)
+        reopened = restarted.restore_saved_plan(
+            frozen, user_id="user-1",
+        )
+        assert reopened["status"] in {
+            "UNIT_PRICE_SCENARIO_READY", "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+        }
+        assert len(source.calls) == calls_before_open
+        assert reopened["price_scenario"]["tariff_resolution"].get("commission_rate") == "10", reopened["price_scenario"]["tariff_resolution"]
+        assert reopened["price_scenario"]["tariff_resolution"]["selected_profile"]["revision"] == 1
+
+        price_prompt = restarted.handle_callback(
+            _button(reopened, "Цена"), user_id="user-1",
+        )
+        assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        candidate = restarted.handle_text("650", user_id="user-1")
+        assert candidate["price_scenario"]["tariff_resolution"]["commission_rate"] == "20"
+        assert candidate["price_scenario"]["tariff_resolution"]["selected_profile"]["revision"] == 1
+
+        refreshed = restarted.handle_callback(
+            "upc:r:"
+            + candidate["price_scenario"]["identity"]["scenario_id"]
+            + ":"
+            + str(candidate["price_scenario"]["identity"]["scenario_version"]),
+            user_id="user-1",
+        )
+        assert refreshed["status"] in {
+            "UNIT_PRICE_SCENARIO_READY", "UNIT_PRICE_SCENARIO_INPUT_REQUIRED",
+        }
+        assert refreshed["price_scenario"]["inputs"]["price"]["value"] == 650
+        assert refreshed["price_scenario"]["tariff_resolution"]["commission_rate"] == "22"
+        assert refreshed["price_scenario"]["tariff_resolution"]["selected_profile"]["revision"] == 2
+
+        recaptured = restarted.get_saved_plan_capture(
+            refreshed["price_scenario"]["identity"]["scenario_id"],
+            refreshed["price_scenario"]["identity"]["scenario_version"],
+            user_id="user-1",
+        )
+        assert recaptured["payload"]["items"][0]["sources"]["tariff_resolution"]["commission_rate"] == "22"
+        saved_revision = service.save_capture(
+            "Frozen tariff plan v2", recaptured,
+            document_id=saved["document_id"], expected_revision=1,
+            expected_state_revision=1, idempotency_key="q08-plan-save-v2",
+        )
+        assert saved_revision["error"] is False
+        original = service.get_document(saved["document_id"], revision=1)["document"]["payload"]
+        latest = service.get_document(saved["document_id"], revision=2)["document"]["payload"]
+        assert original["items"][0]["sources"]["tariff_resolution"]["commission_rate"] == "10"
+        assert original["items"][0]["sources"]["tariff_resolution"]["selected_profile"]["revision"] == 1
+        assert latest["items"][0]["sources"]["tariff_resolution"]["commission_rate"] == "22"
+        assert latest["items"][0]["sources"]["tariff_resolution"]["selected_profile"]["revision"] == 2
+        assert len(source.calls) == calls_before_open + 1
+
+        # A legacy v2 plan has no tariff schedule to carry to a changed
+        # candidate price. Its original fee remains usable only at the exact
+        # saved price until the seller confirms a new fee or refreshes sources.
+        legacy = deepcopy(frozen)
+        legacy["schema_version"] = 2
+        legacy_item = legacy["items"][0]
+        legacy_item["sources"].pop("tariff_resolution")
+        legacy_item["sources"].pop("advertising_basis")
+        legacy_item["inputs"]["commission_rate"] = "15"
+        legacy_item["provenance"]["commission_rate"] = "manual_seller_assumption"
+        assert service.repository._payload(
+            legacy, service.repository._scope("user-1", "store-a"),
+        ) is not None
+        legacy_runtime = TelegramUnitPriceCalculatorRuntimeService(
+            source=source, scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+            tariff_profile_runtime_service=TelegramUnitPriceTariffProfileRuntimeService(
+                service.repository, None, single.keyboard_service,
+            ),
+        )
+        legacy_runtime.tariff_profile_runtime_service.calculator_runtime = legacy_runtime
+        calls_before_legacy_open = len(source.calls)
+        legacy_open = legacy_runtime.restore_saved_plan(legacy, user_id="user-1")
+        assert len(source.calls) == calls_before_legacy_open
+        assert legacy_open["price_scenario"]["effective_scenario_inputs"]["commission_rate"] == "15"
+        price_prompt = legacy_runtime.handle_callback(
+            _button(legacy_open, "Цена"), user_id="user-1",
+        )
+        assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        legacy_candidate = legacy_runtime.handle_text("650", user_id="user-1")
+        assert legacy_candidate["price_scenario"]["tariff_resolution"]["status"] == "UNKNOWN"
+        assert legacy_candidate["price_scenario"]["effective_scenario_inputs"]["commission_rate"] is None
+
+        commission_prompt = legacy_runtime.handle_callback(
+            _button(legacy_candidate, "Комиссия %"), user_id="user-1",
+        )
+        assert commission_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+        manually_confirmed = legacy_runtime.handle_text("13", user_id="user-1")
+        assert manually_confirmed["price_scenario"]["tariff_resolution"]["commission_rate"] == "13"
+        upgraded_capture = legacy_runtime.get_saved_plan_capture(
+            manually_confirmed["price_scenario"]["identity"]["scenario_id"],
+            manually_confirmed["price_scenario"]["identity"]["scenario_version"],
+            user_id="user-1",
+        )
+        assert upgraded_capture["payload"]["schema_version"] == 3
+        assert upgraded_capture["payload"]["items"][0]["sources"]["tariff_resolution"]["commission_rate"] == "13"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_refreshed_plan_copy_does_not_reuse_old_manual_commission(tmp_path):
+    _saved_runtime, _single, _source, service = _setup(tmp_path)
+    tenant = _activate()
+    identity = {
+        "product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+        "store_id": "store-a",
+    }
+    try:
+        old_payload = {"items": [{
+            "identity": identity,
+            "inputs": {"price": "500", "cost": "100", "commission_rate": "15",
+                       "advertising_rate": "8"},
+            "provenance": {"price": "manual_seller_assumption",
+                           "cost": "manual_seller_assumption",
+                           "commission_rate": "manual_seller_assumption",
+                           "advertising_rate": "manual_seller_assumption"},
+        }]}
+        fresh_capture = {
+            "error": False,
+            "tenant_scope": "user-1::ozon::store-a",
+            "payload": {"items": [{
+                "identity": identity,
+                "inputs": {"price": "510", "cost": "110", "commission_rate": "12",
+                           "advertising_rate": "7"},
+                "provenance": {"price": "ozon_current_seller_price",
+                               "cost": "confirmed_store_cost",
+                               "commission_rate": "confirmed_official_source",
+                               "advertising_rate": "historical_sku_drr"},
+            }]},
+        }
+
+        refreshed = service.capture_refreshed_copy(old_payload, fresh_capture)
+
+        item = refreshed["payload"]["items"][0]
+        assert item["inputs"]["commission_rate"] == "12"
+        assert item["provenance"]["commission_rate"] == "confirmed_official_source"
+        assert item["inputs"]["price"] == "500"
+        assert item["inputs"]["cost"] == "100"
+        assert item["inputs"]["advertising_rate"] == "8"
     finally:
         reset_current_tenant_user_id(tenant)
 

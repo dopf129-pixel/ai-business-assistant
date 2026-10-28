@@ -10,6 +10,8 @@ from services.telegram_unit_price_batch_plan_runtime_service import TelegramUnit
 from services.telegram_unit_price_sensitivity_runtime_service import TelegramUnitPriceSensitivityRuntimeService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_sensitivity_service import UnitPriceSensitivityService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.analytics_export_service import AnalyticsExportService
 from telegram_app_layer.return_inventory_telegram_adapter import ReturnInventoryTelegramAdapter
 
@@ -55,6 +57,35 @@ class _Source:
 
 def _find(result, text):
     return next(button["callback"] for button in result["keyboard"]["buttons"] if button["text"] == text)
+
+
+def _freeze_manual_tariff(identity, *, bands):
+    tariff_identity = {
+        "owner_id": str(identity.get("owner_id") or identity.get("user_id")),
+        "store_id": str(identity["store_id"]),
+        "product_id": str(identity["product_id"]),
+        "offer_id": str(identity["offer_id"]),
+        "sku": str(identity["sku"]),
+    }
+    profile = {
+        "profile_id": "runtime-sensitivity-tariff", "revision": 1,
+        "state_revision": 1, "owner_id": tariff_identity["owner_id"],
+        "store_id": tariff_identity["store_id"],
+        "identity": {key: tariff_identity[key] for key in ("product_id", "offer_id", "sku")},
+        "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+        "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-test",
+        "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+        "effective_from": "2026-10-27", "effective_to": None,
+        "confirmed_by_owner": True, "bands": bands,
+    }
+    resolution = UnitPriceTariffResolver().resolve(
+        seller_price_cents=50_000, identity=tariff_identity,
+        sale_schema="FBO", effective_date="2026-10-27", profiles=[profile],
+    )
+    assert resolution["available"] is True
+    return UnitPriceTariffSnapshotAdapter.freeze(
+        resolution, profile, candidate_profiles=[profile], effective_date="2026-10-27",
+    )
 
 
 def _runtime(clock=lambda: 100, analytics_export_service=None):
@@ -152,6 +183,53 @@ def test_sensitivity_result_discloses_fixed_cross_docking_input_for_each_scenari
         for cell in report["sensitivity_result"]["cells"]
         if cell["status"] == "AVAILABLE"
     )
+
+
+def test_sensitivity_screen_export_and_apply_use_same_frozen_tariff_for_each_price():
+    single, sensitivity, source = _runtime(
+        analytics_export_service=AnalyticsExportService(),
+    )
+    tenant = set_current_tenant_user_id("user-1::ozon::store-a")
+    try:
+        _start_single(single)
+        active = single.active_scenario_identity("user-1")
+        with single._lock:
+            session = single._scenarios[active["scenario_id"]]
+            frozen = _freeze_manual_tariff(session["snapshot"]["identity"], bands=[
+                {"price_from_cents": 45_000, "price_to_cents": 50_000, "commission_rate": "11"},
+                {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+            ])
+            session["frozen_tariff_resolution"] = frozen
+            session["snapshot"]["tariff_resolution"] = frozen
+            session["inputs"]["commission_rate"] = "11"
+            session["provenance"]["commission_rate"] = "manual_seller_assumption"
+        prompt = sensitivity.begin_from_single(
+            active["scenario_id"], active["version"], user_id="user-1",
+        )
+        sensitivity.handle_callback(
+            _find(prompt, "Ось · Цена продавца"), user_id="user-1",
+        )
+        report = sensitivity.handle_text("500;500.01;600.01", user_id="user-1")
+        export_callback = _find(report, "⬇️ JSON")
+        exported = sensitivity.handle_callback(export_callback, user_id="user-1")
+        applied = sensitivity.handle_callback(
+            _find(report, "Перенести сценарий 2"), user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+    document = json.loads(exported["file_content"].decode("utf-8"))
+    assert report["sensitivity_result"]["available_cell_count"] == 2
+    assert "комиссия 11% (ручной тариф)" in report["message"]
+    assert "комиссия 22% (ручной тариф)" in report["message"]
+    assert "PRICE_OUTSIDE_PROFILE_BANDS" in report["message"]
+    assert applied["price_scenario"]["inputs"]["commission_rate"]["value"] == 22
+    assert [row["commission_rate"] for row in document["rows"]] == ["11", "22", None]
+    assert document["rows"][0]["commission_origin"] == "manual_seller_assumption"
+    assert document["rows"][2]["tariff_status"] == "UNKNOWN"
+    assert document["rows"][2]["tariff_reason"] == "PRICE_OUTSIDE_PROFILE_BANDS"
+    assert document["metadata"]["tariff_scope"] == "FROZEN_PROFILE_SET"
+    assert source.calls == 1
 
 
 def test_single_result_keyboard_routes_into_sensitivity_through_button_handler():

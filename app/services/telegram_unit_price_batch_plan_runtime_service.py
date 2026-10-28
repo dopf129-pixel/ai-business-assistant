@@ -13,6 +13,7 @@ from services.ozon_account_repository import split_store_tenant_scope
 from services.planning_cross_docking_adapter import PlanningCrossDockingAdapter
 from services.period_profit_operation_diagnostics import current_period_profit_trace
 from services.tenant_context import get_current_tenant_user_id
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
 class TelegramUnitPriceBatchPlanRuntimeService:
@@ -445,6 +446,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "as_of": periods.get("seller_price_as_of"),
                 "completeness": deepcopy(snapshot.get("source_completeness") or {}),
             },
+            "frozen_tariff_resolution": deepcopy(row.get("frozen_tariff_resolution")),
+            "legacy_tariff_price_cents": row.get("legacy_tariff_price_cents"),
             "source_age_seconds": age,
             "source_ttl_seconds": ttl,
             "source_version": f"{batch['batch_id']}:{batch['version']}:{row_id}",
@@ -484,6 +487,9 @@ class TelegramUnitPriceBatchPlanRuntimeService:
         lines = [
             "Допустимые расходы на рекламу · сохранённая строка плана",
             f"Цена продавца: {inputs.get('price', '—')} ₽/шт.; целевая маржа: {batch.get('target_margin_percent', '—')}%.",
+            "Комиссия на этой цене: "
+            + (f"{inputs.get('commission_rate')}%" if inputs.get('commission_rate') is not None else "не подтверждена")
+            + " · " + str((context.get("provenance") or {}).get("commission_rate") or "источник неизвестен") + ".",
             f"Исходные тарифы: {'актуальны' if fresh else 'устарели; подстановка отключена'}.",
             "Результат относится к одной успешной продаже и не прогнозирует эффективность кампании.",
         ]
@@ -604,6 +610,8 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "loaded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "completeness": completeness,
                 "cross_docking": cross_docking,
+                **({"tariff_resolution": deepcopy(row.get("frozen_tariff_resolution"))}
+                   if isinstance(row.get("frozen_tariff_resolution"), dict) else {}),
             }
             identity_for_calc = {
                 "user_id": scope["owner_id"], "store_id": scope["store_id"],
@@ -700,6 +708,22 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "source_completeness": deepcopy(sources.get("completeness") or {}),
                 "cross_docking": PlanningCrossDockingAdapter.display_source(cross_docking),
             }
+            frozen_tariff = None
+            if "tariff_resolution" in sources:
+                frozen_tariff = UnitPriceTariffSnapshotAdapter.validate(
+                    sources.get("tariff_resolution"),
+                    {
+                        "owner_id": scope["owner_id"],
+                        "store_id": scope["store_id"],
+                        "product_id": product_id,
+                        "offer_id": offer_id,
+                        "sku": sku,
+                    },
+                    inputs,
+                )
+                if frozen_tariff is None:
+                    return self._stale()
+                snapshot["tariff_resolution"] = deepcopy(frozen_tariff)
             row_id = str(item.get("row_id") or identity.get("sku") or f"saved_{index}")[:64]
             if any(existing.get("row_id") == row_id for existing in rows):
                 row_id = f"saved_{index}_{uuid4().hex[:8]}"
@@ -729,6 +753,12 @@ class TelegramUnitPriceBatchPlanRuntimeService:
                 "missing_inputs": result.get("missing_inputs") or [],
                 "source_as_of": periods, "source_age_seconds_at_load": 0,
                 "source_loaded_at": self.clock(), "source_ttl_seconds": 0,
+                "frozen_tariff_resolution": deepcopy(frozen_tariff),
+                "legacy_tariff_price_cents": (
+                    UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+                    if frozen_tariff is None and inputs.get("commission_rate") is not None
+                    else None
+                ),
             })
         target = payload.get("target_margin_percent")
         if target is None:

@@ -1,5 +1,32 @@
 # Architecture Decisions
 
+## Decision 063 — bounded rounding-aware minimum-price search
+
+For tariff-aware target planning, never claim a minimum seller price by assuming rounded profit is monotonic at each cent. Within a frozen fixed-commission segment, use a conservative continuous profit-gap bound to prune only intervals proven below the target, then check remaining candidates with the canonical forward calculator from lowest price upward. Verify that the bound matches representative forward outputs and fail closed for unsupported formulae or exhausted evaluation budgets. Batch planning passes its remaining shared evaluation limit before each solver invocation.
+
+Reason: per-component cent rounding can make a rounded target predicate toggle around a threshold; a binary search can skip an earlier valid cent. The bounded left-first search preserves minimum-price semantics and avoids returning an unproven candidate.
+
+Status: implemented in `UnitPriceTargetPlanningService`; regressions in `test_unit_price_target_planning_service.py` and `test_unit_price_batch_plan_service.py`. Focused profile (149 tests) and full isolated suite (3,990 tests) pass; exact-head Verify `40654624761` passed on commit `40a23315`. See `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`.
+
+Details: `DECISIONS_063.md`.
+
+## Decision 062 — FBO observed buyout estimate for unit-price modeling
+
+Calculate a SKU-scoped window buyout estimate only from complete, terminal FBO posting and Returns evidence with reconciled units and no ambiguous cancellations. Keep the delivered/(delivered + confirmed customer non-buyout) rate and sample count visible; use delivered units as the model denominator only after the strict completeness gate. Returned units remain a separate count and return costs are not netted from modeled unit profit. The value is not official Ozon Analytics, canonical profit or causal evidence; CPC and FBO cohorts have distinct date bases. Keep collection read-only and bounded, persist only allowlisted aggregates, and compare only compatible model assumptions. Details: `DECISIONS_062.md` and `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`.
+
+## Decision 061 — unit price tariff and observation persistence
+
+Date: 2026-10-27
+Topic: persist price tariff assumptions and observation evidence without creating another accounting store.
+
+Keep `UnitPriceScenarioService` and active-store `TaxService` as the only forward calculation. Reuse tenant `ozon_assistant.db` and `PlanningWorkspaceRepository` as the single schema/migration/transaction owner for additive tariff and observation records; application services validate and orchestrate, while resolvers/comparisons remain pure. Manual tariff profiles are scoped to exact owner/store/product/offer/SKU/scheme/effective date and frozen plan revisions carry the exact profile revision/rate resolved for each price. A confirmed price range takes precedence over a matching single current-price point; conflicting ranges and incomplete profile/source sets stay unresolved. A current-price fee point never implies a range. Observations are owner-triggered, read-only, completed-day evidence; no scheduler, historical price inference or Ozon price mutation is allowed. Additive migrations, strict allowlists, idempotency/CAS, quotas, frozen old v1/v2 plan readers and existing backup/restore are mandatory. See `DECISIONS_061.md` and `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.
+
+Reason: persistent planning evidence belongs to the existing tenant planning workspace, not financial accounting. One storage authority and the canonical forward engine preserve tenant isolation, tax/rounding contracts and backward compatibility.
+
+Status: Q06 implements tenant-scoped manual FBO tariff persistence in additive planning DB v3 with CAS, idempotency, quotas, history and rollback. Q07 adds a public Telegram preview/explicit-confirm flow with owner/store/SKU/scenario-version-bound draft tickets, persistent or one-hour session-only use, and stale/replay protection. Q08 wires exact-price tariff resolution and frozen single-plan schema v3 while preserving legacy v1/v2 reads; Q09–Q11 add tariff-aware comparison, bounded advertising compensation and paginated tariff-boundary price grids. Q12 searches target prices independently inside covered frozen tariff segments, directly checks the result and preceding cent, and leaves uncovered ranges unknown; its linked isolated profile passed 404 tests. Q13–Q14 consumer audit/acceptance, Q15 observations, Q26 restore and Q35 exact-head CI remain outstanding; the overall feature is not production-validated.
+
+---
+
 ## Decision 060 — updater maintenance gate and bounded SQLite snapshot
 
 Date: 2026-10-25

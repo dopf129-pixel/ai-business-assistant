@@ -12,7 +12,6 @@ class SavedPlanningPlanService:
     MANUAL_OVERRIDE_FIELDS = frozenset({
         "price", "cost", "advertising_rate", "discount_points_rate",
         "logistics_per_unit", "last_mile_per_unit", "acquiring_per_unit",
-        "commission_rate",
     })
     MANUAL_PROVENANCE = frozenset({
         "manual", "manual_seller_assumption", "manual_unit_economics_input",

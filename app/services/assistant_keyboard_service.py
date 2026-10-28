@@ -52,6 +52,10 @@ class AssistantKeyboardService:
                     "callback": "unit_economics"
                 },
                 {
+                    "text": "🎯 Подобрать цену по прибыли/шт.",
+                    "callback": "unit_price_calculator",
+                },
+                {
                     "text": "🎯 Решения по товарам",
                     "callback": "product_decisions"
                 },
@@ -567,6 +571,7 @@ class AssistantKeyboardService:
         version,
         include_return_mean=False,
         include_price_planning=False,
+        include_manual_tariff=False,
     ):
         sid = str(scenario_id)
         ver = str(version)
@@ -589,13 +594,18 @@ class AssistantKeyboardService:
             buttons.extend([
                 {"text": "Цена для целевой маржи", "callback": f"upc:g:{sid}:{ver}"},
                 {"text": "Сравнить цены", "callback": f"upc:q:{sid}:{ver}"},
+                {"text": "Исследовать диапазон цены", "callback": f"upc:n:{sid}:{ver}"},
             ])
+        if include_manual_tariff:
+            buttons.append({"text": "Указать тариф комиссии", "callback": f"upt:start:{sid}:{ver}"})
+            buttons.append({"text": "Наблюдения установленной цены", "callback": "upo:m"})
         buttons.append({"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"})
         buttons.append({"text": "Сколько можно тратить на рекламу?", "callback": f"upc:j:{sid}:{ver}"})
         buttons.extend([
             {"text": "💾 Сохранить план", "callback": f"upp:s:{sid}:{ver}"},
             {"text": "📚 Мои планы", "callback": "upp:m"},
             {"text": "Обновить данные", "callback": f"upc:r:{sid}:{ver}"},
+            {"text": "Подробности расчёта", "callback": f"upc:x:{sid}:{ver}"},
             {"text": "Допущения и источники", "callback": f"upc:a:{sid}:{ver}"},
             {"text": "Другой товар", "callback": "upc:m"},
             {"text": "Главное меню", "callback": "main_menu"},
@@ -624,6 +634,7 @@ class AssistantKeyboardService:
         mode,
         planning_result=None,
         allow_apply=True,
+        page=0,
     ):
         sid = str(scenario_id)
         ver = str(version)
@@ -638,6 +649,35 @@ class AssistantKeyboardService:
                     "text": "Подставить цену для цели",
                     "callback": f"upc:u:{sid}:{ver}:t",
                 })
+        elif mode == "price_grid":
+            rows = result.get("rows") or []
+            page_size = 10
+            total_pages = max(1, (len(rows) + page_size - 1) // page_size)
+            if type(page) is not int or not 0 <= page < total_pages:
+                page = 0
+            first_index = page * page_size
+            last_index = min(len(rows), first_index + page_size)
+            for index in range(first_index, last_index):
+                row = rows[index]
+                if allow_apply and row.get("available") is True:
+                    buttons.append({
+                        "text": f"Подставить вариант {index + 1}",
+                        "callback": f"upc:u:{sid}:{ver}:{index}",
+                    })
+            if page > 0:
+                buttons.append({
+                    "text": "◀ Предыдущие 10 цен",
+                    "callback": f"upc:w:{sid}:{ver}:{page - 1}",
+                })
+            if page + 1 < total_pages:
+                buttons.append({
+                    "text": "Следующие 10 цен ▶",
+                    "callback": f"upc:w:{sid}:{ver}:{page + 1}",
+                })
+            buttons.append({
+                "text": "Новая ценовая сетка",
+                "callback": f"upc:n:{sid}:{ver}",
+            })
         elif allow_apply and mode == "price_options":
             for index, row in enumerate(result.get("rows") or []):
                 if row.get("available") is True:
@@ -645,6 +685,10 @@ class AssistantKeyboardService:
                         "text": f"Подставить вариант {index + 1}",
                         "callback": f"upc:u:{sid}:{ver}:{index}",
                     })
+            buttons.extend([
+                {"text": "Указать ДРР для каждой цены", "callback": f"upc:d:{sid}:{ver}"},
+                {"text": "Указать расход на продажу", "callback": f"upc:h:{sid}:{ver}"},
+            ])
         buttons.extend([
             {"text": next_label, "callback": f"upc:{next_action}:{sid}:{ver}"},
             {"text": "Чувствительность", "callback": f"ups:s:{sid}:{ver}"},

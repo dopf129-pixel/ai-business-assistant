@@ -9,6 +9,7 @@ from uuid import uuid4
 from services.ozon_account_repository import split_store_tenant_scope
 from services.period_profit_operation_diagnostics import PeriodProfitOperationTrace
 from services.tenant_context import get_current_tenant_user_id
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 
 
 class UnitPriceBatchPlanService:
@@ -48,6 +49,7 @@ class UnitPriceBatchPlanService:
         target_planning_service,
         clock=None,
         tenant_scope_provider=None,
+        tariff_profile_runtime_service=None,
     ):
         self.source = source
         self.scenario_service = scenario_service
@@ -56,6 +58,7 @@ class UnitPriceBatchPlanService:
         self.tenant_scope_provider = (
             tenant_scope_provider or get_current_tenant_user_id
         )
+        self.tariff_profile_runtime_service = tariff_profile_runtime_service
 
     def build_from_overview_selection(
         self,
@@ -181,6 +184,12 @@ class UnitPriceBatchPlanService:
             if scheme != "FBO":
                 row.update(status="UNSUPPORTED_SCHEME", reason="SCHEME_NOT_SUPPORTED")
                 continue
+            remaining_calculations = (
+                self.BATCH_CALCULATION_LIMIT - total_calculations
+            )
+            if remaining_calculations <= 0:
+                row.update(status="BUDGET_EXHAUSTED", reason="BATCH_CALCULATION_LIMIT")
+                continue
             if trace.is_budget_exhausted():
                 row.update(status="BUDGET_EXHAUSTED", reason="SHARED_OPERATION_BUDGET")
                 continue
@@ -230,6 +239,10 @@ class UnitPriceBatchPlanService:
             if source_is_stale:
                 row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED")
                 continue
+            tariff_error = self._resolve_row_tariff(batch, row)
+            if tariff_error is not None:
+                row.update(status="SOURCE_UNAVAILABLE", reason=tariff_error)
+                continue
             scenario = self.scenario_service.calculate(
                 row["inputs"],
                 identity=self._scenario_identity(batch, row),
@@ -249,21 +262,29 @@ class UnitPriceBatchPlanService:
                 )
                 continue
 
+            evaluation_limit = min(
+                self.TARGET_CALCULATION_LIMIT, remaining_calculations,
+            )
             planning = self.target_planning_service.solve(
                 row["inputs"],
                 target,
                 identity=self._scenario_identity(batch, row),
                 provenance=row["provenance"],
                 sources=self._scenario_sources(snapshot),
+                max_evaluations=evaluation_limit,
+                **self._tariff_planning_kwargs(batch, row),
             )
             row["evaluation_count"] = int(planning.get("evaluation_count") or 0)
             total_calculations += row["evaluation_count"]
-            if total_calculations > self.BATCH_CALCULATION_LIMIT:
+            if row["evaluation_count"] > evaluation_limit:
                 row.update(status="BUDGET_EXHAUSTED", reason="BATCH_CALCULATION_LIMIT")
                 continue
             row["scenario"] = scenario
             row["planning"] = planning
             target_result = planning.get("target") or {}
+            if target_result.get("status") == "SEARCH_BUDGET_EXHAUSTED":
+                row.update(status="BUDGET_EXHAUSTED", reason="TARGET_CALCULATION_LIMIT")
+                continue
             if planning.get("error") or target_result.get("status") != "FOUND":
                 row.update(status="TARGET_NOT_CONFIRMED", reason=target_result.get("reason") or target_result.get("status") or planning.get("code") or "TARGET_NOT_CONFIRMED")
             elif not self._candidate_reaches_target(target_result, target):
@@ -313,22 +334,75 @@ class UnitPriceBatchPlanService:
         inputs = dict(row.get("inputs") or {})
         candidate = dict(inputs)
         candidate[field] = value
+        next_tariff_snapshot = row.get("frozen_tariff_resolution")
+        candidate_provenance = dict(row.get("provenance") or {})
+        candidate_provenance[field] = "manual_seller_assumption"
+        cents = (
+            UnitPriceTariffSnapshotAdapter.price_to_cents(inputs.get("price"))
+            if field == "commission_rate" else None
+        )
+        if field == "price" and isinstance(next_tariff_snapshot, dict):
+            cents = UnitPriceTariffSnapshotAdapter.price_to_cents(value)
+            resolution = (
+                UnitPriceTariffSnapshotAdapter.resolve_frozen(
+                    next_tariff_snapshot, self._scenario_identity(cloned, row), cents,
+                ) if cents is not None else {"available": False}
+            )
+            if resolution.get("error") is True:
+                return self._error("BATCH_PLAN_TARIFF_SNAPSHOT_INVALID")
+            if resolution.get("available") is True:
+                candidate["commission_rate"] = resolution.get("commission_rate")
+                origin = (resolution.get("selected_profile") or {}).get("origin")
+                candidate_provenance["commission_rate"] = {
+                    "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                    "CURRENT_PRICE_POINT": "current_price_point",
+                    "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+                }.get(origin, "unknown")
+            else:
+                candidate["commission_rate"] = None
+                candidate_provenance["commission_rate"] = "unknown"
+        elif field == "commission_rate" and isinstance(next_tariff_snapshot, dict):
+            override = (
+                UnitPriceTariffSnapshotAdapter.with_manual_point_override(
+                    next_tariff_snapshot, self._scenario_identity(cloned, row), cents,
+                    value, profile_id="manual-row-" + str(row.get("row_id") or "override"),
+                ) if cents is not None else None
+            )
+            if override is None:
+                return self._error("BATCH_PLAN_TARIFF_OVERRIDE_INVALID")
+            next_tariff_snapshot = override
+            candidate_provenance["commission_rate"] = "manual_seller_assumption"
         validation = self.scenario_service.calculate(
             candidate,
             identity=self._scenario_identity(cloned, row),
-            provenance=row.get("provenance") or {},
+            provenance=candidate_provenance,
             sources=self._scenario_sources(row["snapshot"]),
         )
         if field in (validation.get("invalid_inputs") or []):
             return self._error("BATCH_PLAN_ASSUMPTION_INVALID")
         row["inputs"] = candidate
         cloned["version"] += 1
-        row.setdefault("provenance", {})[field] = "manual_seller_assumption"
+        row["provenance"] = candidate_provenance
+        if next_tariff_snapshot is not None:
+            row["frozen_tariff_resolution"] = deepcopy(next_tariff_snapshot)
         row.setdefault("manual_assumptions", {})[field] = {
             "value": value,
             "provenance": "manual_seller_assumption",
+            **({"seller_price_cents": cents}
+               if field == "commission_rate" and cents is not None else {}),
         }
-        self._recalculate_row(cloned, row)
+        if field == "price":
+            manual_commission = row.get("manual_assumptions", {}).get("commission_rate")
+            new_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(value)
+            if (isinstance(manual_commission, dict)
+                    and manual_commission.get("seller_price_cents") != new_cents):
+                row["manual_assumptions"].pop("commission_rate", None)
+        self._recalculate_row(
+            cloned, row,
+            max_evaluations=self._remaining_evaluation_budget(
+                cloned, {row.get("row_id")},
+            ),
+        )
         return self._finish_edit(cloned)
 
     def set_target_margin(self, batch, target_margin_percent):
@@ -343,11 +417,22 @@ class UnitPriceBatchPlanService:
             return self._error("BATCH_PLAN_TARGET_INVALID")
         cloned["version"] += 1
         cloned["target_margin_percent"] = format(parsed["value"], "f")
-        for row in cloned["rows"]:
+        rows_to_recalculate = [
+            row for row in cloned["rows"]
             if isinstance(row.get("snapshot"), dict) and row.get("status") not in {
-                "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME", "BUDGET_EXHAUSTED"
-            }:
-                self._recalculate_row(cloned, row)
+                "SOURCE_UNAVAILABLE", "UNSUPPORTED_SCHEME"
+            }
+        ]
+        remaining_evaluations = self._remaining_evaluation_budget(
+            cloned, {row.get("row_id") for row in rows_to_recalculate},
+        )
+        for row in rows_to_recalculate:
+            self._recalculate_row(
+                cloned, row, max_evaluations=remaining_evaluations,
+            )
+            remaining_evaluations = max(
+                0, remaining_evaluations - int(row.get("evaluation_count") or 0),
+            )
         return self._finish_edit(cloned)
 
     def preview_advertising_rate(self, batch, row_ids, value):
@@ -430,6 +515,10 @@ class UnitPriceBatchPlanService:
             if "advertising_rate" in (checked.get("invalid_inputs") or []):
                 return self._error("BATCH_PLAN_ADVERTISING_PREVIEW_INVALID")
         cloned["version"] += 1
+        selected_ids = {row.get("row_id") for row in selected}
+        remaining_evaluations = self._remaining_evaluation_budget(
+            cloned, selected_ids,
+        )
         for row in selected:
             row.setdefault("inputs", {})["advertising_rate"] = value
             row.setdefault("provenance", {})["advertising_rate"] = "manual_seller_assumption"
@@ -437,7 +526,12 @@ class UnitPriceBatchPlanService:
                 "value": value,
                 "provenance": "manual_seller_assumption",
             }
-            self._recalculate_row(cloned, row)
+            self._recalculate_row(
+                cloned, row, max_evaluations=remaining_evaluations,
+            )
+            remaining_evaluations = max(
+                0, remaining_evaluations - int(row.get("evaluation_count") or 0),
+            )
         return self._finish_edit(cloned)
 
     def _finish(self, batch, trace):
@@ -472,11 +566,17 @@ class UnitPriceBatchPlanService:
         )
         return batch
 
-    def _recalculate_row(self, batch, row):
+    def _recalculate_row(self, batch, row, max_evaluations=None):
         row["missing_inputs"] = []
         row["invalid_inputs"] = []
+        row["evaluation_count"] = 0
+        row["planning"] = None
         if not self._row_is_fresh(row):
             row.update(status="SOURCE_STALE", reason="SOURCE_CACHE_EXPIRED", planning=None)
+            return
+        tariff_resolution = self._resolve_frozen_row_price(batch, row)
+        if tariff_resolution is not None and tariff_resolution.get("error") is True:
+            row.update(status="SOURCE_UNAVAILABLE", reason="TARIFF_SNAPSHOT_INVALID", planning=None)
             return
         scenario = self.scenario_service.calculate(
             row.get("inputs") or {},
@@ -495,16 +595,46 @@ class UnitPriceBatchPlanService:
                 evaluation_count=0,
             )
             return
+        if max_evaluations is None:
+            max_evaluations = self._remaining_evaluation_budget(
+                batch, {row.get("row_id")},
+            )
+        if type(max_evaluations) is not int:
+            max_evaluations = 0
+        evaluation_limit = min(
+            self.TARGET_CALCULATION_LIMIT, max(0, max_evaluations),
+        )
+        if evaluation_limit <= 0:
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="BATCH_CALCULATION_LIMIT",
+                planning=None,
+            )
+            return
         planning = self.target_planning_service.solve(
             row["inputs"],
             batch["target_margin_percent"],
             identity=self._scenario_identity(batch, row),
             provenance=row.get("provenance") or {},
             sources=self._scenario_sources(row["snapshot"]),
+            max_evaluations=evaluation_limit,
+            **self._tariff_planning_kwargs(batch, row),
         )
         row["planning"] = planning
         row["evaluation_count"] = int(planning.get("evaluation_count") or 0)
         outcome = planning.get("target") or {}
+        if row["evaluation_count"] > evaluation_limit:
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="TARGET_CALCULATION_LIMIT",
+            )
+            return
+        if outcome.get("status") == "SEARCH_BUDGET_EXHAUSTED":
+            row.update(
+                status="BUDGET_EXHAUSTED",
+                reason="TARGET_CALCULATION_LIMIT",
+            )
+            return
         if planning.get("error") or outcome.get("status") != "FOUND":
             row.update(
                 status="TARGET_NOT_CONFIRMED",
@@ -520,6 +650,154 @@ class UnitPriceBatchPlanService:
             )
             return
         row.update(status="READY", reason=None)
+
+    def _remaining_evaluation_budget(self, batch, replacing_row_ids):
+        """Reserve the shared budget for rows whose calculations are retained."""
+        replacing_row_ids = set(replacing_row_ids or ())
+        retained = sum(
+            row["evaluation_count"]
+            for row in batch.get("rows", [])
+            if isinstance(row, dict) and row.get("row_id") not in replacing_row_ids
+            and type(row.get("evaluation_count")) is int
+            and row["evaluation_count"] > 0
+        )
+        return max(0, self.BATCH_CALCULATION_LIMIT - retained)
+
+    def _resolve_row_tariff(self, batch, row):
+        resolver = getattr(self.tariff_profile_runtime_service, "resolve_for_product", None)
+        if not callable(resolver):
+            inputs = row.setdefault("inputs", {})
+            provenance = row.setdefault("provenance", {})
+            manual = (row.get("manual_assumptions") or {}).get("commission_rate")
+            exact_price_cents = (
+                manual.get("seller_price_cents")
+                if isinstance(manual, dict) else None
+            )
+            origin = str(provenance.get("commission_rate") or "")
+            if type(exact_price_cents) is not int or exact_price_cents < 1:
+                if origin in {
+                    "current_price_point", "ozon_current_fbo_rate",
+                    "CURRENT_PRICE_POINT", "CONFIRMED_OFFICIAL_SOURCE",
+                }:
+                    exact_price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                        (row.get("snapshot", {}).get("suggested_inputs") or {}).get("price")
+                    )
+            if type(exact_price_cents) is int and exact_price_cents > 0:
+                row["legacy_tariff_price_cents"] = exact_price_cents
+                row["tariff_scope"] = "EXACT_PRICE_ONLY"
+                current_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                    inputs.get("price")
+                )
+                if current_cents != exact_price_cents:
+                    inputs["commission_rate"] = None
+                    provenance["commission_rate"] = "unknown"
+                    row["tariff_resolution_status"] = "UNKNOWN"
+                    row["tariff_resolution_reason"] = "COMMISSION_CONFIRMED_AT_DIFFERENT_PRICE"
+                else:
+                    row["tariff_resolution_status"] = "LEGACY_EXACT_PRICE_ONLY"
+                    row["tariff_resolution_reason"] = None
+            else:
+                row["legacy_tariff_price_cents"] = None
+                row["tariff_scope"] = "FIXED_RATE_ASSUMPTION"
+            return None
+        result = resolver(
+            self._scenario_identity(batch, row),
+            (row.get("inputs") or {}).get("price"),
+            row.get("snapshot"),
+            row.get("source_age_seconds_at_load"),
+            row.get("source_ttl_seconds"),
+            user_id=batch.get("owner_id"),
+        )
+        if not isinstance(result, dict) or result.get("error") is True:
+            return (result.get("code") if isinstance(result, dict) else None) or "TARIFF_SOURCE_UNAVAILABLE"
+        frozen = result.get("frozen_tariff_resolution")
+        resolution = result.get("resolution") or {}
+        if not isinstance(frozen, dict):
+            return "TARIFF_SNAPSHOT_INVALID"
+        row["frozen_tariff_resolution"] = deepcopy(frozen)
+        row["tariff_scope"] = "FROZEN_PROFILE_SET"
+        row["tariff_resolution_status"] = resolution.get("status")
+        row["tariff_resolution_reason"] = resolution.get("reason")
+        manual = (row.get("manual_assumptions") or {}).get("commission_rate")
+        current_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+            (row.get("inputs") or {}).get("price")
+        )
+        if isinstance(manual, dict) and current_cents is not None:
+            if manual.get("seller_price_cents") != current_cents:
+                row.setdefault("manual_assumptions", {}).pop("commission_rate", None)
+            else:
+                override = UnitPriceTariffSnapshotAdapter.with_manual_point_override(
+                    frozen, self._scenario_identity(batch, row), current_cents,
+                    manual.get("value"),
+                    profile_id="manual-row-" + str(row.get("row_id") or "override"),
+                )
+                if override is None:
+                    return "TARIFF_MANUAL_OVERRIDE_INVALID"
+                row["frozen_tariff_resolution"] = override
+                row["tariff_resolution_status"] = "MANUAL_POINT_OVERRIDE"
+                row.setdefault("inputs", {})["commission_rate"] = manual.get("value")
+                row.setdefault("provenance", {})["commission_rate"] = "manual_seller_assumption"
+                return None
+        self._resolve_frozen_row_price(batch, row)
+        return None
+
+    def _resolve_frozen_row_price(self, batch, row):
+        frozen = row.get("frozen_tariff_resolution")
+        if frozen is None:
+            exact_cents = row.get("legacy_tariff_price_cents")
+            if type(exact_cents) is int and exact_cents > 0:
+                cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                    (row.get("inputs") or {}).get("price")
+                )
+                if cents != exact_cents:
+                    row.setdefault("inputs", {})["commission_rate"] = None
+                    row.setdefault("provenance", {})["commission_rate"] = "unknown"
+                    row["tariff_resolution_status"] = "UNKNOWN"
+                    row["tariff_resolution_reason"] = "COMMISSION_CONFIRMED_AT_DIFFERENT_PRICE"
+                else:
+                    row["tariff_resolution_status"] = "LEGACY_EXACT_PRICE_ONLY"
+                    row["tariff_resolution_reason"] = None
+            return None
+        cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+            (row.get("inputs") or {}).get("price")
+        )
+        if cents is None:
+            return {"error": True, "code": "SELLER_PRICE_INVALID"}
+        resolution = UnitPriceTariffSnapshotAdapter.resolve_frozen(
+            frozen, self._scenario_identity(batch, row), cents,
+        )
+        if resolution.get("error") is True:
+            return resolution
+        row["tariff_resolution_status"] = resolution.get("status")
+        row["tariff_resolution_reason"] = resolution.get("reason")
+        if resolution.get("available") is True:
+            row.setdefault("inputs", {})["commission_rate"] = resolution.get("commission_rate")
+            origin = (resolution.get("selected_profile") or {}).get("origin")
+            row.setdefault("provenance", {})["commission_rate"] = {
+                "MANUAL_SELLER_ASSUMPTION": "manual_seller_assumption",
+                "CURRENT_PRICE_POINT": "current_price_point",
+                "CONFIRMED_OFFICIAL_SOURCE": "confirmed_official_source",
+            }.get(origin, "unknown")
+        else:
+            row.setdefault("inputs", {})["commission_rate"] = None
+            row.setdefault("provenance", {})["commission_rate"] = "unknown"
+        return resolution
+
+    @staticmethod
+    def _tariff_planning_kwargs(batch, row):
+        frozen = row.get("frozen_tariff_resolution")
+        if isinstance(frozen, dict):
+            return {
+                "frozen_tariff_snapshot": deepcopy(frozen),
+                "tariff_resolution_required": True,
+            }
+        exact_cents = row.get("legacy_tariff_price_cents")
+        if type(exact_cents) is int and exact_cents > 0:
+            return {
+                "tariff_resolution_required": True,
+                "exact_price_rate_cents": exact_cents,
+            }
+        return {}
 
     def _copy_valid_batch(self, batch):
         if not isinstance(batch, dict) or batch.get("kind") != "UNIT_PRICE_BATCH_PLAN":
@@ -646,12 +924,23 @@ class UnitPriceBatchPlanService:
         if not isinstance(previous, dict):
             return
         assumptions = previous.get("manual_assumptions") or {}
-        for field, record in assumptions.items():
+        ordered_fields = [field for field in assumptions if field != "commission_rate"]
+        if "commission_rate" in assumptions:
+            ordered_fields.append("commission_rate")
+        for field in ordered_fields:
+            record = assumptions.get(field)
             if field not in self.EDITABLE_FIELDS or not isinstance(record, dict):
                 continue
             value = record.get("value")
             if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
                 continue
+            if field == "commission_rate":
+                current_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+                    (row.get("inputs") or {}).get("price")
+                )
+                if current_cents is None or record.get("seller_price_cents") != current_cents:
+                    row.setdefault("manual_assumptions", {}).pop("commission_rate", None)
+                    continue
             row.setdefault("manual_assumptions", {})[field] = deepcopy(record)
             if not isinstance(row.get("snapshot"), dict):
                 continue

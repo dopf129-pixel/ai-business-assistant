@@ -111,6 +111,7 @@ def test_main_menu_contains_unit_economics_and_existing_buttons():
         "experimental_calculations",
         "seller_cost",
         "unit_economics",
+        "unit_price_calculator",
         "product_decisions",
         "seller_attention",
         "product_overview",

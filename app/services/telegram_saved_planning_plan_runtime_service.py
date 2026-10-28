@@ -871,6 +871,17 @@ class TelegramSavedPlanningPlanRuntimeService:
                     revision=document["revision"], state_revision=document["state_revision"],
                 ),
             })
+        observation_runtime = getattr(self, "unit_price_observation_runtime_service", None)
+        callback_builder = getattr(observation_runtime, "plan_start_callback", None)
+        if callable(callback_builder):
+            for item_index, item in enumerate(payload.get("items") or []):
+                callback = callback_builder(scope, document, item_index=item_index)
+                if callback:
+                    identity = item.get("identity") or {}
+                    buttons.insert(3 + item_index, {
+                        "text": f"Наблюдать цену · SKU {identity.get('sku', '—')}",
+                        "callback": callback,
+                    })
         if (
             self.plan_fact_comparison_service is not None
             and self.period_profit_sku_runtime is not None
@@ -1161,8 +1172,8 @@ class TelegramSavedPlanningPlanRuntimeService:
             total += (amount * quantity).quantize(Decimal("0.01"))
         lines.append(
             f"Сумма индивидуальных рекламных пределов при цели {target}%: "
-            f"{total:.2f} ₽/период. Это сумма лимитов отдельных SKU; "
-            "она не оптимизирует и не гарантирует маржу группы."
+            f"{total:.2f} ₽/период. Расчёт использует цену и комиссию из снимка каждого SKU; "
+            "это сумма отдельных лимитов, она не оптимизирует и не гарантирует маржу группы."
         )
 
     def _skip_sales_mix_quantity(self, scope, action):
@@ -1709,6 +1720,10 @@ class TelegramSavedPlanningPlanRuntimeService:
                     "target_rate": goal.get("advertising_rate") if target is not None else None,
                     "target_per_unit": goal.get("advertising_per_unit") if target is not None else None,
                     "inputs": item.get("inputs") or {},
+                    "provenance": item.get("provenance") or {},
+                    "sources": {
+                        "tariff_resolution": (item.get("sources") or {}).get("tariff_resolution"),
+                    },
                     "cross_docking_source": (item.get("sources") or {}).get("cross_docking"),
                 })
             return self.analytics_export_service.export_advertising_cap(

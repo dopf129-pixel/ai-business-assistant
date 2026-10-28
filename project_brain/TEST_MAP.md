@@ -1,9 +1,85 @@
+- Q05: `tests/test_unit_price_tariff_source.py` — адаптация текущего FBO тарифа только в точку цены; `tests/test_unit_price_tariff_resolver.py` — диапазоны и отказ за пределами точки, `tests/test_unit_price_scenario_source.py` + `tests/test_current_product_economics_source.py` — интеграция source-контракта. Isolated combined profile: **88 passed**; details `UNIT_PRICE_TARIFF_SOURCE_Q05_2026-10-27.md`.
+- Q06: `tests/test_planning_workspace_tariff_profiles.py` + `tests/test_planning_workspace_repository.py` cover persistent manual tariff profiles, additive v3 migration, restart/reopen/resolver, tenant isolation, immutable identity, create/update idempotency/CAS, archive state/history, allowlists, quotas and rollback. Combined Q06 source/resolver/repository profile: **115 passed**; five tracked data JSON hashes unchanged.
+- Q07: `tests/test_unit_price_tariff_input_parser.py` + `tests/test_telegram_unit_price_tariff_profile_runtime.py` cover bounded point/range/date parsing and the public Telegram route: explicit persistent/session-only confirmation, update history, preview/edit/cancel/refresh, invalid input, FBO-only behavior, replay/stale scenario/draft/store callbacks and profile reopen; session-only profile resolves through pure resolver. Combined with Q04–Q06 tariff/source/repository and existing calculator/saved-plan suites: **199 passed in 4.47s**. Acceptance: `UNIT_PRICE_TARIFF_TELEGRAM_Q07_2026-10-27.md`.
+
+# Q08 — tariff resolution and saved-plan compatibility
+
+- `tests/test_unit_price_tariff_resolver.py`: an owner-confirmed range overrides one overlapping current-price point; two overlapping ranges remain `CONFLICT`.
+- `tests/test_unit_price_tariff_snapshot_adapter.py`: frozen exact revision resolves other prices offline; unknown and `SOURCE_UNAVAILABLE` snapshots never reuse rates or resolve from partial profiles; tampered identity/price/revision/rate is rejected.
+- `tests/test_saved_planning_plan_telegram_flow.py`: schema v3 capture/save/reopen, no source read on reopen, profile revision remains frozen after repository update, candidate price uses frozen bands, explicit refresh loads the new profile revision, old v2 plan stays at its historical price and becomes unknown at a changed price, direct manual commission upgrades to schema v3, and refreshing a copy does not carry the prior commission.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py`: persistent and session-only public Telegram confirmations feed the exact selected profile into the live scenario.
+- Combined isolated Windows/Python 3.12.10 Q04–Q08 profile: **371 passed**. Five tracked owner-data JSON SHA-256 hashes unchanged. No network, Ozon/Telegram API, real bot or user database was used.
+- Acceptance and boundaries: `UNIT_PRICE_SAVED_PLAN_Q08_2026-10-27.md`.
+
+# PR #720 повторное review исправление R8 (2026-10-28)
+
+- `tests/test_unit_price_batch_plan_service.py::test_changing_target_retries_snapshot_row_after_solver_budget_exhaustion`: два SKU исчерпывают per-row лимит при цели 50%; явная смена на 0% повторно рассчитывает оба сохранённых снимка и получает `READY` без выхода за лимит.
+- Адресный batch/target профиль: **92 passed in 0.90s**. Связанный девятимодульный профиль тарифов, batch solver и наблюдений: **165 passed in 4.14s** (Windows/Python 3.12). Полный pytest в отдельной временной worktree на коде `2f03edcd`: **3,997 passed in 48.17s**; основной checkout и `data/` чистые. Exact-head Verify [40666814742](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40666814742) passed на `442e5dff`.
+
+# PR #720 повторные review исправления R6–R7 (2026-10-28)
+
+- `tests/test_unit_price_batch_plan_service.py`: лимиты solver для локальной правки строки, изменения целевой маржи и массового применения ДРР; разделение общего batch-бюджета и явный статус при исчерпании.
+- `tests/test_unit_price_observation_result_service.py`: подтверждённая официальная ставка и ставка текущей ценовой точки проходят через result service в quality gate; модель остаётся `verified=False`; `UNKNOWN` по-прежнему блокируется.
+- Связанный профиль: **164 passed in 4.53s** на девяти модулях планирования цены, тарифов, наблюдений и Telegram. Полный изолированный pytest на `b2f01fb3`: **3,996 passed in 47.43s**; exact-head Verify [40664676434](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40664676434) успешно завершился на кодовом коммите `dbd87c7d` (Windows + full verification). Последующая запись результатов не меняет код.
+
 # План проверок помощника выбора цены (26.10.2026)
 
-- Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, начальный журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q35 ещё не выполнялись; тесты будущей реализации не заявляются как прошедшие.
+## Q15 — observation evidence and price-history contract (2026-10-27)
+
+- Documentation-only contract checkpoint. Compared the source map with `CurrentProductEconomicsSource`, `FinanceService.get_daily_sale_posting_evidence`, and `PeriodProfitOzonClient`: current price is a read-time snapshot; finance sale evidence does not currently preserve per-sale quantity/price/event time; existing `seller_price` diagnostics are not a verified complete price history.
+- N07–N09 contract mapping explicitly keeps weighted numerator/denominator, successful vs ordered/cancelled/returned units, date-only vs instant clocks, seller-revenue vs attributed-revenue DRR, mixed/unknown prices and overlapping windows distinct. No runtime test was added because behavior is not implemented in Q15; persistence/normalization tests are staged with Q16–Q18.
+- Official source: Ozon Seller API FAQ section “Есть ли способ получить историю обновления цен по API?” says no and points to the product-card price history in Seller Cabinet: https://dev.ozon.ru/start/257-FAQ-spravochnik-oshibok-i-sposobov-ikh-resheniia. Detailed contract: `UNIT_PRICE_OBSERVATION_CONTRACT_Q15_2026-10-27.md`.
+
+## Q16 — durable observation/result repository (2026-10-27)
+
+- `tests/test_unit_price_observation_repository.py`: start/reopen and store isolation; exact saved-plan identity and owner confirmation; offset-aware effective timestamp; idempotent duplicate vs mismatched replay; one-active-SKU guard, state/result CAS, notes/finish/archive; immutable result history, exact store/SKU/price binding, overlap retention as incomparable, future/corrupt version rejection, nested allowlists, size/window/result quotas, storage rollback and v3→v4 migration preservation.
+- `tests/test_planning_workspace_repository.py` and `tests/test_planning_workspace_tariff_profiles.py`: schema version expectations and atomic rollback include observation tables/triggers while preserving existing documents/tariff state.
+- Isolated Windows/Python 3.12 profile across the three modules: **38 passed in 1.58s**. Acceptance: `UNIT_PRICE_OBSERVATION_REPOSITORY_Q16_2026-10-27.md`. No live API, network, bot or owner data.
+
+- Новое ТЗ: `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`, журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q03: предметный audit/contracts; isolated Windows/Python 3.12.10 baseline — **247 passed**. Q04: `tests/test_unit_price_tariff_resolver.py` — **34 passed**, включая N03/N04 rate boundaries, range gaps/overlap/conflict, point-only tariff, exact owner/store/SKU/date/schema, limits и canonical-forward amounts. Audit: `LUNA_PRICE_PROFIT_PER_UNIT_AUDIT_Q01_2026-10-27.md`; contracts: `UNIT_PRICE_PROFIT_CONTRACT_Q03_2026-10-27.md`.
 - N01–N13 описывают содержательные проверки: рекламная компенсация и ROUND_HALF_UP; разные пороги равенства/роста; скачки тарифа и неизвестные диапазоны; ручной профиль/CAS; совместимость v1/v2; взвешенные единицы/ДРР; полнота наблюдений; цель ₽/шт.; налог/no-double-count; budgets/privacy; synthetic restore.
 - Существующие calculator/target/ad-cap/sensitivity, saved plans, SKU finance/Performance, tenant, Telegram и backup suites переиспользуются. Конкретные новые тестовые файлы и фактические результаты Luna добавляет при реализации этапов.
 - При подготовке меняется только документация. Полный pytest для этой правки не запускался; проверки структуры/путей/числовых примеров фиксируются отдельно в журнале, а не выдаются за проверку будущего runtime.
+
+## Q10 — рекламные режимы и пороги компенсации (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py`: N01 reproduces the canonical 100 ₽/95 ₽ example (15.24 ₽/16.55 ₽); N02 checks distinct rounded non-worse/strictly-better limits and the next 0.01 percentage-point step; a tax-dependent case verifies both thresholds through `UnitPriceScenarioService`; unreachable goals return `NOT_REACHABLE`; manual total ad spend is divided by explicit successful-unit denominator and rounded to currency precision.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public callbacks collect per-price DRR or total spend/successful units, preserve the original main scenario while editing, render the explicit basis/statuses and apply a candidate only to the local scenario after forward validation. No Ozon source refresh is introduced.
+- Bounded solver probes the 0–100% DRR domain on 0.01 percentage-point ticks, validates monotonicity boundary probes, checks the returned tick and its next tick with direct canonical calculations, and has a maximum of 64 evaluations per candidate and 1,024 per comparison.
+- Focused Q10 profile: **112 passed in 1.70s**. Linked Q04–Q10 Windows/Python 3.12.10 profile over 22 tariff/planning/scenario/source/consumer test files: **390 passed in 7.90s**. Five protected tracked `data/*.json` SHA-256 hashes matched before/after; new temporary storage and pytest basetemp, dotenv/plugin autoload disabled, credential-named environment variables removed, no owner DB/API/bot used. Four changed Python modules passed `py_compile`; `git diff --check` passed.
+
+## Q11 — bounded seller-price grid (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py` covers range parsing, inclusion of the requested endpoint, tariff band boundary/adjacent cents, exact 200-candidate ceiling, aggregate 20-rule limit, no silent truncation, unknown commission remaining unavailable, deferred thresholds, compact rows, and the 1,024 canonical-forward budget.
+- `tests/test_unit_price_scenario_telegram_runtime.py` covers public entry/input/result, invalid-input preservation, 10-row pagination and global row selection, applying a selected candidate with a single frozen tariff/source read, Telegram callback byte limits, and read-only navigation when stale inputs disable applying.
+- Focused Q11 profile: **104 passed in 1.55s**. Linked Q04–Q11 Windows/Python 3.12.10 profile over the 22 tariff/planning/scenario/source/consumer modules: **398 passed in 8.05s**. Three changed Python modules compiled in memory; `git diff --check` passed. Five protected tracked JSON files are clean against HEAD and their LF-normalized SHA-256 hashes match Git objects; the raw checkout uses CRLF. Test storage and basetemp were new temporary roots, dotenv/plugin autoload disabled and credential-named environment variables removed. No API, owner DB, ignored runtime data or real bot used. Acceptance: `UNIT_PRICE_PRICE_GRID_Q11_2026-10-27.md`.
+
+## Q12 — target-price search across frozen tariff bands (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py` and `tests/test_unit_price_scenario_telegram_runtime.py` cover segmented search across tariff jumps, direct candidate/previous-cent validation, ordered intervals, partial coverage disclosure, and tariff-aware apply.
+- `tests/test_unit_price_tariff_snapshot_adapter.py` covers snapshot identity, unavailable source, point-only and legacy exact-price behavior. Linked Q04–Q12 isolated profile across 21 modules: **404 passed in 7.97s**; focused profile: **115 passed in 1.65s**.
+- Search budgets: at most 20 tariff rules and 1,024 tariff-aware canonical forwards; gaps/conflicts remain unknown. Acceptance: `UNIT_PRICE_TARGET_TARIFF_SEARCH_Q12_2026-10-27.md`.
+
+## Q13 — tariff consumer consistency and owner exports (2026-10-27)
+
+- `tests/test_unit_price_sensitivity_service.py` and `tests/test_telegram_unit_price_sensitivity_runtime_service.py` cover frozen tariff per sensitivity cell, unavailable gaps, exact-price legacy rates, and rendered provenance.
+- `tests/test_unit_price_batch_plan_service.py` and `tests/test_telegram_unit_price_batch_plan_runtime_service.py` cover frozen batch pricing, exact manual point overrides, same commission basis in batch ad-cap, and legacy source-rate restrictions.
+- `tests/test_analytics_export_service.py` verifies saved-plan, sales-mix, ad-cap and batch exports include current commission/provenance/scope/status/reason without owner identifiers or misleading source-price band claims. `tests/test_saved_planning_plan_telegram_flow.py` verifies restore uses frozen tenant-scoped tariff state.
+- Linked isolated Windows/Python 3.12.10 profile across 10 calculator, tariff, sensitivity, batch, export and saved-plan modules: **230 passed in 4.71s**. Changed Python modules passed `py_compile`; `git diff --check` passed. No API, live bot, owner database, or tracked owner data was used. Acceptance: `UNIT_PRICE_CONSUMER_AUDIT_Q13_2026-10-27.md`.
+
+## Q14 — numeric acceptance of price-planning module C (2026-10-27)
+
+- The 21-module isolated profile covered all `test_unit_price_*`, `test_telegram_unit_price_*`, tariff-profile persistence, saved-plan restore and export suites: **389 passed in 7.84s** on Windows/Python 3.12.10.
+- Numeric coverage includes N01/N02 exact canonical examples and threshold ticks; N03 tariff discontinuities; N04 gaps/conflicts/unknown; N05 manual profile lifecycle and tenant/stale-action safety; N06 saved-plan version compatibility/frozen history; N08 seller-revenue vs attributed-revenue DRR; N10 per-unit ranking and ties; N11 tax, minimum tax, effective-date cost and no double-counting of cross-docking/last mile.
+- Test storage and pytest basetemp were new `%TEMP%` roots; dotenv/plugin autoload/bytecode writes disabled and credential/provider environment names removed without printing values. No API/network, owner DB, `.env`, real bot or live tariff data used. Acceptance: `UNIT_PRICE_NUMERIC_ACCEPTANCE_Q14_2026-10-27.md`.
+
+## Q09 — сравнение 2–10 вариантов по canonical прибыли/шт. (2026-10-27)
+
+- `tests/test_unit_price_target_planning_service.py`: тарифная ставка подбирается по каждому candidate price на одном frozen snapshot; проверены переход ставок на границе 100 ₽, current-price point только на точной цене, legacy exact-price-only, 10/11 кандидатов, сравнение после ROUND_HALF_UP и tie по прибыли, равной после округления. Unknown candidate остаётся без прибыли и не ранжируется.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: public Telegram path сохраняет введённую цель при сравнении, показывает базовую прибыль/шт. и лучший проверенный вариант, запрашивает tariff/source ровно по одному разу и применяет выбранный вариант только после повторной проверки canonical forward с тарифом выбранной строки.
+- `tests/test_unit_price_tariff_snapshot_adapter.py`: ручная точка, введённая для исходной цены поверх сохранённого диапазона, действует только на эту цену; остальные варианты разрешаются из сохранённого диапазона.
+- `tests/test_saved_planning_plan_telegram_flow.py::test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh`: возврат из legacy saved plan, явный ввод комиссии и новое сохранение снова используют подтверждённую точную ставку.
+- Focused profile (`target_planning_service`, scenario Telegram runtime, tariff-profile Telegram runtime, saved-plan flow, snapshot adapter): **120 passed in 3.16s**. Linked Q04–Q09 profile across 22 tariff/planning/scenario/consumer files: **378 passed in 8.90s**. Windows/Python 3.12.10, new `%TEMP%` storage and pytest basetemp, dotenv/plugin autoload off, no live credentials/API/bot. SHA-256 of five protected tracked `data/*.json` files matched before/after. `git diff --check` passed.
 
 # Исполнение ТЗ по существующим функциям (26.10.2026)
 
@@ -5696,3 +5772,116 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - Full Windows/Python 3.12 profile on the exact copied tree: **3745 passed in 42.92s**. Dotenv and live credentials were disabled; AI_ASSISTANT_STORAGE_ROOT was unset because two tests assert the legacy no-variable default.
 - python -m compileall -q app tests: exit 0. Existing non-blocking SyntaxWarning in tests/test_unit_economics_returns_impact_integrity_v971_v980.py:177.
 - Exact-head Linux/Python 3.11 and Docker build/runtime remain CI evidence after PR publication.
+# Unit-price observation collection (Q17)
+
+- `tests/test_unit_price_observation_collection_service.py` — bounded read-only collection, completed local windows, exact FBO/SKU scope, finance trace budgets, fake-adapter/retry behavior, optional Performance CPC, source completeness, unsupported/unknown schema metadata, and privacy projection.
+- `tests/test_unit_price_observation_repository.py` — Q16 durable observation/result contract plus Q17 additive unknown-field/type metadata allowlist and raw-value rejection.
+- `tests/test_period_profit_sku_telegram_flow.py::test_factory_composes_observation_collector_with_existing_sources` — production factory wires the existing planning repository, finance and per-SKU advertising adapters into the observation runtime.
+- Linked Q17 profile: 172 passed across the above tests and existing finance/Performance budget/source regressions. Full suite/CI planned for Q33–Q35.
+
+# Unit-price observation normalization (Q18)
+
+- `tests/test_unit_price_observation_normalizer.py` — finite Decimal projection, explicit discount-point completeness, accrual-vs-Performance date-basis compatibility, separate seller/attributed DRR, weighted numerator/denominator and zero/missing denominator, duplicate/conflict handling, SKU scope, signed corrections, mixed-price flags, no double deduction and no unsupported observed-profit output.
+- `tests/test_unit_price_observation_collection_service.py` — upstream read-only evidence contract and bounded source coverage.
+- Q16–Q18 linked profile: **184 passed** across 11 observation, finance and Performance test modules. Full pytest/CI remains scheduled for Q33–Q35.
+
+# Unit-price observation result (Q19)
+
+- `tests/test_unit_price_observation_result_service.py` — canonical `UnitPriceScenarioService` parity; CPC-per-confirmed-successful-unit modeling; exact identity/price gates; unavailable denominator, mixed price and incompatible source date-basis outcomes; repository result-schema compatibility; caller-provided canonical labels cannot promote aggregates.
+- Q16–Q19 linked isolated profile: **189 passed in 4.10s** across 12 observation, repository, finance, Performance and production-wiring test modules. Full pytest/exact-head CI remains scheduled for Q33–Q35.
+
+# Telegram unit-price observation lifecycle (Q20)
+
+- `tests/test_telegram_unit_price_observation_runtime.py` — saved-plan entry, manual price/effective-time confirmation, exact single- or multi-SKU FBO scope, completed local date window validation before source access, durable result append, incomplete model labels, history/reopen after runtime recreation, stale callback rejection, note and finish flow.
+- `tests/test_period_profit_analytics_runtime.py::test_production_factory_routes_period_analytics_without_requery` — production factory composes the observation runtime and routes it through the button handler and saved-plan runtime.
+- Q20 focused isolated Windows/Python 3.12 profile: **8 passed in 1.34s**. Linked Q16–Q20 profile follows in the progress log; full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price observation quality/comparability (Q21)
+
+- `tests/test_unit_price_observation_quality_service.py` — exact owner/store/product identity and distinct price variants; complete canonical fact gates; model-only shared assumption signatures; source/window/revenue/ad basis consistency; overlap, weekday pattern, completed windows, successful-unit denominator, freshness, sample/day warnings, reason preservation and no confidence/causal labels.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_collection_persists_incomplete_result_and_can_reopen_after_runtime_restart` — result detail returns the `quality_assessment` payload and keeps a one-variant result `NOT_READY`/`verified=false`.
+- Q21 quality/runtime focused profile: **32 passed in 1.69s**. Linked Q16–Q21 observation/finance/Performance profile: **205 passed in 4.87s**. Full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price recommendation ranking (Q22)
+
+- `tests/test_unit_price_recommendation_ranking_service.py` — rank only after Q21 returns `COMPARABLE`; model vs canonical fact metric selection; max ₽/unit independent of volume; ties after cent rounding; money deltas and percent suppression for nonpositive baseline; quality-gate failure yields no winner; candidate cap and input immutability.
+- `app/services/unit_price_observation_ranking_service.py` — local owner/store-scoped pagination, exact saved-plan revision and SKU checks, frozen assumption signature, latest result per distinct price, bounded candidate set; no source refresh or storage mutation.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — current-store same-SKU observations and exact saved plan revisions feed a read-only Telegram comparison; no Ozon collector call. `test_observation_ranking_blocks_different_frozen_scenario_assumptions` — differing saved unit cost prevents model ranking. `test_observation_ranking_callback_cannot_read_another_store` — cross-store callback reveals no record.
+- `tests/test_unit_price_target_planning_service.py::test_comparison_uses_candidate_specific_frozen_tariff_and_ranks_rounded_unit_profit` and `::test_comparison_marks_all_equal_rounded_unit_profit_candidates_as_best` — separate plan-assumption ranking, candidate tariff boundary and equal winners remain covered.
+- Q22 focused profile after extracting the local comparison application service: **26 passed in 1.42s**. Linked Q16–Q22 Windows/Python 3.12 profile across 16 observation/finance/Performance/planning targets: **274 passed in 5.68s**. Full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price comparison history (Q23)
+
+- `tests/test_unit_price_comparison_history_repository.py` — additive comparison storage: idempotent create, append/CAS, tenant isolation, exact revision reopen, immutable UPDATE/DELETE guards, payload allowlist and bounded data, failed-append rollback and retry, JSON-safe durable read.
+- `tests/test_unit_price_observation_repository.py::test_v3_database_migration_adds_observation_and_comparison_tables_preserving_plan` and `::test_v4_migration_preserves_observation_result_and_adds_comparison_history` — schema v3/v4 migrations reach v5 without deleting saved plans or existing observation results.
+- `tests/test_planning_workspace_repository.py::test_first_concurrent_connections_initialize_one_schema_and_allow_reopen` and `::test_legacy_schema_migrates_atomically_and_keeps_existing_document_state` — first-connection race and legacy migration expect the new additive schema version.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — persisted exact source references, restart/reopen, clear-user-state without deleting durable records, stale/superseded label after new evidence, no-change refresh, append-only new comparison revision, old winner retained, and JSON export without source IDs or collector calls.
+- Q23 focused Windows/Python 3.12 profile: **33 passed in 2.08s**. Linked Q16–Q23 profile across 28 planning/observation/tariff/runtime targets: **474 passed in 10.92s** with pytest plugin autoload disabled and credential-like process variables cleared. Full pytest and exact-head CI remain Q33–Q35.
+
+# Unit-price profit-per-unit end-to-end path (Q24)
+
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` — production factory and public Telegram handlers cover SKU selection, manual tariff bands, validation/retry, price and DRR comparison, saved plan, observation start/collection, insufficient-evidence ranking gate, return to plans, and editing the next price. All Ozon/collector dependencies are synthetic fakes; incomplete evidence remains not rankable.
+- `tests/test_telegram_unit_price_observation_runtime.py` — existing local-only persisted comparison/reopen/export behavior remains included in the linked profile.
+- Q24 focused Windows/Python 3.12: **1 passed in 1.00s**. Linked Q16–Q24 profile, 29 test targets: **475 passed in 11.48s**. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price calculator UX/discovery (Q25)
+
+- `tests/test_telegram_help_discovery.py` — calculator is reachable from the main keyboard and Help, and owner guidance documents manual tariff fallback, FBO planning, and explicit no-price-mutation behavior.
+- `tests/test_unit_price_scenario_telegram_runtime.py::test_manual_zero_advertising_completes_scenario_and_reports_comparison` — concise result places ₽/unit before secondary metrics, preserves seller price/cost, commission evidence, DRR, stale/missing status and exclusions; exact version-bound details show full taxable revenue/tax breakdown and return to summary. Cross-docking details and sensitive-ID redaction remain checked by the detailed-flow regression.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_observation_ranking_uses_latest_compatible_results_without_source_calls` — rating displays exact owner store, SKU, product/offer identifiers and FBO scheme.
+- `tests/test_telegram_response_formatter.py` and `tests/test_telegram_loading_feedback_v1451_v1460.py` — existing UTF-16-safe long-message splitting, complete text retention and final-chunk keyboard transport stay covered.
+- Q25 focused profile: **59 passed in 1.88s**. Linked Q16–Q25 Windows/Python 3.12 profile over 32 targets: **495 passed in 12.46s**. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price owner exports (Q26)
+
+- `tests/test_unit_price_owner_exports.py`: fixed CSV/JSON row schemas for exact saved comparison, immutable observation result, and tariff snapshot; same canonical rows, version/evidence fields, unknown-versus-zero, identity checks, and internal record ID redaction.
+- `tests/test_telegram_unit_price_observation_runtime.py`: buttons and file output for observation/comparison use exact revisions; reopen/export does not call the collection source.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py`: tariff screen and CSV/JSON export use one frozen scenario snapshot; bounded rows, unknown price coverage, callback length, and tenant-scoped profile access.
+- Shared serializer tests cover supported-kind allowlist, CSV formula escaping, JSON schema, size and row bounds. Existing analytics document sender remains the only Telegram file transport.
+- Q26 focused profile: **39 passed in 2.38s**. Linked calculator/observation/tariff/export profile: **439 passed across 30 targets in 10.25s**. Syntax compilation and `git diff --check` passed; `git diff -- data` was empty. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price concurrency and scope (Q27)
+
+- `tests/test_telegram_unit_price_observation_runtime.py::test_late_collection_completion_preserves_newer_pending_note`: blocks a synthetic collector, creates a newer note input while collection is in flight, then proves the late completion preserves and successfully saves that newer draft.
+- `tests/test_telegram_unit_price_tariff_profile_runtime.py::test_parallel_tariff_save_callback_has_one_writer_and_keeps_retry_safe`: blocks the repository write, replays the same confirmation concurrently, and proves the second callback is stale and only one tariff row is created.
+- Pending operations now carry an internal unique token. Success/error cleanup compares this token; a late operation cannot clear a newer pending form. Observation-start completion also conditionally replaces only the pending action it began from. Tokens are local runtime metadata and are not persisted/exported.
+- Existing stale/replayed callback, cross-store/SKU isolation, late source/batch refresh, immutable revision, repository CAS, and cache/deep-copy tests remain in the linked profile.
+- Linked Windows/Python 3.12.10 Q16–Q27 profile: **460 passed across 31 targets in 11.03s**. No known cross-store result leak or cache-eviction KeyError was reproduced; those paths retain existing tests. Full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price limits and failure recovery (Q28)
+
+- `tests/test_unit_price_observation_collection_service.py::test_cancelled_parent_operation_makes_no_source_attempts_and_stays_incomplete`: cancelled parent trace causes zero finance/Performance calls and leaves both sources unavailable.
+- `tests/test_unit_price_observation_collection_service.py::test_time_budget_expiry_stops_remaining_days_and_optional_performance`: fake clock expires during first day; only one request/day is recorded, later days and Performance are not requested, and finance remains `PARTIAL` without zero-fill.
+- `tests/test_telegram_unit_price_observation_runtime.py::test_collection_retries_only_after_explicit_user_action`: one synthetic 429 creates no result revision and no automatic retry; an explicit repeat action makes one fresh attempt and persists only after recovery.
+- Existing tests in `test_unit_price_observation_collection_service.py` cover shared attempt budget, tighter parent budget, rate-limited daily source, partial windows and unconfigured Performance. Repository tests cover quotas, immutable result revisions and atomic rollback; export serializer tests cover max size/rows/schema and formula escaping.
+- Q16–Q28 linked Windows/Python 3.12.10 profile: **474 passed across 32 targets in 11.15s**. No production change was needed; full pytest/exact-head CI remain Q33–Q35.
+
+# Unit-price persistence, privacy and restore (Q29)
+
+- `tests/test_unit_price_backup_restore.py` creates a synthetic store tariff with two ranges, a saved plan, an observation and two immutable result revisions; backup/verify/dry-run/restore into a new root preserves exact payloads and history after reopening. It also verifies cross-store isolation and rejection of a result containing an unknown `raw_response` field.
+- Existing addressable compatibility tests remain part of this stage: `test_v3_database_migration_adds_observation_and_comparison_tables_preserving_plan`, `test_v4_migration_preserves_observation_result_and_adds_comparison_history`, legacy planning schema migration, and atomic v2 migration rollback.
+- Isolated Windows/Python 3.12 Q29 profile: **5 passed in 0.95s**. Full pytest and exact-head CI remain Q33–Q35.
+
+# Unit-price end-to-end acceptance and regression (Q30–Q31)
+
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` covers the production-factory/public-handler flow for a confirmed current-price tariff point and JSON export; manual two-band tariff persistence across store switch/restart; and SKU → plan → incomplete observation → complete FBO/Returns evidence → calculated buyout → explicitly modeled profit → two-price comparison.
+- Related observation/normalizer/model/quality/E2E focused profile: **49 passed in 2.37s**. The regression confirms strict pagination/status/quantity gates, source-window/timezone provenance, separate displayed returns, explicit model caveat and no Ozon mutation.
+- Q31 broader linked profile selected 175 modules matching unit-price, planning, tax, cross-docking, period-profit, backup/restore and help: **1374 passed in 39.94s**. `test_daily_use_bounded_soak.py` plus bounded forward-evaluation assertion: **3 passed in 3.12s** after Q30 changes.
+- Q30/Q31 details: `UNIT_PRICE_PROFIT_PER_UNIT_END_TO_END_Q30_2026-10-27.md`, `UNIT_PRICE_REGRESSION_AND_FAILURES_Q31_2026-10-27.md`, and owner guide `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`. Full pytest/exact-head CI remains Q33–Q35.
+
+# Unit-price final verification and review (Q33–Q34)
+
+- Full repository `pytest`: **3,983 passed in 53.74s** on an isolated disposable Windows/Python 3.12 worktree. The disposable environment prevents legacy tests that modify `data/tasks.json` from touching the implementation checkout; `data/` in the implementation checkout is clean.
+- `python -m compileall -q app`: PASS; `git diff --check`: PASS; `git diff -- data`: empty. Final focused profile across six changed Q30/UI modules: **56 passed in 2.60s**.
+- Q34 review covers FBO-only scope, exact SKU/offer/store binding, full pagination and terminal-status gates, ambiguity/reconciliation, allowlisted persistence, shared Ozon request trace, model-only labeling, CPC date-basis limitations, and return-cost exclusion. No blocking finding; independent review and exact-head CI still required in Q35.
+- Acceptance records: `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md`, `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`, and `UNIT_PRICE_REVIEW_HANDOFF_Q35_2026-10-27.md`. Verify run **40574423459** passed on PR SHA `483cd4d1` across Windows, Linux and Docker. This run covers the exact reviewed code plus documentation handoff.
+
+# Unit-price independent-review corrections (2026-10-28)
+
+- `tests/test_telegram_unit_price_observation_runtime.py` — scenario observation resolves the exact observed seller price against the frozen tariff snapshot; changed-price legacy plans without a range do not reuse the old commission.
+- `tests/test_unit_price_observation_result_service.py` — tariff completeness and `tariff_status` preserve the distinction between confirmed source evidence, manual owner assumption and unknown provenance.
+- `tests/test_unit_price_observation_collection_service.py` — Returns source receives UTC timestamps matching inclusive local-calendar date boundaries and configured timezone.
+- `tests/test_unit_price_tariff_snapshot_adapter.py` and `tests/test_telegram_unit_price_tariff_profile_runtime.py` — session-only explicit profile survives frozen resolution without suppressing ambiguity from overlapping persisted profiles.
+- `tests/test_unit_price_target_planning_service.py` — rounding-toggle boundary returns the first qualifying cent; preceding cent is checked by the canonical forward calculation; bounded evaluation exhaustion does not claim a minimum.
+- `tests/test_unit_price_batch_plan_service.py` — remaining shared solver budget is passed before calculation; rows beyond the budget do not trigger source or solver calls.
+- `tests/test_unit_price_profit_per_unit_end_to_end.py` remains in the linked regression profile. Focused Windows/Python 3.12 profile: **149 passed across eight modules**; full isolated repository suite: **3,990 passed in 49.21s**. `compileall`, `git diff --check` passed and the primary checkout's `data/` diff is empty. Exact-head Verify **40654624761** passed on code head `40a23315` (Windows/Linux).

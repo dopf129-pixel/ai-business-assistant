@@ -294,6 +294,16 @@ class TelegramUnitPriceSensitivityRuntimeService:
         axes = result.get("axes") or {}
         lines.append("Оси: " + " × ".join(item.get("label", key) for key, item in axes.items()) + ".")
         lines.append(f"Сценариев: {result.get('available_cell_count', 0)} из {result.get('cell_count', len(cells))} рассчитано.")
+        tariff_scope_labels = {
+            "FROZEN_PROFILE_SET": "комиссия разрешается по замороженным тарифным диапазонам для каждой цены",
+            "EXACT_PRICE_ONLY": "историческая комиссия применима только к исходной цене",
+            "FIXED_RATE_ASSUMPTION": "используется прежнее допущение фиксированной комиссии; оно не является тарифной сеткой",
+        }
+        lines.append(
+            "Тариф: " + tariff_scope_labels.get(
+                result.get("tariff_scope"), "тарифная область не подтверждена",
+            ) + "."
+        )
         if result.get("target_margin_percent") is not None:
             lines.append(f"Точная цель маржи после налога: {result['target_margin_percent']}%.")
         inputs = context.get("inputs") or {}
@@ -332,11 +342,31 @@ class TelegramUnitPriceSensitivityRuntimeService:
             scenario = cell.get("scenario") or {}
             calculated = scenario.get("calculated") or {}
             if cell.get("status") == "AVAILABLE":
-                line = f"{index}. {coordinate_text}: прибыль {self._number(calculated.get('profit'))} ₽/шт.; маржа {self._number(calculated.get('margin_percent'))}%; налог {self._number(calculated.get('tax'))} ₽"
+                commission = (cell.get("inputs") or {}).get("commission_rate")
+                tariff = cell.get("tariff_resolution") or {}
+                origin_labels = {
+                    "MANUAL_SELLER_ASSUMPTION": "ручной тариф",
+                    "CURRENT_PRICE_POINT": "текущая ставка",
+                    "CONFIRMED_OFFICIAL_SOURCE": "подтверждённый источник",
+                    "manual_seller_assumption": "ручной тариф",
+                    "current_price_point": "текущая ставка",
+                    "confirmed_official_source": "подтверждённый источник",
+                    "legacy_frozen_plan_rate": "ставка сохранённого плана",
+                }
+                commission_label = (
+                    f"комиссия {self._number(commission)}%"
+                    + (f" ({origin_labels.get(tariff.get('origin'), 'допущение')})"
+                       if commission is not None else "")
+                )
+                line = f"{index}. {coordinate_text}: {commission_label}; прибыль {self._number(calculated.get('profit'))} ₽/шт.; маржа {self._number(calculated.get('margin_percent'))}%; налог {self._number(calculated.get('tax'))} ₽"
                 if cell.get("target_reached") is not None:
                     line += "; цель " + ("достигнута" if cell["target_reached"] else "не достигнута")
             else:
+                tariff = cell.get("tariff_resolution") or {}
+                reason = tariff.get("reason")
                 line = f"{index}. {coordinate_text}: {self._status_label(cell.get('status'))}"
+                if reason:
+                    line += f" ({str(reason)[:48]})"
             lines.append(line + ".")
         best = self._find_cell(cells, result.get("best_checked_cell_id"))
         worst = self._find_cell(cells, result.get("worst_checked_cell_id"))

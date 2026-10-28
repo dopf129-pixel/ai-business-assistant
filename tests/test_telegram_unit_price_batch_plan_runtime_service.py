@@ -62,7 +62,10 @@ def _row(index, status="READY"):
             "acquiring_per_unit": "5", "tax_mode": "USN_INCOME",
             "tax_rate": "6", "minimum_tax_rate": "1",
         },
-        "provenance": {"advertising_rate": "source", "cost": "confirmed_store_cost"},
+        "provenance": {
+            "advertising_rate": "source", "cost": "confirmed_store_cost",
+            "commission_rate": "ozon_current_fbo_rate",
+        },
         "source_age_seconds_at_load": 1,
         "source_ttl_seconds": 600,
         "source_loaded_at": 100,
@@ -239,6 +242,7 @@ def test_batch_advertising_cap_is_row_bound_and_applies_only_to_local_plan():
 
     assert result["status"] == "UNIT_PRICE_BATCH_ADVERTISING_CAP_RESULT"
     assert "безубыточность" in result["message"].lower()
+    assert "Комиссия на этой цене: 15% · ozon_current_fbo_rate." in result["message"]
     assert updated["status"] == "UNIT_PRICE_BATCH_PLAN_READY"
     assert updated["batch_plan"]["version"] == 2
     assert updated["batch_plan"]["rows"][0]["inputs"]["advertising_rate"] != "0"

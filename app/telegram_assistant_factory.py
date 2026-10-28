@@ -72,6 +72,7 @@ from services.period_profit_effective_cost_service import (
 from services.telegram_seller_cost_update_service import (
     TelegramSellerCostUpdateService,
 )
+from services.returns_buyout_facts_source import ReturnsBuyoutFactsSource
 from services.return_inventory_recovery_repository import (
     ReturnInventoryRecoveryRepository,
 )
@@ -106,6 +107,18 @@ from services.telegram_unit_price_sensitivity_runtime_service import (
     TelegramUnitPriceSensitivityRuntimeService,
 )
 from services.planning_workspace_repository import PlanningWorkspaceRepository
+from services.telegram_unit_price_tariff_profile_runtime_service import (
+    TelegramUnitPriceTariffProfileRuntimeService,
+)
+from services.unit_price_observation_collection_service import (
+    UnitPriceObservationCollectionService,
+)
+from services.unit_price_observation_result_service import (
+    UnitPriceObservationResultService,
+)
+from services.telegram_unit_price_observation_runtime_service import (
+    TelegramUnitPriceObservationRuntimeService,
+)
 from services.saved_planning_plan_service import SavedPlanningPlanService
 from services.sales_mix_planning_service import SalesMixPlanningService
 from services.telegram_saved_planning_plan_runtime_service import (
@@ -269,6 +282,25 @@ def create_telegram_assistant():
             keyboard_service=keyboard,
         )
     )
+    planning_workspace_repository = (
+        PlanningWorkspaceRepository()
+        if unit_price_calculator_runtime_service is not None
+        else None
+    )
+    unit_price_tariff_profile_runtime_service = (
+        TelegramUnitPriceTariffProfileRuntimeService(
+            repository=planning_workspace_repository,
+            calculator_runtime=unit_price_calculator_runtime_service,
+            keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
+        )
+        if planning_workspace_repository is not None
+        else None
+    )
+    if unit_price_calculator_runtime_service is not None:
+        unit_price_calculator_runtime_service.tariff_profile_runtime_service = (
+            unit_price_tariff_profile_runtime_service
+        )
 
     unit_price_batch_plan_runtime_service = None
     if unit_price_calculator_runtime_service is not None:
@@ -276,6 +308,7 @@ def create_telegram_assistant():
             source=unit_price_calculator_runtime_service.source,
             scenario_service=unit_price_calculator_runtime_service.scenario_service,
             target_planning_service=unit_price_calculator_runtime_service.target_planning_service,
+            tariff_profile_runtime_service=unit_price_tariff_profile_runtime_service,
         )
         unit_price_batch_plan_runtime_service = TelegramUnitPriceBatchPlanRuntimeService(
             batch_plan_service=batch_plan_service,
@@ -308,7 +341,7 @@ def create_telegram_assistant():
             tax_service=unit_price_calculator_runtime_service.scenario_service.tax_service,
         )
         saved_plan_service = SavedPlanningPlanService(
-            repository=PlanningWorkspaceRepository(),
+            repository=planning_workspace_repository,
             scenario_service=unit_price_calculator_runtime_service.scenario_service,
         )
         saved_planning_plan_runtime_service = TelegramSavedPlanningPlanRuntimeService(
@@ -349,6 +382,40 @@ def create_telegram_assistant():
     period_profit_cost_service = PeriodProfitEffectiveCostService()
 
     period_profit_advertising_service = PeriodProfitSkuAdvertisingService()
+
+    unit_price_observation_collection_service = None
+    if unit_price_calculator_runtime_service is not None and planning_workspace_repository is not None:
+        current_economics_source = getattr(
+            unit_price_calculator_runtime_service.source,
+            "current_economics_source",
+            None,
+        )
+        ozon_client = getattr(current_economics_source, "ozon_client", None)
+        unit_price_observation_collection_service = UnitPriceObservationCollectionService(
+            repository=planning_workspace_repository,
+            finance_service=unit_price_calculator_runtime_service.source.finance_service,
+            advertising_service=period_profit_advertising_service,
+            returns_buyout_source=(
+                ReturnsBuyoutFactsSource(ozon_client) if ozon_client is not None else None
+            ),
+        )
+        unit_price_calculator_runtime_service.observation_collection_service = unit_price_observation_collection_service
+
+    unit_price_observation_runtime_service = None
+    if saved_planning_plan_runtime_service is not None and unit_price_observation_collection_service is not None:
+        observation_result_service = UnitPriceObservationResultService(
+            scenario_service=unit_price_calculator_runtime_service.scenario_service,
+            target_planning_service=unit_price_calculator_runtime_service.target_planning_service,
+        )
+        unit_price_observation_runtime_service = TelegramUnitPriceObservationRuntimeService(
+            repository=planning_workspace_repository,
+            planning_service=saved_planning_plan_runtime_service.planning_service,
+            collection_service=unit_price_observation_collection_service,
+            result_service=observation_result_service,
+            keyboard_service=keyboard,
+            analytics_export_service=analytics_export_service,
+        )
+        saved_planning_plan_runtime_service.unit_price_observation_runtime_service = unit_price_observation_runtime_service
 
     period_profit_sku_runtime_service = (
         PeriodProfitSkuRuntimeService(
@@ -453,6 +520,10 @@ def create_telegram_assistant():
             saved_planning_plan_runtime_service=saved_planning_plan_runtime_service,
             analytics_export_service=analytics_export_service,
             build_metadata_service=app_build_metadata_service,
+            unit_price_tariff_profile_runtime_service=(
+                unit_price_tariff_profile_runtime_service
+            ),
+            unit_price_observation_runtime_service=unit_price_observation_runtime_service,
         )
     )
 
@@ -569,6 +640,7 @@ def create_telegram_assistant():
         unit_price_sensitivity_runtime_service
     )
     runner.saved_planning_plan_runtime_service = saved_planning_plan_runtime_service
+    runner.unit_price_observation_runtime_service = unit_price_observation_runtime_service
 
 
     runner.period_profit_runtime_service = (

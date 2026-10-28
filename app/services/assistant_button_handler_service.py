@@ -216,6 +216,8 @@ class AssistantButtonHandlerService:
         saved_planning_plan_runtime_service=None,
         analytics_export_service=None,
         build_metadata_service=None,
+        unit_price_tariff_profile_runtime_service=None,
+        unit_price_observation_runtime_service=None,
     ):
 
         self.assistant = (
@@ -292,6 +294,8 @@ class AssistantButtonHandlerService:
         self.unit_price_batch_plan_runtime_service = unit_price_batch_plan_runtime_service
         self.unit_price_sensitivity_runtime_service = unit_price_sensitivity_runtime_service
         self.saved_planning_plan_runtime_service = saved_planning_plan_runtime_service
+        self.unit_price_tariff_profile_runtime_service = unit_price_tariff_profile_runtime_service
+        self.unit_price_observation_runtime_service = unit_price_observation_runtime_service
         self.analytics_export_service = analytics_export_service
         self.build_metadata_service = (
             build_metadata_service or AppBuildMetadataService()
@@ -567,7 +571,7 @@ class AssistantButtonHandlerService:
             clearer(user_id)
 
     def _clear_unit_price_input_for_new_flow(self, button_id, user_id):
-        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:")):
+        if isinstance(button_id, str) and button_id.startswith(("upc:", "pov:", "upb:", "ups:", "upp:", "upt:", "upo:")):
             return
         if (
             isinstance(button_id, str)
@@ -594,6 +598,8 @@ class AssistantButtonHandlerService:
             self.unit_price_batch_plan_runtime_service,
             self.unit_price_sensitivity_runtime_service,
             self.saved_planning_plan_runtime_service,
+            self.unit_price_tariff_profile_runtime_service,
+            self.unit_price_observation_runtime_service,
             self.product_overview_service,
         ):
             clearer = getattr(runtime, "clear_user_state", None)
@@ -603,6 +609,38 @@ class AssistantButtonHandlerService:
                 clearer(user_id)
 
     def handle_text(self, text, user_id=None):
+        observation_handler = getattr(
+            self.unit_price_observation_runtime_service, "handle_text", None
+        )
+        if callable(observation_handler):
+            try:
+                observation_result = observation_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True, "code": "UNIT_PRICE_OBSERVATION_TEXT_FAILED",
+                    "message": "Не удалось обработать ввод наблюдения цены.",
+                    "read_only": True, "executed": False,
+                }
+            if observation_result is not None:
+                return observation_result
+
+        tariff_handler = getattr(
+            self.unit_price_tariff_profile_runtime_service, "handle_text", None
+        )
+        if callable(tariff_handler):
+            try:
+                tariff_result = tariff_handler(text, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_TARIFF_TEXT_FAILED",
+                    "message": "Не удалось обработать тариф комиссии.",
+                    "read_only": True,
+                    "executed": False,
+                }
+            if tariff_result is not None:
+                return tariff_result
+
         saved_plans_handler = getattr(
             self.saved_planning_plan_runtime_service, "handle_text", None
         )
@@ -786,6 +824,20 @@ class AssistantButtonHandlerService:
             button_id,
             user_id,
         )
+        observation_clearer = getattr(
+            self.unit_price_observation_runtime_service, "clear_pending", None
+        )
+        if callable(observation_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("upo:")
+        ):
+            observation_clearer(user_id)
+        tariff_clearer = getattr(
+            self.unit_price_tariff_profile_runtime_service, "clear_pending", None
+        )
+        if callable(tariff_clearer) and not (
+            isinstance(button_id, str) and button_id.startswith("upt:")
+        ):
+            tariff_clearer(user_id)
         planning_clearer = getattr(
             self.saved_planning_plan_runtime_service, "clear_pending", None
         )
@@ -797,7 +849,7 @@ class AssistantButtonHandlerService:
                 "clear_pending_for_navigation", None,
             )
             preserve_saved_editor = isinstance(button_id, str) and button_id.startswith(
-                ("upc:", "upb:", "ups:")
+                ("upc:", "upb:", "ups:", "upt:", "upo:")
             )
             if callable(navigation_clearer):
                 navigation_clearer(
@@ -829,6 +881,36 @@ class AssistantButtonHandlerService:
         ):
             sensitivity_clearer(user_id)
         self._clear_unit_price_input_for_new_flow(button_id, user_id)
+
+        if isinstance(button_id, str) and button_id.startswith("upo:"):
+            runtime = self.unit_price_observation_runtime_service
+            handler = getattr(runtime, "handle_callback", None)
+            if not callable(handler):
+                return self._product_overview_stale("UNIT_PRICE_OBSERVATION_UNAVAILABLE")
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True, "code": "UNIT_PRICE_OBSERVATION_CALLBACK_FAILED",
+                    "message": "Не удалось выполнить действие с наблюдением цены.",
+                    "read_only": True, "executed": False,
+                }
+
+        if isinstance(button_id, str) and button_id.startswith("upt:"):
+            runtime = self.unit_price_tariff_profile_runtime_service
+            handler = getattr(runtime, "handle_callback", None)
+            if not callable(handler):
+                return self._product_overview_stale("UNIT_PRICE_TARIFF_UNAVAILABLE")
+            try:
+                return handler(button_id, user_id=user_id)
+            except Exception:
+                return {
+                    "error": True,
+                    "code": "UNIT_PRICE_TARIFF_CALLBACK_FAILED",
+                    "message": "Не удалось обработать тариф комиссии.",
+                    "read_only": True,
+                    "executed": False,
+                }
 
         if isinstance(button_id, str) and button_id.startswith("upp:"):
             runtime = self.saved_planning_plan_runtime_service

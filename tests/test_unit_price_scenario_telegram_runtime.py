@@ -8,6 +8,8 @@ from services.telegram_unit_price_calculator_runtime_service import (
     TelegramUnitPriceCalculatorRuntimeService,
 )
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
 from services.unit_price_advertising_cap_service import UnitPriceAdvertisingCapService
 from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
@@ -98,6 +100,18 @@ def _runtime(clock=None, **kwargs):
     return runtime, source
 
 
+def _mark_fixed_rate_assumption(source):
+    """Keep legacy what-if fixtures explicit when testing multiple prices."""
+    original_load_snapshot = source.load_snapshot
+
+    def load_snapshot(*args, **kwargs):
+        snapshot = original_load_snapshot(*args, **kwargs)
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
+        return snapshot
+
+    source.load_snapshot = load_snapshot
+
+
 def _activate(store="store-1"):
     return set_current_tenant_user_id(f"user-1::ozon::{store}")
 
@@ -154,6 +168,54 @@ def test_advertising_cap_requires_explicit_target_and_applies_only_to_current_lo
     assert len(source.calls) == 1
 
 
+def test_advertising_cap_reuses_the_tariff_resolved_for_the_current_candidate_price():
+    tariff = _FrozenRangeTariffRuntime()
+    tariff.profile["bands"] = [
+        {"price_from_cents": 1, "price_to_cents": 50_000, "commission_rate": "11"},
+        {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+    ]
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        opened = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(opened, "Реклама 0%")["callback"], user_id="user-1",
+        )
+        price_button = next(
+            button for button in scenario["keyboard"]["buttons"]
+            if str(button.get("callback", "")).endswith(":price")
+        )
+        price_prompt = runtime.handle_callback(
+            price_button["callback"], user_id="user-1",
+        )
+        changed = runtime.handle_text("500.01", user_id="user-1")
+        cap_prompt = runtime.handle_callback(
+            _find_button(changed, "Сколько можно тратить на рекламу?")["callback"],
+            user_id="user-1",
+        )
+        cap = runtime.handle_text("25", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert price_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert changed["price_scenario"]["inputs"]["commission_rate"]["value"] == 22
+    assert cap_prompt["status"] == "UNIT_PRICE_ADVERTISING_CAP_TARGET_REQUIRED"
+    assert cap["status"] == "UNIT_PRICE_ADVERTISING_CAP_RESULT"
+    assert cap["advertising_cap_result"]["commission_rate"] == "22"
+    assert cap["advertising_cap_result"]["commission_origin"] == "manual_seller_assumption"
+    assert "Комиссия на этой цене: 22%" in cap["message"]
+    expected_inputs = deepcopy(changed["price_scenario"]["effective_scenario_inputs"])
+    expected_inputs.update(commission_rate="22", advertising_rate="0")
+    expected = runtime.advertising_cap_service.solve(
+        expected_inputs, "25",
+        identity=changed["price_scenario"]["identity"],
+        provenance={"commission_rate": "manual_seller_assumption"},
+        sources=changed["price_scenario"].get("sources") or {},
+    )
+    assert cap["advertising_cap_result"]["target"] == expected["target"]
+    assert len(source.calls) == 1
+
+
 def _find_button(result, text):
     return next(
         item for item in result["keyboard"]["buttons"]
@@ -190,6 +252,48 @@ def _add_cross_docking_evidence(source, cross_docking):
     source.load_snapshot = load_snapshot
 
 
+class _FrozenRangeTariffRuntime:
+    def __init__(self):
+        self.calls = []
+        self.profile = {
+            "profile_id": "manual-range-1", "revision": 1, "state_revision": 1,
+            "owner_id": "user-1", "store_id": "store-1",
+            "identity": {"product_id": "p1", "offer_id": "hook-2", "sku": "3921245627"},
+            "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+            "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-runtime-test",
+            "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+            "effective_from": "2026-10-01", "effective_to": None,
+            "confirmed_by_owner": True,
+            "bands": [
+                {"price_from_cents": 1, "price_to_cents": 10_000, "commission_rate": "11"},
+                {"price_from_cents": 10_001, "price_to_cents": 30_000, "commission_rate": "22"},
+                {"price_from_cents": 30_001, "price_to_cents": 100_000, "commission_rate": "15"},
+            ],
+        }
+
+    def get_session_profile(self, scenario_id, user_id=None):
+        return None
+
+    def resolve_for_scenario(self, scenario_id, version, seller_price, user_id=None,
+                             *, session_profile_only=False):
+        self.calls.append((scenario_id, version, str(seller_price), user_id))
+        cents = UnitPriceTariffSnapshotAdapter.price_to_cents(seller_price)
+        resolution = UnitPriceTariffResolver().resolve(
+            seller_price_cents=cents,
+            identity={
+                "owner_id": "user-1", "store_id": "store-1", "product_id": "p1",
+                "offer_id": "hook-2", "sku": "3921245627",
+            },
+            sale_schema="FBO", effective_date="2026-10-14", profiles=[self.profile],
+        )
+        return {
+            **resolution,
+            "effective_date": "2026-10-14",
+            "selected_profile": deepcopy(self.profile) if resolution.get("available") is True else None,
+            "candidate_profiles": [deepcopy(self.profile)],
+        }
+
+
 def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertising():
     runtime, source = _runtime()
     token = _activate()
@@ -208,6 +312,7 @@ def test_catalog_selection_uses_exact_sku_and_initially_requires_manual_advertis
 
 def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     cross_docking = {
         "status": "SKU_SUPPLY_PERIOD_AVERAGE",
         "reason": None,
@@ -235,6 +340,9 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
             f"upc:z:{scenario['price_scenario']['scenario_id']}:1",
             user_id="user-1",
         )
+        details = runtime.handle_callback(
+            _find_button(ready, "Подробности расчёта")["callback"], user_id="user-1"
+        )
         assumptions = runtime.handle_callback(
             _find_button(ready, "Допущения и источники")['callback'], user_id="user-1"
         )
@@ -249,6 +357,7 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
         )
         comparison = runtime.handle_text("499,90; 549,90", user_id="user-1")
         cap_runtime, cap_source = _runtime()
+        _mark_fixed_rate_assumption(cap_source)
         _add_cross_docking_evidence(cap_source, cross_docking)
         cap_scenario = _select_catalog_product(cap_runtime)
         cap_ready = cap_runtime.handle_callback(
@@ -265,13 +374,14 @@ def test_price_calculator_shows_cross_docking_formula_and_uses_it_in_profit():
 
     assert ready["price_scenario"]["calculated"]["cross_docking"] == 12.0
     assert ready["price_scenario"]["calculated"]["profit"] == 214.0
-    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in ready["message"]
-    assert "начисления 1 200,00 ₽ / принято 100 шт." in ready["message"]
-    assert "начисления Ozon с корректировками -1 200,00 ₽" in ready["message"]
-    assert "покрытие 56/56 дней" in ready["message"]
-    assert "поставки: COMPLETE" in ready["message"]
-    assert "снимок: 2026-10-19T12:00:00Z" in ready["message"]
-    assert "must-not-be-exposed" not in ready["message"]
+    assert "Кросс-докинг учтён: 12,00 ₽/шт." in ready["message"]
+    assert "Кросс-докинг: 12,00 ₽ на фактически поставленную единицу (по расходам этого SKU)" in details["message"]
+    assert "начисления 1 200,00 ₽ / принято 100 шт." in details["message"]
+    assert "начисления Ozon с корректировками -1 200,00 ₽" in details["message"]
+    assert "покрытие 56/56 дней" in details["message"]
+    assert "поставки: COMPLETE" in details["message"]
+    assert "снимок: 2026-10-19T12:00:00Z" in details["message"]
+    assert "must-not-be-exposed" not in details["message"]
     assert "Кросс-докинг: 12,00 ₽" in assumptions["message"]
     assert target_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
     assert "Кросс-докинг учтён: 12,00 ₽ на одну плановую успешную продажу." in target["message"]
@@ -308,6 +418,10 @@ def test_target_price_result_labels_missing_cross_docking_evidence_instead_of_ex
             user_id="user-1",
         )
         result = runtime.handle_text("20", user_id="user-1")
+        applied = runtime.handle_callback(
+            _find_button(result, "Подставить цену для цели")["callback"],
+            user_id="user-1",
+        )
     finally:
         reset_current_tenant_user_id(tenant)
 
@@ -389,10 +503,32 @@ def test_manual_zero_advertising_completes_scenario_and_reports_comparison():
     assert result["status"] == "UNIT_PRICE_SCENARIO_READY"
     assert result["price_scenario"]["calculated"]["profit"] == 226.0
     assert result["price_scenario"]["comparison"]["available"] is True
+    assert result["message"].index("Прибыль:") < result["message"].index("Комиссия:")
+    assert "Прибыль: 226,00 ₽/шт." in result["message"]
+    assert "Выручка для налога" not in result["message"]
+    assert len(result["message"]) < 1200
     assert "При текущей цене 500,00 ₽" in result["message"]
     assert "Оценка одной успешной продажи FBO" in result["message"]
     assert "FBS не поддержан" in result["message"]
-    assert "не включены" in result["message"]
+    assert "Не включены хранение, постоянные расходы и возвраты." in result["message"]
+
+    token = _activate()
+    try:
+        details = runtime.handle_callback(
+            _find_button(result, "Подробности расчёта")["callback"], user_id="user-1"
+        )
+        short = runtime.handle_callback(
+            _find_button(details, "Краткий итог")["callback"], user_id="user-1"
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+    assert details["status"] == "UNIT_PRICE_SCENARIO_DETAILS_READY"
+    assert "Цена продавца: 500,00 ₽" in details["message"]
+    assert "Выручка для налога:" in details["message"]
+    assert "Налог:" in details["message"]
+    assert "Краткий итог" in [item["text"] for item in details["keyboard"]["buttons"]]
+    assert short["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert "Прибыль: 226,00 ₽/шт." in short["message"]
 
 
 def test_target_margin_input_retries_then_shows_verified_price_without_changing_scenario():
@@ -432,6 +568,47 @@ def test_target_margin_input_retries_then_shows_verified_price_without_changing_
     assert source.calls == [("3921245627", "user-1", False)]
     assert len(result["message"]) < 3500
     assert all(len(item["callback"].encode("utf-8")) <= 64 for item in result["keyboard"]["buttons"])
+
+
+def test_target_margin_runtime_uses_frozen_tariff_segments_and_discloses_coverage_gaps():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("20", user_id="user-1")
+        applied = runtime.handle_callback(
+            _find_button(result, "Подставить цену для цели")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    plan = result["price_planning_result"]
+    target = plan["target"]
+    assert prompt["stage"] == "target_margin"
+    assert result["status"] == "UNIT_PRICE_TARGET_MARGIN_RESULT"
+    assert target["status"] == "FOUND"
+    assert target["commission_rate"] == "15"
+    assert target["commission_origin"] == "MANUAL_SELLER_ASSUMPTION"
+    assert plan["tariff_search"]["covered_segment_count"] == 3
+    assert plan["tariff_search"]["coverage_complete"] is False
+    assert plan["tariff_search"]["global_minimum_claimed"] is False
+    assert "Минимум ищется только среди рассчитанных тарифных диапазонов" in result["message"]
+    assert "Комиссия не определена для цен:" in result["message"]
+    assert "Цена основного сценария не изменена" in result["message"]
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == float(target["price"])
+    assert applied["price_scenario"]["inputs"]["commission_rate"]["value"] == float(target["commission_rate"])
+    assert len(result["message"]) < 3500
+    assert source.calls == [("3921245627", "user-1", False)]
 
 
 def test_target_margin_can_be_found_without_a_source_price():
@@ -498,6 +675,7 @@ def test_target_margin_prefers_a_smaller_verified_price_than_current_price():
             "tax_rate": None,
             "minimum_tax_rate": None,
         })
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
         return snapshot
 
     source.load_snapshot = load_snapshot
@@ -543,6 +721,7 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
             "tax_rate": None,
             "minimum_tax_rate": None,
         })
+        snapshot["input_provenance"]["commission_rate"] = "fixed_rate_assumption"
         return snapshot
 
     source.load_snapshot = load_snapshot
@@ -577,6 +756,7 @@ def test_target_margin_treats_trailing_zero_price_input_as_same_cent_value():
 
 def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)
@@ -610,6 +790,189 @@ def test_compare_prices_rejects_entire_invalid_list_then_compares_same_scenario(
     assert "налог" in result["message"]
     assert price_before == 500
     assert source.calls == [("3921245627", "user-1", False)]
+
+
+def test_tariff_aware_comparison_uses_frozen_per_price_rate_and_no_extra_source_reads():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        target_prompt = runtime.handle_callback(
+            _find_button(scenario, "Цена для целевой маржи")["callback"],
+            user_id="user-1",
+        )
+        target_result = runtime.handle_text("20", user_id="user-1")
+        prompt = runtime.handle_callback(
+            _find_button(target_result, "Сравнить другие цены")["callback"],
+            user_id="user-1",
+        )
+        result = runtime.handle_text("99,99; 100; 100,01", user_id="user-1")
+        selected = runtime.handle_callback(
+            _find_button(result, "Подставить вариант 3")["callback"],
+            user_id="user-1",
+        )
+    finally:
+        reset_current_tenant_user_id(token)
+
+    comparison = result["price_planning_result"]
+    assert target_prompt["stage"] == "target_margin"
+    assert prompt["stage"] == "price_options"
+    assert comparison["target_margin_percent"] == "20"
+    assert [row["commission_rate"] for row in comparison["rows"]] == ["11", "11", "22"]
+    assert [row["commission"] for row in comparison["rows"]] == [11.0, 11.0, 22.0]
+    assert comparison["baseline"]["price"] == "500.00"
+    assert comparison["baseline"]["available"] is True
+    assert comparison["best_prices"] == ["100.00"]
+    assert "Максимальная прибыль среди рассчитанных вариантов" in result["message"]
+    assert "Реклама для вариантов: одинаковая ДРР 0,00%" in result["message"]
+    assert selected["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert selected["price_scenario"]["inputs"]["price"]["value"] == 100.01
+    assert selected["price_scenario"]["inputs"]["commission_rate"]["value"] == 22.0
+    assert len(source.calls) == 1
+    assert len(tariff.calls) == 1
+
+
+def test_public_comparison_flow_accepts_per_price_drr_and_applies_selected_rate_locally():
+    runtime, source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ad_button = next(button for button in scenario["keyboard"]["buttons"]
+                         if str(button.get("callback", "")).endswith(":advertising_rate"))
+        ad_prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        scenario = runtime.handle_text("16.5", user_id="user-1")
+        compare_button = next(button for button in scenario["keyboard"]["buttons"]
+                              if str(button.get("callback", "")).startswith("upc:q:"))
+        comparison_prompt = runtime.handle_callback(compare_button["callback"], user_id="user-1")
+        initial = runtime.handle_text("450; 500", user_id="user-1")
+        drr_button = next(button for button in initial["keyboard"]["buttons"]
+                          if str(button.get("callback", "")).startswith("upc:d:"))
+        drr_prompt = runtime.handle_callback(drr_button["callback"], user_id="user-1")
+        invalid = runtime.handle_text("12", user_id="user-1")
+        result = runtime.handle_text("16.5; 8", user_id="user-1")
+        apply_button = next(button for button in result["keyboard"]["buttons"]
+                            if str(button.get("callback", "")).startswith("upc:u:")
+                            and str(button.get("callback", "")).endswith(":1"))
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert comparison_prompt["stage"] == "price_options"
+    assert drr_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    result_data = result["price_planning_result"]
+    assert result_data["advertising_basis"]["mode"] == "PER_PRICE_DRR"
+    assert result_data["advertising_basis"]["rates"] == ["16.5", "8"]
+    assert result_data["rows"][1]["compensation_thresholds"]["strictly_better"]["available"] is True
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 500
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == 8
+    assert len(source.calls) == 1
+
+
+def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominator():
+    runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        ad_button = next(button for button in scenario["keyboard"]["buttons"]
+                         if str(button.get("callback", "")).endswith(":advertising_rate"))
+        ad_prompt = runtime.handle_callback(ad_button["callback"], user_id="user-1")
+        scenario = runtime.handle_text("10", user_id="user-1")
+        compare_button = next(button for button in scenario["keyboard"]["buttons"]
+                              if str(button.get("callback", "")).startswith("upc:q:"))
+        comparison_prompt = runtime.handle_callback(compare_button["callback"], user_id="user-1")
+        initial = runtime.handle_text("450; 500", user_id="user-1")
+        cost_button = next(button for button in initial["keyboard"]["buttons"]
+                           if str(button.get("callback", "")).startswith("upc:h:"))
+        cost_prompt = runtime.handle_callback(cost_button["callback"], user_id="user-1")
+        result = runtime.handle_text("200; 40", user_id="user-1")
+        apply_button = next(button for button in result["keyboard"]["buttons"]
+                            if str(button.get("callback", "")).startswith("upc:u:")
+                            and str(button.get("callback", "")).endswith(":0"))
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    basis = result["price_planning_result"]["advertising_basis"]
+    assert ad_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert comparison_prompt["stage"] == "price_options"
+    assert cost_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert basis["mode"] == "MANUAL_COST_PER_SUCCESSFUL_UNIT"
+    assert basis["denominator"] == "SUCCESSFUL_UNITS"
+    assert basis["successful_units"] == 40
+    assert basis["total_spend"] == "200.00"
+    assert basis["amount_per_unit"] == "5.00"
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(
+        result["price_planning_result"]["rows"][0]["advertising_rate"]
+    )
+    assert applied["price_scenario"]["calculated"]["advertising"] == 5.0
+    assert len(source.calls) == 1
+
+
+def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for_selected_price():
+    tariff = _FrozenRangeTariffRuntime()
+    runtime, source = _runtime(tariff_profile_runtime_service=tariff)
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        scenario = runtime.handle_callback(
+            _find_button(scenario, "Реклама 0%")["callback"], user_id="user-1"
+        )
+        prompt = runtime.handle_callback(
+            _find_button(scenario, "Исследовать диапазон цены")["callback"],
+            user_id="user-1",
+        )
+        invalid = runtime.handle_text("2;1;0.01", user_id="user-1")
+        result = runtime.handle_text("1;2;0.01", user_id="user-1")
+        next_page_button = next(
+            button for button in result["keyboard"]["buttons"]
+            if str(button.get("callback", "")).startswith("upc:w:")
+        )
+        second_page = runtime.handle_callback(next_page_button["callback"], user_id="user-1")
+        apply_button = _find_button(result, "Подставить вариант 1")
+        applied = runtime.handle_callback(apply_button["callback"], user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    grid = result["price_planning_result"]
+    assert prompt["stage"] == "price_grid"
+    assert invalid["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert "начало; конец; шаг" in invalid["message"]
+    assert result["status"] == "UNIT_PRICE_PRICE_COMPARISON_RESULT"
+    assert len(grid["rows"]) == 101
+    assert len(grid["rows"]) <= grid["price_grid"]["candidate_limit"] == 200
+    assert grid["evaluation_count"] <= grid["evaluation_limit"] == 1_024
+    assert grid["global_optimum_claimed"] is False
+    assert all("forward_result" not in row for row in grid["rows"])
+    assert all(row["compensation_thresholds"]["status"] == "DEFERRED_UNTIL_CANDIDATE_SELECTED"
+               for row in grid["rows"])
+    assert "не глобальный максимум" in result["message"]
+    assert "варианты 1–10" in result["message"]
+    assert "варианты 11–20" in second_page["message"]
+    second_page_buttons = second_page["keyboard"]["buttons"]
+    assert any(button["text"] == "Подставить вариант 11" for button in second_page_buttons)
+    assert not any(button["text"] == "Подставить вариант 1" for button in second_page_buttons)
+    assert all(len(button["callback"].encode("utf-8")) <= 64 for button in second_page_buttons)
+    stale_keyboard = AssistantKeyboardService().build_unit_price_planning_result_keyboard(
+        "scenario-1", 1, "price_grid", planning_result=grid,
+        allow_apply=False, page=1,
+    )
+    assert any(button["text"].startswith("◀ Предыдущие") for button in stale_keyboard["buttons"])
+    assert not any(button["text"].startswith("Подставить") for button in stale_keyboard["buttons"])
+    assert len(result["message"].encode("utf-16-le")) // 2 <= 4096
+    assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
+    assert "Порог рекламы для выбранной цены относительно базы" in applied["message"]
+    assert applied["price_scenario"]["inputs"]["price"]["value"] == 1
+    assert source.calls == [("3921245627", "user-1", False)]
+    assert len(tariff.calls) == 1
 
 
 def test_target_margin_reports_missing_assumptions_instead_of_zeroing_them():
@@ -718,6 +1081,7 @@ def test_target_price_applies_only_from_current_verified_result_and_old_button_s
 
 def test_comparison_applies_only_the_selected_saved_row():
     runtime, source = _runtime()
+    _mark_fixed_rate_assumption(source)
     token = _activate()
     try:
         scenario = _select_catalog_product(runtime)

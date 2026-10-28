@@ -54,6 +54,7 @@ def test_main_menu_makes_help_discoverable():
     assert "help" in _callbacks({"keyboard": keyboard})
     assert "ozon_stores" in _callbacks({"keyboard": keyboard})
     assert "experimental_calculations" in _callbacks({"keyboard": keyboard})
+    assert "unit_price_calculator" in _callbacks({"keyboard": keyboard})
     assert "about_bot" in _callbacks({"keyboard": keyboard})
 
 
@@ -117,6 +118,8 @@ def test_help_callback_uses_production_telegram_path_and_existing_workflows():
     assert result["error"] is False
     assert result["read_only_ozon"] is True
     assert {"period_profit", "seller_cost", "memory"}.issubset(_callbacks(result))
+    assert "unit_price_calculator" in _callbacks(result)
+    assert "Подобрать цену по прибыли/шт." in result["text"]
     assert "help:commands" in _callbacks(result)
     assert "help:examples" in _callbacks(result)
 
@@ -154,6 +157,8 @@ def test_phrase_reference_documents_hidden_inputs_and_financial_boundaries():
     assert "себестоимость 450 ₽ с 01.01.2026" in result["message"]
     assert "SKU 111 и SKU 222 — один товар" in result["message"]
     assert "Отменить связь SKU 111 и SKU 222" in result["message"]
+    assert "Подробности расчёта" in result["message"]
+    assert "Указать тариф комиссии" in result["message"]
     assert "не угадывает" in result["message"]
 
 
@@ -163,3 +168,4 @@ def test_help_returns_to_real_main_keyboard():
     assert result["error"] is False
     assert "period_profit" in _callbacks(result)
     assert "help" in _callbacks(result)
+    assert "unit_price_calculator" in _callbacks(result)

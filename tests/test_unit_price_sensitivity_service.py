@@ -6,6 +6,42 @@ import pytest
 from services.tax_service import TaxService
 from services.unit_price_scenario_service import UnitPriceScenarioService
 from services.unit_price_sensitivity_service import UnitPriceSensitivityService
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
+from services.unit_price_tariff_snapshot_adapter import UnitPriceTariffSnapshotAdapter
+
+
+def _frozen_tariff_for(context, bands):
+    identity = context["identity"]
+    owner = str(identity.get("owner_id") or identity.get("user_id"))
+    profile = {
+        "profile_id": "sensitivity-tariff", "revision": 1, "state_revision": 1,
+        "owner_id": owner, "store_id": identity["store_id"],
+        "identity": {key: identity[key] for key in ("product_id", "offer_id", "sku")},
+        "sale_schema": "FBO", "price_basis": "SELLER_PRICE_RUB", "currency": "RUB",
+        "origin": "MANUAL_SELLER_ASSUMPTION", "source_ref": "synthetic-test",
+        "recorded_at": "2026-10-27T10:00:00+00:00", "observed_at": None,
+        "effective_from": "2026-10-27", "effective_to": None,
+        "confirmed_by_owner": True, "bands": bands,
+    }
+    tariff_identity = {
+        "owner_id": owner, "store_id": identity["store_id"],
+        "product_id": identity["product_id"], "offer_id": identity["offer_id"],
+        "sku": identity["sku"],
+    }
+    price_cents = UnitPriceTariffSnapshotAdapter.price_to_cents(
+        context["inputs"]["price"]
+    )
+    resolution = UnitPriceTariffResolver().resolve(
+        seller_price_cents=price_cents, identity=tariff_identity,
+        sale_schema="FBO", effective_date="2026-10-27", profiles=[profile],
+    )
+    assert resolution["available"] is True
+    frozen = UnitPriceTariffSnapshotAdapter.freeze(
+        resolution, profile, candidate_profiles=[profile], effective_date="2026-10-27",
+    )
+    context["inputs"]["commission_rate"] = resolution["commission_rate"]
+    context["frozen_tariff_resolution"] = frozen
+    return frozen
 
 
 def _context(inputs=None):
@@ -135,6 +171,53 @@ def test_sensitivity_keeps_cross_docking_rate_fixed_across_price_scenarios():
         )["calculated"]["profit"]
         for cell in result["cells"]
     )
+
+
+def test_price_sensitivity_resolves_each_price_against_same_frozen_tariff_and_keeps_gaps_unknown():
+    service = _service()
+    context = _context()
+    frozen = _frozen_tariff_for(context, [
+        {"price_from_cents": 45_000, "price_to_cents": 50_000, "commission_rate": "11"},
+        {"price_from_cents": 50_001, "price_to_cents": 60_000, "commission_rate": "22"},
+    ])
+    before = deepcopy(frozen)
+
+    result = service.build_sweep(
+        context, {"price": ["500", "500.01", "600.01"]},
+    )
+
+    assert result["error"] is False
+    assert result["tariff_scope"] == "FROZEN_PROFILE_SET"
+    assert [cell["status"] for cell in result["cells"]] == [
+        "AVAILABLE", "AVAILABLE", "COMMISSION_UNKNOWN",
+    ]
+    assert [cell["inputs"]["commission_rate"] for cell in result["cells"]] == [
+        "11", "22", None,
+    ]
+    assert [cell["tariff_resolution"]["origin"] for cell in result["cells"]] == [
+        "manual_seller_assumption", "manual_seller_assumption", "unknown",
+    ]
+    assert result["cells"][2]["tariff_resolution"]["reason"] == "PRICE_OUTSIDE_PROFILE_BANDS"
+    assert frozen == before
+
+
+def test_legacy_current_commission_is_exact_price_only_not_a_fixed_rate_across_price_axis():
+    context = _context()
+    context["provenance"]["commission_rate"] = "ozon_current_fbo_rate"
+    context["legacy_tariff_price_cents"] = 50_000
+
+    result = _service().build_sweep(
+        context, {"price": ["500", "500.01", "550"]},
+    )
+
+    assert result["error"] is False
+    assert result["tariff_scope"] == "EXACT_PRICE_ONLY"
+    assert [cell["status"] for cell in result["cells"]] == [
+        "AVAILABLE", "COMMISSION_UNKNOWN", "COMMISSION_UNKNOWN",
+    ]
+    assert result["cells"][0]["inputs"]["commission_rate"] == "15"
+    assert result["cells"][1]["inputs"]["commission_rate"] is None
+    assert result["cells"][1]["tariff_resolution"]["reason"] == "LEGACY_RATE_CONFIRMED_AT_SAVED_PRICE_ONLY"
 
 
 def test_each_axis_value_is_an_absolute_assumption_and_cost_zero_is_known():

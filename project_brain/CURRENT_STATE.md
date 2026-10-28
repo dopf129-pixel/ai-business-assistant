@@ -1,8 +1,37 @@
+# 2026-10-28 — PR #720: повторный review R8
+
+- Смена целевой маржи повторно запускает bounded solver для строк с сохранённым снимком, даже если их предыдущий поиск исчерпал бюджет. Неполные строки без снимка, неподдерживаемые схемы и недоступный источник не затрагиваются; ограничения solver остаются прежними.
+- Добавлена регрессия для двух SKU: цель 50% исчерпывает лимит в 128 вычислений на строку; смена цели на 0% заново находит результат за 6 вычислений на строку. Связанный профиль Windows/Python 3.12: **165 passed in 4.14s**; полный pytest в отдельной временной worktree на коде `2f03edcd`: **3,997 passed in 48.17s**. Exact-head Verify [40666814742](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40666814742) успешно завершился на `442e5dff`; основной checkout и его `data/` чистые.
+
+# 2026-10-28 — PR #720: исправления повторного review (R6–R7)
+
+- Повторные расчёты единичной строки и массовые расчёты целевой маржи/рекламы теперь ограничены на входе в solver: не более `TARGET_CALCULATION_LIMIT` на SKU и в пределах оставшегося `BATCH_CALCULATION_LIMIT`. Исчерпание возвращается как `BUDGET_EXHAUSTED`, а не как обычное отсутствие результата.
+- Тариф из подтверждённого источника допускается quality gate в модельном сравнении; неизвестный тариф остаётся блокирующим. Результат не повышается до подтверждённого факта.
+- Связанный профиль Windows/Python 3.12: **164 passed in 4.53s**; полный pytest в отдельной временной worktree на `b2f01fb3`: **3,996 passed in 47.43s**. `compileall` и `git diff --check` прошли; исходный checkout и `data/` остались без изменений. Кодовый коммит `dbd87c7d` опубликован в PR #720 и прошёл exact-head Verify [40664676434](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40664676434) (Windows + full verification). Следующий коммит содержит только этот результат в документации; merge/deploy/live bot не выполнялись.
+
+# 2026-10-28 — review corrections калькулятора цены по прибыли/шт.
+
+- Исправлены пять подтверждённых замечаний независимого review PR #720: комиссия наблюдения привязывается к наблюдаемой цене и provenance; окно Returns передаётся в точных UTC-моментах; сессионный тариф различается от конфликтующих постоянных профилей; минимальная целевая цена проверяется с учётом округления; общий лимит batch-вычислений передаётся до solver-вызова.
+- Новый связанный Windows/Python 3.12 профиль: **149 passed** на восьми модулях; полный изолированный `pytest`: **3,990 passed in 49.21s**. `compileall`, `git diff --check` прошли; `data/` в основном checkout остался чистым.
+- PR #720 остаётся stacked на PR #719. Опубликованный code/documentation head `40a23315d74958cb7b7e427b785f730ea886ac79` прошёл Verify `40654624761` (Windows/Linux). Слияние, развёртывание и запуск бота не выполнялись.
+
+# 2026-10-27 — калькулятор прибыли с единицы: Q30 buyout estimate
+
+- По решению владельца наблюдаемый процент выкупа SKU вычисляется из завершённых FBO postings и Returns API, а не принимается как ручное число. Неполные выборки и неоднозначные отмены блокируют модель; delivered/(delivered + подтверждённые невыкупы покупателя) показывается с размером выборки.
+- Сквозной Telegram flow показывает проценты/доставленные/возвращённые единицы, рассчитывает явно модельную прибыль и сравнивает 100 ₽ с 95 ₽. Возвратные расходы явно исключены из модели; CPC и FBO используют разные основания дат. Live Ozon/API не запускался.
+- Q30 focused profile: **56 passed in 2.60s across six changed UI/evidence modules**; Q31 linked profile: **1,374 passed in 39.94s на 175 модулях**, plus bounded soak/evaluation **3 passed in 3.12s**; Q33 full suite: **3,983 passed in 53.74s** in a disposable isolated worktree. Q35 exact implementation-head Verify `40573748055` passed on `0154f857`; documentation-only PR head `483cd4d1` also passed Verify `40574423459` (Windows, Linux, Docker). Compileall and diff checks pass; tracked owner data in the implementation worktree is clean. Independent review package is attached to PR #720; independent reviewer feedback is still pending. Детали/resume: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`, Q30–Q35 acceptance and `UNIT_PRICE_PROFIT_PER_UNIT_USER_GUIDE_2026-10-27.md`.
+
+# 2026-10-27 — Q29: сохранность калькулятора цены при backup/restore
+
+- Q29 завершён: синтетические тариф, план, наблюдение и две версии результата восстановлены через существующий backup в новый storage root; scope и privacy guards подтверждены.
+- Проверки: новый backup/restore тест + адресные старые schema migrations — **5 passed in 0.95s**. Полный pytest и exact-head CI остаются Q33–Q35.
+- Acceptance: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`; журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`.
+
 # 2026-10-26 — следующая программа: выбор цены по прибыли с единицы
 
 - PR #718 слит в main: `07a84b5d7a9ffa7d0007947e0d8d4e9032052e01`; reviewed head `8c1408d55d31e111761bdee708a2792ab1dafa33`, Verify #40348020402 успешен на Windows/Linux и Docker. Записи ниже о незавершённом merge относятся к предыдущим checkpoint.
 - По решению владельца подготовлено `LUNA_PRICE_PROFIT_PER_UNIT_TASK_2026-10-26.md`: 8 модулей A–H, этапы Q00–Q35. Цель — прибыль в рублях с одной проданной единицы, с тарифными диапазонами, ручными комиссиями, рекламными сценариями и проверкой по наблюдениям.
-- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Статус SPEC_PREPARED; реализация не начата. Текущие ставки конкретного SKU не подтверждены, старые 14%/20% не являются defaults. Прогноз ДРР и неполный CPC/SKU-факт не выдаются за полную подтверждённую прибыль.
+- Журнал: `LUNA_PRICE_PROFIT_PER_UNIT_PROGRESS_2026-10-26.md`. Q00–Q34 пройдены 27.10.2026: полный изолированный pytest — 3,983 passed; Q33/Q34 acceptance находятся в `UNIT_PRICE_FINAL_VERIFICATION_Q33_2026-10-27.md` и `UNIT_PRICE_SELF_REVIEW_Q34_2026-10-27.md`. Exact-head CI и PR review package — Q35. Acceptance Q29: `UNIT_PRICE_PERSISTENCE_PRIVACY_RESTORE_Q29_2026-10-27.md`.
 - ТЗ требует расширять существующие calculator/TaxService/planning/finance adapters, сохранять старые планы и данные, закончить на PR с зелёным exact-head CI и независимым review package. Merge/deploy/real bot запуск в новую программу не входят.
 
 # 2026-10-26 — историческая программа: завершение существующего функционала
@@ -4882,3 +4911,10 @@ Completed:
 
 - Добавлен локальный `update_bot.ps1 -CheckOnly`: он показывает текущую ревизию, кэшированный target SHA, безопасные data conflicts, зависимости, lifecycle и необходимость backup. Fetch/update/stop/start не выполняет.
 - Synthetic Git preflight: **9 passed**; Git ref, worktree и fake process state не изменились. Exact-head CI предстоит; см. `DAILY_USE_UPDATE_PREFLIGHT_ACCEPTANCE_D03_2026-10-25.md`.
+# 2026-10-27 — unit-price observation Q17
+
+- Q17 bounded read-only collection завершён: точное FBO/SKU окно использует существующие ограниченные Ozon finance/Performance adapters; денежные и ценовые основания не выдаются за подтверждённую прибыль. Изолированный профиль: 172 passed; полный pytest/CI ещё впереди (Q33–Q35). Acceptance: `UNIT_PRICE_OBSERVATION_COLLECTION_Q17_2026-10-27.md`.
+
+# 2026-10-27 — unit-price observation Q18
+
+- Q18 добавил pure normalizer для денег, окон/дат, DRR bases, взвешенных знаменателей и conflict-safe dedup. Без полной скидочной базы, price history, successful-sale units и дедуп-подтверждения результат остаётся incomparable; финансы и CPC не вычитаются повторно. Связанный профиль: 184 passed. Acceptance: `UNIT_PRICE_OBSERVATION_NORMALIZATION_Q18_2026-10-27.md`.
