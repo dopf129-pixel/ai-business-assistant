@@ -20,6 +20,7 @@ class PlanningUnitEconomicsExperimentAdapter:
     EXPERIMENT_PLAN_SCHEMA_VERSION = 1
     PHASE_SCHEMA_VERSION = 1
     RESULT_SCHEMA_VERSION = 2
+    OWNER_DECISION_SCHEMA_VERSION = 1
     MAX_SNAPSHOT_BYTES = 64 * 1024
     MAX_AMOUNT = Decimal("999999999999.99")
     _HEX_256 = re.compile(r"^[a-f0-9]{64}$")
@@ -47,6 +48,10 @@ class PlanningUnitEconomicsExperimentAdapter:
     _OUTCOMES = frozenset({
         "CONTINUE_COLLECTING", "FIX_DATA_OR_CONDITIONS", "NO_CLEAR_DIFFERENCE",
         "CANDIDATE_BETTER_IN_MODEL", "BASELINE_BETTER_IN_MODEL", "INCOMPARABLE",
+    })
+    _OWNER_DECISIONS = frozenset({
+        "KEEP_BASELINE_PRICE", "SELECT_EVALUATED_CANDIDATE", "CONTINUE_TEST",
+        "STOP_WITHOUT_PRICE_CHANGE",
     })
 
     @classmethod
@@ -651,6 +656,38 @@ class PlanningUnitEconomicsExperimentAdapter:
             "candidate_phase_state_revision": value["candidate_phase_state_revision"],
             "baseline_control_event_revision": value["baseline_control_event_revision"],
             "candidate_control_event_revision": value["candidate_control_event_revision"],
+        }
+
+    @classmethod
+    def normalize_owner_decision(cls, payload):
+        fields = {
+            "schema_version", "decision_type", "result_phase_id", "result_revision",
+            "selected_phase_id",
+        }
+        if (not isinstance(payload, dict) or set(payload) != fields
+                or type(payload.get("schema_version")) is not int
+                or payload["schema_version"] != cls.OWNER_DECISION_SCHEMA_VERSION
+                or payload.get("decision_type") not in cls._OWNER_DECISIONS
+                or not isinstance(payload.get("result_phase_id"), str)
+                or cls._HEX_128.fullmatch(payload["result_phase_id"]) is None
+                or type(payload.get("result_revision")) is not int
+                or not 1 <= payload["result_revision"] <= 20):
+            return None
+        selected = payload.get("selected_phase_id")
+        requires_selected = payload["decision_type"] in {
+            "KEEP_BASELINE_PRICE", "SELECT_EVALUATED_CANDIDATE",
+        }
+        if requires_selected:
+            if not isinstance(selected, str) or cls._HEX_128.fullmatch(selected) is None:
+                return None
+        elif selected is not None:
+            return None
+        return {
+            "schema_version": cls.OWNER_DECISION_SCHEMA_VERSION,
+            "decision_type": payload["decision_type"],
+            "result_phase_id": payload["result_phase_id"],
+            "result_revision": payload["result_revision"],
+            "selected_phase_id": selected,
         }
 
     @classmethod

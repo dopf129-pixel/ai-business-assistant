@@ -233,7 +233,7 @@ def test_schema_v9_additive_migration_preserves_existing_plan_and_backfills_acti
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema",
-        ).fetchone()[0] == 11
+        ).fetchone()[0] == 12
         guard = connection.execute(
             "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
         ).fetchone()
@@ -668,7 +668,7 @@ def test_event_quota_failure_rolls_back_pause_and_keeps_active_guard(tmp_path, m
         reset_current_tenant_user_id(token)
 
 
-def test_schema_v8_to_v10_preserves_planned_phase_history(tmp_path):
+def test_schema_v8_to_v12_preserves_planned_phase_history(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, snapshot, experiment = _seed(repo)
     token = _context()
@@ -711,7 +711,7 @@ def test_schema_v8_to_v10_preserves_planned_phase_history(tmp_path):
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema",
-        ).fetchone()[0] == 11
+        ).fetchone()[0] == 12
         columns = {row[1] for row in connection.execute(
             "PRAGMA table_info(planning_price_experiment_phases)",
         )}

@@ -41,7 +41,7 @@ from services.unit_economics_experiment_control_service import (
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 4
-    DATABASE_SCHEMA_VERSION = 11
+    DATABASE_SCHEMA_VERSION = 12
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
@@ -57,6 +57,7 @@ class PlanningWorkspaceRepository:
     MAX_PRICE_EXPERIMENTS_PER_STORE = 100
     MAX_PRICE_EXPERIMENT_PHASES = 10
     MAX_PRICE_EXPERIMENT_RESULTS_PER_PHASE = 20
+    MAX_PRICE_EXPERIMENT_DECISIONS = 100
     MAX_PRICE_EXPERIMENT_COLLECTIONS_PER_PHASE = 20
     MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES = 64 * 1024
     MAX_PRICE_EXPERIMENT_IDEMPOTENCY_PER_STORE = 1000
@@ -4176,19 +4177,223 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def record_price_experiment_owner_decision(
+        self, experiment_id, payload, *, expected_state_revision, idempotency_key,
+        owner_id=None, store_id=None,
+    ):
+        """Append an owner choice bound to the latest candidate comparison result."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        normalized = PlanningUnitEconomicsExperimentAdapter.normalize_owner_decision(payload)
+        if (scope.get("error") or key is None or not self._valid_uuid_hex(experiment_id)
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or normalized is None):
+            return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_INVALID")
+        request_hash = self._price_experiment_request_hash({
+            "operation": "owner_decision", "experiment_id": experiment_id,
+            "expected_state_revision": expected_state_revision, "payload": normalized,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._price_experiment_idempotent_result(connection, scope, key, request_hash)
+            if replay is not None:
+                connection.commit()
+                return replay
+            experiment = connection.execute(
+                "SELECT * FROM planning_price_experiments WHERE experiment_id=? "
+                "AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if experiment is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_NOT_FOUND")
+            if (experiment["state_revision"] != expected_state_revision
+                    or experiment["status"] != "CANDIDATE_REVIEW"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_STATE_CONFLICT")
+            candidate = connection.execute(
+                "SELECT * FROM planning_price_experiment_phases WHERE phase_id=? "
+                "AND experiment_id=? AND owner_id=? AND store_id=?",
+                (normalized["result_phase_id"], experiment_id,
+                 scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if (candidate is None or candidate["kind"] != "CANDIDATE"
+                    or candidate["status"] != "FINISHED"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_RESULT_INVALID")
+            latest_result = connection.execute(
+                "SELECT MAX(result_revision) FROM planning_price_experiment_results "
+                "WHERE experiment_id=? AND phase_id=? AND owner_id=? AND store_id=?",
+                (experiment_id, normalized["result_phase_id"],
+                 scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if latest_result != normalized["result_revision"]:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_RESULT_STALE")
+            result_row = connection.execute(
+                "SELECT payload_json, content_hash FROM planning_price_experiment_results "
+                "WHERE experiment_id=? AND phase_id=? AND owner_id=? AND store_id=? "
+                "AND result_revision=?",
+                (experiment_id, normalized["result_phase_id"], scope["owner_id"],
+                 scope["store_id"], normalized["result_revision"]),
+            ).fetchone()
+            try:
+                result_payload = json.loads(result_row["payload_json"]) if result_row else None
+            except (TypeError, ValueError):
+                result_payload = None
+            result_payload = PlanningUnitEconomicsExperimentAdapter.normalize_result(result_payload)
+            if (result_payload is None or result_row is None
+                    or hashlib.sha256(result_row["payload_json"].encode("utf-8")).hexdigest()
+                    != result_row["content_hash"]):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_RESULT_INVALID")
+
+            decision_type = normalized["decision_type"]
+            selected_phase_id = normalized["selected_phase_id"]
+            if decision_type == "KEEP_BASELINE_PRICE":
+                selected = connection.execute(
+                    "SELECT kind, segment_number FROM planning_price_experiment_phases "
+                    "WHERE phase_id=? AND experiment_id=? AND owner_id=? AND store_id=?",
+                    (selected_phase_id, experiment_id, scope["owner_id"], scope["store_id"]),
+                ).fetchone()
+                if (selected is None or selected["kind"] != "BASELINE"
+                        or selected["segment_number"] != 1):
+                    connection.rollback()
+                    return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_SELECTION_INVALID")
+            elif decision_type == "SELECT_EVALUATED_CANDIDATE":
+                if (selected_phase_id != normalized["result_phase_id"]
+                        or result_payload["outcome"] not in {
+                            "NO_CLEAR_DIFFERENCE", "CANDIDATE_BETTER_IN_MODEL",
+                            "BASELINE_BETTER_IN_MODEL",
+                        }
+                        or result_payload.get("comparison") is None):
+                    connection.rollback()
+                    return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_SELECTION_INVALID")
+
+            count = connection.execute(
+                "SELECT COUNT(*) FROM planning_price_experiment_decisions "
+                "WHERE experiment_id=? AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            decision_revision = count + 1
+            if decision_revision > self.MAX_PRICE_EXPERIMENT_DECISIONS:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_QUOTA_REACHED")
+            now = self._timestamp()
+            encoded = self._encode(normalized)
+            if (encoded is None or len(encoded.encode("utf-8"))
+                    > self.MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_INVALID")
+            decision_id = uuid4().hex
+            digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            connection.execute(
+                """INSERT INTO planning_price_experiment_decisions
+                   (decision_id, experiment_id, owner_id, store_id, decision_revision,
+                    state_revision, decision_type, result_phase_id, result_revision,
+                    selected_phase_id, payload_json, content_hash, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (decision_id, experiment_id, scope["owner_id"], scope["store_id"],
+                 decision_revision, expected_state_revision, decision_type,
+                 normalized["result_phase_id"], normalized["result_revision"],
+                 selected_phase_id, encoded, digest, now),
+            )
+            response = {
+                "error": False, "decision_id": decision_id,
+                "experiment_id": experiment_id, "decision_revision": decision_revision,
+                "state_revision": expected_state_revision, "payload": normalized,
+            }
+            self._remember_price_experiment_idempotency(
+                connection, scope, key, request_hash, response, now,
+            )
+            connection.commit()
+            return response
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_CONFLICT")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def list_price_experiment_owner_decisions(
+        self, experiment_id, *, limit=10, offset=0, owner_id=None, store_id=None,
+    ):
+        scope = self._scope(owner_id, store_id)
+        if (scope.get("error") or not self._valid_uuid_hex(experiment_id)
+                or type(limit) is not int or not 1 <= limit <= self.MAX_PAGE_SIZE
+                or type(offset) is not int or offset < 0):
+            return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            exists = connection.execute(
+                "SELECT 1 FROM planning_price_experiments WHERE experiment_id=? "
+                "AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if exists is None:
+                return self._error("PLANNING_PRICE_EXPERIMENT_NOT_FOUND")
+            rows = connection.execute(
+                "SELECT decision_id, decision_revision, state_revision, decision_type, "
+                "result_phase_id, result_revision, selected_phase_id, payload_json, "
+                "content_hash, created_at FROM planning_price_experiment_decisions "
+                "WHERE experiment_id=? AND owner_id=? AND store_id=? "
+                "ORDER BY decision_revision DESC LIMIT ? OFFSET ?",
+                (experiment_id, scope["owner_id"], scope["store_id"], limit + 1, offset),
+            ).fetchall()
+            items = []
+            for row in rows[:limit]:
+                try:
+                    payload = json.loads(row["payload_json"])
+                except (TypeError, ValueError):
+                    return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_CORRUPT")
+                normalized = PlanningUnitEconomicsExperimentAdapter.normalize_owner_decision(payload)
+                digest = hashlib.sha256(row["payload_json"].encode("utf-8")).hexdigest()
+                if (normalized is None or digest != row["content_hash"]
+                        or normalized["result_phase_id"] != row["result_phase_id"]
+                        or normalized["result_revision"] != row["result_revision"]
+                        or normalized["decision_type"] != row["decision_type"]
+                        or normalized["selected_phase_id"] != row["selected_phase_id"]
+                        or not self._valid_uuid_hex(row["decision_id"])):
+                    return self._error("PLANNING_PRICE_EXPERIMENT_DECISION_CORRUPT")
+                items.append({
+                    "decision_id": row["decision_id"],
+                    "decision_revision": row["decision_revision"],
+                    "state_revision": row["state_revision"],
+                    "created_at": row["created_at"], "content_hash": digest,
+                    "payload": normalized,
+                })
+            return {
+                "error": False, "items": items, "has_more": len(rows) > limit,
+                "next_offset": offset + limit if len(rows) > limit else None,
+            }
+        except sqlite3.Error:
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
     def transition_price_experiment(
         self, experiment_id, action, *, expected_state_revision, idempotency_key,
         owner_id=None, store_id=None,
     ):
-        """Apply currently storage-only experiment transitions atomically.
-
-        Phase-confirmation transitions are deliberately applied by the later
-        experiment workflow once their exact phase and price evidence contracts exist.
-        """
+        """Apply draft readiness/cancellation and owner-confirmed completion atomically."""
         scope = self._scope(owner_id, store_id)
         key = self._idempotency_key(idempotency_key)
         if (scope.get("error") or not self._valid_uuid_hex(experiment_id)
-                or action not in {"cancel", "mark_ready"} or key is None
+                or action not in {"cancel", "mark_ready", "complete"} or key is None
                 or type(expected_state_revision) is not int or expected_state_revision < 1):
             return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_INPUT_INVALID")
         request_hash = self._price_experiment_request_hash({
@@ -4223,6 +4428,7 @@ class PlanningWorkspaceRepository:
                 connection.rollback()
                 return decoded
             readiness_passed = False
+            decision_recorded = False
             if action == "mark_ready":
                 readiness = UnitEconomicsExperimentPlanService.evaluate(
                     decoded["experiment"]["config"],
@@ -4241,8 +4447,45 @@ class PlanningWorkspaceRepository:
                     connection.rollback()
                     return self._error(reference_error)
                 readiness_passed = True
+            elif action == "complete":
+                decision_row = connection.execute(
+                    "SELECT * FROM planning_price_experiment_decisions "
+                    "WHERE experiment_id=? AND owner_id=? AND store_id=? "
+                    "ORDER BY decision_revision DESC LIMIT 1",
+                    (experiment_id, scope["owner_id"], scope["store_id"]),
+                ).fetchone()
+                if decision_row is not None:
+                    try:
+                        decision_payload = json.loads(decision_row["payload_json"])
+                    except (TypeError, ValueError):
+                        decision_payload = None
+                    decision_payload = PlanningUnitEconomicsExperimentAdapter.normalize_owner_decision(
+                        decision_payload,
+                    )
+                    decision_hash = (hashlib.sha256(
+                        decision_row["payload_json"].encode("utf-8"),
+                    ).hexdigest() if decision_row is not None else None)
+                    if (decision_payload is not None
+                            and decision_hash == decision_row["content_hash"]
+                            and decision_payload["decision_type"] == decision_row["decision_type"]
+                            and decision_payload["result_phase_id"] == decision_row["result_phase_id"]
+                            and decision_payload["result_revision"] == decision_row["result_revision"]
+                            and decision_payload["selected_phase_id"] == decision_row["selected_phase_id"]
+                            and decision_row["state_revision"] == expected_state_revision
+                            and decision_payload["decision_type"] in {
+                                "KEEP_BASELINE_PRICE", "SELECT_EVALUATED_CANDIDATE",
+                                "STOP_WITHOUT_PRICE_CHANGE",
+                            }):
+                        latest_result = connection.execute(
+                            "SELECT MAX(result_revision) FROM planning_price_experiment_results "
+                            "WHERE experiment_id=? AND phase_id=? AND owner_id=? AND store_id=?",
+                            (experiment_id, decision_payload["result_phase_id"],
+                             scope["owner_id"], scope["store_id"]),
+                        ).fetchone()[0]
+                        decision_recorded = latest_result == decision_payload["result_revision"]
             decision = UnitEconomicsExperimentStateMachine.transition(
                 row["status"], action, readiness_passed=readiness_passed,
+                decision_recorded=decision_recorded,
             )
             if decision.get("error"):
                 connection.rollback()
@@ -5756,6 +5999,44 @@ class PlanningWorkspaceRepository:
                         phase_id, experiment_id, owner_id, store_id
                     )
             )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_price_experiment_decisions (
+                decision_id TEXT NOT NULL CHECK(length(decision_id)=32),
+                experiment_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                decision_revision INTEGER NOT NULL
+                    CHECK(decision_revision BETWEEN 1 AND 100),
+                state_revision INTEGER NOT NULL CHECK(state_revision >= 1),
+                decision_type TEXT NOT NULL CHECK(decision_type IN (
+                    'KEEP_BASELINE_PRICE', 'SELECT_EVALUATED_CANDIDATE',
+                    'CONTINUE_TEST', 'STOP_WITHOUT_PRICE_CHANGE'
+                )),
+                result_phase_id TEXT NOT NULL,
+                result_revision INTEGER NOT NULL CHECK(result_revision BETWEEN 1 AND 20),
+                selected_phase_id TEXT,
+                payload_json TEXT NOT NULL CHECK(length(CAST(payload_json AS BLOB)) <= 65536),
+                content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(decision_id, owner_id, store_id),
+                UNIQUE(experiment_id, owner_id, store_id, decision_revision),
+                FOREIGN KEY(experiment_id, owner_id, store_id)
+                    REFERENCES planning_price_experiments(experiment_id, owner_id, store_id),
+                FOREIGN KEY(result_phase_id, owner_id, store_id, result_revision)
+                    REFERENCES planning_price_experiment_results(
+                        phase_id, owner_id, store_id, result_revision
+                    ),
+                FOREIGN KEY(selected_phase_id, owner_id, store_id)
+                    REFERENCES planning_price_experiment_phases(phase_id, owner_id, store_id),
+                CHECK((decision_type IN ('KEEP_BASELINE_PRICE','SELECT_EVALUATED_CANDIDATE')
+                        AND selected_phase_id IS NOT NULL)
+                    OR (decision_type IN ('CONTINUE_TEST','STOP_WITHOUT_PRICE_CHANGE')
+                        AND selected_phase_id IS NULL))
+            )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_price_experiment_decisions_scope "
+                "ON planning_price_experiment_decisions(experiment_id, owner_id, store_id, "
+                "decision_revision DESC)"
+            )
             connection.execute("""CREATE TABLE IF NOT EXISTS planning_price_experiment_idempotency (
                 owner_id TEXT NOT NULL,
                 store_id TEXT NOT NULL,
@@ -5919,6 +6200,12 @@ class PlanningWorkspaceRepository:
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiment_collections_no_delete
                 BEFORE DELETE ON planning_price_experiment_phase_collections
                 BEGIN SELECT RAISE(ABORT, 'preserve phase collection history'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiment_decisions_no_update
+                BEFORE UPDATE ON planning_price_experiment_decisions
+                BEGIN SELECT RAISE(ABORT, 'immutable owner decision'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiment_decisions_no_delete
+                BEFORE DELETE ON planning_price_experiment_decisions
+                BEGIN SELECT RAISE(ABORT, 'preserve owner decision history'); END""")
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_price_observation_results_no_update
                 BEFORE UPDATE ON planning_unit_price_observation_results
                 BEGIN SELECT RAISE(ABORT, 'immutable observation result'); END""")
