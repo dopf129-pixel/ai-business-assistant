@@ -1,4 +1,6 @@
-# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W20 verified 29.10.2026)
+# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W21 verified 29.10.2026)
+
+- W21: `tests/test_price_experiment_state_machine.py` covers every documented gated transition and forbidden edge. `tests/test_planning_workspace_unit_economics.py` covers additive schema v6→v7 migration/backfill, legacy conflict markers, shared observation/experiment guard, store isolation, concurrency, cancellation CAS/idempotency and lock release. Existing repository/observation suites verify schema-version and persistence compatibility. Linked Windows/Python 3.12 profile across nine suites: **130 passed in 5.74s**; `py_compile`, `git diff --check` PASS; `git diff -- data` empty. Phase confirmation/application transitions are scheduled for W24–W27. Acceptance: `UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`.
 
 - W20: `tests/test_unit_economics_experiment_snapshot_view_service.py` verifies exact frozen economics/coverage/revisions, redacts all tenant/product/SKU/document identifiers and names, marks mismatched cost references unconfirmed, preserves legacy unavailable tax state, and rejects oversized projections without truncation. JSON and CSV exports embed the equivalent projection and declare no source reads/recalculation. `tests/test_planning_workspace_unit_economics.py::test_experiment_freezes_exact_tariff_and_observation_revisions` exercises the projection against an actual repository frozen bundle. Linked profile across W20 and existing planning/export suites: **50 passed in 3.49s**. Acceptance: `UNIT_ECONOMICS_W20_SNAPSHOT_VIEW_EXPORT_2026-10-29.md`.
 
@@ -5920,7 +5922,7 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 # W17 — снимки и долговечные эксперименты расширенной юнит-экономики
 
 - `tests/test_planning_workspace_unit_economics.py` проверяет allowlisted content-addressed snapshots, лимит payload, hash/version corruption, exact owner/store/SKU/scheme references, plan/tariff/observation identity, immutable experiment/phase/result revisions, CAS/idempotency/replay, active-SKU guard, pagination/quotas, archive-with-history и atomic rollback.
-- `tests/test_planning_workspace_repository.py` проверяет additive migration к schema v6, поддержанные старые версии, invalid/future schema и сохранность legacy plans. `tests/test_unit_price_observation_repository.py` сохраняет миграционные гарантии observation при переходе к v6.
+- `tests/test_planning_workspace_repository.py` проверяет additive migration к schema v7, поддержанные старые версии, invalid/future schema и сохранность legacy plans. `tests/test_unit_price_observation_repository.py` сохраняет миграционные гарантии observation при переходе к v7.
 - Изолированный W17 linked profile: **89 passed in 3.58s**; полный isolated repository `pytest`: **4,166 passed in 36.99s**. `py_compile` и `git diff --check` PASS; после очистки временного fixture `git diff -- data` пустой.
 - Repository принимает только нормализованные allowlisted evidence, не выполняет Ozon/Telegram/API/source I/O и не запускает сборщик. Evidence: `project_brain/UNIT_ECONOMICS_W17_EXPERIMENT_REPOSITORY_2026-10-29.md`.
 

@@ -1,3 +1,8 @@
+# 2026-10-29 — W21: state machine и общий active-SKU guard
+
+- Code commit `788c6c8abcd9` (`Add experiment state machine and shared SKU guard`) adds a pure gated experiment state machine, additive Planning Workspace schema v7 migration, shared atomic observation/experiment SKU guard, and CAS/idempotent draft cancellation. Legacy overlaps are preserved as explicit conflict markers; phase confirmation remains scheduled for W24–W27.
+- W21 linked profile: **130 passed in 5.74s**. Evidence: `project_brain/UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`.
+
 # 2026-10-29 — W20: единая проекция и экспорт ценового эксперимента
 
 - Code commit `68881def` (`Add frozen unit economics experiment snapshot view`).

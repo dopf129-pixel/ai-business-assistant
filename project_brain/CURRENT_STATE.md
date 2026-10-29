@@ -1,9 +1,12 @@
-# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W20
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W21
+
+- W21 (code commit `788c6c8abcd9`) добавил pure state machine эксперимента, аддитивную DB schema v7 и общий атомарный active-SKU guard для observation/experiment с безопасным backfill конфликтов старых активных записей. На этом этапе application mutation покрывает отмену и архивирование; phase-confirmation workflow зависит от W24–W27. Linked profile: **130 passed in 5.74s**. Evidence: `UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`.
+- Следующий этап — W22: сохраняемый план эксперимента с фиксированными scope/metric/bounds/maturity и threshold.
 
 - W20 добавил единый bounded, privacy-safe read model для сохранённой экономики эксперимента, coverage и точных revisions; JSON/CSV экспорт использует ту же проекцию без source reload и повторного расчёта. Фактический Telegram detail UI ожидает W32. Связанный изолированный профиль: **50 passed in 3.49s**. Evidence: `UNIT_ECONOMICS_W20_SNAPSHOT_VIEW_EXPORT_2026-10-29.md`.
 
 - W19 (code commit `d1e1fbac`) протянул frozen window/strict-cohort cost basis через observation result, quality и ranking: signatures связывают режим, scope, source refs, assumptions и per-unit amount. Несовпадающие модели и incomplete basis не сравниваются; `OWNER_COST` отмечается как `MANUAL_ASSUMPTION`. Узкая нормализация `scheme` → `sale_schema` для строгого расчёта не ослабляет exact identity gate. Старые observation/comparison records остаются читаемыми. Linked profile: **136 passed in 9.48s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Evidence: `UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`.
-- Следующий этап — W21: чистая state machine, атомарные переходы и общий active-SKU guard с observation.
+- Следующий этап — W22: durable experiment plan and readiness bounds.
 
 - W18 (commit `731be723`) добавил read-only reopen API для exact plan/calculation revision, expense content-hash snapshot, тарифного профиля и quantity observation result. Явное обновление плана, тарифа, observation и снимка не меняет ссылки старого эксперимента; correction сохраняется append-only result revision, а копия расширенного плана открывается без повторного source I/O. Связанный профиль: **79 passed in 5.77s**. Evidence: `UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`.
 - W17 добавил аддитивную схему Planning Workspace v6 для content-addressed снимков расходов и append-only экспериментов/фаз/результатов с exact-scope ссылками, CAS/idempotency и квотами. Старые планы и payload schema 1–4 сохранены; связанный профиль: **89 passed**, полный isolated `pytest`: **4,166 passed in 36.99s**. Evidence: `UNIT_ECONOMICS_W17_EXPERIMENT_REPOSITORY_2026-10-29.md`.

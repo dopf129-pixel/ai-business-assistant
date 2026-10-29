@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W20 завершены; следующий доступный этап — W21.
+Статус: IN_PROGRESS. W00–W21 завершены; следующий доступный этап — W22.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,7 @@
 
 ## Resume
 
-- Следующий этап: W21.
+- Следующий этап: W22.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
 - W00 implementation HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
 - W01 audited incoming HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; evidence: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`.
@@ -47,8 +47,8 @@
 | W18 | W16,W17 | DONE | 29.10.2026, code commit `731be723`: добавлено read-only восстановление полного frozen input bundle по точным ссылкам existing immutable revisions: saved plan/schema/calculation version, expense snapshot hash, tariff profile revision, observation quantity result revision. Повторное открытие не вызывает sources; повреждённая/отсутствующая/чужая ссылка возвращает явную ошибку. План, тариф, observation result и expense snapshot обновлены новыми revisions; старый experiment открыл исходные данные, новая конфигурация явно привязана к новым refs. Append-only correction result сохранил предыдущую result revision. Публичное копирование schema-4 плана сохранило extended scenario и восстановилось без дополнительного source call. Связанный isolated profile: **79 passed in 5.77s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`. |
 | W19 | W18 | DONE | 29.10.2026, code commit `d1e1fbac`: frozen cost basis/mode/origin/scope signature/per-unit amount flowed through observation result and ranking quality. `OWNER_COST` remains marked manual; strict evidence keeps exact owner/store/SKU/schema binding; mismatched and incomplete bases are excluded from comparison. Old result/history records remain readable. Added regression found and fixed `scheme` → `sale_schema` normalization at observation-to-canonical boundary. Linked Windows/Python 3.12 profile: **136 passed in 9.48s**; focused profile **29 passed in 1.52s**; `py_compile`, `git diff --check` PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`. |
 | W20 | W19 | DONE | 29.10.2026, code commit `68881def`: общий bounded snapshot projection и export добавлены; linked profile: **50 passed in 3.49s**. JSON/CSV export использует exact projection, no source reload/recalculation; hidden identity/name fields are allowlisted away; mismatch/legacy/size regressions included. Acceptance: `UNIT_ECONOMICS_W20_SNAPSHOT_VIEW_EXPORT_2026-10-29.md`. Telegram detail screen remains scheduled for W32. |
-| W21 | W17,W19 | NOT_STARTED | — |
-| W22 | W16,W21 | NOT_STARTED | — |
+| W21 | W17,W19 | DONE | 29.10.2026; входной HEAD `a3296171bafe`, code commit `788c6c8abcd9`; добавлены pure experiment state machine, schema v7 active-SKU guard migration/backfill, атомарный guard с observation и CAS/idempotent cancellation. Linked profile: **130 passed in 5.74s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Код: `UNIT_ECONOMICS_W21_STATE_MACHINE_ACTIVE_GUARD_2026-10-29.md`. |
+| W22 | W16,W21 | IN_PROGRESS | Начат после W21; durable plan/readiness contracts ещё не изменялись. |
 | W23 | W22 | NOT_STARTED | — |
 | W24 | W22,W23 | NOT_STARTED | — |
 | W25 | W24 | NOT_STARTED | — |
@@ -88,7 +88,7 @@
 | Вся реклама и SKU allocation | CPC и account totals нельзя складывать; новый coverage contract ещё не реализован | W02,W05,W06 |
 | Дополнительные услуги против base fees | Требуется disjoint ownership | W05,W08 |
 | TaxService и extra gross profit | Сохранить существующую политику; numeric oracle обязателен | W11,W13 |
-| Единый active SKU guard | Observation guard существует; experiment integration ещё не реализована | W17,W21 |
+| Единый active SKU guard | Общий атомарный observation/experiment guard в schema v7; legacy overlap хранится как CONFLICT до разрешения | W17,W21 |
 | Maturity/30 units/7 days | Операционные ограничения модели, не статистическая гарантия | W22,W27,W28 |
 
 ### W02 supported-source boundary
