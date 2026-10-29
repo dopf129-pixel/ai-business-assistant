@@ -1,3 +1,9 @@
+# 2026-10-29 — W24: подтверждение цены эксперимента
+
+- Добавлен preview с exact revision tokens и атомарное owner-confirm связанной цены/наблюдения/фазы. Общий active-SKU guard, tenant scope, observation quota, stale CAS, idempotent replay и rollback сохраняются; ручное подтверждение не считается API price history.
+- Planning Workspace additive migration v8→v9 добавила ссылку на observation и allowlisted подтверждение; старые phase records остаются читаемыми.
+- Связанный изолированный профиль: **96 passed in 2.84s**; `py_compile`, `git diff --check` прошли, `git diff -- data` пуст. Evidence: `project_brain/UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`.
+
 # 2026-10-29 — W23: выбор ограниченного набора цен эксперимента
 
 - Добавлен pure `UnitEconomicsExperimentCandidatePriceService`: формирует от 2 до 10 вариантов в заданных границах, использует существующий tariff-aware grid/canonical calculator и сохраняет несколько равных максимумов.

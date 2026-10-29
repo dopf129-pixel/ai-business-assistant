@@ -1,4 +1,10 @@
-# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W23
+# 2026-10-29 — W24: owner-confirm цены и времени эксперимента
+
+- W24 добавил read-only preview с revision tokens и атомарное подтверждение точной цены фазы вместе с owner-declared observation, phase/experiment revisions и общим SKU guard. Валидация включает timezone/future/full-local-day, exact plan/SKU link, existing observation quota, stale CAS и idempotency. Подтверждение владельца не трактуется как проверенная Ozon price history.
+- Planning Workspace v8→v9 миграция добавляет nullable phase link/evidence; legacy phases остаются без подтверждения. Связанный тестовый профиль: **96 passed in 2.84s**; `py_compile`, `git diff --check` прошли; `git diff -- data` пуст. Code: `e39bb48e`; acceptance: `UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`.
+- Следующий этап — W25: control flags и pause/resume фазы без изменения записанного evidence.
+
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W24
 
 - W23 добавил pure сервис выбора 2–10 цен в границах владельца, с копеечными точками tariff boundary, существующим canonical расчётом и учётом tie. Неизвестный тариф/комиссия и переполнение лимита закрывают ранжирование; без замороженного тарифа комиссия явно является ручным допущением. 87 связанных тестов, compile, `git diff --check` прошли; `git diff -- data` пуст. Evidence: `UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
 - Следующий этап — W24: preview фактической цены/времени и owner-confirm с exact experiment/observation binding.
