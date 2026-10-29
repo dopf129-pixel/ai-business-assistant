@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from services.planning_extended_scenario_adapter import PlanningExtendedScenarioAdapter
 
 
@@ -92,3 +94,38 @@ def test_strict_evidence_projection_keeps_canonical_proof_and_drops_raw_identifi
     assert PlanningExtendedScenarioAdapter.project_strict_evidence(
         _strict_evidence(), {**expected_identity, "sku": "other-sku"},
     ) is None
+
+
+def test_observation_cost_basis_signature_binds_strict_scope_and_exact_identity():
+    evidence = _strict_evidence()
+    basis = PlanningExtendedScenarioAdapter.observation_cost_basis(
+        _extended(), evidence, expected_identity=evidence["identity"],
+    )
+
+    assert basis["mode"] == "STRICT_RETAINED_COHORT"
+    assert basis["origin"] == "CONFIRMED"
+    assert basis["per_unit_rub"] == "3.50"
+    assert len(basis["signature"]) == 64
+
+    changed = deepcopy(_extended())
+    changed["quantity_evidence_ref"] = "c" * 64
+    other = PlanningExtendedScenarioAdapter.observation_cost_basis(
+        changed, evidence, expected_identity=evidence["identity"],
+    )
+    assert other["signature"] != basis["signature"]
+
+    manual = deepcopy(_extended())
+    manual["assumed_inputs"] = ["OWNER_COST"]
+    assumed = PlanningExtendedScenarioAdapter.observation_cost_basis(
+        manual, evidence, expected_identity=evidence["identity"],
+    )
+    assert assumed["origin"] == "MANUAL_ASSUMPTION"
+    assert assumed["signature"] != basis["signature"]
+
+    tariff_assumption = deepcopy(_extended())
+    tariff_assumption["assumed_inputs"] = ["OWNER_TARIFF_OVERRIDE"]
+    tariff_basis = PlanningExtendedScenarioAdapter.observation_cost_basis(
+        tariff_assumption, evidence, expected_identity=evidence["identity"],
+    )
+    assert tariff_basis["origin"] == "CONFIRMED"
+    assert tariff_basis["signature"] != basis["signature"]

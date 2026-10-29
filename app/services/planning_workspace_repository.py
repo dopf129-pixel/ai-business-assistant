@@ -13,7 +13,7 @@ import re
 import sqlite3
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -82,6 +82,8 @@ class PlanningWorkspaceRepository:
         "seller_revenue_drr_percent", "attributed_revenue_drr_percent",
         "cpc_spend", "other_ad_spend", "finance_net", "acquiring", "commission",
         "logistics", "last_mile", "cross_docking", "paid_storage", "unit_cost",
+        "extended_cost_mode", "extended_cost_origin", "extended_cost_signature",
+        "extended_cost_per_unit",
         "tax_per_unit", "profit_per_unit", "scenario_profit_per_unit",
         "observed_profit_per_unit", "price_change_count", "source_row_count",
         "duplicate_row_count", "correction_count", "sample_days",
@@ -2818,12 +2820,18 @@ class PlanningWorkspaceRepository:
                 "recommended_window_days", "small_sample_units", "max_evidence_age_days",
         } or any(type(value) is not int or value < 0 for value in quality["thresholds"].values())):
             return None
-        candidate_fields = {
+        legacy_candidate_fields = {
             "index", "result_revision", "status", "window_days", "successful_units",
             "price_cents", "evidence_age_days", "reasons", "warnings",
         }
+        candidate_fields = legacy_candidate_fields | {
+            "extended_cost_mode", "extended_cost_origin", "extended_cost_per_unit",
+        }
         for item in quality["candidates"]:
-            if (not isinstance(item, dict) or set(item) != candidate_fields
+            if (not isinstance(item, dict)
+                    or frozenset(item) not in {
+                        frozenset(legacy_candidate_fields), frozenset(candidate_fields),
+                    }
                     or type(item.get("index")) is not int or item["index"] < 0
                     or type(item.get("result_revision")) is not int or item["result_revision"] < 1
                     or item.get("status") not in {"READY", "INCOMPARABLE"}
@@ -2835,6 +2843,18 @@ class PlanningWorkspaceRepository:
                     or any(not isinstance(text, str) or len(text) > 300
                            for text in item["reasons"] + item["warnings"])):
                 return None
+            if set(item) == candidate_fields:
+                if (item.get("extended_cost_mode") not in {
+                        "NOT_APPLIED", "WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT",
+                    }
+                        or item.get("extended_cost_origin") not in {
+                            "NOT_APPLIED", "CONFIRMED", "MANUAL_ASSUMPTION", "UNCONFIRMED",
+                        }
+                        or (item.get("extended_cost_per_unit") is not None and (
+                            not isinstance(item["extended_cost_per_unit"], str)
+                            or cls._decimal_string(item["extended_cost_per_unit"]) is False
+                        ))):
+                    return None
         candidate_by_index = {item["index"]: item for item in quality["candidates"]}
         if (len(candidate_by_index) != len(quality["candidates"])
                 or ranking["baseline_index"] not in candidate_by_index):
@@ -4272,6 +4292,8 @@ class PlanningWorkspaceRepository:
             for key, value in payload["metrics"].items()
         ):
             return None
+        if not cls._valid_observation_extended_cost_basis(payload["metrics"]):
+            return None
         if any(
             key not in cls._OBSERVATION_COMPLETENESS_KEYS
             or not cls._valid_observation_completeness(value)
@@ -4399,6 +4421,39 @@ class PlanningWorkspaceRepository:
             item is None or type(item) in (bool, int) or isinstance(item, str)
             for item in value.values()
         )
+
+    @classmethod
+    def _valid_observation_extended_cost_basis(cls, metrics):
+        fields = {
+            "extended_cost_mode", "extended_cost_origin",
+            "extended_cost_signature", "extended_cost_per_unit",
+        }
+        present = fields.intersection(metrics)
+        if not present:
+            return True  # Preserve immutable legacy result schemas.
+        if present != fields:
+            return False
+        mode = metrics.get("extended_cost_mode")
+        origin = metrics.get("extended_cost_origin")
+        signature = metrics.get("extended_cost_signature")
+        per_unit = metrics.get("extended_cost_per_unit")
+        if mode == "NOT_APPLIED":
+            return (
+                origin == "NOT_APPLIED" and signature is None and per_unit is None
+            )
+        if (mode not in {"WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT"}
+                or origin not in {
+                    "CONFIRMED", "MANUAL_ASSUMPTION", "UNCONFIRMED",
+                }
+                or not isinstance(signature, str)
+                or re.fullmatch(r"[a-f0-9]{64}", signature) is None
+                or not isinstance(per_unit, str) or len(per_unit) > 32):
+            return False
+        try:
+            amount = Decimal(per_unit)
+        except (InvalidOperation, TypeError, ValueError):
+            return False
+        return amount.is_finite() and Decimal("0") <= amount <= Decimal("999999999999.99")
 
     @classmethod
     def _observation_result_matches(cls, payload, observation_row, store_id):

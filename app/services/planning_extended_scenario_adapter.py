@@ -37,6 +37,84 @@ class PlanningExtendedScenarioAdapter:
     MAX_BYTES = 16 * 1024
 
     @classmethod
+    def observation_cost_basis(cls, value, strict_return_evidence=None, expected_identity=None):
+        """Return a safe comparison identity for the frozen additional-cost basis.
+
+        The signature covers calculation mode, numerator/denominator, dates,
+        policy, source references and component amounts. It deliberately does
+        not contain raw provider identifiers or responses.
+        """
+        if value is None:
+            if strict_return_evidence is not None:
+                return None
+            return {
+                "mode": "NOT_APPLIED", "origin": "NOT_APPLIED",
+                "signature": None, "per_unit_rub": None,
+            }
+        contract = cls.project_extended(value)
+        if contract is None:
+            return None
+        mode = contract["calculation_mode"]
+        strict_projection = None
+        if mode == "STRICT_RETAINED_COHORT":
+            strict_projection = cls.project_strict_evidence(
+                strict_return_evidence, expected_identity,
+            )
+            if strict_projection is None:
+                return None
+            per_unit = Decimal(strict_projection["strict_retained_cohort_loss"][
+                "loss_per_retained_unit_rub"
+            ])
+        else:
+            if strict_return_evidence is not None:
+                return None
+            numerator = sum((
+                Decimal(item["numerator_rub"]) for item in contract["components"]
+            ), Decimal("0"))
+            per_unit = (numerator / Decimal(contract["denominator_units"])).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP,
+            )
+
+        assumed_inputs = contract["assumed_inputs"]
+        if "OWNER_COST" in assumed_inputs:
+            origin = "MANUAL_ASSUMPTION"
+        elif (
+            contract["source_completeness"] == "COMPLETE"
+            and isinstance(contract["expense_snapshot_ref"], str)
+            and (mode != "STRICT_RETAINED_COHORT"
+                 or isinstance(contract["quantity_evidence_ref"], str))
+        ):
+            origin = "CONFIRMED"
+        else:
+            origin = "UNCONFIRMED"
+
+        # Canonicalize equivalent decimal spellings before hashing.
+        material_contract = deepcopy(contract)
+        material_contract["components"] = [
+            {**item, "numerator_rub": format(Decimal(item["numerator_rub"]), ".2f")}
+            for item in contract["components"]
+        ]
+        material = {
+            "contract": material_contract,
+            "strict_return_evidence": strict_projection,
+        }
+        try:
+            encoded = json.dumps(
+                material, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            return None
+        if len(encoded) > cls.MAX_BYTES * 2:
+            return None
+        from hashlib import sha256
+        return {
+            "mode": mode, "origin": origin,
+            "signature": sha256(encoded).hexdigest(),
+            "per_unit_rub": format(per_unit, ".2f"),
+        }
+
+    @classmethod
     def project_extended(cls, value):
         if not isinstance(value, dict) or set(value) != cls.EXTENDED_FIELDS:
             return None

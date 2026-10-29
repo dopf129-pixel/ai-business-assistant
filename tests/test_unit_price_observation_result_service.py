@@ -86,6 +86,30 @@ def _service():
     return UnitPriceObservationResultService(scenario, planner)
 
 
+def _extended_cost_contract(*, assumed_inputs=(), amount="7.00", ref="a"):
+    return {
+        "schema_version": 1, "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": ref * 64, "quantity_evidence_ref": None,
+        "expense_policy_revision": "expense-policy-v1",
+        "included_component_keys": ["CROSS_DOCKING"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": "COMPLETE", "assumed_inputs": list(assumed_inputs),
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-08-01", "to_date": "2026-09-25",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 10,
+        "components": [{
+            "component_key": "CROSS_DOCKING", "numerator_rub": amount,
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
 def test_complete_compatible_evidence_builds_only_an_explicit_cpc_model():
     evidence = _evidence()
     # A caller cannot promote the source aggregates by adding an untrusted label.
@@ -126,6 +150,99 @@ def test_confirmed_tariff_provenance_is_preserved_in_result_completeness():
     assert result["status"] == "AVAILABLE"
     assert result["metrics"]["tariff_status"] == "CONFIRMED"
     assert result["completeness"]["tariff"] == "CONFIRMED"
+
+
+def test_extended_cost_basis_is_applied_and_origin_is_recorded_in_result():
+    contract = _extended_cost_contract()
+    result = _service().evaluate(
+        _evidence(), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+        provenance={"cost": "manual_owner_input", "commission_rate": "manual_owner_input"},
+        extended_scenario=contract,
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert result["metrics"]["extended_cost_mode"] == "WINDOW_COST_ALLOCATION"
+    assert result["metrics"]["extended_cost_origin"] == "CONFIRMED"
+    assert result["metrics"]["extended_cost_per_unit"] == "0.70"
+    assert len(result["metrics"]["extended_cost_signature"]) == 64
+    assert PlanningWorkspaceRepository._normalize_unit_price_observation_result(result) is not None
+
+    manual = _service().evaluate(
+        _evidence(), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+        provenance={"cost": "manual_owner_input", "commission_rate": "manual_owner_input"},
+        extended_scenario=_extended_cost_contract(assumed_inputs=["OWNER_COST"]),
+    )
+    assert manual["metrics"]["extended_cost_origin"] == "MANUAL_ASSUMPTION"
+    assert manual["metrics"]["extended_cost_signature"] != result["metrics"]["extended_cost_signature"]
+
+
+def test_extended_cost_contract_failure_never_silently_drops_its_basis():
+    contract = _extended_cost_contract()
+    contract["expense_snapshot_ref"] = "invalid-reference"
+    result = _service().evaluate(
+        _evidence(), scenario_inputs=_inputs(), identity=_SCENARIO_IDENTITY,
+        provenance={"cost": "manual_owner_input", "commission_rate": "manual_owner_input"},
+        extended_scenario=contract,
+    )
+
+    assert result["status"] == "INSUFFICIENT_DATA"
+    assert result["evidence_basis"] == "SCENARIO_ASSUMPTIONS"
+    assert result["metrics"].get("profit_per_unit") is None
+
+
+def test_strict_cohort_loss_basis_is_bound_to_exact_owner_sku_and_denominator():
+    contract = _extended_cost_contract()
+    contract.update({
+        "calculation_mode": "STRICT_RETAINED_COHORT",
+        "quantity_evidence_ref": "b" * 64,
+        "numerator_and_denominator_basis": {
+            "numerator": "STRICT_COHORT_LOSS_RUB",
+            "denominator": "RETAINED_UNITS_EXACT_COHORT",
+        },
+        "scope": {
+            "scope_kind": "EXPERIMENT_PHASE_WINDOW",
+            "from_date": "2026-10-01", "to_date": "2026-10-07",
+            "date_basis": "LOCAL_CALENDAR_DAY", "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 100, "included_component_keys": [], "components": [],
+    })
+    identity = {**_SCENARIO_IDENTITY, "owner_id": "owner-a"}
+    strict_evidence = {
+        "error": False, "status": "COMPLETE",
+        "identity": {
+            "owner_id": "owner-a", "store_id": "store-a",
+            "product_id": "product-1", "offer_id": "offer-1",
+            "sku": "sku-1", "sale_schema": "FBO",
+        },
+        "fees": {"status": "COMPLETE", "cohort_matches": True,
+                  "additional_exact_cohort_rub": "300.00"},
+        "quantity": {"status": "COMPLETE", "cohort_matches": True,
+                     "delivered_units": 110,
+                     "confirmed_returned_units_from_deliveries": 10,
+                     "retained_units": 100},
+        "inventory": {"status": "COMPLETE", "disposition_units": 10,
+                      "inventory_loss_cogs_rub": "60.00",
+                      "compensation_deduction_rub": "10.00"},
+        "strict_retained_cohort_loss": {
+            "status": "AVAILABLE", "model_scope": "STRICT_RETAINED_COHORT",
+            "denominator_kind": "RETAINED_UNITS_EXACT_COHORT",
+            "denominator_units": 100, "fee_loss_pool_rub": "300.00",
+            "loss_pool_rub": "350.00", "loss_per_retained_unit_rub": "3.50",
+        },
+        "read_only": True, "executed": False,
+    }
+
+    result = _service().evaluate(
+        _evidence(), scenario_inputs=_inputs(), identity=identity,
+        provenance={"cost": "manual_owner_input", "commission_rate": "manual_owner_input"},
+        extended_scenario=contract, strict_return_evidence=strict_evidence,
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert result["metrics"]["extended_cost_mode"] == "STRICT_RETAINED_COHORT"
+    assert result["metrics"]["extended_cost_origin"] == "CONFIRMED"
+    assert result["metrics"]["extended_cost_per_unit"] == "3.50"
+    assert PlanningWorkspaceRepository._normalize_unit_price_observation_result(result) is not None
 
 
 @pytest.mark.parametrize(
