@@ -1,3 +1,9 @@
+# 2026-10-29 — W26: сбор фактов завершённой фазы эксперимента
+
+- Добавлен bounded collector для полного закрытого окна активной ценовой фазы; точные revisions, наблюдение цены и shared parent budget проверяются до атомарного сохранения.
+- Planning Workspace v10→v11 добавляет immutable content-addressed phase collections и атомарную provisional result revision. Повторная доставка callback возвращает ту же коллекцию без повторного чтения.
+- Добавлены проверки точного периода и подтверждения цены, tenant/SKU binding, partial source, cancellation/late response, shared request/time limits, idempotency, migration and rollback. Linked profile: 64 passed in 3.21s. Evidence: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md.
+
 # 2026-10-29 — W25: условия фазы и pause/resume ценового эксперимента
 
 - Добавлен append-only журнал owner-reported изменений рекламы, карточки, себестоимости, остатка, акции и тарифа. Изменённые/неизвестные условия получают машинные причины несовместимости; ручные сообщения не объявляются подтверждёнными Ozon фактами.

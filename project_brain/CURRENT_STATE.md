@@ -1,3 +1,10 @@
+# 2026-10-29 — W26: сбор фактов завершённой фазы эксперимента
+
+- Добавлен сервис сбора точного завершённого окна через существующий reader с общим PeriodProfitOperationTrace. Проверяются owner/store/SKU/схема/цена, timezone и точная owner-confirmed отметка effective_from; поздний ответ после паузы/CAS conflict не сохраняется.
+- Аддитивная миграция v10→v11 добавила immutable phase collection snapshot и атомарную запись вместе с provisional WAITING_FOR_DATA result. Прибыль остаётся null до maturity/quantity/compatibility gates. Новый retry loop и фоновые запросы не вводились.
+- Изолированный linked profile: 64 passed in 3.21s; py_compile и git diff --check PASS; git diff -- data пустой. Реальные Ozon API и бот не запускались. Acceptance: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md.
+- Следующий этап — W27: maturity/quantity/source gates и отдельные result revisions по поздним фактам.
+
 # 2026-10-29 — W25: контрольные условия и pause/resume эксперимента
 
 - Добавлен чистый `UnitEconomicsExperimentControlService` с allowlist owner-reported флагов advertising/card/cost/inventory/promotion/tariff. Изменение и UNKNOWN формируют явные reason codes; доказательства и конфигурации прежней фазы не перезаписываются.
