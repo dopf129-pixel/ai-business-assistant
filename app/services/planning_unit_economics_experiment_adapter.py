@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from services.unit_economics_experiment_plan_service import (
     UnitEconomicsExperimentPlanService,
 )
+from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 
 
 class PlanningUnitEconomicsExperimentAdapter:
@@ -465,6 +466,137 @@ class PlanningUnitEconomicsExperimentAdapter:
             "quantity_basis": payload["quantity_basis"], "window": window,
             "quality_gates": normalized_gates, "limitations": list(limitations),
             "outcome": payload["outcome"],
+        }
+
+    @classmethod
+    def normalize_phase_collection(cls, payload, scope):
+        """Normalize one private, bounded collection projection for a phase."""
+        fields = {
+            "schema_version", "experiment_id", "phase_id", "observation_id",
+            "identity", "status", "collected_at", "window", "seller_price_cents",
+            "source_statuses", "metrics", "price_history_verified", "limitations",
+            "budget",
+        }
+        if (not isinstance(payload, dict) or set(payload) != fields
+                or type(payload.get("schema_version")) is not int
+                or payload["schema_version"] != 1
+                or any(not isinstance(payload.get(key), str)
+                       or cls._HEX_128.fullmatch(payload[key]) is None
+                       for key in ("experiment_id", "phase_id", "observation_id"))
+                or payload.get("status") not in {"COMPLETE", "PARTIAL", "UNAVAILABLE", "CANCELLED"}
+                or payload.get("price_history_verified") is not False):
+            return None
+        identity = cls.normalize_identity(payload.get("identity"), scope)
+        collected_at = cls._timestamp(payload.get("collected_at"))
+        if identity is None or collected_at is None:
+            return None
+        window = payload.get("window")
+        if (not isinstance(window, dict)
+                or set(window) != {"from_date", "to_date", "timezone", "date_basis"}
+                or window.get("date_basis") != "SOURCE_CALENDAR_DATE"
+                or not isinstance(window.get("timezone"), str)
+                or len(window["timezone"]) > 128):
+            return None
+        start = cls._date(window.get("from_date"))
+        end = cls._date(window.get("to_date"))
+        try:
+            ZoneInfo(window["timezone"])
+        except (ZoneInfoNotFoundError, TypeError, ValueError, OSError):
+            return None
+        if start is None or end is None or start > end or (end - start).days + 1 > 28:
+            return None
+        price = payload.get("seller_price_cents")
+        if type(price) is not int or not 1 <= price <= UnitPriceTariffResolver.MAX_PRICE_CENTS:
+            return None
+
+        source_statuses = payload.get("source_statuses")
+        source_keys = {
+            "FINANCE", "PERFORMANCE", "RETURNS", "OWNER_DECLARED_PRICE",
+            "SELLER_PRICE", "ANALYTICS", "TARIFF", "COST", "TAX",
+        }
+        source_values = {"COMPLETE", "PARTIAL", "SOURCE_UNAVAILABLE", "RATE_LIMITED", "NOT_REQUESTED"}
+        if not isinstance(source_statuses, list) or not 1 <= len(source_statuses) <= len(source_keys):
+            return None
+        normalized_sources = []
+        seen_sources = set()
+        for source in source_statuses:
+            if (not isinstance(source, dict)
+                    or set(source) != {"source_key", "status", "reason_code"}
+                    or source.get("source_key") not in source_keys
+                    or source.get("source_key") in seen_sources
+                    or source.get("status") not in source_values
+                    or not isinstance(source.get("reason_code"), str)
+                    or cls._CODE.fullmatch(source["reason_code"]) is None):
+                return None
+            seen_sources.add(source["source_key"])
+            normalized_sources.append(dict(source))
+        if normalized_sources != sorted(normalized_sources, key=lambda item: item["source_key"]):
+            return None
+
+        metric_keys = {
+            "gross_seller_revenue", "discount_points", "finance_net", "acquiring",
+            "commission", "logistics", "other_fees", "cpc_spend",
+            "successful_sale_units", "ordered_units", "delivered_units",
+            "cancelled_units", "returned_units", "buyout_rate_percent",
+            "buyout_sample_size",
+        }
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, dict) or set(metrics) != metric_keys:
+            return None
+        normalized_metrics = {}
+        for key in (
+            "gross_seller_revenue", "discount_points", "finance_net", "acquiring",
+            "commission", "logistics", "other_fees", "cpc_spend",
+        ):
+            amount = cls._money(metrics.get(key), optional=True)
+            if metrics.get(key) is not None and amount is None:
+                return None
+            normalized_metrics[key] = amount
+        for key in (
+            "successful_sale_units", "ordered_units", "delivered_units",
+            "cancelled_units", "returned_units", "buyout_sample_size",
+        ):
+            count = metrics.get(key)
+            if count is not None and (type(count) is not int or not 0 <= count <= 1_000_000_000):
+                return None
+            normalized_metrics[key] = count
+        buyout = cls._money(metrics.get("buyout_rate_percent"), optional=True, nonnegative=True)
+        if (metrics.get("buyout_rate_percent") is not None
+                and (buyout is None or Decimal(buyout) > Decimal("100.00"))):
+            return None
+        normalized_metrics["buyout_rate_percent"] = buyout
+
+        limitations = payload.get("limitations")
+        if (not isinstance(limitations, list) or len(limitations) > 32
+                or any(not isinstance(item, str) or cls._CODE.fullmatch(item) is None
+                       for item in limitations)
+                or limitations != sorted(set(limitations))):
+            return None
+        budget = payload.get("budget")
+        budget_keys = {
+            "http_attempts", "http_attempt_limit", "elapsed_seconds",
+            "time_budget_seconds", "reason_code",
+        }
+        if (not isinstance(budget, dict) or set(budget) != budget_keys
+                or any(type(budget.get(key)) is not int or budget[key] < 0
+                       for key in budget_keys - {"reason_code"})
+                or budget["http_attempts"] > budget["http_attempt_limit"]
+                or budget["http_attempt_limit"] > 128
+                or budget["time_budget_seconds"] > 120
+                or budget["elapsed_seconds"] > budget["time_budget_seconds"]
+                or not isinstance(budget.get("reason_code"), str)
+                or cls._CODE.fullmatch(budget["reason_code"]) is None):
+            return None
+        return {
+            "schema_version": 1,
+            "experiment_id": payload["experiment_id"], "phase_id": payload["phase_id"],
+            "observation_id": payload["observation_id"], "identity": identity,
+            "status": payload["status"], "collected_at": collected_at,
+            "window": {"from_date": start.isoformat(), "to_date": end.isoformat(),
+                       "timezone": window["timezone"], "date_basis": "SOURCE_CALENDAR_DATE"},
+            "seller_price_cents": price, "source_statuses": normalized_sources,
+            "metrics": normalized_metrics, "price_history_verified": False,
+            "limitations": list(limitations), "budget": dict(budget),
         }
 
     @classmethod
