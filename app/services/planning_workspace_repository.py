@@ -101,6 +101,7 @@ class PlanningWorkspaceRepository:
     })
     _INPUT_FIELDS = frozenset({
         "price", "cost", "commission_rate", "advertising_rate",
+        "advertising_mode", "advertising_cost_per_unit",
         "discount_points_rate", "logistics_per_unit", "last_mile_per_unit",
         "acquiring_per_unit", "tax_mode", "tax_rate", "minimum_tax_rate",
         "cross_docking_per_unit",
@@ -2025,11 +2026,15 @@ class PlanningWorkspaceRepository:
                 return None
             clean_inputs = {}
             for field, value in inputs.items():
-                if field == "tax_mode":
+                if field in {"tax_mode", "advertising_mode"}:
                     if value is None:
                         clean_inputs[field] = None
-                    elif str(value).upper() in {"NONE", "USN_INCOME", "USN_INCOME_MINUS_EXPENSES"}:
+                    elif field == "tax_mode" and str(value).upper() in {
+                        "NONE", "USN_INCOME", "USN_INCOME_MINUS_EXPENSES",
+                    }:
                         clean_inputs[field] = str(value).upper()
+                    elif field == "advertising_mode" and str(value).upper() == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+                        clean_inputs[field] = "ABSOLUTE_PER_SUCCESSFUL_UNIT"
                     else:
                         return None
                 else:
@@ -2039,6 +2044,16 @@ class PlanningWorkspaceRepository:
                     clean_inputs[field] = clean
             clean_provenance = {key: self._short_text(value, 80) for key, value in provenance.items()}
             if any(value is None for value in clean_provenance.values()):
+                return None
+            advertising_mode = clean_inputs.get("advertising_mode")
+            if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+                if (clean_inputs.get("advertising_cost_per_unit") is None
+                        or "advertising_rate" in clean_inputs
+                        or clean_provenance.get("advertising_mode") is None
+                        or clean_provenance.get("advertising_cost_per_unit") is None):
+                    return None
+            elif (advertising_mode is not None
+                    or "advertising_cost_per_unit" in clean_inputs):
                 return None
             clean_projection = {}
             for field, value in projection.items():
@@ -2109,12 +2124,30 @@ class PlanningWorkspaceRepository:
                     return None
                 clean_sources["tariff_resolution"] = normalized_tariff
                 advertising_basis = clean_sources.get("advertising_basis")
-                if (not isinstance(advertising_basis, dict)
-                        or set(advertising_basis) != {"mode", "revenue_basis", "rate", "origin"}
-                        or advertising_basis.get("mode") != "SAME_DRR"
-                        or advertising_basis.get("revenue_basis") != "SELLER_REVENUE"
-                        or advertising_basis.get("rate") != clean_inputs.get("advertising_rate")
-                        or advertising_basis.get("origin") != clean_provenance.get("advertising_rate")):
+                if not isinstance(advertising_basis, dict):
+                    return None
+                if advertising_basis.get("mode") == "SAME_DRR":
+                    if (set(advertising_basis) != {"mode", "revenue_basis", "rate", "origin"}
+                            or advertising_basis.get("revenue_basis") != "SELLER_REVENUE"
+                            or advertising_basis.get("rate") != clean_inputs.get("advertising_rate")
+                            or advertising_basis.get("origin") != clean_provenance.get("advertising_rate")
+                            or "advertising_mode" in clean_inputs
+                            or "advertising_cost_per_unit" in clean_inputs):
+                        return None
+                elif advertising_basis.get("mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+                    if (set(advertising_basis) != {
+                            "mode", "denominator", "amount_per_unit", "origin",
+                        }
+                            or advertising_basis.get("denominator") != "SUCCESSFUL_UNITS"
+                            or advertising_basis.get("amount_per_unit")
+                            != clean_inputs.get("advertising_cost_per_unit")
+                            or advertising_basis.get("origin")
+                            != clean_provenance.get("advertising_cost_per_unit")
+                            or clean_inputs.get("advertising_mode")
+                            != "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                            or "advertising_rate" in clean_inputs):
+                        return None
+                else:
                     return None
                 if (clean_sources.get("tariff_resolution", {}).get("status")
                         in UnitPriceTariffSnapshotAdapter.AVAILABLE_STATUSES

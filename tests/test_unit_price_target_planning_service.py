@@ -771,11 +771,37 @@ def test_advertising_cost_is_weighted_by_successful_units_and_exact_denominator_
     assert basis["basis"]["amount_per_unit"] == "5.00"
     assert basis["basis"]["denominator"] == "SUCCESSFUL_UNITS"
     assert [row["advertising_per_unit"] for row in result["rows"]] == [5.0, 5.0]
-    assert [row["advertising_rate"] for row in result["rows"]] == ["5.00", "5.263157894736842105263157895"]
+    assert [row["advertising_rate"] for row in result["rows"]] == [None, None]
     assert result["advertising_basis"]["total_spend"] == "200.00"
     assert result["advertising_basis"]["successful_units"] == 40
     assert result["advertising_basis"]["amount_per_unit"] == "5.00"
     assert result["advertising_basis"]["revenue_basis"] == "NOT_APPLICABLE"
+
+
+def test_absolute_advertising_above_price_stays_fixed_across_candidate_prices():
+    planner, _ = _planner()
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="10",
+        logistics_per_unit="5", last_mile_per_unit="1", acquiring_per_unit="1",
+        advertising_rate="0", discount_points_rate="0", tax_mode="NONE",
+        tax_rate=None, minimum_tax_rate=None,
+    )
+    basis = planner.parse_advertising_cost_basis("2400; 20")
+    result = planner.compare_prices(
+        inputs, "100; 95", advertising_mode="MANUAL_COST_PER_SUCCESSFUL_UNIT",
+        advertising_cost_basis=basis["basis"],
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert [row["available"] for row in result["rows"]] == [True, True]
+    assert [row["advertising_per_unit"] for row in result["rows"]] == [120.0, 120.0]
+    assert [row["advertising_rate"] for row in result["rows"]] == [None, None]
+    assert [row["profit"] for row in result["rows"]] == [-57.0, -61.5]
+    assert result["baseline"]["advertising_per_unit"] == 120.0
+    assert result["advertising_basis"]["amount_per_unit"] == "120.00"
+    assert [row["compensation_thresholds"]["status"] for row in result["rows"]] == [
+        "FIXED_COST_BASIS_NOT_SOLVED", "FIXED_COST_BASIS_NOT_SOLVED",
+    ]
 
 
 @pytest.mark.parametrize("text", [

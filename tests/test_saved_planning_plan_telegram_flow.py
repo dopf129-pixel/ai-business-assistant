@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 import pytest
 
 from services.assistant_keyboard_service import AssistantKeyboardService
@@ -1364,6 +1365,88 @@ def test_single_saved_plan_freezes_tariff_revision_until_explicit_refresh(tmp_pa
         )
         assert upgraded_capture["payload"]["schema_version"] == 3
         assert upgraded_capture["payload"]["items"][0]["sources"]["tariff_resolution"]["commission_rate"] == "13"
+    finally:
+        reset_current_tenant_user_id(tenant)
+
+
+def test_single_saved_plan_round_trips_fixed_ad_cost_above_price(tmp_path):
+    saved_runtime, single, source, service = _setup(tmp_path)
+    single.tariff_profile_runtime_service = TelegramUnitPriceTariffProfileRuntimeService(
+        service.repository, single, single.keyboard_service,
+    )
+    tenant = _activate()
+    try:
+        profile_payload = {
+            "identity": {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1"},
+            "sale_schema": "FBO",
+            "effective_from": "2026-10-01",
+            "effective_to": None,
+            "confirmed_by_owner": True,
+            "bands": [{
+                "price_from_cents": 45_000,
+                "price_to_cents": 70_000,
+                "commission_rate": "15",
+            }],
+        }
+        created = service.repository.create_tariff_profile(
+            profile_payload, idempotency_key="w14-fixed-ad-profile",
+        )
+        assert created["error"] is False
+
+        current = _select_single(single)
+        callback = _button(current, "Комиссия %")
+        _, _, scenario_id, scenario_version, _ = callback.split(":")
+        resolution = single.tariff_profile_runtime_service.resolve_for_scenario(
+            scenario_id, int(scenario_version), "500", user_id="user-1",
+        )
+        assert resolution.get("error") is False
+        resolved = single.handle_callback(
+            f"upc:v:{scenario_id}:{scenario_version}", user_id="user-1",
+        )
+        assert resolved["status"] == "UNIT_PRICE_SCENARIO_READY"
+        current = single.handle_callback(
+            _button(resolved, "Реклама, ₽/успешную продажу"), user_id="user-1",
+        )
+        current = single.handle_text("600", user_id="user-1")
+        capture = single.get_saved_plan_capture(
+            current["price_scenario"]["identity"]["scenario_id"],
+            current["price_scenario"]["identity"]["scenario_version"],
+            user_id="user-1",
+        )
+        payload = capture["payload"]
+        item = payload["items"][0]
+        assert capture["error"] is False
+        assert payload["schema_version"] == 3
+        assert item["inputs"]["advertising_mode"] == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+        assert item["inputs"]["advertising_cost_per_unit"] == "600"
+        assert "advertising_rate" not in item["inputs"]
+        assert item["sources"]["advertising_basis"] == {
+            "mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+            "denominator": "SUCCESSFUL_UNITS",
+            "amount_per_unit": "600",
+            "origin": "manual_seller_assumption",
+        }
+        saved = service.save_capture(
+            "Fixed advertising plan", capture, idempotency_key="w14-fixed-ad-save",
+        )
+        assert saved["error"] is False
+        persisted = service.get_document(saved["document_id"])["document"]["payload"]["items"][0]
+        assert Decimal(persisted["inputs"]["advertising_cost_per_unit"]) == Decimal("600.00")
+
+        restarted = TelegramUnitPriceCalculatorRuntimeService(
+            source=source,
+            scenario_service=single.scenario_service,
+            keyboard_service=single.keyboard_service,
+            target_planning_service=single.target_planning_service,
+            advertising_cap_service=single.advertising_cap_service,
+        )
+        reopened = restarted.restore_saved_plan(payload, user_id="user-1")
+        reopened_inputs = reopened["price_scenario"]["inputs"]
+        assert reopened_inputs["advertising_mode"]["value"] == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+        assert reopened_inputs["advertising_cost_per_unit"]["value"] == 600.0
+        assert "advertising_rate" not in reopened_inputs
+        assert reopened["price_scenario"]["calculated"]["advertising"] == 600.0
+        assert len(source.calls) == 1
     finally:
         reset_current_tenant_user_id(tenant)
 

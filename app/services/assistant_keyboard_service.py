@@ -579,7 +579,8 @@ class AssistantKeyboardService:
             ("Цена", "price"),
             ("Себестоимость", "cost"),
             ("Комиссия %", "commission_rate"),
-            ("Реклама %", "advertising_rate"),
+            ("Реклама, %", "advertising_rate"),
+            ("Реклама, ₽/успешную продажу", "advertising_cost_per_unit"),
             ("Баллы %", "discount_points_rate"),
         )
         buttons = [

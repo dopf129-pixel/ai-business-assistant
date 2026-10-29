@@ -168,6 +168,69 @@ def test_extended_usn_income_minus_expenses_applies_minimum_tax_to_adjusted_prof
     assert tax.calls[0]["gross_profit"] == -34.0
 
 
+def test_n05_absolute_advertising_over_price_is_applied_as_fixed_successful_unit_cost():
+    service = UnitPriceScenarioService(TaxService())
+    inputs = _inputs(tax_mode="NONE")
+    inputs.pop("advertising_rate")
+    inputs.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "120",
+    })
+
+    result = service.calculate(inputs, extended_scenario=_contract())
+
+    assert result["available"] is True
+    assert result["calculated"]["advertising"] == 120.0
+    assert result["calculated"]["profit_before_tax"] == -62.0
+    assert result["calculated"]["profit"] == -62.0
+    assert result["inputs"]["advertising_mode"]["value"] == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+    assert result["inputs"]["advertising_cost_per_unit"]["value"] == 120.0
+    assert "advertising_rate" not in result["inputs"]
+
+    components = service.calculate_components_only(
+        inputs, extended_scenario=_contract(),
+    )
+    assert components["calculated"]["advertising"] == 120.0
+    assert components["calculated"]["profit_before_tax"] == -62.0
+
+    compared = service.compare(
+        inputs, current_price="110", extended_scenario=_contract(),
+    )
+    assert compared["calculated"]["advertising"] == 120.0
+    assert compared["comparison"]["profit"] == -53.0
+
+
+def test_advertising_modes_reject_implicit_conversion_and_conflicting_inputs():
+    service = UnitPriceScenarioService(TaxService())
+    conflicting = _inputs()
+    conflicting.update({
+        "advertising_mode": "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        "advertising_cost_per_unit": "120",
+    })
+    result = service.calculate(conflicting)
+
+    assert result["available"] is False
+    assert "advertising_mode" in result["invalid_inputs"]
+    assert result["calculated"]["profit"] is None
+
+    missing = _inputs()
+    missing.pop("advertising_rate")
+    missing["advertising_mode"] = "PERCENT_OF_SELLER_REVENUE"
+    result = service.calculate(missing)
+    assert result["available"] is False
+    assert "advertising_rate" in result["missing_inputs"]
+
+
+def test_compare_keeps_percent_policy_percent_based_when_seller_price_changes():
+    result = UnitPriceScenarioService(TaxService()).compare(
+        _inputs(tax_mode="NONE", discount_points_rate="0"),
+        current_price="110",
+    )
+
+    assert result["calculated"]["advertising"] == 12.0
+    assert result["comparison"]["profit"] == 58.8
+
+
 def test_components_are_summed_then_divided_and_rounded_once():
     components = [
         {"component_key": "EXTRA_A", "numerator_rub": "0.01", "ownership": "ADDITIONAL"},

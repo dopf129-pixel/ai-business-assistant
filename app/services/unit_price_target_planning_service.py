@@ -18,7 +18,6 @@ class UnitPriceTargetPlanningService:
     MAX_PRICE_GRID_CANDIDATES = 200
     MAX_PRICE_GRID_TARIFF_RULES = 20
     MAX_COMPARISON_FORWARD_CALCULATIONS = 1_024
-    MAX_DERIVED_ADVERTISING_RATE_DIGITS = 28
     MIN_PRICE_CENTS = 1
     # Bounds all rounding introduced by per-component HALF_UP and the existing
     # float-based tax service. Ambiguous intervals are evaluated canonically.
@@ -633,34 +632,19 @@ class UnitPriceTargetPlanningService:
             candidate_inputs = dict(inputs)
             candidate_inputs["price"] = format(price, ".2f")
             candidate_provenance = dict(common["provenance"])
-            if advertising_rate_override is not None:
+            if normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                candidate_inputs.pop("advertising_rate", None)
+                candidate_inputs["advertising_mode"] = "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+                candidate_inputs["advertising_cost_per_unit"] = normalized_cost_basis["amount_per_unit"]
+                candidate_ad_rate = None
+            elif advertising_rate_override is not None:
                 candidate_ad_rate = advertising_rate_override
             elif normalized_advertising_mode == "PER_PRICE_DRR":
                 candidate_ad_rate = rate_by_price.get(cents)
-            elif normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
-                candidate_ad_rate = (
-                    Decimal(normalized_cost_basis["amount_per_unit"])
-                    * self.HUNDRED / price
-                )
             else:
                 candidate_ad_rate = candidate_inputs.get("advertising_rate")
             if candidate_ad_rate is not None:
-                if (normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT"
-                        and advertising_rate_override is None):
-                    normalized_rate = {
-                        "valid": (
-                            isinstance(candidate_ad_rate, Decimal)
-                            and candidate_ad_rate.is_finite()
-                            and Decimal("0") <= candidate_ad_rate <= self.HUNDRED
-                            and len(candidate_ad_rate.as_tuple().digits)
-                        <= self.MAX_DERIVED_ADVERTISING_RATE_DIGITS
-                            and candidate_ad_rate.adjusted() <= 2
-                            and candidate_ad_rate.adjusted() >= -12
-                        ),
-                        "value": candidate_ad_rate,
-                    }
-                else:
-                    normalized_rate = self._normalize_target(candidate_ad_rate)
+                normalized_rate = self._normalize_target(candidate_ad_rate)
                 if not normalized_rate["valid"]:
                     return {
                         "status": "INVALID_ADVERTISING_RATE", "available": False,
@@ -799,7 +783,11 @@ class UnitPriceTargetPlanningService:
             baseline_decimal = self._price_from_cents(baseline_price)
             baseline_row = evaluate(
                 baseline_decimal,
-                advertising_rate_override=inputs.get("advertising_rate"),
+                advertising_rate_override=(
+                    inputs.get("advertising_rate")
+                    if normalized_advertising_mode != "MANUAL_COST_PER_SUCCESSFUL_UNIT"
+                    else None
+                ),
             )
             baseline = {
                 "price": format(baseline_decimal, ".2f"),
@@ -839,6 +827,13 @@ class UnitPriceTargetPlanningService:
                 row["profit_delta_vs_baseline"] = format(
                     Decimal(str(row["profit"])) - baseline_profit, ".2f"
                 )
+                if normalized_advertising_mode == "MANUAL_COST_PER_SUCCESSFUL_UNIT":
+                    row["compensation_thresholds"] = {
+                        "status": "FIXED_COST_BASIS_NOT_SOLVED",
+                        "non_worse": None,
+                        "strictly_better": None,
+                    }
+                    continue
                 threshold_inputs = dict(inputs)
                 threshold_inputs["price"] = row["price"]
                 threshold_inputs["commission_rate"] = row.get("commission_rate")

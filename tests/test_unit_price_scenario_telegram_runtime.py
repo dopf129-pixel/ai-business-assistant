@@ -910,11 +910,41 @@ def test_public_comparison_flow_uses_total_spend_over_successful_sales_denominat
     assert basis["total_spend"] == "200.00"
     assert basis["amount_per_unit"] == "5.00"
     assert applied["status"] == "UNIT_PRICE_SCENARIO_READY"
-    assert applied["price_scenario"]["inputs"]["advertising_rate"]["value"] == float(
-        result["price_planning_result"]["rows"][0]["advertising_rate"]
-    )
+    applied_inputs = applied["price_scenario"]["inputs"]
+    assert applied_inputs["advertising_mode"]["value"] == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+    assert applied_inputs["advertising_cost_per_unit"]["value"] == 5.0
+    assert "advertising_rate" not in applied_inputs
     assert applied["price_scenario"]["calculated"]["advertising"] == 5.0
     assert len(source.calls) == 1
+
+
+def test_advertising_mode_can_switch_between_percentage_and_fixed_rubles_per_unit():
+    runtime, _source = _runtime()
+    token = _activate()
+    try:
+        scenario = _select_catalog_product(runtime)
+        fixed_button = _find_button(scenario, "Реклама, ₽/успешную продажу")
+        fixed_prompt = runtime.handle_callback(fixed_button["callback"], user_id="user-1")
+        fixed = runtime.handle_text("600", user_id="user-1")
+
+        percent_button = _find_button(fixed, "Реклама, %")
+        percent_prompt = runtime.handle_callback(percent_button["callback"], user_id="user-1")
+        percent = runtime.handle_text("7", user_id="user-1")
+    finally:
+        reset_current_tenant_user_id(token)
+
+    assert fixed_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert fixed["price_scenario"]["inputs"]["advertising_mode"]["value"] == (
+        "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+    )
+    assert fixed["price_scenario"]["inputs"]["advertising_cost_per_unit"]["value"] == 600.0
+    assert "advertising_rate" not in fixed["price_scenario"]["inputs"]
+    assert fixed["price_scenario"]["calculated"]["advertising"] == 600.0
+    assert percent_prompt["status"] == "UNIT_PRICE_SCENARIO_INPUT_PENDING"
+    assert percent["price_scenario"]["inputs"]["advertising_rate"]["value"] == 7.0
+    assert "advertising_mode" not in percent["price_scenario"]["inputs"]
+    assert "advertising_cost_per_unit" not in percent["price_scenario"]["inputs"]
+    assert percent["price_scenario"]["calculated"]["advertising"] == 35.0
 
 
 def test_public_price_grid_is_bounded_paged_and_calculates_compensation_only_for_selected_price():

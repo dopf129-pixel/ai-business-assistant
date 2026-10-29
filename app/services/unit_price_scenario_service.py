@@ -21,6 +21,10 @@ class UnitPriceScenarioService:
         "advertising_rate",
         "discount_points_rate",
     )
+    ADVERTISING_MODES = frozenset({
+        "PERCENT_OF_SELLER_REVENUE",
+        "ABSOLUTE_PER_SUCCESSFUL_UNIT",
+    })
     TAX_RATE_FIELDS = ("tax_rate", "minimum_tax_rate")
     REQUIRED_FIELDS = (
         "price",
@@ -29,7 +33,6 @@ class UnitPriceScenarioService:
         "logistics_per_unit",
         "last_mile_per_unit",
         "acquiring_per_unit",
-        "advertising_rate",
         "discount_points_rate",
         "tax_mode",
     )
@@ -40,6 +43,7 @@ class UnitPriceScenarioService:
         "logistics_per_unit": "RUB/unit",
         "last_mile_per_unit": "RUB/unit",
         "acquiring_per_unit": "RUB/unit",
+        "advertising_cost_per_unit": "RUB/successful_unit",
         "cross_docking_per_unit": "RUB/supplied_unit",
         "advertising_rate": "percent",
         "discount_points_rate": "percent",
@@ -179,7 +183,15 @@ class UnitPriceScenarioService:
         }
         scenario_inputs = {}
         for field in self.UNITS:
-            if field == "cross_docking_per_unit" and field not in normalized:
+            if (
+                field in ("cross_docking_per_unit", "advertising_cost_per_unit")
+                and field not in normalized
+            ):
+                continue
+            if (
+                field == "advertising_rate"
+                and normalized.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT"
+            ):
                 continue
             value = normalized.get(field)
             scenario_inputs[field] = {
@@ -189,6 +201,12 @@ class UnitPriceScenarioService:
                     field,
                     "manual" if field in inputs else "unknown",
                 ),
+            }
+        if "advertising_mode" in inputs:
+            scenario_inputs["advertising_mode"] = {
+                "value": normalized["advertising_mode"],
+                "unit": "advertising_mode",
+                "provenance": provenance.get("advertising_mode", "manual"),
             }
         scenario_inputs["tax_mode"] = {
             "value": str(tax_mode).upper() if tax_mode else None,
@@ -378,6 +396,16 @@ class UnitPriceScenarioService:
         normalized = {}
         missing = []
         invalid = []
+        if "advertising_mode" not in inputs:
+            advertising_mode = "PERCENT_OF_SELLER_REVENUE"
+        elif isinstance(inputs.get("advertising_mode"), str):
+            advertising_mode = inputs["advertising_mode"].strip().upper()
+        else:
+            advertising_mode = None
+        if advertising_mode not in self.ADVERTISING_MODES:
+            advertising_mode = "PERCENT_OF_SELLER_REVENUE"
+            invalid.append("advertising_mode")
+        normalized["advertising_mode"] = advertising_mode
         for field in self.MONEY_FIELDS + self.RATE_FIELDS + self.TAX_RATE_FIELDS:
             if field not in inputs or inputs.get(field) is None or inputs.get(field) == "":
                 normalized[field] = None
@@ -422,6 +450,30 @@ class UnitPriceScenarioService:
                 else:
                     normalized["cross_docking_per_unit"] = cross_docking
 
+        has_advertising_cost = (
+            "advertising_cost_per_unit" in inputs
+            and inputs.get("advertising_cost_per_unit") not in (None, "")
+        )
+        has_advertising_rate = (
+            "advertising_rate" in inputs and inputs.get("advertising_rate") not in (None, "")
+        )
+        if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            if has_advertising_rate:
+                invalid.append("advertising_mode")
+            if not has_advertising_cost:
+                missing.append("advertising_cost_per_unit")
+            else:
+                advertising_cost = self._decimal(inputs.get("advertising_cost_per_unit"))
+                if advertising_cost is None or advertising_cost < 0:
+                    invalid.append("advertising_cost_per_unit")
+                else:
+                    normalized["advertising_cost_per_unit"] = advertising_cost
+        else:
+            if has_advertising_cost:
+                invalid.append("advertising_mode")
+            if not has_advertising_rate:
+                missing.append("advertising_rate")
+
         for field in self.REQUIRED_FIELDS:
             if field not in inputs or inputs.get(field) is None or inputs.get(field) == "":
                 if field not in missing:
@@ -448,11 +500,12 @@ class UnitPriceScenarioService:
             if price is not None and commission_rate is not None
             else None
         )
-        advertising = (
-            self._money_decimal(price * ad_rate / self._HUNDRED)
-            if price is not None and ad_rate is not None
-            else None
-        )
+        if values.get("advertising_mode") == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            advertising = self._money_decimal(values.get("advertising_cost_per_unit"))
+        elif price is not None and ad_rate is not None:
+            advertising = self._money_decimal(price * ad_rate / self._HUNDRED)
+        else:
+            advertising = None
         fees = (
             self._money_decimal(logistics + last_mile + acquiring)
             if None not in (logistics, last_mile, acquiring)
