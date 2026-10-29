@@ -2056,5 +2056,5 @@ Summary Report теперь включает:
 - W30 regression profile: **69 passed in 2.11s**. Evidence: `project_brain/UNIT_ECONOMICS_W30_TELEGRAM_GUIDED_ENTRY_2026-10-29.md`.
 # 2026-10-30 — W39 review handoff
 
-- Открыт зависимый PR #722 поверх спецификации #721; добавлен пакет независимого review с архитектурной классификацией, contracts/migration map, источниками и ограничениями, W31 owner blockers и reviewer checklist. Exact-head GitHub Verify ещё выполняется; merge/deploy/live API и запуск бота не выполнялись.
+- Открыт зависимый PR #722 поверх спецификации #721; добавлен пакет независимого review с архитектурной классификацией, contracts/migration map, источниками и ограничениями, W31 owner blockers и reviewer checklist. Exact HEAD `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb` прошёл Windows/Linux/Docker Verify: [run 40955833551](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40955833551). Последующее обновление docs требует повторного CI. Merge/deploy/live API и запуск бота не выполнялись.
 - Полный локальный Windows прогон W38: 4,335 passed; подробности в `project_brain/UNIT_ECONOMICS_W38_FULL_VERIFICATION_2026-10-30.md`.
