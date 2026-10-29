@@ -1,3 +1,11 @@
+# 2026-10-29 — W27: зрелость результата и gates качества данных
+
+- Добавлены pure maturity gates и revisioned readiness service для завершённых фаз. Оценка использует строго latest immutable collection; finance/returns/CPC coverage, finite collection budget, семь полных локальных дней, минимум 30 eligible units и denominator проверяются отдельно.
+- Исправлена обработка нулевого/неизвестного количества: missing sold units имеют статус UNKNOWN, подтверждённый ноль блокирует расчёт на единицу; знаменатель всегда `SOLD_UNITS_WINDOW` при наличии положительного числа выкупленных единиц. Profit пока остаётся null — сравнение относится к W28.
+- Late collection append создаёт отдельную result revision, сохраняет прежние ссылки/хеши и не переписывает историю; повторный idempotency key не создаёт новую ревизию. Mixed prices и price history явно помечаются как неподтверждаемые из доступного источника.
+- Linked W25–W27 profile: **148 passed in 5.15s**; `py_compile`, staged `git diff --check` PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W27_MATURITY_GATES_2026-10-29.md`.
+- Следующий этап — W28: сравнение совместимых фаз и расчёт delta ₽/unit с guard-ами против ложной причинности.
+
 # 2026-10-29 — W26: сбор фактов завершённой фазы эксперимента
 
 - Добавлен сервис сбора точного завершённого окна через существующий reader с общим PeriodProfitOperationTrace. Проверяются owner/store/SKU/схема/цена, timezone и точная owner-confirmed отметка effective_from; поздний ответ после паузы/CAS conflict не сохраняется.

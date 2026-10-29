@@ -1,4 +1,6 @@
-# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W26 verified 29.10.2026)
+# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W27 verified 29.10.2026)
+
+- W27: `tests/test_unit_economics_experiment_phase_readiness_service.py` verifies seven fully elapsed local days, Moscow/Pacific timezone boundary, 30 eligible units, Q0/missing-vs-zero denominator, incomplete CPC, explicit mixed-price limitation, control warnings after paginated event history, exact replay, and append-only new result after late return facts. W26 collection, phase confirmation/control, planning repository and existing observation/window/returns/readiness suites: linked W25–W27 profile **148 passed in 5.15s**. Changed Python modules compile; staged `git diff --check` PASS; `git diff -- data` empty. Evidence: `UNIT_ECONOMICS_W27_MATURITY_GATES_2026-10-29.md`.
 
 - W26: tests/test_unit_economics_experiment_phase_collection_service.py checks exact completed local window and confirmation-time/timezone binding, partial-source signed values, reason-code privacy, idempotent replay without a second source read, shared parent request/time budget, cancellation, late response after pause, and failure rollback across collection/result rows. Planning Workspace and observation repository/collection suites verify additive v10→v11 migration and reader compatibility. Linked profile: 64 passed in 3.21s; py_compile, git diff --check PASS; git diff -- data empty. Acceptance: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md.
 

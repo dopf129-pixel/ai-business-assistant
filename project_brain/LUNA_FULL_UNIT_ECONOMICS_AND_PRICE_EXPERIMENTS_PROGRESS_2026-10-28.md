@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W26 завершены; следующий доступный этап — W27.
+Статус: IN_PROGRESS. W00–W27 завершены; следующий доступный этап — W28.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,8 @@
 
 ## Resume
 
-- Следующий этап: W27.
+- Следующий этап: W28.
+- Последний завершённый этап W27: code commit `927c3d05`; evidence: `UNIT_ECONOMICS_W27_MATURITY_GATES_2026-10-29.md`; linked W25–W27 profile **148 passed in 5.15s**.
 - Последний завершённый этап W26: code commit 332b0c85; evidence: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md; linked profile 64 passed in 3.21s.
 - Последний завершённый этап W24: code commit `e39bb48e`; evidence: `UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`; linked profile **96 passed in 2.84s**.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
@@ -55,7 +56,7 @@
 | W24 | W22,W23 | DONE | 29.10.2026; code commit `e39bb48e`: preview выдаёт experiment/phase revision tokens без записи; атомарный owner-confirm связывает exact phase, frozen plan revision и active observation, применяет общий SKU guard и observation quota, записывает append-only revisions. Midday/midnight local-day boundaries, future/price/state/stale gates, idempotent replay/conflict и rollback проверены; owner-declared time никогда не выдаётся за API price history. Additive migration v8→v9 сохраняет старые phase/history records. Linked Windows/Python 3.12 profile: **96 passed in 2.84s**; `py_compile`, `git diff --check` PASS; `git diff -- data` empty; synthetic data only, no live APIs/bot. Evidence: `UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`. |
 | W25 | W24 | DONE | 29.10.2026; входной HEAD `6640e58c`, code commit `5c609de8`: owner-reported control flags with allowlisted changed/unknown reasons; atomic pause closes linked observation and releases shared SKU guard; resume preparation appends a fresh same-kind/same-price/same-cost-snapshot segment and requires fresh owner-confirmed price/time. Old phase payload/confirmation remains immutable. Schema v9→v10 adds bounded append-only event table/resume target and permits only the first baseline to be unique. Cancel/archive clear the target. Linked isolated Windows/Python 3.12.10 profile: **106 passed in 3.38s** across control/confirmation services, experiment repository, planning repository, observations and state machine; `py_compile`, `git diff --check` PASS; `git diff -- data` empty. Synthetic temporary storage only; no owner data, credentials, live API or bot. Evidence: `UNIT_ECONOMICS_W25_PHASE_CONTROLS_2026-10-29.md`. |
 | W26 | W24,W25 | DONE | 29.10.2026, code commit 332b0c85: added exact completed-window phase collector, schema v10→v11 immutable phase collection projection, atomic collection+WAITING result append with CAS/idempotency and hash references. The collector reuses existing observation evidence readers; it does not run a retry/background loop or calculate profit. It verifies exact owner/store/SKU/scheme/price, owner-confirmed effective timestamp and timezone; rejects incomplete windows, cancellation, late response and stale/pause state; uses the strictest existing 60s/64-request reader budget and remaining shared parent budget. Arbitrary source reasons are mapped to fixed codes. Linked isolated Windows/Python 3.12 profile: 64 passed in 3.21s. Initial local attempt failed before W26 logic because Windows Python lacked IANA timezone data; rerun used an already-installed local TZif directory, no dependency/code change. py_compile, git diff --check PASS; git diff -- data empty. Synthetic temp DB only; no real Ozon/API/bot. Evidence: UNIT_ECONOMICS_W26_PHASE_COLLECTION_2026-10-29.md. |
-| W27 | W26 | NOT_STARTED | — |
+| W27 | W26 | DONE | 29.10.2026, code commit `927c3d05`: added pure phase maturity/source/quantity gates and append-only readiness result revisions using only latest immutable collection. Enforces seven fully completed days in the phase timezone and 30 eligible units without claiming statistical confidence; missing sold units stay UNKNOWN, confirmed Q0 blocks per-unit results. Added explicit mixed-price/owner-price limitations, full paginated control history, idempotent re-evaluation, and late-return revisions without changing old result snapshots. Linked W25–W27 profile: **148 passed in 5.15s**; `py_compile`, staged `git diff --check` PASS; `git diff -- data` empty. Synthetic temporary data only; no live APIs or bot. Evidence: `UNIT_ECONOMICS_W27_MATURITY_GATES_2026-10-29.md`. |
 | W28 | W20,W27 | NOT_STARTED | — |
 | W29 | W28 | NOT_STARTED | — |
 | W30 | W10,W18 | NOT_STARTED | — |
