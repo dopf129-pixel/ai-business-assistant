@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W10 завершены; следующий доступный этап — W11.
+Статус: IN_PROGRESS. W00–W11 завершены; следующий доступный этап — W12.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,7 @@
 
 ## Resume
 
-- Следующий этап: W11.
+- Следующий этап: W12.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
 - W00 implementation HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
 - W01 audited incoming HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; evidence: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`.
@@ -37,7 +37,7 @@
 | W08 | W05 | DONE | 28.10.2026, incoming code HEAD `c59ab11a`: добавлен pure `UnitEconomicsAdditionalExpenseEvidenceService` с disjoint `STORAGE`/`PLACEMENT`/delegated cross-docking buckets и hashed immutable map только для явно разрешённых `OTHER_SERVICE`. Необработанные key/category conflicts, account/unattributed, partial source, base overlaps и one-off/credit не становятся применимой recurring суммой; exact SKU и window-allocation numerator раздельны, единичная ставка не вычисляется до W09. Missing отличается от confirmed zero. Combined isolated Windows/Python 3.12.10 profile W08/W07/W06/W05/observation normalizer: **89 passed in 1.23s**. `py_compile`, `git diff --check`, line-length scan PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W08_STORAGE_ADDITIONAL_EXPENSES_2026-10-28.md`. API adapters не добавлены, SKU storage source не подтверждён; user data, Ozon и бот не затронуты. |
 | W09 | W06,W07,W08 | DONE | 29.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, incoming code HEAD `fb78bfa8`, commit `0348ecb7`: добавлен bounded `UnitEconomicsWindowSnapshotService`: точные 56 завершённых локальных дат, отдельный phase window, observed bounds/coverage, safe fingerprints, weighted сумма подтверждённых расходов / сумма совместимых единиц по непересекающимся сегментам, zero-denominator/short-history/incomplete/mixed-denominator gates. Sequential normalized-evidence readers используют child `PeriodProfitOperationTrace` с ≤120 секунд и ≤128 HTTP попыток на всю операцию, включая ранее использованный parent count; attempts/лимиты не обнуляются, общий normalized evidence ограничен 64 KiB, retries автоматом нет, 429/time/request/evidence limit останавливают следующие readers. 16 regressions. Combined isolated W05–W09/trace profile: **116 passed in 1.80s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Реальных Ozon/Telegram запросов, .env, owner DB/data и реального бота не было. W09 acceptance: `UNIT_ECONOMICS_W09_WINDOW_SNAPSHOTS_2026-10-28.md`; provider-specific adapters pending. |
 | W10 | W09 | DONE | 29.10.2026: добавлена чистая `UnitEconomicsReadinessViewService`, которая проецирует один snapshot в безопасные component rows `INCLUDED`/`EXCLUDED`/`UNKNOWN`; source/applicability принимаются только из code allowlists, а reason codes генерируются самой проекцией, суммы/единицы берутся только из W09 evidence, unknown не становится zero, zero denominator блокирует ставку, но сохраняет наблюдаемую сумму. Reference/phase projection independent, overlapping windows переводят сравнение в `INCOMPARABLE`; вывод скрывает identity и raw source data, не делает API calls/storage writes. 15 regressions. Combined isolated W05–W10 profile: **131 passed in 2.00s**; `py_compile`, `git diff --check`, line-length scan PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W10_READINESS_VIEW_2026-10-29.md`. Источники и Telegram navigation пока не интегрированы; следующий этап W11.
-| W11 | W03,W10 | NOT_STARTED | — |
+| W11 | W03,W10 | DONE | 29.10.2026: `UnitPriceScenarioService` получил additive versioned extended contract. Full `WINDOW_COST_ALLOCATION` суммирует подтверждённый numerator, делит на совместимый знаменатель, округляет unit amount и вычитает его до существующего `TaxService` ровно одним canonical forward. `calculate_components_only` и `compare` используют тот же контракт; legacy calls без поля остаются прежними. Некорректный/incomplete evidence, двойной ownership, плохие вложенные типы и несовместимый cross-dock denominator fail closed; `STRICT_RETAINED_COHORT` явно unsupported до W12. Added 18 regression tests. Combined isolated W05–W11 profile: **174 passed in 2.71s**. Acceptance: `UNIT_ECONOMICS_W11_CANONICAL_FORWARD_2026-10-29.md`. |
 | W12 | W07,W11 | NOT_STARTED | — |
 | W13 | W11,W12 | NOT_STARTED | — |
 | W14 | W06,W11 | NOT_STARTED | — |

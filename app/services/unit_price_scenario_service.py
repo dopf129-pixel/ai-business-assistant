@@ -1,5 +1,8 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from uuid import uuid4
+from datetime import date
+import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class UnitPriceScenarioService:
@@ -54,18 +57,56 @@ class UnitPriceScenarioService:
     MAX_RATE_INPUT_DIGITS = 28
     MAX_INPUT_ADJUSTED_EXPONENT = 12
     MIN_INPUT_ADJUSTED_EXPONENT = -12
+    EXTENDED_COMPONENT_LIMIT = 64
+    EXTENDED_MAX_UNITS = 1_000_000_000
+    EXTENDED_MAX_AMOUNT = Decimal("999999999999.99")
+    EXTENDED_MODES = frozenset({"WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT"})
+    EXTENDED_SOURCE_COMPLETENESS = frozenset({"COMPLETE", "PARTIAL", "UNKNOWN", "CONFLICT"})
+    EXTENDED_ASSUMPTIONS = frozenset({
+        "OWNER_PRICE", "OWNER_COST", "OWNER_TARIFF_OVERRIDE", "OWNER_ADVERTISING",
+        "OWNER_DISCOUNT_POINTS",
+    })
+    _COMPONENT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+    _SAFE_REVISION_RE = re.compile(r"^[a-f0-9]{64}$")
+    _SAFE_POLICY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
     def __init__(self, tax_service):
         self.tax_service = tax_service
 
-    def calculate(self, inputs, identity=None, provenance=None, sources=None):
+    def calculate(
+        self, inputs, identity=None, provenance=None, sources=None, extended_scenario=None,
+    ):
         inputs = dict(inputs or {})
         identity = dict(identity or {})
         provenance = dict(provenance or {})
         sources = dict(sources or {})
+        extended = None
+        if extended_scenario is not None:
+            extended, extended_error = self._normalize_extended_scenario(extended_scenario)
+            if extended_error:
+                return self._extended_unavailable_result(
+                    extended_error, extended_scenario, identity, sources,
+                )
+            if extended["calculation_mode"] == "STRICT_RETAINED_COHORT":
+                return self._extended_unavailable_result(
+                    "STRICT_RETAINED_COHORT_NOT_IMPLEMENTED", extended_scenario, identity, sources,
+                )
+            if extended["source_completeness"] != "COMPLETE":
+                return self._extended_unavailable_result(
+                    "SOURCE_EVIDENCE_" + extended["source_completeness"],
+                    extended_scenario, identity, sources,
+                )
+            if self._has_unscoped_cross_docking(inputs):
+                return self._extended_unavailable_result(
+                    "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE",
+                    extended_scenario, identity, sources,
+                )
         normalized, missing, invalid = self._normalize(inputs)
         try:
-            calculated = self._calculate_components(normalized)
+            calculated = self._calculate_components(
+                normalized,
+                additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
+            )
         except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
             calculated = self._empty_calculation()
             invalid.append("calculation")
@@ -166,6 +207,18 @@ class UnitPriceScenarioService:
             "read_only": True,
             "executed": False,
         }
+        if extended is not None:
+            result["extended_calculation"] = self._public_extended_calculation(
+                extended, status="APPLIED" if available else "UNAVAILABLE",
+            )
+            if extended["additional_expense_per_unit"] > 0:
+                result["included_scope"].append(
+                    "confirmed additional expenses allocated per compatible window unit"
+                )
+            if extended["excluded_component_statuses"]:
+                result["excluded_scope"].append(
+                    "components excluded or unknown by the selected expense evidence"
+                )
         if "cross_docking" in calculated:
             cross_docking_included = calculated["cross_docking"] is not None
             result["cross_docking_included"] = cross_docking_included
@@ -197,15 +250,35 @@ class UnitPriceScenarioService:
                 )
         return result
 
-    def calculate_components_only(self, inputs):
+    def calculate_components_only(self, inputs, extended_scenario=None):
         """Return rounded one-sale money components without invoking TaxService.
 
         Aggregate planning flows use this projection to multiply canonical
         per-sale amounts by quantity, then calculate tax once on the aggregate.
         """
+        extended = None
+        if extended_scenario is not None:
+            extended, extended_error = self._normalize_extended_scenario(extended_scenario)
+            if extended_error:
+                return self._extended_components_unavailable(extended_error)
+            if extended["calculation_mode"] == "STRICT_RETAINED_COHORT":
+                return self._extended_components_unavailable(
+                    "STRICT_RETAINED_COHORT_NOT_IMPLEMENTED"
+                )
+            if extended["source_completeness"] != "COMPLETE":
+                return self._extended_components_unavailable(
+                    "SOURCE_EVIDENCE_" + extended["source_completeness"]
+                )
+            if self._has_unscoped_cross_docking(inputs):
+                return self._extended_components_unavailable(
+                    "CROSS_DOCKING_DENOMINATOR_INCOMPATIBLE"
+                )
         normalized, missing, invalid = self._normalize(dict(inputs or {}))
         try:
-            calculated = self._calculate_components(normalized)
+            calculated = self._calculate_components(
+                normalized,
+                additional_expenses=(extended["additional_expense_per_unit"] if extended else None),
+            )
         except (InvalidOperation, ArithmeticError, OverflowError, TypeError, ValueError):
             calculated = self._empty_calculation()
             invalid.append("calculation")
@@ -220,7 +293,7 @@ class UnitPriceScenarioService:
             float(self._money_decimal(normalized_cost))
             if normalized_cost is not None else None
         )
-        return {
+        result = {
             "error": False,
             "available": not missing and not invalid,
             "calculated": calculated,
@@ -229,13 +302,22 @@ class UnitPriceScenarioService:
             "read_only": True,
             "executed": False,
         }
+        if extended is not None:
+            result["extended_calculation"] = self._public_extended_calculation(
+                extended, status="APPLIED" if result["available"] else "UNAVAILABLE",
+            )
+        return result
 
-    def compare(self, inputs, current_price, identity=None, provenance=None, sources=None):
+    def compare(
+        self, inputs, current_price, identity=None, provenance=None, sources=None,
+        extended_scenario=None,
+    ):
         scenario = self.calculate(
             inputs,
             identity=identity,
             provenance=provenance,
             sources=sources,
+            extended_scenario=extended_scenario,
         )
         current_inputs = dict(inputs or {})
         current_inputs["price"] = current_price
@@ -244,6 +326,7 @@ class UnitPriceScenarioService:
             identity=identity,
             provenance=provenance,
             sources=sources,
+            extended_scenario=extended_scenario,
         )
         scenario["comparison"] = {
             "kind": "same_assumptions_at_current_seller_price",
@@ -308,7 +391,7 @@ class UnitPriceScenarioService:
                     missing.append(field)
         return normalized, missing, invalid
 
-    def _calculate_components(self, values):
+    def _calculate_components(self, values, additional_expenses=None):
         price = values.get("price")
         cost = values.get("cost")
         commission_rate = values.get("commission_rate")
@@ -346,7 +429,7 @@ class UnitPriceScenarioService:
 
         profit_before_tax = None
         if None not in (price, cost, commission, advertising, fees):
-            profit_before_tax = self._money_decimal(
+            total_expenses = (
                 price - commission - fees - cost - advertising
                 - (
                     values.get("cross_docking_per_unit")
@@ -354,6 +437,9 @@ class UnitPriceScenarioService:
                     else Decimal("0")
                 )
             )
+            if additional_expenses is not None:
+                total_expenses -= additional_expenses
+            profit_before_tax = self._money_decimal(total_expenses)
         result = {
             "revenue": self._money_decimal(price) if price is not None else None,
             "discount_points": points,
@@ -373,7 +459,254 @@ class UnitPriceScenarioService:
                 self._money_decimal(cross_docking)
                 if cross_docking is not None else None
             )
+        if additional_expenses is not None:
+            result["additional_unit_expenses"] = self._money_decimal(additional_expenses)
         return result
+
+    def _normalize_extended_scenario(self, value):
+        expected = {
+            "schema_version", "calculation_mode", "expense_snapshot_ref",
+            "quantity_evidence_ref", "expense_policy_revision", "included_component_keys",
+            "excluded_component_statuses", "numerator_and_denominator_basis",
+            "source_completeness", "assumed_inputs", "scope", "denominator_units",
+            "components",
+        }
+        if not isinstance(value, dict) or set(value) != expected:
+            return None, "EXTENDED_CONTRACT_INVALID"
+        mode = value.get("calculation_mode")
+        if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+            return None, "EXTENDED_SCHEMA_UNSUPPORTED"
+        if not isinstance(mode, str) or mode not in self.EXTENDED_MODES:
+            return None, "EXTENDED_MODE_UNSUPPORTED"
+        for field in ("expense_snapshot_ref", "quantity_evidence_ref"):
+            reference = value.get(field)
+            if reference is not None and (
+                not isinstance(reference, str) or self._SAFE_REVISION_RE.fullmatch(reference) is None
+            ):
+                return None, "EXTENDED_REFERENCE_INVALID"
+        policy_revision = value.get("expense_policy_revision")
+        if (
+            not isinstance(policy_revision, str)
+            or self._SAFE_POLICY_RE.fullmatch(policy_revision) is None
+        ):
+            return None, "EXTENDED_POLICY_REVISION_INVALID"
+        completeness = value.get("source_completeness")
+        if not isinstance(completeness, str) or completeness not in self.EXTENDED_SOURCE_COMPLETENESS:
+            return None, "EXTENDED_SOURCE_COMPLETENESS_INVALID"
+        basis = value.get("numerator_and_denominator_basis")
+        if not isinstance(basis, dict) or set(basis) != {"numerator", "denominator"}:
+            return None, "EXTENDED_BASIS_INVALID"
+        allowed_basis = (
+            {"numerator": "WINDOW_EXPENSE_RUB", "denominator": "ORDERED_UNITS_WINDOW"},
+            {"numerator": "WINDOW_EXPENSE_RUB", "denominator": "SOLD_UNITS_WINDOW"},
+            {"numerator": "STRICT_COHORT_LOSS_RUB", "denominator": "RETAINED_UNITS_EXACT_COHORT"},
+        )
+        if basis not in allowed_basis:
+            return None, "EXTENDED_BASIS_INVALID"
+        if mode == "WINDOW_COST_ALLOCATION" and basis["numerator"] != "WINDOW_EXPENSE_RUB":
+            return None, "EXTENDED_BASIS_MODE_MISMATCH"
+        if mode == "STRICT_RETAINED_COHORT" and basis["numerator"] != "STRICT_COHORT_LOSS_RUB":
+            return None, "EXTENDED_BASIS_MODE_MISMATCH"
+        scope = self._normalize_extended_scope(value.get("scope"))
+        if scope is None:
+            return None, "EXTENDED_SCOPE_INVALID"
+        denominator_units = value.get("denominator_units")
+        if (
+            type(denominator_units) is not int
+            or not 1 <= denominator_units <= self.EXTENDED_MAX_UNITS
+        ):
+            return None, "ZERO_OR_INVALID_DENOMINATOR"
+        assumptions = value.get("assumed_inputs")
+        if (
+            not isinstance(assumptions, list) or len(assumptions) > 16
+            or any(
+                not isinstance(item, str) or item not in self.EXTENDED_ASSUMPTIONS
+                for item in assumptions
+            )
+            or len(set(assumptions)) != len(assumptions)
+        ):
+            return None, "EXTENDED_ASSUMPTIONS_INVALID"
+
+        included_keys = value.get("included_component_keys")
+        raw_components = value.get("components")
+        excluded = value.get("excluded_component_statuses")
+        if (
+            not isinstance(included_keys, list) or len(included_keys) > self.EXTENDED_COMPONENT_LIMIT
+            or any(not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None for key in included_keys)
+            or included_keys != sorted(set(included_keys))
+            or not isinstance(raw_components, list) or len(raw_components) > self.EXTENDED_COMPONENT_LIMIT
+            or not isinstance(excluded, dict) or len(excluded) > self.EXTENDED_COMPONENT_LIMIT
+        ):
+            return None, "EXTENDED_COMPONENTS_INVALID"
+        component_keys = []
+        total_numerator = Decimal("0")
+        normalized_components = []
+        for component in raw_components:
+            if (
+                not isinstance(component, dict)
+                or set(component) != {"component_key", "numerator_rub", "ownership"}
+                or component.get("ownership") != "ADDITIONAL"
+            ):
+                return None, "EXTENDED_COMPONENT_INVALID"
+            key = component.get("component_key")
+            raw_amount = component.get("numerator_rub")
+            if (
+                not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None
+                or not isinstance(raw_amount, str) or len(raw_amount) > 32
+            ):
+                return None, "EXTENDED_COMPONENT_INVALID"
+            amount = self._decimal(raw_amount)
+            if amount is None or amount < 0 or amount > self.EXTENDED_MAX_AMOUNT:
+                return None, "EXTENDED_COMPONENT_AMOUNT_INVALID"
+            if key in component_keys:
+                return None, "EXTENDED_COMPONENT_DUPLICATE"
+            component_keys.append(key)
+            total_numerator += amount
+            if total_numerator > self.EXTENDED_MAX_AMOUNT:
+                return None, "EXTENDED_COMPONENT_TOTAL_TOO_LARGE"
+            normalized_components.append({"component_key": key, "numerator_rub": amount})
+        if component_keys != included_keys:
+            return None, "EXTENDED_COMPONENT_KEYS_MISMATCH"
+        for key, status in excluded.items():
+            if (
+                not isinstance(key, str) or self._COMPONENT_KEY_RE.fullmatch(key) is None
+                or not isinstance(status, str) or status not in {"EXCLUDED", "UNKNOWN"}
+                or key in component_keys
+            ):
+                return None, "EXTENDED_EXCLUDED_COMPONENTS_INVALID"
+        if completeness == "COMPLETE" and not component_keys and not excluded:
+            # A zero is explicit only when a complete source is bound to an empty
+            # selected component set; missing source data never reaches this path.
+            total_numerator = Decimal("0")
+        additional_per_unit = self._money_decimal(total_numerator / denominator_units)
+        return {
+            "schema_version": 1,
+            "calculation_mode": mode,
+            "expense_snapshot_ref": value["expense_snapshot_ref"],
+            "quantity_evidence_ref": value["quantity_evidence_ref"],
+            "expense_policy_revision": policy_revision,
+            "included_component_keys": component_keys,
+            "excluded_component_statuses": dict(sorted(excluded.items())),
+            "numerator_and_denominator_basis": dict(basis),
+            "source_completeness": completeness,
+            "assumed_inputs": sorted(assumptions),
+            "scope": scope,
+            "denominator_units": denominator_units,
+            "total_numerator_rub": self._money_decimal(total_numerator),
+            "additional_expense_per_unit": additional_per_unit,
+        }, None
+
+    def _normalize_extended_scope(self, value):
+        fields = {"scope_kind", "from_date", "to_date", "date_basis", "timezone"}
+        if not isinstance(value, dict) or set(value) != fields:
+            return None
+        scope_kind = value.get("scope_kind")
+        if (
+            not isinstance(scope_kind, str)
+            or scope_kind not in {"REFERENCE_56_COMPLETED_LOCAL_DAYS", "EXPERIMENT_PHASE_WINDOW"}
+        ):
+            return None
+        if value.get("date_basis") != "LOCAL_CALENDAR_DAY":
+            return None
+        timezone_name = value.get("timezone")
+        if not isinstance(timezone_name, str) or not timezone_name or len(timezone_name) > 128:
+            return None
+        try:
+            ZoneInfo(timezone_name)
+            start = date.fromisoformat(value.get("from_date"))
+            end = date.fromisoformat(value.get("to_date"))
+        except (TypeError, ValueError, ZoneInfoNotFoundError, OSError):
+            return None
+        if start > end:
+            return None
+        days = (end - start).days + 1
+        if scope_kind == "REFERENCE_56_COMPLETED_LOCAL_DAYS" and days != 56:
+            return None
+        if scope_kind == "EXPERIMENT_PHASE_WINDOW" and not 1 <= days <= 28:
+            return None
+        return {
+            "scope_kind": scope_kind,
+            "from_date": start.isoformat(),
+            "to_date": end.isoformat(),
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": timezone_name,
+        }
+
+    @staticmethod
+    def _has_unscoped_cross_docking(inputs):
+        if not isinstance(inputs, dict) or "cross_docking_per_unit" not in inputs:
+            return False
+        return inputs.get("cross_docking_per_unit") not in (None, "")
+
+    def _public_extended_calculation(self, extended, *, status):
+        return {
+            "schema_version": extended["schema_version"],
+            "calculation_mode": extended["calculation_mode"],
+            "status": status,
+            "expense_snapshot_ref": extended["expense_snapshot_ref"],
+            "quantity_evidence_ref": extended["quantity_evidence_ref"],
+            "expense_policy_revision": extended["expense_policy_revision"],
+            "included_component_keys": list(extended["included_component_keys"]),
+            "excluded_component_statuses": dict(extended["excluded_component_statuses"]),
+            "numerator_and_denominator_basis": dict(extended["numerator_and_denominator_basis"]),
+            "source_completeness": extended["source_completeness"],
+            "assumed_inputs": list(extended["assumed_inputs"]),
+            "scope": dict(extended["scope"]),
+            "total_numerator_rub": format(extended["total_numerator_rub"], ".2f"),
+            "denominator_units": extended["denominator_units"],
+            "denominator_kind": extended["numerator_and_denominator_basis"]["denominator"],
+            "additional_expense_per_unit_rub": format(
+                extended["additional_expense_per_unit"], ".2f",
+            ),
+        }
+
+    def _extended_unavailable_result(self, reason, raw_contract, identity, sources):
+        mode = None
+        if isinstance(raw_contract, dict):
+            raw_mode = raw_contract.get("calculation_mode")
+            if isinstance(raw_mode, str) and raw_mode in self.EXTENDED_MODES:
+                mode = raw_mode
+        return {
+            "error": False,
+            "available": False,
+            "kind": "PRICE_PLANNING_SCENARIO",
+            "identity": identity,
+            "scenario_id": str(identity.get("scenario_id") or uuid4().hex[:16]),
+            "scenario_version": self.VERSION,
+            "inputs": {},
+            "source_periods": sources.get("periods", {}),
+            "as_of": sources.get("as_of"),
+            "source_completeness": sources.get("completeness", {}),
+            "calculated": self._empty_calculation(),
+            "missing_inputs": [],
+            "invalid_inputs": [],
+            "extended_calculation": {
+                "schema_version": 1,
+                "calculation_mode": mode,
+                "status": "UNAVAILABLE",
+                "reason": reason,
+            },
+            "included_scope": [],
+            "excluded_scope": ["extended unit economics not applied"],
+            "read_only": True,
+            "executed": False,
+        }
+
+    def _extended_components_unavailable(self, reason):
+        return {
+            "error": False,
+            "available": False,
+            "calculated": self._empty_calculation(),
+            "missing_inputs": [],
+            "invalid_inputs": [],
+            "extended_calculation": {
+                "schema_version": 1,
+                "status": "UNAVAILABLE",
+                "reason": reason,
+            },
+            "read_only": True,
+            "executed": False,
+        }
 
     def _calculate_tax_and_profit(self, values, mode, components):
         profit_before_tax = components["profit_before_tax"]
