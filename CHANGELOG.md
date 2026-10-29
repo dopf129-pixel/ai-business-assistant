@@ -1,3 +1,8 @@
+# 2026-10-29 — W10: read-only проекция полноты и применимости
+
+- Добавлен `UnitEconomicsReadinessViewService`: по готовым W09 snapshots показывает включённые, исключённые и неизвестные компоненты, источник, наблюдаемые/применённые суммы, количество и машинные причины. Подтверждённый ноль остаётся нулём; без source/applicability metadata сумма не включается. Reference и phase не объединяются; пересечение окон блокирует сравнение.
+- Проекция чистая и read-only: не вызывает Ozon/API, возвращает `api_calls=0`, не выводит SKU/owner IDs и не сохраняет состояние. W05–W10 regression profile: **131 passed in 2.00s**.
+
 # 2026-10-28 — W06: рекламные расходы и сверка Performance CPC
 
 - Добавлен чистый `UnitEconomicsAdvertisingEvidenceService`: financial CPC/CPO/OTHER остаются основным источником; Performance CPC — отдельная сверка и никогда не прибавляется второй раз. Нераспознанные типы, account-level и window-allocation суммы не распределяются автоматически на SKU.
