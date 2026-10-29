@@ -31,11 +31,14 @@ from services.unit_economics_experiment_state_machine import (
 from services.unit_economics_experiment_plan_service import (
     UnitEconomicsExperimentPlanService,
 )
+from services.unit_economics_experiment_phase_confirmation_service import (
+    UnitEconomicsExperimentPhaseConfirmationService,
+)
 
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 4
-    DATABASE_SCHEMA_VERSION = 8
+    DATABASE_SCHEMA_VERSION = 9
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
@@ -2225,6 +2228,297 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def preview_price_experiment_phase_confirmation(
+        self, experiment_id, phase_id, *, seller_price_cents, effective_from,
+        owner_confirmed=False, owner_id=None, store_id=None,
+    ):
+        """Preview an owner-declared phase start without changing local state."""
+        experiment_result = self.get_price_experiment(
+            experiment_id, owner_id=owner_id, store_id=store_id,
+        )
+        if experiment_result.get("error"):
+            return experiment_result
+        phases_result = self.list_price_experiment_phases(
+            experiment_id, owner_id=owner_id, store_id=store_id,
+        )
+        if phases_result.get("error"):
+            return phases_result
+        phase = next((item for item in phases_result.get("items", [])
+                      if item.get("phase_id") == phase_id), None)
+        if phase is None:
+            return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_NOT_FOUND")
+        try:
+            now = self._timestamp()
+        except (ValueError, TypeError, OverflowError):
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        preview = UnitEconomicsExperimentPhaseConfirmationService.preview(
+            phase["config"], experiment_result["experiment"]["status"],
+            phase["status"], seller_price_cents, effective_from, now,
+            owner_confirmed=owner_confirmed,
+            candidate_prices_cents=experiment_result["experiment"]["config"].get(
+                "candidate_prices_cents",
+            ),
+        )
+        if preview.get("error"):
+            return preview
+        return {
+            **preview,
+            "experiment_id": experiment_id, "phase_id": phase_id,
+            "experiment_state_revision": experiment_result["experiment"][
+                "state_revision"
+            ],
+            "phase_state_revision": phase["state_revision"],
+        }
+
+    def confirm_price_experiment_phase(
+        self, experiment_id, phase_id, *, seller_price_cents, effective_from,
+        owner_confirmed, expected_state_revision, expected_phase_state_revision,
+        idempotency_key, owner_id=None, store_id=None,
+    ):
+        """Atomically attach a new observation and activate its confirmed phase."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        effective = self._timestamp_preserving_offset(effective_from)
+        if (scope.get("error") or key is None
+                or not self._valid_uuid_hex(experiment_id)
+                or not self._valid_uuid_hex(phase_id)
+                or type(seller_price_cents) is not int or seller_price_cents < 1
+                or seller_price_cents > UnitPriceTariffResolver.MAX_PRICE_CENTS
+                or owner_confirmed is not True
+                or type(expected_state_revision) is not int or expected_state_revision < 1
+                or type(expected_phase_state_revision) is not int
+                or expected_phase_state_revision < 1 or effective is None):
+            return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_INPUT_INVALID")
+        request_hash = self._price_experiment_request_hash({
+            "operation": "confirm_phase", "experiment_id": experiment_id,
+            "phase_id": phase_id, "seller_price_cents": seller_price_cents,
+            "effective_from": effective, "owner_confirmed": owner_confirmed,
+            "expected_state_revision": expected_state_revision,
+            "expected_phase_state_revision": expected_phase_state_revision,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._price_experiment_idempotent_result(
+                connection, scope, key, request_hash,
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            experiment_row = connection.execute(
+                "SELECT * FROM planning_price_experiments WHERE experiment_id=? "
+                "AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            phase_row = connection.execute(
+                "SELECT * FROM planning_price_experiment_phases WHERE phase_id=? "
+                "AND experiment_id=? AND owner_id=? AND store_id=?",
+                (phase_id, experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if experiment_row is None or phase_row is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_NOT_FOUND")
+            if experiment_row["state_revision"] != expected_state_revision:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            if phase_row["state_revision"] != expected_phase_state_revision:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_STATE_CONFLICT")
+            experiment = self._decode_price_experiment(experiment_row, scope)
+            phase = self._decode_price_experiment_phase(phase_row)
+            if experiment.get("error") or phase.get("error"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_RECORD_CORRUPT")
+            config = experiment["experiment"]["config"]
+            phase_value = phase["phase"]
+            if phase_value.get("observation_id") is not None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_ALREADY_CONFIRMED")
+            reference_error = self._validate_price_experiment_references(
+                connection, config, scope,
+            )
+            if reference_error:
+                connection.rollback()
+                return self._error(reference_error)
+            try:
+                now = self._timestamp()
+            except (ValueError, TypeError, OverflowError):
+                connection.rollback()
+                return self._error("PLANNING_CLOCK_UNAVAILABLE")
+            preview = UnitEconomicsExperimentPhaseConfirmationService.preview(
+                phase_value["config"], experiment_row["status"], phase_row["status"],
+                seller_price_cents, effective, now, owner_confirmed=True,
+                candidate_prices_cents=config.get("candidate_prices_cents"),
+            )
+            if preview.get("error"):
+                connection.rollback()
+                return preview
+            confirmation = UnitEconomicsExperimentPhaseConfirmationService.normalize_confirmation(
+                preview.get("confirmation"), phase_value["config"],
+            )
+            if confirmation is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_INVALID")
+            action = (
+                "activate_baseline" if phase_value["kind"] == "BASELINE"
+                else "activate_candidate"
+            )
+            decision = UnitEconomicsExperimentStateMachine.transition(
+                experiment_row["status"], action,
+                phase_confirmed=True, active_guard_available=True,
+            )
+            if decision.get("error"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_NOT_ALLOWED")
+            observation_count = connection.execute(
+                "SELECT COUNT(*) FROM planning_unit_price_observations "
+                "WHERE owner_id=? AND store_id=?",
+                (scope["owner_id"], scope["store_id"]),
+            ).fetchone()[0]
+            if observation_count >= self.MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE:
+                connection.rollback()
+                return self._error("PLANNING_OBSERVATION_QUOTA_REACHED")
+            identity = {key_name: experiment_row[key_name] for key_name in (
+                "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
+            )}
+            if not self._claim_active_sku_guard(
+                connection, scope, identity, "EXPERIMENT", experiment_id, now,
+            ):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_ACTIVE_SKU_GUARD_UNAVAILABLE")
+
+            source_plan = config["source_references"]["plan"]
+            observation_identity = {
+                key_name: identity[key_name] for key_name in (
+                    "product_id", "offer_id", "sku", "sale_schema",
+                )
+            }
+            observation_id = uuid4().hex
+            observation_key = f"exp_{experiment_id}_{phase_id}"
+            observation_request = {
+                "operation": "start", "identity": observation_identity,
+                "seller_price_cents": seller_price_cents,
+                "source_document_id": source_plan["document_id"],
+                "source_document_revision": source_plan["revision"],
+                "effective_from": effective,
+                "window_timezone": phase_value["config"]["timezone"],
+                "owner_confirmed": True, "note": "",
+            }
+            observation_hash = self._observation_request_hash(observation_request)
+            if observation_hash is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_INVALID")
+            connection.execute(
+                """INSERT INTO planning_unit_price_observations
+                   (observation_id, owner_id, store_id, product_id, offer_id, sku,
+                    sale_schema, source_document_id, source_document_revision,
+                    seller_price_cents, price_evidence_kind, effective_from,
+                    window_timezone, status, state_revision, result_revision, note,
+                    started_at, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'FBO', ?, ?, ?,
+                           'OWNER_DECLARED_PRICE_CHANGE', ?, ?, 'ACTIVE', 1, 0, '', ?, ?, ?)""",
+                (observation_id, scope["owner_id"], scope["store_id"],
+                 observation_identity["product_id"], observation_identity["offer_id"],
+                 observation_identity["sku"], source_plan["document_id"],
+                 source_plan["revision"], seller_price_cents, effective,
+                 phase_value["config"]["timezone"], now, now, now),
+            )
+            observation_result = {
+                "error": False, "observation_id": observation_id,
+                "status": "ACTIVE", "state_revision": 1, "result_revision": 0,
+            }
+            self._remember_observation_idempotency(
+                connection, scope, observation_key, observation_hash,
+                observation_result, now,
+            )
+
+            next_phase_revision = expected_phase_state_revision + 1
+            confirmation_json = self._encode(confirmation)
+            phase_updated = connection.execute(
+                "UPDATE planning_price_experiment_phases SET status='ACTIVE', "
+                "state_revision=?, observation_id=?, confirmation_json=?, updated_at=? "
+                "WHERE phase_id=? AND experiment_id=? AND owner_id=? AND store_id=? "
+                "AND status='PLANNED' AND state_revision=? AND observation_id IS NULL",
+                (next_phase_revision, observation_id, confirmation_json, now,
+                 phase_id, experiment_id, scope["owner_id"], scope["store_id"],
+                 expected_phase_state_revision),
+            ).rowcount
+            if phase_updated != 1:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_STATE_CONFLICT")
+            phase_revision = next_phase_revision + phase_row["result_revision"]
+            phase_revision_payload = {
+                "schema_version": PlanningUnitEconomicsExperimentAdapter.PHASE_SCHEMA_VERSION,
+                "phase_id": phase_id, "experiment_id": experiment_id,
+                "state": "ACTIVE", "state_revision": next_phase_revision,
+                "result_revision": phase_row["result_revision"],
+                "phase": phase_value["config"],
+                "observation_id": observation_id, "confirmation": confirmation,
+            }
+            phase_revision_encoded = self._encode(phase_revision_payload)
+            if (phase_revision_encoded is None or len(phase_revision_encoded.encode("utf-8"))
+                    > self.MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_INVALID")
+            connection.execute(
+                """INSERT INTO planning_price_experiment_phase_revisions
+                   (phase_id, experiment_id, owner_id, store_id, revision, state_revision,
+                    result_revision, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (phase_id, experiment_id, scope["owner_id"], scope["store_id"],
+                 phase_revision, next_phase_revision, phase_row["result_revision"],
+                 phase_revision_encoded, now),
+            )
+            next_experiment_revision = expected_state_revision + 1
+            experiment_updated = connection.execute(
+                "UPDATE planning_price_experiments SET status=?, state_revision=?, updated_at=? "
+                "WHERE experiment_id=? AND owner_id=? AND store_id=? AND state_revision=? "
+                "AND status=?",
+                (decision["to_state"], next_experiment_revision, now,
+                 experiment_id, scope["owner_id"], scope["store_id"],
+                 expected_state_revision, experiment_row["status"]),
+            ).rowcount
+            if experiment_updated != 1:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            self._insert_price_experiment_revision(
+                connection, experiment_id, scope, next_experiment_revision,
+                next_experiment_revision, decision["to_state"], config, now,
+            )
+            result = {
+                "error": False, "experiment_id": experiment_id,
+                "phase_id": phase_id, "observation_id": observation_id,
+                "status": decision["to_state"],
+                "phase_status": "ACTIVE",
+                "state_revision": next_experiment_revision,
+                "phase_state_revision": next_phase_revision,
+                "result_revision": experiment_row["result_revision"],
+                "first_full_local_day": confirmation["first_full_local_day"],
+                "price_evidence_kind": confirmation["price_evidence_kind"],
+                "price_history_verified": False,
+            }
+            self._remember_price_experiment_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_PRICE_EXPERIMENT_CONFIRMATION_CONFLICT")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
     def append_price_experiment_result(
         self, experiment_id, phase_id, payload, *, expected_state_revision,
         expected_phase_state_revision, expected_result_revision, idempotency_key,
@@ -2726,6 +3020,17 @@ class PlanningWorkspaceRepository:
                 normalized = PlanningUnitEconomicsExperimentAdapter.normalize_phase(
                     payload.get("phase") if isinstance(payload, dict) else None, {},
                 )
+                confirmation = None
+                observation_id = None
+                if isinstance(payload, dict):
+                    observation_id = payload.get("observation_id")
+                    raw_confirmation = payload.get("confirmation")
+                    if raw_confirmation is not None:
+                        confirmation = (
+                            UnitEconomicsExperimentPhaseConfirmationService
+                            .normalize_confirmation(raw_confirmation, normalized)
+                            if normalized is not None else None
+                        )
                 if (normalized is None or payload.get("schema_version") != 1
                         or payload.get("phase_id") != phase_id
                         or payload.get("experiment_id") != experiment_id
@@ -2734,12 +3039,21 @@ class PlanningWorkspaceRepository:
                         }
                         or payload.get("state_revision") != row["state_revision"]
                         or payload.get("result_revision") != row["result_revision"]
-                        or row["result_revision"] > 20):
+                        or row["result_revision"] > 20
+                        or ("confirmation" in payload and payload.get("confirmation") is not None
+                            and confirmation is None)
+                        or ("observation_id" in payload and (
+                            not isinstance(observation_id, str)
+                            or self._valid_uuid_hex(observation_id) is not True
+                        ))
+                        or (confirmation is None) != (observation_id is None)):
                     return self._error("PLANNING_PRICE_EXPERIMENT_PHASE_REVISION_CORRUPT")
                 items.append({
                     "revision": row["revision"], "state_revision": row["state_revision"],
                     "result_revision": row["result_revision"], "status": payload["state"],
                     "created_at": row["created_at"], "config": normalized,
+                    "observation_id": observation_id,
+                    "confirmation": confirmation,
                     "identity": dict(phase),
                 })
             return {
@@ -4336,6 +4650,8 @@ class PlanningWorkspaceRepository:
                 result_revision INTEGER NOT NULL DEFAULT 0 CHECK(result_revision >= 0),
                 expense_snapshot_id TEXT NOT NULL,
                 payload_json TEXT NOT NULL CHECK(length(CAST(payload_json AS BLOB)) <= 65536),
+                observation_id TEXT,
+                confirmation_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY(phase_id, owner_id, store_id),
@@ -4404,6 +4720,27 @@ class PlanningWorkspaceRepository:
             if version < 8:
                 connection.execute(
                     "DROP TRIGGER IF EXISTS trg_price_experiments_immutable_config"
+                )
+            if version < 9:
+                phase_columns = {
+                    row[1] for row in connection.execute(
+                        "PRAGMA table_info(planning_price_experiment_phases)"
+                    )
+                }
+                if "observation_id" not in phase_columns:
+                    connection.execute(
+                        "ALTER TABLE planning_price_experiment_phases "
+                        "ADD COLUMN observation_id TEXT"
+                    )
+                if "confirmation_json" not in phase_columns:
+                    connection.execute(
+                        "ALTER TABLE planning_price_experiment_phases "
+                        "ADD COLUMN confirmation_json TEXT"
+                    )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_price_experiment_phase_observation "
+                    "ON planning_price_experiment_phases(observation_id) "
+                    "WHERE observation_id IS NOT NULL"
                 )
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_economics_snapshots_no_update
                 BEFORE UPDATE ON planning_unit_economics_snapshots
@@ -4560,6 +4897,11 @@ class PlanningWorkspaceRepository:
             "SELECT 'OBSERVATION' AS operation_kind, observation_id AS operation_id, started_at AS created_at "
             "FROM planning_unit_price_observations WHERE owner_id=? AND store_id=? AND product_id=? "
             "AND offer_id=? AND sku=? AND sale_schema=? AND status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM planning_price_experiment_phases p "
+            "JOIN planning_price_experiments e ON e.experiment_id=p.experiment_id "
+            "AND e.owner_id=p.owner_id AND e.store_id=p.store_id "
+            "WHERE p.observation_id=planning_unit_price_observations.observation_id "
+            "AND e.status IN ('BASELINE_ACTIVE','CANDIDATE_ACTIVE')) "
             "UNION ALL SELECT 'EXPERIMENT', experiment_id, created_at FROM planning_price_experiments "
             "WHERE owner_id=? AND store_id=? AND product_id=? AND offer_id=? AND sku=? "
             "AND sale_schema=? AND status IN ('BASELINE_ACTIVE','CANDIDATE_ACTIVE')", (*key, *key),
@@ -5167,6 +5509,18 @@ class PlanningWorkspaceRepository:
         normalized = PlanningUnitEconomicsExperimentAdapter.normalize_phase(
             payload, {},
         )
+        observation_id = row["observation_id"]
+        confirmation = None
+        if row["confirmation_json"] is not None:
+            try:
+                raw_confirmation = json.loads(row["confirmation_json"])
+            except (TypeError, ValueError):
+                raw_confirmation = None
+            confirmation = (
+                UnitEconomicsExperimentPhaseConfirmationService.normalize_confirmation(
+                    raw_confirmation, normalized,
+                ) if normalized is not None else None
+            )
         if (normalized is None or payload.get("schema_version") != 1
                 or row["status"] not in {"PLANNED", "ACTIVE", "FINISHED", "PAUSED", "ARCHIVED"}
                 or type(row["state_revision"]) is not int or row["state_revision"] < 1
@@ -5174,7 +5528,13 @@ class PlanningWorkspaceRepository:
                 or not 0 <= row["result_revision"] <= 20
                 or normalized["expense_snapshot_id"] != row["expense_snapshot_id"]
                 or normalized["kind"] != row["kind"]
-                or normalized["segment_number"] != row["segment_number"]):
+                or normalized["segment_number"] != row["segment_number"]
+                or (row["confirmation_json"] is not None and confirmation is None)
+                or (confirmation is None) != (observation_id is None)
+                or (row["status"] == "ACTIVE" and confirmation is None)
+                or (observation_id is not None and not PlanningWorkspaceRepository._valid_uuid_hex(
+                    observation_id,
+                ))):
             return PlanningWorkspaceRepository._error(
                 "PLANNING_PRICE_EXPERIMENT_PHASE_CORRUPT"
             )
@@ -5188,6 +5548,7 @@ class PlanningWorkspaceRepository:
                 "segment_number": row["segment_number"], "kind": row["kind"],
                 "status": row["status"], "state_revision": row["state_revision"],
                 "result_revision": row["result_revision"],
+                "observation_id": observation_id, "confirmation": confirmation,
                 "created_at": row["created_at"], "updated_at": row["updated_at"],
                 "config": normalized,
             },

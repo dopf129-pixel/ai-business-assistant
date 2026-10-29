@@ -115,6 +115,44 @@ def _phase_payload(snapshot_id, *, kind="BASELINE", segment=1, price=10000):
     }
 
 
+def _ready_baseline_phase(repo, saved, snapshot, experiment):
+    plan = _experiment_payload(saved["document_id"], snapshot["snapshot_id"])
+    plan.update({
+        "plan_schema_version": 1,
+        "candidate_price_bounds_cents": {
+            "min_price_cents": 9500, "max_price_cents": 10500,
+        },
+        "maturity_min_days": 7, "maturity_min_units": 30,
+    })
+    updated = repo.update_price_experiment_draft(
+        experiment["experiment_id"], plan, expected_state_revision=1,
+        idempotency_key="w24-plan-edit01",
+    )
+    assert updated["error"] is False
+    phase = repo.create_price_experiment_phase(
+        experiment["experiment_id"], _phase_payload(snapshot["snapshot_id"], price=10000),
+        expected_state_revision=2, idempotency_key="w24-phase-create01",
+    )
+    assert phase["error"] is False
+    ready = repo.transition_price_experiment(
+        experiment["experiment_id"], "mark_ready", expected_state_revision=3,
+        idempotency_key="w24-ready-stage01",
+    )
+    assert ready["error"] is False
+    return phase
+
+
+def _confirm_baseline_phase(repo, experiment, phase, *, key="w24-confirm-baseline01",
+                            effective_from="2026-10-29T12:00:00+03:00",
+                            expected_state_revision=4, owner_confirmed=True):
+    return repo.confirm_price_experiment_phase(
+        experiment["experiment_id"], phase["phase_id"], seller_price_cents=10000,
+        effective_from=effective_from, owner_confirmed=owner_confirmed,
+        expected_state_revision=expected_state_revision,
+        expected_phase_state_revision=1, idempotency_key=key,
+    )
+
+
 def _result_payload(snapshot_id, *, baseline="10.00", candidate="11.50", delta="1.50"):
     return {
         "schema_version": 1, "status": "BETTER",
@@ -156,7 +194,7 @@ def _seed(repo):
         reset_current_tenant_user_id(token)
 
 
-def test_schema_v8_additive_migration_preserves_existing_plan_and_backfills_active_guard(tmp_path):
+def test_schema_v9_additive_migration_preserves_existing_plan_and_backfills_active_guard(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, snapshot, _ = _seed(repo)
     token = _context()
@@ -193,10 +231,13 @@ def test_schema_v8_additive_migration_preserves_existing_plan_and_backfills_acti
         reset_current_tenant_user_id(token)
     connection = sqlite3.connect(repo.db_path)
     try:
-        assert connection.execute("SELECT version FROM planning_schema").fetchone() == (8,)
         assert connection.execute(
+            "SELECT version FROM planning_schema",
+        ).fetchone()[0] == 9
+        guard = connection.execute(
             "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
-        ).fetchone() == ("OBSERVATION", observation["observation_id"])
+        ).fetchone()
+        assert tuple(guard) == ("OBSERVATION", observation["observation_id"])
         tables = {row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'",
         )}
@@ -209,6 +250,233 @@ def test_schema_v8_additive_migration_preserves_existing_plan_and_backfills_acti
         } <= tables
     finally:
         connection.close()
+
+
+def test_phase_confirmation_preview_and_atomic_owner_confirm_link_exact_observation(tmp_path):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite",
+        clock=lambda: datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        preview = repo.preview_price_experiment_phase_confirmation(
+            experiment["experiment_id"], phase["phase_id"],
+            seller_price_cents=10000,
+            effective_from="2026-10-29T12:00:00+03:00",
+        )
+        assert preview["error"] is False
+        assert preview["status"] == "PREVIEW_ONLY"
+        assert preview["first_full_local_day"] == "2026-10-30"
+        assert preview["price_history_verified"] is False
+        assert preview["experiment_state_revision"] == 4
+        assert preview["phase_state_revision"] == 1
+        assert repo.get_price_experiment(experiment["experiment_id"])[
+            "experiment"
+        ]["status"] == "READY"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["observation_id"] is None
+
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        assert confirmed["error"] is False
+        assert confirmed["status"] == "BASELINE_ACTIVE"
+        assert confirmed["phase_status"] == "ACTIVE"
+        assert confirmed["first_full_local_day"] == "2026-10-30"
+        assert confirmed["price_evidence_kind"] == "OWNER_DECLARED"
+        assert confirmed["price_history_verified"] is False
+        assert repo.confirm_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            seller_price_cents=10000,
+            effective_from="2026-10-29T12:00:00+03:00", owner_confirmed=True,
+            expected_state_revision=4, expected_phase_state_revision=1,
+            idempotency_key="w24-confirm-baseline01",
+        ) == confirmed
+        changed_replay = _confirm_baseline_phase(
+            repo, experiment, phase,
+            key="w24-confirm-baseline01",
+            effective_from="2026-10-29T13:00:00+03:00",
+        )
+        assert changed_replay["code"] == (
+            "PLANNING_PRICE_EXPERIMENT_IDEMPOTENCY_CONFLICT"
+        )
+        stale = _confirm_baseline_phase(
+            repo, experiment, phase, key="w24-confirm-stale001",
+            expected_state_revision=4,
+        )
+        assert stale["code"] == "PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT"
+
+        phase_record = repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]
+        assert phase_record["status"] == "ACTIVE"
+        assert phase_record["observation_id"] == confirmed["observation_id"]
+        assert phase_record["confirmation"]["price_history_verified"] is False
+        history = repo.list_price_experiment_phase_revisions(
+            experiment["experiment_id"], phase["phase_id"], limit=10,
+        )
+        assert history["error"] is False
+        assert history["items"][0]["confirmation"][
+            "first_full_local_day"
+        ] == "2026-10-30"
+        observation = repo.get_unit_price_observation(confirmed["observation_id"])
+        assert observation["error"] is False
+        assert observation["observation"]["seller_price_cents"] == 10000
+        assert observation["observation"]["effective_from"] == (
+            "2026-10-29T12:00:00+03:00"
+        )
+        assert observation["observation"]["source_plan"] == {
+            "document_id": saved["document_id"], "revision": 1,
+        }
+        assert observation["observation"]["price_evidence_kind"] == (
+            "OWNER_DECLARED_PRICE_CHANGE"
+        )
+        standalone = repo.start_unit_price_observation(
+            identity={"product_id": "product-1", "offer_id": "offer-1",
+                      "sku": "sku-1", "sale_schema": "FBO"},
+            seller_price_cents=10000, source_document_id=saved["document_id"],
+            source_document_revision=1, effective_from="2026-10-29T12:00:00+03:00",
+            window_timezone="Europe/Moscow", owner_confirmed=True,
+            idempotency_key="w24-standalone01",
+        )
+        assert standalone["code"] == "PLANNING_PRICE_EXPERIMENT_ALREADY_ACTIVE"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_phase_confirmation_rolls_back_observation_guard_and_revisions_together(tmp_path):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite",
+        clock=lambda: datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        connection = repo.get_connection()
+        connection.execute("""CREATE TRIGGER abort_w24_phase_revision
+            BEFORE INSERT ON planning_price_experiment_phase_revisions
+            WHEN NEW.state_revision=2
+            BEGIN SELECT RAISE(ABORT, 'synthetic W24 rollback'); END""")
+        connection.close()
+        failed = _confirm_baseline_phase(repo, experiment, phase)
+        assert failed["code"] == "PLANNING_PRICE_EXPERIMENT_CONFIRMATION_CONFLICT"
+        assert repo.get_price_experiment(experiment["experiment_id"])[
+            "experiment"
+        ]["status"] == "READY"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["status"] == "PLANNED"
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_unit_price_observations",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_active_sku_guards",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_price_experiment_idempotency "
+                "WHERE idempotency_key='w24-confirm-baseline01'",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+        connection = repo.get_connection()
+        connection.execute("DROP TRIGGER abort_w24_phase_revision")
+        connection.close()
+        retry = _confirm_baseline_phase(repo, experiment, phase)
+        assert retry["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_phase_confirmation_obeys_existing_observation_quota(tmp_path, monkeypatch):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite",
+        clock=lambda: datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        monkeypatch.setattr(repo, "MAX_UNIT_PRICE_OBSERVATIONS_PER_STORE", 0)
+        blocked = _confirm_baseline_phase(repo, experiment, phase)
+        assert blocked["code"] == "PLANNING_OBSERVATION_QUOTA_REACHED"
+        assert repo.get_price_experiment(experiment["experiment_id"])[
+            "experiment"
+        ]["status"] == "READY"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["status"] == "PLANNED"
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_unit_price_observations",
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_active_sku_guards",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_schema_v8_to_v9_preserves_planned_phase_history(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = repo.create_price_experiment_phase(
+            experiment["experiment_id"], _phase_payload(snapshot["snapshot_id"]),
+            expected_state_revision=1, idempotency_key="w24-migrate-phase01",
+        )
+        assert phase["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        connection.execute(
+            "DROP INDEX IF EXISTS idx_price_experiment_phase_observation",
+        )
+        connection.execute(
+            "ALTER TABLE planning_price_experiment_phases DROP COLUMN confirmation_json",
+        )
+        connection.execute(
+            "ALTER TABLE planning_price_experiment_phases DROP COLUMN observation_id",
+        )
+        connection.execute("UPDATE planning_schema SET version=8")
+        connection.commit()
+    finally:
+        connection.close()
+
+    reopened = PlanningWorkspaceRepository(db_path=repo.db_path)
+    connection = reopened.get_connection()
+    try:
+        assert connection.execute(
+            "SELECT version FROM planning_schema",
+        ).fetchone()[0] == 9
+        columns = {row[1] for row in connection.execute(
+            "PRAGMA table_info(planning_price_experiment_phases)",
+        )}
+        assert {"observation_id", "confirmation_json"} <= columns
+        assert connection.execute(
+            "SELECT COUNT(*) FROM planning_price_experiment_phase_revisions "
+            "WHERE phase_id=?", (phase["phase_id"],),
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+    token = _context()
+    try:
+        restored = reopened.list_price_experiment_phases(experiment["experiment_id"])
+        assert restored["error"] is False
+        assert restored["items"][0]["phase_id"] == phase["phase_id"]
+        assert restored["items"][0]["status"] == "PLANNED"
+        assert restored["items"][0]["confirmation"] is None
+        assert restored["items"][0]["observation_id"] is None
+    finally:
+        reset_current_tenant_user_id(token)
 
 
 def test_incomplete_experiment_draft_can_be_revised_but_cannot_become_ready_early(tmp_path):
