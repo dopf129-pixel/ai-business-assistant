@@ -1,3 +1,10 @@
+# 2026-10-29 — W25: условия фазы и pause/resume ценового эксперимента
+
+- Добавлен append-only журнал owner-reported изменений рекламы, карточки, себестоимости, остатка, акции и тарифа. Изменённые/неизвестные условия получают машинные причины несовместимости; ручные сообщения не объявляются подтверждёнными Ozon фактами.
+- Атомарная пауза закрывает связанное наблюдение и освобождает общий SKU guard. Возобновление создаёт отдельный сегмент с тем же типом цены и frozen expense snapshot, после чего требует нового подтверждения цены и времени; старые phase configuration/confirmation остаются неизменными.
+- Planning Workspace мигрирует аддитивно v9→v10: поле resume target, bounded immutable event journal и индекс только для первого baseline segment. Cancel/archive очищают только текущий resume target, не удаляя историю.
+- Добавлены регрессии idempotency/CAS, baseline/candidate resume target, quota rollback, event corruption/immutability, terminal transitions и v8→v10 legacy migration. Связанный изолированный профиль: **106 passed in 3.38s**; compile, `git diff --check` прошли; `git diff -- data` пуст. Реальные API и бот не запускались. Acceptance: `project_brain/UNIT_ECONOMICS_W25_PHASE_CONTROLS_2026-10-29.md`.
+
 # 2026-10-29 — W24: подтверждение цены эксперимента
 
 - Добавлен preview с exact revision tokens и атомарное owner-confirm связанной цены/наблюдения/фазы. Общий active-SKU guard, tenant scope, observation quota, stale CAS, idempotent replay и rollback сохраняются; ручное подтверждение не считается API price history.

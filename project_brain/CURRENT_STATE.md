@@ -1,13 +1,20 @@
+# 2026-10-29 — W25: контрольные условия и pause/resume эксперимента
+
+- Добавлен чистый `UnitEconomicsExperimentControlService` с allowlist owner-reported флагов advertising/card/cost/inventory/promotion/tariff. Изменение и UNKNOWN формируют явные reason codes; доказательства и конфигурации прежней фазы не перезаписываются.
+- `PlanningWorkspaceRepository` атомарно записывает контрольные события, останавливает фазу и связанное observation, освобождает общий active-SKU guard, готовит новый сегмент и принимает только свежее подтверждение, согласованное с сохранённым baseline/candidate target.
+- Planning Workspace schema v9→v10 — аддитивная миграция с bounded append-only journal, content hash, CAS/idempotency и разрешением только первого baseline segment; cancel/archive корректно очищают resume target. Связанный профиль: **106 passed in 3.38s**; `py_compile`, `git diff --check` прошли; `git diff -- data` пуст. Code: `5c609de8`; acceptance: `UNIT_ECONOMICS_W25_PHASE_CONTROLS_2026-10-29.md`.
+- Следующий этап — W26: сбор окна завершённой фазы из существующих collectors и нового cost evidence с общим trace budget.
+
 # 2026-10-29 — W24: owner-confirm цены и времени эксперимента
 
 - W24 добавил read-only preview с revision tokens и атомарное подтверждение точной цены фазы вместе с owner-declared observation, phase/experiment revisions и общим SKU guard. Валидация включает timezone/future/full-local-day, exact plan/SKU link, existing observation quota, stale CAS и idempotency. Подтверждение владельца не трактуется как проверенная Ozon price history.
 - Planning Workspace v8→v9 миграция добавляет nullable phase link/evidence; legacy phases остаются без подтверждения. Связанный тестовый профиль: **96 passed in 2.84s**; `py_compile`, `git diff --check` прошли; `git diff -- data` пуст. Code: `e39bb48e`; acceptance: `UNIT_ECONOMICS_W24_PHASE_CONFIRMATION_2026-10-29.md`.
 - Следующий этап — W25: control flags и pause/resume фазы без изменения записанного evidence.
 
-# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W24
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W25
 
 - W23 добавил pure сервис выбора 2–10 цен в границах владельца, с копеечными точками tariff boundary, существующим canonical расчётом и учётом tie. Неизвестный тариф/комиссия и переполнение лимита закрывают ранжирование; без замороженного тарифа комиссия явно является ручным допущением. 87 связанных тестов, compile, `git diff --check` прошли; `git diff -- data` пуст. Evidence: `UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
-- Следующий этап — W24: preview фактической цены/времени и owner-confirm с exact experiment/observation binding.
+- W24 закрепил owner-confirm цены/времени и точную observation binding; W25 добавил контрольные флаги и раздельные pause/resume сегменты. Следующий этап — W26: сбор результата завершённого окна.
 
 - W22 (code commits `247ad97c0854`, `9993bad6b3d7`) добавил планирование максимальной прибыли ₽/шт: price bounds, 3–28 дней, default 7, threshold ≥0.01 ₽ и maturity gate 7 дней/30 единиц. Неполный draft сохраняется, но READY запрещён до валидных bounds и 2–10 уникальных candidate prices; после READY revision config заморожен. Incomplete draft history сохраняется при cancel/archive. Planning Workspace v8 migration не переписывает существующие записи. Linked W21/W22/snapshot/export profile: **156 passed in 6.76s**. Evidence: `UNIT_ECONOMICS_W22_PLAN_READINESS_2026-10-29.md`.
 - Следующий этап — W23: выбрать candidate prices существующими tariff-aware solvers и проверить canonical forward calculation.
