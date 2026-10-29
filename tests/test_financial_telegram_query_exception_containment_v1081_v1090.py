@@ -36,7 +36,10 @@ class _Keyboard:
         self.unit_calls = 0
         self.returns_calls = 0
 
-    def build_unit_economics_keyboard(self, skus):
+    def build_unit_economics_keyboard(
+        self, skus, *, calculator_callback=None, product_callbacks=None,
+        experiment_callback=None,
+    ):
         self.unit_calls += 1
         return {
             "buttons": [
