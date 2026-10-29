@@ -2054,3 +2054,7 @@ Summary Report теперь включает:
 - В Telegram отделены базовая оценка по доступным данным и плановый локальный сценарий новой цены; неизвестные расходы не представляются нулевыми. В SKU-detail добавлено краткое действие для расширенного планирования.
 - Ручное подтверждение тарифа возвращает пользователя к тому же SKU-сценарию и сохраняет остальные его допущения.
 - W30 regression profile: **69 passed in 2.11s**. Evidence: `project_brain/UNIT_ECONOMICS_W30_TELEGRAM_GUIDED_ENTRY_2026-10-29.md`.
+# 2026-10-30 — W39 review handoff
+
+- Открыт зависимый PR #722 поверх спецификации #721; добавлен пакет независимого review с архитектурной классификацией, contracts/migration map, источниками и ограничениями, W31 owner blockers и reviewer checklist. Exact-head GitHub Verify ещё выполняется; merge/deploy/live API и запуск бота не выполнялись.
+- Полный локальный Windows прогон W38: 4,335 passed; подробности в `project_brain/UNIT_ECONOMICS_W38_FULL_VERIFICATION_2026-10-30.md`.

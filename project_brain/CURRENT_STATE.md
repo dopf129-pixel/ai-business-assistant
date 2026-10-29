@@ -1,4 +1,9 @@
-# 2026-10-30 — W38: полная локальная проверка
+# 2026-10-30 — W39: review handoff и exact-head CI
+
+- PR #722 открыт поверх спецификации PR #721; пакет независимого архитектурного review: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`. W39 ждёт завершения GitHub Verify на последнем PR HEAD.
+- W38: disposable Windows full pytest **4,335 passed in 50.37s** на кодовом SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Legacy `data/tasks.json` diff/lock остались только во временной копии, checkout владельца не затронут.
+- W31 остаётся явным production blocker: нет автоматического полного 56-дневного snapshot acquisition и полного Telegram candidate-phase flow. Реальная owner validation pending.
+- Architecture Review Required (126 files; +26,167/−244). Merge, deploy, live Ozon requests and real bot launch were not performed.
 
 - Disposable Windows full pytest: **4,335 passed in 50.37s** на `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Финальный запуск использовал CI-переменные и IANA timezone database, без storage-root override.
 - Legacy suite изменила `data/tasks.json` и lock только внутри временного checkout; основной checkout остался чистым, `data/` не изменился. W38 GitHub Verify на final PR HEAD пока pending.
