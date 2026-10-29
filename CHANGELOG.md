@@ -1,3 +1,8 @@
+# 2026-10-30 — W38: полный локальный прогон
+
+- Полный Windows pytest в disposable worktree на кодовом SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`: **4,335 passed in 50.37s**; `compileall` PASS. Устаревшие тестовые контракты keyboard mock и schema 11 исправлены без изменения production code.
+- Legacy suite изменила только `data/` в disposable worktree; source checkout остался чистым. Подробности и ограничения: `project_brain/UNIT_ECONOMICS_W38_FULL_VERIFICATION_2026-10-30.md`. GitHub Linux/Docker CI на final PR HEAD ещё ожидает публикации.
+
 # 2026-10-29 — W37: backup/restore истории unit economics
 
 - Добавлена synthetic сквозная проверка восстановления плана с себестоимостью, expense snapshot, тарифа, эксперимента, фазы, collection/result и append-only журнала в новый storage root с открытием новым repository instance.

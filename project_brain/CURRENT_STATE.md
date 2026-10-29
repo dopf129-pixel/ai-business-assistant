@@ -1,3 +1,9 @@
+# 2026-10-30 — W38: полная локальная проверка
+
+- Disposable Windows full pytest: **4,335 passed in 50.37s** на `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Финальный запуск использовал CI-переменные и IANA timezone database, без storage-root override.
+- Legacy suite изменила `data/tasks.json` и lock только внутри временного checkout; основной checkout остался чистым, `data/` не изменился. W38 GitHub Verify на final PR HEAD пока pending.
+- W31 source acquisition и candidate-phase UX остаются открытыми ограничениями; synthetic acceptance не считается live owner validation.
+
 # 2026-10-29 — W37: backup/restore acceptance
 
 - A new synthetic test restores plan/cost inputs, expense snapshot, tariff, experiment, phase, collection/result and event history into a new root, then reopens them with a new repository instance. Restore schema version is current; another store sees none of the restored records.

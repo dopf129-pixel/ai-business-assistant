@@ -1,3 +1,8 @@
+# W38 — full local verification (2026-10-30)
+
+- Exact local code SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`, disposable Windows worktree, Python 3.12.10: `compileall` PASS; full `pytest`: **4,335 passed in 50.37s**. `PYTHONTZPATH` pointed to installed IANA data; no `.env`, live credentials, Ozon/Telegram requests or real bot.
+- Full suite side effects were confined to disposable `data/tasks.json`/lock; the source checkout data stayed unchanged. Linux/Docker Verify is pending exact final PR HEAD.
+
 # W37 — backup/restore acceptance (2026-10-29)
 
 - `tests/test_unit_price_backup_restore.py::test_experiment_phases_results_and_event_history_survive_new_root_restore` verifies exact plan/cost, expense snapshot, tariff, experiment, phase, collection/result and control-event history after archive restore to a new root and repository reopen; checks schema version and other-store isolation; corrupt/future experiment/phase payloads fail closed.
