@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -141,19 +142,47 @@ def _seed(repo):
         reset_current_tenant_user_id(token)
 
 
-def test_schema_v6_additive_migration_preserves_existing_plan_and_old_tables(tmp_path):
+def test_schema_v7_additive_migration_preserves_existing_plan_and_backfills_active_guard(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, snapshot, _ = _seed(repo)
-    reopened = PlanningWorkspaceRepository(db_path=repo.db_path)
     token = _context()
     try:
-        assert reopened.get_document(saved["document_id"])["error"] is False
-        assert reopened.get_unit_economics_expense_snapshot(snapshot["snapshot_id"])["error"] is False
+        observation = repo.start_unit_price_observation(
+            identity={"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+                      "sale_schema": "FBO"},
+            seller_price_cents=10000, source_document_id=saved["document_id"],
+            source_document_revision=1, effective_from="2026-10-27T09:30:00Z",
+            window_timezone="Europe/Moscow", owner_confirmed=True,
+            idempotency_key="w21-migrationobs",
+        )
+        assert observation["error"] is False
     finally:
         reset_current_tenant_user_id(token)
     connection = sqlite3.connect(repo.db_path)
     try:
-        assert connection.execute("SELECT version FROM planning_schema").fetchone() == (6,)
+        connection.execute("DROP TABLE planning_active_sku_guards")
+        connection.execute("UPDATE planning_schema SET version=6")
+        connection.commit()
+    finally:
+        connection.close()
+    reopened = PlanningWorkspaceRepository(db_path=repo.db_path)
+    initialized = reopened.get_connection()
+    initialized.close()
+    token = _context()
+    try:
+        assert reopened.get_document(saved["document_id"])["error"] is False
+        assert reopened.get_unit_economics_expense_snapshot(snapshot["snapshot_id"])["error"] is False
+        assert reopened.get_unit_price_observation(observation["observation_id"])[
+            "observation"
+        ]["status"] == "ACTIVE"
+    finally:
+        reset_current_tenant_user_id(token)
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute("SELECT version FROM planning_schema").fetchone() == (7,)
+        assert connection.execute(
+            "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
+        ).fetchone() == ("OBSERVATION", observation["observation_id"])
         tables = {row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'",
         )}
@@ -162,9 +191,235 @@ def test_schema_v6_additive_migration_preserves_existing_plan_and_old_tables(tmp
             "planning_unit_price_observations", "planning_unit_price_comparisons",
             "planning_unit_economics_snapshots", "planning_price_experiments",
             "planning_price_experiment_phases", "planning_price_experiment_results",
+            "planning_active_sku_guards",
         } <= tables
     finally:
         connection.close()
+
+
+def test_active_experiment_and_observation_share_one_sku_guard(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, _, experiment = _seed(repo)
+    token = _context()
+    identity = {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+                "sale_schema": "FBO"}
+    try:
+        observation = repo.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=saved["document_id"], source_document_revision=1,
+            effective_from="2026-10-27T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-guardobs01",
+        )
+        assert observation["error"] is False
+        connection = repo.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            assert repo._claim_active_sku_guard(
+                connection, {"owner_id": "owner-1", "store_id": "store-a"},
+                identity, "EXPERIMENT", experiment["experiment_id"], repo._timestamp(),
+            ) is False
+            connection.rollback()
+        finally:
+            connection.close()
+        finished = repo.finish_unit_price_observation(
+            observation["observation_id"], expected_state_revision=1,
+            idempotency_key="w21-guardfinish",
+        )
+        assert finished["error"] is False
+        connection = repo.get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            assert repo._claim_active_sku_guard(
+                connection, {"owner_id": "owner-1", "store_id": "store-a"},
+                identity, "EXPERIMENT", experiment["experiment_id"], repo._timestamp(),
+            ) is True
+            connection.commit()
+        finally:
+            connection.close()
+        blocked = repo.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=saved["document_id"], source_document_revision=1,
+            effective_from="2026-10-28T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-guardobs02",
+        )
+        assert blocked["code"] == "PLANNING_PRICE_EXPERIMENT_ALREADY_ACTIVE"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_v6_migration_marks_legacy_cross_type_overlap_and_release_keeps_remaining_lock(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, _, experiment = _seed(repo)
+    token = _context()
+    identity = {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+                "sale_schema": "FBO"}
+    try:
+        observation = repo.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=saved["document_id"], source_document_revision=1,
+            effective_from="2026-10-27T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-overlapobs",
+        )
+        assert observation["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        connection.execute(
+            "UPDATE planning_price_experiments SET status='BASELINE_ACTIVE' WHERE experiment_id=?",
+            (experiment["experiment_id"],),
+        )
+        connection.execute("DROP TABLE planning_active_sku_guards")
+        connection.execute("UPDATE planning_schema SET version=6")
+        connection.commit()
+    finally:
+        connection.close()
+
+    reopened = PlanningWorkspaceRepository(db_path=repo.db_path)
+    initialized = reopened.get_connection()
+    initialized.close()
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute(
+            "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
+        ).fetchone() == ("CONFLICT", None)
+        assert connection.execute(
+            "SELECT status FROM planning_price_experiments WHERE experiment_id=?",
+            (experiment["experiment_id"],),
+        ).fetchone() == ("BASELINE_ACTIVE",)
+    finally:
+        connection.close()
+
+    token = _context()
+    try:
+        blocked = reopened.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=saved["document_id"], source_document_revision=1,
+            effective_from="2026-10-28T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-overlapblock",
+        )
+        assert blocked["code"] == "PLANNING_ACTIVE_SKU_GUARD_CONFLICT"
+        finished = reopened.finish_unit_price_observation(
+            observation["observation_id"], expected_state_revision=1,
+            idempotency_key="w21-overlapfinish",
+        )
+        assert finished["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute(
+            "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
+        ).fetchone() == ("EXPERIMENT", experiment["experiment_id"])
+    finally:
+        connection.close()
+
+
+def test_shared_active_sku_guard_isolated_by_store(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, _, _ = _seed(repo)
+    identity = {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+                "sale_schema": "FBO"}
+    token = _context()
+    try:
+        first = repo.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=saved["document_id"], source_document_revision=1,
+            effective_from="2026-10-27T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-storeaobs",
+        )
+        assert first["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+    token = _context(store="store-b")
+    try:
+        plan_b = repo.save_document(
+            title="Plan B", payload=_plan_payload(store="store-b"),
+            idempotency_key="w21-storebplan",
+        )
+        assert plan_b["error"] is False
+        second = repo.start_unit_price_observation(
+            identity=identity, seller_price_cents=10000,
+            source_document_id=plan_b["document_id"], source_document_revision=1,
+            effective_from="2026-10-27T09:30:00Z", window_timezone="Europe/Moscow",
+            owner_confirmed=True, idempotency_key="w21-storebobs",
+        )
+        assert second["error"] is False
+    finally:
+        reset_current_tenant_user_id(token)
+
+    connection = sqlite3.connect(repo.db_path)
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM planning_active_sku_guards WHERE sku='sku-1'"
+        ).fetchone() == (2,)
+    finally:
+        connection.close()
+
+
+def test_concurrent_same_sku_observation_starts_are_serialized(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, _, _ = _seed(repo)
+    identity = {"product_id": "product-1", "offer_id": "offer-1", "sku": "sku-1",
+                "sale_schema": "FBO"}
+
+    def start(index):
+        token = _context()
+        try:
+            return repo.start_unit_price_observation(
+                identity=identity, seller_price_cents=10000,
+                source_document_id=saved["document_id"], source_document_revision=1,
+                effective_from="2026-10-27T09:30:00Z", window_timezone="Europe/Moscow",
+                owner_confirmed=True, idempotency_key=f"w21-concurrent{index:02d}",
+            )
+        finally:
+            reset_current_tenant_user_id(token)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(start, (1, 2)))
+
+    assert sum(result.get("error") is False for result in results) == 1
+    failures = [result for result in results if result.get("error") is True]
+    assert len(failures) == 1
+    assert failures[0]["code"] == "PLANNING_OBSERVATION_ALREADY_ACTIVE"
+
+
+def test_experiment_cancel_transition_is_cas_idempotent_and_store_scoped(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    _, _, experiment = _seed(repo)
+    experiment_id = experiment["experiment_id"]
+    token = _context()
+    try:
+        cancelled = repo.transition_price_experiment(
+            experiment_id, "cancel", expected_state_revision=1,
+            idempotency_key="w21-cancel001",
+        )
+        assert cancelled["error"] is False
+        assert cancelled["status"] == "CANCELLED"
+        assert cancelled["state_revision"] == 2
+        assert repo.transition_price_experiment(
+            experiment_id, "cancel", expected_state_revision=1,
+            idempotency_key="w21-cancel001",
+        ) == cancelled
+        assert repo.transition_price_experiment(
+            experiment_id, "cancel", expected_state_revision=1,
+            idempotency_key="w21-stale001",
+        )["code"] == "PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT"
+        other_store = _context(store="store-b")
+        try:
+            assert repo.get_price_experiment(experiment_id)["code"] == (
+                "PLANNING_PRICE_EXPERIMENT_NOT_FOUND"
+            )
+            assert repo.transition_price_experiment(
+                experiment_id, "cancel", expected_state_revision=2,
+                idempotency_key="w21-otherstore",
+            )["code"] == "PLANNING_PRICE_EXPERIMENT_NOT_FOUND"
+        finally:
+            reset_current_tenant_user_id(other_store)
+        assert repo.get_price_experiment(experiment_id)["experiment"]["status"] == "CANCELLED"
+    finally:
+        reset_current_tenant_user_id(token)
 
 
 def test_snapshot_content_addressing_privacy_and_store_scope(tmp_path):

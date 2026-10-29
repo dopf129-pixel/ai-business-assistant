@@ -25,11 +25,14 @@ from services.unit_price_tariff_resolver import UnitPriceTariffResolver
 from services.planning_unit_economics_experiment_adapter import (
     PlanningUnitEconomicsExperimentAdapter,
 )
+from services.unit_economics_experiment_state_machine import (
+    UnitEconomicsExperimentStateMachine,
+)
 
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 4
-    DATABASE_SCHEMA_VERSION = 6
+    DATABASE_SCHEMA_VERSION = 7
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
@@ -801,6 +804,21 @@ class PlanningWorkspaceRepository:
                 connection.rollback()
                 return self._error("PLANNING_OBSERVATION_QUOTA_REACHED")
             observation_id = uuid4().hex
+            if not self._claim_active_sku_guard(
+                connection, scope, normalized_identity, "OBSERVATION", observation_id, now,
+            ):
+                guard = connection.execute(
+                    "SELECT operation_kind FROM planning_active_sku_guards "
+                    "WHERE owner_id=? AND store_id=? AND product_id=? AND offer_id=? "
+                    "AND sku=? AND sale_schema=?",
+                    self._active_guard_identity(scope, normalized_identity),
+                ).fetchone()
+                connection.rollback()
+                if guard is not None and guard["operation_kind"] == "EXPERIMENT":
+                    return self._error("PLANNING_PRICE_EXPERIMENT_ALREADY_ACTIVE")
+                if guard is not None and guard["operation_kind"] == "CONFLICT":
+                    return self._error("PLANNING_ACTIVE_SKU_GUARD_CONFLICT")
+                return self._error("PLANNING_OBSERVATION_ALREADY_ACTIVE")
             connection.execute(
                 """INSERT INTO planning_unit_price_observations
                    (observation_id, owner_id, store_id, product_id, offer_id, sku,
@@ -1273,7 +1291,8 @@ class PlanningWorkspaceRepository:
                 connection.commit()
                 return replay
             row = connection.execute(
-                "SELECT status, state_revision FROM planning_unit_price_observations "
+                "SELECT status, state_revision, product_id, offer_id, sku, sale_schema "
+                "FROM planning_unit_price_observations "
                 "WHERE observation_id=? AND owner_id=? AND store_id=?",
                 (observation_id, scope["owner_id"], scope["store_id"]),
             ).fetchone()
@@ -1321,6 +1340,10 @@ class PlanningWorkspaceRepository:
             if changed != 1:
                 connection.rollback()
                 return self._error("PLANNING_OBSERVATION_STATE_CONFLICT")
+            if mutation in {"finish", "archive"}:
+                self._sync_active_sku_guard(connection, scope, {
+                    key: row[key] for key in ("product_id", "offer_id", "sku", "sale_schema")
+                })
             result = {
                 "error": False, "observation_id": observation_id,
                 "status": status, "state_revision": next_state,
@@ -2652,6 +2675,94 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def transition_price_experiment(
+        self, experiment_id, action, *, expected_state_revision, idempotency_key,
+        owner_id=None, store_id=None,
+    ):
+        """Apply currently storage-only experiment transitions atomically.
+
+        Phase-confirmation transitions are deliberately applied by the later
+        experiment workflow once their exact phase and price evidence contracts exist.
+        """
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        if (scope.get("error") or not self._valid_uuid_hex(experiment_id)
+                or action != "cancel" or key is None
+                or type(expected_state_revision) is not int or expected_state_revision < 1):
+            return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_INPUT_INVALID")
+        request_hash = self._price_experiment_request_hash({
+            "operation": action, "experiment_id": experiment_id,
+            "expected_state_revision": expected_state_revision,
+        })
+        if request_hash is None:
+            return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._price_experiment_idempotent_result(connection, scope, key, request_hash)
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                "SELECT * FROM planning_price_experiments WHERE experiment_id=? "
+                "AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_NOT_FOUND")
+            if row["state_revision"] != expected_state_revision:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            decision = UnitEconomicsExperimentStateMachine.transition(row["status"], action)
+            if decision.get("error"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_NOT_ALLOWED")
+            decoded = self._decode_price_experiment(row, scope)
+            if decoded.get("error"):
+                connection.rollback()
+                return decoded
+            now = self._timestamp()
+            next_state = expected_state_revision + 1
+            changed = connection.execute(
+                "UPDATE planning_price_experiments SET status=?, state_revision=?, updated_at=? "
+                "WHERE experiment_id=? AND owner_id=? AND store_id=? AND state_revision=? "
+                "AND status=?",
+                (decision["to_state"], next_state, now, experiment_id,
+                 scope["owner_id"], scope["store_id"], expected_state_revision, row["status"]),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            self._insert_price_experiment_revision(
+                connection, experiment_id, scope, next_state, next_state,
+                decision["to_state"], decoded["experiment"]["config"], now,
+            )
+            result = {
+                "error": False, "experiment_id": experiment_id,
+                "status": decision["to_state"], "state_revision": next_state,
+                "result_revision": row["result_revision"],
+            }
+            self._remember_price_experiment_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
     def archive_price_experiment(
         self, experiment_id, *, expected_state_revision, idempotency_key,
         owner_id=None, store_id=None,
@@ -2695,6 +2806,12 @@ class PlanningWorkspaceRepository:
             if row["status"] == "ARCHIVED":
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_ALREADY_ARCHIVED")
+            decision = UnitEconomicsExperimentStateMachine.transition(
+                row["status"], "archive",
+            )
+            if decision.get("error"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_INVALID")
             next_state = expected_state_revision + 1
             revision = row["state_revision"] + 1
             now = self._timestamp()
@@ -4012,6 +4129,22 @@ class PlanningWorkspaceRepository:
                 "ON planning_price_experiments(owner_id, store_id, product_id, offer_id, sku, sale_schema) "
                 "WHERE status IN ('BASELINE_ACTIVE','CANDIDATE_ACTIVE')"
             )
+            connection.execute("""CREATE TABLE IF NOT EXISTS planning_active_sku_guards (
+                owner_id TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                offer_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                sale_schema TEXT NOT NULL CHECK(sale_schema IN ('FBO','FBS')),
+                operation_kind TEXT NOT NULL CHECK(operation_kind IN (
+                    'OBSERVATION','EXPERIMENT','CONFLICT'
+                )),
+                operation_id TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(owner_id, store_id, product_id, offer_id, sku, sale_schema),
+                CHECK((operation_kind='CONFLICT' AND operation_id IS NULL)
+                    OR (operation_kind IN ('OBSERVATION','EXPERIMENT') AND operation_id IS NOT NULL))
+            )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS planning_price_experiment_revisions (
                 experiment_id TEXT NOT NULL,
                 owner_id TEXT NOT NULL,
@@ -4104,6 +4237,8 @@ class PlanningWorkspaceRepository:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(owner_id, store_id, idempotency_key)
             )""")
+            if version < self.DATABASE_SCHEMA_VERSION:
+                self._migrate_active_sku_guards(connection)
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_economics_snapshots_no_update
                 BEFORE UPDATE ON planning_unit_economics_snapshots
                 BEGIN SELECT RAISE(ABORT, 'immutable expense snapshot'); END""")
@@ -4173,6 +4308,108 @@ class PlanningWorkspaceRepository:
         except Exception:
             connection.rollback()
             raise
+
+    @staticmethod
+    def _migrate_active_sku_guards(connection):
+        """Backfill the shared lock without rewriting pre-existing active records."""
+        active = {}
+        observation_rows = connection.execute(
+            "SELECT owner_id, store_id, product_id, offer_id, sku, sale_schema, "
+            "observation_id, started_at FROM planning_unit_price_observations "
+            "WHERE status='ACTIVE'"
+        ).fetchall()
+        for row in observation_rows:
+            key = tuple(row[field] for field in (
+                "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
+            ))
+            active.setdefault(key, []).append(("OBSERVATION", row["observation_id"], row["started_at"]))
+        experiment_rows = connection.execute(
+            "SELECT owner_id, store_id, product_id, offer_id, sku, sale_schema, "
+            "experiment_id, created_at FROM planning_price_experiments "
+            "WHERE status IN ('BASELINE_ACTIVE','CANDIDATE_ACTIVE')"
+        ).fetchall()
+        for row in experiment_rows:
+            key = tuple(row[field] for field in (
+                "owner_id", "store_id", "product_id", "offer_id", "sku", "sale_schema",
+            ))
+            active.setdefault(key, []).append(("EXPERIMENT", row["experiment_id"], row["created_at"]))
+        for key, operations in active.items():
+            if len(operations) == 1:
+                kind, operation_id, created_at = operations[0]
+            else:
+                kind, operation_id = "CONFLICT", None
+                created_at = min(operation[2] for operation in operations)
+            connection.execute(
+                "INSERT INTO planning_active_sku_guards "
+                "(owner_id, store_id, product_id, offer_id, sku, sale_schema, "
+                "operation_kind, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(owner_id, store_id, product_id, offer_id, sku, sale_schema) "
+                "DO UPDATE SET operation_kind=excluded.operation_kind, "
+                "operation_id=excluded.operation_id, created_at=excluded.created_at",
+                (*key, kind, operation_id, created_at),
+            )
+
+    @staticmethod
+    def _active_guard_identity(scope, identity):
+        return (
+            scope["owner_id"], scope["store_id"], identity["product_id"],
+            identity["offer_id"], identity["sku"], identity["sale_schema"],
+        )
+
+    @classmethod
+    def _claim_active_sku_guard(
+        cls, connection, scope, identity, operation_kind, operation_id, created_at,
+    ):
+        if operation_kind not in {"OBSERVATION", "EXPERIMENT"}:
+            return False
+        key = cls._active_guard_identity(scope, identity)
+        existing = connection.execute(
+            "SELECT operation_kind, operation_id FROM planning_active_sku_guards "
+            "WHERE owner_id=? AND store_id=? AND product_id=? AND offer_id=? AND sku=? "
+            "AND sale_schema=?", key,
+        ).fetchone()
+        if existing is not None:
+            return False
+        connection.execute(
+            "INSERT INTO planning_active_sku_guards "
+            "(owner_id, store_id, product_id, offer_id, sku, sale_schema, "
+            "operation_kind, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (*key, operation_kind, operation_id, created_at),
+        )
+        return True
+
+    @classmethod
+    def _sync_active_sku_guard(cls, connection, scope, identity):
+        """Reconcile a released/transitioned lock against both active resource tables."""
+        key = cls._active_guard_identity(scope, identity)
+        connection.execute(
+            "DELETE FROM planning_active_sku_guards WHERE owner_id=? AND store_id=? "
+            "AND product_id=? AND offer_id=? AND sku=? AND sale_schema=?", key,
+        )
+        operations = connection.execute(
+            "SELECT 'OBSERVATION' AS operation_kind, observation_id AS operation_id, started_at AS created_at "
+            "FROM planning_unit_price_observations WHERE owner_id=? AND store_id=? AND product_id=? "
+            "AND offer_id=? AND sku=? AND sale_schema=? AND status='ACTIVE' "
+            "UNION ALL SELECT 'EXPERIMENT', experiment_id, created_at FROM planning_price_experiments "
+            "WHERE owner_id=? AND store_id=? AND product_id=? AND offer_id=? AND sku=? "
+            "AND sale_schema=? AND status IN ('BASELINE_ACTIVE','CANDIDATE_ACTIVE')", (*key, *key),
+        ).fetchall()
+        if not operations:
+            return
+        if len(operations) == 1:
+            operation = operations[0]
+            kind, operation_id, created_at = (
+                operation["operation_kind"], operation["operation_id"], operation["created_at"],
+            )
+        else:
+            kind, operation_id = "CONFLICT", None
+            created_at = min(operation["created_at"] for operation in operations)
+        connection.execute(
+            "INSERT INTO planning_active_sku_guards "
+            "(owner_id, store_id, product_id, offer_id, sku, sale_schema, "
+            "operation_kind, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (*key, kind, operation_id, created_at),
+        )
 
     @classmethod
     def _document_dict(cls, row, revision, payload, revision_created_at):
