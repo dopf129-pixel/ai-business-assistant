@@ -497,7 +497,7 @@ def test_v3_database_migration_adds_observation_and_comparison_tables_preserving
         )}
     finally:
         connection.close()
-    assert version == 5
+    assert version == 6
     assert {
         "planning_unit_price_observations",
         "planning_unit_price_observation_results",
@@ -510,6 +510,13 @@ def test_v3_database_migration_adds_observation_and_comparison_tables_preserving
     assert {
         "planning_unit_price_comparisons",
         "planning_unit_price_comparison_idempotency",
+        "planning_unit_economics_snapshots",
+        "planning_price_experiments",
+        "planning_price_experiment_revisions",
+        "planning_price_experiment_phases",
+        "planning_price_experiment_phase_revisions",
+        "planning_price_experiment_results",
+        "planning_price_experiment_idempotency",
     } <= tables
     assert {
         "trg_unit_price_comparisons_no_update",
@@ -553,13 +560,17 @@ def test_v4_migration_preserves_observation_result_and_adds_comparison_history(t
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema WHERE singleton=1",
-        ).fetchone()[0] == 5
+        ).fetchone()[0] == 6
         tables = {row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'",
         )}
         assert {
             "planning_unit_price_comparisons",
             "planning_unit_price_comparison_idempotency",
+            "planning_unit_economics_snapshots",
+            "planning_price_experiments",
+            "planning_price_experiment_phases",
+            "planning_price_experiment_results",
         } <= tables
     finally:
         connection.close()

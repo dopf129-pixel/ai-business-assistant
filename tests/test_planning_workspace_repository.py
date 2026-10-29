@@ -288,6 +288,15 @@ def test_future_schema_and_storage_errors_fail_closed(tmp_path):
         assert _save(repo, "future-schema01")["code"] == "PLANNING_STORAGE_UNAVAILABLE"
     finally:
         reset_current_tenant_user_id(token)
+    connection = sqlite3.connect(db)
+    try:
+        assert connection.execute("SELECT version FROM planning_schema").fetchone()[0] == 99
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'",
+        )}
+        assert tables == {"planning_schema"}
+    finally:
+        connection.close()
     bad_path = tmp_path / "not-a-directory" / "db.sqlite"
     bad_path.parent.write_text("file blocks directory creation", encoding="utf-8")
     repo = PlanningWorkspaceRepository(db_path=bad_path)
@@ -331,7 +340,7 @@ def test_first_concurrent_connections_initialize_one_schema_and_allow_reopen(tmp
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(connect, range(2)))
-        assert all(len(rows) == 1 and tuple(rows[0]) == (1, 5) for rows in outcomes)
+        assert all(len(rows) == 1 and tuple(rows[0]) == (1, 6) for rows in outcomes)
 
     token = _context()
     try:
@@ -373,7 +382,7 @@ def test_legacy_schema_migrates_atomically_and_keeps_existing_document_state(tmp
         ).fetchone()
     finally:
         connection.close()
-    assert [tuple(row) for row in schema_rows] == [(1, 5)]
+    assert [tuple(row) for row in schema_rows] == [(1, 6)]
     assert document["state_revision"] == 1
 
 
