@@ -497,7 +497,7 @@ def test_v3_database_migration_adds_observation_and_comparison_tables_preserving
         )}
     finally:
         connection.close()
-        assert version == 9
+        assert version == 10
     assert {
         "planning_unit_price_observations",
         "planning_unit_price_observation_results",
@@ -560,7 +560,7 @@ def test_v4_migration_preserves_observation_result_and_adds_comparison_history(t
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema WHERE singleton=1",
-        ).fetchone()[0] == 9
+        ).fetchone()[0] == 10
         tables = {row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'",
         )}

@@ -14,10 +14,11 @@ class UnitEconomicsExperimentPhaseConfirmationService:
     def preview(
         cls, phase_config, experiment_status, phase_status, actual_price_cents,
         effective_from, now, *, owner_confirmed=False, candidate_prices_cents=None,
+        resume_target=None,
     ):
         context = cls._context(
             phase_config, experiment_status, phase_status, actual_price_cents,
-            effective_from, now, candidate_prices_cents,
+            effective_from, now, candidate_prices_cents, resume_target,
         )
         if context.get("error"):
             return context
@@ -98,7 +99,7 @@ class UnitEconomicsExperimentPhaseConfirmationService:
     @classmethod
     def _context(
         cls, phase_config, experiment_status, phase_status, actual_price_cents,
-        effective_from, now, candidate_prices_cents,
+        effective_from, now, candidate_prices_cents, resume_target,
     ):
         if not isinstance(phase_config, dict):
             return cls._error("EXPERIMENT_PHASE_CONFIG_INVALID")
@@ -108,7 +109,11 @@ class UnitEconomicsExperimentPhaseConfirmationService:
         expected_status = {
             "BASELINE": "READY", "CANDIDATE": "CANDIDATE_READY",
         }.get(kind)
-        if expected_status is None or experiment_status != expected_status:
+        expected_resume_target = expected_status
+        valid_status = experiment_status == expected_status or (
+            experiment_status == "PAUSED" and resume_target == expected_resume_target
+        )
+        if expected_status is None or not valid_status:
             return cls._error("EXPERIMENT_PHASE_CONFIRMATION_STATE_INVALID")
         if (type(actual_price_cents) is not int or actual_price_cents < 1
                 or actual_price_cents != phase_config.get("planned_price_cents")):

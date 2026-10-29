@@ -103,6 +103,45 @@ def test_candidate_must_be_selected_in_experiment_configuration():
     assert result["code"] == "EXPERIMENT_CANDIDATE_NOT_SELECTED"
 
 
+def test_resume_confirmation_requires_matching_stored_target_and_fresh_price_evidence():
+    phase = _phase(planned_from_date="2026-10-31")
+    resumed = Confirmation.preview(
+        phase, "PAUSED", "PLANNED", 10_000,
+        "2026-10-29T12:00:00+03:00", "2026-10-29T12:05:00+03:00",
+        owner_confirmed=True, resume_target="READY",
+    )
+    wrong_target = Confirmation.preview(
+        phase, "PAUSED", "PLANNED", 10_000,
+        "2026-10-29T12:00:00+03:00", "2026-10-29T12:05:00+03:00",
+        owner_confirmed=True, resume_target="CANDIDATE_READY",
+    )
+
+    assert resumed["error"] is False
+    assert resumed["confirmation"]["first_full_local_day"] == "2026-10-30"
+    assert resumed["confirmation"]["price_history_verified"] is False
+    assert wrong_target["code"] == "EXPERIMENT_PHASE_CONFIRMATION_STATE_INVALID"
+
+
+def test_candidate_resume_confirmation_requires_candidate_ready_target():
+    phase = _phase(kind="CANDIDATE", planned_from_date="2026-10-31")
+    resumed = Confirmation.preview(
+        phase, "PAUSED", "PLANNED", 10_000,
+        "2026-10-29T12:00:00+03:00", "2026-10-29T12:05:00+03:00",
+        owner_confirmed=True, candidate_prices_cents=[10_000],
+        resume_target="CANDIDATE_READY",
+    )
+    wrong_target = Confirmation.preview(
+        phase, "PAUSED", "PLANNED", 10_000,
+        "2026-10-29T12:00:00+03:00", "2026-10-29T12:05:00+03:00",
+        owner_confirmed=True, candidate_prices_cents=[10_000],
+        resume_target="READY",
+    )
+
+    assert resumed["error"] is False
+    assert resumed["confirmation"]["first_full_local_day"] == "2026-10-30"
+    assert wrong_target["code"] == "EXPERIMENT_PHASE_CONFIRMATION_STATE_INVALID"
+
+
 def test_confirmation_normalizer_rejects_tampered_date_and_price_history_claim():
     confirmation = Confirmation.preview(
         _phase(), "READY", "PLANNED", 10_000,

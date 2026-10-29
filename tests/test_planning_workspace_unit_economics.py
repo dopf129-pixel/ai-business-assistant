@@ -233,7 +233,7 @@ def test_schema_v9_additive_migration_preserves_existing_plan_and_backfills_acti
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema",
-        ).fetchone()[0] == 9
+        ).fetchone()[0] == 10
         guard = connection.execute(
             "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
         ).fetchone()
@@ -423,7 +423,252 @@ def test_phase_confirmation_obeys_existing_observation_quota(tmp_path, monkeypat
         reset_current_tenant_user_id(token)
 
 
-def test_schema_v8_to_v9_preserves_planned_phase_history(tmp_path):
+def test_experiment_control_pause_and_resume_preserve_old_segment_evidence(tmp_path):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite",
+        clock=lambda: datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc),
+    )
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        assert confirmed["error"] is False
+        original = repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]
+        flags = dict(original["config"]["control_flags"])
+        flags["promotion"] = "CHANGED"
+        update = repo.record_price_experiment_control_update(
+            experiment["experiment_id"], phase["phase_id"], flags,
+            expected_state_revision=confirmed["state_revision"],
+            idempotency_key="w25-control-update01",
+        )
+        assert update["error"] is False
+        assert update["compatibility"] == {
+            "status": "INCOMPATIBLE",
+            "reason_codes": ["EXPERIMENT_CONTROL_CHANGED_PROMOTION"],
+        }
+        assert repo.record_price_experiment_control_update(
+            experiment["experiment_id"], phase["phase_id"], flags,
+            expected_state_revision=confirmed["state_revision"],
+            idempotency_key="w25-control-update01",
+        ) == update
+        assert repo.record_price_experiment_control_update(
+            experiment["experiment_id"], phase["phase_id"], flags,
+            expected_state_revision=confirmed["state_revision"],
+            idempotency_key="w25-control-update02",
+        )["code"] == "PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT"
+
+        paused = repo.pause_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=update["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            idempotency_key="w25-pause-phase001",
+        )
+        assert paused["error"] is False
+        assert paused["status"] == "PAUSED"
+        assert paused["resume_target"] == "READY"
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_active_sku_guards "
+                "WHERE owner_id='owner-1' AND store_id='store-a'",
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
+        stored_experiment = repo.get_price_experiment(experiment["experiment_id"])[
+            "experiment"
+        ]
+        assert stored_experiment["resume_target"] == "READY"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["confirmation"] == original["confirmation"]
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["config"] == original["config"]
+        closed_observation = repo.get_unit_price_observation(
+            confirmed["observation_id"],
+        )
+        assert closed_observation["observation"]["status"] == "FINISHED"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["status"] == "PAUSED"
+
+        resumed_config = _phase_payload(
+            snapshot["snapshot_id"], kind="BASELINE", segment=2, price=10000,
+        )
+        resumed = repo.prepare_price_experiment_resume(
+            experiment["experiment_id"], resumed_config,
+            expected_state_revision=paused["state_revision"],
+            idempotency_key="w25-resume-prepared01",
+        )
+        assert resumed["error"] is False
+        assert resumed["status"] == "PAUSED"
+        assert resumed["phase_status"] == "PLANNED"
+        assert resumed["requires_fresh_confirmation"] is True
+        assert repo.confirm_price_experiment_phase(
+            experiment["experiment_id"], resumed["phase_id"],
+            seller_price_cents=10000, effective_from="2026-10-29T12:00:00+03:00",
+            owner_confirmed=True, expected_state_revision=resumed["state_revision"],
+            expected_phase_state_revision=1, idempotency_key="w25-resume-confirm01",
+        )["status"] == "BASELINE_ACTIVE"
+        reopened_phases = repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )
+        assert reopened_phases["error"] is False
+        by_segment = {item["segment_number"]: item for item in reopened_phases["items"]}
+        assert by_segment[1]["status"] == "PAUSED"
+        assert by_segment[1]["config"] == original["config"]
+        assert by_segment[1]["confirmation"] == original["confirmation"]
+        assert by_segment[2]["status"] == "ACTIVE"
+        assert by_segment[2]["observation_id"] != confirmed["observation_id"]
+        events = repo.list_price_experiment_events(
+            experiment["experiment_id"], limit=10,
+        )
+        assert events["error"] is False
+        assert [item["event_kind"] for item in events["items"]] == [
+            "RESUME_SEGMENT_PREPARED", "PAUSE", "CONTROL_UPDATE",
+        ]
+        assert events["items"][2]["payload"]["compatibility"]["status"] == (
+            "INCOMPATIBLE"
+        )
+        guard = repo.get_connection()
+        try:
+            guarded = guard.execute(
+                "SELECT operation_kind, operation_id FROM planning_active_sku_guards "
+                "WHERE owner_id='owner-1' AND store_id='store-a'",
+            ).fetchone()
+            assert tuple(guarded) == ("EXPERIMENT", experiment["experiment_id"])
+            with pytest.raises(sqlite3.IntegrityError):
+                guard.execute(
+                    "DELETE FROM planning_price_experiment_events WHERE experiment_id=?",
+                    (experiment["experiment_id"],),
+                )
+        finally:
+            guard.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+@pytest.mark.parametrize("terminal_action", ["cancel", "archive"])
+def test_paused_experiment_terminal_transition_clears_resume_target(
+    tmp_path, terminal_action,
+):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / f"{terminal_action}.sqlite")
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        paused = repo.pause_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=confirmed["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            idempotency_key=f"w25-pause-terminal-{terminal_action}",
+        )
+        assert paused["error"] is False
+        if terminal_action == "cancel":
+            terminal = repo.transition_price_experiment(
+                experiment["experiment_id"], "cancel",
+                expected_state_revision=paused["state_revision"],
+                idempotency_key="w25-cancel-paused01",
+            )
+        else:
+            terminal = repo.archive_price_experiment(
+                experiment["experiment_id"],
+                expected_state_revision=paused["state_revision"],
+                idempotency_key="w25-archive-paused01",
+            )
+        assert terminal["error"] is False
+        stored = repo.get_price_experiment(experiment["experiment_id"])
+        assert stored["error"] is False
+        assert stored["experiment"]["resume_target"] is None
+        assert stored["experiment"]["status"] == terminal["status"]
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_experiment_event_page_fails_closed_on_phase_binding_mismatch(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        flags = dict(_phase_payload(snapshot["snapshot_id"])["control_flags"])
+        recorded = repo.record_price_experiment_control_update(
+            experiment["experiment_id"], phase["phase_id"], flags,
+            expected_state_revision=confirmed["state_revision"],
+            idempotency_key="w25-event-binding001",
+        )
+        assert recorded["error"] is False
+        connection = sqlite3.connect(repo.db_path)
+        try:
+            connection.execute("DROP TRIGGER trg_price_experiment_events_no_update")
+            connection.execute(
+                "UPDATE planning_price_experiment_events SET phase_id=? WHERE event_id=?",
+                ("f" * 32, recorded["event_id"]),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        assert repo.list_price_experiment_events(
+            experiment["experiment_id"],
+        )["code"] == "PLANNING_PRICE_EXPERIMENT_EVENT_CORRUPT"
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_event_quota_failure_rolls_back_pause_and_keeps_active_guard(tmp_path, monkeypatch):
+    repo = PlanningWorkspaceRepository(
+        db_path=tmp_path / "planning.sqlite",
+        clock=lambda: datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(PlanningWorkspaceRepository, "MAX_PRICE_EXPERIMENT_EVENTS", 1)
+    saved, snapshot, experiment = _seed(repo)
+    token = _context()
+    try:
+        phase = _ready_baseline_phase(repo, saved, snapshot, experiment)
+        confirmed = _confirm_baseline_phase(repo, experiment, phase)
+        flags = dict(_phase_payload(snapshot["snapshot_id"])["control_flags"])
+        update = repo.record_price_experiment_control_update(
+            experiment["experiment_id"], phase["phase_id"], flags,
+            expected_state_revision=confirmed["state_revision"],
+            idempotency_key="w25-event-quota-control",
+        )
+        assert update["error"] is False
+        rejected = repo.pause_price_experiment_phase(
+            experiment["experiment_id"], phase["phase_id"],
+            expected_state_revision=update["state_revision"],
+            expected_phase_state_revision=confirmed["phase_state_revision"],
+            idempotency_key="w25-event-quota-pause",
+        )
+        assert rejected["code"] == "PLANNING_PRICE_EXPERIMENT_EVENT_QUOTA_REACHED"
+        assert repo.get_price_experiment(experiment["experiment_id"])[
+            "experiment"]["status"] == "BASELINE_ACTIVE"
+        assert repo.list_price_experiment_phases(
+            experiment["experiment_id"],
+        )["items"][0]["status"] == "ACTIVE"
+        assert repo.get_unit_price_observation(
+            confirmed["observation_id"],
+        )["observation"]["status"] == "ACTIVE"
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_active_sku_guards "
+                "WHERE owner_id='owner-1' AND store_id='store-a'",
+            ).fetchone()[0] == 1
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_price_experiment_events",
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_schema_v8_to_v10_preserves_planned_phase_history(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, snapshot, experiment = _seed(repo)
     token = _context()
@@ -446,6 +691,16 @@ def test_schema_v8_to_v9_preserves_planned_phase_history(tmp_path):
         connection.execute(
             "ALTER TABLE planning_price_experiment_phases DROP COLUMN observation_id",
         )
+        connection.execute(
+            "DROP INDEX IF EXISTS idx_price_experiment_first_baseline",
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_price_experiment_one_baseline "
+            "ON planning_price_experiment_phases(experiment_id, owner_id, store_id) "
+            "WHERE kind='BASELINE'",
+        )
+        connection.execute("ALTER TABLE planning_price_experiments DROP COLUMN resume_target")
+        connection.execute("DROP TABLE planning_price_experiment_events")
         connection.execute("UPDATE planning_schema SET version=8")
         connection.commit()
     finally:
@@ -456,11 +711,23 @@ def test_schema_v8_to_v9_preserves_planned_phase_history(tmp_path):
     try:
         assert connection.execute(
             "SELECT version FROM planning_schema",
-        ).fetchone()[0] == 9
+        ).fetchone()[0] == 10
         columns = {row[1] for row in connection.execute(
             "PRAGMA table_info(planning_price_experiment_phases)",
         )}
         assert {"observation_id", "confirmation_json"} <= columns
+        experiment_columns = {row[1] for row in connection.execute(
+            "PRAGMA table_info(planning_price_experiments)",
+        )}
+        assert "resume_target" in experiment_columns
+        assert connection.execute(
+            "SELECT COUNT(*) FROM planning_price_experiment_events",
+        ).fetchone()[0] == 0
+        index_names = {row[1] for row in connection.execute(
+            "PRAGMA index_list(planning_price_experiment_phases)",
+        )}
+        assert "idx_price_experiment_first_baseline" in index_names
+        assert "idx_price_experiment_one_baseline" not in index_names
         assert connection.execute(
             "SELECT COUNT(*) FROM planning_price_experiment_phase_revisions "
             "WHERE phase_id=?", (phase["phase_id"],),
