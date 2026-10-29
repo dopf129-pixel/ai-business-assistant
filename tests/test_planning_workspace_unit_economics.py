@@ -321,6 +321,45 @@ def test_impossible_experiment_price_bounds_are_not_saved(tmp_path):
         reset_current_tenant_user_id(token)
 
 
+def test_incomplete_draft_can_be_cancelled_and_archived_without_losing_history(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, snapshot, _ = _seed(repo)
+    token = _context()
+    try:
+        created = repo.create_price_experiment(
+            _incomplete_experiment_plan(
+                _experiment_payload(saved["document_id"], snapshot["snapshot_id"]),
+            ),
+            idempotency_key="w22-incomplete-terminal01",
+        )
+        assert created["error"] is False
+        cancelled = repo.transition_price_experiment(
+            created["experiment_id"], "cancel", expected_state_revision=1,
+            idempotency_key="w22-incomplete-cancel01",
+        )
+        assert cancelled["error"] is False
+        reopened = repo.get_price_experiment(created["experiment_id"])
+        assert reopened["error"] is False
+        assert reopened["experiment"]["status"] == "CANCELLED"
+        archived = repo.archive_price_experiment(
+            created["experiment_id"], expected_state_revision=2,
+            idempotency_key="w22-incomplete-archive01",
+        )
+        assert archived["error"] is False
+        assert repo.get_price_experiment(created["experiment_id"])[
+            "experiment"
+        ]["status"] == "ARCHIVED"
+        history = repo.list_price_experiment_revisions(
+            created["experiment_id"], limit=10,
+        )
+        assert history["error"] is False
+        assert {item["status"] for item in history["items"]} == {
+            "DRAFT", "CANCELLED", "ARCHIVED",
+        }
+    finally:
+        reset_current_tenant_user_id(token)
+
+
 def test_active_experiment_and_observation_share_one_sku_guard(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, _, experiment = _seed(repo)

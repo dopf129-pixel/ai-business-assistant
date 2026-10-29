@@ -2582,7 +2582,9 @@ class PlanningWorkspaceRepository:
                 revision_payload = payload if isinstance(payload, dict) else {}
                 normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
                     revision_payload.get("config"), scope,
-                    allow_incomplete=revision_payload.get("state") == "DRAFT",
+                    allow_incomplete=revision_payload.get("state") in {
+                        "DRAFT", "CANCELLED", "ARCHIVED",
+                    },
                 )
                 if (normalized is None or payload.get("schema_version") != 1
                         or payload.get("experiment_id") != experiment_id
@@ -5106,7 +5108,8 @@ class PlanningWorkspaceRepository:
         except (ValueError, TypeError):
             return self._error("PLANNING_PRICE_EXPERIMENT_CORRUPT")
         normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
-            payload, scope, allow_incomplete=row["status"] == "DRAFT",
+            payload, scope,
+            allow_incomplete=row["status"] in {"DRAFT", "CANCELLED", "ARCHIVED"},
         )
         if normalized is None:
             return self._error("PLANNING_PRICE_EXPERIMENT_CORRUPT")
