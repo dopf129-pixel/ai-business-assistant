@@ -1,4 +1,6 @@
-# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W15 verified 29.10.2026)
+# План приёмки W00–W39: экономика SKU и ценовые эксперименты (28.10.2026; W19 verified 29.10.2026)
+
+- W19: `tests/test_planning_extended_scenario_adapter.py` covers frozen-basis signature/origin; `tests/test_unit_price_observation_result_service.py` covers window and strict-cohort propagation, manual vs confirmed cost and invalid-reference rejection; `tests/test_unit_price_observation_quality_service.py` covers plan/result signature, scope, origin, amount and unconfirmed-basis gates; ranking/repository/runtime suites cover saved-plan signatures and backward-compatible records. Linked Windows/Python 3.12 profile (12 suites): **136 passed in 9.48s**. `py_compile`, `git diff --check` PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`.
 
 - W15 solver guards: `tests/test_unit_price_target_planning_service.py` checks fixed-ad/extended expense bounds, tariff gaps, candidate/previous-cent canonical verification, incomplete evidence, budget exhaustion/retry, grid parity and compensation threshold parity. `tests/test_unit_economics_return_evidence_service.py` feeds strict retained-cohort evidence through target search. Linked Windows/Python 3.12 profile across six suites: **168 passed in 1.86s**. Acceptance: `UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`.
 

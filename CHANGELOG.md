@@ -1,3 +1,8 @@
+# 2026-10-29 — W19: сопоставимость cost basis observation/ranking
+
+- Frozen extended cost basis сохраняется в observation result вместе с mode, origin, scope signature и суммой ₽/шт. `OWNER_COST` помечается как ручное допущение; несовпадающие и неполные basis исключаются из сравнения/ranking.
+- Старые observation/comparison records остаются читаемыми. W19 linked profile: **136 passed**. Acceptance: `project_brain/UNIT_ECONOMICS_W19_COST_BASIS_COMPARABILITY_2026-10-29.md`.
+
 # 2026-10-29 — W18: точное открытие замороженных версий эксперимента
 
 - Commit `731be723`: `PlanningWorkspaceRepository.get_price_experiment_frozen_snapshot` восстанавливает exact saved-plan revision, expense snapshot, tariff revision и quantity observation result из локального planning storage; источники не перезапрашиваются, отсутствующие/чужие/повреждённые ссылки закрываются fail-closed.
