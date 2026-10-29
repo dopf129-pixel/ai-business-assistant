@@ -252,12 +252,16 @@ class UnitPriceTargetPlanningService:
         tariff_resolution_required=False,
         exact_price_rate_cents=None,
         max_evaluations=None,
+        extended_scenario=None,
+        strict_return_evidence=None,
     ):
         target_result = self._normalize_target(target_margin_percent)
         if not target_result["valid"]:
             return self._error_result("INVALID_TARGET", identity)
         if not isinstance(inputs, dict):
             return self._error_result("INVALID_INPUTS", identity)
+        if strict_return_evidence is not None and extended_scenario is None:
+            return self._error_result("STRICT_COHORT_SCENARIO_REQUIRED", identity)
 
         target = target_result["value"]
         if type(tariff_resolution_required) is not bool:
@@ -298,6 +302,9 @@ class UnitPriceTargetPlanningService:
             "provenance": dict(provenance or {}),
             "sources": dict(sources or {}),
             "candidate_price_provenance": "planned_seller_price",
+            "extended_scenario": extended_scenario,
+            "strict_return_evidence": strict_return_evidence,
+            "additional_expense_per_unit": None,
         }
 
         if tariff_aware:
@@ -410,46 +417,44 @@ class UnitPriceTargetPlanningService:
                 "executed": False,
             }
 
-        break_even = self._find_candidate(
-            inputs, Decimal("0"), call_state, common
+        # Use the same bounded, cent-exact search for an explicit scenario
+        # commission as for frozen tariff segments. This keeps rounding,
+        # additional expenses, and previous-cent verification on one path.
+        assumed_segment = [{
+            "price_from_cents": self.MIN_PRICE_CENTS,
+            "price_to_cents": self.max_price_cents,
+            "commission_rate": inputs.get("commission_rate"),
+            "commission_origin": "scenario_input_assumption",
+            "commission_status": "ASSUMPTION_INPUT",
+        }]
+        break_even = self._find_candidate_in_tariff_segments(
+            inputs, Decimal("0"), call_state, common, assumed_segment,
+            frozen_tariff_snapshot=None,
+            tariff_identity=tariff_identity,
         )
         if target == 0:
             target_outcome = dict(break_even)
         else:
-            target_outcome = self._find_candidate(
-                inputs, target, call_state, common
+            target_outcome = self._find_candidate_in_tariff_segments(
+                inputs, target, call_state, common, assumed_segment,
+                frozen_tariff_snapshot=None,
+                tariff_identity=tariff_identity,
             )
-
-        validated = {}
-        for outcome in (break_even, target_outcome):
-            if outcome.get("status") != "FOUND":
-                continue
-            price = outcome["price"]
-            if price in validated:
-                outcome["forward_result"] = validated[price]
-                continue
-            cents = int(Decimal(price) * self.HUNDRED)
-            forward, forward_status = self._evaluate(
-                inputs, cents, call_state, common, bypass_cache=True
+        if break_even.get("status") == "FOUND":
+            self._verify_tariff_candidate(
+                break_even, Decimal("0"), inputs, call_state, common,
+                None, tariff_identity, None,
             )
-            if forward_status != "CALCULATED" or not self._reached(
-                forward, Decimal(price),
-                target if outcome is target_outcome else Decimal("0"),
-            ):
-                outcome.update(self._unavailable_outcome(
-                    "FINAL_CHECK_FAILED", forward
-                ))
-                continue
-            outcome.update(self._success_outcome(
-                Decimal(price), forward,
-                target if outcome is target_outcome else Decimal("0"),
-            ))
-            validated[price] = forward
-
-        # A 0% target is the same predicate as break-even; publish the same
-        # final direct result and avoid spending a second validation call.
-        if target == 0 and break_even.get("status") == "FOUND":
+        if target == 0:
             target_outcome = dict(break_even)
+        elif target_outcome.get("status") == "FOUND":
+            self._verify_tariff_candidate(
+                target_outcome, target, inputs, call_state, common,
+                None, tariff_identity, None,
+            )
+        for outcome in (break_even, target_outcome):
+            if outcome.get("status") == "NOT_FOUND_IN_COVERED_SEGMENTS":
+                outcome["status"] = "NOT_FOUND_IN_TESTED_RANGE"
 
         return {
             "error": False,
@@ -487,6 +492,8 @@ class UnitPriceTargetPlanningService:
         advertising_rates=None,
         advertising_cost_basis=None,
         price_grid_metadata=None,
+        extended_scenario=None,
+        strict_return_evidence=None,
     ):
         grid_mode = price_grid_metadata is not None
         if isinstance(prices, str):
@@ -514,6 +521,8 @@ class UnitPriceTargetPlanningService:
             target = target_result["value"]
         if not isinstance(inputs, dict):
             return self._error_result("INVALID_INPUTS", identity)
+        if strict_return_evidence is not None and extended_scenario is None:
+            return self._error_result("STRICT_COHORT_SCENARIO_REQUIRED", identity)
 
         normalized_advertising_mode = str(advertising_mode or "").strip().upper()
         normalized_rates = None
@@ -582,6 +591,8 @@ class UnitPriceTargetPlanningService:
             "provenance": dict(provenance or {}),
             "sources": dict(sources or {}),
             "candidate_price_provenance": "manual_seller_assumption",
+            "extended_scenario": extended_scenario,
+            "strict_return_evidence": strict_return_evidence,
         }
         evaluation_count = 0
         rate_by_price = (
@@ -623,6 +634,8 @@ class UnitPriceTargetPlanningService:
                         **common, "provenance": candidate_provenance,
                     }),
                     sources=common["sources"],
+                    extended_scenario=common["extended_scenario"],
+                    strict_return_evidence=common["strict_return_evidence"],
                 )
             except (ArithmeticError, OverflowError, TypeError, ValueError):
                 return None
@@ -768,6 +781,9 @@ class UnitPriceTargetPlanningService:
                 "cross_docking_per_unit": (
                     calculated.get("cross_docking") if available else None
                 ),
+                "additional_unit_expenses": (
+                    calculated.get("additional_unit_expenses") if available else None
+                ),
                 "missing_inputs": list((forward or {}).get("missing_inputs") or []),
                 "invalid_inputs": list((forward or {}).get("invalid_inputs") or []),
                 "forward_result": forward if available else None,
@@ -795,6 +811,7 @@ class UnitPriceTargetPlanningService:
                 "available": baseline_row.get("available") is True,
                 "profit": baseline_row.get("profit"),
                 "margin_percent": baseline_row.get("margin_percent"),
+                "additional_unit_expenses": baseline_row.get("additional_unit_expenses"),
                 "commission_rate": baseline_row.get("commission_rate"),
                 "commission_status": baseline_row.get("commission_status"),
                 "advertising_rate": baseline_row.get("advertising_rate"),
@@ -1064,8 +1081,20 @@ class UnitPriceTargetPlanningService:
                     return self._unavailable_outcome("SEARCH_BUDGET_EXHAUSTED")
                 if status != "CALCULATED":
                     return self._unavailable_outcome(status, probe)
+                additional_expense = self._read_additional_expense(probe, common)
+                if additional_expense is None:
+                    return self._unavailable_outcome("UNSUPPORTED_FORWARD_CALCULATION")
+                prior_expense = common.get("additional_expense_per_unit")
+                if prior_expense is not None and additional_expense != prior_expense:
+                    outcome = self._unavailable_outcome("NON_MONOTONIC_SEGMENT")
+                    outcome["segment"] = {
+                        "price_from_cents": low, "price_to_cents": high,
+                    }
+                    return outcome
+                common["additional_expense_per_unit"] = additional_expense
                 expected_gap = self._ideal_target_gap_upper_bound(
                     inputs, target, segment.get("commission_rate"), cents, cents,
+                    common.get("additional_expense_per_unit", Decimal("0")),
                 )
                 price = self._price_from_cents(cents)
                 try:
@@ -1146,6 +1175,7 @@ class UnitPriceTargetPlanningService:
         """
         upper_gap = self._ideal_target_gap_upper_bound(
             inputs, target, commission_rate, low, high,
+            common.get("additional_expense_per_unit", Decimal("0")),
         )
         if upper_gap is None:
             return {"status": "UNAVAILABLE", "reason": "ROUNDING_BOUND_UNAVAILABLE"}
@@ -1189,6 +1219,7 @@ class UnitPriceTargetPlanningService:
 
     def _ideal_target_gap_upper_bound(
         self, inputs, target, commission_rate, low_cents, high_cents,
+        additional_expense_per_unit=Decimal("0"),
     ):
         """Return a conservative maximum continuous gap in [low, high]."""
         def decimal(name, default=None):
@@ -1208,7 +1239,17 @@ class UnitPriceTargetPlanningService:
                 commission = Decimal(str(commission_rate))
             except (InvalidOperation, TypeError, ValueError):
                 commission = None
-        advertising = decimal("advertising_rate")
+        advertising_mode = str(
+            inputs.get("advertising_mode") or "PERCENT_OF_SELLER_REVENUE"
+        ).strip().upper()
+        fixed_advertising = Decimal("0")
+        if advertising_mode == "ABSOLUTE_PER_SUCCESSFUL_UNIT":
+            advertising = Decimal("0")
+            fixed_advertising = decimal("advertising_cost_per_unit")
+        elif advertising_mode == "PERCENT_OF_SELLER_REVENUE":
+            advertising = decimal("advertising_rate")
+        else:
+            return None
         points = decimal("discount_points_rate")
         cost = decimal("cost")
         logistics = decimal("logistics_per_unit")
@@ -1218,9 +1259,11 @@ class UnitPriceTargetPlanningService:
         if cross_docking is None and inputs.get("cross_docking_per_unit") in (None, ""):
             cross_docking = Decimal("0")
         if any(value is None for value in (
-            commission, advertising, points, cost, logistics, last_mile,
+            commission, advertising, fixed_advertising, points, cost, logistics, last_mile,
             acquiring, cross_docking,
         )):
+            return None
+        if fixed_advertising < 0:
             return None
         if any(value < 0 or value > self.HUNDRED for value in (
             commission, advertising, points,
@@ -1233,7 +1276,15 @@ class UnitPriceTargetPlanningService:
             Decimal("1") - commission / self.HUNDRED
             - advertising / self.HUNDRED
         )
-        base_intercept = -(fees + cost + cross_docking)
+        try:
+            additional_expense = Decimal(str(additional_expense_per_unit))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not additional_expense.is_finite() or additional_expense < 0:
+            return None
+        base_intercept = -(
+            fees + cost + cross_docking + fixed_advertising + additional_expense
+        )
         target_rate = target / self.HUNDRED
         lines = [(
             base_slope - target_rate,
@@ -1290,6 +1341,30 @@ class UnitPriceTargetPlanningService:
             for price in candidates
         )
 
+    @staticmethod
+    def _read_additional_expense(forward, common):
+        if common.get("extended_scenario") is None:
+            return Decimal("0")
+        extension = (forward or {}).get("extended_calculation") or {}
+        calculated = (forward or {}).get("calculated") or {}
+        if extension.get("status") != "APPLIED":
+            return None
+        raw = extension.get("additional_expense_per_unit_rub")
+        if raw is None:
+            return None
+        try:
+            amount = Decimal(str(raw))
+            calculated_amount = Decimal(str(calculated.get("additional_unit_expenses")))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if (
+            not amount.is_finite() or amount < 0
+            or not calculated_amount.is_finite()
+            or amount != calculated_amount
+        ):
+            return None
+        return amount
+
     def _evaluate_tariff_candidate(
         self, inputs, cents, call_state, common, *, frozen_tariff_snapshot,
         tariff_identity, exact_price_rate_cents=None, bypass_cache=False,
@@ -1314,18 +1389,31 @@ class UnitPriceTargetPlanningService:
             commission_status = resolution.get("status") or "UNKNOWN"
             rate = resolution.get("commission_rate")
         else:
-            if (exact_price_rate_cents is None or cents != exact_price_rate_cents
+            if exact_price_rate_cents is None:
+                rate = inputs.get("commission_rate")
+                commission_origin = "scenario_input_assumption"
+                commission_status = "ASSUMPTION_INPUT"
+                resolution = {
+                    "available": rate is not None,
+                    "commission_rate": rate,
+                    "status": commission_status,
+                    "selected_profile": {"origin": commission_origin},
+                }
+                if rate is None:
+                    return None, "MISSING_INPUTS", resolution
+            elif (cents != exact_price_rate_cents
                     or self._current_price_cents(inputs) != exact_price_rate_cents):
                 return None, "COMMISSION_UNKNOWN", None
-            rate = inputs.get("commission_rate")
-            commission_origin = "legacy_frozen_plan_rate"
-            commission_status = "LEGACY_EXACT_PRICE_ONLY"
-            resolution = {
-                "available": True,
-                "commission_rate": rate,
-                "status": commission_status,
-                "selected_profile": {"origin": commission_origin},
-            }
+            else:
+                rate = inputs.get("commission_rate")
+                commission_origin = "legacy_frozen_plan_rate"
+                commission_status = "LEGACY_EXACT_PRICE_ONLY"
+                resolution = {
+                    "available": True,
+                    "commission_rate": rate,
+                    "status": commission_status,
+                    "selected_profile": {"origin": commission_origin},
+                }
         if call_state["count"] >= call_state.get(
             "limit", self.MAX_FORWARD_CALCULATIONS,
         ):
@@ -1347,6 +1435,8 @@ class UnitPriceTargetPlanningService:
                 identity=common["identity"],
                 provenance=candidate_provenance,
                 sources=common["sources"],
+                extended_scenario=common.get("extended_scenario"),
+                strict_return_evidence=common.get("strict_return_evidence"),
             )
         except (ArithmeticError, OverflowError, TypeError, ValueError):
             forward = None
@@ -1517,6 +1607,8 @@ class UnitPriceTargetPlanningService:
                 identity=common["identity"],
                 provenance=self._candidate_provenance(common),
                 sources=common["sources"],
+                extended_scenario=common.get("extended_scenario"),
+                strict_return_evidence=common.get("strict_return_evidence"),
             )
         except (ArithmeticError, OverflowError, TypeError, ValueError):
             result = None

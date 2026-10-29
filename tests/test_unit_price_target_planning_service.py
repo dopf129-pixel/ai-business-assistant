@@ -80,6 +80,37 @@ def _frozen_manual_tariff(bands=None, *, origin="MANUAL_SELLER_ASSUMPTION"):
     )
 
 
+def _extended_expense_contract(*, completeness="COMPLETE"):
+    return {
+        "schema_version": 1,
+        "calculation_mode": "WINDOW_COST_ALLOCATION",
+        "expense_snapshot_ref": "a" * 64,
+        "quantity_evidence_ref": "b" * 64,
+        "expense_policy_revision": "unit-economics-v1",
+        "included_component_keys": ["EXTRA_SERVICE"],
+        "excluded_component_statuses": {},
+        "numerator_and_denominator_basis": {
+            "numerator": "WINDOW_EXPENSE_RUB",
+            "denominator": "SOLD_UNITS_WINDOW",
+        },
+        "source_completeness": completeness,
+        "assumed_inputs": [],
+        "scope": {
+            "scope_kind": "REFERENCE_56_COMPLETED_LOCAL_DAYS",
+            "from_date": "2026-01-01",
+            "to_date": "2026-02-25",
+            "date_basis": "LOCAL_CALENDAR_DAY",
+            "timezone": "Europe/Moscow",
+        },
+        "denominator_units": 100,
+        "components": [{
+            "component_key": "EXTRA_SERVICE",
+            "numerator_rub": "500.00",
+            "ownership": "ADDITIONAL",
+        }],
+    }
+
+
 def _assert_goal(outcome, target):
     assert outcome["status"] == "FOUND"
     assert outcome["goal_reached"] is True
@@ -498,6 +529,169 @@ def test_target_search_stays_within_budget_for_twenty_tariff_rules_and_gaps():
     assert result["tariff_search"]["rule_count"] == result["tariff_search"]["rule_limit"] == 20
     assert result["evaluation_count"] == service.calls
     assert result["evaluation_count"] <= result["evaluation_limit"] == 1_024
+
+
+def test_target_solver_applies_fixed_ad_and_extended_expense_and_checks_previous_cent():
+    planner, service = _planner(counting=True)
+    scenario = UnitPriceScenarioService(TaxService())
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="10",
+        logistics_per_unit="5", last_mile_per_unit="1", acquiring_per_unit="1",
+        advertising_mode="ABSOLUTE_PER_SUCCESSFUL_UNIT",
+        advertising_rate=None, advertising_cost_per_unit="120",
+        discount_points_rate="0", tax_mode="NONE", tax_rate=None,
+        minimum_tax_rate=None,
+    )
+
+    result = planner.solve(
+        inputs, "20", extended_scenario=_extended_expense_contract(),
+    )
+
+    assert result["error"] is False
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["forward_result"]["extended_calculation"]["status"] == "APPLIED"
+    assert result["target"]["forward_result"]["calculated"]["additional_unit_expenses"] == 5.0
+    target_price = Decimal(result["target"]["price"])
+    target_at_price = scenario.calculate(
+        {**inputs, "price": format(target_price, ".2f")},
+        extended_scenario=_extended_expense_contract(),
+    )
+    previous_price = target_price - Decimal("0.01")
+    target_before = scenario.calculate(
+        {**inputs, "price": format(previous_price, ".2f")},
+        extended_scenario=_extended_expense_contract(),
+    )
+    assert planner._reached(target_at_price, target_price, Decimal("20"))
+    assert not planner._reached(target_before, previous_price, Decimal("20"))
+    assert result["target"]["previous_cent_goal_reached"] is False
+    assert result["evaluation_count"] == service.calls
+    assert result["evaluation_count"] <= result["evaluation_limit"]
+
+
+def test_tariff_target_envelope_includes_extended_cost_and_checks_gap_boundaries():
+    planner, _service = _planner(counting=True)
+    inputs = _inputs(
+        price="100", cost="20", commission_rate="11",
+        logistics_per_unit="5", last_mile_per_unit="1", acquiring_per_unit="1",
+        advertising_rate="8", discount_points_rate="0", tax_mode="NONE",
+        tax_rate=None, minimum_tax_rate=None,
+    )
+    frozen = _frozen_manual_tariff(bands=[{
+        "price_from_cents": 1, "price_to_cents": 10_000,
+        "commission_rate": "11",
+    }])
+
+    result = planner.solve(
+        inputs, "20", identity=_TARIFF_IDENTITY,
+        frozen_tariff_snapshot=frozen, tariff_resolution_required=True,
+        extended_scenario=_extended_expense_contract(),
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["forward_result"]["calculated"]["additional_unit_expenses"] == 5.0
+    price = Decimal(result["target"]["price"])
+    canonical = UnitPriceScenarioService(TaxService()).calculate(
+        {**inputs, "price": format(price, ".2f"), "commission_rate": "11"},
+        extended_scenario=_extended_expense_contract(),
+    )
+    previous = UnitPriceScenarioService(TaxService()).calculate(
+        {**inputs, "price": format(price - Decimal("0.01"), ".2f"), "commission_rate": "11"},
+        extended_scenario=_extended_expense_contract(),
+    )
+    assert Decimal(str(canonical["calculated"]["profit"])) == Decimal(result["target"]["profit"])
+    assert planner._reached(canonical, price, Decimal("20"))
+    assert not planner._reached(previous, price - Decimal("0.01"), Decimal("20"))
+
+
+def test_comparison_grid_and_ad_threshold_use_same_extended_canonical_amount():
+    planner, service = _planner(counting=True)
+    scenario = UnitPriceScenarioService(TaxService())
+    inputs = _inputs(price="100", commission_rate="11", tax_mode="USN_INCOME_MINUS_EXPENSES")
+    frozen = _frozen_manual_tariff()
+    grid = planner.build_price_grid(
+        "99.98;100.03;0.03", frozen_tariff_snapshot=frozen,
+        identity=_TARIFF_IDENTITY, inputs=inputs,
+    )
+
+    result = planner.compare_prices(
+        inputs, grid["prices"], frozen_tariff_snapshot=frozen,
+        tariff_resolution_required=True, identity=_TARIFF_IDENTITY,
+        price_grid_metadata=grid["metadata"],
+        extended_scenario=_extended_expense_contract(),
+    )
+
+    assert result["available"] is True
+    assert result["evaluation_count"] == service.calls
+    for row in result["rows"]:
+        assert row["available"] is True
+        assert row["additional_unit_expenses"] == 5.0
+        direct = scenario.calculate(
+            {**inputs, "price": row["price"], "commission_rate": row["commission_rate"]},
+            extended_scenario=_extended_expense_contract(),
+        )
+        assert Decimal(str(direct["calculated"]["profit"])) == Decimal(
+            str(row["profit"]),
+        ).quantize(Decimal("0.01"))
+
+    comparison = planner.compare_prices(
+        inputs, ["100", "95"], target_margin_percent="0",
+        advertising_mode="PER_PRICE_DRR", advertising_rates=["8", "7"],
+        extended_scenario=_extended_expense_contract(),
+    )
+    assert comparison["baseline"]["additional_unit_expenses"] == 5.0
+    candidate = comparison["rows"][1]
+    threshold = candidate["compensation_thresholds"]["strictly_better"]
+    assert threshold["available"] is True
+    assert candidate["compensation_thresholds"]["evaluation_count"] <= 64
+    direct_threshold = scenario.calculate(
+        {**inputs, "price": candidate["price"], "advertising_rate": threshold["advertising_rate"]},
+        extended_scenario=_extended_expense_contract(),
+    )
+    assert Decimal(str(direct_threshold["calculated"]["profit"])) == Decimal(
+        threshold["profit_per_unit"]
+    )
+    assert comparison["evaluation_count"] <= comparison["evaluation_limit"]
+
+
+def test_extended_target_exhaustion_fails_closed_and_retry_uses_fresh_bounded_state():
+    planner, _service = _planner(counting=True)
+    inputs = _inputs(price="100", commission_rate="11")
+    kwargs = {"extended_scenario": _extended_expense_contract()}
+
+    exhausted = planner.solve(inputs, "20", max_evaluations=1, **kwargs)
+    retried = planner.solve(inputs, "20", max_evaluations=128, **kwargs)
+
+    assert exhausted["target"]["status"] == "SEARCH_BUDGET_EXHAUSTED"
+    assert exhausted["target"]["available"] is False
+    assert retried["target"]["status"] == "FOUND"
+    assert retried["target"]["previous_cent_goal_reached"] is False
+    assert retried["evaluation_count"] <= retried["evaluation_limit"] == 128
+
+
+def test_incomplete_extended_expense_never_produces_a_solver_candidate():
+    planner, _service = _planner(counting=True)
+
+    result = planner.solve(
+        _inputs(price="100", commission_rate="11"), "20",
+        extended_scenario=_extended_expense_contract(completeness="PARTIAL"),
+    )
+
+    assert result["break_even"]["status"] != "FOUND"
+    assert result["target"]["status"] != "FOUND"
+    assert result["target"]["available"] is False
+
+
+def test_strict_return_evidence_cannot_be_silently_ignored_without_scenario_contract():
+    planner, service = _planner(counting=True)
+
+    result = planner.solve(
+        _inputs(price="100", commission_rate="11"), "20",
+        strict_return_evidence={"status": "COMPLETE"},
+    )
+
+    assert result["error"] is True
+    assert result["code"] == "STRICT_COHORT_SCENARIO_REQUIRED"
+    assert service.calls == 0
 
 
 def test_target_search_stops_when_frozen_tariff_source_is_unavailable():
@@ -1067,9 +1261,19 @@ def test_target_search_is_invariant_to_insignificant_trailing_price_zeros():
 
         assert direct["available"] is True
         assert direct["calculated"]["profit"] == 0.01
-        outcomes.append(result["target"])
+        outcome = result["target"]
+        assert outcome["price"] == "0.11"
+        at_candidate = planner.scenario_service.calculate({
+            **values, "price": outcome["price"],
+        })
+        previous_cent = planner.scenario_service.calculate({
+            **values, "price": "0.10",
+        })
+        assert planner._reached(at_candidate, Decimal("0.11"), Decimal("0.01"))
+        assert not planner._reached(previous_cent, Decimal("0.10"), Decimal("0.01"))
+        outcomes.append(outcome)
 
-    assert [outcome["price"] for outcome in outcomes] == ["11.08", "11.08"]
+    assert [outcome["price"] for outcome in outcomes] == ["0.11", "0.11"]
     assert all(outcome["goal_reached"] is True for outcome in outcomes)
 
 
@@ -1196,7 +1400,8 @@ def test_search_stays_inside_forward_evaluation_budget():
     assert result["evaluation_limit"] == 128
     _assert_goal(result["break_even"], "0")
     _assert_goal(result["target"], "30")
-    assert Decimal("414.72") <= Decimal(result["target"]["price"]) <= Decimal("414.74")
+    assert result["target"]["price"] == "414.68"
+    assert result["target"]["previous_cent_goal_reached"] is False
 
 
 def test_caller_can_tighten_solver_forward_evaluation_budget():

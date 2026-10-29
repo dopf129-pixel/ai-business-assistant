@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 
 import pytest
 
@@ -6,6 +7,7 @@ from services.unit_economics_expense_normalizer import UnitEconomicsExpenseNorma
 from services.unit_economics_return_evidence_service import UnitEconomicsReturnEvidenceService
 from services.tax_service import TaxService
 from services.unit_price_scenario_service import UnitPriceScenarioService
+from services.unit_price_target_planning_service import UnitPriceTargetPlanningService
 
 
 IDENTITY = {
@@ -487,6 +489,37 @@ def test_strict_components_only_and_price_comparison_reuse_retained_unit_rate():
     assert comparison["available"] is True
     assert comparison["calculated"]["additional_unit_expenses"] == 3.5
     assert comparison["comparison"]["profit"] == 43.6
+
+
+def test_target_solver_applies_strict_retained_loss_and_independently_checks_previous_cent():
+    return_evidence = _resolve()
+    scenario_service = UnitPriceScenarioService(TaxService())
+    planner = UnitPriceTargetPlanningService(scenario_service)
+    inputs = _unit_scenario_inputs()
+
+    result = planner.solve(
+        inputs, "20", identity=deepcopy(IDENTITY),
+        extended_scenario=_strict_scenario(),
+        strict_return_evidence=return_evidence,
+    )
+
+    assert result["target"]["status"] == "FOUND"
+    assert result["target"]["forward_result"]["calculated"]["additional_unit_expenses"] == 3.5
+    target_price = Decimal(result["target"]["price"])
+    at_target = scenario_service.calculate(
+        {**inputs, "price": format(target_price, ".2f")},
+        identity=deepcopy(IDENTITY), extended_scenario=_strict_scenario(),
+        strict_return_evidence=return_evidence,
+    )
+    previous_price = target_price - Decimal("0.01")
+    before_target = scenario_service.calculate(
+        {**inputs, "price": format(previous_price, ".2f")},
+        identity=deepcopy(IDENTITY), extended_scenario=_strict_scenario(),
+        strict_return_evidence=return_evidence,
+    )
+    assert planner._reached(at_target, target_price, Decimal("20"))
+    assert not planner._reached(before_target, previous_price, Decimal("20"))
+    assert result["target"]["previous_cent_goal_reached"] is False
 
 
 @pytest.mark.parametrize("return_evidence", [
