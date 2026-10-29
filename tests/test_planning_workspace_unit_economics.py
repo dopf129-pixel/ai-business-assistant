@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timezone
 
+import pytest
+
 from services.ozon_account_repository import make_store_tenant_scope
 from services.planning_workspace_repository import PlanningWorkspaceRepository
 from services.tenant_context import reset_current_tenant_user_id, set_current_tenant_user_id
@@ -87,6 +89,18 @@ def _experiment_payload(plan_id, snapshot_id, identity=None):
     }
 
 
+def _incomplete_experiment_plan(payload):
+    payload = dict(payload)
+    payload["candidate_prices_cents"] = []
+    payload.update({
+        "plan_schema_version": 1,
+        "candidate_price_bounds_cents": None,
+        "maturity_min_days": 7,
+        "maturity_min_units": 30,
+    })
+    return payload
+
+
 def _phase_payload(snapshot_id, *, kind="BASELINE", segment=1, price=10000):
     return {
         "schema_version": 1, "kind": kind, "segment_number": segment,
@@ -142,7 +156,7 @@ def _seed(repo):
         reset_current_tenant_user_id(token)
 
 
-def test_schema_v7_additive_migration_preserves_existing_plan_and_backfills_active_guard(tmp_path):
+def test_schema_v8_additive_migration_preserves_existing_plan_and_backfills_active_guard(tmp_path):
     repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
     saved, snapshot, _ = _seed(repo)
     token = _context()
@@ -179,7 +193,7 @@ def test_schema_v7_additive_migration_preserves_existing_plan_and_backfills_acti
         reset_current_tenant_user_id(token)
     connection = sqlite3.connect(repo.db_path)
     try:
-        assert connection.execute("SELECT version FROM planning_schema").fetchone() == (7,)
+        assert connection.execute("SELECT version FROM planning_schema").fetchone() == (8,)
         assert connection.execute(
             "SELECT operation_kind, operation_id FROM planning_active_sku_guards"
         ).fetchone() == ("OBSERVATION", observation["observation_id"])
@@ -195,6 +209,116 @@ def test_schema_v7_additive_migration_preserves_existing_plan_and_backfills_acti
         } <= tables
     finally:
         connection.close()
+
+
+def test_incomplete_experiment_draft_can_be_revised_but_cannot_become_ready_early(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, snapshot, _ = _seed(repo)
+    token = _context()
+    try:
+        draft_payload = _incomplete_experiment_plan(
+            _experiment_payload(saved["document_id"], snapshot["snapshot_id"]),
+        )
+        created = repo.create_price_experiment(
+            draft_payload, idempotency_key="w22-draft-create01",
+        )
+        assert created["error"] is False
+        assert created["status"] == "DRAFT"
+        readiness = repo.get_price_experiment_plan_readiness(
+            created["experiment_id"],
+        )
+        assert readiness["error"] is False
+        assert readiness["status"] == "INCOMPLETE"
+        assert readiness["eligible_for_ready"] is False
+        blocked = repo.transition_price_experiment(
+            created["experiment_id"], "mark_ready", expected_state_revision=1,
+            idempotency_key="w22-ready-too-early",
+        )
+        assert blocked["code"] == "PLANNING_PRICE_EXPERIMENT_PLAN_INCOMPLETE"
+        assert blocked["reason_codes"] == [
+            "EXPERIMENT_CANDIDATES_REQUIRED", "EXPERIMENT_PRICE_BOUNDS_REQUIRED",
+        ]
+
+        completed_plan = dict(draft_payload)
+        completed_plan["candidate_price_bounds_cents"] = {
+            "min_price_cents": 9500, "max_price_cents": 10500,
+        }
+        completed_plan["candidate_prices_cents"] = [9700, 10000, 10300]
+        updated = repo.update_price_experiment_draft(
+            created["experiment_id"], completed_plan,
+            expected_state_revision=1, idempotency_key="w22-draft-edit01",
+        )
+        assert updated["error"] is False
+        assert updated["state_revision"] == 2
+        assert updated["plan_status"] == "READY"
+        assert repo.update_price_experiment_draft(
+            created["experiment_id"], completed_plan,
+            expected_state_revision=1, idempotency_key="w22-draft-edit01",
+        ) == updated
+
+        ready = repo.transition_price_experiment(
+            created["experiment_id"], "mark_ready", expected_state_revision=2,
+            idempotency_key="w22-ready-confirm01",
+        )
+        assert ready["error"] is False
+        assert ready["status"] == "READY"
+        assert ready["state_revision"] == 3
+        frozen = repo.update_price_experiment_draft(
+            created["experiment_id"], completed_plan,
+            expected_state_revision=3, idempotency_key="w22-edit-after-ready",
+        )
+        assert frozen["code"] == "PLANNING_PRICE_EXPERIMENT_DRAFT_FROZEN"
+        connection = repo.get_connection()
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    "UPDATE planning_price_experiments SET config_json='{}' "
+                    "WHERE experiment_id=?", (created["experiment_id"],),
+                )
+            connection.rollback()
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    "UPDATE planning_price_experiments SET product_id='other' "
+                    "WHERE experiment_id=?", (created["experiment_id"],),
+                )
+            connection.rollback()
+        finally:
+            connection.close()
+        history = repo.list_price_experiment_revisions(
+            created["experiment_id"], limit=10,
+        )
+        assert history["error"] is False
+        assert [row["status"] for row in reversed(history["items"])] == [
+            "DRAFT", "DRAFT", "READY",
+        ]
+    finally:
+        reset_current_tenant_user_id(token)
+
+
+def test_impossible_experiment_price_bounds_are_not_saved(tmp_path):
+    repo = PlanningWorkspaceRepository(db_path=tmp_path / "planning.sqlite")
+    saved, snapshot, _ = _seed(repo)
+    token = _context()
+    try:
+        invalid_plan = _incomplete_experiment_plan(
+            _experiment_payload(saved["document_id"], snapshot["snapshot_id"]),
+        )
+        invalid_plan["candidate_price_bounds_cents"] = {
+            "min_price_cents": 10001, "max_price_cents": 10000,
+        }
+        result = repo.create_price_experiment(
+            invalid_plan, idempotency_key="w22-impossible-bounds",
+        )
+        assert result["code"] == "PLANNING_PRICE_EXPERIMENT_INPUT_INVALID"
+        connection = repo.get_connection()
+        try:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM planning_price_experiments",
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
+    finally:
+        reset_current_tenant_user_id(token)
 
 
 def test_active_experiment_and_observation_share_one_sku_guard(tmp_path):

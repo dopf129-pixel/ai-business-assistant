@@ -28,11 +28,14 @@ from services.planning_unit_economics_experiment_adapter import (
 from services.unit_economics_experiment_state_machine import (
     UnitEconomicsExperimentStateMachine,
 )
+from services.unit_economics_experiment_plan_service import (
+    UnitEconomicsExperimentPlanService,
+)
 
 
 class PlanningWorkspaceRepository:
     SCHEMA_VERSION = 4
-    DATABASE_SCHEMA_VERSION = 7
+    DATABASE_SCHEMA_VERSION = 8
     MAX_TARIFF_PROFILES_PER_STORE = 200
     MAX_TARIFF_REVISIONS_PER_PROFILE = 20
     MAX_TARIFF_PROFILE_PAYLOAD_BYTES = 64 * 1024
@@ -1747,7 +1750,7 @@ class PlanningWorkspaceRepository:
         scope = self._scope(owner_id, store_id)
         key = self._idempotency_key(idempotency_key)
         normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
-            payload, scope,
+            payload, scope, allow_incomplete=True,
         )
         encoded = self._encode(normalized) if normalized is not None else None
         if (scope.get("error") or key is None or encoded is None
@@ -1823,6 +1826,114 @@ class PlanningWorkspaceRepository:
         except sqlite3.IntegrityError:
             connection.rollback()
             return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        except (ValueError, TypeError, OverflowError):
+            connection.rollback()
+            return self._error("PLANNING_CLOCK_UNAVAILABLE")
+        except sqlite3.Error:
+            connection.rollback()
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        finally:
+            connection.close()
+
+    def update_price_experiment_draft(
+        self, experiment_id, payload, *, expected_state_revision,
+        idempotency_key, owner_id=None, store_id=None,
+    ):
+        """Append a config revision while an experiment is still a DRAFT."""
+        scope = self._scope(owner_id, store_id)
+        key = self._idempotency_key(idempotency_key)
+        if (scope.get("error") or not self._valid_uuid_hex(experiment_id)
+                or key is None or type(expected_state_revision) is not int
+                or expected_state_revision < 1):
+            return self._error("PLANNING_PRICE_EXPERIMENT_DRAFT_INPUT_INVALID")
+        normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
+            payload, scope, allow_incomplete=True,
+        )
+        if normalized is None or "plan_schema_version" not in normalized:
+            return self._error("PLANNING_PRICE_EXPERIMENT_DRAFT_INPUT_INVALID")
+        request_hash = self._price_experiment_request_hash({
+            "operation": "update_draft", "experiment_id": experiment_id,
+            "expected_state_revision": expected_state_revision,
+            "payload": normalized,
+        })
+        encoded = self._encode(normalized)
+        if (request_hash is None or encoded is None
+                or len(encoded.encode("utf-8")) > self.MAX_PRICE_EXPERIMENT_PAYLOAD_BYTES):
+            return self._error("PLANNING_PRICE_EXPERIMENT_DRAFT_INPUT_INVALID")
+        try:
+            connection = self.get_connection()
+        except (sqlite3.Error, OSError):
+            return self._error("PLANNING_STORAGE_UNAVAILABLE")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            replay = self._price_experiment_idempotent_result(
+                connection, scope, key, request_hash,
+            )
+            if replay is not None:
+                connection.commit()
+                return replay
+            row = connection.execute(
+                "SELECT * FROM planning_price_experiments WHERE experiment_id=? "
+                "AND owner_id=? AND store_id=?",
+                (experiment_id, scope["owner_id"], scope["store_id"]),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_NOT_FOUND")
+            if row["status"] != "DRAFT":
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_DRAFT_FROZEN")
+            if row["state_revision"] != expected_state_revision:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            current = self._decode_price_experiment(row, scope)
+            if current.get("error"):
+                connection.rollback()
+                return current
+            current_config = current["experiment"]["config"]
+            if any(normalized[key_name] != current_config[key_name] for key_name in (
+                "identity", "calculation_mode", "source_references",
+            )):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_SCOPE_IMMUTABLE")
+            reference_error = self._validate_price_experiment_references(
+                connection, normalized, scope,
+            )
+            if reference_error:
+                connection.rollback()
+                return self._error(reference_error)
+            next_state = expected_state_revision + 1
+            now = self._timestamp()
+            changed = connection.execute(
+                "UPDATE planning_price_experiments SET config_json=?, state_revision=?, "
+                "updated_at=? WHERE experiment_id=? AND owner_id=? AND store_id=? "
+                "AND status='DRAFT' AND state_revision=?",
+                (encoded, next_state, now, experiment_id, scope["owner_id"],
+                 scope["store_id"], expected_state_revision),
+            ).rowcount
+            if changed != 1:
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
+            self._insert_price_experiment_revision(
+                connection, experiment_id, scope, next_state, next_state,
+                "DRAFT", normalized, now,
+            )
+            readiness = UnitEconomicsExperimentPlanService.evaluate(normalized)
+            result = {
+                "error": False, "experiment_id": experiment_id,
+                "status": "DRAFT", "state_revision": next_state,
+                "result_revision": row["result_revision"],
+                "plan_status": readiness["status"],
+                "reason_codes": readiness["reason_codes"],
+            }
+            self._remember_price_experiment_idempotency(
+                connection, scope, key, request_hash, result, now,
+            )
+            connection.commit()
+            return result
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
         except (ValueError, TypeError, OverflowError):
             connection.rollback()
             return self._error("PLANNING_CLOCK_UNAVAILABLE")
@@ -2296,6 +2407,32 @@ class PlanningWorkspaceRepository:
         finally:
             connection.close()
 
+    def get_price_experiment_plan_readiness(
+        self, experiment_id, *, owner_id=None, store_id=None,
+    ):
+        """Return the fixed RUB/unit readiness gates for one saved experiment."""
+        result = self.get_price_experiment(
+            experiment_id, owner_id=owner_id, store_id=store_id,
+        )
+        if result.get("error"):
+            return result
+        experiment = result["experiment"]
+        readiness = UnitEconomicsExperimentPlanService.evaluate(
+            experiment["config"],
+        )
+        if readiness.get("error"):
+            return self._error("PLANNING_PRICE_EXPERIMENT_PLAN_CORRUPT")
+        return {
+            "error": False, "experiment_id": experiment_id,
+            "status": readiness["status"],
+            "eligible_for_ready": readiness["eligible_for_ready"],
+            "target_metric": readiness["target_metric"],
+            "planned_duration_days": readiness["planned_duration_days"],
+            "minimum_maturity_days": readiness["minimum_maturity_days"],
+            "minimum_maturity_units": readiness["minimum_maturity_units"],
+            "reason_codes": readiness["reason_codes"], "read_only": True,
+        }
+
     def get_price_experiment_frozen_snapshot(
         self, experiment_id, *, owner_id=None, store_id=None,
     ):
@@ -2442,8 +2579,10 @@ class PlanningWorkspaceRepository:
                     payload = json.loads(row["payload_json"])
                 except (ValueError, TypeError):
                     return self._error("PLANNING_PRICE_EXPERIMENT_REVISION_CORRUPT")
+                revision_payload = payload if isinstance(payload, dict) else {}
                 normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
-                    payload.get("config") if isinstance(payload, dict) else None, scope,
+                    revision_payload.get("config"), scope,
+                    allow_incomplete=revision_payload.get("state") == "DRAFT",
                 )
                 if (normalized is None or payload.get("schema_version") != 1
                         or payload.get("experiment_id") != experiment_id
@@ -2687,7 +2826,7 @@ class PlanningWorkspaceRepository:
         scope = self._scope(owner_id, store_id)
         key = self._idempotency_key(idempotency_key)
         if (scope.get("error") or not self._valid_uuid_hex(experiment_id)
-                or action != "cancel" or key is None
+                or action not in {"cancel", "mark_ready"} or key is None
                 or type(expected_state_revision) is not int or expected_state_revision < 1):
             return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_INPUT_INVALID")
         request_hash = self._price_experiment_request_hash({
@@ -2717,14 +2856,35 @@ class PlanningWorkspaceRepository:
             if row["state_revision"] != expected_state_revision:
                 connection.rollback()
                 return self._error("PLANNING_PRICE_EXPERIMENT_STATE_CONFLICT")
-            decision = UnitEconomicsExperimentStateMachine.transition(row["status"], action)
-            if decision.get("error"):
-                connection.rollback()
-                return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_NOT_ALLOWED")
             decoded = self._decode_price_experiment(row, scope)
             if decoded.get("error"):
                 connection.rollback()
                 return decoded
+            readiness_passed = False
+            if action == "mark_ready":
+                readiness = UnitEconomicsExperimentPlanService.evaluate(
+                    decoded["experiment"]["config"],
+                )
+                if readiness.get("error") or not readiness["eligible_for_ready"]:
+                    connection.rollback()
+                    return {
+                        "error": True,
+                        "code": "PLANNING_PRICE_EXPERIMENT_PLAN_INCOMPLETE",
+                        "reason_codes": readiness.get("reason_codes", []),
+                    }
+                reference_error = self._validate_price_experiment_references(
+                    connection, decoded["experiment"]["config"], scope,
+                )
+                if reference_error:
+                    connection.rollback()
+                    return self._error(reference_error)
+                readiness_passed = True
+            decision = UnitEconomicsExperimentStateMachine.transition(
+                row["status"], action, readiness_passed=readiness_passed,
+            )
+            if decision.get("error"):
+                connection.rollback()
+                return self._error("PLANNING_PRICE_EXPERIMENT_TRANSITION_NOT_ALLOWED")
             now = self._timestamp()
             next_state = expected_state_revision + 1
             changed = connection.execute(
@@ -4237,8 +4397,12 @@ class PlanningWorkspaceRepository:
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(owner_id, store_id, idempotency_key)
             )""")
-            if version < self.DATABASE_SCHEMA_VERSION:
+            if version < 7:
                 self._migrate_active_sku_guards(connection)
+            if version < 8:
+                connection.execute(
+                    "DROP TRIGGER IF EXISTS trg_price_experiments_immutable_config"
+                )
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_unit_economics_snapshots_no_update
                 BEFORE UPDATE ON planning_unit_economics_snapshots
                 BEGIN SELECT RAISE(ABORT, 'immutable expense snapshot'); END""")
@@ -4263,13 +4427,17 @@ class PlanningWorkspaceRepository:
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiment_results_no_delete
                 BEFORE DELETE ON planning_price_experiment_results
                 BEGIN SELECT RAISE(ABORT, 'immutable experiment result'); END""")
-            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiments_immutable_config
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiments_immutable_identity
                 BEFORE UPDATE OF owner_id, store_id, product_id, offer_id, sku, sale_schema,
                     schema_version, calculation_mode, plan_document_id, plan_revision,
                     expense_snapshot_id, tariff_profile_id, tariff_revision, observation_id,
-                    observation_result_revision, config_json, created_at
+                    observation_result_revision, created_at
                 ON planning_price_experiments
                 BEGIN SELECT RAISE(ABORT, 'immutable experiment configuration'); END""")
+            connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiments_immutable_config
+                BEFORE UPDATE OF config_json ON planning_price_experiments
+                WHEN OLD.status != 'DRAFT' OR NEW.status != 'DRAFT'
+                BEGIN SELECT RAISE(ABORT, 'only draft configuration may change'); END""")
             connection.execute("""CREATE TRIGGER IF NOT EXISTS trg_price_experiments_no_delete
                 BEFORE DELETE ON planning_price_experiments
                 BEGIN SELECT RAISE(ABORT, 'preserve experiment history'); END""")
@@ -4938,7 +5106,7 @@ class PlanningWorkspaceRepository:
         except (ValueError, TypeError):
             return self._error("PLANNING_PRICE_EXPERIMENT_CORRUPT")
         normalized = PlanningUnitEconomicsExperimentAdapter.normalize_experiment(
-            payload, scope,
+            payload, scope, allow_incomplete=row["status"] == "DRAFT",
         )
         if normalized is None:
             return self._error("PLANNING_PRICE_EXPERIMENT_CORRUPT")

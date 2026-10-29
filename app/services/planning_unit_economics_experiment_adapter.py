@@ -6,12 +6,17 @@ from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from services.unit_economics_experiment_plan_service import (
+    UnitEconomicsExperimentPlanService,
+)
+
 
 class PlanningUnitEconomicsExperimentAdapter:
     """Normalize storage contracts; raw source responses never cross this boundary."""
 
     SNAPSHOT_SCHEMA_VERSION = 1
     EXPERIMENT_SCHEMA_VERSION = 1
+    EXPERIMENT_PLAN_SCHEMA_VERSION = 1
     PHASE_SCHEMA_VERSION = 1
     RESULT_SCHEMA_VERSION = 1
     MAX_SNAPSHOT_BYTES = 64 * 1024
@@ -204,14 +209,22 @@ class PlanningUnitEconomicsExperimentAdapter:
         }
 
     @classmethod
-    def normalize_experiment(cls, payload, scope):
+    def normalize_experiment(cls, payload, scope, *, allow_incomplete=False):
         fields = {
             "schema_version", "identity", "title", "metric", "calculation_mode",
             "source_references", "candidate_prices_cents", "decision_threshold_rub",
             "planned_duration_days", "currency", "control_flags",
         }
-        if (not isinstance(payload, dict) or set(payload) != fields
-                or type(payload.get("schema_version")) is not int
+        plan_fields = {
+            "plan_schema_version", "candidate_price_bounds_cents",
+            "maturity_min_days", "maturity_min_units",
+        }
+        if not isinstance(payload, dict):
+            return None
+        payload_fields = set(payload)
+        if payload_fields != fields and payload_fields != fields | plan_fields:
+            return None
+        if (type(payload.get("schema_version")) is not int
                 or payload["schema_version"] != cls.EXPERIMENT_SCHEMA_VERSION):
             return None
         identity = cls.normalize_identity(payload.get("identity"), scope)
@@ -223,9 +236,13 @@ class PlanningUnitEconomicsExperimentAdapter:
         duration = payload.get("planned_duration_days")
         threshold = cls._money(payload.get("decision_threshold_rub"), nonnegative=True)
         flags = payload.get("control_flags")
+        has_plan = set(payload) == fields | plan_fields
+        incomplete_prices_allowed = allow_incomplete and has_plan
         if (title is None or payload.get("metric") != "MAX_RUB_PER_UNIT"
                 or mode not in {"WINDOW_COST_ALLOCATION", "STRICT_RETAINED_COHORT"}
-                or not isinstance(prices, list) or not 2 <= len(prices) <= 10
+                or not isinstance(prices, list)
+                or not (2 <= len(prices) <= 10
+                        or incomplete_prices_allowed and len(prices) == 0)
                 or any(type(item) is not int or not 1 <= item <= 999_999_999_999_999
                        for item in prices)
                 or len(set(prices)) != len(prices)
@@ -240,7 +257,7 @@ class PlanningUnitEconomicsExperimentAdapter:
         references = cls._normalize_source_references(payload.get("source_references"))
         if references is None:
             return None
-        return {
+        normalized = {
             "schema_version": cls.EXPERIMENT_SCHEMA_VERSION,
             "identity": identity, "title": title, "metric": "MAX_RUB_PER_UNIT",
             "calculation_mode": mode, "source_references": references,
@@ -249,6 +266,35 @@ class PlanningUnitEconomicsExperimentAdapter:
             "planned_duration_days": duration, "currency": "RUB",
             "control_flags": {key: flags[key] for key in sorted(flags)},
         }
+        if has_plan:
+            bounds = UnitEconomicsExperimentPlanService.normalize_price_bounds(
+                payload.get("candidate_price_bounds_cents"),
+            )
+            if (type(payload.get("plan_schema_version")) is not int
+                    or payload.get("plan_schema_version")
+                    != cls.EXPERIMENT_PLAN_SCHEMA_VERSION
+                    or payload.get("maturity_min_days")
+                    != UnitEconomicsExperimentPlanService.MIN_MATURITY_DAYS
+                    or payload.get("maturity_min_units")
+                    != UnitEconomicsExperimentPlanService.MIN_MATURITY_UNITS
+                    or payload.get("candidate_price_bounds_cents") is not None
+                    and bounds is None):
+                return None
+            if bounds is not None and prices and any(
+                price < bounds["min_price_cents"] or price > bounds["max_price_cents"]
+                for price in prices
+            ):
+                return None
+            normalized.update({
+                "plan_schema_version": cls.EXPERIMENT_PLAN_SCHEMA_VERSION,
+                "candidate_price_bounds_cents": bounds,
+                "maturity_min_days": UnitEconomicsExperimentPlanService.MIN_MATURITY_DAYS,
+                "maturity_min_units": UnitEconomicsExperimentPlanService.MIN_MATURITY_UNITS,
+            })
+            readiness = UnitEconomicsExperimentPlanService.evaluate(normalized)
+            if not allow_incomplete and not readiness["eligible_for_ready"]:
+                return None
+        return normalized
 
     @classmethod
     def _normalize_source_references(cls, value):
