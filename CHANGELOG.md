@@ -1,3 +1,9 @@
+# 2026-10-29 — W16: расширенная экономика во всех плановых потребителях
+
+- Оконные расходы и строгие возвратные доказательства теперь проходят через sensitivity, SKU batch, sales mix, saved-plan capture/restore и сравнение сохранённых планов. Расширенная сумма вычисляется тем же canonical сценарным расчётом, а налог для mix остаётся однократным агрегатным вызовом.
+- Сохранение расширенных планов использует аддитивную версию payload schema 4; schema 1–3 и существующая схема базы данных сохранены. Снимки очищаются по allowlist и не содержат сырые API ответы/идентификаторы.
+- W16 linked profile: **319 passed**; полный `pytest`: **4,158 passed**. Подробности: `project_brain/UNIT_ECONOMICS_W16_CONSUMER_PARITY_2026-10-29.md`.
+
 # 2026-10-29 — W15: canonical expense scopes in bounded price solvers
 
 - Target/break-even search, frozen tariff segments, comparison/grid and advertising compensation now pass the same W11/W12 extended expense evidence through canonical forward. Fixed advertising and additional unit expense are included in the analytic search envelope; incomplete or changing evidence fails closed.
