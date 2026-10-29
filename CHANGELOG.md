@@ -1,3 +1,8 @@
+# 2026-10-29 — W22: план эксперимента и readiness gate
+
+- Code commits `247ad97c0854` and `9993bad6b3d7` add draft price bounds, fixed RUB/unit objective, explicit 7-day/30-unit maturity gate, and a revisioned draft edit/READY gate. Invalid bounds and out-of-range candidates fail closed; draft configuration freezes after READY; incomplete draft history survives cancel/archive. Planning DB schema v8 migration is additive and keeps existing records.
+- W22 focused profile: **71 passed in 3.93s**; linked W21/W22/snapshot/export: **156 passed in 6.76s**. Evidence: `project_brain/UNIT_ECONOMICS_W22_PLAN_READINESS_2026-10-29.md`.
+
 # 2026-10-29 — W21: state machine и общий active-SKU guard
 
 - Code commit `788c6c8abcd9` (`Add experiment state machine and shared SKU guard`) adds a pure gated experiment state machine, additive Planning Workspace schema v7 migration, shared atomic observation/experiment SKU guard, and CAS/idempotent draft cancellation. Legacy overlaps are preserved as explicit conflict markers; phase confirmation remains scheduled for W24–W27.
