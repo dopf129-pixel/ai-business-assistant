@@ -1,8 +1,8 @@
 # W19 — cost basis в качестве observation и ranking
 
-Дата: 29.10.2026  
-Branch: `codex/full-unit-economics-experiments-implementation-20261028`  
-Code commit: `d1e1fbac` (`Bind observation ranking to frozen cost basis`)  
+Дата: 29.10.2026
+Branch: `codex/full-unit-economics-experiments-implementation-20261028`
+Code commit: `d1e1fbac` (`Bind observation ranking to frozen cost basis`)
 ТЗ: `LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md`
 
 ## Результат

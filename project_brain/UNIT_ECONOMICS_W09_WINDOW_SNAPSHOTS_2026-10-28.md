@@ -1,8 +1,8 @@
 # W09 — 56-дневный reference и отдельное окно фазы
 
-Дата: 29.10.2026  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
-Входной code HEAD: `fb78bfa8`  
+Дата: 29.10.2026
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
+Входной code HEAD: `fb78bfa8`
 Статус: DONE для bounded orchestration и pure snapshot assembly; конкретные Ozon source adapters и canonical calculator остаются последующими этапами.
 
 ## Реализация

@@ -1,7 +1,7 @@
 # W30 — guided Telegram entry для экономики SKU
 
-Дата: 29.10.2026  
-Статус: DONE  
+Дата: 29.10.2026
+Статус: DONE
 Зависимости: W10, W18. Следующий этап: W31.
 
 ## Изменение
@@ -30,8 +30,8 @@
 
 Тесты использовали отдельный временный `AI_ASSISTANT_DATA_DIR`; dotenv отключён. Ozon API, Telegram API, реальный бот, owner database и существующая `data/` не использовались.
 
-`py_compile`: PASS.  
-`git diff --check`: PASS.  
+`py_compile`: PASS.
+`git diff --check`: PASS.
 `git diff -- data`: пусто.
 
 ## Архитектурная оценка

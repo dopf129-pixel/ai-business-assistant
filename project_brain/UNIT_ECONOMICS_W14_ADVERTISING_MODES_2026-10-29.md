@@ -1,9 +1,9 @@
 # W14 — рекламные режимы в юнит-экономике
 
-Дата: 29.10.2026.  
-ТЗ: `LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md`, этап W14.  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`.  
-Кодовый коммит: `30c9d744 Preserve fixed ad cost across price scenarios`.  
+Дата: 29.10.2026.
+ТЗ: `LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md`, этап W14.
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`.
+Кодовый коммит: `30c9d744 Preserve fixed ad cost across price scenarios`.
 Статус: завершён; следующий этап — W15.
 
 ## Изменения

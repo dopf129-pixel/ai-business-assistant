@@ -1,10 +1,10 @@
 # W15 — решатели, бюджеты и границы поиска
 
-Дата: 29.10.2026  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
-Входной code SHA: `779f45fa` (W14)  
-Реализация: `16ea05d3 Verify extended unit economics price searches`  
-Зависимости: W13, W14.  
+Дата: 29.10.2026
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
+Входной code SHA: `779f45fa` (W14)
+Реализация: `16ea05d3 Verify extended unit economics price searches`
+Зависимости: W13, W14.
 Статус: DONE.
 
 ## Изменения
@@ -30,10 +30,10 @@ Windows, Python 3.12.10, pytest 8.4.2; временные pytest/storage roots. 
 python -m pytest tests/test_unit_price_target_planning_service.py tests/test_unit_price_scenario_extended_contract.py tests/test_unit_price_scenario_service.py tests/test_unit_price_advertising_cap_service.py tests/test_unit_price_tariff_snapshot_adapter.py tests/test_unit_economics_return_evidence_service.py -q --tb=short
 ```
 
-Результат: **168 passed in 1.86s**.  
-`py_compile` для трёх изменённых Python-модулей: PASS.  
-`git diff --check`: PASS.  
-Добавленные строки Python длиной не более 120 символов: PASS.  
+Результат: **168 passed in 1.86s**.
+`py_compile` для трёх изменённых Python-модулей: PASS.
+`git diff --check`: PASS.
+Добавленные строки Python длиной не более 120 символов: PASS.
 `git diff -- data`: пустой.
 
 Во время разработки адресный прогон выявил, что recursive interval guard не получал normalised additional expense. Это приводило к лишнему обходу центов и исчерпанию бюджета около корня. Расход передаётся в каждый recursive bound; повторный полный профиль прошёл. Других известных W15 failures нет.

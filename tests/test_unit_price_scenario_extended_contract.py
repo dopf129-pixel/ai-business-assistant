@@ -411,4 +411,3 @@ def test_extended_calculation_reports_model_only_and_keeps_identity_data_out_of_
     assert result["extended_calculation"]["included_component_keys"] == ["EXTRA_SERVICE"]
     assert result["extended_calculation"]["expense_snapshot_ref"] == "a" * 64
     assert "secret-sku" not in repr(result["extended_calculation"])
-

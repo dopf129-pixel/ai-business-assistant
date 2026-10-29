@@ -1,8 +1,8 @@
 # W24 — preview и подтверждение фактической цены и времени
 
-Дата: 29.10.2026  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
-Зависимости: W22 plan/readiness, W23 candidate-price selection  
+Дата: 29.10.2026
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
+Зависимости: W22 plan/readiness, W23 candidate-price selection
 Результат: DONE. Code commit: `e39bb48e`.
 
 ## Реализация

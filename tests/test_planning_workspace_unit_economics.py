@@ -1618,4 +1618,3 @@ def test_stored_future_or_corrupt_payload_fails_closed(tmp_path):
         )
     finally:
         reset_current_tenant_user_id(token)
-

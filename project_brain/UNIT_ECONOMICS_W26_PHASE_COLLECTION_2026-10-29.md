@@ -1,8 +1,8 @@
 # W26 — сбор фактов завершённой фазы эксперимента
 
-Дата: 29.10.2026  
-Ветка: codex/full-unit-economics-experiments-implementation-20261028  
-Входной HEAD: f054f641  
+Дата: 29.10.2026
+Ветка: codex/full-unit-economics-experiments-implementation-20261028
+Входной HEAD: f054f641
 Code commit: 332b0c85 — Collect completed unit economics experiment phases
 
 ## Результат
@@ -18,10 +18,10 @@ Code commit: 332b0c85 — Collect completed unit economics experiment phases
 
 Изолированный Windows/Python 3.12 профиль:
 
-tests/test_unit_economics_experiment_phase_collection_service.py  
-tests/test_planning_workspace_unit_economics.py  
-tests/test_unit_price_observation_repository.py  
-tests/test_unit_price_observation_collection_service.py  
+tests/test_unit_economics_experiment_phase_collection_service.py
+tests/test_planning_workspace_unit_economics.py
+tests/test_unit_price_observation_repository.py
+tests/test_unit_price_observation_collection_service.py
 64 passed in 3.21s
 
 Профиль использовал только synthetic fixtures и временные SQLite/pytest каталоги. Для Windows Python был задан уже установленный локальный TZif-каталог через PYTHONTZPATH; проектные зависимости и файлы не менялись.

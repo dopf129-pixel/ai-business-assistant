@@ -1,9 +1,9 @@
 # W25 — контрольные условия и пауза/возобновление фазы
 
-**Дата:** 29.10.2026  
-**Ветка:** `codex/full-unit-economics-experiments-implementation-20261028`  
-**Входной HEAD:** `6640e58c`  
-**Кодовый commit:** `5c609de8` — `Add durable pause and resume for price experiments`  
+**Дата:** 29.10.2026
+**Ветка:** `codex/full-unit-economics-experiments-implementation-20261028`
+**Входной HEAD:** `6640e58c`
+**Кодовый commit:** `5c609de8` — `Add durable pause and resume for price experiments`
 **Этап:** W25, зависит от W24.
 
 ## Изменения

@@ -1,8 +1,8 @@
 # W10 — публичная проекция полноты и применимости
 
-Дата: 29.10.2026  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
-Предыдущий commit: `0348ecb7` (W09)  
+Дата: 29.10.2026
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
+Предыдущий commit: `0348ecb7` (W09)
 Статус: DONE для чистой read-only projection; Telegram navigation and provider-specific evidence adapters не подключены.
 
 ## Реализация

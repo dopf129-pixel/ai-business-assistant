@@ -1,8 +1,8 @@
 # W23 — candidate prices для unit economics experiment
 
-Дата: 29.10.2026  
-Ветка: `codex/full-unit-economics-experiments-implementation-20261028`  
-Зависимость: W22 plan/readiness, existing `UnitPriceTargetPlanningService`  
+Дата: 29.10.2026
+Ветка: `codex/full-unit-economics-experiments-implementation-20261028`
+Зависимость: W22 plan/readiness, existing `UnitPriceTargetPlanningService`
 Результат: DONE. Code commit: `cb4e5f77`; docs commit — см. progress journal.
 
 ## Контракт и реализация

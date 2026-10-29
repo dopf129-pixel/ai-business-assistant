@@ -1,7 +1,7 @@
 # W17 — хранилище снимков экономики и экспериментов
 
-Дата: 29.10.2026  
-Кодовый коммит: `b249bcab` — `Add durable unit economics experiment storage`  
+Дата: 29.10.2026
+Кодовый коммит: `b249bcab` — `Add durable unit economics experiment storage`
 Этап: W17 (`W03`, `W10`) — DONE.
 
 ## Изменение

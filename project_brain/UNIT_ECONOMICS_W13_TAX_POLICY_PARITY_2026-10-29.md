@@ -1,7 +1,7 @@
 # W13 — налоговая политика в расширенном расчёте экономики SKU
 
-Дата: 29.10.2026.  
-ТЗ: `LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md`.  
+Дата: 29.10.2026.
+ТЗ: `LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md`.
 Статус: завершён; следующий этап — W14.
 
 ## Результат
