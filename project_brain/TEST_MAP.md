@@ -2,7 +2,7 @@
 
 - Full Windows suite на code SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`: **4,335 passed in 50.37s**; `python -m compileall -q app` и schema init прошли. Тесты запускались в disposable worktree; legacy `data/tasks.json` side effect остался в нём.
 - W35 numeric cross-route **667 passed**, W36 concurrency/resource **64 passed** (4 новых regressions), W37 backup/restore **46 passed**.
-- PR #722 exact HEAD `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb`: Windows, Linux full suite, Docker build and smoke all succeeded in [Verify run 40955833551](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40955833551). Этот docs-only update требует повторного CI на новом SHA. Review packet: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`.
+- PR #722 exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e`: Windows, Linux full suite, Docker build and smoke all succeeded in [Verify run 40956765471](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40956765471). Review packet: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`; for later commits check live PR statuses.
 
 - Exact local code SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`, disposable Windows worktree, Python 3.12.10: `compileall` PASS; full `pytest`: **4,335 passed in 50.37s**. `PYTHONTZPATH` pointed to installed IANA data; no `.env`, live credentials, Ozon/Telegram requests or real bot.
 - Full suite side effects were confined to disposable `data/tasks.json`/lock; the source checkout data stayed unchanged. Linux/Docker Verify is pending exact final PR HEAD.

@@ -1,12 +1,12 @@
 # 2026-10-30 — W39: review handoff и зелёный CI
 
-- PR #722 открыт поверх спецификации PR #721; пакет независимого архитектурного review: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`. Exact HEAD `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb` прошёл Windows/Linux/Docker Verify: [run 40955833551](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40955833551). Этот status-only docs-коммит требует повторного прогона на новом HEAD.
+- PR #722 открыт поверх спецификации PR #721; пакет независимого архитектурного review: `UNIT_ECONOMICS_W39_INDEPENDENT_REVIEW_HANDOFF_2026-10-30.md`. Exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e` прошёл Windows/Linux/Docker Verify: [run 40956765471](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40956765471). Текущую голову PR и Checks проверять live в GitHub.
 - W38: disposable Windows full pytest **4,335 passed in 50.37s** на кодовом SHA `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Legacy `data/tasks.json` diff/lock остались только во временной копии, checkout владельца не затронут.
 - W31 остаётся явным production blocker: нет автоматического полного 56-дневного snapshot acquisition и полного Telegram candidate-phase flow. Реальная owner validation pending.
 - Architecture Review Required (127 files; +26,257/−247). Merge, deploy, live Ozon requests and real bot launch were not performed.
 
 - Disposable Windows full pytest: **4,335 passed in 50.37s** на `428e80cb9a3ada56af1b9aa21280f52d3dec3d64`; `compileall` PASS. Финальный запуск использовал CI-переменные и IANA timezone database, без storage-root override.
-- Legacy suite изменила `data/tasks.json` и lock только внутри временного checkout; основной checkout остался чистым, `data/` не изменился. W38 GitHub Verify на final PR HEAD пока pending.
+- Legacy suite изменила `data/tasks.json` и lock только внутри временного checkout; основной checkout остался чистым, `data/` не изменился. Exact-head GitHub Verify документирован в W39 handoff.
 - W31 source acquisition и candidate-phase UX остаются открытыми ограничениями; synthetic acceptance не считается live owner validation.
 
 # 2026-10-29 — W37: backup/restore acceptance

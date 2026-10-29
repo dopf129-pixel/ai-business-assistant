@@ -1,12 +1,12 @@
 # W39 — пакет независимого review
 
 Дата: 30.10.2026
-Статус: W39 приёмка выполнена; Verify зелёный на exact HEAD `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb`. Этот статусный docs-коммит потребует повторного Verify на новом HEAD.
+Статус: W39 engineering handoff завершён; PR готов к независимому архитектурному review. Exact-head Verify зелёный на `b1b81592199348df40cdb6133b464f59fbe0768e` (run `40956765471`); текущий HEAD и workflow проверяются live в PR #722.
 PR реализации: https://github.com/dopf129-pixel/ai-business-assistant/pull/722
 Зависимость: PR #721, ветка `codex/full-unit-economics-experiments-spec-20261028`.
 Ветка реализации: `codex/full-unit-economics-experiments-implementation-20261028`.
 Base PR реализации: ветка спецификации PR #721.
-Проверенный HEAD до этого статусного docs-коммита: `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb`.
+Проверенный HEAD до текущего status-only docs-коммита: `b1b81592199348df40cdb6133b464f59fbe0768e`.
 
 ## Порядок интеграции
 
@@ -36,7 +36,7 @@ Base-to-head diff относительно spec SHA `f76d2dd90e4298113c037278666
 - W36 concurrency/resource profile: **64 passed in 4.36s**; четыре новые regressions **4 passed in 0.99s**.
 - W37 backup/restore profile: **46 passed in 2.94s**.
 - `git diff --check` относительно spec base после публикации: PASS.
-- GitHub Verify exact HEAD `dd9a5f26b35d61e18cb7a61de1f65e99afc124eb`: [run 40955833551](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40955833551) — Windows full suite **success**, Linux full verification **success**, production Docker build и smoke **success**, SHA-bound report/artifacts generated. Следующее обновление статуса/evidence — docs-only и потребует ещё одного exact-head Verify после публикации.
+- GitHub Verify exact HEAD `b1b81592199348df40cdb6133b464f59fbe0768e`: [run 40956765471](https://github.com/dopf129-pixel/ai-business-assistant/actions/runs/40956765471) — Windows full suite **success**, Linux full verification **success**, production Docker build и smoke **success**, SHA-bound report/artifacts generated. Для любого следующего commit проверять текущий SHA и checks live в PR #722.
 
 Подробные команды, isolation environment и побочные эффекты: `UNIT_ECONOMICS_W38_FULL_VERIFICATION_2026-10-30.md`. Полный suite изменил `data/tasks.json`/lock только в disposable копии; данные source checkout не менялись. `.env`/секреты не читались; реальные Ozon/Telegram API и бот не вызывались.
 
