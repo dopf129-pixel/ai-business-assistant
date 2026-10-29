@@ -1,4 +1,6 @@
-# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W14
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W15
+
+- W15 завершил проход extended expense/strict-cohort данных через target/break-even, tariff-segment search, grid/comparison и ad compensation. Аналитический bound учитывает fixed advertising и canonical additional unit expense, а найденный план подтверждает предыдущую копейку отдельным forward. Изолированный linked profile: **168 passed in 1.86s**; детали и ограничения: `UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`. Следующий этап W16 — sensitivity/batch/mix/saved-plan consumers.
 
 - W00–W02: baseline/inventory, lineage audit и Ozon source contract audit завершены.
 - W03 закрепил архитектуру Decision 064. W04 зафиксировал synthetic numeric oracles N01–N18; baseline профиль — **334 passed**. W05 добавил pure нормализацию подписанных расходов, dedup/conflict, ownership ledger и coverage. W06 добавил resolver финансовой рекламы и reconciliation-only Performance CPC; связанный профиль — **90 passed**.

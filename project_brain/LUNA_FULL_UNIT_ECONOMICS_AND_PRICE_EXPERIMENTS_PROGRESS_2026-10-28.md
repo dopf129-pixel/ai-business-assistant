@@ -2,7 +2,7 @@
 
 Дата: 28–29.10.2026.
 ТЗ: LUNA_FULL_UNIT_ECONOMICS_AND_PRICE_EXPERIMENTS_TASK_2026-10-28.md.
-Статус: IN_PROGRESS. W00–W14 завершены; следующий доступный этап — W15.
+Статус: IN_PROGRESS. W00–W15 завершены; следующий доступный этап — W16.
 База подготовки: main 9315046cf29c9e8c68da1cab027cb2568040f142 (PR #719 и #720 merged).
 Ветка подготовки: codex/full-unit-economics-experiments-spec-20261028.
 Ветка реализации: codex/full-unit-economics-experiments-implementation-20261028.
@@ -10,7 +10,7 @@
 
 ## Resume
 
-- Следующий этап: W15.
+- Следующий этап: W16.
 - Implementation branch создана от точного HEAD PR #721 `f76d2dd90e4298113c037278666532715974e4a8`; базовый `main` на старте — `9315046cf29c9e8c68da1cab027cb2568040f142`.
 - W00 implementation HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; W00 baseline: `UNIT_ECONOMICS_W00_BASELINE_2026-10-28.md`.
 - W01 audited incoming HEAD: `4826a5fd887fa16c1730dbbd5f894874dfa68e2e`; evidence: `UNIT_ECONOMICS_W01_DATA_LINEAGE_AUDIT_2026-10-28.md`.
@@ -18,7 +18,7 @@
 - W03 architecture incoming HEAD: `80395612`; evidence: `UNIT_ECONOMICS_W03_CONTRACTS_ARCHITECTURE_2026-10-28.md`, `DECISIONS_064.md`.
 - Если spec PR открыт, старт разрешён от его проверенного HEAD с явно зависимым stacked PR; ожидание предварительного merge не является блокером.
 - Production bot, Ozon API, .env и owner database не использовались.
-- Этапы W05–W14 реализуют pure evidence, canonical calculator, налоговые режимы и явное процентное/фиксированное рекламное допущение; source-specific experiment collection, repository lifecycle и Telegram-путь ещё не реализованы.
+- Этапы W05–W15 реализуют pure evidence, canonical calculator, налоговые режимы, явные рекламные режимы и bounded price solvers; source-specific experiment collection, repository lifecycle и Telegram-путь ещё не реализованы.
 - Прежние Q00–Q35 и исправления R1–R8 находятся в main; не переоткрывать их как новую реализацию.
 - Decision 064 фиксирует W03 design; выполненными считать только этапы со статусом DONE и точным evidence в таблице ниже.
 
@@ -41,7 +41,7 @@
 | W12 | W07,W11 | DONE | 29.10.2026, commit `1bb32adf`: canonical `calculate` / `calculate_components_only` / `compare` consume only a complete `UnitEconomicsReturnEvidenceService` result for `STRICT_RETAINED_COHORT`. Checks exact identity, fee/quantity/inventory statuses, cohort match, delivered-returned-retained arithmetic, disposition count, positive denominator, nonnegative amounts and recomputed loss/unit rounding. Return loss is applied once before TaxService; incomplete, Q0, wrong cohort/identity, pending inventory, net credit and corrupt arithmetic block. Strict and window components cannot mix. 9 integration test functions (12 parameter cases), including actual W07 N02=3.50 ₽/retained unit. Combined isolated W05–W12 profile: **184 passed in 2.75s**; compile, line-length, `git diff --check` PASS; `git diff -- data` empty. Acceptance: `UNIT_ECONOMICS_W12_STRICT_RETAINED_CANONICAL_GATE_2026-10-29.md`. |
 | W13 | W11,W12 | DONE | 29.10.2026, commit `ed8ecc11`: проверена совместимость расширенного gross profit с `NONE`, `USN_INCOME` (баллы 0/20), `USN_INCOME_MINUS_EXPENSES` и минимальным налогом. В canonical calculation extra expense уже уменьшает базу до единственного вызова TaxService; после налога он не вычитается повторно. Добавлены N09/N10 и minimum-tax regressions; существующий sales-mix gate подтверждает один aggregate tax call. W13 profile: **44 passed in 1.42s**; combined W05–W13 profile: **186 passed in 3.06s**. Compile, line-length, `git diff --check` PASS; `git diff -- data` пустой. Acceptance: `UNIT_ECONOMICS_W13_TAX_POLICY_PARITY_2026-10-29.md`. Изменений runtime не потребовалось. |
 | W14 | W06,W11 | DONE | 29.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, code commit `30c9d744`: canonical calculator теперь различает percent от seller revenue и фиксированные ₽/successful unit; фиксированный расход может превышать цену, не конвертируется в искусственный процент и сохраняется при смене цены/forward validation. Telegram показывает отдельные поля и переключение очищает старый режим; comparison/application держит фиксированную сумму, а percent compensation thresholds не заявляются для fixed-cost basis. Repository allowlist и schema-3 frozen basis проверяют mode/denominator/amount/origin; save/reopen после restart сохраняет точное допущение без source I/O. Добавлены regressions в `test_unit_price_scenario_extended_contract.py`, `test_unit_price_target_planning_service.py`, `test_unit_price_scenario_telegram_runtime.py`, `test_saved_planning_plan_telegram_flow.py`. Изолированный адресный Windows/Python 3.12.10 профиль 6 suites: **201 passed in 3.10s**; consumer profile 9 suites: **136 passed in 2.62s**. `py_compile`, added-line length ≤120, `git diff --check` PASS; `git diff -- data` empty. Один промежуточный запуск выявил ошибочные test assumptions (актуальный Telegram экран и сохранённое Decimal scale); исправлены, финальный прогон зелёный. Использованы synthetic fixtures и временный pytest/storage; credentials/.env, owner data, live Ozon, Telegram и production bot не использовались. Acceptance: `UNIT_ECONOMICS_W14_ADVERTISING_MODES_2026-10-29.md`. Следующий этап W15.
-| W15 | W13,W14 | NOT_STARTED | — |
+| W15 | W13,W14 | DONE | 29.10.2026, branch `codex/full-unit-economics-experiments-implementation-20261028`, incoming SHA `779f45fa`, code commit `16ea05d3`: target/break-even, tariff bounds, grid/comparison and DRR compensation now forward the canonical W11/W12 extended contract. The analytic interval bound includes fixed ad cost and validated additional unit expense; unknown/nonconstant expenses fail closed. Ordinary and tariff searches verify the candidate plus previous cent, budget exhaustion does not claim a minimum, a retry receives fresh per-call state. Regression profile across target/scenario/extension/ad-cap/tariff/strict-return suites: **168 passed in 1.86s**. `py_compile`, `git diff --check`, added-line length <=120 and `git diff -- data` empty. Synthetic isolated storage only; no owner data, credentials, live API, Telegram or bot. Acceptance: `UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`. |
 | W16 | W15 | NOT_STARTED | — |
 | W17 | W03,W10 | NOT_STARTED | — |
 | W18 | W16,W17 | NOT_STARTED | — |

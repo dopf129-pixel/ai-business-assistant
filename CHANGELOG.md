@@ -1,3 +1,8 @@
+# 2026-10-29 — W15: canonical expense scopes in bounded price solvers
+
+- Target/break-even search, frozen tariff segments, comparison/grid and advertising compensation now pass the same W11/W12 extended expense evidence through canonical forward. Fixed advertising and additional unit expense are included in the analytic search envelope; incomplete or changing evidence fails closed.
+- A found target is independently recalculated, and the preceding cent must fail the goal. Shared per-call search limits and retry isolation remain bounded; fixed advertising does not get a fabricated DRR threshold. W15 linked profile: **168 passed in 1.86s**. Acceptance: `project_brain/UNIT_ECONOMICS_W15_SOLVER_GUARDS_2026-10-29.md`.
+
 # 2026-10-29 — W14: явные режимы рекламных расходов в юнит-экономике
 
 - Калькулятор принимает рекламу либо как процент выручки продавца, либо как фиксированные ₽ на успешную продажу. Фиксированная сумма выше цены допустима и остаётся неизменной при сравнении/подстановке цены; конфликтующие и неявно смешанные режимы блокируются.
