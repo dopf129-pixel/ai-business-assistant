@@ -1,3 +1,9 @@
+# 2026-10-29 — W23: выбор ограниченного набора цен эксперимента
+
+- Добавлен pure `UnitEconomicsExperimentCandidatePriceService`: формирует от 2 до 10 вариантов в заданных границах, использует существующий tariff-aware grid/canonical calculator и сохраняет несколько равных максимумов.
+- Подтверждённые тарифные границы включаются в сетку по копейкам. Неизвестная комиссия, пробел тарифа и сетка свыше лимита дают `INCOMPLETE`; список не усекается. Без frozen tariff ставка явно остаётся ручным допущением. Глобальный оптимум, спрос и причинный эффект не заявляются.
+- W23 linked profile: **87 passed in 1.59s**; compile, `git diff --check` passed, `git diff -- data` empty. Подробности: `project_brain/UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
+
 # 2026-10-29 — W22: план эксперимента и readiness gate
 
 - Code commits `247ad97c0854` and `9993bad6b3d7` add draft price bounds, fixed RUB/unit objective, explicit 7-day/30-unit maturity gate, and a revisioned draft edit/READY gate. Invalid bounds and out-of-range candidates fail closed; draft configuration freezes after READY; incomplete draft history survives cancel/archive. Planning DB schema v8 migration is additive and keeps existing records.

@@ -1,4 +1,7 @@
-# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W22
+# 2026-10-29 — расширенная экономика SKU и эксперименты, W00–W23
+
+- W23 добавил pure сервис выбора 2–10 цен в границах владельца, с копеечными точками tariff boundary, существующим canonical расчётом и учётом tie. Неизвестный тариф/комиссия и переполнение лимита закрывают ранжирование; без замороженного тарифа комиссия явно является ручным допущением. 87 связанных тестов, compile, `git diff --check` прошли; `git diff -- data` пуст. Evidence: `UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
+- Следующий этап — W24: preview фактической цены/времени и owner-confirm с exact experiment/observation binding.
 
 - W22 (code commits `247ad97c0854`, `9993bad6b3d7`) добавил планирование максимальной прибыли ₽/шт: price bounds, 3–28 дней, default 7, threshold ≥0.01 ₽ и maturity gate 7 дней/30 единиц. Неполный draft сохраняется, но READY запрещён до валидных bounds и 2–10 уникальных candidate prices; после READY revision config заморожен. Incomplete draft history сохраняется при cancel/archive. Planning Workspace v8 migration не переписывает существующие записи. Linked W21/W22/snapshot/export profile: **156 passed in 6.76s**. Evidence: `UNIT_ECONOMICS_W22_PLAN_READINESS_2026-10-29.md`.
 - Следующий этап — W23: выбрать candidate prices существующими tariff-aware solvers и проверить canonical forward calculation.

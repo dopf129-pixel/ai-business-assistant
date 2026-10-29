@@ -5934,3 +5934,9 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_saved_planning_plan_telegram_flow.py::test_extended_scenario_survives_single_saved_plan_capture_restore_and_mix_comparison` дополнительно копирует сохранённый schema-4 план и восстанавливает тот же extended expense contract без дополнительного source call.
 - Связанный профиль W18 across planning repository/migrations/tariff/observation/saved-plan suites: **79 passed in 5.77s**; `py_compile`, `git diff --check` PASS; `git diff -- data` пустой. Полный suite назначен на W38–W39.
 - `get_price_experiment_frozen_snapshot` читает только локальные exact revisions и fail-closed проверяет scope/hash/наличие; live sources не вызываются. Evidence: `project_brain/UNIT_ECONOMICS_W18_FROZEN_SNAPSHOT_2026-10-29.md`.
+
+# W23 — выбор кандидатных цен эксперимента
+
+- `tests/test_unit_economics_experiment_candidate_price_service.py` проверяет 2–10 bounded candidates, копеечные tariff boundaries, non-truncated overflow, unknown tariff gaps, exact tie preservation, invalid bounds/count, ручной rate assumption, существующие advertising compensation thresholds и отсутствие demand/global-optimum claims.
+- `tests/test_unit_price_target_planning_service.py` остаётся canonical regression suite для grid/target/ad thresholds. Связанный W23 профиль на изолированном Windows/Python 3.12 окружении: **87 passed in 1.59s**.
+- Результат read-only, `MAX_RUB_PER_UNIT`; candidate fees проходят через существующий calculator. `INCOMPLETE` не содержит лучшую цену, а ручная ставка не становится подтверждённым тарифом. Evidence: `project_brain/UNIT_ECONOMICS_W23_CANDIDATE_PRICES_2026-10-29.md`.
