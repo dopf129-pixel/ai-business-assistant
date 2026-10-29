@@ -119,6 +119,55 @@ def test_n09_existing_tax_service_receives_adjusted_gross_profit_once():
     assert tax.calls[0]["discount_points"] == 20.0
 
 
+def test_n09_extended_profit_is_taxed_on_existing_usn_income_base_without_discount_points():
+    tax = _TaxSpy()
+    result = UnitPriceScenarioService(tax).calculate(
+        _inputs(tax_mode="USN_INCOME", tax_rate="6", discount_points_rate="0"),
+        extended_scenario=_contract(),
+    )
+
+    assert result["calculated"]["profit_before_tax"] == 46.0
+    assert result["calculated"]["tax"] == 6.0
+    assert result["calculated"]["profit"] == 40.0
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 46.0
+    assert tax.calls[0]["revenue"] == 100.0
+    assert tax.calls[0]["discount_points"] == 0.0
+
+
+def test_n10_extended_profit_uses_regular_tax_once_without_subtracting_expense_after_tax():
+    tax = _TaxSpy()
+    result = UnitPriceScenarioService(tax).calculate(
+        _inputs(
+            tax_mode="USN_INCOME_MINUS_EXPENSES", tax_rate="15", minimum_tax_rate="1",
+        ),
+        extended_scenario=_contract(),
+    )
+
+    assert result["calculated"]["profit_before_tax"] == 46.0
+    assert result["calculated"]["tax"] == 6.9
+    assert result["calculated"]["profit"] == 39.1
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == 46.0
+
+
+def test_extended_usn_income_minus_expenses_applies_minimum_tax_to_adjusted_profit_once():
+    tax = _TaxSpy()
+    result = UnitPriceScenarioService(tax).calculate(
+        _inputs(
+            cost="100", tax_mode="USN_INCOME_MINUS_EXPENSES", tax_rate="15",
+            minimum_tax_rate="1",
+        ),
+        extended_scenario=_contract(),
+    )
+
+    assert result["calculated"]["profit_before_tax"] == -34.0
+    assert result["calculated"]["tax"] == 1.0
+    assert result["calculated"]["profit"] == -35.0
+    assert len(tax.calls) == 1
+    assert tax.calls[0]["gross_profit"] == -34.0
+
+
 def test_components_are_summed_then_divided_and_rounded_once():
     components = [
         {"component_key": "EXTRA_A", "numerator_rub": "0.01", "ownership": "ADDITIONAL"},
