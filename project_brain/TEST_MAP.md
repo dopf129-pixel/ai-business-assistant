@@ -5896,3 +5896,11 @@ The X03 isolated profile passed **146 tests in 2.76s** across:
 - `tests/test_unit_price_target_planning_service.py` — rounding-toggle boundary returns the first qualifying cent; preceding cent is checked by the canonical forward calculation; bounded evaluation exhaustion does not claim a minimum.
 - `tests/test_unit_price_batch_plan_service.py` — remaining shared solver budget is passed before calculation; rows beyond the budget do not trigger source or solver calls.
 - `tests/test_unit_price_profit_per_unit_end_to_end.py` remains in the linked regression profile. Focused Windows/Python 3.12 profile: **149 passed across eight modules**; full isolated repository suite: **3,990 passed in 49.21s**. `compileall`, `git diff --check` passed and the primary checkout's `data/` diff is empty. Exact-head Verify **40654624761** passed on code head `40a23315` (Windows/Linux).
+
+# Extended SKU economics — W14 advertising basis modes
+
+- `tests/test_unit_price_scenario_extended_contract.py`: canonical calculation accepts fixed RUB per successful unit above seller price, preserves it in component/compare paths, and rejects mixed or implicit percent conversions.
+- `tests/test_unit_price_target_planning_service.py`: price candidates retain the same absolute expense; percent-based compensation thresholds are explicitly unavailable for a fixed-cost basis.
+- `tests/test_unit_price_scenario_telegram_runtime.py`: owner can switch between percent and absolute fields; manual comparison basis applies as fixed cost after price selection.
+- `tests/test_saved_planning_plan_telegram_flow.py` and `tests/test_planning_workspace_repository.py`: allowlisted schema-3 snapshot round-trips the exact advertising mode, amount, successful-unit denominator and origin without source I/O after reopening.
+- W14 focused profile: **201 passed in 3.10s**. Linked consumer profile: **136 passed in 2.62s**. Exact-head CI/full pytest remain scheduled for W38–W39. Acceptance: `project_brain/UNIT_ECONOMICS_W14_ADVERTISING_MODES_2026-10-29.md`.
