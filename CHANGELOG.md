@@ -1,3 +1,9 @@
+# 2026-10-29 — W20: единая проекция и экспорт ценового эксперимента
+
+- Code commit `68881def` (`Add frozen unit economics experiment snapshot view`).
+- Добавлены snapshot-only read model и экспорт эксперимента с identical amounts/statuses/revisions, coverage, cost-basis limits и privacy allowlist; источник не перечитывается, расчёт при экспорте не повторяется.
+- W20 linked профиль: **50 passed in 3.49s**. Подробности и команды: `project_brain/UNIT_ECONOMICS_W20_SNAPSHOT_VIEW_EXPORT_2026-10-29.md`.
+
 # 2026-10-29 — W19: сопоставимость cost basis observation/ranking
 
 - Frozen extended cost basis сохраняется в observation result вместе с mode, origin, scope signature и суммой ₽/шт. `OWNER_COST` помечается как ручное допущение; несовпадающие и неполные basis исключаются из сравнения/ranking.
